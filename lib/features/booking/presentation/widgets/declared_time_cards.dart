@@ -53,8 +53,16 @@
 // [_mergeDeclaredAndBookings] is the whole of this file's correctness
 // contract. [BookingsDiscoveryView] hands this widget [bookings] UNFILTERED
 // by `bookingsInsideScheduleWindow` — that predicate is a GRID concept
-// (INTERVAL days only) and must never silently drop a row here. Every
-// booking in [bookings] gets exactly one card:
+// (INTERVAL days only) and must never silently drop a row here.
+//
+// ⚠ "UNFILTERED" HERE MEANS "NOT FILTERED CLIENT-SIDE". It never meant
+// "complete". [bookings] is `BookingsDayState.items`, which the master's
+// status/service filter narrows SERVER-SIDE, on the wire — a fact this
+// contract did not anticipate when it was written, and the source of the
+// false-«Вільно» bug fixed on 2026-08-13. See the "FREE CARDS ARE A CLAIM"
+// section below and [DeclaredTimeCards.showsAllOccupancy].
+//
+// Every booking in [bookings] gets exactly one card:
 //   * its start matches a declared time  -> that declared time's card is
 //     booked;
 //   * its start matches NO declared time (e.g. it was booked before the
@@ -62,7 +70,8 @@
 //     at its OWN time, merged into the list in time order. Dropping it would
 //     be data loss, not tidiness.
 // A declared time with no matching booking renders as a free card, UNLESS it
-// is CONSUMED — see the next section. The header count above this widget
+// is CONSUMED (see the next section) or free cards are SUPPRESSED outright
+// (see "FREE CARDS ARE A CLAIM"). The header count above this widget
 // ([BookingsDiscoveryView]'s `masterBookingsCount`) is derived from the SAME
 // [bookings] list this widget renders every card of — see that file's
 // `_Loaded._body` — so the two can never disagree: free entries are not
@@ -87,8 +96,38 @@
 //     declared times are in the list at all. `endAt` is read for that
 //     question, and for nothing else.
 //
-// See [_consumesDeclaredTimes] and [_mergeDeclaredAndBookings]'s pass 1b for
+// See [consumesDeclaredTimes] and [_mergeDeclaredAndBookings]'s pass 1b for
 // the exact predicate, its half-open boundary, and its status allowlist.
+//
+// ## FREE CARDS ARE A CLAIM — SUPPRESSED WHEN THE QUERY CANNOT BACK IT
+//
+// Bug fixed 2026-08-13 (user-reported). «Вільно» is an ASSERTION about the
+// master's clock: nothing occupies this declared time. This list can only
+// make that assertion from [bookings], and [bookings] is narrowed on the
+// WIRE by the master's own filter — so with «Завершені» ticked, every
+// upcoming CONFIRMED booking was off the list and its declared time printed
+// «Вільно» over a genuinely-booked slot. Same for «Скасовані», «Підтверджені»
+// and «Не відбулися» alone, and — independently of status — for ANY service
+// filter, which hides every booking of another service even in the default
+// view.
+//
+// [DeclaredTimeCards.showsAllOccupancy] is the caller's answer to "can this
+// list see everything that occupies the clock?" (`BookingsDayQuery
+// .showsAllOccupancy` — the invariant is stated ONCE, there, next to
+// `dayListWireStatuses`, which created the situation). When it is `false`,
+// [_mergeDeclaredAndBookings] emits NO free entries at all: booked entries
+// and strays only.
+//
+// SUPPRESSION, NOT RESTYLING — considered and rejected: a muted/unknown
+// variant of the free card is still a card claiming to know something about
+// that minute. This mirrors the INTERVAL grid, which has never had this bug
+// precisely because it draws only what it fetched: absence of a card is not
+// an affirmative claim of freedom. No second network request is made.
+//
+// The screen handles the resulting all-empty case: `BookingsDiscoveryView
+// ._body` routes a filtered day with nothing left to render to the
+// filter-aware «Немає записів за цим фільтром» state rather than to a blank
+// column.
 //
 // ## Kyiv time discipline
 //
@@ -109,7 +148,7 @@
 // INTERVAL day keeps rendering `BookingsTimelineGrid`, byte-for-byte
 // unchanged, exactly as before this feature.
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -177,7 +216,16 @@ int _kyivMinutesSinceMidnight(DateTime instant, tz.TZDateTime midnight) {
 /// still takes that time's card, rendered with its own cancelled badge — see
 /// the "status renders and differentiates" test group). That asymmetry is
 /// intentional: pass 1 SHOWS the booking, pass 1b HIDES a slot.
-bool _consumesDeclaredTimes(BookingStatus status) => switch (status) {
+///
+/// VISIBLE FOR TESTING, and for exactly one reason: this allowlist is the
+/// other half of `BookingsDayQuery.showsAllOccupancy`'s lockstep. While it was
+/// file-private the guard in `bookings_day_query_test.dart` could only restate
+/// the predicate against a hand-copied literal — adding a status here could
+/// not turn any test red. `bookings_day_query_test.dart`'s lockstep group now
+/// reads THIS function (`BookingStatus.filterable.where(consumesDeclaredTimes)`)
+/// so a drift fails mechanically. Production callers stay inside this file.
+@visibleForTesting
+bool consumesDeclaredTimes(BookingStatus status) => switch (status) {
   BookingStatus.confirmed => true,
   BookingStatus.completed => true,
   BookingStatus.cancelled => false,
@@ -190,11 +238,14 @@ bool _consumesDeclaredTimes(BookingStatus status) => switch (status) {
 /// LIST IS A UNION" section. Every booking in [bookings] appears in exactly
 /// one returned entry; no BOOKING is ever dropped.
 ///
-/// A DECLARED TIME, by contrast, CAN be dropped — exactly one way: pass 1b
-/// removes an unmatched declared time that an active booking's duration
-/// already swallowed. See this file's "CONSUMED DECLARED TIMES ARE DROPPED"
-/// section; that rule is about list MEMBERSHIP and leaves the geometry
-/// contract untouched.
+/// A DECLARED TIME, by contrast, CAN be dropped — exactly two ways, both
+/// about list MEMBERSHIP and neither touching the geometry contract:
+///   * pass 1b removes an unmatched declared time that an active booking's
+///     duration already swallowed (this file's "CONSUMED DECLARED TIMES ARE
+///     DROPPED" section);
+///   * pass 1c removes EVERY unmatched declared time when
+///     [showsAllOccupancy] is `false` (this file's "FREE CARDS ARE A CLAIM"
+///     section).
 ///
 /// Matching is by exact Kyiv minute, first-unconsumed-booking-wins when more
 /// than one booking shares a minute (a double-booked declared time is not the
@@ -208,8 +259,9 @@ bool _consumesDeclaredTimes(BookingStatus status) => switch (status) {
 List<_DeclaredEntry> _mergeDeclaredAndBookings(
   List<TimeOfDay> declaredTimes,
   List<Booking> bookings,
-  DateTime day,
-) {
+  DateTime day, {
+  required bool showsAllOccupancy,
+}) {
   final tz.TZDateTime midnight = tz.TZDateTime(
     beauticaZone,
     day.year,
@@ -322,7 +374,7 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
 
   bool isConsumed(int dm) {
     for (int j = 0; j < sortedBookings.length; j++) {
-      if (!_consumesDeclaredTimes(sortedBookings[j].status)) continue;
+      if (!consumesDeclaredTimes(sortedBookings[j].status)) continue;
       if (bookingMinutes[j] <= dm && dm < bookingEndMinutes[j]) return true;
     }
     return false;
@@ -331,6 +383,24 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
   declaredEntries.removeWhere(
     (_DeclaredEntry e) => e.booking == null && isConsumed(e.minute),
   );
+
+  // Pass 1c — when the caller's query CANNOT see every occupying booking,
+  // drop every remaining unmatched declared time: a free card is a CLAIM
+  // this list is no longer entitled to make. See the file header's "FREE
+  // CARDS ARE A CLAIM" section and [DeclaredTimeCards.showsAllOccupancy].
+  //
+  // Deliberately AFTER pass 1b rather than replacing it: the two rules
+  // compose, and keeping 1b first means the occupancy-complete path (the
+  // default view, and select-all) runs byte-for-byte as before — this pass
+  // is a no-op there.
+  //
+  // Touches ONLY `e.booking == null` entries, so it can never drop a
+  // BOOKING; the union contract above is untouched. Pass 2 (strays) runs
+  // next and is unaffected — a booking whose start matches no declared time
+  // still renders, filtered wire or not.
+  if (!showsAllOccupancy) {
+    declaredEntries.removeWhere((_DeclaredEntry e) => e.booking == null);
+  }
 
   // Pass 2 — every booking pass 1 did NOT consume (its start matches no
   // declared time) gets its own entry, at its own minute. Never dropped.
@@ -502,17 +572,36 @@ class DeclaredTimeCards extends StatefulWidget {
     required this.declaredTimes,
     required this.bookings,
     required this.day,
+    required this.showsAllOccupancy,
     required this.onTapBooking,
     super.key,
   });
 
-  /// The day's declared times, VERBATIM — one card each, in declared order.
-  /// Nothing is generated between them and nothing is padded onto the ends.
+  /// The day's declared times, VERBATIM — one card each, in declared order,
+  /// unless dropped by [_mergeDeclaredAndBookings]'s pass 1b/1c. Nothing is
+  /// generated between them and nothing is padded onto the ends.
   final List<TimeOfDay> declaredTimes;
 
   /// The day's bookings, UNFILTERED by any working-hours window — see this
-  /// file's header. Every one of these renders as a card.
+  /// file's header. Every one of these renders as a card. NOT necessarily
+  /// every booking the day HAS: the master's status/service filter narrows
+  /// this list on the wire, which is what [showsAllOccupancy] is about.
   final List<Booking> bookings;
+
+  /// Whether [bookings] can be trusted to contain EVERY booking that occupies
+  /// this day's clock — i.e. whether "no booking at this declared time" may
+  /// be rendered as «Вільно».
+  ///
+  /// `BookingsDayQuery.showsAllOccupancy` off the LIVE query is the only
+  /// intended source; that getter owns the predicate and its lockstep with
+  /// [consumesDeclaredTimes]. `false` suppresses every free card — see this
+  /// file's "FREE CARDS ARE A CLAIM" section for why suppression rather than
+  /// a muted variant, and why no second fetch is made.
+  ///
+  /// Required, never defaulted: defaulting to `true` would fail OPEN — a new
+  /// call site that forgot to thread it would silently reintroduce the exact
+  /// bug this parameter exists to close.
+  final bool showsAllOccupancy;
 
   /// The selected Kyiv calendar day — the anchor
   /// [_kyivMinutesSinceMidnight] measures every booking's start against.
@@ -543,6 +632,7 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
       widget.declaredTimes,
       widget.bookings,
       widget.day,
+      showsAllOccupancy: widget.showsAllOccupancy,
     );
   }
 
@@ -565,13 +655,21 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
     //     reference) — an `identical` check here would defeat the memo on
     //     every schedule refetch, changed or not. [TimeOfDay] overrides
     //     `==`, so [listEquals] is a true value comparison.
+    //   * `showsAllOccupancy` — a plain `bool` value comparison. It changes
+    //     only when the master applies or clears a filter, but it changes
+    //     WHICH entries exist (pass 1c), so leaving it out of this gate
+    //     would serve a stale free-card list for exactly one rebuild after a
+    //     filter change — and a rebuild whose `bookings` list is `identical`
+    //     is genuinely reachable (a filter that returns the same rows).
     if (!identical(widget.bookings, oldWidget.bookings) ||
         widget.day != oldWidget.day ||
+        widget.showsAllOccupancy != oldWidget.showsAllOccupancy ||
         !listEquals(widget.declaredTimes, oldWidget.declaredTimes)) {
       _entries = _mergeDeclaredAndBookings(
         widget.declaredTimes,
         widget.bookings,
         widget.day,
+        showsAllOccupancy: widget.showsAllOccupancy,
       );
     }
   }

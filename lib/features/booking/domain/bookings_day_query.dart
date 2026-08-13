@@ -178,4 +178,94 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
   /// notion of "the master narrowed this list" is `_hasUserFilters`, which
   /// reads the raw selection — never this.
   bool get hasFilters => statuses.isNotEmpty || serviceIds.isNotEmpty;
+
+  /// Whether a list fetched with THIS query can see every booking that
+  /// OCCUPIES the master's clock — i.e. whether "no booking here" may be
+  /// read as "this time is FREE".
+  ///
+  /// ## Why this exists (bug, 2026-08-13)
+  ///
+  /// `DeclaredTimeCards` (the EXPLICIT_TIMES day body) derives free-vs-booked
+  /// by looking for a booking in the FETCHED list. That list is narrowed
+  /// SERVER-SIDE by this query, so on a filtered day a genuinely-booked
+  /// declared time had no matching row and rendered «Вільно» — the view
+  /// asserting a slot is free while holding a list that could never have
+  /// contained the booking occupying it. The worst case was «Завершені» only:
+  /// every upcoming CONFIRMED booking vanished from the wire and its declared
+  /// time advertised itself as free.
+  ///
+  /// The fix is not a second fetch — it is this predicate. When it is `false`
+  /// the view must not CLAIM anything is free (it renders booked and stray
+  /// entries only), matching what the INTERVAL grid already does honestly:
+  /// it simply draws fewer cards, and an absent card is never an affirmative
+  /// claim of freedom.
+  ///
+  /// ## The predicate, term by term
+  ///
+  ///   * `serviceIds.isEmpty` — a service filter goes on the wire
+  ///     (`bookings_day_notifier.dart`), so narrowing to one service hides
+  ///     every booking of ANOTHER service. Independent of status: this alone
+  ///     falsifies the question even with no status filter at all.
+  ///   * `statuses.isEmpty` — no `status` param is sent
+  ///     (`BookingRepository.getMyBookings` OMITS it), so the response is
+  ///     genuinely unfiltered. This is what ticking EVERY group resolves to
+  ///     via [BookingStatus.dayListWireStatuses]; empty means MORE here, not
+  ///     less.
+  ///   * otherwise the wire set must contain BOTH [BookingStatus.confirmed]
+  ///     and [BookingStatus.completed] — exactly the allowlist
+  ///     `declared_time_cards.dart`'s `consumesDeclaredTimes` uses to decide
+  ///     which bookings take the master's time. The untouched screen's default
+  ///     (`{CONFIRMED, COMPLETED, NOT_COMPLETED}`) satisfies this, which is
+  ///     why the default view was correct — by coincidence, not by design,
+  ///     until this getter stated the invariant.
+  ///
+  /// ⚠ KEEP IN LOCKSTEP WITH TWO SETS. Both couplings are load-bearing and
+  /// neither is visible from this file, so both are pinned by tests rather
+  /// than by comment alone:
+  ///
+  ///   1. `declared_time_cards.dart`'s `consumesDeclaredTimes` allowlist. If
+  ///      a status is ever added there, it must gain its own
+  ///      `statuses.contains(...)` conjunct in the predicate below on the same
+  ///      commit — otherwise a filter excluding the new status would again let
+  ///      a free card be drawn over an occupied slot.
+  ///      That function is `@visibleForTesting` for exactly this reason:
+  ///      `bookings_day_query_test.dart`'s lockstep group derives the required
+  ///      set by CALLING it, so a drift fails mechanically instead of being
+  ///      restated against a hand-copied literal.
+  ///   2. [BookingStatus.hiddenFromDayListByDefault]. The "`false` implies
+  ///      the master filtered" note below holds only while that set excludes
+  ///      both [BookingStatus.confirmed] and [BookingStatus.completed] — add
+  ///      either and the DEFAULT (unfiltered) wire set would start failing
+  ///      this predicate, routing an unfiltered day with declared times to the
+  ///      no-filter empty state, which has no clear-filters CTA. Pinned by an
+  ///      `assert` at `bookings_discovery_view.dart`'s empty gate and by that
+  ///      file's own tests.
+  ///
+  /// ⚠ A WIRE-shape question, exactly like [hasFilters]: on a query built by
+  /// [BookingsDayQuery.dayList], `statuses` is already the resolved wire set,
+  /// never the master's raw selection. Ask it of the LIVE query
+  /// (`_BookingsDiscoveryViewState._liveQuery`), never of a raw selection.
+  ///
+  /// Reading the WIRE set is a FORWARD-LOOKING guarantee, not a present-tense
+  /// necessity: today `showsAllOccupancy ∘ dayListWireStatuses` is EQUIVALENT
+  /// to `showsAllOccupancy` on the raw selection (raw `{}` → wire
+  /// `{CONFIRMED, COMPLETED, NOT_COMPLETED}`, both `true`; raw all-five → wire
+  /// `{}`, both `true`; every other selection passes through unchanged). The
+  /// wire sourcing becomes load-bearing the moment
+  /// [BookingStatus.hiddenFromDayListByDefault] gains [BookingStatus.confirmed]
+  /// or [BookingStatus.completed] — see lockstep 2 above — which is precisely
+  /// why it is sourced that way now rather than after the fact. [hasFilters],
+  /// by contrast, genuinely disagrees between the two today.
+  ///
+  /// Note `false` here implies `_hasUserFilters` on the screen: every wire
+  /// set that fails this test is either service-filtered or a status set the
+  /// master picked themselves (the two sets the master did NOT pick — the
+  /// default and the select-all empty set — both pass). The filter-aware
+  /// empty state is therefore always the right copy when this is `false`.
+  /// That implication is lockstep 2's subject and is asserted at the gate.
+  bool get showsAllOccupancy =>
+      serviceIds.isEmpty &&
+      (statuses.isEmpty ||
+          (statuses.contains(BookingStatus.confirmed) &&
+              statuses.contains(BookingStatus.completed)));
 }

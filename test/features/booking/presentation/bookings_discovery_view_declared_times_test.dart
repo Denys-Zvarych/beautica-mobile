@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart'
 import 'package:beautica_mobile/features/booking/presentation/bookings_discovery_view.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/declared_time_cards.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
@@ -109,10 +110,28 @@ void main() {
     registerFallbackValue(<BookingStatus>[]);
   });
 
+  /// [statuses] is the MASTER's RAW selection (what the filter sheet would
+  /// resolve with), seeded through `widget.query` exactly as the screen's own
+  /// `initState` reads it — never a pre-resolved wire set (`dayListWireStatuses`
+  /// is not idempotent). Empty = the untouched screen.
+  ///
+  /// [serviceIds] is the same thing for the SERVICE half of the filter, seeded
+  /// the same way (`bookings_discovery_view.dart:378` reads it off
+  /// `widget.query` verbatim — there is no wire mapping on this half).
+  ///
+  /// [bookingsWhenServiceFiltered] models the SERVER doing its job: the rows a
+  /// service-narrowed request comes back with. Defaults to [bookings], i.e. a
+  /// server that ignored the filter. The stub reads the real `serviceIds`
+  /// argument off the invocation rather than being keyed on the seed, so the
+  /// answer changes when the SCREEN changes the query — which is what makes
+  /// the «Скинути фільтри» round-trip below a real assertion.
   Future<void> pump(
     WidgetTester tester, {
     required List<Booking> bookings,
     required List<EffectiveDay> scheduleDays,
+    Set<BookingStatus> statuses = const <BookingStatus>{},
+    Set<String> serviceIds = const <String>{},
+    List<Booking>? bookingsWhenServiceFiltered,
   }) async {
     final repo = _MockBookingRepository();
     when(
@@ -126,18 +145,28 @@ void main() {
         from: any(named: 'from'),
         to: any(named: 'to'),
       ),
-    ).thenAnswer(
-      (_) async => PageResponse<Booking>(
-        items: bookings,
+    ).thenAnswer((Invocation i) async {
+      final Iterable<String> requested =
+          (i.namedArguments[#serviceIds] as Iterable<String>?) ??
+          const <String>[];
+      final List<Booking> rows = requested.isEmpty
+          ? bookings
+          : (bookingsWhenServiceFiltered ?? bookings);
+      return PageResponse<Booking>(
+        items: rows,
         page: 0,
         totalPages: 1,
-        totalElements: bookings.length,
-      ),
-    );
+        totalElements: rows.length,
+      );
+    });
 
     await tester.pumpApp(
       BookingsDiscoveryView(
-        query: BookingsDayQuery.of(day: _day),
+        query: BookingsDayQuery.of(
+          day: _day,
+          statuses: statuses,
+          serviceIds: serviceIds,
+        ),
         title: 'Test',
         useScheduleWindow: true,
         onAddWorkingHours: (DateTime _) {},
@@ -214,6 +243,249 @@ void main() {
           tester.element(find.byType(BookingsDiscoveryView)),
         );
         expect(find.text(l10n.masterBookingsCount(2)), findsOneWidget);
+      },
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // THE FALSE-«ВІЛЬНО» BUG, at the COMPOSITION tier (user-reported, fixed
+  // 2026-08-13). `declared_time_cards_test.dart` pins what the widget does
+  // with `showsAllOccupancy`; `bookings_day_query_test.dart` pins which
+  // selections set it. Only this file can prove the screen actually READS
+  // the live query (not the raw selection, not a hard-coded `true`) and
+  // threads the answer down — the exact wiring the bug was missing.
+  //
+  // «Завершені» only is the fixture: it resolves to the wire set
+  // `{COMPLETED}`, which cannot see an upcoming CONFIRMED booking — the
+  // worst practical case in the reported blast radius.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('an EXPLICIT_TIMES day under a filter that hides occupancy', () {
+    const List<TimeOfDay> declared = <TimeOfDay>[
+      TimeOfDay(hour: 11, minute: 0),
+      TimeOfDay(hour: 16, minute: 0),
+    ];
+
+    List<EffectiveDay> explicitDay() => <EffectiveDay>[
+      EffectiveDay(
+        date: _day,
+        source: EffectiveSource.overrideCustom,
+        intervals: const <WorkInterval>[],
+        times: declared,
+      ),
+    ];
+
+    testWidgets('renders NO free cards — the returned booking still shows, the '
+        'unmatched declared time does not claim to be free', (tester) async {
+      // The filter returned one row; the OTHER declared time's occupancy is
+      // unknowable from this list, so it must render nothing at all.
+      final Booking returned = _booking(
+        id: 'filtered-hit',
+        startAtUtc: _kyivAtUtc(11, 0),
+      );
+
+      await pump(
+        tester,
+        bookings: <Booking>[returned],
+        scheduleDays: explicitDay(),
+        statuses: const <BookingStatus>{BookingStatus.completed},
+      );
+
+      expect(find.byType(DeclaredTimeCards), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-booking-card-filtered-hit')),
+        findsOneWidget,
+        reason: 'the booking the filter DID return must still render',
+      );
+      expect(
+        find.byKey(const Key('declared-time-card-free-1600')),
+        findsNothing,
+        reason:
+            '16:00 may well be booked by a CONFIRMED booking «Завершені» '
+            'hid — the screen must not claim it is free '
+            '(MUTATION-VERIFIED: hard-coding showsAllOccupancy: true in '
+            '_body turns this RED)',
+      );
+      // The header counts BOOKINGS, and now equals the rendered card count
+      // exactly (free cards were the only uncounted rows).
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingsDiscoveryView)),
+      );
+      expect(find.text(l10n.masterBookingsCount(1)), findsOneWidget);
+    });
+
+    testWidgets(
+      'with NO matching booking it shows the filter-aware empty state, not a '
+      'blank column',
+      (tester) async {
+        await pump(
+          tester,
+          bookings: const <Booking>[],
+          scheduleDays: explicitDay(),
+          statuses: const <BookingStatus>{BookingStatus.completed},
+        );
+
+        expect(
+          find.byType(MasterBookingsNoResultsState),
+          findsOneWidget,
+          reason:
+              'this state was UNREACHABLE on an explicit-times day (it was '
+              'gated on `window == null`, and a resolved explicit-times day '
+              'always has a window) — suppressing the free cards would have '
+              'left the day blank without re-enabling it',
+        );
+        expect(
+          find.byType(MasterBookingsEmptyState),
+          findsNothing,
+          reason:
+              'the two empties must not be conflated — the master DID filter',
+        );
+        expect(find.byType(DeclaredTimeCards), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the UNFILTERED day with the same empty result is untouched — free '
+      'cards still render, no empty state',
+      (tester) async {
+        // The negative control for both tests above: the default view is
+        // occupancy-COMPLETE, so «Вільно» is a claim it may still make.
+        await pump(
+          tester,
+          bookings: const <Booking>[],
+          scheduleDays: explicitDay(),
+        );
+
+        expect(find.byType(DeclaredTimeCards), findsOneWidget);
+        expect(
+          find.byKey(const Key('declared-time-card-free-1100')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('declared-time-card-free-1600')),
+          findsOneWidget,
+        );
+        expect(find.byType(MasterBookingsNoResultsState), findsNothing);
+        expect(find.byType(MasterBookingsEmptyState), findsNothing);
+      },
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // THE SERVICE HALF — the SECOND, INDEPENDENT instance of the same bug.
+  //
+  // `serviceIds` goes on the wire too (`bookings_day_notifier.dart:369`), so
+  // narrowing to one service hides every booking of ANOTHER service. It
+  // falsified `showsAllOccupancy` even with NO status filter — i.e. on the
+  // otherwise-correct DEFAULT view, the one place the status half could never
+  // reach. `bookings_day_query_test.dart` pins the predicate for it; only a
+  // RENDERED case proves the screen actually threads THAT term down, rather
+  // than threading a status-only answer that happens to agree.
+  //
+  // Both tests below therefore leave `statuses` at the default (untouched)
+  // selection on purpose: with a status filter present, a screen that read
+  // only the status half would still pass.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('an EXPLICIT_TIMES day under a SERVICE filter only', () {
+    const List<TimeOfDay> declared = <TimeOfDay>[
+      TimeOfDay(hour: 11, minute: 0),
+      TimeOfDay(hour: 16, minute: 0),
+    ];
+
+    List<EffectiveDay> explicitDay() => <EffectiveDay>[
+      EffectiveDay(
+        date: _day,
+        source: EffectiveSource.overrideCustom,
+        intervals: const <WorkInterval>[],
+        times: declared,
+      ),
+    ];
+
+    testWidgets(
+      'renders NO free cards even with the DEFAULT status selection — the '
+      'returned booking still shows',
+      (tester) async {
+        // 16:00 may be booked by a booking of a DIFFERENT service, which this
+        // request could never have returned. The status wire set here is the
+        // occupancy-COMPLETE default, so only the service term can suppress.
+        final Booking returned = _booking(
+          id: 'svc-hit',
+          startAtUtc: _kyivAtUtc(11, 0),
+        );
+
+        await pump(
+          tester,
+          bookings: const <Booking>[],
+          bookingsWhenServiceFiltered: <Booking>[returned],
+          scheduleDays: explicitDay(),
+          serviceIds: const <String>{'svc-1'},
+        );
+
+        expect(find.byType(DeclaredTimeCards), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-booking-card-svc-hit')),
+          findsOneWidget,
+          reason: 'the booking the service filter DID return must still render',
+        );
+        expect(
+          find.byKey(const Key('declared-time-card-free-1600')),
+          findsNothing,
+          reason:
+              'a service filter alone falsifies occupancy completeness — the '
+              'screen must not claim 16:00 is «Вільно» while holding a list '
+              'that could not contain another service\'s booking '
+              '(MUTATION-VERIFIED: dropping the `serviceIds.isEmpty` term '
+              'from showsAllOccupancy turns this RED)',
+        );
+      },
+    );
+
+    testWidgets(
+      'with no matching booking it offers «Скинути фільтри», and the CTA '
+      'actually restores the free cards',
+      (tester) async {
+        // Lead 4 + lead 2 in one round trip. The empty gate must pick the
+        // filter-aware copy (a service filter is a user filter, so the
+        // `assert(showsAllOccupancy || hasFilters)` above it holds), and the
+        // CTA must be wired to `_clearAllFilters` — which clears `_serviceIds`
+        // too, not only `_statuses`.
+        await pump(
+          tester,
+          bookings: const <Booking>[],
+          bookingsWhenServiceFiltered: const <Booking>[],
+          scheduleDays: explicitDay(),
+          serviceIds: const <String>{'svc-1'},
+        );
+
+        expect(find.byType(MasterBookingsNoResultsState), findsOneWidget);
+        expect(
+          find.byType(MasterBookingsEmptyState),
+          findsNothing,
+          reason:
+              'the master DID filter — offering no escape hatch would strand '
+              'them on a blank explicit-times day',
+        );
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-clear-filters')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(MasterBookingsNoResultsState),
+          findsNothing,
+          reason: 'the CTA must clear the SERVICE filter, not just statuses',
+        );
+        expect(
+          find.byKey(const Key('declared-time-card-free-1100')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('declared-time-card-free-1600')),
+          findsOneWidget,
+          reason:
+              'clearing restores occupancy completeness, so the free cards '
+              'come back — suppression is reversible, never a deletion',
+        );
       },
     );
   });

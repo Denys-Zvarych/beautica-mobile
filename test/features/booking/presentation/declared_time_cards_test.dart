@@ -97,10 +97,17 @@ Key _freeKey(int hour, int minute) => Key(
 /// itself.
 Key _bookedKey(String id) => Key('master-booking-card-$id');
 
+/// [showsAllOccupancy] defaults to `true` — the OCCUPANCY-COMPLETE case (the
+/// default view and select-all), which is what every group below except
+/// "free cards are suppressed…" is about. The widget itself requires the
+/// argument (no default there — it must fail OPEN nowhere); this helper
+/// supplies it so the pre-existing cases read exactly as they did, and the
+/// suppression group passes `false` explicitly.
 Future<void> _pumpCards(
   WidgetTester tester, {
   required List<TimeOfDay> declaredTimes,
   required List<Booking> bookings,
+  bool showsAllOccupancy = true,
   ValueChanged<Booking>? onTapBooking,
   double? textScaleFactor,
 }) async {
@@ -109,6 +116,7 @@ Future<void> _pumpCards(
       declaredTimes: declaredTimes,
       bookings: bookings,
       day: _day,
+      showsAllOccupancy: showsAllOccupancy,
       onTapBooking: onTapBooking ?? (Booking _) {},
     ),
     textScaleFactor: textScaleFactor,
@@ -604,7 +612,7 @@ void main() {
   //     minute" RED;
   //   * relaxing the predicate's strict `dm < bookingEndMinutes[j]` to `<=`
   //     turns the 60-minute (exactly-touching) case below RED;
-  //   * adding `BookingStatus.cancelled` to `_consumesDeclaredTimes`'s
+  //   * adding `BookingStatus.cancelled` to `consumesDeclaredTimes`'s
   //     allowlist turns this group's `cancelled` case RED.
   // ═══════════════════════════════════════════════════════════════════════
   group('a declared time CONSUMED by an earlier booking\'s duration', () {
@@ -703,7 +711,7 @@ void main() {
     // it again, so a declared time behind one of those is genuinely FREE and
     // must still render. `unknown` is a DELIBERATE divergence from
     // `booking_lane_layout.dart`'s `_isActiveClass` (see
-    // `_consumesDeclaredTimes`'s doc): hiding is the destructive direction,
+    // `consumesDeclaredTimes`'s doc): hiding is the destructive direction,
     // and an unrecognised wire status may not earn the power to erase a
     // declared time.
     //
@@ -744,7 +752,7 @@ void main() {
                 'a ${status.name} booking releases the clock — 12:00 is '
                 'genuinely bookable again and must still render '
                 '(MUTATION-VERIFIED for cancelled: adding it to '
-                '`_consumesDeclaredTimes`\'s allowlist turns this RED)',
+                '`consumesDeclaredTimes`\'s allowlist turns this RED)',
           );
           expect(
             find.byKey(_bookedKey('status-${status.name}')),
@@ -880,6 +888,168 @@ void main() {
               'lost its place would be as likely to eat this one',
         );
         expect(find.byKey(_bookedKey('unsorted-consumer')), findsOneWidget);
+      },
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // THE FALSE-«ВІЛЬНО» BUG (user-reported, fixed 2026-08-13).
+  //
+  // «Вільно» is a CLAIM about the master's clock, and this widget can only
+  // make it from `bookings` — a list the master's status/service filter
+  // narrows SERVER-SIDE. `showsAllOccupancy: false` says "this list cannot
+  // see every occupying booking", and the contract is then SUPPRESSION: no
+  // free card at all, never a restyled one.
+  //
+  // The predicate itself (which wire sets are occupancy-complete) lives on
+  // `BookingsDayQuery.showsAllOccupancy` and is pinned in
+  // `bookings_day_query_test.dart`; this group pins only what the widget
+  // does with the answer.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('free cards are suppressed when the query cannot see all occupancy', () {
+    testWidgets(
+      'THE BUG — a declared time whose occupying booking the filter hid does '
+      'NOT render as free',
+      (tester) async {
+        // The whole point: the 15:00 booking is NOT in `bookings` because
+        // the wire filter dropped it. Nothing in this widget's input can
+        // distinguish that from "15:00 is genuinely free" — so it must not
+        // guess.
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 15, minute: 0),
+          ],
+          bookings: const <Booking>[],
+          showsAllOccupancy: false,
+        );
+
+        expect(
+          find.byKey(_freeKey(15, 0)),
+          findsNothing,
+          reason:
+              'the list was narrowed on the wire — claiming 15:00 is «Вільно» '
+              'is exactly the reported bug '
+              '(MUTATION-VERIFIED: deleting pass 1c turns this RED)',
+        );
+        expect(
+          find.byKey(_freeKey(11, 0)),
+          findsNothing,
+          reason: 'suppression is total — not a per-slot heuristic',
+        );
+        expect(
+          find.byKey(const Key('declared-time-cards')),
+          findsOneWidget,
+          reason:
+              'the list itself still renders (empty) — the screen, not this '
+              'widget, decides what to show in its place',
+        );
+      },
+    );
+
+    testWidgets(
+      'the bookings the filter DID return still render — suppression drops '
+      'free entries only, never a booking',
+      (tester) async {
+        final Booking matched = _booking(
+          id: 'filtered-matched',
+          startAtUtc: _kyivAtUtc(11),
+        );
+        final Booking stray = _booking(
+          id: 'filtered-stray',
+          startAtUtc: _kyivAtUtc(20),
+        );
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 15, minute: 0),
+          ],
+          bookings: <Booking>[matched, stray],
+          showsAllOccupancy: false,
+        );
+
+        expect(
+          find.byKey(_bookedKey('filtered-matched')),
+          findsOneWidget,
+          reason: 'a matched booking is not a free entry — pass 1c skips it',
+        );
+        expect(
+          find.byKey(_bookedKey('filtered-stray')),
+          findsOneWidget,
+          reason:
+              'the union/anti-data-loss contract survives suppression — pass '
+              '2 is untouched',
+        );
+        expect(find.byKey(_freeKey(15, 0)), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the OCCUPANCY-COMPLETE case is unchanged — the same fixture with '
+      'showsAllOccupancy: true still renders its free card',
+      (tester) async {
+        // The negative control. Without this, "everything hidden" would also
+        // satisfy the two assertions above.
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 15, minute: 0),
+          ],
+          bookings: const <Booking>[],
+        );
+
+        expect(find.byKey(_freeKey(11, 0)), findsOneWidget);
+        expect(
+          find.byKey(_freeKey(15, 0)),
+          findsOneWidget,
+          reason:
+              'an unfiltered (or select-all) query CAN see all occupancy, so '
+              '«Вільно» is a claim it is entitled to make',
+        );
+      },
+    );
+
+    testWidgets(
+      'flipping showsAllOccupancy on an in-place rebuild re-runs the merge — '
+      'the didUpdateWidget memo must not serve stale free cards',
+      (tester) async {
+        // `bookings` is the SAME const empty list across both pumps and
+        // `day` is unchanged, so the memo's `identical(bookings,
+        // oldBookings)` / `day == oldDay` terms both hold — only the new
+        // `showsAllOccupancy` term can force the recompute. The second
+        // `_pumpCards` re-pumps an identically-shaped tree, so the
+        // `DeclaredTimeCards` State is preserved and `didUpdateWidget` runs
+        // (a fresh State would recompute in `initState` and prove nothing).
+        const List<TimeOfDay> times = <TimeOfDay>[
+          TimeOfDay(hour: 15, minute: 0),
+        ];
+
+        await _pumpCards(
+          tester,
+          declaredTimes: times,
+          bookings: const <Booking>[],
+        );
+        expect(find.byKey(_freeKey(15, 0)), findsOneWidget);
+
+        await _pumpCards(
+          tester,
+          declaredTimes: times,
+          bookings: const <Booking>[],
+          showsAllOccupancy: false,
+        );
+
+        expect(
+          find.byKey(_freeKey(15, 0)),
+          findsNothing,
+          reason:
+              'applying a filter must take effect on the very next frame '
+              '(MUTATION-VERIFIED: dropping the showsAllOccupancy term from '
+              'didUpdateWidget\'s gate turns this RED)',
+        );
       },
     );
   });

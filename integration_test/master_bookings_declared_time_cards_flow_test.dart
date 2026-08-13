@@ -95,7 +95,7 @@ Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
 ///     outright when the booking CONSUMES the clock (CONFIRMED/COMPLETED),
 ///     still free when it does not (CANCELLED/DECLINED/NOT_COMPLETED/
 ///     UNKNOWN) — see `declared_time_cards.dart`'s "CONSUMED DECLARED TIMES
-///     ARE DROPPED" section and `_consumesDeclaredTimes`'s allowlist.
+///     ARE DROPPED" section and `consumesDeclaredTimes`'s allowlist.
 ///   * `freeTime`     — start + 2 h, PAST the booking's end, so it is
 ///     genuinely free under every status.
 ///
@@ -212,23 +212,19 @@ Key _freeCardKey(TimeOfDay t) => Key(
   '${t.minute.toString().padLeft(2, '0')}',
 );
 
-/// Asserts the free card for [t] renders, scrolling `DeclaredTimeCards`' own
-/// `ListView.separated` to it first.
+/// Scrolls `DeclaredTimeCards`' own `ListView.separated` until [target] is
+/// on screen.
 ///
-/// The scroll is NOT decoration: on the 800×600 E2E surface a third
-/// 120dp-floored entry sits below the fold, and a lazy `ListView` has not
-/// built it yet — so a bare `findsOneWidget` would fail for a reason that has
-/// nothing to do with the membership rule under test. Only ever used for
-/// PRESENCE; an ABSENCE assertion (the consumed slot) is deliberately made
-/// BEFORE any scroll, on an entry that would sit ABOVE the fold if it
-/// existed, so it can never pass merely because the row was unbuilt.
-Future<void> _expectFreeCard(
-  WidgetTester tester,
-  TimeOfDay t,
-  String why,
-) async {
+/// NOT decoration: on the 800×600 E2E surface a third 120dp-floored entry
+/// sits below the fold, and a lazy `ListView` has not built it yet — so a
+/// bare `findsOneWidget` would fail for a reason that has nothing to do with
+/// the rule under test. Only ever used before a PRESENCE assertion; every
+/// ABSENCE assertion below is deliberately made BEFORE any scroll, on an
+/// entry that would sit ABOVE the fold if it existed, so it can never pass
+/// merely because the row was unbuilt.
+Future<void> _scrollCardsTo(WidgetTester tester, Finder target) async {
   await tester.scrollUntilVisible(
-    find.byKey(_freeCardKey(t)),
+    target,
     200,
     scrollable: find
         .descendant(
@@ -238,6 +234,16 @@ Future<void> _expectFreeCard(
         .first,
     maxScrolls: 20,
   );
+}
+
+/// Asserts the free card for [t] renders, scrolling to it first — see
+/// [_scrollCardsTo].
+Future<void> _expectFreeCard(
+  WidgetTester tester,
+  TimeOfDay t,
+  String why,
+) async {
+  await _scrollCardsTo(tester, find.byKey(_freeCardKey(t)));
   expect(find.byKey(_freeCardKey(t)), findsOneWidget, reason: why);
 }
 
@@ -351,45 +357,91 @@ void main() {
     },
   );
 
-  // CANCELLED is NOT incidental here — every assertion below is a claim about
-  // that specific status: `_consumesDeclaredTimes` returns `false` for it (so
-  // the slot inside its former span is free again, unlike the CONFIRMED case
-  // one test above), `BookingDisplayX.showsPrice` returns `false` for it
-  // because the appointment did not happen and no sum is owed, and the label
-  // must read «Скасовано». NOT_COMPLETED happens to share both booleans, but
-  // for a different documented reason ("genuinely ambiguous whether the
-  // provider charges"), so swapping the fixture to it would quietly re-point
-  // this test at a claim it does not make. The fixture stays CANCELLED and
-  // the flow instead ticks «Скасовані», which is how a master reaches such a
-  // booking since 2026-08-13.
+  // CANCELLED is NOT incidental here — several assertions below are claims
+  // about that specific status: `consumesDeclaredTimes` returns `false` for
+  // it (so the slot inside its former span is free again, unlike the
+  // CONFIRMED case one test above), `BookingDisplayX.showsPrice` returns
+  // `false` for it because the appointment did not happen and no sum is owed,
+  // and the label must read «Скасовано». NOT_COMPLETED happens to share both
+  // booleans, but for a different documented reason ("genuinely ambiguous
+  // whether the provider charges"), so swapping the fixture to it would
+  // quietly re-point this test at a claim it does not make.
+  //
+  // ── REWRITTEN 2026-08-13 (the false-«Вільно» fix) ─────────────────────────
+  // This case used to assert, after ticking «Скасовані», that the two other
+  // declared times still rendered as FREE cards — i.e. it BLESSED the bug: it
+  // asserted that a list narrowed to `{CANCELLED, DECLINED}` on the wire may
+  // still claim a declared time is «Вільно». It walked within one row of the
+  // real defect and passed only because its fixture held a single CANCELLED
+  // booking, the one status where a free card genuinely IS right.
+  //
+  // The fixture now carries a SECOND, CONFIRMED booking on the third declared
+  // time (via `seedManyBookingsDataset`, which filters by the real `status`
+  // query param instead of the single-booking route's hand-picked bucket), so
+  // the «Скасовані» view is genuinely blind to an occupied slot — exactly the
+  // reported bug — and the flow ends by ticking EVERY group, which resolves
+  // to the empty (unfiltered) wire set and brings the free cards back. That
+  // last phase is both the negative control for suppression and where the
+  // status-allowlist claim now lives, with the cancelled booking actually ON
+  // the wire while its former span reads free.
   testWidgets(
-    'a CANCELLED booking on a declared-times day is hidden by default and, '
-    'once «Скасовані» is ticked, still renders — with a DIFFERENT status '
-    'label than CONFIRMED, and no price — proving the E2E composition, not '
-    'just the isolated widget, carries the booking\'s real status through',
+    'a CANCELLED booking on a declared-times day is hidden by default; once '
+    '«Скасовані» is ticked it renders with its own status label and no '
+    'price, and NO declared time claims to be «Вільно» while the filter '
+    'hides an occupying CONFIRMED booking; ticking every group restores both',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       // Pre-boot fixture mutation — the repo-wide convention (see
       // `_bootToDeclaredTimesDay`'s doc) for seeding a booking that is
-      // already in a terminal state when the screen first loads.
+      // already in a terminal state when the screen first loads. Kept in sync
+      // with the dataset row below so `GET /bookings/booking-1` (the detail
+      // route, which never reads the dataset) cannot disagree with the list.
       fb.bookingStatus = 'CANCELLED';
+
+      // TWO bookings, served by the REAL (statuses, sort, page) slice — the
+      // single-booking route cannot express "two rows in different statuses".
+      //   * `booking-1`  CANCELLED, 90 min from the fixture start — spans
+      //     `consumedTime`, which is what makes the allowlist claim below a
+      //     real one.
+      //   * `booking-occupier` CONFIRMED, starting on the THIRD declared time
+      //     (`freeTime`, start + 2 h). It genuinely occupies that slot, and
+      //     «Скасовані» hides it — the exact false-«Вільно» setup.
+      final DateTime fixtureStart = DateTime.parse(fb.bookingStartsAt);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-1',
+          status: 'CANCELLED',
+          startsAt: fixtureStart,
+          duration: const Duration(minutes: 90),
+        ),
+        fb.datasetBookingRow(
+          id: 'booking-occupier',
+          status: 'CONFIRMED',
+          startsAt: fixtureStart.add(const Duration(hours: 2)),
+          duration: const Duration(minutes: 60),
+        ),
+      ]);
 
       final ({TimeOfDay bookedTime, TimeOfDay consumedTime, TimeOfDay freeTime})
       times = await _bootToDeclaredTimesDay(tester, fb);
 
-      final Finder bookedCard = find.byKey(
+      final Finder cancelledCard = find.byKey(
         const ValueKey<String>('master-booking-card-booking-1'),
       );
+      final Finder occupierCard = find.byKey(
+        const ValueKey<String>('master-booking-card-booking-occupier'),
+      );
 
-      // ── The 2026-08-13 default, on the EXPLICIT_TIMES branch. The
-      //      exclusion lives on `BookingsDiscoveryView`'s shared query, so it
-      //      must apply here exactly as it does to the timeline grid — and
-      //      with the booking off the wire, its own declared time falls back
-      //      to an ordinary FREE card rather than vanishing. Asserted BEFORE
-      //      any scroll, on the list's first entry, so it cannot pass merely
-      //      because a row was unbuilt. ────────────────────────────────────
+      // ══ PHASE A — the DEFAULT view. ══════════════════════════════════════
+      // The 2026-08-13 exclusion lives on `BookingsDiscoveryView`'s shared
+      // query, so it applies here exactly as it does to the timeline grid.
+      // The default wire set is `{CONFIRMED, COMPLETED, NOT_COMPLETED}` —
+      // occupancy-COMPLETE (it carries both statuses that take the master's
+      // clock), so free cards are still entitled to render. Asserted BEFORE
+      // any scroll, on the list's first entries, so nothing can pass merely
+      // because a row was unbuilt.
       expect(
-        bookedCard,
+        cancelledCard,
         findsNothing,
         reason:
             'a CANCELLED booking is off the master\'s day list until '
@@ -399,33 +451,53 @@ void main() {
         find.byKey(_freeCardKey(times.bookedTime)),
         findsOneWidget,
         reason:
-            'with the cancelled booking filtered off the wire its declared '
-            'time is unmatched and simply free — never dropped from the '
-            'union along with it',
+            'the DEFAULT wire set contains both CONFIRMED and COMPLETED, so '
+            'this view can see everything that occupies the clock — «Вільно» '
+            'is a claim it is entitled to make, and a cancelled booking '
+            'releases the slot anyway',
+      );
+      await _scrollCardsTo(tester, occupierCard);
+      expect(
+        occupierCard,
+        findsOneWidget,
+        reason:
+            'the CONFIRMED booking is visible by default — the fixture guard '
+            'for PHASE B, which depends on this slot being genuinely taken',
       );
 
+      // ══ PHASE B — «Скасовані» only: the wire set becomes {CANCELLED,
+      //    DECLINED}, which cannot see a CONFIRMED booking at all. ══════════
       await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
         BookingStatusFilterGroup.cancelled,
       ]);
 
-      // THE STATUS ALLOWLIST, at the E2E tier — the counterpart to the
-      // CONFIRMED test's consumed-slot assertion, on the SAME declared time.
-      // A CANCELLED booking releases the master's clock, so the slot inside
-      // its span is genuinely bookable again and must still render. The two
-      // tests together prove the E2E composition reads the booking's real
-      // STATUS into the membership rule, not merely its `endAt`
-      // (`_consumesDeclaredTimes`'s allowlist).
+      expect(
+        occupierCard,
+        findsNothing,
+        reason:
+            'fixture guard — the CONFIRMED booking really is off the wire '
+            'now, so the next assertion is about an UNSEEN occupied slot',
+      );
+      expect(
+        find.byKey(_freeCardKey(times.freeTime)),
+        findsNothing,
+        reason:
+            'THE USER-REPORTED BUG: this declared time is occupied by a '
+            'CONFIRMED booking the filter hid. The view cannot see it, so it '
+            'must not claim the slot is «Вільно» — it renders nothing at all '
+            '(MUTATION-VERIFIED: hard-coding showsAllOccupancy: true turns '
+            'this RED)',
+      );
       expect(
         find.byKey(_freeCardKey(times.consumedTime)),
-        findsOneWidget,
+        findsNothing,
         reason:
-            'a CANCELLED booking consumes nothing — the declared time inside '
-            'its former span is free again and must render, unlike the '
-            'CONFIRMED case one test above',
+            'suppression is total, not a per-slot heuristic — the whole '
+            'question "is this free?" is unanswerable from this list',
       );
 
       expect(
-        bookedCard,
+        cancelledCard,
         findsOneWidget,
         reason:
             'a CANCELLED booking is still a real entry on its declared '
@@ -437,7 +509,7 @@ void main() {
       );
       expect(
         find.descendant(
-          of: bookedCard,
+          of: cancelledCard,
           matching: find.text(l10n.bookingStatusCancelled),
         ),
         findsOneWidget,
@@ -445,30 +517,59 @@ void main() {
       );
       expect(
         find.descendant(
-          of: bookedCard,
+          of: cancelledCard,
           matching: find.text(l10n.bookingStatusConfirmed),
         ),
         findsNothing,
         reason:
-            'THE REGRESSION THIS SWAP FIXES: the retired bespoke card never '
-            'read Booking.status, so a CANCELLED booking rendered '
+            'THE REGRESSION THE CARD SWAP FIXES: the retired bespoke card '
+            'never read Booking.status, so a CANCELLED booking rendered '
             'identically to a CONFIRMED one — this must never be true again',
       );
       expect(
-        find.descendant(of: bookedCard, matching: find.textContaining('₴')),
+        find.descendant(of: cancelledCard, matching: find.textContaining('₴')),
         findsNothing,
         reason: 'a CANCELLED booking owes nothing — no price pill',
       );
 
-      // The THIRD declared time (past the booking's end) is unaffected by
-      // `booking-1`'s status either — an ordinary free card. Asserted LAST
-      // because [_expectFreeCard] scrolls, which can retire the booked card
-      // above it from the lazy list.
+      // ══ PHASE C — tick the remaining three groups. All four ticked
+      //    resolves to the EMPTY wire set (no `status` param at all), which
+      //    is occupancy-COMPLETE again. ══════════════════════════════════════
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+        BookingStatusFilterGroup.completed,
+        BookingStatusFilterGroup.notCompleted,
+      ]);
+
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason: 'select-all still shows the cancelled booking',
+      );
+      // THE STATUS ALLOWLIST, at the E2E tier — the counterpart to the
+      // CONFIRMED test's consumed-slot assertion, on the SAME declared time,
+      // and now with the cancelled booking genuinely ON the wire. A CANCELLED
+      // booking releases the master's clock, so the slot inside its 90-minute
+      // span is bookable again and must render as free. Together the two
+      // tests prove the E2E composition reads the booking's real STATUS into
+      // the membership rule, not merely its `endAt`.
       await _expectFreeCard(
         tester,
-        times.freeTime,
-        'the declared time past the booking\'s end is free under every '
-        'status — never swallowed by whatever changed on the booked one',
+        times.consumedTime,
+        'a CANCELLED booking consumes nothing — the declared time inside its '
+        'former span is free again and must render, unlike the CONFIRMED '
+        'case one test above',
+      );
+      // THE NEGATIVE CONTROL for PHASE B: free cards are suppressed by an
+      // incomplete QUERY, never removed outright. Restore occupancy
+      // completeness and they come straight back.
+      await _scrollCardsTo(tester, occupierCard);
+      expect(
+        occupierCard,
+        findsOneWidget,
+        reason:
+            'the CONFIRMED booking is back on the wire, so its declared time '
+            'renders as a real card rather than as nothing',
       );
 
       expect(tester.takeException(), isNull);

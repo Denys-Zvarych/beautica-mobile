@@ -819,6 +819,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                       // «Немає записів за цим фільтром» copy on a screen the
                       // master never filtered.
                       hasFilters: _hasUserFilters,
+                      // …but THIS one IS a wire-shape question, so it reads
+                      // `_liveQuery`, not `_statuses`/`_serviceIds`. See
+                      // [BookingsDayQuery.showsAllOccupancy].
+                      showsAllOccupancy: _liveQuery.showsAllOccupancy,
                       day: _day,
                       useScheduleWindow: widget.useScheduleWindow,
                       scheduleAsync: scheduleAsync,
@@ -875,6 +879,7 @@ class _Loaded extends StatelessWidget {
   const _Loaded({
     required this.state,
     required this.hasFilters,
+    required this.showsAllOccupancy,
     required this.day,
     required this.useScheduleWindow,
     required this.scheduleAsync,
@@ -898,6 +903,21 @@ class _Loaded extends StatelessWidget {
   /// ticked, so that getter answers the opposite question at both ends. See
   /// `_statuses`' doc on the `State` and [BookingStatus.dayListWireStatuses].
   final bool hasFilters;
+
+  /// `_BookingsDiscoveryViewState._liveQuery.showsAllOccupancy` — whether the
+  /// fetched list can see EVERY booking that occupies the master's clock.
+  ///
+  /// The mirror image of [hasFilters]' sourcing: this one is a WIRE-shape
+  /// question and MUST come off the live query, never off the raw selection
+  /// (which knows nothing of the default exclusion or the select-all escape
+  /// hatch). See [BookingsDayQuery.showsAllOccupancy] for the predicate.
+  ///
+  /// Consumed on the EXPLICIT_TIMES branch only: it gates `DeclaredTimeCards`'
+  /// free cards, and — because suppressing them can leave that branch with
+  /// nothing to draw — the filter-aware empty state in [_body]. The INTERVAL
+  /// grid never reads it (it draws only what it fetched and has never had
+  /// this bug).
+  final bool showsAllOccupancy;
   final DateTime day;
 
   /// `widget.useScheduleWindow` — see that field's doc on
@@ -998,6 +1018,12 @@ class _Loaded extends StatelessWidget {
         // the rendered card set come from the exact same list and can never
         // disagree — the same invariant `visibleBookingsFor` protects for
         // INTERVAL days, held here by construction instead.
+        //
+        // "UNFILTERED" IS CLIENT-SIDE ONLY. `state.items` is already narrowed
+        // by the master's own status/service filter, SERVER-SIDE — which is
+        // why [showsAllOccupancy] has to travel alongside it: this list
+        // cannot tell a free declared time from one whose booking the filter
+        // hid. See `declared_time_cards.dart`'s "FREE CARDS ARE A CLAIM".
         if (resolved.isExplicitTimes) {
           return _body(
             context,
@@ -1079,7 +1105,44 @@ class _Loaded extends StatelessWidget {
     // `bookings_day_state.dart`'s header) — kept ONLY as the legacy/loading/
     // error fallback. Once a window has resolved, `visibleItems!.length` is
     // what actually renders below, so that is what the header must say.
+    //
+    // STILL EXACT ON THE EXPLICIT_TIMES BRANCH after free-card suppression,
+    // and in fact tighter than before: `DeclaredTimeCards` renders exactly
+    // one card per booking in [items] (pass 1 match or pass 2 stray — no
+    // booking is ever dropped), plus free cards, which are not bookings and
+    // were never counted. Suppressing the free cards removes only uncounted
+    // rows, so under a filter this line reads the number of BOOKINGS
+    // matching that filter — which is now also the exact number of cards on
+    // screen.
     final int count = visibleItems?.length ?? state.totalElements;
+
+    // Whether the EXPLICIT_TIMES branch below will emit NO free cards — see
+    // `declared_time_cards.dart`'s "FREE CARDS ARE A CLAIM" section. Needed
+    // by the empty gate immediately below: with the free cards gone, a
+    // filtered day matching no booking has literally nothing left to draw.
+    // Always `false` on the INTERVAL branch (`declaredTimes == null`), which
+    // is what keeps that path byte-for-byte unchanged.
+    final bool suppressesFreeCards =
+        declaredTimes != null && !showsAllOccupancy;
+
+    // THE SECOND LOCKSTEP, made loud. The empty gate below routes a
+    // free-card-suppressed day to [MasterBookingsNoResultsState] (which has a
+    // clear-filters CTA) purely because `!showsAllOccupancy` implies the
+    // master filtered — see [BookingsDayQuery.showsAllOccupancy]'s lockstep
+    // note. That implication holds only while
+    // [BookingStatus.hiddenFromDayListByDefault] excludes both CONFIRMED and
+    // COMPLETED: add either and the DEFAULT, UNFILTERED wire set would fail
+    // the predicate, and a day with genuine declared times would silently
+    // render [MasterBookingsEmptyState] with no way out of a filter the
+    // master never set. Not reachable today — which is exactly why it needs
+    // an assert rather than a comment. Debug-only: stripped from release, so
+    // it cannot change shipped behaviour, only fail a dev/test build loudly.
+    assert(
+      showsAllOccupancy || hasFilters,
+      'showsAllOccupancy is false on a query the master did not filter — '
+      'BookingStatus.hiddenFromDayListByDefault must exclude CONFIRMED and '
+      'COMPLETED for the empty gate below to pick the right copy',
+    );
 
     // `state.isEmpty` (the day has nothing at all) necessarily makes
     // `state.items` empty too, and a status/service filter that matches
@@ -1090,6 +1153,24 @@ class _Loaded extends StatelessWidget {
     // (visible) bookings is "no bookings", not "no working hours" (that
     // verdict is [build]'s job, decided BEFORE this method is ever called —
     // see the class doc).
+    //
+    // ── THE SECOND DISJUNCT, `suppressesFreeCards` (bug fix, 2026-08-13) ──
+    // `window == null` alone made this branch UNREACHABLE on an
+    // EXPLICIT_TIMES day: a resolved explicit-times day always has a non-null
+    // window, so «Немає записів за цим фільтром» could never render there.
+    // That was harmless only while a filtered day still drew a column of free
+    // cards — which was itself the bug. With those suppressed, a filtered day
+    // matching no booking would go BLANK, so the filter-aware state is
+    // re-enabled for exactly that case.
+    //
+    // The two empties are NOT conflated: `suppressesFreeCards` implies the
+    // master narrowed the list ([BookingsDayQuery.showsAllOccupancy]'s doc —
+    // neither the default wire set nor the select-all empty set can fail that
+    // predicate), so `hasFilters` below is necessarily `true` here and the
+    // filter copy is the one that renders. A genuinely-unfiltered empty day
+    // is occupancy-COMPLETE, never reaches this disjunct, and keeps drawing
+    // its declared times as free cards; the `window == null` call sites keep
+    // showing «Немає записів» exactly as before.
     //
     // BUG FIX (user-reported) — gated on `window == null` now, not on
     // `items.isEmpty` alone. Once a real working-hours window has resolved,
@@ -1102,7 +1183,7 @@ class _Loaded extends StatelessWidget {
     // that predates this feature (`useScheduleWindow: false`, and
     // `useScheduleWindow: true`'s own loading/error fallbacks — see [build]),
     // which keep the illustrated empty states exactly as before.
-    if (items.isEmpty && window == null) {
+    if (items.isEmpty && (window == null || suppressesFreeCards)) {
       // The two empties are genuinely different situations — see
       // `master_bookings_states.dart`'s header. `hasFilters` is the whole
       // distinction: with no filter active, an empty result means this day is
@@ -1162,6 +1243,7 @@ class _Loaded extends StatelessWidget {
                     declaredTimes: declaredTimes,
                     bookings: items,
                     day: day,
+                    showsAllOccupancy: showsAllOccupancy,
                     onTapBooking: onBookingTap,
                   )
                 : BookingsTimelineGrid(
