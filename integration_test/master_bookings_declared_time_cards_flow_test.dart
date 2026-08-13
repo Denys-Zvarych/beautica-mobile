@@ -19,6 +19,7 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/declared_time_cards.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -157,6 +158,52 @@ _bootToDeclaredTimesDay(WidgetTester tester, FakeBackend fb) async {
     consumedTime: consumedTime,
     freeTime: freeTime,
   );
+}
+
+/// Opens the «Мої записи» filter sheet, toggles every row in [groups], and
+/// applies — mirrors `master_bookings_flow_test.dart`'s identically-named
+/// helper (kept local rather than shared: `integration_test/` files have no
+/// common non-`support/` library, and `support/app_harness.dart` is the
+/// harness, not a per-screen driver).
+///
+/// Needed by any flow asserting on a CANCELLED or DECLINED card: locked
+/// product decision 2026-08-13 hides both from the provider's day list —
+/// EXPLICIT_TIMES days included, since the exclusion lives on the shared
+/// `BookingsDiscoveryView` query and not in either render branch — until the
+/// master ticks «Скасовані».
+Future<void> _applyStatusFilter(
+  WidgetTester tester,
+  List<BookingStatusFilterGroup> groups,
+) async {
+  await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+  await AppHarness.settle(tester);
+  expect(
+    find.byKey(const Key('master-bookings-filter-sheet')),
+    findsOneWidget,
+    reason: 'the filter sheet must have opened before any row is ticked',
+  );
+
+  for (final BookingStatusFilterGroup group in groups) {
+    final Finder row = find.byKey(
+      Key('master-bookings-filter-status-${group.name}'),
+    );
+    await tester.scrollUntilVisible(
+      row,
+      80,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key('master-bookings-filter-sheet')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      maxScrolls: 20,
+    );
+    await tester.tap(row);
+    await AppHarness.settle(tester);
+  }
+
+  await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+  await AppHarness.settle(tester);
 }
 
 Key _freeCardKey(TimeOfDay t) => Key(
@@ -304,11 +351,22 @@ void main() {
     },
   );
 
+  // CANCELLED is NOT incidental here — every assertion below is a claim about
+  // that specific status: `_consumesDeclaredTimes` returns `false` for it (so
+  // the slot inside its former span is free again, unlike the CONFIRMED case
+  // one test above), `BookingDisplayX.showsPrice` returns `false` for it
+  // because the appointment did not happen and no sum is owed, and the label
+  // must read «Скасовано». NOT_COMPLETED happens to share both booleans, but
+  // for a different documented reason ("genuinely ambiguous whether the
+  // provider charges"), so swapping the fixture to it would quietly re-point
+  // this test at a claim it does not make. The fixture stays CANCELLED and
+  // the flow instead ticks «Скасовані», which is how a master reaches such a
+  // booking since 2026-08-13.
   testWidgets(
-    'a CANCELLED booking on a declared-times day still renders — with a '
-    'DIFFERENT status label than CONFIRMED, and no price — proving the E2E '
-    'composition, not just the isolated widget, carries the booking\'s real '
-    'status through',
+    'a CANCELLED booking on a declared-times day is hidden by default and, '
+    'once «Скасовані» is ticked, still renders — with a DIFFERENT status '
+    'label than CONFIRMED, and no price — proving the E2E composition, not '
+    'just the isolated widget, carries the booking\'s real status through',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       // Pre-boot fixture mutation — the repo-wide convention (see
@@ -318,6 +376,37 @@ void main() {
 
       final ({TimeOfDay bookedTime, TimeOfDay consumedTime, TimeOfDay freeTime})
       times = await _bootToDeclaredTimesDay(tester, fb);
+
+      final Finder bookedCard = find.byKey(
+        const ValueKey<String>('master-booking-card-booking-1'),
+      );
+
+      // ── The 2026-08-13 default, on the EXPLICIT_TIMES branch. The
+      //      exclusion lives on `BookingsDiscoveryView`'s shared query, so it
+      //      must apply here exactly as it does to the timeline grid — and
+      //      with the booking off the wire, its own declared time falls back
+      //      to an ordinary FREE card rather than vanishing. Asserted BEFORE
+      //      any scroll, on the list's first entry, so it cannot pass merely
+      //      because a row was unbuilt. ────────────────────────────────────
+      expect(
+        bookedCard,
+        findsNothing,
+        reason:
+            'a CANCELLED booking is off the master\'s day list until '
+            '«Скасовані» is ticked (locked 2026-08-13)',
+      );
+      expect(
+        find.byKey(_freeCardKey(times.bookedTime)),
+        findsOneWidget,
+        reason:
+            'with the cancelled booking filtered off the wire its declared '
+            'time is unmatched and simply free — never dropped from the '
+            'union along with it',
+      );
+
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.cancelled,
+      ]);
 
       // THE STATUS ALLOWLIST, at the E2E tier — the counterpart to the
       // CONFIRMED test's consumed-slot assertion, on the SAME declared time.
@@ -335,9 +424,6 @@ void main() {
             'CONFIRMED case one test above',
       );
 
-      final Finder bookedCard = find.byKey(
-        const ValueKey<String>('master-booking-card-booking-1'),
-      );
       expect(
         bookedCard,
         findsOneWidget,

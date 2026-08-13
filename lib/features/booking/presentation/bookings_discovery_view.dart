@@ -65,6 +65,50 @@
 // a rail-chip tap is now the ONLY way [_day] changes (besides «Сьогодні»),
 // but it still funnels through the same single mutation path.
 //
+// ## CANCELLED/DECLINED are hidden by default — on the WIRE, not after
+//
+// Locked product decision (2026-08-13): a provider's day list opens showing
+// only live work. Two sets, deliberately kept apart:
+//
+//   * `_statuses` — the MASTER's selection. Empty until they tick a group in
+//     the filter sheet. Drives `_activeFilterCount` (so an untouched screen
+//     shows NO funnel badge) and `_hasUserFilters` (so an empty day still
+//     reads «Немає записів», not «…за цим фільтром»).
+//   * the WIRE set — what `_rebuildQuery` puts on the query, resolved from
+//     `_statuses` by `BookingStatus.dayListWireStatuses` inside
+//     `BookingsDayQuery.dayList`. Empty selection →
+//     `BookingStatus.visibleInDayListByDefault` (= `filterable` − {CANCELLED,
+//     DECLINED}); every group ticked → the EMPTY set, which omits `status`
+//     from the request entirely so a status the backend gained after this
+//     build shipped is still reachable (it would otherwise be excluded by the
+//     server's `status IN (...)` even under "select all"); anything else →
+//     `_statuses` verbatim, so ticking «Скасовані» sends exactly CANCELLED +
+//     DECLINED and they re-appear.
+//
+// The mapping is NOT idempotent and is applied exactly once, at query
+// construction — the `State` holds the raw selection and never a wire set.
+// `BookingsDayQuery.dayList` is also what the two post-write invalidation
+// sites build through (`booking_calendar_invalidation.dart`,
+// `booking_confirm_screen.dart`), so they target the member this screen
+// actually watches; see that factory's doc for the stale-data bug that came
+// of them drifting apart.
+//
+// NOT_COMPLETED stays visible — it is the master's own no-show record and it
+// feeds the two-sided client rating.
+//
+// Server-side is load-bearing, not a preference: `BookingsDayNotifier` fetches
+// the day in ONE `size: 100` request with no paging, so cancelled rows
+// consuming that budget could silently truncate live ones. Every downstream
+// consumer — the header count, `BookingsTimelineGrid`, `DeclaredTimeCards` —
+// reads `state.items`/`state.totalElements`, which are now the SERVER's
+// already-narrowed list and count, so all of them agree by construction with
+// no per-branch filtering added anywhere.
+//
+// `booking_lane_layout.dart`'s pass 2 (cancelled-vs-replacement overlap) is
+// therefore unexercised by DEFAULT but still fully live whenever the filter
+// re-shows cancelled bookings. Do not delete it, do not collapse it to a
+// single pass.
+//
 // ## Read the async value with `.asData?.value`, never `value == null`
 //
 // Riverpod's `ref.invalidate` retains the previous `.value` through the next
@@ -210,8 +254,25 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// query — and simply assign this notifier alongside it.
   late final ValueNotifier<DateTime> _focusedMonth;
 
+  /// The USER's status selection — what the filter sheet resolved with, and
+  /// EMPTY until the master picks a group. Deliberately the RAW selection, NOT
+  /// the set that goes on the wire: the default cancelled/declined exclusion is
+  /// a rendering default, not a filter the master chose, so it must never light
+  /// up the funnel badge ([_activeFilterCount]) or flip the empty state's copy
+  /// to «Немає записів за цим фільтром» ([_hasUserFilters]).
+  ///
+  /// The wire mapping is applied exactly once, by [BookingsDayQuery.dayList] in
+  /// [_rebuildQuery] — it is not idempotent, so this field must never hold an
+  /// already-resolved wire set. See [BookingStatus.dayListWireStatuses].
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
+
+  /// Whether the MASTER narrowed the list — the empty state's copy switch and
+  /// the funnel badge both key off this, never off
+  /// [BookingsDayQuery.hasFilters], which is a wire-shape question: `true` even
+  /// on an untouched screen (the default exclusion is on the query) and `false`
+  /// when every group is ticked (the maximal filter is genuinely unfiltered).
+  bool get _hasUserFilters => _statuses.isNotEmpty || _serviceIds.isNotEmpty;
 
   /// The live query, rebuilt through [BookingsDayQuery.of] on every change —
   /// the single mutation path, mirroring the retired screen's `_setQuery`
@@ -315,11 +376,11 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _focusedMonth = ValueNotifier<DateTime>(DateTime(_day.year, _day.month));
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
-    _liveQuery = BookingsDayQuery.of(
-      day: _day,
-      statuses: _statuses,
-      serviceIds: _serviceIds,
-    );
+    // Through [_rebuildQuery], NOT a second inline `BookingsDayQuery.of` — it
+    // is the one place that folds the default status exclusion onto the wire
+    // (via [BookingsDayQuery.dayList]), and a landing query built any other way
+    // would skip it.
+    _rebuildQuery();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
 
     // Align the rail to today-first once first layout has happened
@@ -501,9 +562,16 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   /// Rebuilds [_liveQuery] from the current [_day]/[_statuses]/[_serviceIds]
   /// — the ONE place that constructs the live query. Every mutator below goes
-  /// through this rather than calling [BookingsDayQuery.of] itself.
+  /// through this rather than building a query itself.
+  ///
+  /// [BookingsDayQuery.dayList], never [BookingsDayQuery.of]: the default
+  /// cancelled/declined exclusion lives on the WIRE and is owned by that
+  /// factory, which the two post-write invalidation sites also build through
+  /// so they target the member this screen actually watches. Passing
+  /// [_statuses] RAW is load-bearing — the mapping is not idempotent. The UI's
+  /// own notion of "is a filter active" stays [_hasUserFilters].
   void _rebuildQuery() {
-    _liveQuery = BookingsDayQuery.of(
+    _liveQuery = BookingsDayQuery.dayList(
       day: _day,
       statuses: _statuses,
       serviceIds: _serviceIds,
@@ -535,11 +603,13 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   }
 
   /// The «Скинути фільтри» escape hatch on the filter-empty state — clears
-  /// status/service filters. The day is navigation, not a filter (see
-  /// [BookingsDayQuery.hasFilters]) and is deliberately left untouched: a
-  /// master who narrowed by status on TODAY and hit a filter-empty result
-  /// wants today's unfiltered list, not to be bounced back to a different
-  /// day.
+  /// status/service filters back to the DEFAULT view (which still excludes
+  /// CANCELLED/DECLINED via [BookingsDayQuery.dayList]; "cleared" means "the
+  /// master chose nothing", not "show everything" — the latter is ticking
+  /// every group in the sheet, which is a different wire set entirely). The day
+  /// is navigation, not a filter, and is deliberately left untouched: a master
+  /// who narrowed by status on TODAY and hit a filter-empty result wants
+  /// today's unfiltered list, not to be bounced back to a different day.
   void _clearAllFilters() {
     _dayDebounce?.cancel();
     setState(() {
@@ -581,6 +651,14 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   /// The count the header badge shows — ACTIVE FILTER GROUPS (day excluded;
   /// it is navigation, not a filter).
+  ///
+  /// Reads [_statuses] (the master's own selection), never the resolved WIRE
+  /// set. Both ends of that mapping would give the wrong answer: the default
+  /// cancelled/declined exclusion is not a decision the master made, so an
+  /// untouched screen must report **0** and show no badge; and ticking every
+  /// group resolves to an EMPTY wire set, which must still report **1** and
+  /// show the badge — the master narrowed nothing away, but they did make a
+  /// choice, and the funnel is how they find their way back out of it.
   int get _activeFilterCount => bookingsActiveFilterCount(
     hasStatuses: _statuses.isNotEmpty,
     hasServiceIds: _serviceIds.isNotEmpty,
@@ -735,7 +813,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                     ),
                     data: (BookingsDayState state) => _Loaded(
                       state: state,
-                      hasFilters: _liveQuery.hasFilters,
+                      // [_hasUserFilters], NOT `_liveQuery.hasFilters` — the
+                      // live query always carries statuses now (the default
+                      // exclusion), so reading it here would render the
+                      // «Немає записів за цим фільтром» copy on a screen the
+                      // master never filtered.
+                      hasFilters: _hasUserFilters,
                       day: _day,
                       useScheduleWindow: widget.useScheduleWindow,
                       scheduleAsync: scheduleAsync,
@@ -808,7 +891,12 @@ class _Loaded extends StatelessWidget {
 
   final BookingsDayState state;
 
-  /// `_liveQuery.hasFilters` — whether a status/service filter is active.
+  /// `_BookingsDiscoveryViewState._hasUserFilters` — whether the MASTER
+  /// narrowed the list. Deliberately NOT `_liveQuery.hasFilters`: the live
+  /// query carries a status set on an untouched screen (the default
+  /// cancelled/declined exclusion) and NO status set when every group is
+  /// ticked, so that getter answers the opposite question at both ends. See
+  /// `_statuses`' doc on the `State` and [BookingStatus.dayListWireStatuses].
   final bool hasFilters;
   final DateTime day;
 

@@ -316,7 +316,22 @@ void main() {
       listen: false,
     );
     final DateTime today = kyivToday(DateTime.now);
-    container.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: today)));
+    // The statuses are NOT decoration — `bookingsDayProvider` is a family and
+    // this must name the member the screen is actually watching. Since
+    // 2026-08-13 the landing query carries
+    // `BookingStatus.visibleInDayListByDefault` (CANCELLED/DECLINED hidden by
+    // default), so an empty-status query here invalidates a member nobody
+    // listens to: no second fetch fires and the `.called(2)` fixture guard
+    // below catches it rather than letting the identity assertions pass
+    // vacuously — which is precisely the job that guard exists for.
+    container.invalidate(
+      bookingsDayProvider(
+        BookingsDayQuery.of(
+          day: today,
+          statuses: BookingStatus.visibleInDayListByDefault,
+        ),
+      ),
+    );
     await tester.pump();
     await tester.pumpAndSettle();
 

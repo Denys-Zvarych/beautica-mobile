@@ -76,6 +76,111 @@ enum BookingStatus {
     notCompleted,
   ];
 
+  /// The statuses a PROVIDER's own day list hides unless the master ticks
+  /// «Скасовані» in the filter sheet (locked product decision, 2026-08-13).
+  ///
+  /// Both members, never one: [declined] (provider-initiated) and [cancelled]
+  /// (client-initiated) render the identical «Скасовано» badge app-wide (the
+  /// who-cancelled distinction was collapsed 2026-07-15) and
+  /// `BookingStatusFilterGroup.cancelled` already selects them as ONE row, so
+  /// they must hide and re-appear together or the filter row becomes a lie.
+  ///
+  /// [notCompleted] is deliberately ABSENT: a no-show is the master's own
+  /// record of a client who did not turn up and it feeds the two-sided client
+  /// rating. It stays visible.
+  static const Set<BookingStatus> hiddenFromDayListByDefault = <BookingStatus>{
+    declined,
+    cancelled,
+  };
+
+  /// [filterable] minus [hiddenFromDayListByDefault] — the wire status set the
+  /// provider's day list sends when the master has selected NO status group.
+  ///
+  /// ## Why the wire carries an inclusion list at all
+  ///
+  /// `GET /bookings/me` has no "exclude" parameter, so hiding two statuses
+  /// means naming the other three. Doing it on the WIRE rather than dropping
+  /// rows after the fetch is load-bearing: `BookingsDayNotifier` fetches a day
+  /// in ONE `size: 100` request with no paging, so cancelled bookings spending
+  /// that budget could silently truncate the live ones the master came to see.
+  ///
+  /// ## DERIVED from [filterable], never hand-listed
+  ///
+  /// Adding a member to [filterable] — already the documented obligation for
+  /// any new backend status — is enough to keep this set current. A
+  /// hand-written `{confirmed, completed, notCompleted}` literal would keep
+  /// excluding a newly-added status forever, silently.
+  ///
+  /// ## Being derived does NOT make a future status reachable here
+  ///
+  /// This is an INCLUSION list, and the DEFAULT one at that. A build that
+  /// predates a new backend status cannot name it, so the server's
+  /// `status IN (...)` predicate drops it from this list — and the backend
+  /// ships before the client, so that is the NORMAL order of events, not an
+  /// edge case. `fromWire`'s header spells out why a silently-dropped row is
+  /// the worst outcome on this screen ("the master could no-show a client over
+  /// it"); this set alone does not buy that back.
+  ///
+  /// What buys it back is [dayListWireStatuses]: ticking every filter group
+  /// resolves to the EMPTY set, which omits `status` from the request
+  /// entirely, so a status this build has never heard of is still reachable —
+  /// through one deliberate user action rather than by default. See that
+  /// method's doc.
+  ///
+  /// The backend's `@Size(max = 5)` cap is sized to [filterable] exactly, so
+  /// this subset can never exceed it.
+  static final Set<BookingStatus> visibleInDayListByDefault =
+      Set<BookingStatus>.unmodifiable(
+        filterable.where(
+          (BookingStatus s) => !hiddenFromDayListByDefault.contains(s),
+        ),
+      );
+
+  /// Resolves the provider day list's USER status selection into the set that
+  /// actually goes on the WIRE.
+  ///
+  /// The ONE definition of that mapping. `BookingsDayQuery.dayList` is its only
+  /// caller, and every day-list query — the live one `BookingsDiscoveryView`
+  /// watches AND the ones post-write invalidation targets — is built through
+  /// that factory, so the three call sites cannot drift apart. (They did: the
+  /// two invalidation sites kept building the plain, empty-status member while
+  /// the screen had moved to the default-visible one, so nothing invalidated
+  /// what the screen actually read.)
+  ///
+  /// Three cases:
+  ///
+  ///   * [selected] is EMPTY — the master chose nothing → resolves to
+  ///     [visibleInDayListByDefault] (CANCELLED/DECLINED hidden, locked
+  ///     2026-08-13).
+  ///   * [selected] covers ALL of [filterable] — "show me everything" →
+  ///     resolves to the EMPTY set, which `BookingRepository.getMyBookings`
+  ///     serialises by OMITTING `status` from the request entirely. Naming the
+  ///     five statuses THIS build knows would make even the maximal filter an
+  ///     inclusion list, leaving a status the backend gained after this build
+  ///     shipped unreachable through every filter combination — re-introducing
+  ///     at the wire the exact silent drop [fromWire] exists to prevent. Such a
+  ///     row decodes to [unknown] and is rendered inert, which is the intended
+  ///     outcome; being invisible is not.
+  ///   * anything else — honoured verbatim, so ticking «Скасовані» sends
+  ///     exactly `{CANCELLED, DECLINED}` (REPLACE, never union with the
+  ///     default).
+  ///
+  /// NOT idempotent — all of [filterable] maps to `{}`, which maps in turn to
+  /// [visibleInDayListByDefault]. Apply it exactly ONCE, at query
+  /// construction; that is why the view holds the master's RAW selection and
+  /// never a pre-resolved wire set.
+  ///
+  /// UI state is deliberately untouched by all of this: the funnel badge and
+  /// the empty-state copy count the MASTER's selection, so "every group
+  /// ticked" still reads as an active filter even though the wire set is
+  /// empty, and an untouched screen still reports zero even though the wire
+  /// set is not.
+  static Set<BookingStatus> dayListWireStatuses(Set<BookingStatus> selected) {
+    if (selected.isEmpty) return visibleInDayListByDefault;
+    if (selected.containsAll(filterable)) return const <BookingStatus>{};
+    return selected;
+  }
+
   /// Decodes the backend wire status string (`BookingDetailResponse.status`,
   /// e.g. `"CONFIRMED"`) into a [BookingStatus].
   ///

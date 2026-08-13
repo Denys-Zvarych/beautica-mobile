@@ -130,6 +130,15 @@ class MasterBookingsScreen extends ConsumerWidget {
         // learns the right pattern rather than the bug this whole track
         // exists to close (backlog :226). See that file's header for why the
         // day is owned there, not here.
+        //
+        // NO seed statuses, deliberately — and that is NOT the same as "show
+        // every status". An empty seed means "the master has chosen no
+        // filter", which `BookingsDiscoveryView` resolves on the wire to
+        // `BookingStatus.visibleInDayListByDefault` (CANCELLED and DECLINED
+        // hidden, NOT_COMPLETED kept — locked 2026-08-13). Seeding statuses
+        // here would instead read as a master-chosen filter and light up the
+        // funnel badge. See that file's "CANCELLED/DECLINED are hidden by
+        // default" header section.
         query: BookingsDayQuery.of(day: kyivToday(ref.read(clockProvider))),
         title: l10n.masterBookingsTitle,
         // Bottom-nav tab root — no back affordance.

@@ -73,6 +73,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
@@ -262,6 +263,64 @@ Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
   await tester.tap(find.byKey(dayChipKey(day)));
   // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
   await tester.pump(const Duration(milliseconds: 300));
+  await AppHarness.settle(tester);
+}
+
+/// Opens the «Мої записи» filter sheet, TOGGLES every row in [groups], and
+/// applies — driving the real sheet a master would, not a notifier back door.
+///
+/// ## Why flows that assert on a cancelled card must call this
+///
+/// Locked product decision (2026-08-13): the provider's day list HIDES
+/// `CANCELLED` + `DECLINED` by default
+/// (`BookingStatus.hiddenFromDayListByDefault`) — they share the one
+/// «Скасовано» badge and are reachable only by ticking «Скасовані» here.
+///
+/// ## Why the ACTIVE groups have to be ticked alongside «Скасовані»
+///
+/// `BookingStatus.dayListWireStatuses` — applied by the
+/// `BookingsDayQuery.dayList` factory the view builds its query through —
+/// REPLACES the default set with the master's selection rather than unioning
+/// the two, so ticking «Скасовані» alone sends exactly
+/// `status=CANCELLED,DECLINED` and filters every live booking off the wire. A flow that needs a cancelled card AND an active one
+/// on screen together — every lane-layout flow in this file — must therefore
+/// pass BOTH groups. This mirrors the master's own click path: the sheet's
+/// rows are additive multi-select.
+///
+/// Each row is scrolled into the sheet's own `ListView` first: it is lazy, and
+/// «Скасовані» is the last of the four status rows.
+Future<void> _applyStatusFilter(
+  WidgetTester tester,
+  List<BookingStatusFilterGroup> groups,
+) async {
+  await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+  await AppHarness.settle(tester);
+  expect(
+    find.byKey(const Key('master-bookings-filter-sheet')),
+    findsOneWidget,
+    reason: 'the filter sheet must have opened before any row is ticked',
+  );
+
+  for (final BookingStatusFilterGroup group in groups) {
+    final Finder row = find.byKey(
+      Key('master-bookings-filter-status-${group.name}'),
+    );
+    await tester.scrollUntilVisible(
+      row,
+      80,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key('master-bookings-filter-sheet')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      maxScrolls: 20,
+    );
+    await tester.tap(row);
+    await AppHarness.settle(tester);
+  }
+
+  await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
   await AppHarness.settle(tester);
 }
 
@@ -2350,6 +2409,198 @@ void main() {
     },
   );
 
+  // ── 2026-08-13 — CANCELLED/DECLINED are HIDDEN from the master's day list
+  //      by default, and reachable only through «Скасовані» ────────────────
+  //
+  // Step 2.7 Rule 3b. The lower tiers each prove one half against a stub:
+  // `booking_status_test.dart` pins `visibleInDayListByDefault` as a
+  // DERIVATION of `filterable` (a pure-Dart constant, no wire), and
+  // `master_bookings_filter_wiring_test.dart` pins the status set the
+  // notifier hands a MOCKED `BookingRepository`. Neither can prove the rule
+  // reaches the master: the mock never re-derives wire shape from what it was
+  // called with, so a regression that serialised the set as a single
+  // comma-joined scalar, or that unioned the default with the user's
+  // selection instead of replacing it, stays green at both tiers while the
+  // day list shows exactly the wrong rows. This drives the real chain —
+  // landing `GET /bookings/me` -> a fake backend that genuinely filters on
+  // the repeated `status` param -> `BookingMapper` -> `BookingsDayNotifier`
+  // -> `BookingsTimelineGrid` — and asserts on rendered cards, not on a
+  // recorded query alone.
+  //
+  // Three phases, each a real sheet interaction:
+  //   1. LANDING — the cancelled card is absent, its CONFIRMED same-day
+  //      sibling is present. Absence alone would also be satisfied by a
+  //      broken day, an unresolved schedule window or a failed fetch; the
+  //      sibling is what makes it a STATUS filter. The funnel badge stays
+  //      dark, pinning that the default exclusion is a rendering default and
+  //      not something the master chose.
+  //   2. «Скасовані» alone — the cancelled card appears AND the confirmed one
+  //      leaves. That departure is the REPLACE semantics of
+  //      `BookingStatus.dayListWireStatuses` observed end to end; a union
+  //      would leave both on screen.
+  //   3. «Підтверджено» added on top — both together, which is the state the
+  //      two lane-layout flows below depend on.
+  //
+  // No `integration_test/patrol/` case is needed — nothing here touches a
+  // native surface (no OS dialog, deep link, push, WebView or biometric).
+  testWidgets(
+    'a CANCELLED booking is HIDDEN from the master day list by default and '
+    'renders only once «Скасовані» is ticked, while its CONFIRMED same-day '
+    'sibling follows the opposite path — through a real GET /bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two
+      // back-to-back" test below for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — the top of the seeded
+      // window, and 08:00 UTC == 11:00 Kyiv two hours below it. Both sit well
+      // inside `BookingsTimelineGrid`'s initial culling band, so neither
+      // needs a vertical scroll and an ABSENCE assertion can never pass
+      // merely because the row was never built.
+      final DateTime confirmedStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      final DateTime cancelledStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        8,
+      );
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'default-visible',
+          status: 'CONFIRMED',
+          startsAt: confirmedStart,
+          duration: const Duration(minutes: 60),
+        ),
+        fb.datasetBookingRow(
+          id: 'default-hidden',
+          status: 'CANCELLED',
+          startsAt: cancelledStart,
+          duration: const Duration(minutes: 60),
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await _selectRailDay(tester, bookedDay);
+
+      final Finder confirmedCard = find.byKey(
+        const Key('master-booking-card-default-visible'),
+      );
+      final Finder cancelledCard = find.byKey(
+        const Key('master-booking-card-default-hidden'),
+      );
+
+      // ── 1. LANDING — nothing ticked. ──────────────────────────────────────
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'COMPLETED', 'NOT_COMPLETED']),
+        reason:
+            'the untouched day list must name the three visible statuses on '
+            'the wire — `GET /bookings/me` has no exclude parameter, and '
+            'dropping the rows after the fetch would let cancelled bookings '
+            'spend the single size:100 page budget the live ones need',
+      );
+      expect(
+        confirmedCard,
+        findsOneWidget,
+        reason:
+            'the CONFIRMED booking is untouched by the default exclusion — '
+            'without this the absence below would also be satisfied by a '
+            'broken day, an unresolved window or a failed fetch',
+      );
+      expect(
+        cancelledCard,
+        findsNothing,
+        reason:
+            'THE NEW DEFAULT (locked 2026-08-13): a CANCELLED booking is not '
+            'on the master\'s day list until «Скасовані» is ticked',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-filter-badge')),
+        findsNothing,
+        reason:
+            'the default exclusion is a RENDERING default, not a filter the '
+            'master chose — it must never light the funnel badge',
+      );
+
+      // ── 2. «Скасовані» alone — REPLACE, not union. ────────────────────────
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.cancelled,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CANCELLED', 'DECLINED']),
+        reason:
+            'the master\'s selection REPLACES the default set — the two '
+            'statuses «Скасовані» owns go out, and nothing else. They travel '
+            'together because both render the identical «Скасовано» badge',
+      );
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason:
+            'ticking «Скасовані» must bring the hidden booking back onto the '
+            'day list — hidden by default, never removed',
+      );
+      expect(
+        confirmedCard,
+        findsNothing,
+        reason:
+            'and the CONFIRMED sibling must LEAVE — the selection replaced '
+            'the default rather than being added to it. A union bug would '
+            'leave this card on screen',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-filter-badge')),
+        findsOneWidget,
+        reason: 'a status the MASTER picked does light the funnel badge',
+      );
+
+      // ── 3. «Підтверджено» added on top — the sheet is additive. ───────────
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
+        reason:
+            'the sheet reopens carrying the previous selection and the rows '
+            'are multi-select, so «Підтверджено» ADDS to «Скасовані»',
+      );
+      expect(
+        confirmedCard,
+        findsOneWidget,
+        reason:
+            'both cards on screen together — the state the two lane-layout '
+            'flows below rely on',
+      );
+      expect(cancelledCard, findsOneWidget);
+    },
+  );
+
   // ── 2026-07-26 — status-aware lane assignment: a CANCELLED booking must
   //      never hide the live CONFIRMED booking that replaced it ────────────
   //
@@ -2372,11 +2623,21 @@ void main() {
   // notification, WebView, or biometric prompt); it is pure Flutter
   // widget/HTTP plumbing, fully reachable through the existing fake-backed
   // `integration_test/` harness.
+  // 2026-08-13 — cancelled bookings are now HIDDEN from the day list until the
+  // master ticks «Скасовані». That is a default, NOT a removal: `assignLanes`'
+  // pass 2 (`booking_lane_layout.dart:116-123`, `:200+`) exists solely for the
+  // cancelled-vs-replacement overlap this test pins, and it is still live the
+  // moment the filter re-shows those rows — which is exactly when the master
+  // is looking for the dead card and must not find it hiding the live one. So
+  // this flow now drives the real filter sheet first and asserts EXACTLY as it
+  // did before; nothing was relaxed. «Підтверджено» is ticked alongside
+  // «Скасовані» because the wire set REPLACES rather than unions — see
+  // [_applyStatusFilter]'s doc.
   testWidgets(
-    'a CANCELLED booking overlapping a live CONFIRMED one at the same slot: '
-    'the CONFIRMED card renders in the leftmost lane, and the cancelled one '
-    'is still present (reachable, not filtered), through a real GET '
-    '/bookings/me',
+    'a CANCELLED booking overlapping a live CONFIRMED one at the same slot, '
+    'with «Скасовані» ticked: the CONFIRMED card renders in the leftmost lane, '
+    'and the cancelled one is still present (reachable, not filtered), '
+    'through a real GET /bookings/me',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -2436,6 +2697,23 @@ void main() {
         fb.bookingStartsAt.substring(0, 10),
       );
       await _selectRailDay(tester, bookedDay);
+
+      // Re-show the cancelled row the way a master does — through the real
+      // sheet, not a notifier back door. Without this the day list sends
+      // `status=CONFIRMED,COMPLETED,NOT_COMPLETED` and `cancelled-slot` never
+      // leaves the fake backend.
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+        BookingStatusFilterGroup.cancelled,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
+        reason:
+            'both ticked groups must reach the wire together — if only the '
+            'cancelled pair went out, the CONFIRMED card below would be '
+            'absent for a reason that has nothing to do with lane assignment',
+      );
 
       expect(
         fb.getMyBookingsCalls,
@@ -2518,10 +2796,16 @@ void main() {
   // notification, WebView, or biometric prompt); it is pure Flutter
   // widget/HTTP plumbing, fully reachable through the existing fake-backed
   // `integration_test/` harness.
+  // 2026-08-13 — same note as the overlap-demotion flow directly above: the
+  // cancelled row is now hidden by DEFAULT, never removed, and pass 2's
+  // isolated-cancelled branch is live the moment «Скасовані» is ticked. The
+  // filter is driven first; every assertion below is byte-for-byte the one it
+  // made before.
   testWidgets(
     'a CANCELLED booking overlapping NOTHING, sandwiched between an early '
-    'and a late active booking, still renders in the leftmost lane — '
-    'left-aligned with both active cards — through a real GET /bookings/me',
+    'and a late active booking, with «Скасовані» ticked: still renders in the '
+    'leftmost lane — left-aligned with both active cards — through a real GET '
+    '/bookings/me',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -2594,6 +2878,22 @@ void main() {
         fb.bookingStartsAt.substring(0, 10),
       );
       await _selectRailDay(tester, bookedDay);
+
+      // Re-show the cancelled row through the real sheet. «Підтверджено» goes
+      // with it — the wire set REPLACES, so ticking «Скасовані» alone would
+      // filter BOTH active cards this test left-aligns against off the wire.
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+        BookingStatusFilterGroup.cancelled,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
+        reason:
+            'all three seeded bookings must be inside the requested status '
+            'set — otherwise a missing card below would be a filter artefact, '
+            'not the lane bug under test',
+      );
 
       expect(
         fb.getMyBookingsCalls,

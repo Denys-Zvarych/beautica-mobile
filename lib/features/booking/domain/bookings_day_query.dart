@@ -127,7 +127,55 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
     );
   }
 
+  /// The provider day list's query — [BookingsDayQuery.of] with the day-list
+  /// status DEFAULT already applied.
+  ///
+  /// [statuses] is the MASTER's raw selection (empty until they tick a group in
+  /// the filter sheet), not a wire set: this factory resolves it through
+  /// [BookingStatus.dayListWireStatuses], which is where the "CANCELLED and
+  /// DECLINED are hidden by default" decision (locked 2026-08-13) and the
+  /// "every group ticked means genuinely unfiltered" escape hatch both live.
+  ///
+  /// ## Why this factory exists at all
+  ///
+  /// It is the ONE spelling of "the query the provider day list is keyed on",
+  /// shared by all three call sites:
+  ///
+  ///   1. `BookingsDiscoveryView._rebuildQuery` — the member the screen WATCHES.
+  ///   2. `invalidateBookingViewsAfterExternalDecline`
+  ///      (`booking_calendar_invalidation.dart`).
+  ///   3. `BookingConfirmScreen._submit`'s per-item reschedule branch.
+  ///
+  /// Sites 2 and 3 used to hand-build `BookingsDayQuery.of(day: d)` — the
+  /// EMPTY-status member — while site 1 had moved to the default-visible one.
+  /// Different family key, so a decline left the screen's own kept-alive
+  /// member (`bookings_day_notifier.dart`'s ≤3-day LRU pins it ACROSS screen
+  /// disposal) serving the declined booking as CONFIRMED until a manual
+  /// pull-to-refresh. Both invalidation sites now fire this member AND the
+  /// plain one; keep them in that shape, and add any new day-list call site
+  /// here rather than re-deriving the default set a fourth time.
+  ///
+  /// Apply the mapping exactly once — it is not idempotent. Never feed the
+  /// result of this factory's own `statuses` back into it (see
+  /// [BookingStatus.dayListWireStatuses]).
+  factory BookingsDayQuery.dayList({
+    required DateTime day,
+    Set<BookingStatus> statuses = const <BookingStatus>{},
+    Set<String> serviceIds = const <String>{},
+  }) => BookingsDayQuery.of(
+    day: day,
+    statuses: BookingStatus.dayListWireStatuses(statuses),
+    serviceIds: serviceIds,
+  );
+
   /// Whether any filter narrows the list — [day] is navigation, not a
   /// filter, so it never counts.
+  ///
+  /// ⚠ On a query built by [BookingsDayQuery.dayList] this is a WIRE-shape
+  /// question, not a UI one: it is `true` on an untouched screen (the default
+  /// exclusion is on the query) and `false` when the master has ticked every
+  /// group (the maximal filter is genuinely unfiltered). The screen's own
+  /// notion of "the master narrowed this list" is `_hasUserFilters`, which
+  /// reads the raw selection — never this.
   bool get hasFilters => statuses.isNotEmpty || serviceIds.isNotEmpty;
 }

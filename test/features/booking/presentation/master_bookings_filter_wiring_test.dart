@@ -207,20 +207,79 @@ void main() {
     // MUTATION: changed `BookingsDayNotifier`'s fixed sort to
     // `BookingSort.newest` → this test failed on both the enum and the
     // wireValue assertion. Restored.
-    testWidgets('opens on Kyiv "today", oldest-first, page 0', (
+    //
+    // The landing STATUS assertion changed 2026-08-13 and is not a loosening:
+    // it used to read `isEmpty` (send no `?status=` at all, let the server
+    // return every status). The locked decision hides CANCELLED + DECLINED by
+    // default, and `GET /bookings/me` has no "exclude" parameter, so the
+    // default view names the other three ON THE WIRE. Asserted as the exact
+    // wire strings, not as `BookingStatus.visibleInDayListByDefault` — a
+    // typo'd or reordered constant must fail here rather than be compared
+    // against itself.
+    //
+    // MUTATION: made `_rebuildQuery` build `BookingsDayQuery.of` (raw
+    // `_statuses`, the master's own selection) instead of
+    // `BookingsDayQuery.dayList` → this test failed on the status assertion.
+    // Restored.
+    testWidgets('opens on Kyiv "today", oldest-first, page 0 — and hides '
+        'CANCELLED/DECLINED on the wire without the master filtering', (
       WidgetTester tester,
     ) async {
       await pump(tester);
 
       expect(calls, hasLength(1));
       expect(calls.single.page, 0);
-      expect(calls.single.statuses, isEmpty);
+      expect(
+        calls.single.statuses.map((BookingStatus s) => s.wireValue).toSet(),
+        <String>{'CONFIRMED', 'COMPLETED', 'NOT_COMPLETED'},
+        reason:
+            'the default day list shows live work only — NOT_COMPLETED stays '
+            '(the master\'s own no-show record, feeding the two-sided client '
+            'rating), CANCELLED/DECLINED are excluded server-side so they '
+            'cannot eat the single un-paged size:100 budget',
+      );
       expect(calls.single.serviceIds, isEmpty);
       expect(calls.single.from, _kyivToday);
       expect(calls.single.to, _kyivToday);
       expect(calls.single.sort, BookingSort.oldest);
       // Wire value as a LITERAL — a typo in the enum must fail here.
       expect(calls.single.sort!.wireValue, 'startsAt,asc');
+    });
+
+    // The subtle half of the 2026-08-13 decision: the default exclusion is a
+    // WIRE concern only. It must not read back to the master as "you have a
+    // filter on" — a funnel badge on a screen nobody filtered, plus the
+    // «Немає записів за цим фільтром» copy on a genuinely free day, is how a
+    // silently-narrowed list becomes a support ticket.
+    //
+    // The empty-state half of the same invariant (`_hasUserFilters`, not
+    // `_liveQuery.hasFilters`) is pinned where empty pages are stubbed —
+    // `master_bookings_screen_test.dart`'s "TRUE empty (no filters, an empty
+    // day) offers no reset". This test owns the BADGE half; the `pump` stub
+    // here returns two bookings, so an empty-state assertion would pass
+    // vacuously.
+    //
+    // MUTATION: made `_activeFilterCount` read the resolved wire set
+    // (`BookingStatus.dayListWireStatuses(_statuses)`) → this test failed (the
+    // badge rendered "1"). Restored.
+    testWidgets('the wire exclusion never reads back as an active filter — no '
+        'badge on a screen the master never filtered', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      // Fixture guard: the landing request really did carry three statuses,
+      // so the absent badge below is the SEPARATION being asserted and not
+      // just an unfiltered screen.
+      expect(calls.single.statuses, hasLength(3));
+      expect(
+        find.byKey(const Key('master-bookings-filter-badge')),
+        findsNothing,
+        reason:
+            'the badge counts the MASTER\'s decisions, not the wire — '
+            'reading `BookingStatus.dayListWireStatuses` here would light '
+            'the funnel up on a screen nobody filtered',
+      );
     });
   });
 
@@ -259,6 +318,96 @@ void main() {
       expect(calls.single.from, _kyivToday);
       expect(calls.single.to, _kyivToday);
     });
+
+    // The other half of the 2026-08-13 decision: hidden by default, but still
+    // REACHABLE. Ticking «Скасовані» alone must send exactly the two hidden
+    // statuses and nothing else — if the wire mapping folded the default set in
+    // (union instead of replace) the master would get the whole day back
+    // instead of the cancelled bookings they asked for.
+    //
+    // MUTATION: made `BookingStatus.dayListWireStatuses` return `selected ∪
+    // visibleInDayListByDefault` → this test failed with all five statuses.
+    // Restored.
+    testWidgets('ticking «Скасовані» alone sends exactly CANCELLED + DECLINED '
+        '— the default exclusion is REPLACED, not unioned', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      calls.clear();
+
+      await openFilters(tester);
+      await tester.tap(
+        find.byKey(const Key('master-bookings-filter-status-cancelled')),
+      );
+      await tester.pumpAndSettle();
+      await applyFilters(tester);
+
+      expect(
+        calls.single.statuses.map((BookingStatus s) => s.wireValue).toSet(),
+        <String>{'CANCELLED', 'DECLINED'},
+      );
+    });
+
+    // mobile-security LOW (2026-08-13) — the MAXIMAL filter must be genuinely
+    // UNFILTERED on the wire, not an inclusion list of the five statuses this
+    // build happens to know.
+    //
+    // The sheet's four groups cover exactly `BookingStatus.filterable`, so
+    // "select all" used to send all five names. The backend ships before the
+    // client, so a status added server-side is excluded by `status IN (...)`
+    // and is then unreachable through EVERY filter combination — the silent
+    // drop `fromWire` exists to prevent, re-introduced one layer lower. Sending
+    // NO `status` param is what makes it reachable.
+    //
+    // The badge assertion is the other half and is not decoration: the wire set
+    // and the UI's notion of "a filter is on" are deliberately separate
+    // (`_activeFilterCount` reads the master's RAW selection), so an empty wire
+    // set must NOT silently retire the funnel the master needs to get back out.
+    //
+    // MUTATION: made `BookingStatus.dayListWireStatuses` return `selected`
+    // verbatim for the all-of-`filterable` case → the wire assertion failed
+    // with five statuses. Restored.
+    testWidgets(
+      'ticking EVERY status group sends NO status param at all — so a status '
+      'this build has never heard of is still reachable — while the funnel '
+      'badge still reports an active filter',
+      (WidgetTester tester) async {
+        await pump(tester);
+        calls.clear();
+
+        await openFilters(tester);
+        for (final String group in const <String>[
+          'confirmed',
+          'completed',
+          'notCompleted',
+          'cancelled',
+        ]) {
+          await tester.tap(
+            find.byKey(Key('master-bookings-filter-status-$group')),
+          );
+          await tester.pumpAndSettle();
+        }
+        await applyFilters(tester);
+
+        expect(
+          calls.single.statuses,
+          isEmpty,
+          reason:
+              'the maximal filter must OMIT `status` entirely — naming the '
+              'five statuses this build knows makes even "select all" an '
+              'inclusion list, so a future backend status is unreachable '
+              'through every filter combination',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-badge')),
+          findsOneWidget,
+          reason:
+              'the master DID make a choice — an empty WIRE set must not '
+              'read back as "no filter" and hide the funnel they need to '
+              'undo it',
+        );
+      },
+    );
 
     // MUTATION: made `_applyFilters` drop `applied.serviceIds` → this test
     // failed. Restored.

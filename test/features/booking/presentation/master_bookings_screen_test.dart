@@ -577,11 +577,26 @@ void main() {
       'фільтри» — the master is never stranded',
       (tester) async {
         final repo = _MockBookingRepository();
-        // Unfiltered (the landing day): one booking. Any status filter:
+        // The DEFAULT view: one booking. A master-CHOSEN status filter:
         // nothing matches it.
+        //
+        // The discriminator was `isEmpty` vs `isNotEmpty` until 2026-08-13.
+        // It cannot be any more: the default view now carries
+        // `BookingStatus.visibleInDayListByDefault` on the wire (CANCELLED and
+        // DECLINED are hidden without the master filtering, and
+        // `GET /bookings/me` has no exclude parameter), so an empty status
+        // list never reaches the repository from this screen and the landing
+        // fetch matched the "filtered" stub instead — the empty page it
+        // returned made the pre-filter `findsOne` below fail. Splitting on the
+        // default SET keeps the test asserting the same thing it always did:
+        // unfiltered shows work, a chosen filter that matches nothing offers
+        // the escape hatch.
         when(
           () => repo.getMyBookings(
-            statuses: any(named: 'statuses', that: isEmpty),
+            statuses: any(
+              named: 'statuses',
+              that: unorderedEquals(BookingStatus.visibleInDayListByDefault),
+            ),
             page: any(named: 'page'),
             size: any(named: 'size'),
             cancelToken: any(named: 'cancelToken'),
@@ -593,7 +608,12 @@ void main() {
         ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
         when(
           () => repo.getMyBookings(
-            statuses: any(named: 'statuses', that: isNotEmpty),
+            statuses: any(
+              named: 'statuses',
+              that: isNot(
+                unorderedEquals(BookingStatus.visibleInDayListByDefault),
+              ),
+            ),
             page: any(named: 'page'),
             size: any(named: 'size'),
             cancelToken: any(named: 'cancelToken'),

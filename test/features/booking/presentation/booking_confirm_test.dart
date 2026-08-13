@@ -1098,6 +1098,94 @@ void main() {
       },
     );
 
+    // REGRESSION GUARD (mobile-perf HIGH, 2026-08-13) — the sibling guard
+    // above subscribes to `BookingsDayQuery.of(day:)`, the EMPTY-status family
+    // member. That is NOT the member the master's own «Мої записи» watches:
+    // since CANCELLED/DECLINED became hidden by default (locked 2026-08-13),
+    // `BookingsDiscoveryView` watches `BookingsDayQuery.dayList(day:)`
+    // (`{CONFIRMED, COMPLETED, NOT_COMPLETED}` on the wire). Different family
+    // key — so the invalidation loop could stay green here while invalidating
+    // nothing the screen actually reads, and `bookings_day_notifier.dart`'s
+    // ≤3-day keepAlive LRU pins that stale member ACROSS screen disposal, so
+    // the moved item keeps rendering at its OLD slot until a manual
+    // pull-to-refresh. This test pins the member the SCREEN uses; keep both.
+    testWidgets(
+      'REGRESSION GUARD — a successful per-item VISIT reschedule invalidates '
+      'the DEFAULT day-list member (BookingsDayQuery.dayList) the master\'s '
+      'own «Мої записи» actually watches, not just the empty-status one',
+      (tester) async {
+        final appointments = _FakeAppointmentRepository();
+        final bookings = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+            authProvider.overrideWith(_StubAuth.new),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _appointmentItemRescheduleArgs(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        // Pre-warm auth BEFORE subscribing — see the sibling guard above.
+        await container.read(authProvider.future);
+        // Built exactly as `BookingsDiscoveryView._rebuildQuery` builds it: the
+        // shared factory with the master's RAW (empty) selection, NOT a
+        // hand-written `{confirmed, completed, notCompleted}` literal — a
+        // literal here would re-create the drift this guard exists to catch.
+        final BookingsDayQuery dayListQuery = BookingsDayQuery.dayList(
+          day: DateTime(2026, 7, 20),
+        );
+        expect(
+          dayListQuery,
+          isNot(BookingsDayQuery.of(day: DateTime(2026, 7, 20))),
+          reason:
+              'the default day-list member must be a DIFFERENT family key '
+              'from the plain empty-status one — if these ever collapse to '
+              'one key this guard silently stops testing anything',
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> subDay =
+            container.listen(
+              bookingsDayProvider(dayListQuery),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDay.close);
+        await container.read(bookingsDayProvider(dayListQuery).future);
+        expect(bookings.getMyBookingsCalls, 1);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.rescheduleItemCalls, hasLength(1));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await container.read(bookingsDayProvider(dayListQuery).future);
+        expect(
+          bookings.getMyBookingsCalls,
+          2,
+          reason:
+              'a successful per-item VISIT reschedule must invalidate the '
+              'day-list member the master\'s own screen watches — '
+              'invalidating only BookingsDayQuery.of(day:) leaves the '
+              'kept-alive default member serving the item at its OLD slot',
+        );
+      },
+    );
+
     // mobile-qa REGRESSION GUARD (UTC/Kyiv date-boundary anchor) — the
     // invalidation loop above used to key `bookingsDayProvider` off
     // `dateOnly(widget.args.startAt)` DIRECTLY. `startAt` is a canonical UTC
