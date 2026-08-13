@@ -79,19 +79,35 @@ Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
 }
 
 /// Boots the app as an INDEPENDENT_MASTER, seeds the fixture booking's own
-/// day as an EXPLICIT_TIMES day (booked time + one free time an hour later),
-/// logs in, navigates to «Мої записи», and selects that day. Shared by both
-/// `testWidgets` below — [fb]'s `bookingStatus`/`bookingPrice`/
-/// `bookingPriceMax` must be set by the caller BEFORE this runs (mirrors the
-/// repo-wide pre-boot fixture-mutation convention, e.g.
-/// `client_home_hub_flow_test.dart`'s `..bookingStatus = 'COMPLETED'`).
+/// day as an EXPLICIT_TIMES day, logs in, navigates to «Мої записи», and
+/// selects that day. Shared by both `testWidgets` below — [fb]'s
+/// `bookingStatus`/`bookingPrice`/`bookingPriceMax` must be set by the caller
+/// BEFORE this runs (mirrors the repo-wide pre-boot fixture-mutation
+/// convention, e.g. `client_home_hub_flow_test.dart`'s
+/// `..bookingStatus = 'COMPLETED'`).
 ///
-/// Returns the booked/free [TimeOfDay]s so the caller can derive the free
-/// card's key without re-deriving the fixture's own Kyiv time twice.
-Future<({TimeOfDay bookedTime, TimeOfDay freeTime})> _bootToDeclaredTimesDay(
-  WidgetTester tester,
-  FakeBackend fb,
-) async {
+/// THREE declared times are seeded, deliberately straddling the fixture
+/// booking's own 90-minute span (`FakeBackend.bookingStartsAt` ->
+/// `bookingEndsAt`, `+90 min`):
+///   * `bookedTime`   — the booking's own Kyiv start; renders its card.
+///   * `consumedTime` — start + 1 h, i.e. INSIDE `[start, end)`. Hidden
+///     outright when the booking CONSUMES the clock (CONFIRMED/COMPLETED),
+///     still free when it does not (CANCELLED/DECLINED/NOT_COMPLETED/
+///     UNKNOWN) — see `declared_time_cards.dart`'s "CONSUMED DECLARED TIMES
+///     ARE DROPPED" section and `_consumesDeclaredTimes`'s allowlist.
+///   * `freeTime`     — start + 2 h, PAST the booking's end, so it is
+///     genuinely free under every status.
+///
+/// Before 2026-08-13 this helper seeded only `bookedTime` and a "free" time
+/// at start + 1 h — which the consumed-slot fix then correctly HID, turning
+/// this file red. That single-hour offset was never a deliberate choice; the
+/// three-time shape above replaces it and makes the membership rule an E2E
+/// assertion rather than an accident of the fixture's spacing.
+///
+/// Returns all three [TimeOfDay]s so the caller can derive each card's key
+/// without re-deriving the fixture's own Kyiv time again.
+Future<({TimeOfDay bookedTime, TimeOfDay consumedTime, TimeOfDay freeTime})>
+_bootToDeclaredTimesDay(WidgetTester tester, FakeBackend fb) async {
   // `_bookingDay` reads `beauticaZone` (via `toBeauticaTime`), only
   // initialised once `AppHarness.boot` has run — so both the seeding below
   // and every later reference must come AFTER boot.
@@ -105,16 +121,25 @@ Future<({TimeOfDay bookedTime, TimeOfDay freeTime})> _bootToDeclaredTimesDay(
     hour: bookingKyiv.hour,
     minute: bookingKyiv.minute,
   );
-  // A second declared time, one hour after the booked one — the fixture
-  // booking (`FakeBackend`'s own doc: ~17:00–19:30 Kyiv in winter,
-  // ~18:00–19:30 in summer) leaves comfortable headroom before midnight.
-  final TimeOfDay freeTime = TimeOfDay(
+  // +1 h — INSIDE the fixture booking's 90-minute span. +2 h — past its end.
+  // The fixture booking (`FakeBackend`'s own doc: ~17:00–18:30 Kyiv in
+  // winter, ~18:00–19:30 in summer) leaves comfortable headroom before
+  // midnight for both.
+  final TimeOfDay consumedTime = TimeOfDay(
     hour: (bookedTime.hour + 1) % 24,
+    minute: bookedTime.minute,
+  );
+  final TimeOfDay freeTime = TimeOfDay(
+    hour: (bookedTime.hour + 2) % 24,
     minute: bookedTime.minute,
   );
 
   fb.seedEffectiveSchedule(<Map<String, dynamic>>[
-    _explicitTimesDay(bookingDay, <TimeOfDay>[bookedTime, freeTime]),
+    _explicitTimesDay(bookingDay, <TimeOfDay>[
+      bookedTime,
+      consumedTime,
+      freeTime,
+    ]),
   ]);
 
   await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -127,7 +152,46 @@ Future<({TimeOfDay bookedTime, TimeOfDay freeTime})> _bootToDeclaredTimesDay(
 
   await _selectRailDay(tester, bookingDay);
 
-  return (bookedTime: bookedTime, freeTime: freeTime);
+  return (
+    bookedTime: bookedTime,
+    consumedTime: consumedTime,
+    freeTime: freeTime,
+  );
+}
+
+Key _freeCardKey(TimeOfDay t) => Key(
+  'declared-time-card-free-'
+  '${t.hour.toString().padLeft(2, '0')}'
+  '${t.minute.toString().padLeft(2, '0')}',
+);
+
+/// Asserts the free card for [t] renders, scrolling `DeclaredTimeCards`' own
+/// `ListView.separated` to it first.
+///
+/// The scroll is NOT decoration: on the 800×600 E2E surface a third
+/// 120dp-floored entry sits below the fold, and a lazy `ListView` has not
+/// built it yet — so a bare `findsOneWidget` would fail for a reason that has
+/// nothing to do with the membership rule under test. Only ever used for
+/// PRESENCE; an ABSENCE assertion (the consumed slot) is deliberately made
+/// BEFORE any scroll, on an entry that would sit ABOVE the fold if it
+/// existed, so it can never pass merely because the row was unbuilt.
+Future<void> _expectFreeCard(
+  WidgetTester tester,
+  TimeOfDay t,
+  String why,
+) async {
+  await tester.scrollUntilVisible(
+    find.byKey(_freeCardKey(t)),
+    200,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const Key('declared-time-cards')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 20,
+  );
+  expect(find.byKey(_freeCardKey(t)), findsOneWidget, reason: why);
 }
 
 void main() {
@@ -139,7 +203,9 @@ void main() {
   testWidgets(
     'a day whose working hours are EXPLICIT_TIMES renders DeclaredTimeCards '
     '— a booked slot AND a free slot both visible, never the grid, never the '
-    'gray state; the booked slot shows the real card\'s status AND price',
+    'gray state; the booked slot shows the real card\'s status AND price; '
+    'and the declared time SWALLOWED by the booking\'s duration is hidden '
+    'outright',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       // Defaults: bookingStatus = 'CONFIRMED', bookingPrice = 650,
@@ -149,8 +215,8 @@ void main() {
       fb.bookingStatus = 'CONFIRMED';
       fb.bookingPrice = 650;
 
-      final ({TimeOfDay bookedTime, TimeOfDay freeTime}) times =
-          await _bootToDeclaredTimesDay(tester, fb);
+      final ({TimeOfDay bookedTime, TimeOfDay consumedTime, TimeOfDay freeTime})
+      times = await _bootToDeclaredTimesDay(tester, fb);
 
       // ── The gray state and the grid must both be absent. ───────────────
       expect(
@@ -204,18 +270,34 @@ void main() {
         reason: 'a CONFIRMED fixture booking must show its price',
       );
 
-      // ── The free slot — the second declared time, with nothing booked. ─
-      final Key freeKey = Key(
-        'declared-time-card-free-'
-        '${times.freeTime.hour.toString().padLeft(2, '0')}'
-        '${times.freeTime.minute.toString().padLeft(2, '0')}',
-      );
+      // ── THE CONSUMED SLOT — the user-reported bug, at the E2E tier.
+      // `consumedTime` falls strictly inside the fixture booking's
+      // `[startsAt, endsAt)`, and the booking is CONFIRMED, so the slot is
+      // not bookable and must not offer itself as «Вільно». The backend's
+      // own `GET /slots` already omits it; this proves the master's day view
+      // agrees, through the REAL HTTP boundary rather than a pumped widget.
+      //
+      // The isolated mechanism is pinned by `declared_time_cards_test.dart`'s
+      // "a declared time CONSUMED by an earlier booking's duration" group
+      // (half-open boundary, status allowlist, unsorted input, stray
+      // consumer) — mutation-verified there. This assertion is the
+      // composition proof: the real `endAt` off the wire reaches the merge.
+      // ───────────────────────────────────────────────────────────────────
       expect(
-        find.byKey(freeKey),
-        findsOneWidget,
+        find.byKey(_freeCardKey(times.consumedTime)),
+        findsNothing,
         reason:
-            'the second declared time has no booking — it must render '
-            'as a free card',
+            'a declared time swallowed by a CONFIRMED booking\'s duration is '
+            'HIDDEN ENTIRELY (locked decision, 2026-08-13) — no card, no '
+            'muted state',
+      );
+
+      // ── The free slot — the declared time PAST the booking's end. ──────
+      await _expectFreeCard(
+        tester,
+        times.freeTime,
+        'this declared time sits past the booking\'s end and has no booking '
+        'of its own — it must render as a free card',
       );
 
       expect(tester.takeException(), isNull);
@@ -234,18 +316,24 @@ void main() {
       // already in a terminal state when the screen first loads.
       fb.bookingStatus = 'CANCELLED';
 
-      final ({TimeOfDay bookedTime, TimeOfDay freeTime}) times =
-          await _bootToDeclaredTimesDay(tester, fb);
+      final ({TimeOfDay bookedTime, TimeOfDay consumedTime, TimeOfDay freeTime})
+      times = await _bootToDeclaredTimesDay(tester, fb);
 
-      // The sibling free declared time is unaffected by `booking-1`'s status
-      // — it must still render as an ordinary free card, not swallowed by
-      // whatever changed on the booked one.
-      final Key freeKey = Key(
-        'declared-time-card-free-'
-        '${times.freeTime.hour.toString().padLeft(2, '0')}'
-        '${times.freeTime.minute.toString().padLeft(2, '0')}',
+      // THE STATUS ALLOWLIST, at the E2E tier — the counterpart to the
+      // CONFIRMED test's consumed-slot assertion, on the SAME declared time.
+      // A CANCELLED booking releases the master's clock, so the slot inside
+      // its span is genuinely bookable again and must still render. The two
+      // tests together prove the E2E composition reads the booking's real
+      // STATUS into the membership rule, not merely its `endAt`
+      // (`_consumesDeclaredTimes`'s allowlist).
+      expect(
+        find.byKey(_freeCardKey(times.consumedTime)),
+        findsOneWidget,
+        reason:
+            'a CANCELLED booking consumes nothing — the declared time inside '
+            'its former span is free again and must render, unlike the '
+            'CONFIRMED case one test above',
       );
-      expect(find.byKey(freeKey), findsOneWidget);
 
       final Finder bookedCard = find.byKey(
         const ValueKey<String>('master-booking-card-booking-1'),
@@ -284,6 +372,17 @@ void main() {
         find.descendant(of: bookedCard, matching: find.textContaining('₴')),
         findsNothing,
         reason: 'a CANCELLED booking owes nothing — no price pill',
+      );
+
+      // The THIRD declared time (past the booking's end) is unaffected by
+      // `booking-1`'s status either — an ordinary free card. Asserted LAST
+      // because [_expectFreeCard] scrolls, which can retire the booked card
+      // above it from the lazy list.
+      await _expectFreeCard(
+        tester,
+        times.freeTime,
+        'the declared time past the booking\'s end is free under every '
+        'status — never swallowed by whatever changed on the booked one',
       );
 
       expect(tester.takeException(), isNull);

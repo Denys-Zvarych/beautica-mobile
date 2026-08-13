@@ -576,6 +576,314 @@ void main() {
     );
   });
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // CONSUMED DECLARED TIMES ARE DROPPED — `_mergeDeclaredAndBookings`'s
+  // "pass 1b", the ONLY path in that file that can ERASE a row.
+  //
+  // THE BUG (user-reported, 2026-08-13): pass 1 paired a declared time to a
+  // booking by exact START minute and never read `endAt`, so a declared time
+  // swallowed by an EARLIER booking's duration rendered as a free «Вільно»
+  // card. Real shape: the master declares 11:00 and 12:00, a booking runs
+  // 10:00–12:30, and 12:00 falsely offered itself as free — while the
+  // backend's own `GET /slots` had already omitted it.
+  //
+  // LOCKED DECISION: such an entry is HIDDEN ENTIRELY — no card, no muted
+  // state, no «Зайнято» label.
+  //
+  // WHY THIS GROUP EXISTS AS ITS OWN BLOCK: before it, the destructive
+  // membership rule was 100% unpinned. Every pre-existing fixture in this
+  // file either matched its booking to a declared time by exact start, or
+  // put no declared time inside any booking's span — so DELETING the
+  // `removeWhere` left all 21 tests green. A rule that can only ever remove
+  // a row, verified by nothing, is the highest-risk shape in the file.
+  //
+  // MUTATION-VERIFIED (this session — every outcome quoted in the QA
+  // report):
+  //   * deleting `declared_time_cards.dart`'s `declaredEntries.removeWhere`
+  //     turns "the reported bug" and "a consumer starting at a NON-declared
+  //     minute" RED;
+  //   * relaxing the predicate's strict `dm < bookingEndMinutes[j]` to `<=`
+  //     turns the 60-minute (exactly-touching) case below RED;
+  //   * adding `BookingStatus.cancelled` to `_consumesDeclaredTimes`'s
+  //     allowlist turns this group's `cancelled` case RED.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('a declared time CONSUMED by an earlier booking\'s duration', () {
+    testWidgets(
+      'THE REPORTED BUG — an 11:00 booking running 90 minutes hides the '
+      '12:00 declared time entirely, while its own 11:00 card still renders '
+      'exactly once',
+      (tester) async {
+        final Booking booking = _booking(
+          id: 'consumer-90',
+          startAtUtc: _kyivAtUtc(11),
+          durationMinutes: 90, // 11:00 -> 12:30, swallowing 12:00
+        );
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 12, minute: 0),
+          ],
+          bookings: <Booking>[booking],
+        );
+
+        expect(
+          find.byKey(_freeKey(12, 0)),
+          findsNothing,
+          reason:
+              '12:00 falls inside [11:00, 12:30) — it is not bookable and '
+              'must not render as a free card '
+              '(MUTATION-VERIFIED: deleting pass 1b\'s removeWhere turns '
+              'this RED)',
+        );
+        expect(
+          find.byKey(_bookedKey('consumer-90')),
+          findsOneWidget,
+          reason:
+              'the consuming booking itself still renders — hiding the slot '
+              'it swallowed must never hide the booking that swallowed it',
+        );
+        expect(
+          find.byKey(_freeKey(11, 0)),
+          findsNothing,
+          reason: '11:00 is BOOKED, not free',
+        );
+      },
+    );
+
+    // ─────────────────────────────────────────────────────────────────────
+    // THE HALF-OPEN BOUNDARY, both sides, one minute apart — the sharpest
+    // possible pin on the predicate's strict `<`. `endAt == the declared
+    // time` is NOT consumption (same "touching endpoints don't count" rule
+    // as `booking_lane_layout.dart`'s `_overlaps` and the backend's own
+    // strict slot test); one minute past it IS.
+    // ─────────────────────────────────────────────────────────────────────
+    for (final (int duration, bool stillFree) in const <(int, bool)>[
+      (60, true), // 11:00 -> 12:00 exactly: touching, NOT consumption
+      (61, false), // 11:00 -> 12:01: one minute past, consumed
+    ]) {
+      testWidgets(
+        'half-open boundary — an 11:00 booking of $duration minutes leaves '
+        '12:00 ${stillFree ? "PRESENT" : "ABSENT"}',
+        (tester) async {
+          final Booking booking = _booking(
+            id: 'boundary-$duration',
+            startAtUtc: _kyivAtUtc(11),
+            durationMinutes: duration,
+          );
+
+          await _pumpCards(
+            tester,
+            declaredTimes: const <TimeOfDay>[
+              TimeOfDay(hour: 11, minute: 0),
+              TimeOfDay(hour: 12, minute: 0),
+            ],
+            bookings: <Booking>[booking],
+          );
+
+          expect(
+            find.byKey(_freeKey(12, 0)),
+            stillFree ? findsOneWidget : findsNothing,
+            reason: stillFree
+                ? 'a booking ending EXACTLY at 12:00 leaves 12:00 genuinely '
+                      'free — the predicate is half-open `[start, end)`, so '
+                      'touching endpoints are not consumption '
+                      '(MUTATION-VERIFIED: relaxing `<` to `<=` turns this RED)'
+                : 'one minute past 12:00 and the slot is genuinely occupied',
+          );
+          expect(find.byKey(_bookedKey('boundary-$duration')), findsOneWidget);
+        },
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // THE STATUS ALLOWLIST — only `confirmed`/`completed` take the master's
+    // clock. A CANCELLED, DECLINED, NOT_COMPLETED or UNKNOWN booking frees
+    // it again, so a declared time behind one of those is genuinely FREE and
+    // must still render. `unknown` is a DELIBERATE divergence from
+    // `booking_lane_layout.dart`'s `_isActiveClass` (see
+    // `_consumesDeclaredTimes`'s doc): hiding is the destructive direction,
+    // and an unrecognised wire status may not earn the power to erase a
+    // declared time.
+    //
+    // The consuming half of the allowlist is pinned by "THE REPORTED BUG"
+    // (confirmed) and by the `completed` case below, so this loop is a real
+    // discriminator on both sides, not a one-sided "everything is free"
+    // assertion that a gutted predicate would also satisfy.
+    // ─────────────────────────────────────────────────────────────────────
+    for (final BookingStatus status in const <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+      BookingStatus.notCompleted,
+      BookingStatus.unknown,
+    ]) {
+      testWidgets(
+        'status allowlist — a 90-minute ${status.name} booking does NOT '
+        'consume 12:00; the free card still renders',
+        (tester) async {
+          final Booking booking = _booking(
+            id: 'status-${status.name}',
+            startAtUtc: _kyivAtUtc(11),
+            durationMinutes: 90, // same 11:00 -> 12:30 span as the bug above
+          ).copyWith(status: status);
+
+          await _pumpCards(
+            tester,
+            declaredTimes: const <TimeOfDay>[
+              TimeOfDay(hour: 11, minute: 0),
+              TimeOfDay(hour: 12, minute: 0),
+            ],
+            bookings: <Booking>[booking],
+          );
+
+          expect(
+            find.byKey(_freeKey(12, 0)),
+            findsOneWidget,
+            reason:
+                'a ${status.name} booking releases the clock — 12:00 is '
+                'genuinely bookable again and must still render '
+                '(MUTATION-VERIFIED for cancelled: adding it to '
+                '`_consumesDeclaredTimes`\'s allowlist turns this RED)',
+          );
+          expect(
+            find.byKey(_bookedKey('status-${status.name}')),
+            findsOneWidget,
+            reason:
+                'pass 1b hides SLOTS, never bookings — the terminal booking '
+                'still owns its own 11:00 card',
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'status allowlist, the consuming half — a 90-minute COMPLETED booking '
+      'DOES hide 12:00, so the four cases above discriminate',
+      (tester) async {
+        final Booking booking = _booking(
+          id: 'status-completed',
+          startAtUtc: _kyivAtUtc(11),
+          durationMinutes: 90,
+        ).copyWith(status: BookingStatus.completed);
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 12, minute: 0),
+          ],
+          bookings: <Booking>[booking],
+        );
+
+        expect(
+          find.byKey(_freeKey(12, 0)),
+          findsNothing,
+          reason:
+              'an appointment that DID happen took the master\'s time just '
+              'as surely as one that will — `completed` consumes',
+        );
+      },
+    );
+
+    testWidgets(
+      'a consumer starting at a NON-declared minute — the user\'s literal '
+      'report: a 10:00 booking running to 12:30 hides BOTH declared times '
+      'inside its span, still renders itself via pass 2, and leaves the '
+      '13:00 declared time untouched',
+      (tester) async {
+        final Booking booking = _booking(
+          id: 'stray-consumer',
+          startAtUtc: _kyivAtUtc(10), // matches NO declared time
+          durationMinutes: 150, // 10:00 -> 12:30
+        );
+
+        await _pumpCards(
+          tester,
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 11, minute: 0),
+            TimeOfDay(hour: 12, minute: 0),
+            TimeOfDay(hour: 13, minute: 0), // outside the span — stays free
+          ],
+          bookings: <Booking>[booking],
+        );
+
+        expect(
+          find.byKey(_bookedKey('stray-consumer')),
+          findsOneWidget,
+          reason:
+              'PASS 2 IS UNTOUCHED BY PASS 1B — dropping the slots a 10:00 '
+              'booking swallowed must never drop the 10:00 booking itself '
+              '(MUTATION-VERIFIED: deleting pass 1b\'s removeWhere turns the '
+              'two absence assertions below RED, and a pass-1b that also '
+              'wrote `consumed[]` would turn THIS one red)',
+        );
+        expect(
+          find.byKey(_freeKey(11, 0)),
+          findsNothing,
+          reason: '11:00 falls inside [10:00, 12:30)',
+        );
+        expect(
+          find.byKey(_freeKey(12, 0)),
+          findsNothing,
+          reason:
+              '12:00 falls inside [10:00, 12:30) — the exact card the user '
+              'reported as falsely free',
+        );
+        expect(
+          find.byKey(_freeKey(13, 0)),
+          findsOneWidget,
+          reason:
+              'the removal is TARGETED, not a wipe — 13:00 sits past the '
+              'booking\'s end and is still genuinely free',
+        );
+      },
+    );
+
+    testWidgets(
+      'UNSORTED declaredTimes — the predicate is order-independent BY '
+      'CHOICE (an ascending sweep would be the cheap alternative and its '
+      'failure mode is DESTRUCTIVE), so a descending input still drops '
+      'exactly the consumed entry and keeps the rest',
+      (tester) async {
+        final Booking booking = _booking(
+          id: 'unsorted-consumer',
+          startAtUtc: _kyivAtUtc(11),
+          durationMinutes: 90, // 11:00 -> 12:30
+        );
+
+        await _pumpCards(
+          tester,
+          // Deliberately DESCENDING — the schedule mapper resolves these
+          // sorted, but pass 1b must not silently depend on that upstream
+          // invariant: desynchronise a running-max sweep and it drops an
+          // EARLY declared time sitting behind a LATER booking, which is
+          // this very class of bug in mirror image.
+          declaredTimes: const <TimeOfDay>[
+            TimeOfDay(hour: 15, minute: 0),
+            TimeOfDay(hour: 12, minute: 0),
+            TimeOfDay(hour: 11, minute: 0),
+          ],
+          bookings: <Booking>[booking],
+        );
+
+        expect(
+          find.byKey(_freeKey(12, 0)),
+          findsNothing,
+          reason: 'consumed regardless of where it sat in the input list',
+        );
+        expect(
+          find.byKey(_freeKey(15, 0)),
+          findsOneWidget,
+          reason:
+              '15:00 is outside the span and must survive — a sweep that '
+              'lost its place would be as likely to eat this one',
+        );
+        expect(find.byKey(_bookedKey('unsorted-consumer')), findsOneWidget);
+      },
+    );
+  });
+
   group('two bookings at the SAME declared minute', () {
     testWidgets(
       'pass 1 consumes one; pass 2 emits the other — neither vanishes',

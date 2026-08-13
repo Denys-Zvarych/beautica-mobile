@@ -40,8 +40,10 @@
 //
 // NO hour ruler, NO gridlines, NO hour labels — nothing here derives from
 // `BookingsTimelineGrid`'s `_kHourH`, and duration still never drives this
-// list's GEOMETRY: every entry floors at [_kEntryMinHeight] regardless of the
-// booking's length, so 30/60/90-minute bookings render at the same box —
+// list's GEOMETRY (it DOES drive MEMBERSHIP — see the "CONSUMED DECLARED
+// TIMES" section below; the two are different questions): every entry floors
+// at [_kEntryMinHeight] regardless of the booking's length, so 30/60/90-minute
+// bookings render at the same box —
 // pinned by `declared_time_cards_test.dart`'s "uniform card heights" group,
 // which now also asserts a FREE card and a BOOKED card in the same list
 // match, box for box (a hard requirement, not a judgement call).
@@ -59,11 +61,34 @@
 //     master edited that day's hours) -> it still renders, as its OWN entry
 //     at its OWN time, merged into the list in time order. Dropping it would
 //     be data loss, not tidiness.
-// A declared time with no matching booking renders as a free card. The
-// header count above this widget ([BookingsDiscoveryView]'s
-// `masterBookingsCount`) is derived from the SAME [bookings] list this widget
-// renders every card of — see that file's `_Loaded._body` — so the two can
-// never disagree: free entries are not bookings and are never counted.
+// A declared time with no matching booking renders as a free card, UNLESS it
+// is CONSUMED — see the next section. The header count above this widget
+// ([BookingsDiscoveryView]'s `masterBookingsCount`) is derived from the SAME
+// [bookings] list this widget renders every card of — see that file's
+// `_Loaded._body` — so the two can never disagree: free entries are not
+// bookings and are never counted, and a consumed declared time was never a
+// booking either, so dropping it cannot move that count.
+//
+// ## CONSUMED DECLARED TIMES ARE DROPPED — MEMBERSHIP, NOT GEOMETRY
+//
+// User decision, 2026-08-13: a declared time swallowed by an EARLIER
+// booking's duration is HIDDEN — no card, no muted state, no «Зайнято»
+// label. Rationale: it mirrors the backend, which already omits such a time
+// from `GET /slots`, so the master's own day view matches what clients
+// actually see when they try to book.
+//
+// READ THIS TOGETHER WITH the "duration still never drives this list's
+// GEOMETRY" note further down — the two do NOT contradict each other:
+//   * GEOMETRY (unchanged): a booking's length never changes the SIZE or the
+//     POSITION of any box. Every entry still floors at [_kEntryMinHeight] and
+//     still sits at its own start minute; a 90-minute booking occupies
+//     exactly the same box as a 30-minute one.
+//   * MEMBERSHIP (what changed): a booking's length now decides WHICH
+//     declared times are in the list at all. `endAt` is read for that
+//     question, and for nothing else.
+//
+// See [_consumesDeclaredTimes] and [_mergeDeclaredAndBookings]'s pass 1b for
+// the exact predicate, its half-open boundary, and its status allowlist.
 //
 // ## Kyiv time discipline
 //
@@ -97,6 +122,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../domain/booking.dart';
+import '../../domain/booking_status.dart';
 import 'master_booking_card.dart';
 
 /// One resolved row of the declared-times list — a declared time with an
@@ -127,9 +153,48 @@ int _kyivMinutesSinceMidnight(DateTime instant, tz.TZDateTime midnight) {
   return local.difference(midnight).inMinutes;
 }
 
+/// Whether a booking in [status] OCCUPIES the clock for the purpose of
+/// hiding a later declared time — see this file's "CONSUMED DECLARED TIMES
+/// ARE DROPPED" section.
+///
+/// An ALLOWLIST, deliberately, mirroring `BookingDisplayX.showsPrice`'s own
+/// `confirmed || completed` idiom (`booking_display_x.dart:118-119`): only an
+/// appointment that will happen or did happen takes the master's time. A
+/// CANCELLED, DECLINED or NOT_COMPLETED booking frees the clock again, so a
+/// declared time behind one of those is genuinely FREE and must still render.
+///
+/// [BookingStatus.unknown] does NOT consume — and this is a DELIBERATE
+/// divergence from `booking_lane_layout.dart`'s `_isActiveClass`, which does
+/// treat `unknown` as active. Do not "fix" it into agreement. The two answer
+/// opposite questions: there, including `unknown` grants the booking a lane
+/// (it stays VISIBLE); here, including it would HIDE a slot. Hiding is the
+/// destructive direction, and [BookingStatus.unknown]'s own doc pins the
+/// contract as "grant nothing" — so an unrecognised wire status may not earn
+/// the power to erase a declared time from the master's day.
+///
+/// This is deliberately STRICTER than pass 1's exact-start pairing, which is
+/// status-blind (a CANCELLED booking starting exactly on a declared time
+/// still takes that time's card, rendered with its own cancelled badge — see
+/// the "status renders and differentiates" test group). That asymmetry is
+/// intentional: pass 1 SHOWS the booking, pass 1b HIDES a slot.
+bool _consumesDeclaredTimes(BookingStatus status) => switch (status) {
+  BookingStatus.confirmed => true,
+  BookingStatus.completed => true,
+  BookingStatus.cancelled => false,
+  BookingStatus.declined => false,
+  BookingStatus.notCompleted => false,
+  BookingStatus.unknown => false,
+};
+
 /// The union of [declaredTimes] and [bookings] — see this file's "THE ENTRY
 /// LIST IS A UNION" section. Every booking in [bookings] appears in exactly
-/// one returned entry; nothing is ever dropped.
+/// one returned entry; no BOOKING is ever dropped.
+///
+/// A DECLARED TIME, by contrast, CAN be dropped — exactly one way: pass 1b
+/// removes an unmatched declared time that an active booking's duration
+/// already swallowed. See this file's "CONSUMED DECLARED TIMES ARE DROPPED"
+/// section; that rule is about list MEMBERSHIP and leaves the geometry
+/// contract untouched.
 ///
 /// Matching is by exact Kyiv minute, first-unconsumed-booking-wins when more
 /// than one booking shares a minute (a double-booked declared time is not the
@@ -218,8 +283,61 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
     }
   }
 
+  // Pass 1b — DROP every declared time that is CONSUMED by some booking's
+  // duration (see this file's "CONSUMED DECLARED TIMES ARE DROPPED"
+  // section). Only entries pass 1 left unmatched are candidates: an entry
+  // that already carries its own booking renders that booking's card and is
+  // never a "free" slot to begin with.
+  //
+  // THE PREDICATE — half-open `[startAt, endAt)` in KYIV minutes:
+  //     startMinute <= dm && dm < endMinute
+  // `endAt == the declared time` is NOT consumption: an 11:00 booking ending
+  // exactly at 12:00 leaves 12:00 genuinely free and still rendered. Same
+  // "touching endpoints don't count" rule as `booking_lane_layout.dart`'s
+  // `_overlaps` (`a.endAt == b.startAt` is NOT an overlap) and as the
+  // backend's own strict `isBefore`/`isAfter` slot test — one convention,
+  // not two.
+  //
+  // A CONSUMING BOOKING NEED NOT START ON A DECLARED TIME. The schedule
+  // template can be edited after the fact, the day can be an override, or
+  // the booking can predate the create-time guard — so this scans every
+  // booking rather than only the ones pass 1 matched.
+  //
+  // O(D×B) ON PURPOSE, not an oversight. Pass 1 above uses a minute -> index
+  // map because it asks an EQUALITY question; this asks a RANGE question,
+  // where the cheap trick would be an ascending sweep with a running max
+  // `endMinute`. That sweep leans on both inputs staying in step, and its
+  // failure mode is DESTRUCTIVE — desynchronise it and it silently DROPS an
+  // early declared time sitting behind a later booking, which is exactly the
+  // class of bug this pass exists to fix. So the nested scan is
+  // order-independent BY CHOICE: it stays correct without depending on an
+  // upstream ordering invariant, and at these sizes — one day's declared
+  // times times one day's bookings (both single-to-low-double digits),
+  // computed once per input change ([_DeclaredTimeCardsState.didUpdateWidget]'s
+  // memo), never per frame — the saved comparisons are worth far less than
+  // that independence.
+  final List<int> bookingEndMinutes = sortedBookings
+      .map((Booking b) => _kyivMinutesSinceMidnight(b.endAt, midnight))
+      .toList(growable: false);
+
+  bool isConsumed(int dm) {
+    for (int j = 0; j < sortedBookings.length; j++) {
+      if (!_consumesDeclaredTimes(sortedBookings[j].status)) continue;
+      if (bookingMinutes[j] <= dm && dm < bookingEndMinutes[j]) return true;
+    }
+    return false;
+  }
+
+  declaredEntries.removeWhere(
+    (_DeclaredEntry e) => e.booking == null && isConsumed(e.minute),
+  );
+
   // Pass 2 — every booking pass 1 did NOT consume (its start matches no
   // declared time) gets its own entry, at its own minute. Never dropped.
+  // UNTOUCHED by pass 1b: dropping the 12:00 slot a 10:00 booking swallowed
+  // must never drop the 10:00 booking itself. `consumed[]` (pass 1's
+  // matched-booking bookkeeping — an unrelated meaning of the word to pass
+  // 1b's) is not written by pass 1b at all.
   final List<_DeclaredEntry> strayEntries = <_DeclaredEntry>[];
   for (int j = 0; j < sortedBookings.length; j++) {
     if (consumed[j]) continue;
