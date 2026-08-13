@@ -519,16 +519,20 @@ class _FreeTimeCard extends StatelessWidget {
     ),
   );
 
-  /// The declared time. Shipped `VelvetText.statValue()`, mocha rather than
-  /// espresso so the card's anchor reads as structure.
-  static final TextStyle _timeStyle = VelvetText.statValue().copyWith(
-    color: BrandColors.accentDeep,
-  );
+  /// The declared time. `VelvetText.masterFreeCardTime` — the sibling
+  /// [MasterBookingCard]'s own FULL-layout client-name tier (Comfortaa
+  /// 13.5/600), recoloured to mocha so the card's anchor still reads as
+  /// structure. Was `VelvetText.statValue()` (Comfortaa 17/700) — a full
+  /// size tier louder than anything else in this list; see
+  /// `velvet_text.dart`'s "Phase 244 typography-scale fix" comment for why
+  /// that read as out-of-scale against the booked card beside it.
+  static final TextStyle _timeStyle = VelvetText.masterFreeCardTime;
 
-  /// «Вільно», muted.
-  static final TextStyle _freeStyle = VelvetText.subheading().copyWith(
-    color: BrandColors.muted,
-  );
+  /// «Вільно», muted. `VelvetText.masterFreeCardLabel` — the sibling
+  /// [MasterBookingCard]'s own FULL-layout secondary tier (Nunito 11/700,
+  /// muted), verbatim. Was `VelvetText.subheading()` (Comfortaa 14/600) —
+  /// same over-scale issue as [_timeStyle] above.
+  static final TextStyle _freeStyle = VelvetText.masterFreeCardLabel;
 
   @override
   Widget build(BuildContext context) {

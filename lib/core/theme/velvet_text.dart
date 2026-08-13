@@ -1540,6 +1540,34 @@ abstract final class VelvetText {
     color: BrandColors.muted,
   );
 
+  // Phase 244 typography-scale fix (2026-08-13) — the EXPLICIT_TIMES free
+  // slot card (`declared_time_cards.dart`'s `_FreeTimeCard`) sits in the
+  // SAME `ListView.separated` as a booked [MasterBookingCard] rendered at
+  // its FULL layout (see that file's `_kEntryMinHeight` doc — the free
+  // card's floor is pinned to the booked card's FULL-layout box, so the two
+  // are always siblings at the same height). The free card originally used
+  // `VelvetText.statValue()` (Comfortaa 17/700) for its time and
+  // `VelvetText.subheading()` (Comfortaa 14/600) for its «Вільно» caption —
+  // both borrowed from the STAT-TILE family, a full size tier louder than
+  // anything else in this list. These two tokens instead borrow the FULL
+  // layout's own two tiers verbatim, so a free card reads as a quieter
+  // sibling of a booked one rather than a headline shouting over it.
+
+  /// The EXPLICIT_TIMES free-card's declared time — [masterCardClientNameFull]
+  /// verbatim (Comfortaa 13.5/600) recoloured to [BrandColors.accentDeep].
+  /// The mocha recolour is deliberate and unchanged from the original intent
+  /// (the card's anchor reads as structure, not a headline) — only the SIZE
+  /// tier moved, from the stat-value family down to the full-layout
+  /// client-name family.
+  static final TextStyle masterFreeCardTime = masterCardClientNameFull.copyWith(
+    color: BrandColors.accentDeep,
+  );
+
+  /// The EXPLICIT_TIMES free-card's «Вільно» caption — [masterCardDateFull]
+  /// verbatim (Nunito 11/700, [BrandColors.muted]), i.e. the FULL layout's
+  /// own secondary-tier recipe, unmodified.
+  static final TextStyle masterFreeCardLabel = masterCardDateFull;
+
   // ---------------------------------------------------------------------------
   // Phase 7.10 — the master timeline's hour ruler (`TimelineHourRuler`).
   //

@@ -36,6 +36,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -113,6 +114,29 @@ Future<void> _pumpCards(
     textScaleFactor: textScaleFactor,
   );
   await tester.pumpAndSettle();
+}
+
+/// The style the FRAMEWORK actually paints [textFinder] with — read off the
+/// built [RenderParagraph], i.e. AFTER `Text.build`'s own
+/// `DefaultTextStyle.of(context).style.merge(widget.style)` resolution.
+///
+/// Deliberately NOT `tester.widget<Text>(...).style`: that raw field is the
+/// style the call site PASSED, not the style that renders. A regression that
+/// moved the size into (or lost it from) an inherited `DefaultTextStyle` —
+/// or a `Text` whose own `style` left `fontSize` null and leaned on the
+/// ambient theme — would slip straight past a raw-field read while the pixels
+/// changed underneath it.
+TextStyle _paintedStyle(WidgetTester tester, Finder textFinder) {
+  final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+    textFinder,
+  );
+  final TextStyle? style = paragraph.text.style;
+  expect(
+    style,
+    isNotNull,
+    reason: 'a rendered Text always resolves to a non-null painted style',
+  );
+  return style!;
 }
 
 /// Every ruler/gridline element `BookingsTimelineGrid` would paint — asserted
@@ -793,5 +817,171 @@ void main() {
         );
       });
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // TYPOGRAPHY PARITY — a FREE card must never OUT-RANK the booked card
+  // beside it.
+  //
+  // THE BUG THIS PINS (user-reported, 2026-08-13): `_FreeTimeCard` drew its
+  // declared time in `VelvetText.statValue()` (Comfortaa 17/700, the
+  // stat-TILE family) and its «Вільно» caption in `VelvetText.subheading()`
+  // (Comfortaa 14/600), while the sibling `MasterBookingCard` — pinned to
+  // its FULL layout in the SAME `ListView.separated` — opens at Comfortaa
+  // 13.5/600 with a Nunito 11/700 caption. An EMPTY slot therefore read
+  // louder than every BOOKED neighbour in the column.
+  //
+  // WHY THE EXISTING PINS ALL STAYED GREEN THROUGH IT: the "uniform card
+  // heights" group above measures the BOX (height and width, at three text
+  // scales) and the "full layout is always selected" group measures the
+  // BODY SHAPE. Both are geometry. Neither ever looked at type, and the
+  // free card's floor is a `minHeight` constraint — so a two-tier size jump
+  // inside a box that is already floored taller than its own content moves
+  // no measurable dimension at all.
+  //
+  // ASSERTED RELATIVELY (free == its booked sibling), NEVER against the
+  // literals 13.5 / 11. The invariant that actually broke is a RANKING one:
+  // rescaling the whole master-card tier is a legitimate future design move
+  // and must not turn this test red, whereas a pinned literal would simply
+  // be edited to match the next time the scale shifts — which is exactly
+  // how a ranking regression gets normalised back in.
+  //
+  // MUTATION-VERIFIED (this session): reverting `declared_time_cards.dart`'s
+  // `_FreeTimeCard._timeStyle` to `VelvetText.statValue()` — i.e. literally
+  // reintroducing the shipped bug — turns the first test below RED on the
+  // fontSize assertion (17.0 vs the booked sibling's 13.5); restoring
+  // `VelvetText.masterFreeCardTime` turns it GREEN again.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('typography parity — a free card never out-ranks its booked '
+      'neighbour', () {
+    /// One day carrying BOTH shapes: a booked 09:00 entry (FULL layout, see
+    /// the group above) and a FREE 11:00 declared time, in one list.
+    Future<void> pumpMixedDay(WidgetTester tester) => _pumpCards(
+      tester,
+      declaredTimes: const <TimeOfDay>[
+        TimeOfDay(hour: 9, minute: 0),
+        TimeOfDay(hour: 11, minute: 0), // stays free — no booking here
+      ],
+      bookings: <Booking>[_booking(id: 'typo', startAtUtc: _kyivAtUtc(9))],
+    );
+
+    testWidgets(
+      'the free card\'s TIME renders in the booked card\'s row-1 client-name '
+      'tier — same painted size, weight and family',
+      (tester) async {
+        await pumpMixedDay(tester);
+
+        final Finder freeCard = find.byKey(_freeKey(11, 0));
+        final Finder bookedCard = find.byKey(_bookedKey('typo'));
+
+        final TextStyle freeTime = _paintedStyle(
+          tester,
+          // i18n-finder-ok: digits only, locale-invariant declared time.
+          find.descendant(of: freeCard, matching: find.text('11:00')),
+        );
+        final TextStyle bookedName = _paintedStyle(
+          tester,
+          // i18n-finder-ok: 'Марія Іванюк' is the fixture's clientName data.
+          find.descendant(of: bookedCard, matching: find.text('Марія Іванюк')),
+        );
+
+        expect(
+          freeTime.fontSize,
+          bookedName.fontSize,
+          reason:
+              'the free card\'s time must render at the SAME size tier as '
+              'the booked sibling\'s client name — an empty slot may never '
+              'out-rank a booked one in the same list (asserted relatively '
+              'on purpose: rescaling the whole tier is legitimate, '
+              'out-ranking is not)',
+        );
+        expect(
+          freeTime.fontWeight,
+          bookedName.fontWeight,
+          reason: 'same tier means the same weight, not just the same size',
+        );
+        expect(
+          freeTime.fontFamily,
+          bookedName.fontFamily,
+          reason:
+              'both are the Comfortaa structural face — a family swap here '
+              'would re-open the same visual mismatch at an equal size',
+        );
+      },
+    );
+
+    testWidgets('the free card\'s «Вільно» label renders in the booked card\'s '
+        'time-range caption tier — same painted size, weight and family', (
+      tester,
+    ) async {
+      await pumpMixedDay(tester);
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(DeclaredTimeCards)),
+      );
+      final Finder freeCard = find.byKey(_freeKey(11, 0));
+      final Finder bookedCard = find.byKey(_bookedKey('typo'));
+
+      final TextStyle freeLabel = _paintedStyle(
+        tester,
+        find.descendant(
+          of: freeCard,
+          matching: find.text(l10n.masterBookingsDeclaredTimeFree),
+        ),
+      );
+      final TextStyle bookedCaption = _paintedStyle(
+        tester,
+        // `formatSlotTimeRange` — 09:00 + the fixture's 30 min.
+        // i18n-finder-ok: digits + en-dash, locale-invariant time range.
+        find.descendant(of: bookedCard, matching: find.text('09:00–09:30')),
+      );
+
+      expect(
+        freeLabel.fontSize,
+        bookedCaption.fontSize,
+        reason:
+            'the «Вільно» caption must sit in the booked card\'s own '
+            'secondary caption tier, not a size above it',
+      );
+      expect(freeLabel.fontWeight, bookedCaption.fontWeight);
+      expect(
+        freeLabel.fontFamily,
+        bookedCaption.fontFamily,
+        reason:
+            'both are the Nunito caption face — the shipped bug drew this '
+            'label in the Comfortaa structural face instead',
+      );
+    });
+
+    testWidgets(
+      'FIXTURE GUARD — the booked card\'s two tiers are genuinely different '
+      'sizes, so the two parity assertions above cannot both be satisfied by '
+      'one flat size',
+      (tester) async {
+        await pumpMixedDay(tester);
+
+        final Finder bookedCard = find.byKey(_bookedKey('typo'));
+        final TextStyle bookedName = _paintedStyle(
+          tester,
+          // i18n-finder-ok: fixture clientName data.
+          find.descendant(of: bookedCard, matching: find.text('Марія Іванюк')),
+        );
+        final TextStyle bookedCaption = _paintedStyle(
+          tester,
+          // i18n-finder-ok: digits + en-dash time range.
+          find.descendant(of: bookedCard, matching: find.text('09:00–09:30')),
+        );
+
+        expect(
+          bookedName.fontSize,
+          greaterThan(bookedCaption.fontSize!),
+          reason:
+              'row 1 must outrank the caption on the booked card itself; if '
+              'these ever collapse to one size, the parity tests above stop '
+              'discriminating between the two tiers and would pass even with '
+              'the free card\'s label promoted to the name tier',
+        );
+      },
+    );
   });
 }
