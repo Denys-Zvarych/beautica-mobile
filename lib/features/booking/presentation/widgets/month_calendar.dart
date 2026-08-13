@@ -40,10 +40,54 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 
+/// Height of [CalendarWeekdayBar] when composed inside [MonthCalendar]
+/// (see [MonthCalendar.composeWeekdayBar]).
+const double kMonthCalendarWeekdayBarHeight = 20;
+
+/// [_MonthHeader]'s fixed height — matches `_MonthChevron`'s own 40×40 face,
+/// which is the row's cross-axis size.
+const double kMonthCalendarHeaderHeight = 40;
+
+/// Week rows the grid renders when [MonthCalendar.sixWeekRows] is `true`
+/// (see that field's doc for why a FIXED row count matters there).
+const int kMonthCalendarSixRows = 6;
+
+/// One week row's total height: the 44dp cell band ([_DayCell]) plus 3dp of
+/// vertical padding on each side ([_MonthGrid.build]).
+const double kMonthCalendarRowHeight = 50;
+
+/// Density dots are capped at this many per day ([_DayCell]).
+const int kMonthCalendarMaxDensityDots = 3;
+
+/// [MonthCalendar]'s total laid-out height when [MonthCalendar
+/// .composeWeekdayBar] and [MonthCalendar.sixWeekRows] are both `true` — the
+/// drag-interpolated expanded resting height `BookingsMonthCalendarPanel`
+/// needs: top pad ([VelvetSpacing.sm]) + header ([kMonthCalendarHeaderHeight])
+/// + gap ([VelvetSpacing.sm]) + weekday bar ([kMonthCalendarWeekdayBarHeight])
+/// + gap ([VelvetSpacing.xs]) + six rows ([kMonthCalendarRowHeight] each).
+/// Meaningless for the default `composeWeekdayBar: false` configuration both
+/// pre-existing callers use.
+const double kMonthCalendarExpandedHeight =
+    VelvetSpacing.sm +
+    kMonthCalendarHeaderHeight +
+    VelvetSpacing.sm +
+    kMonthCalendarWeekdayBarHeight +
+    VelvetSpacing.xs +
+    kMonthCalendarSixRows * kMonthCalendarRowHeight;
+
 /// The pinned Monday-first weekday header bar, shown once above the single
 /// month grid.
 class CalendarWeekdayBar extends StatelessWidget {
   const CalendarWeekdayBar({super.key});
+
+  /// Hoisted (mobile-backlog LOW, `month_calendar.dart:62-67`) — the seven
+  /// captions are fixed for the (hard-coded, Monday-first) vocabulary this
+  /// bar uses and were being rebuilt into a fresh `List<String>` on every
+  /// `build()`. Same fix pattern as `master_schedule_screen.dart`'s
+  /// `_weekdayCaptions`.
+  static final List<String> _weekdayLabels = List<String>.unmodifiable(<String>[
+    for (int day = 1; day <= 7; day++) weekdayAbbrev(day),
+  ]);
 
   @override
   Widget build(BuildContext context) {
@@ -59,11 +103,9 @@ class CalendarWeekdayBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Row(
         children: <Widget>[
-          for (int day = 1; day <= 7; day++)
+          for (final String label in _weekdayLabels)
             Expanded(
-              child: Center(
-                child: Text(weekdayAbbrev(day), style: VelvetText.label11),
-              ),
+              child: Center(child: Text(label, style: VelvetText.label11)),
             ),
         ],
       ),
@@ -85,6 +127,11 @@ class MonthCalendar extends StatelessWidget {
     required this.onSelectDay,
     required this.onPrevMonth,
     required this.onNextMonth,
+    this.composeWeekdayBar = false,
+    this.sixWeekRows = false,
+    this.bookingCount,
+    this.allowTapOnUnavailable = false,
+    this.stateLabelResolver,
   });
 
   /// The single month currently rendered (day-of-month is ignored).
@@ -107,6 +154,60 @@ class MonthCalendar extends StatelessWidget {
   /// Page to the next month; `null` disables the › chevron.
   final VoidCallback? onNextMonth;
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Варіант D adaptations (`docs/signup-designs/MasterBookingsCalendar`) —
+  // all OPT-IN, all default to the widget's ORIGINAL behaviour. Set only by
+  // `BookingsMonthCalendarPanel`; [SlotDateScreen] and `MasterSchedulePage`
+  // (the two pre-existing callers) never pass any of these and render
+  // byte-identically to before this section existed.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /// Composes [CalendarWeekdayBar] between the header and the grid instead
+  /// of leaving it to the caller. `false` (the default) renders exactly as
+  /// before — [SlotDateScreen] and `MasterSchedulePage` both pin
+  /// `CalendarWeekdayBar` as their OWN sibling above [MonthCalendar] and
+  /// must keep doing so. `true` is for a caller that reveals the whole
+  /// header+bar+grid block behind a single clip and needs the labels
+  /// travelling with the grid they describe.
+  final bool composeWeekdayBar;
+
+  /// Pads the grid to a constant [kMonthCalendarSixRows] week rows instead
+  /// of the natural 4–6 the month needs. `false` (the default) keeps the
+  /// existing variable row count. `true` is for a caller that interpolates
+  /// this widget's height under a drag gesture — a variable row count would
+  /// move the gesture's own destination mid-swipe.
+  final bool sixWeekRows;
+
+  /// Bookings-count callback driving up to [kMonthCalendarMaxDensityDots]
+  /// density dots under each day number, dimmed on an unavailable day.
+  /// `null` (the default) renders no dots — the original appearance, and
+  /// the space they would occupy is not even laid out (byte-identical cell
+  /// height to before this parameter existed).
+  final int Function(DateTime day)? bookingCount;
+
+  /// ⚠ The one BEHAVIOURAL adaptation. `false` (the default) keeps
+  /// [isAvailable]'s original meaning: `false` ⇒ the cell renders faint AND
+  /// refuses taps — load-bearing for [SlotDateScreen], where "unavailable"
+  /// means "cannot be booked".
+  ///
+  /// `true` repurposes [isAvailable] as a PURELY VISUAL faint/camel switch —
+  /// every day stays tappable regardless of what it returns. Set `true`
+  /// only by a caller passing "not in the past" as [isAvailable] purely for
+  /// the past-day treatment, where refusing the tap would disagree with a
+  /// sibling control (e.g. a day rail) that already allows opening any past
+  /// day. Do NOT set this `true` for a caller where [isAvailable] still
+  /// means "bookable".
+  final bool allowTapOnUnavailable;
+
+  /// Overrides the accessibility state word appended to a day cell's label.
+  /// `null` (the default) keeps the SLOT-PICKER wording
+  /// (`bookingDayAvailableState`/`bookingDayUnavailableState`) — "available"
+  /// there means "has bookable slots". A caller whose [isAvailable] means
+  /// something else (e.g. "not in the past") must supply its own resolver —
+  /// reusing the slot-picker's copy would misinform a screen-reader user.
+  final String Function({required bool available, required bool selected})?
+  stateLabelResolver;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -125,12 +226,23 @@ class MonthCalendar extends StatelessWidget {
             onNext: onNextMonth,
           ),
           const SizedBox(height: VelvetSpacing.sm),
+          if (composeWeekdayBar) ...<Widget>[
+            const SizedBox(
+              height: kMonthCalendarWeekdayBarHeight,
+              child: CalendarWeekdayBar(),
+            ),
+            const SizedBox(height: VelvetSpacing.xs),
+          ],
           _MonthGrid(
             month: visibleMonth,
             today: today,
             selected: selected,
             isAvailable: isAvailable,
             onSelectDay: onSelectDay,
+            sixWeekRows: sixWeekRows,
+            bookingCount: bookingCount,
+            allowTapOnUnavailable: allowTapOnUnavailable,
+            stateLabelResolver: stateLabelResolver,
           ),
         ],
       ),
@@ -254,6 +366,10 @@ class _MonthGrid extends StatelessWidget {
     required this.selected,
     required this.isAvailable,
     required this.onSelectDay,
+    required this.sixWeekRows,
+    required this.bookingCount,
+    required this.allowTapOnUnavailable,
+    required this.stateLabelResolver,
   });
 
   final DateTime month;
@@ -261,6 +377,11 @@ class _MonthGrid extends StatelessWidget {
   final DateTime? selected;
   final bool Function(DateTime day) isAvailable;
   final ValueChanged<DateTime> onSelectDay;
+  final bool sixWeekRows;
+  final int Function(DateTime day)? bookingCount;
+  final bool allowTapOnUnavailable;
+  final String Function({required bool available, required bool selected})?
+  stateLabelResolver;
 
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -275,8 +396,16 @@ class _MonthGrid extends StatelessWidget {
       for (int i = 0; i < leadingBlanks; i++) null,
       for (int day = 1; day <= daysInMonth; day++) day,
     ];
-    while (cellDays.length % 7 != 0) {
-      cellDays.add(null);
+    if (sixWeekRows) {
+      // ADAPTATION — pad to a constant six rows; see
+      // [MonthCalendar.sixWeekRows].
+      while (cellDays.length < kMonthCalendarSixRows * 7) {
+        cellDays.add(null);
+      }
+    } else {
+      while (cellDays.length % 7 != 0) {
+        cellDays.add(null);
+      }
     }
 
     final List<Widget> rows = <Widget>[];
@@ -344,7 +473,12 @@ class _MonthGrid extends StatelessWidget {
           Row(
             children: <Widget>[
               for (final _DayInfo info in infos)
-                Expanded(child: _DayCell(info: info)),
+                Expanded(
+                  child: _DayCell(
+                    info: info,
+                    stateLabelResolver: stateLabelResolver,
+                  ),
+                ),
             ],
           ),
         ],
@@ -355,12 +489,20 @@ class _MonthGrid extends StatelessWidget {
   _DayInfo _classify(DateTime d) {
     final bool available = isAvailable(d);
     final bool isSel = selected != null && _sameDay(d, selected!);
+    final int? count = bookingCount?.call(d);
     return _DayInfo(
       day: d.day,
       available: available,
       selected: isSel,
       isToday: _sameDay(d, today),
-      onTap: available ? () => onSelectDay(d) : null,
+      bookings: count ?? 0,
+      // ADAPTATION — density-dot space is laid out ONLY when the caller
+      // supplied [bookingCount]; see [MonthCalendar.bookingCount] and
+      // [_DayCell]. `null` (both pre-existing callers) renders the cell
+      // exactly as before this adaptation existed.
+      showDots: bookingCount != null,
+      // ADAPTATION — see [MonthCalendar.allowTapOnUnavailable].
+      onTap: (available || allowTapOnUnavailable) ? () => onSelectDay(d) : null,
     );
   }
 }
@@ -377,6 +519,8 @@ class _DayInfo {
     required this.available,
     required this.selected,
     required this.isToday,
+    required this.bookings,
+    required this.showDots,
     required this.onTap,
   }) : blank = false;
 
@@ -385,6 +529,8 @@ class _DayInfo {
       available = false,
       selected = false,
       isToday = false,
+      bookings = 0,
+      showDots = false,
       onTap = null,
       blank = true;
 
@@ -392,14 +538,24 @@ class _DayInfo {
   final bool available;
   final bool selected;
   final bool isToday;
+
+  /// Bookings on this day — capped at [kMonthCalendarMaxDensityDots] dots by
+  /// [_DayCell]. Meaningless when [showDots] is `false`.
+  final int bookings;
+
+  /// Whether [_DayCell] lays out the density-dot row at all — see
+  /// [MonthCalendar.bookingCount]'s doc.
+  final bool showDots;
   final bool blank;
   final VoidCallback? onTap;
 }
 
 class _DayCell extends StatelessWidget {
-  const _DayCell({required this.info});
+  const _DayCell({required this.info, required this.stateLabelResolver});
 
   final _DayInfo info;
+  final String Function({required bool available, required bool selected})?
+  stateLabelResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -416,48 +572,111 @@ class _DayCell extends StatelessWidget {
         ? BrandColors.accent.withValues(alpha: 0.95)
         : BrandColors.faint.withValues(alpha: 0.8);
 
-    final Widget content = AnimatedContainer(
+    final Widget number = Text(
+      '${info.day}',
+      style: VelvetText.bodyStrong15.copyWith(
+        color: numberColor,
+        fontWeight: info.selected ? FontWeight.w700 : FontWeight.w600,
+      ),
+    );
+
+    final BoxDecoration? ringDecoration = info.isToday
+        ? BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: ringColor, width: 1.8),
+          )
+        : null;
+
+    final Widget numberBadge = AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
       height: 38,
       width: 38,
       alignment: Alignment.center,
-      decoration: info.isToday
-          ? BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: ringColor, width: 1.8),
-            )
-          : null,
-      child: Text(
-        '${info.day}',
-        style: VelvetText.bodyStrong15.copyWith(
-          color: numberColor,
-          fontWeight: info.selected ? FontWeight.w700 : FontWeight.w600,
-        ),
-      ),
+      decoration: ringDecoration,
+      child: number,
     );
+
+    // ADAPTATION — density dots, in the day rail's own visual language: up
+    // to [kMonthCalendarMaxDensityDots], capped, dimmed on an unavailable
+    // day so history stays scannable without competing with the work ahead.
+    // Laid out ONLY when [info.showDots] — otherwise this cell is the exact
+    // 38×38 badge it always was, so both pre-existing callers are
+    // byte-identical to before this adaptation existed.
+    final int dots = info.bookings > kMonthCalendarMaxDensityDots
+        ? kMonthCalendarMaxDensityDots
+        : info.bookings;
+    final Widget content = info.showDots
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              numberBadge,
+              const SizedBox(height: 2),
+              SizedBox(
+                height: 4,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    for (int i = 0; i < kMonthCalendarMaxDensityDots; i++)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          right: i == kMonthCalendarMaxDensityDots - 1
+                              ? 0
+                              : 2.5,
+                        ),
+                        child: Container(
+                          height: 4,
+                          width: 4,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: i < dots
+                                ? (info.available || info.selected
+                                      ? BrandColors.accent
+                                      : BrandColors.accent.withValues(
+                                          alpha: 0.45,
+                                        ))
+                                : Colors.transparent,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          )
+        : numberBadge;
 
     final Widget centered = SizedBox(height: 44, child: Center(child: content));
     final Key cellKey = Key('booking-calendar-day-${info.day}');
 
-    final String stateLabel = info.selected
+    // ADAPTATION — see [MonthCalendar.stateLabelResolver]'s doc for why the
+    // slot-picker's own "available"/"unavailable" wording cannot be reused
+    // by a caller whose [MonthCalendar.isAvailable] means something else.
+    final String stateLabel = stateLabelResolver != null
+        ? stateLabelResolver!(
+            available: info.available,
+            selected: info.selected,
+          )
+        : info.selected
         ? l10n.bookingSelectedState
         : info.available
         ? l10n.bookingDayAvailableState
         : l10n.bookingDayUnavailableState;
+    // A resolver may legitimately have nothing to add (e.g. a normal,
+    // unselected, non-past day) — the built-in three-way resolution never
+    // does, so this only ever branches for a caller that opted in.
+    final String semanticsLabel = stateLabel.isEmpty
+        ? '${info.day}'
+        : '${info.day}, $stateLabel';
 
     if (info.onTap == null) {
-      return Semantics(
-        key: cellKey,
-        label: '${info.day}, $stateLabel',
-        child: centered,
-      );
+      return Semantics(key: cellKey, label: semanticsLabel, child: centered);
     }
     return Semantics(
       key: cellKey,
       button: true,
       selected: info.selected,
-      label: '${info.day}, $stateLabel',
+      label: semanticsLabel,
       child: GestureDetector(
         onTap: info.onTap,
         behavior: HitTestBehavior.opaque,

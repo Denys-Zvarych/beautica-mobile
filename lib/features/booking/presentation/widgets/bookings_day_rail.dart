@@ -10,12 +10,19 @@
 //
 // Phase 7.16 — the calendar escape hatch (`_CalendarButton`, opening
 // `showBookingsDayPicker`) is RETIRED. Day selection is by scrolling the rail
-// alone; the month switcher's prev/next and «Сьогодні»
-// (`bookings_discovery_view.dart`'s `_MonthSwitcher`, added `bc08986`) already
-// cover the long-distance jumps the button used to exist for, which made a
-// second jump affordance redundant. `BookingsDayRail` no longer takes a
-// `calendarActive`/`onOpenCalendar` pair, and the rail is a bare
+// alone; the month switcher's prev/next and «Сьогодні» (added `bc08986`)
+// already covered the long-distance jumps the button used to exist for,
+// which made a second jump affordance redundant. `BookingsDayRail` no longer
+// takes a `calendarActive`/`onOpenCalendar` pair, and the rail is a bare
 // `ListView.builder` again — no pinned sibling.
+//
+// Варіант D port (`widgets/bookings_month_calendar_panel.dart`) — this rail
+// is now ALSO the collapsed resting state of an expandable month calendar
+// layered over it, replacing the month switcher named above. The rail
+// widget itself is UNCHANGED by that port: `BookingsMonthCalendarPanel`
+// composes this exact class as one layer of a `Stack`, still driven by the
+// same `firstDay`/`dayCount`/`selectedDay`/`bookedDays`/`onSelectDay`
+// contract.
 //
 // Transcribed from `docs/signup-designs/SalonManagementDesign/lib/widgets/
 // bookings_toolbar.dart` (`_DayRail`, `_DayChip`; the design's `_AllChip` is
@@ -75,10 +82,15 @@ const double kRailItemExtent = 62;
 /// The 2026-07-19 pass that shrank `VelvetText.railDayNumber` to 12.6sp (from
 /// 18sp) freed exactly the vertical room that 8dp bump existed to cover, so
 /// both are restored to the design's own values here.
-const double _railHeight = 70;
+///
+/// Public (not `_railHeight`) since Варіант D's `BookingsMonthCalendarPanel`
+/// needs it as the calendar's COLLAPSED resting height, sized against the
+/// same figure this rail actually renders at.
+const double kBookingsDayRailHeight = 70;
 
 /// Vertical gap between a day chip's weekday caption and its day number —
-/// the design's own 16dp, restored alongside [_railHeight]; see its doc.
+/// the design's own 16dp, restored alongside [kBookingsDayRailHeight]; see
+/// its doc.
 const double _dayChipCaptionGap = 16;
 
 /// Returns the day [offset] days after [from], by CALENDAR arithmetic.
@@ -211,7 +223,7 @@ class BookingsDayRail extends StatelessWidget {
       // taller and overflowed the design's height by 17dp under the Phase 17.2
       // overflow guard. The chip's INTERNAL rhythm is unchanged; only the
       // container grew to fit the real type.
-      height: _railHeight,
+      height: kBookingsDayRailHeight,
       child: ListView.builder(
         key: const Key('master-bookings-day-rail'),
         controller: controller,

@@ -377,49 +377,68 @@ void main() {
   });
 
   // ===========================================================================
-  // mobile-qa (2026-07-22) — THE MONTH-SWITCHER HALF OF THE SAME INVARIANT.
+  // Варіант D port — THE MONTH-SWITCHER INVARIANT REVERSED (locked decision).
   // ===========================================================================
   //
   // The two tests above pin the PROVIDER→WIDGET direction (an emission must
-  // not rebuild siblings). This group pins the opposite direction, added by
-  // the mobile-perf HIGH fix that moved `_focusedMonth` from a `State` field
-  // to a `ValueNotifier`: a WIDGET interaction that changes nothing but a
-  // LABEL must not rebuild the timeline.
+  // not rebuild siblings). This group used to pin the opposite direction,
+  // added by a mobile-perf HIGH fix that moved a retired `_focusedMonth`
+  // field to a `ValueNotifier` so that stepping the month rebuilt only its
+  // label. That fix existed because `_prevMonth`/`_nextMonth` deliberately
+  // moved ONLY the switcher's label and the rail's scroll position — never
+  // `_day`, never `_liveQuery` — which was itself the production BUG the
+  // Варіант D port (`bookings_month_calendar_panel.dart`) fixes: a month step
+  // that relabels without reselecting left the rail/label showing one month
+  // while the list below kept showing a day from another. The port's locked
+  // contract is "month stepping selects" (same day-of-month, clamped) — so a
+  // genuine query change, and therefore a timeline rebuild, is now the
+  // CORRECT behaviour on every month step, not a regression to guard against.
   //
-  // Why it matters, in the fix's own words: `_prevMonth`/`_nextMonth`
-  // deliberately move only the switcher's label and the rail's scroll
-  // position — never `_day`, never `_liveQuery`. Before the fix they still
-  // called `setState`, so every month step rebuilt `_Loaded` →
-  // `BookingsTimelineGrid` → `assignLanes` + up to 100 `MasterBookingCard`s
-  // (~212ms measured) on the exact frame `_centreRailOn` starts its 320ms
-  // `animateTo` — stuttering the rail on its first frame.
-  //
-  // NOTHING OBSERVES THIS TODAY. A `setState` reinstated in `_prevMonth`
-  // (the most natural "fix" for any future month-switcher bug) restores the
-  // full 212ms rebuild with no test anywhere going red — the label still
-  // updates, the rail still scrolls, the timeline still renders. Only widget
-  // IDENTITY can tell the two apart.
+  // The isolation invariant this file is otherwise about — a DRAG frame or
+  // the panel's 280ms open/close settle animation must not rebuild the
+  // timeline — is preserved a different way now: the `AnimationController`
+  // driving the expand/collapse fraction lives entirely inside
+  // `BookingsMonthCalendarPanel`'s own `State`, so it never calls `setState`
+  // on `MasterBookingsScreen`/`BookingsDiscoveryView` at all. There is
+  // nothing to pin here at the widget-tree level for that half any more —
+  // the isolation now falls out of ordinary widget-subtree boundaries rather
+  // than a hand-rolled `ValueNotifier`.
   //
   // VACUOUS-ASSERTION TRAP (same as the LOW-4 block above): the witness must
   // be non-const at its real call site. `BookingsTimelineGrid(bookings:,
   // day:, onBookingTap:)` is constructed from runtime values inside
   // `_Loaded.build`, so `identical()` genuinely reflects a rebuild.
 
-  group('month switcher does not rebuild the timeline', () {
-    /// The month switcher's label `Text` — reached through the
-    /// `ValueListenableBuilder<DateTime>` the perf fix introduced, so this
-    /// never hard-codes a Cyrillic month name (the i18n-finder gate) and
-    /// never depends on `monthNominative`'s exact formatting.
+  group('month step (Варіант D calendar) rebuilds the timeline', () {
+    /// The visible month+year label `Text`. While the calendar is COLLAPSED
+    /// this is the panel's own top-row label; once EXPANDED, `_TopRow`
+    /// removes that label from the tree entirely (`if (t < 0.45)`) so the
+    /// screen never shows the same month name twice, and `MonthCalendar`'s
+    /// OWN header (inside the composed grid, key
+    /// `bookings-month-calendar-grid`) carries it instead — its `Text` comes
+    /// first in that subtree, ahead of `CalendarWeekdayBar`'s seven weekday
+    /// captions. Every test in this group calls [expandCalendar] first, so
+    /// this always reads the grid header. Reached structurally (never a
+    /// hard-coded Cyrillic month name — the i18n-finder gate) so it never
+    /// depends on `monthNominative`'s exact formatting.
     String monthLabel(WidgetTester tester) => tester
         .widget<Text>(
           find
               .descendant(
-                of: find.byType(ValueListenableBuilder<DateTime>),
+                of: find.byKey(const Key('bookings-month-calendar-grid')),
                 matching: find.byType(Text),
               )
               .first,
         )
         .data!;
+
+    /// Expands the calendar (the month grid's own ‹ › chevrons are
+    /// unreachable while collapsed — `IgnorePointer(ignoring: t < 0.5)`) and
+    /// waits out the 280ms open animation.
+    Future<void> expandCalendar(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
+      await tester.pumpAndSettle();
+    }
 
     Future<_MockBookingRepository> pumpScreen(WidgetTester tester) async {
       final _MockBookingRepository repo = _MockBookingRepository();
@@ -476,6 +495,39 @@ void main() {
 
       await tester.pumpApp(
         const MasterBookingsScreen(),
+        // `height: 700` — RE-BENCHMARKED (mobile-qa, 2026-08-13; see
+        // `bookings_month_calendar_short_device_test.dart` for the full
+        // probe). This group is the only one in the file that EXPANDS
+        // `BookingsMonthCalendarPanel` to its 380dp grid.
+        //
+        // FORMER RATIONALE (was 2400, now stale — kept for the record):
+        // this used to exist because the timeline sat in a `Column`
+        // `Expanded` sibling of the panel, so expanding the panel on the
+        // default 800×600 test surface (an unrealistically short landscape
+        // window vs. any real portrait phone this app targets) squeezed
+        // that `Expanded` down to a few px and tripped the Phase 17.2
+        // overflow guard. The mobile-perf HIGH fix in
+        // `bookings_discovery_view.dart` (finding #2 — the panel's
+        // live-changing height forcing the timeline to relayout on every
+        // drag/settle frame) removed that coupling entirely: the timeline
+        // is now a `Positioned` in a `Stack`, given a FIXED slot sized to
+        // the panel's COLLAPSED height
+        // (`kBookingsMonthCalendarPanelCollapsedHeight`), and the expanding
+        // panel draws OVER it rather than shrinking it — so expansion no
+        // longer touches the timeline's layout at all, on any surface size.
+        // `height: 2400` was kept anyway at the time, undocumented as pure
+        // margin rather than a re-derived requirement.
+        //
+        // THE RE-BENCHMARK: the expanded panel's rendered bottom edge sits
+        // at a FIXED ~496dp from the screen top regardless of viewport (a
+        // `Positioned(top, left, right)` with no `bottom`/`height` shrink-
+        // wraps to its child) — so it can never overflow-ERROR at any
+        // height, only silently CLIP once the viewport falls below
+        // ~580–600dp (`Stack`'s default `Clip.hardEdge`). 700dp clears that
+        // boundary with 126dp to spare — comfortably inside the realistic
+        // phone range (iPhone SE's 667dp logical height is the shortest
+        // this app targets) rather than an arbitrary 2400dp multiple of it.
+        height: 700,
         overrides: <Object>[
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           bookingRepositoryProvider.overrideWithValue(repo),
@@ -489,60 +541,126 @@ void main() {
     BookingsTimelineGrid grid(WidgetTester tester) =>
         tester.widget<BookingsTimelineGrid>(find.byType(BookingsTimelineGrid));
 
-    testWidgets(
-      'stepping the month forward relabels the switcher WITHOUT rebuilding '
-      'BookingsTimelineGrid — the ValueNotifier confines the rebuild to one '
-      'Text',
-      (tester) async {
-        await pumpScreen(tester);
+    /// The `isFalse` widget-IDENTITY check below is satisfied by ANY host
+    /// `setState`, not only a genuine query change: `_Loaded` (and the
+    /// `BookingsTimelineGrid` it constructs) is rebuilt by every
+    /// `_BookingsDiscoveryViewState.build()` pass, because `Consumer`
+    /// re-invokes its `builder` whenever its own element rebuilds — which
+    /// happens on ANY ancestor `setState`, whether or not the WATCHED
+    /// `bookingsDayProvider` family member actually changed.
+    ///
+    /// MUTATION-TESTED (mobile-qa gap-3, 2026-08-13): temporarily making
+    /// `_stepMonth` move `_day` (so the label visibly changes, satisfying the
+    /// fixture guard) WITHOUT calling `_rebuildQuery()` — i.e. reintroducing
+    /// exactly the "relabel without reselect" bug this port exists to fix —
+    /// left EVERY assertion in both tests below GREEN, including the
+    /// `isFalse` one. Widget identity alone cannot tell "a real day change
+    /// that correctly re-fetched" apart from "some unrelated rebuild left the
+    /// OLD day's data on screen under a NEW label".
+    ///
+    /// The fetch COUNT is what actually discriminates the two: a genuine day
+    /// change always rebuilds `_liveQuery` into a NEW `bookingsDayProvider`
+    /// family member, and Riverpod always issues a fresh fetch for a family
+    /// member it has not resolved before. The mutated version left
+    /// `_liveQuery` (and therefore the family member, and therefore this
+    /// count) unchanged — so asserting the count catches what the identity
+    /// check alone could not. Restored to the real implementation after the
+    /// probe; see `bookings_discovery_view.dart`'s `_stepMonth` (unchanged by
+    /// this audit) and the mobile-qa report for the full before/after run.
+    /// `calls` is the count of NEW fetches since the last [expectFetchCount]
+    /// on this [repo] — mocktail's `verify(...).called(n)` only counts calls
+    /// not already claimed by an earlier `verify` on the same mock (each
+    /// match is marked `verified` and excluded from the next check), so this
+    /// is an INCREMENTAL count, not a running total. Each test below calls
+    /// this once for the landing fetch (`1`) and once more for the ONE new
+    /// fetch a genuine month step must cause (`1` again, not `2`).
+    void expectFetchCount(_MockBookingRepository repo, int calls) {
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(calls);
+    }
 
-        final BookingsTimelineGrid before = grid(tester);
-        final String labelBefore = monthLabel(tester);
-
-        await tester.tap(find.byKey(const Key('master-bookings-month-next')));
-        await tester.pumpAndSettle();
-
-        // Fixture guard FIRST — if the tap did nothing, the identity
-        // assertion below would pass for the wrong reason.
-        expect(
-          monthLabel(tester),
-          isNot(labelBefore),
-          reason:
-              'the month step did not relabel the switcher at all, so the '
-              'no-rebuild assertion proves nothing',
-        );
-        expect(
-          identical(grid(tester), before),
-          isTrue,
-          reason:
-              'BookingsTimelineGrid was reconstructed by a month step. A '
-              'month step changes only the LABEL and the rail\'s scroll '
-              'position — it must not setState the discovery view, or the '
-              'whole timeline (assignLanes + up to 100 cards) rebuilds on '
-              'the same frame the rail starts its 320ms animation.',
-        );
-      },
-    );
-
-    testWidgets('stepping BACK behaves the same way', (tester) async {
-      await pumpScreen(tester);
+    testWidgets('stepping the month forward relabels the calendar AND rebuilds '
+        'BookingsTimelineGrid — the port\'s locked "month step selects" '
+        'contract', (tester) async {
+      final _MockBookingRepository repo = await pumpScreen(tester);
+      await expandCalendar(tester);
+      // The landing fetch — exactly one call before any interaction.
+      expectFetchCount(repo, 1);
 
       final BookingsTimelineGrid before = grid(tester);
       final String labelBefore = monthLabel(tester);
 
-      await tester.tap(find.byKey(const Key('master-bookings-month-prev')));
+      await tester.tap(find.byKey(const Key('booking-calendar-next-month')));
+      // A resolved month step funnels through `_selectImmediate`, which
+      // does not itself debounce, but the surrounding `pumpAndSettle`
+      // below covers both the query round trip and any animation.
+      // fixed-wait-ok: advancing past the 220 ms day-select debounce
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+
+      // Fixture guard FIRST — if the tap did nothing, the rebuild
+      // assertion below would pass for the wrong reason.
+      expect(
+        monthLabel(tester),
+        isNot(labelBefore),
+        reason:
+            'the month step did not relabel the calendar at all, so the '
+            'rebuild assertion proves nothing',
+      );
+      expect(
+        identical(grid(tester), before),
+        isFalse,
+        reason:
+            'BookingsTimelineGrid was NOT reconstructed by a month step. '
+            'Under the Варіант D port, stepping the month SELECTS (same '
+            'day-of-month, clamped) — this is the fix for the original '
+            'bug where the switcher relabelled while the list stayed on '
+            'a stale day, so a genuine query change (and therefore a '
+            'rebuild) is required here, not forbidden.',
+      );
+      // The DISCRIMINATING assertion — see expectFetchCount's doc. Exactly
+      // ONE NEW real fetch must have fired since the landing-fetch check
+      // above (mocktail's `verify(...).called(n)` only counts calls not
+      // already claimed by an earlier `verify` on the same mock — see that
+      // doc); the identity check alone cannot tell this apart from a
+      // cosmetic rebuild that left the query unchanged.
+      expectFetchCount(repo, 1);
+    });
+
+    testWidgets('stepping BACK behaves the same way', (tester) async {
+      final _MockBookingRepository repo = await pumpScreen(tester);
+      await expandCalendar(tester);
+      expectFetchCount(repo, 1);
+
+      final BookingsTimelineGrid before = grid(tester);
+      final String labelBefore = monthLabel(tester);
+
+      await tester.tap(find.byKey(const Key('booking-calendar-prev-month')));
+      // fixed-wait-ok: see the forward-step test above.
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
 
       expect(monthLabel(tester), isNot(labelBefore));
-      expect(identical(grid(tester), before), isTrue);
+      expect(identical(grid(tester), before), isFalse);
+      expectFetchCount(repo, 1);
     });
 
-    // ── The contrast cases: interactions that MUST still rebuild ──────────
+    // ── Further contrast cases: interactions that MUST still rebuild ──────
     //
-    // Without these, the two tests above would be satisfied by a screen that
-    // never rebuilds the timeline for anything — including a genuine day
-    // change, which would be a far worse bug (a stale day's bookings under a
-    // newly selected date).
+    // Without these, the two tests above would prove nothing distinctive —
+    // a screen that rebuilds the timeline on EVERY frame would also satisfy
+    // them. These pin that a plain rail-day selection and «Сьогодні» still
+    // rebuild too, exactly as before this port.
 
     testWidgets(
       'selecting a DIFFERENT rail day DOES rebuild the timeline — the '
@@ -570,8 +688,7 @@ void main() {
     );
 
     testWidgets(
-      '«Сьогодні» DOES rebuild the timeline — it re-selects the day, unlike '
-      'prev/next',
+      '«Сьогодні» DOES rebuild the timeline — it re-selects the day',
       (tester) async {
         await pumpScreen(tester);
         final DateTime today = kyivToday(DateTime.now);
@@ -593,8 +710,7 @@ void main() {
           isFalse,
           reason:
               '«Сьогодні» left the timeline untouched — it must re-select '
-              'today (setState + a new query), not merely relabel like '
-              'prev/next',
+              'today (setState + a new query)',
         );
       },
     );

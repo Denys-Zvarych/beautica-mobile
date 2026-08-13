@@ -108,6 +108,8 @@ import 'master_appointment_child_booking_actions_flow_test.dart'
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'master_bookings_month_step_flow_test.dart'
+    as master_bookings_month_step;
 import 'master_bookings_declared_time_cards_flow_test.dart'
     as master_bookings_declared_time_cards;
 import 'master_bookings_working_hours_window_flow_test.dart'
@@ -312,6 +314,12 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Варіант D port (mobile-qa, Step 2.7 Rule 3b) — pins the ORIGINAL field
+  // bug this rework fixes: a month step must move BOTH the selection and the
+  // fetched query, not just relabel/re-scroll. Registered beside
+  // `master_bookings_flow`, whose screen and login/router scaffolding it
+  // shares.
+  group('master_bookings_month_step_flow', master_bookings_month_step.main);
   // Phase 244 — the master booking timeline's working-hours window: a day
   // with no published hours shows the gray state (CTA → /schedule?date=,
   // pre-selected); a day with hours + a booking renders the bounded timeline

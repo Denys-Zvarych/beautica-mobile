@@ -3756,6 +3756,21 @@
   "@bookingDayUnavailableState": {
     "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the time screen's fallback message when the slots fetch itself fails."
   },
+  "bookingsCalendarPastDayState": "past day",
+  "@bookingsCalendarPastDayState": {
+    "description": "Accessibility state word for a past day in BookingsMonthCalendarPanel's expandable month grid (master's «Записи» screen) — distinct from bookingDayUnavailableState, which means 'has no bookable slots' in the slot-picker context; here every day stays tappable, so 'unavailable' would be the wrong word."
+  },
+  "bookingsMonthCalendarToggleSemantics": "Month {month}, expand or collapse the calendar",
+  "@bookingsMonthCalendarToggleSemantics": {
+    "description": "Accessibility label for BookingsMonthCalendarPanel's top-row tap target that expands/collapses the month calendar over the day rail.",
+    "placeholders": {
+      "month": { "type": "String", "example": "July 2026" }
+    }
+  },
+  "bookingsMonthCalendarHandleSemantics": "Expand or collapse the calendar",
+  "@bookingsMonthCalendarHandleSemantics": {
+    "description": "Accessibility label for BookingsMonthCalendarPanel's drag handle below the calendar."
+  },
   "bookingNoSlotsTitle": "No available times",
   "@bookingNoSlotsTitle": {
     "description": "Empty-state heading on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."

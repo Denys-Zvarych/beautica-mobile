@@ -57,13 +57,18 @@
 //
 // The rail's calendar button (`_openCalendar`, opening `bookings_day_picker
 // .dart`'s `showBookingsDayPicker`) is gone — judged redundant once the month
-// switcher's prev/next and «Сьогодні» (`_prevMonth`/`_nextMonth`/`_goToToday`
-// below, added `bc08986`) already covered the long-distance jumps a single-day
-// picker used to exist for. `showBookingsDayPicker` and its widget were
-// deleted outright rather than left as dead UI code — this button was their
-// only production call site. [_selectDay]/[_applySelectedDay] are unaffected:
-// a rail-chip tap is now the ONLY way [_day] changes (besides «Сьогодні»),
-// but it still funnels through the same single mutation path.
+// switcher's prev/next and «Сьогодні» (`bc08986`) already covered the
+// long-distance jumps a single-day picker used to exist for.
+// `showBookingsDayPicker` and its widget were deleted outright rather than
+// left as dead UI code — this button was their only production call site.
+// The Варіант D port (see `widgets/bookings_month_calendar_panel.dart`)
+// later replaced that month switcher with the expandable calendar itself,
+// which is a strictly BIGGER long-distance-jump affordance than the
+// switcher it replaced — so this retirement still stands. [_selectDay]/
+// [_applySelectedDay] are unaffected: a rail-chip tap, a grid-cell tap, a
+// resolved month step, and «Сьогодні» are now the only ways [_day] changes,
+// and all of them funnel through the same single mutation path
+// ([_applySelectedDay], via [_selectDay]'s debounce or [_selectImmediate]).
 //
 // ## CANCELLED/DECLINED are hidden by default — on the WIRE, not after
 //
@@ -121,7 +126,6 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -134,7 +138,6 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
-import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/booked_days_notifier.dart';
@@ -151,6 +154,7 @@ import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
 import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
+import 'widgets/bookings_month_calendar_panel.dart';
 import 'widgets/bookings_timeline_grid.dart';
 import 'widgets/declared_time_cards.dart';
 import 'widgets/master_bookings_states.dart';
@@ -234,25 +238,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// The single source of truth for the selected day. Always set — there is
   /// no «Всі» / null-day state (Phase 7.11).
   late DateTime _day;
-
-  /// The month currently shown by [_MonthSwitcher] (finding #4). Tracks
-  /// [_day]'s month whenever a day is actually selected, but stepping
-  /// prev/next moves ONLY this label + the rail's scroll position — never
-  /// [_day] or the live query — mirroring the approved design's own
-  /// `_focusedMonth`/`_prevMonth`/`_nextMonth`
-  /// (`bookings_toolbar.dart:739-822`). See [_prevMonth]/[_nextMonth].
-  ///
-  /// A [ValueNotifier], NOT a plain `State` field (mobile-perf HIGH): because
-  /// [_prevMonth]/[_nextMonth] deliberately change nothing but this LABEL, a
-  /// `setState` for them rebuilt the entire subtree — `_Loaded` →
-  /// [BookingsTimelineGrid] → `assignLanes` + up to 100 `MasterBookingCard`s
-  /// (~212ms measured) — on the exact frame [_centreRailOn] starts its 320ms
-  /// `animateTo`, stuttering the rail on its first frame. Routing the label
-  /// through a [ValueListenableBuilder] in [_MonthSwitcher] confines the
-  /// rebuild to the one `Text` that actually changed. [_goToToday] and
-  /// [_applySelectedDay] keep their `setState` — they genuinely change the
-  /// query — and simply assign this notifier alongside it.
-  late final ValueNotifier<DateTime> _focusedMonth;
 
   /// The USER's status selection — what the filter sheet resolved with, and
   /// EMPTY until the master picks a group. Deliberately the RAW selection, NOT
@@ -373,7 +358,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // derived from it. See `bookings_day_rail.dart`'s header.
     _railFirstDay = railDayAt(_today, -kBookedDaysSpanDays);
     _day = _today;
-    _focusedMonth = ValueNotifier<DateTime>(DateTime(_day.year, _day.month));
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
     // Through [_rebuildQuery], NOT a second inline `BookingsDayQuery.of` — it
@@ -392,8 +376,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // `_alignRailTodayFirst`, NOT `_centreRailOn` — the INITIAL resting
     // position is today-leftmost, not today-centred. See
     // `_alignRailTodayFirst`'s doc for why, and for why every OTHER
-    // rail-scroll call site (`_prevMonth`/`_nextMonth`/`_goToToday`) keeps
-    // centring unchanged.
+    // rail-scroll call site (`_selectImmediate`, via `_stepMonth`/
+    // `_goToToday`) keeps centring unchanged.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _alignRailTodayFirst(_day);
@@ -405,7 +389,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _dayDebounce?.cancel();
     _screenProtection.release();
     _railController.dispose();
-    _focusedMonth.dispose();
     super.dispose();
   }
 
@@ -451,11 +434,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   ///
   /// Used ONLY for the rail's INITIAL resting position (`initState`'s
   /// post-frame callback). Every other rail-scroll call site —
-  /// [_centreRailOn], via [_prevMonth]/[_nextMonth]/[_goToToday] — keeps
-  /// centring: those are user-INITIATED jumps to a day that is not already
-  /// on screen, where centring the target in the viewport (rather than
-  /// pinning it to an edge) is the more legible landing spot. Only the
-  /// screen's FIRST paint changes.
+  /// [_centreRailOn], via [_selectImmediate] (itself reached from
+  /// [_stepMonth] and [_goToToday]) — keeps centring: those are
+  /// user-INITIATED jumps to a day that is not already on screen, where
+  /// centring the target in the viewport (rather than pinning it to an edge)
+  /// is the more legible landing spot. Only the screen's FIRST paint
+  /// changes.
   ///
   /// Unlike [_centreRailOn] this needs no `viewportDimension` term — "flush
   /// left" does not depend on how much viewport there is, only on [day]'s
@@ -477,10 +461,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// resting SCROLL POSITION moves. At this offset every day strictly before
   /// [day] scrolls out of the initial viewport — the calendar button does
   /// not, and remains reachable with zero scrolling — and nothing here
-  /// shrinks the list to fake reachability (that would be the
-  /// `_clampToRailSpan`/forward-only-range mistake this change must NOT
-  /// make): every past day remains fully reachable by scrolling left —
-  /// `maxScrollExtent` is untouched.
+  /// shrinks the list to fake reachability (that would be the retired
+  /// `_clampToRailSpan`'s forward-only-range mistake, which this change
+  /// must NOT repeat): every past day remains fully reachable by scrolling
+  /// left — `maxScrollExtent` is untouched.
   void _alignRailTodayFirst(DateTime day) {
     if (!_railController.hasClients) return;
     final ScrollPosition position = _railController.position;
@@ -494,68 +478,50 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _railController.jumpTo(clamped);
   }
 
-  // ── Month switcher (findings #4/#5) ─────────────────────────────────────
+  // ── Month calendar panel (Варіант D port) ───────────────────────────────
+  //
+  // The old month switcher's `_focusedMonth`/`_prevMonth`/`_nextMonth` are
+  // RETIRED — see `widgets/bookings_month_calendar_panel.dart`'s file header
+  // for the full replacement contract. There is now exactly ONE piece of
+  // date state on this screen ([_day]); the month is `DateTime(_day.year,
+  // _day.month)`, derived wherever it is needed (inside the panel), never
+  // stored separately. A month step — the panel's ‹ › chevrons or a sideways
+  // swipe on the grid — now SELECTS, same as a rail tap or «Сьогодні»: this
+  // is the fix for the original chevron/label/query disagreement bug.
 
-  /// Clamps [day] into the rail's date bounds
-  /// (`[_railFirstDay, _railFirstDay + kBookedDaysSpanDays * 2]`) — mirrors
-  /// the approved design's `_firstOfMonth` clamp
-  /// (`bookings_toolbar.dart:266-274`), generalised to any day rather than
-  /// only a month's 1st.
-  DateTime _clampToRailSpan(DateTime day) {
-    final DateTime lastRailDay = railDayAt(
-      _railFirstDay,
-      kBookedDaysSpanDays * 2,
-    );
-    if (day.isBefore(_railFirstDay)) return _railFirstDay;
-    if (day.isAfter(lastRailDay)) return lastRailDay;
-    return day;
-  }
-
-  /// The first day of [month], clamped into the rail's span — the target the
-  /// rail recentres on when the switcher steps a month.
-  DateTime _firstOfMonthClamped(DateTime month) =>
-      _clampToRailSpan(DateTime(month.year, month.month));
-
-  /// Steps [_focusedMonth] back one month and recentres the rail on it.
-  /// Deliberately does NOT touch [_day] or [_liveQuery] — a pure RAIL-SCROLL
-  /// affordance, exactly like the design's own `_prevMonth`: "stepping a
-  /// month should move the rail, not just relabel" is satisfied by
-  /// [_centreRailOn], not by re-selecting a day.
-  ///
-  /// NO `setState` (mobile-perf HIGH) — see [_focusedMonth]'s doc. The only
-  /// thing this changes is the switcher's label, so it assigns the notifier
-  /// and lets the [ValueListenableBuilder] repaint that one `Text` instead of
-  /// rebuilding the timeline on the same frame the rail starts animating.
-  void _prevMonth() {
-    final DateTime current = _focusedMonth.value;
-    final DateTime prev = DateTime(current.year, current.month - 1);
-    final DateTime target = _firstOfMonthClamped(prev);
-    _focusedMonth.value = DateTime(target.year, target.month);
-    _centreRailOn(target, animated: true);
-  }
-
-  /// Steps [_focusedMonth] forward one month and recentres the rail on it.
-  /// See [_prevMonth] for why [_day]/[_liveQuery] are untouched and why this
-  /// does not `setState`.
-  void _nextMonth() {
-    final DateTime current = _focusedMonth.value;
-    final DateTime next = DateTime(current.year, current.month + 1);
-    final DateTime target = _firstOfMonthClamped(next);
-    _focusedMonth.value = DateTime(target.year, target.month);
-    _centreRailOn(target, animated: true);
-  }
-
-  /// «Сьогодні» (finding #5) — unlike prev/next, this DOES jump the actual
-  /// selection: it re-selects today (mirroring [_applySelectedDay]) and
-  /// resets the switcher's label to today's month, then recentres the rail.
-  void _goToToday() {
+  /// The single mutation point for every date-navigation control BESIDES a
+  /// rail-chip tap: a grid-cell tap, the «Сьогодні» pill, and a resolved
+  /// month step. All three are single deliberate actions, unlike a rail
+  /// flick, so — mirroring the retired `_goToToday`'s own shape — this
+  /// cancels any pending rail-tap debounce, applies the selection
+  /// immediately, and recentres the rail so the collapsed strip already
+  /// agrees with the grid the moment the master collapses it back down.
+  void _selectImmediate(DateTime day) {
     _dayDebounce?.cancel();
-    _focusedMonth.value = DateTime(_today.year, _today.month);
-    setState(() {
-      _day = _today;
-      _rebuildQuery();
-    });
-    _centreRailOn(_today, animated: true);
+    _applySelectedDay(day);
+    _centreRailOn(day, animated: true);
+  }
+
+  /// Resolves a month step ([BookingsMonthCalendarPanel.onStepMonth],
+  /// [delta] = ±1) into a selection: the SAME day-of-month in the target
+  /// month, clamped to that month's length — so "the 31st" survives a jump
+  /// into a 30-day month, exactly as the approved design's own `_stepMonth`.
+  /// Not clamped to the rail's ±[kBookedDaysSpanDays] span — that clamp
+  /// belonged to the OLD rail-scroll-only chevrons; [_centreRailOn] already
+  /// clamps the resulting SCROLL offset on its own, so a day far outside the
+  /// rail's span simply parks the rail at its edge instead of crashing, and
+  /// the query (unlike the rail) has no such bound to respect.
+  void _stepMonth(int delta) {
+    final DateTime targetMonth = DateTime(_day.year, _day.month + delta);
+    final int lastDayOfTargetMonth = DateTime(
+      targetMonth.year,
+      targetMonth.month + 1,
+      0,
+    ).day;
+    final int day = _day.day > lastDayOfTargetMonth
+        ? lastDayOfTargetMonth
+        : _day.day;
+    _selectImmediate(DateTime(targetMonth.year, targetMonth.month, day));
   }
 
   // ── Query mutation ──────────────────────────────────────────────────────
@@ -595,7 +561,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// calling it, since it also has to move the rail's scroll position.
   void _applySelectedDay(DateTime day) {
     final DateTime selected = dateOnly(day);
-    _focusedMonth.value = DateTime(selected.year, selected.month);
     setState(() {
       _day = selected;
       _rebuildQuery();
@@ -722,117 +687,216 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onAdd: _showAddComingSoon,
             ),
             const _ServiceCatalogueWarmer(),
-            _MonthSwitcher(
-              month: _focusedMonth,
-              onPrev: _prevMonth,
-              onNext: _nextMonth,
-              onToday: _goToToday,
-            ),
-            const SizedBox(height: VelvetSpacing.sm),
-            Consumer(
-              builder: (BuildContext context, WidgetRef ref, Widget? _) {
-                // Filter-INDEPENDENT by design — the dots describe where the
-                // master's work is, not what the current filter matches, so
-                // they must not evaporate as the user narrows.
-                final AsyncValue<Set<DateTime>> bookedDaysAsync = ref.watch(
-                  bookedDaysProvider,
-                );
-                final Set<DateTime> bookedDays =
-                    bookedDaysAsync.value ?? const <DateTime>{};
-
-                return BookingsDayRail(
-                  controller: _railController,
-                  firstDay: _railFirstDay,
-                  dayCount: kBookedDaysSpanDays * 2 + 1,
-                  today: _today,
-                  selectedDay: _day,
-                  bookedDays: bookedDays,
-                  onSelectDay: _selectDay,
-                );
-              },
-            ),
-            const SizedBox(height: VelvetSpacing.sm),
+            // mobile-perf HIGH fix (finding #2): the panel and the timeline
+            // used to be plain `Column` siblings — the panel a non-flex
+            // child, the timeline wrapped in `Expanded`. That made the
+            // timeline's available height a function of the panel's
+            // CURRENT height, so every drag frame and every tick of the
+            // panel's 280ms open/close settle forced
+            // `BookingsTimelineGrid`/`DeclaredTimeCards` to relayout in
+            // step — a `RepaintBoundary` cannot fix this because the
+            // coupling is at layout time, not paint time.
+            //
+            // Reserving the panel's EXPANDED height as a fixed slot was
+            // considered and rejected: it would leave a permanent ~310dp
+            // dead gap above the timeline in the panel's normal resting
+            // (collapsed) state, which is where the master actually lives
+            // — trading a frame-rate win for a constant, highly visible
+            // layout regression.
+            //
+            // Instead: the timeline gets a FIXED layout slot sized to the
+            // panel's COLLAPSED height
+            // ([kBookingsMonthCalendarPanelCollapsedHeight] + the same
+            // [VelvetSpacing.sm] gap the old `SizedBox` used), via a
+            // `Positioned` in a `Stack`. The panel is a SECOND `Positioned`,
+            // pinned to the top and later in the `Stack`'s paint order, so
+            // it draws OVER the timeline's top edge instead of displacing
+            // it while it opens — matching the approved design's own
+            // framing of the grid as a temporary overlay the master opens,
+            // reads, and dismisses.
+            //
+            // Consequences of the overlay, spelt out rather than left
+            // implicit:
+            //   * Timeline SCROLL POSITION — untouched by the whole gesture.
+            //     Its `Positioned` box (top offset fixed, `bottom: 0`) never
+            //     changes size during a drag or settle, so its box
+            //     constraints — and therefore its scroll offset — are
+            //     exactly as stable as when the panel never existed.
+            //   * Taps where the expanded grid overlaps the timeline — the
+            //     panel is the LATER `Stack` child, so it hit-tests first;
+            //     within the panel's own rendered bounds (which grow with
+            //     `_open`, not the Stack's full remaining height) a tap
+            //     reaches the grid, never the timeline underneath. Below the
+            //     panel's actual bottom edge, taps fall straight through to
+            //     the timeline as before — [Positioned] only claims the
+            //     area its child actually occupies, not the whole slot.
+            //   * VISUAL DEVIATION from the ported preview app (disclosed,
+            //     not silent): `docs/signup-designs/MasterBookingsCalendar`'s
+            //     own `variant_d_screen.dart` composes the date control and
+            //     the booking list as `Column` + `Expanded` too — i.e. the
+            //     approved reference visibly pushes the list DOWN as the
+            //     calendar grows. This fix trades that live reflow for the
+            //     calendar drawing OVER the list instead, during the drag
+            //     and the open/close settle only. The RESTING collapsed
+            //     state (t=0, the screen's normal state) is pixel-identical
+            //     to before — the reserved offset equals the previous
+            //     static layout exactly — so the difference is confined to
+            //     the transient expand/collapse motion.
             Expanded(
-              child: Consumer(
-                builder: (BuildContext context, WidgetRef ref, Widget? _) {
-                  final AsyncValue<BookingsDayState> async = ref.watch(
-                    bookingsDayProvider(_liveQuery),
-                  );
+              child: Stack(
+                children: <Widget>[
+                  Positioned(
+                    top:
+                        kBookingsMonthCalendarPanelCollapsedHeight +
+                        VelvetSpacing.sm,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    // mobile-perf MEDIUM fix: `RenderStack`/`Positioned` are
+                    // not repaint boundaries, so without this the panel's
+                    // per-frame paint churn during its 280ms drag/settle
+                    // (`ClipRect` + `SizedBox` resize, `Opacity` cross-fade —
+                    // see `BookingsMonthCalendarPanel`) could force the paint
+                    // pass to walk into this sibling's subtree even though
+                    // its own content never changes. `ListView.builder`'s
+                    // `addRepaintBoundaries` already isolates individual
+                    // booking cards from EACH OTHER, but not this whole
+                    // subtree from the PANEL sharing its `Stack`. Isolating
+                    // here, not the panel: the panel is the thing actually
+                    // animating every frame (a boundary around it buys it
+                    // nothing), and it is the LAST `Stack` child with no
+                    // sibling painted after it, so nothing downstream needs
+                    // protecting from ITS churn — this timeline is the one
+                    // subtree that repaints for no reason of its own.
+                    child: RepaintBoundary(
+                      child: Consumer(
+                        builder:
+                            (BuildContext context, WidgetRef ref, Widget? _) {
+                              final AsyncValue<BookingsDayState> async = ref
+                                  .watch(bookingsDayProvider(_liveQuery));
 
-                  // mobile-perf MEDIUM fix (this session): watched HERE,
-                  // ALONGSIDE `bookingsDayProvider` rather than from inside
-                  // `_Loaded` (which only ever mounts once `async` resolves
-                  // to `data:`) — so the two fetches fire in PARALLEL on
-                  // every day change instead of the schedule round trip
-                  // waiting on the bookings one to finish first. `null` when
-                  // `useScheduleWindow` is `false`: the provider is still
-                  // NEVER watched for any other caller — the doc'd invariant
-                  // on `BookingsDiscoveryView.useScheduleWindow` is
-                  // unchanged, just enforced one level up.
-                  final AsyncValue<List<EffectiveDay>>? scheduleAsync =
-                      widget.useScheduleWindow
-                      ? ref.watch(
-                          effectiveScheduleProvider(
-                            ScheduleRange(from: _day, to: _day),
-                          ),
-                        )
-                      : null;
+                              // mobile-perf MEDIUM fix (earlier session):
+                              // watched HERE, ALONGSIDE
+                              // `bookingsDayProvider` rather than from
+                              // inside `_Loaded` (which only ever mounts
+                              // once `async` resolves to `data:`) — so the
+                              // two fetches fire in PARALLEL on every day
+                              // change instead of the schedule round trip
+                              // waiting on the bookings one to finish
+                              // first. `null` when `useScheduleWindow` is
+                              // `false`: the provider is still NEVER
+                              // watched for any other caller — the doc'd
+                              // invariant on
+                              // `BookingsDiscoveryView.useScheduleWindow`
+                              // is unchanged, just enforced one level up.
+                              final AsyncValue<List<EffectiveDay>>?
+                              scheduleAsync = widget.useScheduleWindow
+                                  ? ref.watch(
+                                      effectiveScheduleProvider(
+                                        ScheduleRange(from: _day, to: _day),
+                                      ),
+                                    )
+                                  : null;
 
-                  return async.when(
-                    // Bare, unscrolled `Column`s inside a scroll view — the
-                    // shipped client screen hosts its own loading/error states
-                    // the same way, and dropping either straight into an
-                    // `Expanded` overflows the remaining height on a short
-                    // device (Phase 17.2 overflow guard).
-                    loading: () => ListView(
-                      key: const Key('master-bookings-skeleton'),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(
-                        VelvetSpacing.lg,
-                        0,
-                        VelvetSpacing.lg,
-                        VelvetSpacing.xxl,
+                              return async.when(
+                                // Bare, unscrolled `Column`s inside a
+                                // scroll view — the shipped client screen
+                                // hosts its own loading/error states the
+                                // same way, and dropping either straight
+                                // into an `Expanded` overflows the
+                                // remaining height on a short device
+                                // (Phase 17.2 overflow guard).
+                                loading: () => ListView(
+                                  key: const Key('master-bookings-skeleton'),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    VelvetSpacing.lg,
+                                    0,
+                                    VelvetSpacing.lg,
+                                    VelvetSpacing.xxl,
+                                  ),
+                                  children: const <Widget>[BookingsSkeleton()],
+                                ),
+                                error: (Object e, StackTrace _) => ListView(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    VelvetSpacing.lg,
+                                    0,
+                                    VelvetSpacing.lg,
+                                    VelvetSpacing.xxl,
+                                  ),
+                                  children: <Widget>[
+                                    MyBookingsErrorState(
+                                      error: e,
+                                      onRetry: () => ref.invalidate(
+                                        bookingsDayProvider(_liveQuery),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                data: (BookingsDayState state) => _Loaded(
+                                  state: state,
+                                  // [_hasUserFilters], NOT
+                                  // `_liveQuery.hasFilters` — the live
+                                  // query always carries statuses now (the
+                                  // default exclusion), so reading it here
+                                  // would render the «Немає записів за цим
+                                  // фільтром» copy on a screen the master
+                                  // never filtered.
+                                  hasFilters: _hasUserFilters,
+                                  // …but THIS one IS a wire-shape question,
+                                  // so it reads `_liveQuery`, not
+                                  // `_statuses`/`_serviceIds`. See
+                                  // [BookingsDayQuery.showsAllOccupancy].
+                                  showsAllOccupancy:
+                                      _liveQuery.showsAllOccupancy,
+                                  day: _day,
+                                  useScheduleWindow: widget.useScheduleWindow,
+                                  scheduleAsync: scheduleAsync,
+                                  visibleBookingsFor: _visibleBookingsFor,
+                                  onClearFilters: _clearAllFilters,
+                                  onBookingTap: widget.onBookingTap,
+                                  onAddWorkingHours: widget.onAddWorkingHours,
+                                ),
+                              );
+                            },
                       ),
-                      children: const <Widget>[BookingsSkeleton()],
                     ),
-                    error: (Object e, StackTrace _) => ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(
-                        VelvetSpacing.lg,
-                        0,
-                        VelvetSpacing.lg,
-                        VelvetSpacing.xxl,
-                      ),
-                      children: <Widget>[
-                        MyBookingsErrorState(
-                          error: e,
-                          onRetry: () =>
-                              ref.invalidate(bookingsDayProvider(_liveQuery)),
-                        ),
-                      ],
+                  ),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Consumer(
+                      builder: (BuildContext context, WidgetRef ref, Widget? _) {
+                        // Filter-INDEPENDENT by design — the dots describe
+                        // where the master's work is, not what the current
+                        // filter matches, so they must not evaporate as the
+                        // user narrows. Feeds BOTH the collapsed rail's dots
+                        // and the expanded grid's density dots inside the
+                        // panel — same source, unchanged.
+                        final AsyncValue<Set<DateTime>> bookedDaysAsync = ref
+                            .watch(bookedDaysProvider);
+                        final Set<DateTime> bookedDays =
+                            bookedDaysAsync.value ?? const <DateTime>{};
+
+                        return BookingsMonthCalendarPanel(
+                          railController: _railController,
+                          railFirstDay: _railFirstDay,
+                          dayCount: kBookedDaysSpanDays * 2 + 1,
+                          today: _today,
+                          selectedDay: _day,
+                          bookedDays: bookedDays,
+                          onSelectRailDay: _selectDay,
+                          onSelectDay: _selectImmediate,
+                          onStepMonth: _stepMonth,
+                        );
+                      },
                     ),
-                    data: (BookingsDayState state) => _Loaded(
-                      state: state,
-                      // [_hasUserFilters], NOT `_liveQuery.hasFilters` — the
-                      // live query always carries statuses now (the default
-                      // exclusion), so reading it here would render the
-                      // «Немає записів за цим фільтром» copy on a screen the
-                      // master never filtered.
-                      hasFilters: _hasUserFilters,
-                      // …but THIS one IS a wire-shape question, so it reads
-                      // `_liveQuery`, not `_statuses`/`_serviceIds`. See
-                      // [BookingsDayQuery.showsAllOccupancy].
-                      showsAllOccupancy: _liveQuery.showsAllOccupancy,
-                      day: _day,
-                      useScheduleWindow: widget.useScheduleWindow,
-                      scheduleAsync: scheduleAsync,
-                      visibleBookingsFor: _visibleBookingsFor,
-                      onClearFilters: _clearAllFilters,
-                      onBookingTap: widget.onBookingTap,
-                      onAddWorkingHours: widget.onAddWorkingHours,
-                    ),
-                  );
-                },
+                  ),
+                ],
               ),
             ),
           ],
@@ -1364,127 +1428,6 @@ class _Header extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ===========================================================================
-// Month switcher (findings #4/#5) — a nav row above the day rail.
-// ===========================================================================
-
-/// A compact "‹ Липень 2026 ›" navigator plus a «Сьогодні» jump action, sat
-/// between the header and the day rail. Transcribed from the approved
-/// design's `_MonthSwitcher` (`bookings_toolbar.dart:739-822`); see
-/// `_BookingsDiscoveryViewState._prevMonth`/`_nextMonth`/`_goToToday` for why
-/// stepping the month moves only the rail's scroll position, never the
-/// selected day or the live query.
-///
-/// Takes a [ValueListenable] rather than a bare `DateTime` (mobile-perf HIGH
-/// — see `_BookingsDiscoveryViewState._focusedMonth`): the label is the ONLY
-/// thing a prev/next step changes, so it is the only thing that rebuilds.
-class _MonthSwitcher extends StatelessWidget {
-  const _MonthSwitcher({
-    required this.month,
-    required this.onPrev,
-    required this.onNext,
-    required this.onToday,
-  });
-
-  final ValueListenable<DateTime> month;
-  final VoidCallback onPrev;
-  final VoidCallback onNext;
-  final VoidCallback onToday;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.lg,
-        vertical: VelvetSpacing.xs,
-      ),
-      child: Row(
-        children: <Widget>[
-          IconButton(
-            key: const Key('master-bookings-month-prev'),
-            icon: const Icon(Icons.chevron_left_rounded),
-            color: BrandColors.accent,
-            onPressed: onPrev,
-            tooltip: l10n.schedulePrevMonth,
-          ),
-          Expanded(
-            child: ValueListenableBuilder<DateTime>(
-              valueListenable: month,
-              builder: (BuildContext context, DateTime value, Widget? _) =>
-                  Text(
-                    '${monthNominative(value.month)} ${value.year}',
-                    textAlign: TextAlign.center,
-                    style: VelvetText.monthSwitcherLabel,
-                  ),
-            ),
-          ),
-          IconButton(
-            key: const Key('master-bookings-month-next'),
-            icon: const Icon(Icons.chevron_right_rounded),
-            color: BrandColors.accent,
-            onPressed: onNext,
-            tooltip: l10n.scheduleNextMonth,
-          ),
-          const SizedBox(width: VelvetSpacing.sm),
-          _TodayButton(onTap: onToday, label: l10n.scheduleTodayAction),
-        ],
-      ),
-    );
-  }
-}
-
-/// The «Сьогодні» pill — jumps the rail (and the actual selection) back to
-/// today. `borderedButton`, NOT `extrudedSmall`/`extrudedButton`: this is a
-/// NEW rounded-rect surface in the booking feature, and every other such
-/// surface added since the white-corner-wedge fix (`MasterBookingCard`; the
-/// rail's own now-retired `_CalendarButton` was another) deliberately uses
-/// the non-offset bordered recipe instead of an offset near-white extruded
-/// pair.
-class _TodayButton extends StatelessWidget {
-  const _TodayButton({required this.onTap, required this.label});
-
-  final VoidCallback onTap;
-  final String label;
-
-  static final BoxDecoration _decoration = BoxDecoration(
-    color: BrandColors.base,
-    borderRadius: BorderRadius.circular(VelvetRadii.pill),
-    boxShadow: VelvetShadows.borderedButton,
-    border: Border.all(color: BrandColors.accent.withValues(alpha: 0.18)),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: GestureDetector(
-        key: const Key('master-bookings-today'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.sm + 2),
-          decoration: _decoration,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.today_rounded,
-                size: 15,
-                color: BrandColors.accentDeep,
-              ),
-              const SizedBox(width: 4),
-              Text(label, style: VelvetText.monthSwitcherTodayLabel),
-            ],
-          ),
         ),
       ),
     );
