@@ -768,6 +768,11 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
               selected: widget.selectedDay,
               composeWeekdayBar: true,
               sixWeekRows: true,
+              // User request (this session): the weekend cue on this
+              // EXPANDED calendar moves from the muted day number to a
+              // whole-column tinted band — see `MonthCalendar
+              // .showWeekendColumnBand`'s doc.
+              showWeekendColumnBand: true,
               // No header, no ‹ › chevrons — the month+year lives in `_TopRow`
               // permanently now and paging is the only navigation. See the file
               // header and [MonthCalendar.showHeader].

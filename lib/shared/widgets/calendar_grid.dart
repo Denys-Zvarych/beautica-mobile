@@ -51,6 +51,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
@@ -122,6 +123,81 @@ List<CalendarSelectedRun> computeSelectedRuns(List<bool> selectedByColumn) {
     runs.add((start, 6));
   }
   return runs;
+}
+
+/// A column-spanning tinted band behind the Saturday/Sunday columns of a
+/// month grid — the weekend cue [MonthCalendar.showWeekendColumnBand] moves
+/// from the day NUMBER (muted text, [BrandColors.weekendMuted]) to the whole
+/// column, per explicit user request on the master's expanded «Мої записи»
+/// calendar: "put whole weekend columns into grey / other colour ... not
+/// grey day numbers".
+///
+/// Sized by its parent — a caller stacks this UNDER a [CalendarWeekdayBar] +
+/// six [CalendarWeekRow]s (`Stack` + `Positioned.fill`, see
+/// `MonthCalendar.build`) so the SAME rect this widget fills spans the
+/// weekday-caption row and every week row beneath it, reading as one
+/// continuous band rather than per-row stripes.
+///
+/// mobile-perf (backlog #294 — up to 3 [MonthCalendar] grids, 42
+/// `AnimatedContainer` cells each, co-mount during a month-page drag): this
+/// paints the band as exactly TWO flex segments in a SINGLE `Row` — O(1) per
+/// grid — never a per-cell decoration. The 5:2 flex split lands on the exact
+/// same column boundary [CalendarWeekdayBar] and [CalendarWeekRow]'s own
+/// 7-way `Expanded(flex: 1)` columns do, because a Flutter `Row` partitions
+/// its width strictly proportionally to flex sum: 5 unit-flex columns next to
+/// a single flex-2 column occupy identical pixel bounds to 7 unit-flex
+/// columns, for the same total width and no other constraints — so the band
+/// can never drift a half-column off the day cells and weekday captions it
+/// shades.
+///
+/// Every piece of paint geometry ([_radius] AND [_decoration]) is hoisted to
+/// `static final` rather than allocated inline in [build] — this widget takes
+/// no constructor fields, so [build] only ever runs once per mount (the
+/// `const CalendarWeekendColumnBand()` call site is canonicalized, and
+/// `Element.updateChild`'s identity fast path skips rebuilding an unchanged
+/// const child), but that is a property of THIS call site, not a guarantee
+/// [build]'s own code can rely on — a future constructor field would silently
+/// turn a per-mount allocation into a per-rebuild one. Hoisting removes that
+/// trap entirely rather than documenting it as an assumption.
+class CalendarWeekendColumnBand extends StatelessWidget {
+  const CalendarWeekendColumnBand({super.key});
+
+  /// `BorderRadius.circular` is not a `const` constructor.
+  static final BorderRadius _radius = BorderRadius.circular(VelvetRadii.card);
+
+  /// The tinted segment's fill — built from [_radius] once, not re-allocated
+  /// on every [build] (see the class doc).
+  static final BoxDecoration _decoration = BoxDecoration(
+    color: BrandColors.weekendColumn,
+    borderRadius: _radius,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      // `Row` only tightens the MAIN axis (width) for its `Expanded`
+      // children — the CROSS axis (height) stays LOOSE by default
+      // (`crossAxisAlignment: center`). The `DecoratedBox` below has no
+      // `child`, so under a loose height constraint it resolves to
+      // `constraints.smallest` — height 0 — even though the `Positioned
+      // .fill` wrapper one level up correctly sized THIS `Row` to the full
+      // grid height. `stretch` is what actually forces that height onto
+      // the `Row`'s children; without it the band silently paints a
+      // zero-height rect and every foreground/geometry test that only
+      // checks the widget MOUNTED (rather than its rendered size) stays
+      // green through the collapse. mobile-build-verifier caught this via
+      // a pixel-level goldens read-back (zero `#F0DBC0` pixels) after the
+      // first version of this file shipped without it.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        // Monday..Friday — no tint.
+        const Expanded(flex: 5, child: SizedBox.shrink()),
+        // Saturday + Sunday, as ONE merged flex segment so the two columns
+        // read as a single band rather than two separately-rounded pills.
+        Expanded(flex: 2, child: DecoratedBox(decoration: _decoration)),
+      ],
+    );
+  }
 }
 
 /// The pinned Monday-first weekday header row — «пн вт ср чт пт сб нд» — used

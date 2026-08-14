@@ -264,4 +264,79 @@ void main() {
           're-evaluated, not silently left stale.',
     );
   });
+
+  // BrandColors.weekendColumn — the whole-column band behind Saturday/Sunday
+  // on the master's expanded «Мої записи» calendar
+  // (`MonthCalendar.showWeekendColumnBand`, `CalendarWeekendColumnBand`).
+  // Every foreground `month_calendar.dart`'s `_dayCell` can now paint INSIDE
+  // that band must still clear WCAG AA against the band itself, not just
+  // against `BrandColors.base` — a background swap is exactly the kind of
+  // regression a plain "contrast vs base" assertion would miss.
+  group('BrandColors.weekendColumn vs the foregrounds that land on it', () {
+    test('is a perceptible CIE Lab ΔE76 >= 8 away from base — the band is '
+        'actually visible, not merely a rounding difference', () {
+      final double deltaE = _deltaE76(
+        BrandColors.weekendColumn,
+        BrandColors.base,
+      );
+      expect(
+        deltaE,
+        greaterThanOrEqualTo(_kMinPerceptibleDeltaE),
+        reason:
+            'weekendColumn vs base measured ΔE76=$deltaE. Held to the same '
+            'bar as weekendMuted\'s own fix above — a band nobody can '
+            'actually see is not a weekend cue.',
+      );
+    });
+
+    test('accentDeep (normal/selected day-number colour) clears AA on the '
+        'band', () {
+      final double ratio = _contrastRatio(
+        BrandColors.accentDeep,
+        BrandColors.weekendColumn,
+      );
+      expect(
+        ratio,
+        greaterThanOrEqualTo(_kWcagAaNormalText),
+        reason:
+            'accentDeep on weekendColumn measured $ratio — this is every '
+            'available, unselected weekend day number post-D3-reversal '
+            '(`_dayCell` no longer special-cases weekend at all).',
+      );
+    });
+
+    test('textSecondary (unavailable-but-tappable day-number colour) clears '
+        'AA on the band', () {
+      final double ratio = _contrastRatio(
+        BrandColors.textSecondary,
+        BrandColors.weekendColumn,
+      );
+      expect(
+        ratio,
+        greaterThanOrEqualTo(_kWcagAaNormalText),
+        reason:
+            'textSecondary on weekendColumn measured $ratio — a past '
+            'weekend day on `BookingsMonthCalendarPanel` '
+            '(`allowTapOnUnavailable: true`) renders this tone inside '
+            'the band.',
+      );
+    });
+
+    test('weekendMuted (the сб/нд weekday captions) clears AA on the band', () {
+      final double ratio = _contrastRatio(
+        BrandColors.weekendMuted,
+        BrandColors.weekendColumn,
+      );
+      expect(
+        ratio,
+        greaterThanOrEqualTo(_kWcagAaNormalText),
+        reason:
+            'weekendMuted on weekendColumn measured $ratio — '
+            'CalendarWeekdayBar keeps its Saturday/Sunday captions this '
+            'colour (see that class\'s doc for why: a redundant, still-'
+            'legal reinforcement of which two columns the band shades, '
+            'not the cue\'s only carrier any more).',
+      );
+    });
+  });
 }

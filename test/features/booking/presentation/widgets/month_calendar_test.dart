@@ -13,8 +13,15 @@
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/month_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
+    show
+        CalendarWeekRow,
+        CalendarWeekendColumnBand,
+        kCalendarMaxDensityDots,
+        kCalendarRowHeight;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -437,44 +444,52 @@ void main() {
     );
   });
 
-  // mobile-backlog D3 regression: Saturday/Sunday day numbers read muted,
-  // and a SELECTED weekend day is never left illegible (muted).
-  //
-  // mobile-security MEDIUM (calendar-consolidation audit): the muted tone is
-  // `BrandColors.weekendMuted`, not `BrandColors.muted` — `muted` measures
-  // 2.69:1 on `BrandColors.base` (sub-AA) and this day number is ACTIVE,
-  // tappable text (`isAvailable: (_) => true` below), so WCAG 1.4.3's
-  // inactive-component exemption does not cover it; `weekendMuted` clears AA
-  // (5.07:1).
-  group('weekend day-number muting (D3)', () {
-    testWidgets('an available, unselected Sunday number renders weekendMuted', (
-      tester,
-    ) async {
-      // 2026-07-05 is a Sunday.
-      final DateTime visibleMonth = DateTime(2026, 7);
-      await tester.pumpApp(
-        Scaffold(
-          body: MonthCalendar(
-            visibleMonth: visibleMonth,
-            today: DateTime(2026, 7, 1),
-            selected: null,
-            isAvailable: (_) => true,
-            onSelectDay: (_) {},
-            onPrevMonth: null,
-            onNextMonth: null,
+  // mobile-backlog D3 REVERSAL (this session, explicit user request): the
+  // weekend cue moved from the day NUMBER to a whole-column tinted band
+  // (`MonthCalendar.showWeekendColumnBand`, `CalendarWeekendColumnBand`) —
+  // "put whole weekend columns into grey / other colour ... not grey day
+  // numbers". A weekend day number now renders IDENTICALLY to an ordinary
+  // day's — `BrandColors.weekendMuted` no longer appears on any day-number
+  // `Text.style` in this widget, regardless of `showWeekendColumnBand`. The
+  // band itself is a purely presentational rect this group also confirms is
+  // painted when the caller opts in.
+  group('weekend day-number muting REMOVED (D3 reversal)', () {
+    testWidgets(
+      'an available, unselected Sunday number renders the NORMAL colour, '
+      'not weekendMuted',
+      (tester) async {
+        // 2026-07-05 is a Sunday.
+        final DateTime visibleMonth = DateTime(2026, 7);
+        await tester.pumpApp(
+          Scaffold(
+            body: MonthCalendar(
+              visibleMonth: visibleMonth,
+              today: DateTime(2026, 7, 1),
+              selected: null,
+              isAvailable: (_) => true,
+              onSelectDay: (_) {},
+              onPrevMonth: null,
+              onNextMonth: null,
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      final Text number = tester.widget<Text>(
-        find.descendant(
-          of: find.byKey(const Key('booking-calendar-day-5')),
-          matching: find.text('5'),
-        ),
-      );
-      expect(number.style?.color, BrandColors.weekendMuted);
-    });
+        final Text number = tester.widget<Text>(
+          find.descendant(
+            of: find.byKey(const Key('booking-calendar-day-5')),
+            matching: find.text('5'),
+          ),
+        );
+        expect(
+          number.style?.color,
+          BrandColors.accentDeep,
+          reason:
+              'the weekend cue is now the column band, not a muted number — '
+              'an available Sunday reads exactly like an available Monday',
+        );
+      },
+    );
 
     testWidgets('a SELECTED Sunday number stays legible (never muted)', (
       tester,
@@ -505,7 +520,509 @@ void main() {
       expect(
         number.style?.color,
         BrandColors.accentDeep,
-        reason: 'selected always outranks the weekend-muted cue',
+        reason: 'selected always outranks any de-emphasizing cue',
+      );
+    });
+
+    testWidgets('an unavailable, non-tappable Sunday number still reads faint '
+        '(unavailable outranks weekend, which no longer has a number cue '
+        'at all)', (tester) async {
+      final DateTime visibleMonth = DateTime(2026, 7);
+      await tester.pumpApp(
+        Scaffold(
+          body: MonthCalendar(
+            visibleMonth: visibleMonth,
+            today: DateTime(2026, 7, 1),
+            selected: null,
+            isAvailable: (_) => false,
+            onSelectDay: (_) {},
+            onPrevMonth: null,
+            onNextMonth: null,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Text number = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('booking-calendar-day-5')),
+          matching: find.text('5'),
+        ),
+      );
+      expect(number.style?.color, BrandColors.faint);
+    });
+
+    testWidgets('showWeekendColumnBand: false (default) paints NO band — '
+        'SlotDateScreen/MasterSchedulePage render unchanged', (tester) async {
+      final DateTime visibleMonth = DateTime(2026, 7);
+      await tester.pumpApp(
+        Scaffold(
+          body: MonthCalendar(
+            visibleMonth: visibleMonth,
+            today: DateTime(2026, 7, 1),
+            selected: null,
+            isAvailable: (_) => true,
+            onSelectDay: (_) {},
+            onPrevMonth: null,
+            onNextMonth: null,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CalendarWeekendColumnBand), findsNothing);
+    });
+
+    testWidgets(
+      'showWeekendColumnBand: true paints a band with REAL vertical extent '
+      '(regression guard: a `Row` only tightens the width of its `Expanded` '
+      'children — the cross-axis height stays LOOSE by default, so an '
+      'unconstrained `DecoratedBox` collapses to `constraints.smallest` == '
+      'height 0 even though `Positioned.fill` sized the `Row` itself '
+      'correctly; `findsOneWidget` alone stayed green through exactly that '
+      'collapse in the shipped-then-reverted first version of this file — '
+      'see `CalendarWeekendColumnBand`\'s `crossAxisAlignment: stretch`), '
+      'spanning the weekday-caption row through the last week row, aligned '
+      'to the 5/7 column boundary through the grid\'s own right edge',
+      (tester) async {
+        final DateTime visibleMonth = DateTime(2026, 7);
+        await tester.pumpApp(
+          Scaffold(
+            body: MonthCalendar(
+              visibleMonth: visibleMonth,
+              today: DateTime(2026, 7, 1),
+              selected: null,
+              isAvailable: (_) => true,
+              onSelectDay: (_) {},
+              composeWeekdayBar: true,
+              sixWeekRows: true,
+              showHeader: false,
+              showWeekendColumnBand: true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(CalendarWeekendColumnBand), findsOneWidget);
+
+        // `CalendarWeekendColumnBand` ITSELF is the full-width `Row` (a
+        // blank flex-5 segment plus the flex-2 tinted one) — its own Rect
+        // spans the WHOLE grid width, not just the shaded columns. The
+        // widget that actually paints the tint is the inner `DecoratedBox`
+        // (the flex-2 child), so horizontal assertions must target THAT,
+        // not the wrapping band widget.
+        final Finder tintedFinder = find.descendant(
+          of: find.byType(CalendarWeekendColumnBand),
+          matching: find.byType(DecoratedBox),
+        );
+        expect(
+          tintedFinder,
+          findsOneWidget,
+          reason:
+              'exactly one painted segment — the Sat+Sun merged flex-2 '
+              'block; the Mon-Fri flex-5 segment is a bare SizedBox.shrink() '
+              'with no decoration',
+        );
+
+        final Rect band = tester.getRect(tintedFinder);
+        final Rect weekdayBar = tester.getRect(find.byType(CalendarWeekdayBar));
+        final Rect lastRow = tester.getRect(find.byType(CalendarWeekRow).last);
+
+        // The exact height a correctly-stretched band must resolve to: the
+        // composed weekday bar + the gap beneath it + all six week rows —
+        // i.e. `weekdayBarAndGrid`'s own laid-out height inside the `Stack`
+        // (NOT `kMonthCalendarExpandedHeight`, which additionally includes
+        // the outer `VelvetSpacing.sm` top padding that sits OUTSIDE the
+        // `Stack` this band is positioned within).
+        const double expectedHeight =
+            kMonthCalendarWeekdayBarHeight +
+            VelvetSpacing.xs +
+            kMonthCalendarSixRows * kMonthCalendarRowHeight;
+        expect(
+          band.height,
+          closeTo(expectedHeight, 1.0),
+          reason:
+              'band height measured ${band.height}, expected '
+              '$expectedHeight — a value near 0 here IS the invisible-band '
+              'regression (mobile-build-verifier\'s pixel read-back found '
+              'zero #F0DBC0 pixels in the golden for exactly this reason).',
+        );
+        expect(
+          band.height,
+          greaterThan(300),
+          reason:
+              'sanity floor independent of the exact constant above — the '
+              'band must span all 6 week rows plus the caption row, not a '
+              'single row or nothing',
+        );
+
+        // Vertically: the weekday bar's own top through the last week row's
+        // own bottom — the FULL composed block, not a per-row stripe.
+        //
+        // `lastRow` is `CalendarWeekRow` itself, whose OWN height is the
+        // fixed `kCalendarRowHeight` (44) — `_MonthGrid.build()` wraps every
+        // row in an extra `Padding(vertical: 3)` on top of that (that's
+        // where `kMonthCalendarRowHeight` (50) = `kCalendarRowHeight` (44) +
+        // 2 * that padding comes from), so the row's true bottom edge sits
+        // `rowVerticalPad` below `lastRow.bottom` — comparing straight to
+        // `lastRow.bottom` would be off by exactly that padding on every run.
+        const double rowVerticalPad =
+            (kMonthCalendarRowHeight - kCalendarRowHeight) / 2;
+        expect(band.top, closeTo(weekdayBar.top, 1.0));
+        expect(band.bottom, closeTo(lastRow.bottom + rowVerticalPad, 1.0));
+
+        // Horizontally: starts exactly at the 5/7 column boundary
+        // (Saturday's left edge) and runs to the grid's own right edge
+        // (Sunday's right edge) — never wider (overhanging the panel's own
+        // padding) or narrower (a sliver instead of a full column).
+        final double expectedLeft = lastRow.left + lastRow.width * 5 / 7;
+        expect(band.left, closeTo(expectedLeft, 1.0));
+        expect(band.right, closeTo(lastRow.right, 1.0));
+      },
+    );
+  });
+
+  // mobile-qa gap closure (2026-08-14): mobile-build-verifier found that the
+  // golden fixture's `_today == selectedDay == 2026-07-15` is a Wednesday and
+  // every `_bookedDays` entry is Thu/Fri, so no capture ever put a selected
+  // pill, a today ring, or a density dot INSIDE the weekend band — the claim
+  // that they "still read on top of the band" rested purely on `Stack` paint
+  // order (band painted first, content painted second — see
+  // `MonthCalendar.build`), with zero pixel or widget-level evidence that the
+  // ordering argument actually holds. 2026-07-18 is a Saturday — every test
+  // below deliberately lands a foreground state ON that column and asserts
+  // BOTH that the usual foreground assertion still holds (the D2/D1 pins
+  // above, replayed on a weekend column) AND that the cell sits inside the
+  // band's own painted rect — i.e. the two are provably co-located, not just
+  // assumed to be by source-reading the `Stack` child order.
+  //
+  // A pixel-level golden variant (`bookings_month_calendar_panel_golden_test
+  // .dart`'s "weekend selected+today+booked" scenario) is the actual GROUND
+  // TRUTH for non-occlusion — these widget tests pin the STATE WIRING (ring
+  // suppressed, trough present, dot count correct) fast and deterministically,
+  // but only a rendered pixel read-back can prove the band does not paint
+  // OVER the foreground, which is exactly the class of bug
+  // (`CalendarWeekendColumnBand` collapsing/covering) this feature already
+  // shipped once — see that file for the pixel-level proof.
+  group('foreground state ON the weekend band (gap closure)', () {
+    // 2026-07-18 (Saturday) is column index 5 (0=Mon..6=Sun) — inside the
+    // band's Sat+Sun flex-2 segment. Every sub-test below composes the SAME
+    // configuration `BookingsMonthCalendarPanel` uses in production
+    // (`composeWeekdayBar: true, sixWeekRows: true, showWeekendColumnBand:
+    // true`) so the band this asserts against is the real production one, not
+    // a hypothetical.
+    const int kSaturday = 18;
+
+    Future<Rect> pumpAndGetBandRect(WidgetTester tester) async {
+      final Rect band = tester.getRect(
+        find.descendant(
+          of: find.byType(CalendarWeekendColumnBand),
+          matching: find.byType(DecoratedBox),
+        ),
+      );
+      return band;
+    }
+
+    Rect cellRect(WidgetTester tester, int day) =>
+        tester.getRect(find.byKey(Key('booking-calendar-day-$day')));
+
+    void expectInsideBand(Rect cell, Rect band, {required String reason}) {
+      expect(
+        cell.left,
+        greaterThanOrEqualTo(band.left - 1.0),
+        reason: '$reason — cell left edge fell outside the band',
+      );
+      expect(
+        cell.right,
+        lessThanOrEqualTo(band.right + 1.0),
+        reason: '$reason — cell right edge fell outside the band',
+      );
+      // VERTICAL containment too — not just horizontal. A band that collapses
+      // to height 0 (the exact bug this feature already shipped once, see
+      // `CalendarWeekendColumnBand`'s `crossAxisAlignment: stretch` doc) keeps
+      // its correct LEFT/RIGHT (the `Row`'s main-axis flex sizing is
+      // unaffected by the cross-axis collapse), so a horizontal-only check
+      // would stay green straight through that regression. Asserting the
+      // cell's vertical span sits inside the band's is what actually makes
+      // this assertion sensitive to that specific historical bug, not merely
+      // a restatement of the existing height-focused D3 test.
+      expect(
+        cell.top,
+        greaterThanOrEqualTo(band.top - 1.0),
+        reason:
+            '$reason — cell top edge fell outside the band (a height-0 band '
+            'would fail here)',
+      );
+      expect(
+        cell.bottom,
+        lessThanOrEqualTo(band.bottom + 1.0),
+        reason:
+            '$reason — cell bottom edge fell outside the band (a height-0 '
+            'band would fail here)',
+      );
+    }
+
+    testWidgets(
+      'a weekend day that is TODAY (not selected) still paints its today '
+      'ring, and the cell sits inside the tinted band',
+      (tester) async {
+        final DateTime visibleMonth = DateTime(2026, 7);
+        final DateTime saturday = DateTime(2026, 7, kSaturday);
+        await tester.pumpApp(
+          Scaffold(
+            body: MonthCalendar(
+              visibleMonth: visibleMonth,
+              today: saturday,
+              selected: null,
+              isAvailable: (_) => true,
+              onSelectDay: (_) {},
+              composeWeekdayBar: true,
+              sixWeekRows: true,
+              showHeader: false,
+              showWeekendColumnBand: true,
+            ),
+          ),
+          width: 360,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder cell = find.byKey(
+          const Key('booking-calendar-day-$kSaturday'),
+        );
+        final Finder badge = find.descendant(
+          of: cell,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Container &&
+                w.constraints ==
+                    const BoxConstraints.tightFor(width: 38, height: 38),
+          ),
+        );
+        final Container badgeWidget = tester.widget<Container>(badge);
+        final BoxDecoration? deco = badgeWidget.decoration as BoxDecoration?;
+        expect(
+          deco?.shape,
+          BoxShape.circle,
+          reason: 'an unselected today must still ring on a weekend column',
+        );
+
+        final Rect band = await pumpAndGetBandRect(tester);
+        expectInsideBand(
+          cellRect(tester, kSaturday),
+          band,
+          reason: 'the ringed today cell must be co-located with the band',
+        );
+      },
+    );
+
+    testWidgets(
+      'a weekend day that is SELECTED paints its trough + bold accentDeep '
+      'number, and the cell sits inside the tinted band',
+      (tester) async {
+        final DateTime visibleMonth = DateTime(2026, 7);
+        final DateTime saturday = DateTime(2026, 7, kSaturday);
+        await tester.pumpApp(
+          Scaffold(
+            body: MonthCalendar(
+              visibleMonth: visibleMonth,
+              today: DateTime(2026, 7, 1),
+              selected: saturday,
+              isAvailable: (_) => true,
+              onSelectDay: (_) {},
+              composeWeekdayBar: true,
+              sixWeekRows: true,
+              showHeader: false,
+              showWeekendColumnBand: true,
+            ),
+          ),
+          width: 360,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder cell = find.byKey(
+          const Key('booking-calendar-day-$kSaturday'),
+        );
+
+        // Selection trough — the recessed `NeumorphicInset` `CalendarWeekRow`
+        // paints behind a selected run.
+        expect(
+          find.descendant(
+            of: find.byType(CalendarWeekRow),
+            matching: find.byType(NeumorphicInset),
+          ),
+          findsWidgets,
+          reason:
+              'a selected weekend day must still get the recessed selection '
+              'trough behind it',
+        );
+
+        final Text number = tester.widget<Text>(
+          find.descendant(of: cell, matching: find.text('$kSaturday')),
+        );
+        expect(number.style?.color, BrandColors.accentDeep);
+        expect(number.style?.fontWeight, FontWeight.w700);
+
+        final Rect band = await pumpAndGetBandRect(tester);
+        expectInsideBand(
+          cellRect(tester, kSaturday),
+          band,
+          reason: 'the selected cell must be co-located with the band',
+        );
+      },
+    );
+
+    testWidgets(
+      'a weekend day with bookings paints its density dot(s), and the cell '
+      'sits inside the tinted band',
+      (tester) async {
+        final DateTime visibleMonth = DateTime(2026, 7);
+        await tester.pumpApp(
+          Scaffold(
+            body: MonthCalendar(
+              visibleMonth: visibleMonth,
+              today: DateTime(2026, 7, 1),
+              selected: null,
+              isAvailable: (_) => true,
+              onSelectDay: (_) {},
+              composeWeekdayBar: true,
+              sixWeekRows: true,
+              showHeader: false,
+              showWeekendColumnBand: true,
+              bookingCount: (DateTime d) => d.day == kSaturday ? 2 : 0,
+            ),
+          ),
+          width: 360,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder cell = find.byKey(
+          const Key('booking-calendar-day-$kSaturday'),
+        );
+        final Finder dots = find.descendant(
+          of: cell,
+          matching: find.byWidgetPredicate((Widget w) {
+            if (w is! Container) return false;
+            final BoxDecoration? d = w.decoration as BoxDecoration?;
+            return d?.shape == BoxShape.circle &&
+                w.constraints ==
+                    const BoxConstraints.tightFor(width: 4, height: 4);
+          }),
+        );
+        expect(
+          dots.evaluate().length,
+          2,
+          reason: 'a booked weekend day must still render its density dots',
+        );
+
+        final Rect band = await pumpAndGetBandRect(tester);
+        expectInsideBand(
+          cellRect(tester, kSaturday),
+          band,
+          reason: 'the booked cell must be co-located with the band',
+        );
+      },
+    );
+
+    testWidgets(
+      'the reported gap: a weekend day that is TODAY + SELECTED + BOOKED all '
+      'at once renders the trough (ring suppressed, D2 precedence), bold '
+      'number, and 3 density dots TOGETHER, inside the tinted band',
+      (tester) async {
+        final DateTime visibleMonth = DateTime(2026, 7);
+        final DateTime saturday = DateTime(2026, 7, kSaturday);
+        await tester.pumpApp(
+          Scaffold(
+            body: MonthCalendar(
+              visibleMonth: visibleMonth,
+              today: saturday,
+              selected: saturday,
+              isAvailable: (_) => true,
+              onSelectDay: (_) {},
+              composeWeekdayBar: true,
+              sixWeekRows: true,
+              showHeader: false,
+              showWeekendColumnBand: true,
+              bookingCount: (DateTime d) => d.day == kSaturday ? 5 : 0,
+            ),
+          ),
+          width: 360,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder cell = find.byKey(
+          const Key('booking-calendar-day-$kSaturday'),
+        );
+
+        // D2 precedence replayed on the weekend column: selected wins, the
+        // ring stands down — this is the SAME cell that is also `today`.
+        final Finder badge = find.descendant(
+          of: cell,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Container &&
+                w.constraints ==
+                    const BoxConstraints.tightFor(width: 38, height: 38),
+          ),
+        );
+        final Container badgeWidget = tester.widget<Container>(badge);
+        expect(
+          badgeWidget.decoration,
+          isNull,
+          reason:
+              'selected must suppress the today ring on a weekend day too — '
+              'no double disc',
+        );
+
+        final Text number = tester.widget<Text>(
+          find.descendant(of: cell, matching: find.text('$kSaturday')),
+        );
+        expect(number.style?.color, BrandColors.accentDeep);
+        expect(number.style?.fontWeight, FontWeight.w700);
+
+        final Finder dots = find.descendant(
+          of: cell,
+          matching: find.byWidgetPredicate((Widget w) {
+            if (w is! Container) return false;
+            final BoxDecoration? d = w.decoration as BoxDecoration?;
+            return d?.shape == BoxShape.circle &&
+                w.constraints ==
+                    const BoxConstraints.tightFor(width: 4, height: 4);
+          }),
+        );
+        expect(
+          dots.evaluate().length,
+          kCalendarMaxDensityDots,
+          reason: '5 bookings caps at kCalendarMaxDensityDots (3)',
+        );
+
+        final Rect band = await pumpAndGetBandRect(tester);
+        expectInsideBand(
+          cellRect(tester, kSaturday),
+          band,
+          reason:
+              'the combined today+selected+booked cell must be co-located '
+              'with the band — this is the exact scenario the golden fixture '
+              '(_today Wed 2026-07-15) never exercised',
+        );
+      },
+    );
+  });
+
+  group('showWeekendColumnBand constructor contract', () {
+    test('showWeekendColumnBand: true without composeWeekdayBar/sixWeekRows '
+        'throws — the band Stack sizes itself off the composed Column\'s '
+        'height, which is undefined without both', () {
+      expect(
+        () => MonthCalendar(
+          visibleMonth: DateTime(2026, 7),
+          today: DateTime(2026, 7, 1),
+          selected: null,
+          isAvailable: (_) => true,
+          onSelectDay: (_) {},
+          showWeekendColumnBand: true,
+          // composeWeekdayBar/sixWeekRows left at their `false` default.
+        ),
+        throwsA(isA<AssertionError>()),
       );
     });
   });

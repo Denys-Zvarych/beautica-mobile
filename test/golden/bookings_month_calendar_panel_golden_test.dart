@@ -81,27 +81,56 @@ const Key _toggleKey = Key('bookings-month-calendar-toggle');
 const double _kCollapsedBox = 200;
 const double _kExpandedBox = 520;
 
+/// mobile-qa gap closure (2026-08-14) — a SATURDAY that is simultaneously
+/// `today`, `selectedDay`, AND a booked day. `_today` above (2026-07-15) is a
+/// Wednesday and every `_bookedDays` entry is Thu/Fri, so the main matrix
+/// above NEVER put a today-ring, a selected-trough, or a density dot inside
+/// the weekend column band — mobile-build-verifier flagged that the "the
+/// foreground still reads on top of the band" claim rested purely on `Stack`
+/// paint order (`MonthCalendar.build`: band painted first, content painted
+/// second), with zero pixel evidence. This is the ground-truth check for
+/// that: an actual rendered pixel read-back (see the PNG produced by this
+/// scenario) is the only way to prove the band does not visually occlude the
+/// foreground — a widget test can assert the STATE (ring suppressed, trough
+/// present, dot count correct — see `month_calendar_test.dart`'s "foreground
+/// state ON the weekend band" group) but cannot observe actual COMPOSITED
+/// pixel colour, which is exactly the axis the original band-collapse defect
+/// broke on.
+final DateTime _todayWeekend = DateTime(2026, 7, 18);
+final Set<DateTime> _bookedDaysWeekend = <DateTime>{_todayWeekend};
+
 /// Owns the rail's `PageController` so the panel gets the same wiring the
 /// real screen hands it.
 class _PanelFixture extends StatefulWidget {
-  const _PanelFixture({required this.height});
+  const _PanelFixture({required this.height, this.today, this.bookedDays});
 
   final double height;
+
+  /// `null` (the default) resolves to [_today], the main matrix's Wednesday
+  /// fixture, inside [_PanelFixtureState] — a top-level `final` (not `const`)
+  /// `DateTime`/`Set` cannot be a `const` constructor's default parameter
+  /// value, so the null-and-resolve indirection is required, not stylistic.
+  /// The weekend gap-closure scenario below passes [_todayWeekend] instead.
+  final DateTime? today;
+  final Set<DateTime>? bookedDays;
 
   @override
   State<_PanelFixture> createState() => _PanelFixtureState();
 }
 
 class _PanelFixtureState extends State<_PanelFixture> {
+  DateTime get _effectiveToday => widget.today ?? _today;
+  Set<DateTime> get _effectiveBookedDays => widget.bookedDays ?? _bookedDays;
+
   /// Derived exactly as `_BookingsDiscoveryViewState.initState` does, so the
-  /// rail opens on `_today`'s own Mon→Sun week.
+  /// rail opens on `_effectiveToday`'s own Mon→Sun week.
   late final DateTime firstWeekStart = railDayAt(
-    mondayOf(_today),
+    mondayOf(_effectiveToday),
     -kRailWeekLength * kBookingsDayRailWeekSpan,
   );
 
   late final PageController railController = PageController(
-    initialPage: railWeekIndex(firstWeekStart, _today),
+    initialPage: railWeekIndex(firstWeekStart, _effectiveToday),
   );
 
   @override
@@ -118,9 +147,15 @@ class _PanelFixtureState extends State<_PanelFixture> {
         railController: railController,
         railFirstWeekStart: firstWeekStart,
         weekCount: kBookingsDayRailWeekSpan * 2 + 1,
-        today: _today,
-        selectedDay: _today,
-        bookedDays: _bookedDays,
+        today: _effectiveToday,
+        // selected == today, matching this file's original fixture's own
+        // choice — the weekend scenario additionally wants `selected` to
+        // land on the SAME weekend cell as `today` and the booking, so the
+        // gap this file closes (today + selected + booked all on one
+        // weekend cell) is actually exercised, not merely a weekend `today`
+        // alone.
+        selectedDay: _effectiveToday,
+        bookedDays: _effectiveBookedDays,
         onSelectRailDay: (DateTime _) {},
         onSelectDay: (DateTime _) {},
         onStepMonth: (int _) {},
@@ -181,4 +216,28 @@ void main() {
       builder: () => const _PanelFixture(height: _kExpandedBox),
     );
   }
+
+  // mobile-qa gap closure (2026-08-14) — see [_todayWeekend]'s doc. ONE
+  // width/scale cell (360dp x1.0, the reference phone, same cell the file
+  // header calls out as "where the design renders as drawn") — not the full
+  // 3-cell matrix: this scenario's only question is whether the foreground
+  // (ring/trough/dot) is visually OCCLUDED by the band, which is a
+  // composition property independent of the narrow-phone `FittedBox`
+  // engagement the 320dp cells exist to probe (see the file header's matrix
+  // rationale) — a second and third PNG here would be golden bloat for no
+  // additional failure mode, exactly what the ~10% "critical UI only" policy
+  // warns against.
+  goldenTest(
+    'bookings calendar panel — EXPANDED, weekend day is today+selected+'
+    'booked (gap closure) 360dp x1.0',
+    fileName: 'bookings_month_calendar_panel_expanded_weekend_selected_360_1x',
+    constraints: BoxConstraints.tight(const Size(360, _kExpandedBox)),
+    textScaleFactor: 1.0,
+    pumpWidget: _expandedPump(width: 360),
+    builder: () => _PanelFixture(
+      height: _kExpandedBox,
+      today: _todayWeekend,
+      bookedDays: _bookedDaysWeekend,
+    ),
+  );
 }

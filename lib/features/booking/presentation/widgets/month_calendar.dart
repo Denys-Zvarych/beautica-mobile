@@ -48,7 +48,7 @@ import 'package:beautica_mobile/shared/widgets/calendar_grid.dart';
 // also compose, which a booking-feature `presentation/` file could never be,
 // per the cross-feature import rule.
 export 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
-    show CalendarWeekdayBar;
+    show CalendarWeekdayBar, CalendarWeekendColumnBand;
 
 /// Height of [CalendarWeekdayBar] when composed inside [MonthCalendar]
 /// (see [MonthCalendar.composeWeekdayBar]).
@@ -125,11 +125,21 @@ class MonthCalendar extends StatelessWidget {
     this.bookingCount,
     this.allowTapOnUnavailable = false,
     this.stateLabelResolver,
+    this.showWeekendColumnBand = false,
   }) : assert(
          showHeader || (onPrevMonth == null && onNextMonth == null),
          'onPrevMonth/onNextMonth are the ‹ › chevrons _MonthHeader renders — '
          'passing either with showHeader: false silently drops it, which is '
          'always a wiring mistake rather than an intent.',
+       ),
+       assert(
+         !showWeekendColumnBand || (composeWeekdayBar && sixWeekRows),
+         'showWeekendColumnBand paints ONE rect spanning the composed '
+         'weekday bar + every week row (Stack + Positioned.fill sized to '
+         'that Column) — meaningless without composeWeekdayBar (no bar to '
+         'shade) and unsafe without sixWeekRows (a variable 4-6 row grid '
+         'would leave the Stack sizing itself off a height that keeps '
+         'changing month to month).',
        );
 
   /// The single month currently rendered (day-of-month is ignored).
@@ -226,8 +236,43 @@ class MonthCalendar extends StatelessWidget {
   final String Function({required bool available, required bool selected})?
   stateLabelResolver;
 
+  /// Paints [CalendarWeekendColumnBand] behind the composed weekday bar +
+  /// grid so the Saturday/Sunday columns read as one continuous tinted band
+  /// top to bottom — see that widget's doc. `false` (the default) renders
+  /// exactly as before this field existed: [SlotDateScreen] and
+  /// `MasterSchedulePage` neither set it nor gain the band.
+  ///
+  /// Requires [composeWeekdayBar] and [sixWeekRows] — see the constructor's
+  /// assert. Set `true` only by `BookingsMonthCalendarPanel`, whose expanded
+  /// «Мої записи» calendar is what the band was requested for.
+  final bool showWeekendColumnBand;
+
   @override
   Widget build(BuildContext context) {
+    final Widget weekdayBarAndGrid = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (composeWeekdayBar) ...<Widget>[
+          const SizedBox(
+            height: kMonthCalendarWeekdayBarHeight,
+            child: CalendarWeekdayBar(),
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+        ],
+        _MonthGrid(
+          month: visibleMonth,
+          today: today,
+          selected: selected,
+          isAvailable: isAvailable,
+          onSelectDay: onSelectDay,
+          sixWeekRows: sixWeekRows,
+          bookingCount: bookingCount,
+          allowTapOnUnavailable: allowTapOnUnavailable,
+          stateLabelResolver: stateLabelResolver,
+        ),
+      ],
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.lg,
@@ -246,24 +291,22 @@ class MonthCalendar extends StatelessWidget {
             ),
             const SizedBox(height: VelvetSpacing.sm),
           ],
-          if (composeWeekdayBar) ...<Widget>[
-            const SizedBox(
-              height: kMonthCalendarWeekdayBarHeight,
-              child: CalendarWeekdayBar(),
-            ),
-            const SizedBox(height: VelvetSpacing.xs),
-          ],
-          _MonthGrid(
-            month: visibleMonth,
-            today: today,
-            selected: selected,
-            isAvailable: isAvailable,
-            onSelectDay: onSelectDay,
-            sixWeekRows: sixWeekRows,
-            bookingCount: bookingCount,
-            allowTapOnUnavailable: allowTapOnUnavailable,
-            stateLabelResolver: stateLabelResolver,
-          ),
+          // The band is painted BEHIND [weekdayBarAndGrid] — a `Stack` sizes
+          // itself to its one non-positioned child (that `Column`, whose
+          // height is fully determined here because [showWeekendColumnBand]
+          // requires [sixWeekRows]), and `Positioned.fill` then fills exactly
+          // that resolved rect — see [CalendarWeekendColumnBand]'s doc for
+          // why the O(1) two-flex-segment paint stays column-aligned with the
+          // content stacked on top of it.
+          if (showWeekendColumnBand)
+            Stack(
+              children: <Widget>[
+                const Positioned.fill(child: CalendarWeekendColumnBand()),
+                weekdayBarAndGrid,
+              ],
+            )
+          else
+            weekdayBarAndGrid,
         ],
       ),
     );
@@ -472,10 +515,6 @@ class _MonthGrid extends StatelessWidget {
       available: available,
       selected: isSel,
       isToday: _sameDay(d, today),
-      // mobile-backlog D3 — see `calendar_grid.dart`'s file header for the
-      // precedence this feeds into (`_dayCell` below): selected beats
-      // unavailable beats weekend beats normal/available.
-      isWeekend: isWeekendWeekday(d.weekday),
       bookings: count ?? 0,
       // ADAPTATION — density-dot space is laid out ONLY when the caller
       // supplied [bookingCount]; see [MonthCalendar.bookingCount] and
@@ -519,8 +558,13 @@ class _MonthGrid extends StatelessWidget {
 
     // mobile-backlog D3 — precedence encoded once, see `calendar_grid.dart`'s
     // file header: SELECTED beats unavailable (existing `faint`/`textSecondary`
-    // meaning — see below) beats WEEKEND (`weekendMuted` cue) beats
-    // normal/available.
+    // meaning — see below) beats normal/available.
+    //
+    // Weekend day NUMBERS are deliberately NOT muted any more (user request,
+    // this session): the weekend cue moved to `MonthCalendar
+    // .showWeekendColumnBand`'s whole-column tint (`BrandColors
+    // .weekendColumn`) instead — see that field's doc. A weekend day number
+    // now resolves through the exact same branches an ordinary day would.
     final Color numberColor;
     if (info.selected) {
       numberColor = BrandColors.accentDeep;
@@ -543,8 +587,6 @@ class _MonthGrid extends StatelessWidget {
       numberColor = info.onTap != null
           ? BrandColors.textSecondary
           : BrandColors.faint;
-    } else if (info.isWeekend) {
-      numberColor = BrandColors.weekendMuted;
     } else {
       numberColor = BrandColors.accentDeep;
     }
@@ -610,7 +652,6 @@ class _DayInfo {
     required this.available,
     required this.selected,
     required this.isToday,
-    required this.isWeekend,
     required this.bookings,
     required this.showDots,
     required this.onTap,
@@ -621,7 +662,6 @@ class _DayInfo {
       available = false,
       selected = false,
       isToday = false,
-      isWeekend = false,
       bookings = 0,
       showDots = false,
       onTap = null,
@@ -631,9 +671,6 @@ class _DayInfo {
   final bool available;
   final bool selected;
   final bool isToday;
-
-  /// Saturday/Sunday — see [isWeekendWeekday]. Mobile-backlog D3.
-  final bool isWeekend;
 
   /// Bookings on this day — capped at [kCalendarMaxDensityDots] dots. Meaningless
   /// when [showDots] is `false`.

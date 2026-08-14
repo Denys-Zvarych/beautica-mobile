@@ -30,6 +30,8 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_sch
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
+    show CalendarWeekendColumnBand;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -124,6 +126,12 @@ void main() {
 
         // Still on the date phase, calendar rendered.
         expect(find.byKey(const Key('booking-month-calendar')), findsOneWidget);
+        // MasterSchedulePage never opts into `MonthCalendar
+        // .showWeekendColumnBand` (mobile-qa INFO gap-fix, this session) —
+        // the weekend column band is `BookingsMonthCalendarPanel`-only; this
+        // screen's weekend days must keep rendering exactly as they did
+        // before that feature existed.
+        expect(find.byType(CalendarWeekendColumnBand), findsNothing);
 
         // Aug 1 is already YESTERDAY once "today" correctly resolves to Aug 2
         // in Kyiv — no GestureDetector (the disabled-cell shape), and tapping

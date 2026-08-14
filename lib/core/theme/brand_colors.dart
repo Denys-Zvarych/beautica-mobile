@@ -82,6 +82,40 @@ abstract final class BrandColors {
   /// exemption.
   static const Color weekendMuted = Color(0xFF5F5A55);
 
+  /// Column-spanning tint behind Saturday/Sunday in the master's expanded
+  /// «Мої записи» month calendar (`BookingsMonthCalendarPanel`, via
+  /// `MonthCalendar.showWeekendColumnBand`) — the weekend cue moved from the
+  /// day NUMBER (see [weekendMuted]'s D3 history) to the whole column, per
+  /// explicit user request ("put whole weekend columns into grey / other
+  /// colour ... not grey day numbers"): inside the band the day numbers now
+  /// render at the same colour as any other day ([accentDeep]/[textSecondary]/
+  /// [faint], never [weekendMuted]) — the band alone carries the signal.
+  ///
+  /// Derived the same way as [weekendMuted] itself (HUE/CHROMA axis, not
+  /// lightness): [base]'s own CIE Lab (L≈88.5, a≈0.87, b≈7.47) shifted 1.5x
+  /// toward [shadowDarkCard]'s hue/chroma (a≈2.11, b≈13.30) while HOLDING L
+  /// fixed — so contrast against every day-number tone that now lands on the
+  /// band barely moves off its `[base]` value (all within ~0.03:1):
+  /// [accentDeep] 5.95:1 (5.95 on base), [textSecondary] 5.02:1 (5.03 on
+  /// base), [weekendMuted] itself (still used by the сб/нд captions that sit
+  /// on the band) 5.06:1 (5.07 on base) — every one clears WCAG AA (4.5:1)
+  /// with the same margin the token already had on the plain base. A pure
+  /// alpha-blend toward [shadowDarkCard] was tried first and rejected: it
+  /// DARKENS as well as tints, so contrast against dark text erodes with
+  /// every step toward a visible band (textSecondary dropped under 4.5:1
+  /// above ~55% blend) — the fixed-L hue/chroma shift sidesteps that
+  /// trade-off entirely, the same lesson [weekendMuted]'s own second attempt
+  /// already learned.
+  ///
+  /// CIE Lab ΔE76 vs [base] is 8.94 — comfortably past the ~2.3
+  /// just-noticeable-difference floor and past this codebase's own >= 8.0
+  /// "actually visible, not just legally distinct" bar (see
+  /// `test/shared/widgets/calendar_grid_contrast_test.dart`'s
+  /// `_kMinPerceptibleDeltaE`) — a band this subtle would otherwise repeat
+  /// [weekendMuted]'s first, rejected attempt (ΔE76 ~2.2, AA-legal but
+  /// effectively invisible next to its neighbour).
+  static const Color weekendColumn = Color(0xFFF0DBC0);
+
   /// Input placeholder text.
   static const Color placeholder = Color(0xFFAD9A82);
 
