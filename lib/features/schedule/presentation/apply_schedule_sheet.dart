@@ -44,6 +44,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
@@ -185,6 +186,16 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
       firstMonth: DateTime(widget.today.year, widget.today.month),
       firstSelectableDay: _math.today,
       initialRange: _range,
+      // NOT `() => widget.today`: `widget.today` is a Kyiv date TOKEN (host-
+      // local midnight — see `kyiv_day.dart`'s file header), while
+      // `PeriodRangePicker.clock` feeds `kyivDayOf` internally, which expects
+      // a raw INSTANT. Re-deriving a Kyiv day from an already-Kyiv-derived
+      // date token is exactly the illegal reuse that file's header warns
+      // about — it happens to round-trip correctly only when the device's own
+      // zone is Kyiv's (true on the dev VM, false under `TZ=UTC` and for any
+      // real user outside Kyiv). `clockProvider` already returns the raw
+      // `DateTime Function()` instant source the picker needs, unwrapped.
+      clock: ref.read(clockProvider),
       strings: PeriodRangePickerStrings(
         title: l10n.rangePickerTitle,
         emptyHint: l10n.rangePickerEmptyHint,

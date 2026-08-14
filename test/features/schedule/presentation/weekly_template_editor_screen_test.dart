@@ -27,6 +27,8 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -38,6 +40,8 @@ import 'package:beautica_mobile/features/schedule/presentation/widgets/discrete_
 import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2859,6 +2863,209 @@ void main() {
       },
     );
   });
+
+  // ── Router-shaped no-`clock:` construction follows clockProvider ───────────
+  //
+  // Regression guard for the MEDIUM raised in the calendar-consolidation QA
+  // pass (`app_router.dart:1090,1113` construct `WeeklyTemplateEditorScreen()`
+  // with no `clock:` — exactly as reproduced here): before the fix, `_today`
+  // fell back to a bare `DateTime.now()`, so anything the screen derives from
+  // "today" silently ignored the E2E harness's / this test's pinned
+  // `clockProvider`. Every OTHER test in this file passes an explicit
+  // `clock:` (via `_pump`), which bypasses the provider fallback entirely and
+  // would stay green even if that fallback regressed back to `DateTime.now()`
+  // — so this is the only place that path is exercised.
+  //
+  // Drives the same production chain a real navigation does: `_today` →
+  // `showApplyScheduleSheet(today: _today)` → `ApplyScheduleSheet._pickRange`'s
+  // `firstMonth: DateTime(widget.today.year, widget.today.month)`. Reads the
+  // picker's OWN rendered "<Місяць> <Рік>" header as ground truth (never a
+  // hardcoded expectation) and asserts it resolves to the PINNED month, not
+  // whatever month the test happens to run on.
+  //
+  // NOTE — does not cover the "today" ring itself: at the time this test was
+  // written, `showPeriodRangePicker` had no `clock` parameter to forward, so
+  // `PeriodRangePicker`'s own `_today` (used only by `_isToday()`/the ring)
+  // still fell back to a bare `DateTime.now()` reached through this exact
+  // call path. That follow-up gap is now closed and pinned by the dedicated
+  // test immediately below this one, which asserts on the ring directly.
+  testWidgets(
+    'router-shaped construction (no clock:) still resolves "today" from the '
+    'overridden clockProvider, not the real host date',
+    (tester) async {
+      final DateTime pinned = DateTime.utc(2027, 3, 10, 12);
+      final ProviderContainer c = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: <Object>[
+          weeklyScheduleProvider.overrideWith(
+            () => _RecordingWeekly(<WeeklySchedule>[_template()]),
+          ),
+          effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          clockProvider.overrideWithValue(() => pinned),
+        ].cast(),
+      );
+      addTearDown(c.dispose);
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.scheduleWeeklyEditor,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.scheduleWeeklyEditor,
+            // Deliberately NO `clock:` — mirrors `app_router.dart:1090,1113`.
+            builder: (BuildContext context, GoRouterState state) =>
+                const WeeklyTemplateEditorScreen(),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+
+      final RegExp monthHeaderPattern = RegExp(
+        r'^([А-Яа-яІіЇїЄєҐґ]+) (\d{4})$',
+      );
+      final Text header = tester.widget<Text>(
+        find
+            .byWidgetPredicate(
+              (Widget w) =>
+                  w is Text &&
+                  w.data != null &&
+                  monthHeaderPattern.hasMatch(w.data!),
+            )
+            .first,
+      );
+      final RegExpMatch match = monthHeaderPattern.firstMatch(header.data!)!;
+      final int monthNumber = monthNamesNominative.indexOf(match.group(1)!) + 1;
+      final int year = int.parse(match.group(2)!);
+
+      expect(
+        (year, monthNumber),
+        (pinned.year, pinned.month),
+        reason:
+            'the picker\'s first rendered month must follow the pinned '
+            'clockProvider (${pinned.year}-${pinned.month}), not the real '
+            'host date — proving the router-shaped no-`clock:` construction '
+            'no longer falls back to a bare DateTime.now()',
+      );
+    },
+  );
+
+  // ── Router-shaped no-`clock:` construction — the picker's "today" RING ─────
+  //
+  // Closes the other half of the MEDIUM the test above left explicitly open
+  // (its own NOTE): that test proves `firstMonth` follows the pinned
+  // `clockProvider`, but `showPeriodRangePicker` had no `clock` parameter to
+  // forward, so `PeriodRangePicker`'s own `_today` — used only by the "today"
+  // ring — still fell back to a bare `DateTime.now()` on this exact call
+  // path. `PeriodRangePicker`'s own widget tests
+  // (`period_range_picker_test.dart`) all pass `clock:` explicitly to
+  // `PeriodRangePicker` directly, so none of them exercise the
+  // `showPeriodRangePicker` → `ApplyScheduleSheet._pickRange` plumbing this
+  // guards.
+  //
+  // Drives the identical production chain as the test above (router →
+  // screen → active-window card → date well) and then asserts on the
+  // PICKER'S OWN rendered `CalendarDayCell` for the pinned day — ground
+  // truth, found by the same [periodDayCellKey] the picker itself uses to key
+  // that cell — rather than re-deriving "today" independently.
+  testWidgets(
+    'router-shaped construction (no clock:) rings the pinned clockProvider '
+    'day, not the real host date, on the period-range-picker "today" ring',
+    (tester) async {
+      final DateTime pinned = DateTime.utc(2027, 3, 10, 12);
+      final ProviderContainer c = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: <Object>[
+          weeklyScheduleProvider.overrideWith(
+            () => _RecordingWeekly(<WeeklySchedule>[_template()]),
+          ),
+          effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          clockProvider.overrideWithValue(() => pinned),
+        ].cast(),
+      );
+      addTearDown(c.dispose);
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.scheduleWeeklyEditor,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.scheduleWeeklyEditor,
+            // Deliberately NO `clock:` — mirrors `app_router.dart:1090,1113`.
+            builder: (BuildContext context, GoRouterState state) =>
+                const WeeklyTemplateEditorScreen(),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+
+      // `pinned` is noon UTC on 2027-03-10, and Kyiv sits at UTC+2 in March
+      // (pre-DST), so its Kyiv calendar day is the same 2027-03-10 the
+      // month-header test above asserts on — a plain host-local date token is
+      // therefore the right key here (`periodDayCellKey` only reads
+      // y/m/d, never the instant).
+      // `cellKey` lands on the [CalendarDayCell]'s inner `Semantics` node, not
+      // on the [CalendarDayCell] widget itself (`calendar_grid.dart`'s
+      // `build()`) — so locate the day by key, then walk up to the
+      // [CalendarDayCell] ancestor that carries `isToday`.
+      final Key todayCellKey = periodDayCellKey(DateTime(2027, 3, 10));
+      final Finder todaySemantics = find.descendant(
+        of: find.byType(PeriodRangePicker),
+        matching: find.byKey(todayCellKey),
+      );
+      expect(
+        todaySemantics,
+        findsOneWidget,
+        reason:
+            'the pinned day must be rendered in the picker\'s first '
+            'visible month for this assertion to be meaningful',
+      );
+      final Finder todayCell = find.ancestor(
+        of: todaySemantics,
+        matching: find.byType(CalendarDayCell),
+      );
+      final CalendarDayCell cell = tester.widget<CalendarDayCell>(todayCell);
+
+      expect(
+        cell.isToday,
+        isTrue,
+        reason:
+            'the picker\'s "today" ring must follow the pinned clockProvider '
+            '(${pinned.year}-${pinned.month}-${pinned.day}), not the real '
+            'host date — proving `showPeriodRangePicker`/`ApplyScheduleSheet'
+            '._pickRange` now forward an explicit `clock:` instead of '
+            'letting `PeriodRangePicker._today` fall back to a bare '
+            '`DateTime.now()`',
+      );
+    },
+  );
 }
 
 // ───────────────────────────────────────────────────────────────────────────

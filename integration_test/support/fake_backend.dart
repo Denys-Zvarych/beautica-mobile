@@ -4154,6 +4154,15 @@ final class FakeBackend {
           putScheduleCalls++;
           final body = _decodeBody(req.data);
           lastWeeklyDays = body['days'] as List<dynamic>?;
+          // mobile-qa (calendar-consolidation, Rule 3b integration coverage):
+          // the POST handler above has captured these two fields since they
+          // were added, but the PUT (UPDATE) handler never did — despite the
+          // field doc above claiming "POST/PUT" — so no test exercising the
+          // UPDATE path (the seeded schedule-1 default, i.e. every existing-
+          // template flow) could ever assert the validFrom/validTo a PUT
+          // actually carried. Mirrors the POST handler exactly.
+          lastWeeklyValidFrom = body['validFrom'] as String?;
+          lastWeeklyValidTo = body['validTo'] as String?;
           final updatedEntry = <String, dynamic>{
             'id': 'schedule-1',
             'validFrom': body['validFrom'] ?? '2026-06-14',

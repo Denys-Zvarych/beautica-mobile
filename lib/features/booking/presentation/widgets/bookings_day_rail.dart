@@ -95,6 +95,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
+    show calendarDayIsDeemphasized, isWeekendWeekday, kCalendarDotColor;
 
 import 'low_threshold_page_scroll_physics.dart';
 
@@ -548,19 +550,25 @@ class _WeekPage extends StatelessWidget {
 /// One day cell. No background decoration — selection is text colour only;
 /// today (unselected) gets an accent underline; a camel dot marks bookings.
 ///
-/// A day strictly before [isPast]'s referent (today) reads muted — the
-/// weekday caption and day number desaturate to [BrandColors.muted], the
-/// established "receded" token in this palette (never a cold grey — see the
-/// design system doc). Precedence, made explicit rather than left to fall
-/// out of evaluation order:
-///   * SELECTED beats past. A selected past day (the master browsing
-///     history) must still read as selected — otherwise there is no visual
-///     confirmation of what is currently open.
+/// A day strictly before [isPast]'s referent (today), OR a Saturday/Sunday
+/// (mobile-backlog D3), reads muted — the weekday caption and day number
+/// desaturate to [BrandColors.weekendMuted], a near-neutral warm gray this
+/// palette reserves for exactly this ACTIVE de-emphasized state (never a
+/// cold blue-gray — see [BrandColors.weekendMuted]'s own doc). Precedence,
+/// made explicit rather than left to fall out of evaluation order (encoded
+/// once, shared with every other calendar surface, via
+/// `calendar_grid.dart`'s `calendarDayIsDeemphasized`):
+///   * SELECTED beats past AND weekend. A selected past or weekend day (the
+///     master browsing history, or picking a Saturday) must still read as
+///     selected — otherwise there is no visual confirmation of what is
+///     currently open.
 ///   * TODAY is never past. [isPast] is `false` for `date == today` by the
 ///     caller's construction (`d.isBefore(today)`), so this falls out
 ///     naturally, but it is the reason [isToday]'s bold/underline treatment
 ///     never has to defend against [isPast] — the two are mutually
-///     exclusive by definition, not by a runtime check here.
+///     exclusive by definition, not by a runtime check here. TODAY CAN be a
+///     weekend, though — the underline and the muted weekend tone are not
+///     mutually exclusive and are expected to compose.
 ///
 /// The has-bookings dot deliberately does NOT mute for past days — it stays
 /// full [BrandColors.accent] regardless. The dot's whole job is to make the
@@ -624,10 +632,11 @@ class _DayChip extends StatelessWidget {
   /// — and the rail rebuilds on every day selection, every `bookedDays`
   /// resolution and every scroll-driven `ListView` recycle. The permutation
   /// set is CLOSED and tiny: three weekday colours (`accentDeep` selected /
-  /// `muted` past / `textSecondary` ordinary) and three number colours
-  /// (`accent` / `muted` / `text`), so a keyed memo reaches its ceiling
-  /// immediately and stops. Same pattern (and same reasoning) as
-  /// `master_booking_card.dart`'s `TimelineStatusDot._decorationsByAccent`.
+  /// `weekendMuted` past-or-weekend / `textSecondary` ordinary) and three
+  /// number colours (`accent` / `weekendMuted` / `text`), so a keyed memo
+  /// reaches its ceiling immediately and stops. Same pattern (and same
+  /// reasoning) as `master_booking_card.dart`'s
+  /// `TimelineStatusDot._decorationsByAccent`.
   ///
   /// Keyed by the RESOLVED colour rather than by the `selected`/`muted`
   /// booleans so it cannot drift from the resolution below if a token is
@@ -683,17 +692,33 @@ class _DayChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Selection outranks pastness — see the class doc.
-    final bool muted = isPast && !selected;
+    // Selection outranks pastness AND weekend — see the class doc and
+    // `calendar_grid.dart`'s file header (mobile-backlog D3). A day is
+    // de-emphasized when it's either in the past OR a Saturday/Sunday;
+    // [calendarDayIsDeemphasized] is the one place that precedence — SELECTED
+    // always wins — is encoded, shared with every other calendar surface.
+    final bool muted = calendarDayIsDeemphasized(
+      selected: selected,
+      deemphasize: isPast || isWeekendWeekday(date.weekday),
+    );
+    // mobile-security MEDIUM+LOW (calendar-consolidation audit):
+    // `BrandColors.muted` (2.69:1 on `BrandColors.base`) fails WCAG AA and,
+    // unlike a genuinely disabled calendar-grid cell, WCAG 1.4.3's "inactive
+    // component" exemption never covers it — every `_DayChip` stays tappable
+    // (`GestureDetector(onTap: onTap, ...)` below is unconditional; scrolling
+    // back through PAST days is explicitly the point, see the class doc), so
+    // this ACTIVE de-emphasized state (covering both the past-day and the
+    // weekend case this one boolean folds together) must clear AA on its
+    // own — `BrandColors.weekendMuted` does (5.07:1).
     final Color weekdayColor = selected
         ? BrandColors.accentDeep
         : muted
-        ? BrandColors.muted
+        ? BrandColors.weekendMuted
         : BrandColors.textSecondary;
     final Color numberColor = selected
         ? BrandColors.accent
         : muted
-        ? BrandColors.muted
+        ? BrandColors.weekendMuted
         : BrandColors.text;
 
     return Semantics(
@@ -741,9 +766,11 @@ class _DayChip extends StatelessWidget {
                   width: 5,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: hasBookings
-                        ? BrandColors.accent
-                        : Colors.transparent,
+                    // `kCalendarDotColor` — the SAME constant
+                    // `CalendarDayCell`'s density dots use (mobile-backlog
+                    // D5/D1), so this chip's dot cannot drift from the grid's
+                    // even though it stays its own separate widget.
+                    color: hasBookings ? kCalendarDotColor : Colors.transparent,
                   ),
                 ),
               ],

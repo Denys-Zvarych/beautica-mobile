@@ -379,6 +379,21 @@ jobs:
         shell: bash
         run: ./scripts/forbid_missing_client_branch_key.sh
 
+      # 2026-08-14 — the calendar-consolidation change (mobile-backlog D5)
+      # collapsed every month/week calendar surface onto ONE shared file
+      # (`lib/shared/widgets/calendar_grid.dart`) precisely so a future D1–D4-
+      # style fix lands everywhere at once — before it, `period_range_picker
+      # .dart` had silently forked ~250 lines of `month_calendar.dart`'s
+      # weekday-bar/week-row/day-cell logic, which is why those fixes had to
+      # be re-applied there by hand once discovered. This gate makes the
+      # single-implementation property mechanical: no second definition of
+      # the shared primitives, no hardcoded copy of the weekendMuted hex, and
+      # no raw Color hex literal in any of the three known calendar-grid
+      # consumers. Zero baseline.
+      - name: Forbid a forked calendar-grid implementation
+        shell: bash
+        run: ./scripts/forbid_forked_calendar_grid.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -400,6 +415,7 @@ jobs:
           ./scripts/forbid_raw_query_param_cast.sh --self-test
           ./scripts/forbid_blind_calendar_tap.sh --self-test
           ./scripts/forbid_missing_client_branch_key.sh --self-test
+          ./scripts/forbid_forked_calendar_grid.sh --self-test
           ./scripts/forbid_magic_padding.sh --self-test
           ./scripts/forbid_cycle_stub_in_tests.sh --self-test
           ./scripts/forbid_provider_self_invalidation.sh --self-test

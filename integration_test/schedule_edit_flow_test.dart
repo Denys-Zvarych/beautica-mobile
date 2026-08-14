@@ -15,7 +15,9 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -714,7 +716,203 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );
+
+  // ── Test 8 — the CONSOLIDATED PeriodRangePicker round-trips a custom
+  //      window end-to-end (mobile-qa, calendar-consolidation audit, Rule
+  //      3b). `PeriodRangePicker` forked ~250 lines of `month_calendar.dart`
+  //      before the consolidation (`lib/shared/widgets/calendar_grid.dart`)
+  //      and had NO integration coverage of its own before this test: every
+  //      existing schedule flow (`schedule_first_create_flow_test.dart`
+  //      included) only ever exercises `ApplyScheduleSheet`'s PRESET chips —
+  //      never the custom date-well → PeriodRangePicker → Save path this
+  //      test drives. Widget-tier coverage
+  //      (`test/features/schedule/presentation/period_range_picker_test
+  //      .dart`) proves the shared `CalendarWeekRow`/`CalendarDayCell`
+  //      primitives render and geometrically align correctly in isolation;
+  //      this proves the SAME tap-start/tap-end/save gesture through those
+  //      primitives still resolves into the exact PUT body a real
+  //      route/provider/HTTP stack sends for this picker's one production
+  //      caller — the thing a widget harness with a bare `ProviderScope`
+  //      cannot observe.
+  testWidgets(
+    'picking a CUSTOM window via the consolidated PeriodRangePicker and '
+    'applying it fires PUT …/weekly-schedules/schedule-1 with the exact '
+    'picked validFrom/validTo',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      // `WeeklyTemplateEditorScreen` (`app_router.dart:1090`,`:1113`) is
+      // constructed with NO `clock:` override, but its `_today` now falls
+      // back to `ref.read(clockProvider)` rather than a bare `DateTime.now()`
+      // — so it, `showApplyScheduleSheet(today: _today)`'s `firstMonth`, AND
+      // (as of the follow-up fix that plumbed `PeriodRangePicker.clock`
+      // through `showPeriodRangePicker`/`ApplyScheduleSheet._pickRange`) the
+      // picker's own "today" ring all correctly resolve `kFixedNow`
+      // (2026-06-14), the harness's pinned instant — not the real host date.
+      // This was a genuine gap once (found the hard way: a first version of
+      // this test hardcoded "20/25 June" assuming kFixedNow and failed with
+      // the wire carrying the REAL host month instead; a second version
+      // tried matching that live read with its own `DateTime.now()` in the
+      // test, correctly REJECTED by `forbid_host_local_instant_anchor.sh`,
+      // which has no escape hatch for "matches a production bug" on
+      // purpose — the fix belongs in the screen, not the test).
+      //
+      // This test still reads no clock of its own: it discovers which days
+      // are actually TAPPABLE, and which month/year they belong to, from the
+      // REAL rendered widget tree — ground truth, the same technique this
+      // file's other tests use for rendered data (`_wellText`), never an
+      // independent prediction. That now happens to agree with `kFixedNow`
+      // rather than compensating for a screen that ignored it.
+      // Numeric-label filter, not just `button: true` — the picker's own
+      // chrome (the back button, `«Зберегти»`) is ALSO
+      // `Semantics(button: true, ...)`, with a non-numeric label ("Назад" /
+      // "Зберегти"); only a day cell's `semanticsLabel` is a bare digit
+      // string (`_DayCell.build()`: `semanticsLabel: '${info.day}'`).
+      final RegExp numericLabel = RegExp(r'^\d+$');
+      final Finder enabledDayCells = find.descendant(
+        of: find.byType(PeriodRangePicker),
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is Semantics &&
+              (w.properties.button ?? false) &&
+              w.properties.label != null &&
+              numericLabel.hasMatch(w.properties.label!),
+        ),
+      );
+
+      // The seeded schedule-1's window (validFrom=2026-06-14, validTo=null —
+      // a FIXTURE date, unrelated to this screen's own live "today") opens
+      // the «Період дії графіка» sheet — the EXISTING-template path, which
+      // persists immediately via PUT.
+      final Finder windowCard = find.byKey(
+        const Key('weekly-active-window-card'),
+      );
+      await tester.ensureVisible(windowCard);
+      await tester.pumpAndSettle();
+      await tester.tap(windowCard);
+      await tester.pumpAndSettle();
+
+      // Open the CUSTOM range picker (not a preset chip) — the consolidated
+      // PeriodRangePicker itself.
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+
+      // The picker's FIRST rendered month section is `firstMonth`
+      // (`_pickRange()`'s `firstMonth: DateTime(widget.today.year,
+      // widget.today.month)`) — whatever that resolves to on THIS run.
+      // Parse its own rendered "<Місяць> <Рік>" header (`_monthSection()`)
+      // rather than assuming one.
+      final RegExp monthHeaderPattern = RegExp(
+        r'^([А-Яа-яІіЇїЄєҐґ]+) (\d{4})$',
+      );
+      final Finder monthHeader = find
+          .descendant(
+            of: find.byType(PeriodRangePicker),
+            matching: find.byWidgetPredicate(
+              (Widget w) =>
+                  w is Text &&
+                  w.data != null &&
+                  monthHeaderPattern.hasMatch(w.data!),
+            ),
+          )
+          .first;
+      final RegExpMatch headerMatch = monthHeaderPattern.firstMatch(
+        tester.widget<Text>(monthHeader).data!,
+      )!;
+      final int monthNumber =
+          monthNamesNominative.indexOf(headerMatch.group(1)!) + 1;
+      final int year = int.parse(headerMatch.group(2)!);
+      expect(
+        monthNumber,
+        greaterThan(0),
+        reason:
+            'the rendered month header "${tester.widget<Text>(monthHeader).data}" '
+            'must resolve to one of the 12 monthNamesNominative entries',
+      );
+
+      // The enabled cells within the FIRST section are exactly `firstMonth`'s
+      // tappable (>= today) days, in ascending day-of-month order — tree
+      // order mirrors the grid's own row-major layout. `start` = the
+      // EARLIEST tappable day (today itself — `firstSelectableDay:
+      // _math.today` in `_pickRange()`); `end` walks forward through
+      // however many of THIS SAME month's enabled cells remain (up to 5),
+      // so both endpoints are provably within the parsed month/year above —
+      // never assuming there are enough days left before the month rolls
+      // over.
+      final List<Semantics> enabled = tester
+          .widgetList<Semantics>(enabledDayCells)
+          .toList();
+      expect(
+        enabled,
+        isNotEmpty,
+        reason: 'the picker must render at least one tappable day',
+      );
+      final int startDay = int.parse(enabled.first.properties.label!);
+      int endIndex = 0;
+      for (int i = 1; i < enabled.length && i <= 5; i++) {
+        final int candidate = int.parse(enabled[i].properties.label!);
+        if (candidate <= startDay) break; // rolled into the NEXT month
+        endIndex = i;
+      }
+      final int endDay = int.parse(enabled[endIndex].properties.label!);
+
+      final DateTime start = DateTime(year, monthNumber, startDay);
+      final DateTime end = DateTime(year, monthNumber, endDay);
+
+      await tester.tap(_periodDayCell(startDay));
+      await tester.pumpAndSettle();
+      await tester.tap(_periodDayCell(endDay));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-range-picker-save')));
+      await tester.pumpAndSettle();
+
+      final int putsBefore = fb.putScheduleCalls;
+      await tester.tap(find.byKey(const Key('btn-apply-schedule')));
+      await tester.pumpAndSettle();
+
+      expect(
+        fb.putScheduleCalls,
+        greaterThan(putsBefore),
+        reason:
+            'applying the picked custom window on an EXISTING template must '
+            'persist immediately via PUT — ApplyScheduleSheet._apply()\'s '
+            'baseSchedule.id != null path',
+      );
+      expect(
+        fb.lastWeeklyValidFrom,
+        toApiDate(start),
+        reason:
+            'the exact day tapped as START in the consolidated '
+            'PeriodRangePicker must reach the wire unchanged — proving the '
+            'shared calendar_grid.dart day-cell tap/select machinery still '
+            'works end-to-end for its one real production caller, through '
+            'the full route/provider/HTTP stack',
+      );
+      expect(fb.lastWeeklyValidTo, toApiDate(end));
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
 }
+
+/// A tappable day cell in the [PeriodRangePicker] for the given [day] number
+/// — mirrors `apply_schedule_sheet_test.dart`'s identically-named helper.
+/// Day cells carry no per-day `Key`; matched by the cell's button
+/// `Semantics.label`, scoped to `.first` so a later rendered month's
+/// identical day-of-month number never collides.
+Finder _periodDayCell(int day) => find
+    .byWidgetPredicate(
+      (Widget w) =>
+          w is Semantics &&
+          (w.properties.button ?? false) &&
+          w.properties.label == '$day',
+    )
+    .first;
 
 /// Reads the `HH:MM` rendered inside a keyed [TimeWell] (`…-work-start`,
 /// `…-work-end`, `…-break-N-start`, …) — a data value, never localised copy.

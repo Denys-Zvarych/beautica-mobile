@@ -40,6 +40,48 @@ abstract final class BrandColors {
   /// Muted labels (field labels). Use at >= 12 px bold.
   static const Color muted = Color(0xFF9A8367);
 
+  /// De-emphasized calendar-weekend text (Sat/Sun captions + day numbers).
+  ///
+  /// mobile-security MEDIUM (calendar-consolidation audit): [muted] measures
+  /// only 2.69:1 on [base] — well under WCAG AA's 4.5:1 floor for normal
+  /// text — so it cannot legally carry the weekend cue, which the D3 fix
+  /// (see `shared/widgets/calendar_grid.dart`) applies to ACTIVE, tappable
+  /// day-number and caption text.
+  ///
+  /// mobile-security LOW (re-audit, same fix): a FIRST pass at this token
+  /// (`#745C47`) searched the wrong axis. Against a light base the *lighter*
+  /// a warm-neutral tone gets the *lower* its contrast falls, so "more
+  /// de-emphasized" and "still >= 4.5:1" pull in opposite directions on the
+  /// `muted` → [textSecondary] LIGHTNESS axis — the legal band between the
+  /// AA floor and [textSecondary]'s own 5.03:1 is a sliver, and `#745C47`
+  /// sat right at its edge: CIE Lab ΔE76 versus [textSecondary] was only
+  /// ~2.2, essentially at the ~2.3 just-noticeable-difference threshold, so
+  /// the weekend cue the user actually asked for ("put these columns into
+  /// gray colour") was very likely invisible in practice even though it
+  /// cleared AA on paper.
+  ///
+  /// The fix moves to the HUE/CHROMA axis instead: [weekendMuted] is
+  /// [textSecondary]'s warm-neutral RGB desaturated toward true gray, at the
+  /// same darkness (never lighter — darkness is free contrast on a light
+  /// base, so de-emphasis has to come from dropping chroma, not from washing
+  /// out). `#5F5A55` measures 5.07:1 on [base] — a wider AA margin than
+  /// [textSecondary]'s own 5.03:1, since it is no lighter — while sitting a
+  /// CIE Lab ΔE76 of ~12.8 away from [textSecondary] (comfortably clear of
+  /// the ~2.3 JND floor), and its own tiny residual warm cast (Lab a≈+1,
+  /// b≈+3.6, versus [textSecondary]'s a≈+6.4, b≈+15.2) keeps it inside this
+  /// palette's warm-neutral family rather than reading as a cold blue-gray.
+  /// See `test/shared/widgets/calendar_grid_contrast_test.dart` for the
+  /// computed pin on both properties.
+  ///
+  /// Deliberately NOT a widening of [muted] itself: [muted] stays reserved
+  /// for genuinely inactive/disabled states, where WCAG 1.4.3's "inactive
+  /// user interface component" exemption is what makes the low contrast
+  /// legal in the first place (see call sites' own comments for the
+  /// per-state exemption determination) — a day that is merely a *weekend*
+  /// is not inactive, so it needs a token that is legal on its own, not an
+  /// exemption.
+  static const Color weekendMuted = Color(0xFF5F5A55);
+
   /// Input placeholder text.
   static const Color placeholder = Color(0xFFAD9A82);
 

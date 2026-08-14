@@ -36,6 +36,8 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
+    show kCalendarDotColor;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -916,8 +918,12 @@ void main() {
   // -------------------------------------------------------------------------
   //
   // Precedence pinned here, matching `_DayChip`'s doc:
-  //   * a PAST, UNSELECTED day mutes to `BrandColors.muted` — the palette's
-  //     established "receded" token, never a cold grey.
+  //   * a PAST, UNSELECTED day mutes to `BrandColors.weekendMuted` — not
+  //     `BrandColors.muted` (2.69:1 on `BrandColors.base`, sub-AA): every
+  //     day chip stays tappable (mobile-security, calendar-consolidation
+  //     audit), so the muted state is ACTIVE text and must clear WCAG AA on
+  //     its own; `weekendMuted` (5.07:1) does. A near-neutral warm gray,
+  //     never a cold blue-gray.
   //   * TODAY never mutes, selected or not — it is never "past" by
   //     construction.
   //   * a SELECTED past day (the master browsing history) still reads as
@@ -949,43 +955,39 @@ void main() {
       return text.style!.color!;
     }
 
-    testWidgets(
-      'a past, unselected day mutes its day number to BrandColors.muted',
-      (tester) async {
-        final DateTime today = DateTime(2026, 7, 23);
-        final DateTime past = railDayAt(today, -3);
-        await tester.pumpApp(
-          _rail(
-            firstDay: today,
-            today: today,
-            weekCount: 1,
-            selectedDay: today,
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('a past, unselected day mutes its day number to '
+        'BrandColors.weekendMuted', (tester) async {
+      final DateTime today = DateTime(2026, 7, 23);
+      final DateTime past = railDayAt(today, -3);
+      await tester.pumpApp(
+        _rail(firstDay: today, today: today, weekCount: 1, selectedDay: today),
+      );
+      await tester.pumpAndSettle();
 
-        // The day-number Text is the second of the chip's two Texts.
-        final Finder chipTexts = find.descendant(
-          of: find.byKey(dayChipKey(past)),
-          matching: find.byType(Text),
-        );
-        final Text dayNumberText = tester.widget<Text>(chipTexts.at(1));
-        expect(
-          dayNumberText.style!.color,
-          BrandColors.muted,
-          reason:
-              'a past unselected day must render its number in '
-              'BrandColors.muted, the palette\'s established receded token.',
-        );
+      // The day-number Text is the second of the chip's two Texts.
+      final Finder chipTexts = find.descendant(
+        of: find.byKey(dayChipKey(past)),
+        matching: find.byType(Text),
+      );
+      final Text dayNumberText = tester.widget<Text>(chipTexts.at(1));
+      expect(
+        dayNumberText.style!.color,
+        BrandColors.weekendMuted,
+        reason:
+            'a past unselected day must render its number in '
+            'BrandColors.weekendMuted — WCAG AA-legal (5.07:1) and a '
+            'near-neutral warm gray; BrandColors.muted '
+            '(2.69:1) fails AA and every day chip stays tappable, so the '
+            'inactive-component exemption never covers it.',
+      );
 
-        final Text weekdayText = tester.widget<Text>(chipTexts.at(0));
-        expect(
-          weekdayText.style!.color,
-          BrandColors.muted,
-          reason: 'the weekday caption mutes alongside the day number.',
-        );
-      },
-    );
+      final Text weekdayText = tester.widget<Text>(chipTexts.at(0));
+      expect(
+        weekdayText.style!.color,
+        BrandColors.weekendMuted,
+        reason: 'the weekday caption mutes alongside the day number.',
+      );
+    });
 
     testWidgets(
       'today is NEVER muted, even though it renders unselected here',
@@ -1006,7 +1008,7 @@ void main() {
 
         expect(
           dayNumberColor(tester, today),
-          isNot(BrandColors.muted),
+          isNot(BrandColors.weekendMuted),
           reason:
               'today must never render muted — being in the past never '
               'applies to today.',
@@ -1034,7 +1036,7 @@ void main() {
               'the master browsing history cannot see what is currently '
               'open.',
         );
-        expect(dayNumberColor(tester, past), isNot(BrandColors.muted));
+        expect(dayNumberColor(tester, past), isNot(BrandColors.weekendMuted));
       },
     );
 
@@ -1069,6 +1071,52 @@ void main() {
         );
       },
     );
+  });
+
+  // mobile-qa (calendar-consolidation cross-surface parity audit) —
+  // `_DayChip`'s dot stays a separate, horizontal-chip widget (never rebuilt
+  // from `CalendarDayCell`, see `calendar_grid.dart`'s file header) but is
+  // documented to share `kCalendarDotColor` — the SAME constant the grid
+  // surfaces' density dots use — so this rail's dot cannot silently drift
+  // from theirs even though the widget itself does not. The pre-existing
+  // "stays full accent" test above (asserting `BrandColors.accent`) proves
+  // the RENDERED value but not the SOURCE: `kCalendarDotColor` is currently
+  // DEFINED as `BrandColors.accent`, so that assertion would keep passing
+  // even if a future edit hardcoded `BrandColors.accent` directly instead of
+  // reading the shared constant — exactly the drift the consolidation exists
+  // to prevent. Asserting against the imported `kCalendarDotColor` symbol
+  // itself (not a copy of its current value) is what actually pins "this
+  // rail reads the shared token", per the task's cross-surface parity
+  // requirement.
+  group('cross-surface parity — the has-bookings dot reads calendar_grid.dart'
+      "'s kCalendarDotColor, not an independently-declared value", () {
+    testWidgets('a booked day\'s dot color equals the imported '
+        'kCalendarDotColor constant', (tester) async {
+      final DateTime today = DateTime(2026, 7, 23);
+      await tester.pumpApp(
+        _rail(
+          firstDay: today,
+          today: today,
+          weekCount: 1,
+          selectedDay: today,
+          bookedDays: <DateTime>{today},
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Container dot = tester.widget<Container>(
+        find.byKey(dayDotKey(today)),
+      );
+      final BoxDecoration decoration = dot.decoration! as BoxDecoration;
+      expect(
+        decoration.color,
+        kCalendarDotColor,
+        reason:
+            'the rail dot must render exactly calendar_grid.dart\'s '
+            'kCalendarDotColor — the single constant every calendar surface '
+            '(grid density dots included) reads, per mobile-backlog D5',
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

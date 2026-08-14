@@ -322,16 +322,19 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               ),
             ),
             const SizedBox(height: VelvetSpacing.lg),
-            // `CalendarWeekdayBar` (and `_calendarBody`'s `MonthCalendar`) are
-            // deliberately left UNWRAPPED here — both already self-pad
-            // horizontally by the same `VelvetSpacing.lg`, matching
-            // `master_schedule_page.dart`'s pattern (see its comment at the
-            // `CalendarWeekdayBar` usage there). Nesting either inside this
-            // screen's own `Padding(horizontal: VelvetSpacing.lg)` — as
-            // `MasterStrip` above still needs, since it does NOT self-pad —
-            // would stack insets and misalign the weekday labels from the
-            // day-grid columns beneath them.
-            const CalendarWeekdayBar(),
+            // `_calendarBody`'s `MonthCalendar` self-pads horizontally by
+            // `VelvetSpacing.lg` (its own outer `Padding`), so this explicit
+            // wrap matches it exactly — mobile-backlog D4/D5:
+            // `CalendarWeekdayBar` itself renders NO horizontal padding any
+            // more (see `calendar_grid.dart`'s file header), so every caller,
+            // this one included, now supplies the SAME inset its sibling grid
+            // uses rather than relying on the bar's own (removed) self-pad.
+            // `master_schedule_page.dart` mirrors this same pattern at its
+            // own `CalendarWeekdayBar` usage.
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+              child: CalendarWeekdayBar(),
+            ),
             const SizedBox(height: VelvetSpacing.xs),
             Expanded(
               child: _calendarBody(
