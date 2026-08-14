@@ -137,6 +137,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -521,6 +522,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// one day, and it is unchanged by the chevrons' retirement: the gesture
   /// that resolves the step changed, the meaning of a step did not.
   void _stepMonth(int delta) {
+    // Every call here is a COMMITTED page turn — [_resolveMonthPage] only
+    // invokes [onStepMonth] once `delta != 0`, i.e. never for the
+    // spring-back case or the programmatic resync `jumpToPage` triggers in
+    // `didUpdateWidget`. So the tactile cue belongs here, not at the pager
+    // itself, and never fires on a swipe that snaps back to where it started.
+    HapticFeedback.selectionClick();
     final DateTime targetMonth = DateTime(_day.year, _day.month + delta);
     final int lastDayOfTargetMonth = DateTime(
       targetMonth.year,

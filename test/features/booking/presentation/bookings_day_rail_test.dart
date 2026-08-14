@@ -30,11 +30,14 @@
 //     rather than a job-wide zone, and why zone-independence is unreachable
 //     here.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -1193,5 +1196,383 @@ void main() {
         // of the pairing this group's header calls out as the actual risk.
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Haptic cue contract + drag-tracking state (mobile-qa, 2026-08-14)
+  // -------------------------------------------------------------------------
+  //
+  // `_BookingsDayRailState._onRailScroll` fires `HapticFeedback.selectionClick()`
+  // exactly once per COMMITTED week turn — gated on `_draggedSinceLastSettle`
+  // (set only by a real finger drag's `ScrollUpdateNotification.dragDetails`,
+  // never by a programmatic page move) and diffed against `_lastSettledPage`
+  // (the last genuine settle, not a Start-time snapshot — see the class doc
+  // for why a snapshot goes stale across an interrupted ballistic). This
+  // group pins the whole contract, mocking `HapticFeedback` at the
+  // `flutter/platform` channel boundary — same technique
+  // `booking_detail_interactions_test.dart` uses for its `add_2_calendar`
+  // channel mock.
+  //
+  // ⚠ FIXED PRODUCTION DEFECT, found while writing this group (mobile-qa,
+  // 2026-08-14) and fixed by mobile-dev the same day. `_lastSettledPage`
+  // used to start `null`, so `endRounded != _lastSettledPage` was trivially
+  // true on the FIRST End this widget ever saw, whether or not anything
+  // actually moved. If the VERY FIRST scroll interaction on a
+  // freshly-mounted rail was a spring-back, this fired a haptic for a
+  // gesture that went nowhere. Confirmed empirically (not merely reasoned):
+  // a fresh mount + a single under-threshold paused-release drag used to
+  // fire exactly 1 call to `HapticFeedback.vibrate`.
+  //
+  // Fix: `_lastSettledPage` is now non-nullable and seeded in `initState`
+  // from `widget.controller.initialPage` (kept in sync in `didUpdateWidget`
+  // if the controller identity changes) — the page the rail actually starts
+  // on, not an artificial "nothing happened yet" sentinel. This is why most
+  // tests below establish a real settle FIRST regardless: it is also the
+  // realistic production case (the rail always renders with a landing
+  // selection already resolved before the master's first touch), and it
+  // keeps those tests valid independent of how the baseline seeds. The two
+  // tests that specifically exercise FIRST-INTERACTION-ON-FRESH-MOUNT
+  // behaviour (spring-back and genuine turn) are called out below.
+  group('haptic cue contract', () {
+    late List<MethodCall> platformCalls;
+
+    setUp(() {
+      platformCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (
+            MethodCall call,
+          ) async {
+            platformCalls.add(call);
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    int selectionClicks() => platformCalls
+        .where(
+          (MethodCall c) =>
+              c.method == 'HapticFeedback.vibrate' &&
+              c.arguments == 'HapticFeedbackType.selectionClick',
+        )
+        .length;
+
+    const Key railKey = Key('master-bookings-day-rail');
+
+    /// A FORWARD paused-before-lift drag of [fraction] of [finder]'s own
+    /// width — the exact technique
+    /// `bookings_pager_commit_threshold_test.dart`'s `_pausedForwardDrag`
+    /// establishes (8 real 40ms-spaced samples, then a pump PAST
+    /// `VelocityTracker`'s own 40ms "assume stopped" cutoff with no further
+    /// sample before `up()`), not re-derived here: see that file's header
+    /// for why a trailing run of zero-delta samples produces a
+    /// SIGN-REVERSED velocity instead of an exact zero and must not be
+    /// substituted for it.
+    Future<void> pausedForwardDrag(
+      WidgetTester tester,
+      Finder finder, {
+      required double fraction,
+    }) async {
+      final double width = tester.getRect(finder).width;
+      const int steps = 8;
+      final double dx = -(width * fraction) / steps;
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(finder),
+      );
+      Duration stamp = Duration.zero;
+      for (int i = 0; i < steps; i++) {
+        stamp += const Duration(milliseconds: 40);
+        await gesture.moveBy(Offset(dx, 0), timeStamp: stamp);
+        // fixed-wait-ok: advancing the pointer-sample clock in lockstep with
+        // the synthetic move timestamps, not waiting on a condition.
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      // fixed-wait-ok: advancing past VelocityTracker's own 40ms "assume
+      // stopped" cutoff, not waiting on a condition — see
+      // bookings_pager_commit_threshold_test.dart's `_pausedForwardDrag`.
+      await tester.pump(const Duration(milliseconds: 60));
+      await gesture.up();
+    }
+
+    testWidgets(
+      'CASE 1 (positive control): a committed week turn fires exactly one '
+      'haptic — proves the mock is wired and the cue is genuinely '
+      'reachable, so the negative-only cases below mean something',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15); // a Wednesday
+        await tester.pumpApp(
+          _rail(firstDay: today, today: today, weekCount: 2),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.fling(find.byKey(railKey), const Offset(-300, 0), 800);
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          1,
+          reason:
+              'a committed week turn must fire the haptic cue exactly '
+              'once — 0 would mean either the cue regressed or the mock is '
+              'not wired, either of which would make every negative test '
+              'below pass for the wrong reason.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CASE 2: a spring-back (under-threshold paused release) fires no '
+      'haptic',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15);
+        await tester.pumpApp(
+          _rail(firstDay: today, today: today, weekCount: 2),
+        );
+        await tester.pumpAndSettle();
+
+        // Establish a REAL settle first (see the group header) — a genuine
+        // committed turn, so the spring-back below is diffed against a real
+        // `_lastSettledPage`, not the widget's initial `null`.
+        await pausedForwardDrag(tester, find.byKey(railKey), fraction: 0.30);
+        await tester.pumpAndSettle();
+        final int afterCommit = selectionClicks();
+
+        await pausedForwardDrag(tester, find.byKey(railKey), fraction: 0.20);
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          afterCommit,
+          reason:
+              'a spring-back must never fire the haptic cue — got an extra '
+              'call after the under-threshold release.',
+        );
+      },
+    );
+
+    testWidgets('CASE 3: a programmatic jumpToPage resync fires no haptic', (
+      tester,
+    ) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      final PageController controller = PageController(initialPage: 0);
+      await tester.pumpApp(
+        BookingsDayRail(
+          controller: controller,
+          firstWeekStart: mondayOf(today),
+          weekCount: 10,
+          today: today,
+          selectedDay: today,
+          bookedDays: const <DateTime>{},
+          onSelectDay: (_) {},
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Establish a real settle first — mirrors `_showRailWeekOf` always
+      // being called well after the rail's initial mount in production.
+      await pausedForwardDrag(tester, find.byKey(railKey), fraction: 0.30);
+      await tester.pumpAndSettle();
+      final int afterCommit = selectionClicks();
+
+      // Mirrors `_BookingsDiscoveryViewState._showRailWeekOf`'s own
+      // programmatic resync — pure navigation echo, never a selection, and
+      // never haptic-worthy.
+      controller.jumpToPage(5);
+      await tester.pumpAndSettle();
+
+      expect(
+        selectionClicks(),
+        afterCommit,
+        reason:
+            'a programmatic jumpToPage resync must never fire the haptic '
+            'cue.',
+      );
+    });
+
+    testWidgets(
+      'CASE 3b: a programmatic animateToPage resync fires no haptic',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15);
+        final PageController controller = PageController(initialPage: 0);
+        await tester.pumpApp(
+          BookingsDayRail(
+            controller: controller,
+            firstWeekStart: mondayOf(today),
+            weekCount: 10,
+            today: today,
+            selectedDay: today,
+            bookedDays: const <DateTime>{},
+            onSelectDay: (_) {},
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await pausedForwardDrag(tester, find.byKey(railKey), fraction: 0.30);
+        await tester.pumpAndSettle();
+        final int afterCommit = selectionClicks();
+
+        // Mirrors `_showRailWeekOf`'s ANIMATED branch (an adjacent-week
+        // resync, e.g. from a month step or «Сьогодні»).
+        //
+        // NOT awaited directly: `animateToPage`'s returned Future only
+        // completes once its driven `Ticker` has actually ticked to the end
+        // of the animation, and under
+        // `AutomatedTestWidgetsFlutterBinding` a `Ticker` only advances
+        // inside an explicit `tester.pump()` — nothing pumps between this
+        // call and the next line, so awaiting it here deadlocks forever
+        // (proved against a bare stock `PageView` with default
+        // `PageScrollPhysics`, no `LowThresholdPageScrollPhysics` involved).
+        // Starting the animation is itself synchronous (the call schedules
+        // the first frame callback before returning), so firing it
+        // unawaited and driving it via the `pumpAndSettle` below — which
+        // pumps for exactly as long as a frame is scheduled — is both safe
+        // and correct.
+        unawaited(
+          controller.animateToPage(
+            2,
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOut,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          afterCommit,
+          reason:
+              'a programmatic animateToPage resync must never fire the '
+              'haptic cue.',
+        );
+      },
+    );
+
+    testWidgets('CASE 4: an interrupted ballistic (a new drag begun while the '
+        'previous settle is still animating) fires exactly one haptic for '
+        'the NET transition, not two — the mobile-perf drag-chaining fix', (
+      tester,
+    ) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      await tester.pumpApp(_rail(firstDay: today, today: today, weekCount: 4));
+      await tester.pumpAndSettle();
+
+      final Finder finder = find.byKey(railKey);
+      // Establish a real settle first (page 0 -> 1).
+      await pausedForwardDrag(tester, finder, fraction: 0.30);
+      await tester.pumpAndSettle();
+      final int afterBaseline = selectionClicks();
+
+      final double width = tester.getRect(finder).width;
+
+      // Drag A: committed, released, but given NO settle time before Drag
+      // B begins — its ballistic is still in flight when interrupted.
+      final TestGesture gestureA = await tester.startGesture(
+        tester.getCenter(finder),
+      );
+      Duration stamp = Duration.zero;
+      for (int i = 0; i < 8; i++) {
+        stamp += const Duration(milliseconds: 40);
+        await gestureA.moveBy(Offset(-(width * 0.3) / 8, 0), timeStamp: stamp);
+        // fixed-wait-ok: advancing the pointer-sample clock in lockstep with
+        // the synthetic move timestamps, not waiting on a condition — see
+        // `pausedForwardDrag`'s identical pattern above.
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      // fixed-wait-ok: advancing past VelocityTracker's own 40ms "assume
+      // stopped" cutoff, not waiting on a condition — see
+      // `pausedForwardDrag` above.
+      await tester.pump(const Duration(milliseconds: 60));
+      await gestureA.up();
+
+      // Drag B interrupts immediately — no intervening settle pump.
+      final TestGesture gestureB = await tester.startGesture(
+        tester.getCenter(finder),
+      );
+      stamp = Duration.zero;
+      for (int i = 0; i < 8; i++) {
+        stamp += const Duration(milliseconds: 40);
+        await gestureB.moveBy(Offset(-(width * 0.3) / 8, 0), timeStamp: stamp);
+        // fixed-wait-ok: advancing the pointer-sample clock in lockstep with
+        // the synthetic move timestamps, not waiting on a condition.
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      // fixed-wait-ok: advancing past VelocityTracker's own 40ms "assume
+      // stopped" cutoff, not waiting on a condition.
+      await tester.pump(const Duration(milliseconds: 60));
+      await gestureB.up();
+      await tester.pumpAndSettle();
+
+      expect(
+        selectionClicks() - afterBaseline,
+        1,
+        reason:
+            'a chained forward drag (a new drag begun while the previous '
+            'ballistic is still animating) must fire the haptic cue '
+            'exactly ONCE for the whole gesture, attributed to the NET '
+            'page transition — not once per interruption boundary. This '
+            'is the exact defect mobile-perf fixed by replacing a '
+            'drag-start-page snapshot with _draggedSinceLastSettle + '
+            '_lastSettledPage.',
+      );
+    });
+
+    // REGRESSION PIN for the FIXED PRODUCTION DEFECT — see the group header.
+    // `_lastSettledPage` is now seeded from `widget.controller.initialPage`
+    // in `initState`, so the very first End this widget ever sees is diffed
+    // against where the rail actually starts, not an artificial "always
+    // different" `null`.
+    testWidgets(
+      'CASE 5 (regression pin): a spring-back as the VERY FIRST scroll '
+      'interaction on a fresh mount fires no haptic',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15);
+        await tester.pumpApp(
+          _rail(firstDay: today, today: today, weekCount: 2),
+        );
+        await tester.pumpAndSettle();
+
+        await pausedForwardDrag(tester, find.byKey(railKey), fraction: 0.20);
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          0,
+          reason:
+              'the very first scroll interaction ever, a spring-back, must '
+              'not fire the haptic cue — the baseline seeded from '
+              '`initialPage` must equal the page a spring-back settles back '
+              'onto.',
+        );
+      },
+    );
+
+    // The trap a naive fix ("only fire when _lastSettledPage != null") would
+    // fall into: suppressing the haptic on a genuine first committed turn
+    // from a fresh mount is itself a regression, just the opposite-signed
+    // one from CASE 5. Pinned so a future "simplification" of the
+    // `initState` seeding can't reintroduce either defect.
+    testWidgets('CASE 6 (regression pin, opposite sign of CASE 5): a genuine '
+        'committed turn as the VERY FIRST scroll interaction on a fresh '
+        'mount fires exactly one haptic', (tester) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      await tester.pumpApp(_rail(firstDay: today, today: today, weekCount: 2));
+      await tester.pumpAndSettle();
+
+      await pausedForwardDrag(tester, find.byKey(railKey), fraction: 0.30);
+      await tester.pumpAndSettle();
+
+      expect(
+        selectionClicks(),
+        1,
+        reason:
+            'a genuine committed turn — even as the very first interaction '
+            'ever on a fresh mount — must still fire the haptic cue '
+            'exactly once. A baseline that seeds from `initialPage` must '
+            'not be confused with a guard that simply suppresses the cue '
+            'until SOME prior settle has happened.',
+      );
+    });
   });
 }

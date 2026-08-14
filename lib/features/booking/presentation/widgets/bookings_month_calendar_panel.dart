@@ -134,6 +134,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 
 import 'bookings_day_rail.dart';
+import 'low_threshold_page_scroll_physics.dart';
 import 'month_calendar.dart';
 
 /// The calendar's two resting heights. Every value between is a live drag
@@ -711,7 +712,31 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
       child: PageView.builder(
         key: const Key('bookings-month-calendar-grid'),
         controller: _monthPage,
-        physics: const PageScrollPhysics(parent: BouncingScrollPhysics()),
+        // `pageSnapping: false` — REQUIRED for `LowThresholdPageScrollPhysics`
+        // to run at all, not merely a tuning knob. With the default `true`,
+        // `PageView.build` composes `_kPagePhysics.applyTo(widget.physics)` —
+        // i.e. it puts STOCK `PageScrollPhysics` on TOP of whatever
+        // `physics:` is passed, burying our subclass as that stock
+        // instance's `parent`. Stock `PageScrollPhysics.createBallisticSimulation`
+        // fully reimplements the settle target itself and only ever calls
+        // `super.createBallisticSimulation` (walking the parent chain) in
+        // the out-of-range early return — every normal in-range settle
+        // never reaches `parent.createBallisticSimulation` at all. So at the
+        // default, our override was silent dead code: every settle ran the
+        // STOCK 50% threshold and the paused-release fix never took effect.
+        // Proven by an unconditional `throw` placed as the first line of
+        // `createBallisticSimulation`: it never fired against this pager
+        // with `pageSnapping` at its default, and fired immediately once set
+        // to `false`. `LowThresholdPageScrollPhysics` reimplements the FULL
+        // stock snapping contract itself (see its class doc), so the grid
+        // still snaps to whole months exactly as before — only the commit
+        // threshold changes, which was the entire intent of this fix.
+        pageSnapping: false,
+        // `BouncingScrollPhysics` parent unchanged: its rubber-band only
+        // applies out of range, which a mid-span drag never is.
+        physics: const LowThresholdPageScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         itemCount: _kMonthPageCount,
         // No `onPageChanged:` — see [_onMonthPagerScroll]'s doc. It fires on
         // every midpoint crossing DURING the drag, which made a single

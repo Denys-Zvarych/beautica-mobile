@@ -88,12 +88,15 @@
 // the «Всі» chip; Phase 7.16 retired the pinned calendar button).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+
+import 'low_threshold_page_scroll_physics.dart';
 
 /// Days per rail page — a calendar week, Monday through Sunday. Not a tuning
 /// knob: [_WeekPage] lays out exactly this many `Expanded` slots and
@@ -249,7 +252,7 @@ Key dayDotKey(DateTime day) => Key('master-bookings-day-dot-${toApiDate(day)}');
 
 /// The week-paging day strip: exactly seven chips per page, Monday first,
 /// Sunday last, snapping one whole week per swipe.
-class BookingsDayRail extends StatelessWidget {
+class BookingsDayRail extends StatefulWidget {
   const BookingsDayRail({
     super.key,
     required this.controller,
@@ -296,6 +299,99 @@ class BookingsDayRail extends StatelessWidget {
   final ValueChanged<DateTime> onSelectDay;
 
   @override
+  State<BookingsDayRail> createState() => _BookingsDayRailState();
+}
+
+class _BookingsDayRailState extends State<BookingsDayRail> {
+  /// Whether a genuine finger drag has touched the scroll chain since the
+  /// rail last settled to idle. Tracked off `ScrollUpdateNotification`, not
+  /// `ScrollStartNotification`: `ScrollPosition.beginActivity` only fires
+  /// Start/End on an `isScrolling` transition, and a real drag, its ballistic
+  /// tail, AND a programmatic `animateToPage`/`jumpToPage` resync are ALL
+  /// `isScrolling == true` — so a resync that interrupts an in-flight
+  /// ballistic tail is a scrolling→scrolling collapse that fires NEITHER a
+  /// new Start NOR an End, leaving a Start-snapshot approach stale.
+  /// `ScrollUpdateNotification.dragDetails` has no such gap: it is reliably
+  /// non-null on every frame of an actual user-driven drag no matter which
+  /// activity preceded it.
+  bool _draggedSinceLastSettle = false;
+
+  /// Rounded page the rail last settled on. Seeded from
+  /// `widget.controller.initialPage` in [initState] (kept in sync with
+  /// [didUpdateWidget] if the controller identity changes) rather than left
+  /// `null` until the first `ScrollEndNotification` — see the KNOWN
+  /// PRODUCTION DEFECT this fixes, documented on the regression test group
+  /// in `bookings_day_rail_test.dart`. A `null` baseline made
+  /// `endRounded != _lastSettledPage` trivially true on the very first End
+  /// this widget ever saw, so a spring-back as the first-ever interaction on
+  /// a fresh mount fired a haptic for a gesture that went nowhere.
+  ///
+  /// `PageController.initialPage` — not `.page` — because `.page` is `null`
+  /// until the controller has clients (i.e. until after the first frame),
+  /// whereas `initialPage` is available synchronously in `initState`, before
+  /// the `PageView` has attached. It is exactly the page the rail visually
+  /// starts on (the host constructs the controller with
+  /// `initialPage: railWeekIndex(...)` — see `bookings_discovery_view.dart`),
+  /// so diffing the first genuine settle against it still correctly fires a
+  /// haptic for a genuine first committed turn from a fresh mount.
+  late int _lastSettledPage;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastSettledPage = widget.controller.initialPage;
+  }
+
+  @override
+  void didUpdateWidget(covariant BookingsDayRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A new controller identity means a fresh pager attachment with its own
+    // resting page, so the baseline must follow it rather than staying
+    // pinned to the OLD controller's start — otherwise the first settle on
+    // the new controller would be diffed against a page that has nothing to
+    // do with where this rail now actually starts.
+    if (!identical(widget.controller, oldWidget.controller)) {
+      _lastSettledPage = widget.controller.initialPage;
+    }
+  }
+
+  /// The rail's page-turn analogue of `bookings_month_calendar_panel.dart`'s
+  /// `_onMonthPagerScroll`/`_resolveMonthPage` — same `depth != 0` guard —
+  /// but this widget has no selection to resolve (paging the rail is pure
+  /// navigation; see the file header), so the only thing it drives is the
+  /// haptic cue.
+  bool _onRailScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    if (notification is ScrollUpdateNotification) {
+      if (notification.dragDetails != null) {
+        _draggedSinceLastSettle = true;
+      }
+    } else if (notification is ScrollEndNotification) {
+      final double? endPage = _pageOf(notification.metrics);
+      final int? endRounded = endPage?.round();
+      // A committed turn only — diffing against the last SETTLED page (not a
+      // Start-time snapshot) so a resync that interrupts an in-flight
+      // ballistic tail is never misattributed. See [_draggedSinceLastSettle].
+      if (_draggedSinceLastSettle &&
+          endRounded != null &&
+          endRounded != _lastSettledPage) {
+        HapticFeedback.selectionClick();
+      }
+      _draggedSinceLastSettle = false;
+      if (endRounded != null) _lastSettledPage = endRounded;
+    }
+    return false;
+  }
+
+  /// Mirrors `PageMetrics.page` for a bare `ScrollMetrics` — every real
+  /// `PageView` notification carries a `PageMetrics`, so the fallback only
+  /// guards a metrics type this pager is never actually attached to.
+  double? _pageOf(ScrollMetrics metrics) {
+    if (metrics is PageMetrics) return metrics.page;
+    return metrics.pixels / metrics.viewportDimension;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final List<String> weekdayShort = _weekdayShorts(l10n);
@@ -308,36 +404,71 @@ class BookingsDayRail extends StatelessWidget {
       // overflow guard. The chip's INTERNAL rhythm is unchanged; only the
       // container grew to fit the real type.
       height: kBookingsDayRailHeight,
-      child: PageView.builder(
-        key: const Key('master-bookings-day-rail'),
-        controller: controller,
-        // `PageScrollPhysics` over `BouncingScrollPhysics` — snapping is the
-        // WHOLE contract here (a Wed→Tue resting span is the bug), and the
-        // bouncing parent keeps the rubber-band the rail has always had. That
-        // rubber-band is also the only "there is more either side" signal a
-        // full-bleed pager can give at rest without adding chrome, which the
-        // locked design forbids.
-        physics: const PageScrollPhysics(parent: BouncingScrollPhysics()),
-        itemCount: weekCount,
-        itemBuilder: (BuildContext context, int weekIndex) {
-          // CALENDAR arithmetic — see the file header. The page index IS the
-          // week offset from `firstWeekStart` (see [railWeekIndex], its exact
-          // inverse), so the first chip of every page is a Monday by
-          // construction rather than by a runtime alignment step.
-          final DateTime weekStart = railDayAt(
-            firstWeekStart,
-            weekIndex * kRailWeekLength,
-          );
-          return _WeekPage(
-            weekStart: weekStart,
-            today: today,
-            selectedDay: selectedDay,
-            bookedDays: bookedDays,
-            weekdayShort: weekdayShort,
-            onSelectDay: onSelectDay,
-            l10n: l10n,
-          );
-        },
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onRailScroll,
+        child: PageView.builder(
+          key: const Key('master-bookings-day-rail'),
+          // `pageSnapping: false` is NOT "snapping disabled" — it disables
+          // only `PageView`'s own internal wiring shortcut. With the default
+          // `pageSnapping: true`, `PageView.build` composes
+          // `_kPagePhysics.applyTo(widget.physics)` — i.e. it puts STOCK
+          // `PageScrollPhysics` on TOP of whatever `physics:` is passed here,
+          // burying `LowThresholdPageScrollPhysics` as that stock instance's
+          // `parent`. Stock `PageScrollPhysics.createBallisticSimulation`
+          // fully reimplements the settle target itself and only ever calls
+          // `super.createBallisticSimulation` (walking the parent chain) in
+          // the out-of-range early return — for every normal, in-range
+          // settle it NEVER reaches `parent.createBallisticSimulation` at
+          // all. So with the default `true`, our override was silently
+          // DEAD CODE: every settle in the app ran the STOCK 50% threshold,
+          // and the whole point of this fix — the paused-release drag —
+          // never took effect. Proven by an unconditional `throw` placed as
+          // the first line of `createBallisticSimulation`: it never fired
+          // through this widget with `pageSnapping` at its default, and
+          // fired immediately once set to `false` here.
+          // `pageSnapping: false` skips that internal composition and uses
+          // `physics:` below directly (still wrapped by `PageView`'s
+          // unrelated `_ForceImplicitScrollPhysics`, which does NOT override
+          // `createBallisticSimulation` and so delegates to it correctly).
+          // `LowThresholdPageScrollPhysics` reimplements the FULL stock
+          // snapping contract itself (see its class doc), so the pager still
+          // snaps to whole pages exactly as before — only the commit
+          // threshold changes, which was the entire intent.
+          pageSnapping: false,
+          controller: widget.controller,
+          // `LowThresholdPageScrollPhysics` (a `PageScrollPhysics`) over
+          // `BouncingScrollPhysics` — snapping is the WHOLE contract here (a
+          // Wed→Tue resting span is the bug), and the bouncing parent keeps
+          // the rubber-band the rail has always had. That rubber-band is
+          // also the only "there is more either side" signal a full-bleed
+          // pager can give at rest without adding chrome, which the locked
+          // design forbids. The lowered commit threshold is the same fix as
+          // the month grid's — see `LowThresholdPageScrollPhysics`'s doc.
+          physics: const LowThresholdPageScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          itemCount: widget.weekCount,
+          itemBuilder: (BuildContext context, int weekIndex) {
+            // CALENDAR arithmetic — see the file header. The page index IS
+            // the week offset from `firstWeekStart` (see [railWeekIndex],
+            // its exact inverse), so the first chip of every page is a
+            // Monday by construction rather than by a runtime alignment
+            // step.
+            final DateTime weekStart = railDayAt(
+              widget.firstWeekStart,
+              weekIndex * kRailWeekLength,
+            );
+            return _WeekPage(
+              weekStart: weekStart,
+              today: widget.today,
+              selectedDay: widget.selectedDay,
+              bookedDays: widget.bookedDays,
+              weekdayShort: weekdayShort,
+              onSelectDay: widget.onSelectDay,
+              l10n: l10n,
+            );
+          },
+        ),
       ),
     );
   }

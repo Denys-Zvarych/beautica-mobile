@@ -57,6 +57,7 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -1763,6 +1764,197 @@ void main() {
           reason:
               'the CTA must route to /schedule?date=<the day the gray state '
               'was showing>, formatted through toApiDate',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Haptic cue contract — month grid (mobile-qa, 2026-08-14)
+  // ---------------------------------------------------------------------
+  //
+  // `_BookingsDiscoveryViewState._stepMonth` fires
+  // `HapticFeedback.selectionClick()` unconditionally whenever it runs — the
+  // guard against a spring-back / a programmatic resync lives one layer
+  // down, in `BookingsMonthCalendarPanel._resolveMonthPage`'s `delta == 0`
+  // early return (that method only calls `widget.onStepMonth` — which
+  // reaches `_stepMonth` — on a genuine COMMITTED page turn; see that
+  // method's own doc). So this group mounts the REAL `MasterBookingsScreen`
+  // — not a recording stand-in the way
+  // `bookings_pager_commit_threshold_test.dart`'s `_PanelHost.onStepMonth`
+  // is — because only the real widget tree actually reaches the real
+  // `HapticFeedback.selectionClick()` call.
+  group('haptic cue contract — month grid', () {
+    late List<MethodCall> platformCalls;
+
+    setUp(() {
+      platformCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (
+            MethodCall call,
+          ) async {
+            platformCalls.add(call);
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    int selectionClicks() => platformCalls
+        .where(
+          (MethodCall c) =>
+              c.method == 'HapticFeedback.vibrate' &&
+              c.arguments == 'HapticFeedbackType.selectionClick',
+        )
+        .length;
+
+    const Key gridKey = Key('bookings-month-calendar-grid');
+    const Key toggleKey = Key('bookings-month-calendar-toggle');
+
+    /// The same paused-before-lift technique as
+    /// `bookings_pager_commit_threshold_test.dart`'s `_pausedForwardDrag` —
+    /// not re-derived here, see that file's header for why the exact timing
+    /// (8 real 40ms-spaced samples, then a pump PAST `VelocityTracker`'s own
+    /// 40ms "assume stopped" cutoff with no further sample before `up()`)
+    /// matters and why a trailing run of zero-delta samples is NOT a
+    /// substitute.
+    Future<void> pausedForwardDrag(
+      WidgetTester tester,
+      Finder finder, {
+      required double fraction,
+    }) async {
+      final double width = tester.getRect(finder).width;
+      const int steps = 8;
+      final double dx = -(width * fraction) / steps;
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(finder),
+      );
+      Duration stamp = Duration.zero;
+      for (int i = 0; i < steps; i++) {
+        stamp += const Duration(milliseconds: 40);
+        await gesture.moveBy(Offset(dx, 0), timeStamp: stamp);
+        // fixed-wait-ok: advancing the pointer-sample clock in lockstep with
+        // the synthetic move timestamps, not waiting on a condition.
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      // fixed-wait-ok: advancing past VelocityTracker's own 40ms "assume
+      // stopped" cutoff, not waiting on a condition.
+      await tester.pump(const Duration(milliseconds: 60));
+      await gesture.up();
+    }
+
+    _MockBookingRepository emptyRepo() {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).thenAnswer((_) async => _page(<Booking>[]));
+      return repo;
+    }
+
+    testWidgets(
+      'CASE 1 (positive control): a committed month page turn fires exactly '
+      'one haptic — proves the mock is wired and the cue is genuinely '
+      'reachable, so the negative-only cases below mean something',
+      (tester) async {
+        await _pump(tester, emptyRepo());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+
+        // Same fling this file's own "paging the month and collapsing" test
+        // above already proves lands a genuine month step.
+        await tester.fling(find.byKey(gridKey), const Offset(-300, 0), 800);
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          1,
+          reason:
+              'a committed month page turn must fire the haptic cue exactly '
+              'once — 0 would mean either the cue regressed or the mock is '
+              'not wired, either of which would make every negative test '
+              'below pass for the wrong reason.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CASE 2: a spring-back (under-threshold paused release) on the month '
+      'grid fires no haptic',
+      (tester) async {
+        await _pump(tester, emptyRepo());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+
+        // Establish a real committed turn first — see the day-rail sibling
+        // group's header (`bookings_day_rail_test.dart`) for why: it keeps
+        // this test meaningful rather than accidentally exercising a
+        // first-interaction edge case this test isn't about.
+        await pausedForwardDrag(tester, find.byKey(gridKey), fraction: 0.30);
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+        final int afterCommit = selectionClicks();
+
+        await pausedForwardDrag(tester, find.byKey(gridKey), fraction: 0.20);
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          afterCommit,
+          reason:
+              'a spring-back on the month grid must never fire the haptic '
+              'cue.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CASE 3: a programmatic resync (didUpdateWidget jumping the grid to '
+      'follow a rail tap that crossed a month boundary) fires no haptic',
+      (tester) async {
+        // Kyiv "today" pinned to a Thursday whose Mon->Sun rail week crosses
+        // into the next month (2026-07-30, week 07-27..08-02), so a plain
+        // rail-chip tap for a day in that same week selects a day in a
+        // DIFFERENT month with no grid gesture at all — exactly the
+        // `BookingsMonthCalendarPanel.didUpdateWidget` resync path, and the
+        // whole reason `_resolveMonthPage`'s `delta == 0` guard exists.
+        // future-date-ok: the month-boundary-crossing week is a STRUCTURAL calendar property (a fixed Mon-Sun span landing across 07-31/08-01) that no now-relative helper can guarantee, and the instant only ever reaches the widget through the injected `clock: () => fixedNow` seam (never a wall-clock read), so this fixture stays deterministic on every run and carries none of the `isPast`-time-bomb risk this gate exists to catch.
+        final DateTime fixedNow = DateTime.utc(2026, 7, 30, 10);
+        await _pump(tester, emptyRepo(), clock: () => fixedNow);
+        await tester.pumpAndSettle();
+        final int beforeTap = selectionClicks();
+
+        final DateTime augustDay = DateTime(2026, 8, 1);
+        await tester.tap(find.byKey(dayChipKey(augustDay)));
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          beforeTap,
+          reason:
+              'a rail tap that crosses a month boundary resyncs the grid '
+              'via didUpdateWidget/jumpToPage — that is pure navigation '
+              'echo, never a haptic-worthy commit.',
         );
       },
     );
