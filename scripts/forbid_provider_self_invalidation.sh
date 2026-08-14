@@ -20,9 +20,14 @@
 # REVIEWED decision — never a silent default. So this gate FAILS the build the
 # moment a `ref.invalidate(...)` or `ref.refresh(...)` appears inside a notifier
 # source file UNLESS the call is explicitly justified with a
-# `// cycle-safe: <reason>` comment (on the same line, or the line immediately
-# above). The reason should state why the target provider does NOT watch this
-# notifier's provider (no back-edge → no cycle).
+# `// cycle-safe: <reason>` comment on the same line, or anywhere in the
+# unbroken run of `//` comment lines immediately above it (a long reason may
+# wrap across several comment lines — the annotation can be on any of them).
+# The walk upward stops at the first line that is not a bare `//` comment
+# line, so an annotation separated from the call by real code does NOT
+# count — it would otherwise become a blanket file-level opt-out. The reason
+# should state why the target provider does NOT watch this notifier's
+# provider (no back-edge → no cycle).
 #
 # Self-invalidation that re-runs the notifier's OWN build is NOT the footgun;
 # the gate only targets the cross-provider form (`ref.invalidate(somethingProvider)`),
@@ -56,8 +61,9 @@
 #     state)` style self-calls without a `Provider` arg are not flagged. The call
 #     may span multiple lines: `ref.invalidate(\n  someProvider,\n)` is matched
 #     by collapsing logical continuation lines before the test (finding 2,
-#     2026-06-18). Calls annotated `// cycle-safe:` on the same line or the line
-#     directly above are filtered out before the offender check.
+#     2026-06-18). Calls annotated `// cycle-safe:` on the same (collapsed) line,
+#     or anywhere in the unbroken run of `//` comment lines immediately above
+#     the opener, are filtered out before the offender check.
 #
 # COMMENT DETECTION (finding 1, 2026-06-18)
 # -----------------------------------------
@@ -116,8 +122,14 @@ annotation='[/][/][[:space:]]*cycle-safe:'
 #     • Detects genuine comments by FIRST non-space token == `//`, AND by
 #       stripping string literals before re-testing — so a `//` inside a string
 #       (`'http://x'`) can never mask a real call (finding 1).
-#     • Honours the `// cycle-safe:` allow-list on the (collapsed) line and on
-#       the physical line directly above the call's opener.
+#     • Honours the `// cycle-safe:` allow-list on the (collapsed) line and
+#       anywhere in the unbroken run of `//` comment lines immediately above
+#       the opener. `comment_run_annotated` tracks whether the contiguous
+#       block of comment lines seen so far contains the annotation; it is set
+#       on an annotated comment line, left untouched on any other comment
+#       line (so a wrapped, multi-line reason still counts), and cleared the
+#       moment a non-comment (real code) line is seen — so the walk never
+#       crosses into code above the block.
 #   The reported line number is the opener's physical line.
 # ---------------------------------------------------------------------------
 scan_file() {
@@ -152,12 +164,20 @@ scan_file() {
       return d
     }
     {
+      # Comment-run bookkeeping is based on the ORIGINAL physical line ($0),
+      # computed before any multiline collapse below.
+      trimmed = $0
+      sub(/^[[:space:]]+/, "", trimmed)
+      is_comment_line = (trimmed ~ /^[/][/]/)
+
       line = $0
       openerNR = NR          # physical line to report (opener line)
       # ----- multiline collapse: if THIS line opens a ref.invalidate/refresh
-      #       call whose parens are not yet balanced, splice following lines. ---
+      #       call whose parens are not yet balanced, splice following lines.
+      #       A genuine comment line never opens a real call, so it is never
+      #       collapsed. ---------------------------------------------------
       stripped = strip_strings(line)
-      if (stripped ~ opener && paren_delta(line) > 0) {
+      if (!is_comment_line && stripped ~ opener && paren_delta(line) > 0) {
         depth = paren_delta(line)
         collapsed = line
         while (depth > 0 && (getline nxt) > 0) {
@@ -169,10 +189,12 @@ scan_file() {
 
       # ----- offender test on the (possibly collapsed) logical line -----------
       if (line ~ pat) {
-        # (1a) Genuine comment line? First non-space token is `//`.
-        firsttok = line
-        sub(/^[[:space:]]+/, "", firsttok)
-        if (firsttok ~ /^[/][/]/) { prev = $0; next }
+        # (1a) Genuine comment line (commented-out code)? Not a real call —
+        # still track it as part of the comment run, then move on.
+        if (is_comment_line) {
+          if (trimmed ~ ann) comment_run_annotated = 1
+          next
+        }
         # (1b) Match inside a comment after CODE? Strip strings, then if `//`
         #      precedes the matched call in the string-free text it is a real
         #      `//` comment masking the call → prose, skip.
@@ -180,15 +202,30 @@ scan_file() {
         where = match(codeonly, pat)
         if (where > 0) {
           before = substr(codeonly, 1, where - 1)
-          if (before ~ /[/][/]/) { prev = $0; next }
+          if (before ~ /[/][/]/) {
+            comment_run_annotated = 0   # real code line — breaks the run
+            next
+          }
         }
-        # (2) Annotated cycle-safe on the collapsed line, or on the physical
-        #     line directly above the opener (prev = the line before this one).
-        if (line ~ ann) { prev = $0; next }
-        if (prev ~ ann) { prev = $0; next }
+        # (2) Annotated cycle-safe on the collapsed line, or anywhere in the
+        # contiguous `//` comment block immediately above the opener.
+        if (line ~ ann || comment_run_annotated) {
+          comment_run_annotated = 0
+          next
+        }
         printf "%s:%d:%s\n", file, openerNR, line
+        comment_run_annotated = 0
+        next
       }
-      prev = $0
+
+      # Not an offender line: track the contiguous comment run for lines that
+      # follow. A comment line extends the run (and sets the flag if it
+      # carries the annotation); any other line breaks it.
+      if (is_comment_line) {
+        if (trimmed ~ ann) comment_run_annotated = 1
+      } else {
+        comment_run_annotated = 0
+      }
     }
   ' "$1"
 }

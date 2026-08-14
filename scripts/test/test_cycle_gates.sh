@@ -135,6 +135,48 @@ test_self_invalidation() {
     'class XNotifier {' \
     '  void build() {}' \
     '}'
+
+  # (f) 2-line wrapped annotation immediately above → PASS
+  run_case "$g" "$p" 0 "2-line wrapped annotation passes" \
+    'class XNotifier {' \
+    '  void ok2() {' \
+    '    // cycle-safe: this reason is long enough that it wraps across' \
+    '    // a second comment line before the call it justifies' \
+    '    ref.invalidate(masterProfileProvider);' \
+    '  }' \
+    '}'
+
+  # (g) 3+-line wrapped annotation immediately above → PASS
+  run_case "$g" "$p" 0 "3-line wrapped annotation passes" \
+    'class XNotifier {' \
+    '  void ok3() {' \
+    '    // cycle-safe: an even longer reason that needs three whole' \
+    '    // comment lines to fully explain why the target provider' \
+    '    // provably never watches this notifier back' \
+    '    ref.invalidate(masterProfileProvider);' \
+    '  }' \
+    '}'
+
+  # (h) annotation orphaned by real code between it and the call → FLAGGED
+  run_case "$g" "$p" 1 "annotation orphaned by real code still flagged" \
+    'class XNotifier {' \
+    '  void orphan() {' \
+    '    // cycle-safe: this annotation does not reach past real code' \
+    '    someRealCodeLine();' \
+    '    ref.invalidate(masterProfileProvider);' \
+    '  }' \
+    '}'
+
+  # (i) one annotation covers only the FIRST of a group of hits → FLAGGED
+  # (the second, un-annotated call in the group must still be caught)
+  run_case "$g" "$p" 1 "annotation covers only one hit in a group" \
+    'class XNotifier {' \
+    '  void group() {' \
+    '    // cycle-safe: covers only the first call below' \
+    '    ref.invalidate(masterProfileProvider);' \
+    '    ref.invalidate(servicesListProvider);' \
+    '  }' \
+    '}'
 }
 
 # ===========================================================================
