@@ -68,6 +68,7 @@ import '../test/helpers/overflow_guard.dart';
 // `FakeBackend` is re-exported by `app_harness.dart` — importing it again is
 // flagged as unnecessary by the analyzer's `--fatal-infos` gate.
 import 'support/app_harness.dart';
+import 'support/pager_drag.dart';
 
 // The add_2_calendar plugin's platform boundary — intercepted so the export
 // assertion never opens a real OS calendar sheet.
@@ -99,22 +100,47 @@ Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
   await AppHarness.settle(tester);
 }
 
-/// Scrolls the day rail until [day]'s chip is built, taps it, and waits out
-/// the screen's 220 ms day-tap debounce — mirrors
-/// `master_bookings_flow_test.dart`'s identically-named helper.
+/// Pages the rail forward one WHOLE week — deterministically.
+///
+/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
+/// documents the full "why not `fling`" write-up and the steps=4 regression
+/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
+/// `PageController.page` froze mid-drag and never crossed the page boundary).
+Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
+  tester,
+  const Key('master-bookings-day-rail'),
+  forward: true,
+);
+
+/// Pages the rail forward until [day]'s chip is on screen, then taps it and
+/// waits out the screen's 220 ms day-tap debounce — mirrors
+/// `master_bookings_working_hours_window_flow_test.dart`'s identically-named
+/// helper.
+///
+/// The rail is a `PageView.builder` of Monday-first WEEK pages (see
+/// `bookings_day_rail.dart`'s "A WEEK PAGER, not a continuous strip"), which
+/// only builds the current page (plus whatever its cache extent reaches).
+/// `tester.scrollUntilVisible` — the previous implementation here — drives
+/// the scrollable with plain pixel-offset drags, which is the wrong
+/// primitive for a snapping pager: it can find [day]'s chip because a
+/// neighbour page got lazily built into the cache extent, WITHOUT the pager
+/// ever actually landing on that page, so the follow-up tap lands on a
+/// render object whose global offset sits outside the live viewport
+/// entirely. Real page turns only.
 Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
-  await tester.scrollUntilVisible(
-    find.byKey(dayChipKey(day)),
-    400,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const Key('master-bookings-day-rail')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 200,
+  final Finder chip = find.byKey(dayChipKey(day));
+  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
+    await _pageRailForward(tester);
+  }
+  expect(
+    chip,
+    findsOneWidget,
+    reason:
+        'the rail never paged forward to $day in 60 whole-week turns. If this '
+        'is a fresh failure, check the two clocks first: the rail opens on '
+        'the INJECTED kFixedNow week.',
   );
-  await tester.tap(find.byKey(dayChipKey(day)));
+  await tester.tap(chip);
   // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
   await tester.pump(const Duration(milliseconds: 300));
   await AppHarness.settle(tester);

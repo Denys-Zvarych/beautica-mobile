@@ -34,6 +34,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/pager_drag.dart';
 
 /// The day the fake backend's ONE seeded booking (`fb.bookingStartsAt`) falls
 /// on, in Kyiv — mirrors `master_bookings_working_hours_window_flow_test
@@ -61,19 +62,48 @@ Map<String, dynamic> _explicitTimesDay(DateTime date, List<TimeOfDay> times) =>
       'windowEnd': null,
     };
 
+/// Pages the rail forward one WHOLE week — deterministically.
+///
+/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
+/// documents the full "why not `fling`" write-up and the steps=4 regression
+/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
+/// `PageController.page` froze mid-drag and never crossed the page boundary).
+Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
+  tester,
+  const Key('master-bookings-day-rail'),
+  forward: true,
+);
+
+/// Pages the rail forward until [day]'s chip is on screen, then taps it —
+/// mirrors `master_bookings_working_hours_window_flow_test.dart`'s
+/// identically-named helper.
+///
+/// The rail is a `PageView.builder` of Monday-first WEEK pages (see
+/// `bookings_day_rail.dart`'s "A WEEK PAGER, not a continuous strip"), which
+/// only builds the current page (plus whatever its cache extent reaches).
+/// `tester.scrollUntilVisible` — the previous implementation here — drives
+/// the scrollable with plain pixel-offset drags, which is the wrong
+/// primitive for a snapping pager: it can find [day]'s chip because a
+/// neighbour page got lazily built into the cache extent, WITHOUT the pager
+/// ever actually landing on that page, so the follow-up tap lands on a
+/// render object whose global offset sits outside the live viewport
+/// entirely (an off-viewport `Offset` regardless of the surface's own
+/// size — this is not a viewport-size artifact, see the fix's own commit
+/// message). Real page turns only.
 Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
-  await tester.scrollUntilVisible(
-    find.byKey(dayChipKey(day)),
-    400,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const Key('master-bookings-day-rail')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 200,
+  final Finder chip = find.byKey(dayChipKey(day));
+  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
+    await _pageRailForward(tester);
+  }
+  expect(
+    chip,
+    findsOneWidget,
+    reason:
+        'the rail never paged forward to $day in 60 whole-week turns. If this '
+        'is a fresh failure, check the two clocks first: the rail opens on '
+        'the INJECTED kFixedNow week.',
   );
-  await tester.tap(find.byKey(dayChipKey(day)));
+  await tester.tap(chip);
   // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
   await tester.pump(const Duration(milliseconds: 300));
   await AppHarness.settle(tester);
@@ -532,13 +562,19 @@ void main() {
         reason: 'a CANCELLED booking owes nothing — no price pill',
       );
 
-      // ══ PHASE C — tick the remaining three groups. All four ticked
+      // ══ PHASE C — tick the remaining two groups. All three ticked
       //    resolves to the EMPTY wire set (no `status` param at all), which
-      //    is occupancy-COMPLETE again. ══════════════════════════════════════
+      //    is occupancy-COMPLETE again. (2026-08-15: the sheet's fourth row,
+      //    `notCompleted`, was retired — nothing in the app can SET that
+      //    status; see `BookingStatusFilterGroup`'s header in
+      //    `bookings_filter_sheet.dart`. `BookingsDayQuery.dayList`'s
+      //    `maximalStatuses` argument keeps "every remaining row ticked"
+      //    resolving to select-all despite the smaller universe — see
+      //    `booking_status_test.dart`'s `maximal`-parameter group for the
+      //    unit-level proof.) ════════════════════════════════════════════════
       await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
         BookingStatusFilterGroup.confirmed,
         BookingStatusFilterGroup.completed,
-        BookingStatusFilterGroup.notCompleted,
       ]);
 
       expect(

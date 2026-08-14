@@ -158,13 +158,32 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
   /// Apply the mapping exactly once — it is not idempotent. Never feed the
   /// result of this factory's own `statuses` back into it (see
   /// [BookingStatus.dayListWireStatuses]).
+  ///
+  /// [maximalStatuses] forwards to [BookingStatus.dayListWireStatuses]'s
+  /// `maximal` parameter — the status universe "every row ticked" is compared
+  /// against. Defaults to `null`, which that function resolves to
+  /// `BookingStatus.filterable` (every real backend state); the two
+  /// invalidation-only call sites (`booking_calendar_invalidation.dart`,
+  /// `booking_confirm_screen.dart`) always pass an EMPTY [statuses], so the
+  /// default is never actually read there. `BookingsDiscoveryView` — the one
+  /// call site where [statuses] carries the master's real filter-sheet
+  /// selection — passes its own filter sheet's coverage instead (2026-08-15:
+  /// `BookingsFilterSheet` no longer offers a row for
+  /// [BookingStatus.notCompleted], so its coverage is one status short of
+  /// `filterable`; see `BookingStatusFilterGroup`'s header and
+  /// [BookingStatus.dayListWireStatuses]'s `maximal` doc for why that gap
+  /// must be threaded through rather than left at the default).
   factory BookingsDayQuery.dayList({
     required DateTime day,
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
+    Set<BookingStatus>? maximalStatuses,
   }) => BookingsDayQuery.of(
     day: day,
-    statuses: BookingStatus.dayListWireStatuses(statuses),
+    statuses: BookingStatus.dayListWireStatuses(
+      statuses,
+      maximal: maximalStatuses,
+    ),
     serviceIds: serviceIds,
   );
 

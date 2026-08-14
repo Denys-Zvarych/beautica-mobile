@@ -158,19 +158,22 @@ void main() {
     // auto-confirms) and the server can no longer emit or accept it. The design
     // preview still shows it; the design is stale on this point and the backend
     // wins.
-    testWidgets('offers NO «Очікує» status — exactly four status rows', (
-      WidgetTester tester,
-    ) async {
+    //
+    // 2026-08-15: also pins the retirement of the «Візит не відбувся» row —
+    // NOT_COMPLETED cannot be SET from anywhere in the app (no button, dialog,
+    // or menu calls `/not-complete`; see `BookingStatusFilterGroup`'s header),
+    // so a filter for it was dead control surface. `BookingStatus.notCompleted`
+    // itself is untouched — an already-NOT_COMPLETED booking still renders
+    // everywhere; only the independent filter row is gone. See
+    // `booking_status_test.dart` and `master_bookings_filter_wiring_test.dart`
+    // for the proof that it stays reachable through the unfiltered default and
+    // through "every remaining row ticked".
+    testWidgets('offers NO «Очікує» and NO «Візит не відбувся» status — '
+        'exactly three status rows', (WidgetTester tester) async {
       await pumpSheet(tester, services: _catalogue);
 
-      // The four sanctioned rows, by key, and NOTHING else. A `pending` /
-      // `Очікує` group would be a fifth.
-      for (final String g in <String>[
-        'confirmed',
-        'completed',
-        'notCompleted',
-        'cancelled',
-      ]) {
+      // The three sanctioned rows, by key, and NOTHING else.
+      for (final String g in <String>['confirmed', 'completed', 'cancelled']) {
         expect(
           find.byKey(Key('master-bookings-filter-status-$g')),
           findsOneWidget,
@@ -184,10 +187,14 @@ void main() {
                 'master-bookings-filter-status-',
               ),
         ),
-        findsNWidgets(4),
+        findsNWidgets(3),
       );
       expect(
         find.byKey(const Key('master-bookings-filter-status-pending')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('master-bookings-filter-status-notCompleted')),
         findsNothing,
       );
     });
@@ -298,22 +305,33 @@ void main() {
     });
 
     // MUTATION: none needed for a bound — this is a structural assertion that
-    // the four rows cannot exceed the server's 5-status cap. It fails by
-    // construction the moment a fifth INDEPENDENT group is added (a 6th wire
-    // status would be a 400).
-    test(
-      'selecting every group sends at most the server cap of 5 statuses',
-      () {
-        final Set<BookingStatus> all = <BookingStatus>{
-          for (final BookingStatusFilterGroup g
-              in BookingStatusFilterGroup.values)
-            ...g.statuses,
-        };
-        expect(all.length, lessThanOrEqualTo(5));
-        // And it covers every filterable state — no status is unreachable.
-        expect(all, BookingStatus.filterable.toSet());
-      },
-    );
+    // the three rows cannot exceed the server's 5-status cap. It fails by
+    // construction the moment a new INDEPENDENT group pushes the union past 5
+    // (a 6th wire status would be a 400).
+    //
+    // 2026-08-15: the union no longer equals `BookingStatus.filterable` — that
+    // was true only while a `notCompleted` group existed. Written as a LITERAL
+    // set, per this file's own convention (a re-derivation from the enum would
+    // compare the code under test against itself). NOT_COMPLETED staying
+    // reachable despite being absent here is proven elsewhere — see
+    // `booking_status_test.dart`'s `maximal`-parameter group and
+    // `master_bookings_filter_wiring_test.dart`.
+    test('selecting every group sends at most the server cap of 5 statuses — '
+        'and no longer covers NOT_COMPLETED, by construction', () {
+      final Set<BookingStatus> all = <BookingStatus>{
+        for (final BookingStatusFilterGroup g
+            in BookingStatusFilterGroup.values)
+          ...g.statuses,
+      };
+      expect(all.length, lessThanOrEqualTo(5));
+      expect(all, <BookingStatus>{
+        BookingStatus.confirmed,
+        BookingStatus.completed,
+        BookingStatus.cancelled,
+        BookingStatus.declined,
+      });
+      expect(all, isNot(contains(BookingStatus.notCompleted)));
+    });
   });
 
   group('service multi-select', () {

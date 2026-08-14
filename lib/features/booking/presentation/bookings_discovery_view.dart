@@ -172,6 +172,28 @@ import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
 import 'widgets/schedule_timeline_window.dart';
 
+/// The sheet's OWN status coverage, not `BookingStatus.filterable`'s default
+/// — computed from `BookingStatusFilterGroup.values` so the two can never
+/// drift apart (2026-08-15: the sheet dropped its NOT_COMPLETED row). Passed
+/// as `_rebuildQuery`'s `maximalStatuses`; see that method's doc for why the
+/// distinction matters.
+///
+/// Hoisted to a module-level constant (mobile-perf, this session):
+/// `_rebuildQuery` runs on every filter/day/service mutation, and the
+/// comprehension below was being re-evaluated — a fresh `Set` allocated —
+/// on each of those calls. `BookingStatusFilterGroup.values` never changes
+/// at runtime, so the set only needs building once.
+///
+/// DELIBERATELY still ENUM-DERIVED, not flattened into a literal —
+/// flattening would reintroduce the exact drift this expression exists to
+/// prevent: whoever adds or retires a filter group would have to remember to
+/// hand-edit a second, unrelated set. Keep the comprehension; only the
+/// allocation is hoisted.
+final Set<BookingStatus> _kMaximalFilterStatuses = <BookingStatus>{
+  for (final BookingStatusFilterGroup g in BookingStatusFilterGroup.values)
+    ...g.statuses,
+};
+
 /// The shared «Записи» discovery composition: header, count toolbar, day
 /// rail, timeline body, and the four async states. Parameterised over scope
 /// so the salon-wide screen can reuse it verbatim — see the file header.
@@ -585,6 +607,14 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       day: _day,
       statuses: _statuses,
       serviceIds: _serviceIds,
+      // The sheet's OWN coverage, not `BookingStatus.filterable`'s default —
+      // computed from `BookingStatusFilterGroup.values` so the two can never
+      // drift apart (2026-08-15: the sheet dropped its NOT_COMPLETED row).
+      // Without this, ticking every row the sheet still shows would produce
+      // an INCLUSION list that silently excludes NOT_COMPLETED on the wire —
+      // see `BookingStatus.dayListWireStatuses`'s `maximal` doc. Hoisted to
+      // the module-level `_kMaximalFilterStatuses` — see its doc for why.
+      maximalStatuses: _kMaximalFilterStatuses,
     );
   }
 

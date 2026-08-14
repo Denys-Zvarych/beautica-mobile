@@ -201,6 +201,90 @@ void main() {
         );
       },
     );
+
+    // 2026-08-15 — the `maximal` parameter, added when `BookingsFilterSheet`
+    // retired its NOT_COMPLETED row (nothing in the app can SET that status;
+    // see `BookingStatusFilterGroup`'s header in `bookings_filter_sheet.dart`).
+    // The sheet's own coverage is now ONE STATUS SHORT of `filterable`, so the
+    // day-list screen must pass that narrower set here as `maximal`, or
+    // "every row the sheet still offers, ticked" stops resolving to "no
+    // `status` param at all" and starts silently excluding NOT_COMPLETED
+    // instead — the exact mobile-security LOW-1 (2026-08-13) failure shape,
+    // now against the build's own UI rather than a future backend release.
+    group('the `maximal` parameter — generalising mobile-security LOW-1', () {
+      // MUTATION: dropped the `maximal` parameter entirely (hardcoded the
+      // containsAll check to `filterable`, matching the function's
+      // pre-2026-08-15 shape) → this test failed:
+      //   Expected: empty
+      //     Actual: Set:[BookingStatus.confirmed, BookingStatus.completed,
+      //             BookingStatus.declined, BookingStatus.cancelled]
+      // Restored.
+      test('selecting every status a SMALLER universe allows also resolves to '
+          'the empty set, even though it does not cover `filterable`', () {
+        // The sheet's coverage post-removal — written as literals, per this
+        // file's own convention (a domain test must not import the
+        // presentation layer to re-derive this from
+        // `BookingStatusFilterGroup`; see the file header). The production
+        // wiring-tier test (`master_bookings_filter_wiring_test.dart`)
+        // computes this same set by calling the real enum instead, so a
+        // drift between the two is caught there.
+        const Set<BookingStatus> smallerUniverse = <BookingStatus>{
+          BookingStatus.confirmed,
+          BookingStatus.completed,
+          BookingStatus.cancelled,
+          BookingStatus.declined,
+        };
+        expect(
+          smallerUniverse,
+          isNot(BookingStatus.filterable.toSet()),
+          reason:
+              'fixture guard — the whole point is a universe smaller than '
+              '`filterable`',
+        );
+        expect(
+          BookingStatus.dayListWireStatuses(
+            smallerUniverse,
+            maximal: smallerUniverse,
+          ),
+          isEmpty,
+          reason:
+              'ticking every status in a caller-supplied universe must omit '
+              '`status` entirely, exactly like ticking every row used to '
+              'when the universe was `filterable` — otherwise a status '
+              'outside the caller\'s universe (NOT_COMPLETED, for the day '
+              'list) becomes excludable by an action that reads as "show '
+              'everything"',
+        );
+      });
+
+      // Omitting `maximal` must reproduce the OLD behaviour exactly — every
+      // other test in this file calls `dayListWireStatuses` with no `maximal`
+      // argument at all, and none of them may have silently changed meaning.
+      test('omitting `maximal` still compares against `filterable`', () {
+        expect(
+          BookingStatus.dayListWireStatuses(BookingStatus.filterable.toSet()),
+          isEmpty,
+        );
+        expect(
+          BookingStatus.dayListWireStatuses(const <BookingStatus>{
+            BookingStatus.confirmed,
+            BookingStatus.completed,
+            BookingStatus.cancelled,
+            BookingStatus.declined,
+          }),
+          unorderedEquals(<BookingStatus>{
+            BookingStatus.confirmed,
+            BookingStatus.completed,
+            BookingStatus.cancelled,
+            BookingStatus.declined,
+          }),
+          reason:
+              'four of the five `filterable` statuses is NOT "every status" '
+              'when `maximal` defaults to all five — this must be honoured '
+              'verbatim, not treated as select-all',
+        );
+      });
+    });
   });
 
   // ── The hazard the function's own doc warns about, made EXECUTABLE ────────

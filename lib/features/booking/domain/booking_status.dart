@@ -152,10 +152,10 @@ enum BookingStatus {
   ///   * [selected] is EMPTY — the master chose nothing → resolves to
   ///     [visibleInDayListByDefault] (CANCELLED/DECLINED hidden, locked
   ///     2026-08-13).
-  ///   * [selected] covers ALL of [filterable] — "show me everything" →
+  ///   * [selected] covers ALL of [maximal] — "show me everything" →
   ///     resolves to the EMPTY set, which `BookingRepository.getMyBookings`
-  ///     serialises by OMITTING `status` from the request entirely. Naming the
-  ///     five statuses THIS build knows would make even the maximal filter an
+  ///     serialises by OMITTING `status` from the request entirely. Naming
+  ///     every status THIS build knows would make even the maximal filter an
   ///     inclusion list, leaving a status the backend gained after this build
   ///     shipped unreachable through every filter combination — re-introducing
   ///     at the wire the exact silent drop [fromWire] exists to prevent. Such a
@@ -165,7 +165,25 @@ enum BookingStatus {
   ///     exactly `{CANCELLED, DECLINED}` (REPLACE, never union with the
   ///     default).
   ///
-  /// NOT idempotent — all of [filterable] maps to `{}`, which maps in turn to
+  /// ## [maximal] — mobile-security LOW-1 (2026-08-13), generalised
+  ///
+  /// [maximal] is the status universe "select every row" is compared against,
+  /// and defaults to [filterable] — every real backend state. It exists
+  /// because the CALLER's filter UI does not always cover [filterable]
+  /// exactly: since 2026-08-15 `BookingsFilterSheet` offers no row for
+  /// [notCompleted] (nothing in the app can SET that status — see
+  /// `BookingStatusFilterGroup`'s header), so the day-list screen passes the
+  /// sheet's own four-status coverage here instead of the default five. Without
+  /// this parameter, "the master ticks every row the sheet still shows" would
+  /// resolve to `{CONFIRMED, COMPLETED, CANCELLED, DECLINED}` verbatim — an
+  /// INCLUSION list that silently excludes [notCompleted] on the wire, hiding
+  /// the master's own no-show record behind an action that reads as "show
+  /// everything". Passing the caller's true maximal keeps the "select all ⇒
+  /// omit `status` entirely" property this parameter's absence would otherwise
+  /// break — the exact silent-narrowing failure mode mobile-security flagged
+  /// for the backend-vs-build gap, now also guarding a build-vs-its-own-UI gap.
+  ///
+  /// NOT idempotent — all of [maximal] maps to `{}`, which maps in turn to
   /// [visibleInDayListByDefault]. Apply it exactly ONCE, at query
   /// construction; that is why the view holds the master's RAW selection and
   /// never a pre-resolved wire set.
@@ -175,9 +193,19 @@ enum BookingStatus {
   /// ticked" still reads as an active filter even though the wire set is
   /// empty, and an untouched screen still reports zero even though the wire
   /// set is not.
-  static Set<BookingStatus> dayListWireStatuses(Set<BookingStatus> selected) {
+  static Set<BookingStatus> dayListWireStatuses(
+    Set<BookingStatus> selected, {
+    Set<BookingStatus>? maximal,
+  }) {
     if (selected.isEmpty) return visibleInDayListByDefault;
-    if (selected.containsAll(filterable)) return const <BookingStatus>{};
+    // `maximal ?? filterable` rather than a literal default: a default
+    // parameter value must be a compile-time constant, and `filterable` is
+    // already the ONE list of every real backend state — copying its members
+    // into a second literal here would be exactly the kind of hand-maintained
+    // duplicate this file's own doc comments warn against elsewhere.
+    if (selected.containsAll(maximal ?? filterable)) {
+      return const <BookingStatus>{};
+    }
     return selected;
   }
 
