@@ -55,6 +55,7 @@
 // exact before/after run.
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_month_calendar_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -83,7 +84,7 @@ class _TimelineStandIn extends StatelessWidget {
 class _Host extends StatelessWidget {
   const _Host({required this.railController, required this.today});
 
-  final ScrollController railController;
+  final PageController railController;
   final DateTime today;
 
   @override
@@ -94,8 +95,10 @@ class _Host extends StatelessWidget {
         Expanded(
           child: BookingsMonthCalendarPanel(
             railController: railController,
-            railFirstDay: DateTime(today.year, today.month, today.day - 5),
-            dayCount: 11,
+            railFirstWeekStart: mondayOf(
+              DateTime(today.year, today.month, today.day - 7),
+            ),
+            weekCount: 3,
             today: today,
             selectedDay: today,
             bookedDays: const <DateTime>{},
@@ -112,7 +115,7 @@ class _Host extends StatelessWidget {
 
 void main() {
   Future<void> pumpHost(WidgetTester tester) async {
-    final ScrollController controller = ScrollController();
+    final PageController controller = PageController(initialPage: 1);
     addTearDown(controller.dispose);
     final DateTime today = DateTime(2026, 7, 15);
 
@@ -184,17 +187,18 @@ void main() {
       );
       await tester.pump();
 
-      // _kTravel ≈ 310dp (kMonthCalendarExpandedHeight 380 −
-      // kBookingsDayRailHeight 70). 10 moves of 10dp = 100dp ≈ 0.32 * _kTravel
-      // — see `_BookingsMonthCalendarPanelState._onDragUpdate`'s exact
-      // conversion this mirrors.
+      // _kTravel ≈ 262dp (kMonthCalendarExpandedHeight 332 −
+      // kBookingsDayRailHeight 70; the expanded height lost 48dp when the
+      // grid's own month header was retired). 10 moves of 10dp = 100dp ≈
+      // 0.38 * _kTravel — see `_BookingsMonthCalendarPanelState
+      // ._onDragUpdate`'s exact conversion this mirrors.
       for (int i = 0; i < 10; i++) {
         await gesture.moveBy(const Offset(0, 10));
         await tester.pump();
       }
       expectDisplaced(tester, at: 't≈0.3 (mid-drag)');
 
-      // Continue the SAME drag further open — another 130dp, ≈0.74 total.
+      // Continue the SAME drag further open — another 130dp, ≈0.88 total.
       for (int i = 0; i < 13; i++) {
         await gesture.moveBy(const Offset(0, 10));
         await tester.pump();

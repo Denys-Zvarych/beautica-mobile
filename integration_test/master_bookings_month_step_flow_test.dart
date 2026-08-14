@@ -54,6 +54,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/pager_drag.dart';
 
 /// Kyiv "today" as the app under test computes it — see
 /// `master_bookings_flow_test.dart`'s identically-named constant for the
@@ -100,6 +101,44 @@ Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
         .first,
     maxScrolls: 60,
   );
+  await AppHarness.settle(tester);
+}
+
+/// The panel's month+year label.
+///
+/// ⚠ REPOINTED (week-pager / headerless-grid rework). This used to read the
+/// FIRST `Text` inside `bookings-month-calendar-grid`, because `_TopRow`
+/// dropped its own label once the calendar opened and `MonthCalendar`'s
+/// `_MonthHeader` carried the month name instead. Both halves are gone: the
+/// top-row label is now PERMANENT (that was the user-facing complaint — it
+/// "disappears") and the grid is composed with `showHeader: false`. The
+/// grid's first `Text` today is `CalendarWeekdayBar`'s "пн", which never
+/// changes and would have silently defanged the fixture guard this label
+/// feeds.
+String _monthLabel(WidgetTester tester) => tester
+    .widget<Text>(find.byKey(const Key('bookings-month-calendar-label')))
+    .data!;
+
+/// Turns the expanded month grid forward by exactly one page, then advances
+/// past the day-select debounce window.
+///
+/// The page turn itself is [dragPagerByOnePage] (`support/pager_drag.dart`)
+/// — see its doc comment for the full "why not `fling`" writeup (this file
+/// was originally landed using `fling(gridKey, Offset(-300, 0), 800)` and was
+/// RED for exactly the reason documented there) and the steps=4 regression
+/// this recipe guards against.
+Future<void> _pageMonthForward(WidgetTester tester) async {
+  await dragPagerByOnePage(
+    tester,
+    const Key('bookings-month-calendar-grid'),
+    forward: true,
+  );
+  // A resolved month step funnels through `_selectImmediate`, which does not
+  // itself debounce — but a REGRESSION that routed it through the debounced
+  // path instead would need this window to have elapsed before its query
+  // fired, so advancing past it keeps the assertions below honest.
+  // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+  await tester.pump(const Duration(milliseconds: 300));
   await AppHarness.settle(tester);
 }
 
@@ -185,35 +224,15 @@ void main() {
       await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
       await AppHarness.settle(tester);
 
-      final String labelBefore = tester
-          .widget<Text>(
-            find
-                .descendant(
-                  of: find.byKey(const Key('bookings-month-calendar-grid')),
-                  matching: find.byType(Text),
-                )
-                .first,
-          )
-          .data!;
+      final String labelBefore = _monthLabel(tester);
 
-      await tester.tap(find.byKey(const Key('booking-calendar-next-month')));
-      // A resolved month step funnels through `_selectImmediate`, which does
-      // not itself debounce, but the surrounding settle below covers both
-      // the query round trip and any animation.
-      // fixed-wait-ok: advancing past the 220 ms day-select debounce
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      // ⚠ A horizontal PAGE TURN, not a chevron tap. The grid's ‹ › buttons
+      // are retired (locked requirement: no month-navigation buttons at all),
+      // so paging is the only mechanism left. The CONTRACT this file pins is
+      // unchanged and deliberately so — a month step still SELECTS.
+      await _pageMonthForward(tester);
 
-      final String labelAfter = tester
-          .widget<Text>(
-            find
-                .descendant(
-                  of: find.byKey(const Key('bookings-month-calendar-grid')),
-                  matching: find.byType(Text),
-                )
-                .first,
-          )
-          .data!;
+      final String labelAfter = _monthLabel(tester);
       expect(
         labelAfter,
         isNot(labelBefore),
@@ -260,18 +279,18 @@ void main() {
       );
 
       // ── 5. The RAIL agrees too — its selected chip is now July 14th, not
-      //      still on June 14th. Scrolled into view since the rail spans 361
-      //      lazily-built cells and the jump is 30 days away. ────────────────
-      await tester.scrollUntilVisible(
+      //      still on June 14th. NO scrolling needed any more: a month step
+      //      selects, and `_selectImmediate` pages the rail to the selected
+      //      day's own week, so the chip is already on the resting page. That
+      //      is the rail↔calendar consistency contract (see
+      //      `bookings_discovery_view.dart`'s `_selectDay` doc) observed
+      //      end-to-end. ─────────────────────────────────────────────────────
+      expect(
         find.byKey(dayChipKey(_nextMonthDay)),
-        400,
-        scrollable: find
-            .descendant(
-              of: find.byKey(const Key('master-bookings-day-rail')),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-        maxScrolls: 200,
+        findsOneWidget,
+        reason:
+            'the rail did not page to the stepped-to day\'s week — the two '
+            'horizontal pagers have desynced',
       );
       final BookingsDayRail rail = tester.widget<BookingsDayRail>(
         find.byType(BookingsDayRail),

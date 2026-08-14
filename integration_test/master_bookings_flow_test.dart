@@ -99,6 +99,7 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/pager_drag.dart';
 
 /// The REAL rendered geometry of the [MasterBookingCard] keyed
 /// `timeline-card-<id>` — mirrors `bookings_timeline_grid_test.dart`'s own
@@ -186,41 +187,57 @@ List<Rect> _gridlineLadderAscending(WidgetTester tester) {
   }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
 }
 
-/// Scrolls the day rail until [day]'s chip is actually built, taps it, and
-/// waits out the screen's 220 ms day-tap debounce.
+/// Pages the rail forward one WHOLE week — deterministically.
 ///
-/// The rail is a LAZY `ListView.builder` — 361 chips at a fixed
-/// `kRailItemExtent`, of which only the visible handful are ever built — and
-/// it opens aligned to "today"-first, so roughly six days are on screen at
-/// once. Every seeded-booking day in this file comes from
-/// `fb.bookingStartsAt`, which is anchored to the REAL clock (7 days out)
-/// while the rail is anchored to the INJECTED one, leaving the target ~45
-/// cells to the right of the viewport and therefore never built. A bare
+/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
+/// documents the full "why not `fling`" write-up and the steps=4 regression
+/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
+/// `PageController.page` froze mid-drag and never crossed the page boundary,
+/// which surfaced here as "Found 0 widgets with key
+/// master-bookings-day-chip-…" after up to 60 fruitless `_selectRailDay`
+/// turns per call site).
+Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
+  tester,
+  const Key('master-bookings-day-rail'),
+  forward: true,
+);
+
+/// Pages the day rail until [day]'s chip is BUILT and on screen, without
+/// tapping it — for assertions about a cell's own content (its has-bookings
+/// dot) that must not also change the selection. A no-op when the chip is
+/// already visible, so it is safe to call ahead of [_selectRailDay] on the
+/// same day.
+///
+/// The rail is a LAZY `PageView.builder` of Mon→Sun WEEK pages, of which only
+/// the current one (plus whatever the viewport's cache extent reaches) is ever
+/// built, and it opens on the week containing the INJECTED clock's "today".
+/// Every seeded-booking day in this file comes from `fb.bookingStartsAt`,
+/// which is anchored to the REAL clock (7 days out), so the target is several
+/// WEEK PAGES to the right and therefore never built. A bare
 /// `tester.tap(find.byKey(dayChipKey(day)))` then fails the finder outright:
-/// "Found 0 widgets with key master-bookings-day-chip-2026-07-29".
+/// "Found 0 widgets with key master-bookings-day-chip-2026-08-20".
 ///
-/// Production is correct here — a real master scrolls the rail to reach a
-/// day, which is precisely what this helper does. Same class of fix, and the
-/// same reasoning, as `tapCalendarDay` in `test/helpers/pump_app.dart`
-/// (commit `e177305`), which scrolls `MonthCalendar` cells into view before
-/// tapping them.
-/// Scrolls the day rail until [day]'s chip is BUILT and on screen, without
-/// tapping it — for assertions about a cell's own content (its
-/// has-bookings dot) that must not also change the selection.
-///
-/// A no-op when the chip is already visible, so it is safe to call ahead of
-/// [_selectRailDay] on the same day.
+/// Production is correct here — a real master pages the rail to reach a day,
+/// which is precisely what this helper does. Same class of fix, and the same
+/// reasoning, as `tapCalendarDay` in `test/helpers/pump_app.dart` (commit
+/// `e177305`), which scrolls `MonthCalendar` cells into view before tapping.
 Future<void> _scrollRailTo(WidgetTester tester, DateTime day) async {
-  await tester.scrollUntilVisible(
-    find.byKey(dayChipKey(day)),
-    400,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const Key('master-bookings-day-rail')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 200,
+  final Finder chip = find.byKey(dayChipKey(day));
+  // 60 week pages is ~14 months forward — far past anything this suite seeds
+  // (`fb.bookingStartsAt` is the real clock + 7 days, and the rail opens on
+  // the INJECTED clock's week, so the gap is bounded by how far apart the two
+  // clocks drift, not by the fixture).
+  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
+    await _pageRailForward(tester);
+  }
+  expect(
+    chip,
+    findsOneWidget,
+    reason:
+        'the day rail never paged forward to $day in 60 whole-week turns '
+        '(~14 months). If this is a fresh failure, check the two clocks '
+        'first: the rail opens on the INJECTED kFixedNow week while '
+        'fb.bookingStartsAt is anchored to the REAL one.',
   );
 }
 
@@ -1838,114 +1855,38 @@ void main() {
     },
   );
 
-  // ── 2026-07-22 — the month switcher is a PURE rail-scroll affordance ───────
+  // ── RETIRED (mobile-qa, 2026-08-14) — "the month switcher only moves the
+  //    rail" ────────────────────────────────────────────────────────────────
   //
-  // Step 2.7 Rule 3b: `_prevMonth`/`_nextMonth` (`bookings_discovery_view
-  // .dart`) are documented as deliberately NOT touching `_day`/`_liveQuery` —
-  // stepping the month moves only the switcher's own label and the rail's
-  // scroll position, mirroring the approved design's own `_prevMonth`. Nothing
-  // in the widget tier drives this through a REAL `GET /bookings/me` call
-  // count: a regression that made a month step start re-selecting a day (and
-  // re-fetching) would leave every mocked-repository assertion untouched,
-  // because a mock never notices an EXTRA call it wasn't told to expect.
-  testWidgets(
-    'the month switcher only moves the rail — the label changes but the '
-    'selected day and the live query do not, and no extra GET /bookings/me '
-    'fires',
-    (tester) async {
-      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
-      final GoRouter router = await AppHarness.boot(tester, fb);
-
-      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
-      // never narrows off the landing day, so only `_kyivToday` needs
-      // published hours. NOTE: `booking-1` is anchored to
-      // `fb.bookingStartsAt` (the REAL device clock + 7 days), deliberately
-      // unrelated to the INJECTED clock's `_kyivToday` — see
-      // `master_bookings_flow_test.dart`'s first test ("INDEPENDENT_MASTER
-      // opens «Мої записи»…") for the full explanation of why that booking
-      // can never render on the landing day regardless of published hours.
-      // This flow never narrows to `booking-1`'s own day at all, so the
-      // landing render is genuinely empty throughout — which is fine, since
-      // this test's whole point is that the month switcher does not touch
-      // the selection or re-fetch, not what the day's content is.
-      //
-      // BUG FIX (user-reported): with hours published for `_kyivToday`, an
-      // empty landing day now renders `BookingsTimelineGrid` (ruler +
-      // gridlines, no cards) rather than `MasterBookingsEmptyState` — see
-      // that class's doc.
-      _seedWorkingHours(fb, <DateTime>[_kyivToday]);
-
-      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-      await AppHarness.settle(tester);
-      expect(find.byType(MasterBookingsScreen), findsOneWidget);
-      expect(
-        AppHarness.location(router),
-        startsWith(RouteNames.masterBookings),
-      );
-      expect(
-        find.byType(BookingsTimelineGrid),
-        findsOneWidget,
-        reason:
-            'precondition: the landing day is empty but its working-hours '
-            'window is resolved, so the grid renders, per the note above',
-      );
-
-      // The screen opens on Kyiv "today"'s month — where "today" is the
-      // INJECTED clock the screen actually reads (`clockProvider`, overridden
-      // to `kFixedNow` by `AppHarness.boot`), not the host runner's date. See
-      // `_kyivToday`'s doc: reaching for `DateTime.now()` here made this
-      // assertion demand «Липень 2026» of a screen correctly rendering
-      // «Червень 2026».
-      final DateTime todayKyiv = _kyivToday;
-      final String initialLabel =
-          '${monthNominative(todayKyiv.month)} ${todayKyiv.year}';
-      expect(find.text(initialLabel), findsOneWidget);
-
-      final int callsBeforeSwitch = fb.getMyBookingsCalls;
-      final Map<String, dynamic>? queryBeforeSwitch = fb.lastMyBookingsQuery;
-
-      // ── Step forward one month — only the label moves. ────────────────────
-      await tester.tap(find.byKey(const Key('master-bookings-month-next')));
-      await AppHarness.settle(tester);
-
-      final DateTime nextMonth = DateTime(todayKyiv.year, todayKyiv.month + 1);
-      final String nextLabel =
-          '${monthNominative(nextMonth.month)} ${nextMonth.year}';
-      expect(find.text(nextLabel), findsOneWidget);
-      expect(find.text(initialLabel), findsNothing);
-
-      // ── …then back — the label returns to the original month. ─────────────
-      await tester.tap(find.byKey(const Key('master-bookings-month-prev')));
-      await AppHarness.settle(tester);
-      expect(find.text(initialLabel), findsOneWidget);
-      expect(find.text(nextLabel), findsNothing);
-
-      // ── Neither step touched the selection or issued a new request. ───────
-      expect(
-        fb.getMyBookingsCalls,
-        callsBeforeSwitch,
-        reason:
-            'a month step is a pure rail-scroll affordance — it must not '
-            'issue a NEW GET /bookings/me',
-      );
-      expect(
-        fb.lastMyBookingsQuery,
-        same(queryBeforeSwitch),
-        reason:
-            'the recorded query object itself must be the SAME instance — a '
-            'new fetch would have replaced it with a fresh map',
-      );
-      expect(
-        find.byType(BookingsTimelineGrid),
-        findsOneWidget,
-        reason:
-            "the originally-selected day's content must still be shown — "
-            'still the same empty-but-working grid, not reset to '
-            'NO_SCHEDULE or anything else',
-      );
-    },
-  );
+  // A test used to live here asserting that a month step relabelled the
+  // switcher WITHOUT moving `_day`, the live query, or the fetch count, by
+  // tapping `Key('master-bookings-month-next')`.
+  //
+  // BOTH halves of it are dead:
+  //
+  //   * the KEY has not existed since `a3f74f92` (the Варіант D port replaced
+  //     the month switcher with the expandable calendar), so the test has been
+  //     RED — `tester.tap` on a finder matching nothing — from that commit
+  //     onward, in a file CI runs on every push;
+  //   * the CONTRACT was deliberately REVERSED by that same port. A month
+  //     step now SELECTS: it moves `_day`, the wire query and the rendered
+  //     list together (`bookings_discovery_view.dart`'s `_stepMonth` →
+  //     `_selectImmediate`). Keeping this test green would have meant
+  //     re-breaking the exact field bug the port exists to fix — one month's
+  //     label over another month's list.
+  //
+  // Its coverage is not lost; it moved and inverted, at the SAME tier against
+  // the SAME fake backend and the same `getMyBookingsCalls` counter:
+  //
+  //   * a month page turn SELECTS and moves the query →
+  //     `master_bookings_month_step_flow_test.dart`;
+  //   * the one move that still must NOT select — paging the RAIL — →
+  //     `master_bookings_week_rail_flow_test.dart`, which asserts the
+  //     selection, the label and the fetch count are all unchanged across a
+  //     multi-week browsing excursion, with a chip-tap positive control.
+  //
+  // Do not restore this test. Restore the CONTRACT only if the product
+  // decision is reversed back.
 
   // ── 2026-07-22 — «Сьогодні» jumps the SELECTION back to Kyiv today ─────────
   //

@@ -76,6 +76,24 @@ const String _otherClientLast = 'Мороз';
 /// screen uses — never a literal. See the file header (LOW #334).
 DateTime get _kyivToday => kyivToday(DateTime.now);
 
+/// The days of [_kyivToday]'s own Mon→Sun week, EXCLUDING today itself.
+///
+/// The rail is a week pager now: it renders exactly the seven days of one
+/// week, so a test day has to come from THIS week or it is simply not on
+/// screen to tap. `railDayAt(_kyivToday, +n)` — how these tests used to pick
+/// their days — silently walks off the visible page whenever the suite runs
+/// late in the week, which would have made the rail tests pass or fail by
+/// weekday. Excluding today keeps a tap on any of these a REAL selection
+/// change (and therefore a real new fetch), which the debounce test's call
+/// count depends on.
+///
+/// Always exactly six entries, on every weekday.
+List<DateTime> get _otherDaysThisWeek {
+  final DateTime monday = mondayOf(_kyivToday);
+  return <DateTime>[for (int i = 0; i < 7; i++) railDayAt(monday, i)]
+    ..removeWhere((DateTime d) => d == _kyivToday);
+}
+
 /// A genuine INSTANT at [hourUtc] on the SAME Kyiv calendar day [_kyivToday]
 /// names.
 ///
@@ -665,35 +683,33 @@ void main() {
   group('day rail', () {
     // MUTATION-COVERAGE NOTE — why this test exists
     // ------------------------------------------------------------------
-    // `bookings_day_rail_test.dart` pins `BookingsDiscoveryView`'s offset
-    // ARITHMETIC in isolation (unit-level), but never calls
-    // `_alignRailTodayFirst` itself — the ACTUAL production call site. A pure
-    // arithmetic pin can pass while the real, rendered outcome is wrong (or
-    // vice versa), because nothing anywhere else observes the rail's
-    // post-open SCROLL POSITION.
+    // `bookings_day_rail_test.dart` pins the rail's week ARITHMETIC in
+    // isolation (unit-level: `mondayOf`, `railWeekIndex`), but never resolves
+    // `_railController`'s `initialPage` — the ACTUAL production call site. A
+    // pure arithmetic pin can pass while the real, rendered outcome is wrong
+    // (or vice versa), because nothing anywhere else observes which week the
+    // rail actually OPENS on.
     //
-    // This test closes that gap by asserting the real, rendered outcome: the
-    // initially selected day's chip must land as the LEFTMOST day slot in
-    // the rail's visible viewport after the first frame — the design
-    // decision behind [_alignRailTodayFirst] (today-first, not
-    // today-centred). A regression here shifts it by a full `kRailItemExtent`
-    // (62dp) — comfortably outside the tolerance below.
+    // ⚠ CONTRACT CHANGED (week-pager rework, this session). This test used to
+    // assert "today is the LEFTMOST chip", which was the retired
+    // `_alignRailTodayFirst`'s design decision and is not expressible any
+    // more: the rail now shows exactly one Mon→Sun week, so the leftmost chip
+    // is that week's MONDAY, by construction, for every possible selection.
+    // What survives — and is what that assertion was really protecting — is
+    // that the rail opens on the week the master is actually working, with
+    // today visibly on it, rather than parked at the start of its multi-year
+    // span. An off-by-one in `railWeekIndex` lands the rail a full seven days
+    // away, which this catches loudly.
     //
     // Geometry note (post-calendar-button-retirement, Phase 7.16):
-    // `master-bookings-day-rail`'s key sits on the day-chip `ListView`
-    // itself, which is once again the ENTIRE rail — the calendar button that
-    // used to live beside it as a `Row` sibling (`bookings_day_rail.dart`'s
-    // `BookingsDayRail.build`) is gone outright, not merely un-pinned. With
-    // the button gone, the `ListView` regained its own SYMMETRIC horizontal
-    // `VelvetSpacing.lg` inset (both leading and trailing), so today's chip —
-    // the list's own item 0 at scroll offset zero — lands at `railRect.left +
-    // VelvetSpacing.lg`, not flush with `railRect.left` as it did for the
-    // brief period (`eddbcb2`..`6658c8c`) when the leading inset lived on the
-    // pinned button's own `Padding` instead.
+    // `master-bookings-day-rail`'s key sits on the pager itself, which is the
+    // ENTIRE rail — the calendar button that used to live beside it as a
+    // `Row` sibling is gone outright, not merely un-pinned. Each week page
+    // carries a SYMMETRIC horizontal `VelvetSpacing.lg` inset, so the week's
+    // Monday lands at `railRect.left + VelvetSpacing.lg`.
     testWidgets(
-      'the rail opens with today as the LEFTMOST day chip, not centred and '
-      'not at list index 0 — an off-by-one lead-item offset would land it a '
-      'full cell off',
+      'the rail opens on the week CONTAINING today, Monday leftmost — not '
+      'parked at the start of its span',
       (tester) async {
         final repo = _MockBookingRepository();
         when(
@@ -715,48 +731,43 @@ void main() {
         final Rect railRect = tester.getRect(
           find.byKey(const Key('master-bookings-day-rail')),
         );
-        final Rect todayRect = tester.getRect(
+
+        // Real rendered geometry, not the controller's `page` — an index bug
+        // could move the controller while leaving the ON-SCREEN result wrong
+        // (or vice versa), so this asserts what the master actually sees.
+        expect(
           find.byKey(dayChipKey(_kyivToday)),
+          findsOne,
+          reason:
+              'today is not on the rail\'s opening page — the rail opened on '
+              'the wrong week (or parked at the start of its span).',
         );
 
-        // Real rendered geometry, not the controller's `offset` — a formula
-        // bug could move the controller while leaving the ON-SCREEN result
-        // wrong (or vice versa), so this asserts what the master actually
-        // sees: today's chip sits at the `ListView`'s own restored leading
-        // inset, the exact position item 0 occupies at scroll offset zero
-        // now that the list carries a symmetric `VelvetSpacing.lg` inset
-        // again — see the group's geometry note above. This assertion was
-        // DELIBERATELY changed from `closeTo(railRect.left, 1.5)` (the
-        // flush-left value that held only while the calendar button owned
-        // the leading inset on its own Padding) back to this inset value now
-        // that the button — and its Padding — are gone.
+        final DateTime monday = mondayOf(_kyivToday);
         expect(
-          todayRect.left,
+          tester.getRect(find.byKey(dayChipKey(monday))).left,
           closeTo(railRect.left + VelvetSpacing.lg, 1.5),
           reason:
-              'today\'s chip is not at the rail\'s restored leading inset — '
-              'the rail opened centred (or otherwise off) instead of '
-              'today-first.',
+              'the opening page\'s leftmost chip is not this week\'s Monday '
+              'at the rail\'s leading inset — the rail came to rest between '
+              'two weeks.',
         );
-
-        // "Not centred" as a second, independent signal: under the retired
-        // centring behaviour today's chip sat at the rail's MIDPOINT. Pin
-        // that it has moved decisively away from there too, so a partial
-        // regression (today-first math right, but still averaging toward
-        // centre for some reason) cannot hide behind the edge check alone.
+        // The whole week is there, both ends — a page that rendered a
+        // partial week would still satisfy the two checks above.
+        expect(find.byKey(dayChipKey(railDayAt(monday, 6))), findsOne);
         expect(
-          (todayRect.center.dx - railRect.center.dx).abs(),
-          greaterThan(kRailItemExtent),
+          find.byKey(dayChipKey(railDayAt(monday, -1))),
+          findsNothing,
           reason:
-              'today\'s chip is still near the rail\'s centre — the initial '
-              'position has not actually moved off the old centred layout.',
+              'the PREVIOUS week\'s Sunday is on screen — the rail is showing '
+              'a mid-week span, which the week pager must make unreachable.',
         );
       },
     );
 
     testWidgets(
-      'past days remain reachable by scrolling left — the today-first '
-      'initial jump does not clamp the rail\'s past-day range',
+      'past weeks remain reachable by paging left — the opening page does '
+      'not clamp the rail\'s past range',
       (tester) async {
         final repo = _MockBookingRepository();
         final List<(DateTime?, DateTime?)> calls = <(DateTime?, DateTime?)>[];
@@ -783,23 +794,16 @@ void main() {
         await tester.pumpAndSettle();
         calls.clear(); // drop the initial (today) fetch
 
-        // Well outside `ListView`'s default 250-logical-pixel cache extent
-        // (8 * kRailItemExtent == 496dp) — a near neighbour of today's chip
-        // could already be built-but-clipped by the cache window even
-        // before any scroll, which would make a `findsOne`/`findsNothing`
-        // precondition here meaningless. This day is far enough that it is
-        // reachable ONLY by an actual scroll.
-        final DateTime pastDay = railDayAt(_kyivToday, -8);
+        // The Monday of the week BEFORE this one — one page turn back, and
+        // outside the opening page by construction (not merely "far away",
+        // which is what the retired continuous strip needed to defeat its
+        // cache extent).
+        final DateTime pastDay = railDayAt(mondayOf(_kyivToday), -7);
 
-        await tester.scrollUntilVisible(
-          find.byKey(dayChipKey(pastDay)),
-          -400,
-          scrollable: find
-              .descendant(
-                of: find.byKey(const Key('master-bookings-day-rail')),
-                matching: find.byType(Scrollable),
-              )
-              .first,
+        await tester.fling(
+          find.byKey(const Key('master-bookings-day-rail')),
+          const Offset(400, 0),
+          800,
         );
         await tester.pumpAndSettle();
 
@@ -807,10 +811,9 @@ void main() {
           find.byKey(dayChipKey(pastDay)),
           findsOne,
           reason:
-              'a day 8 days before today did not become reachable by '
-              'scrolling left — the today-first jump may have clamped the '
-              'rail\'s scroll range instead of only moving its resting '
-              'position.',
+              'the previous week did not become reachable by paging left — '
+              'the opening page may have clamped the rail\'s range instead '
+              'of only setting its resting position.',
         );
 
         // And genuinely tappable — not just present in the tree.
@@ -826,6 +829,130 @@ void main() {
         );
         expect(calls.single.$1, pastDay);
         expect(calls.single.$2, pastDay);
+      },
+    );
+
+    // ── The two pagers must not desync ────────────────────────────────────
+    //
+    // The panel now stacks TWO horizontal pagers: the rail's week pager and
+    // the expanded grid's month pager. `bookings_discovery_view.dart`'s
+    // `_selectDay` doc states the contract they hold between them — every
+    // move that changes the month SELECTS, and `_selectImmediate` pages the
+    // rail to the selected day's own week, so the label, the rail and the
+    // query all stay derived from the one `_day`.
+    //
+    // The dangerous state is the one this test drives: page the MONTH, then
+    // COLLAPSE. Nothing else in the suite exercises the handoff — the
+    // rebuild-isolation suite pins the month step's own query/label effects
+    // with the calendar left open, and never looks at the rail underneath it.
+    // A regression that (say) relabelled without paging the rail would leave
+    // the master looking at August over July's week with no chip selected,
+    // and every other test would stay green.
+    testWidgets(
+      'paging the month and collapsing leaves the label AND the rail on the '
+      'new month — the two pagers stay derived from one selected day',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+
+        String label() => tester
+            .widget<Text>(
+              find.byKey(const Key('bookings-month-calendar-label')),
+            )
+            .data!;
+
+        // The label is present while COLLAPSED — it always was — and must
+        // still be present while OPEN, which is the whole user-facing
+        // complaint this rework answers ("it disappears").
+        final String labelCollapsed = label();
+
+        await tester.tap(
+          find.byKey(const Key('bookings-month-calendar-toggle')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('bookings-month-calendar-label')),
+          findsOneWidget,
+          reason:
+              'the month+year label vanished when the calendar opened — the '
+              'exact regression this rework exists to fix',
+        );
+        expect(label(), labelCollapsed);
+
+        // A horizontal page turn on the grid — the only month-navigation
+        // mechanism left. `fling`, not `drag`: PageScrollPhysics resolves the
+        // turn from velocity.
+        await tester.fling(
+          find.byKey(const Key('bookings-month-calendar-grid')),
+          const Offset(-300, 0),
+          800,
+        );
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        final String labelStepped = label();
+        expect(
+          labelStepped,
+          isNot(labelCollapsed),
+          reason:
+              'fixture guard: the fling did not turn the month page at all, '
+              'so nothing below is proven',
+        );
+
+        // Collapse back down. The rail is what the master now sees.
+        await tester.tap(
+          find.byKey(const Key('bookings-month-calendar-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          label(),
+          labelStepped,
+          reason:
+              'collapsing reverted the label to the pre-step month — the '
+              'label is being derived from something other than the '
+              'selection',
+        );
+
+        final DateTime stepped = tester
+            .widget<BookingsDayRail>(find.byType(BookingsDayRail))
+            .selectedDay;
+        expect(
+          find.byKey(dayChipKey(stepped)),
+          findsOneWidget,
+          reason:
+              'the rail is not showing the week containing the stepped-to '
+              'day — the two pagers desynced, so the collapsed strip shows '
+              'one month under another month\'s label',
+        );
+        expect(
+          tester.getRect(find.byKey(dayChipKey(mondayOf(stepped)))).left,
+          closeTo(
+            tester
+                    .getRect(find.byKey(const Key('master-bookings-day-rail')))
+                    .left +
+                VelvetSpacing.lg,
+            1.5,
+          ),
+          reason:
+              'the rail landed mid-week after the month step — animateToPage '
+              'must settle on a whole week',
+        );
       },
     );
 
@@ -847,8 +974,11 @@ void main() {
           ),
         ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
 
-        final DateTime dayA = railDayAt(_kyivToday, 2);
-        final DateTime dayB = railDayAt(_kyivToday, 3);
+        // From THIS week — the rail pages by week now, so a day outside it
+        // is not on screen at all. See [_otherDaysThisWeek].
+        final List<DateTime> week = _otherDaysThisWeek;
+        final DateTime dayA = week[0];
+        final DateTime dayB = week[1];
 
         // Two booked days, neither of which is the day we will narrow TO.
         await _pump(tester, repo, bookedDays: <DateTime>{dayA, dayB});
@@ -906,9 +1036,15 @@ void main() {
         await tester.pumpAndSettle();
         calls.clear(); // drop the initial (landing-day) fetch
 
-        final DateTime day1 = railDayAt(_kyivToday, 1);
-        final DateTime day2 = railDayAt(_kyivToday, 2);
-        final DateTime day3 = railDayAt(_kyivToday, 3);
+        // Three days of THIS week, none of them today — see
+        // [_otherDaysThisWeek]. `day3` must be a genuine selection CHANGE or
+        // the surviving tap would resolve to the family member already
+        // resolved and fire no request at all, silently turning the call
+        // count below into an assertion about nothing.
+        final List<DateTime> week = _otherDaysThisWeek;
+        final DateTime day1 = week[0];
+        final DateTime day2 = week[1];
+        final DateTime day3 = week[2];
 
         // A fling across the rail lands several taps in quick succession.
         // Without the debounce each is a new family member and a new

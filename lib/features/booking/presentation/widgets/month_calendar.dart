@@ -59,17 +59,25 @@ const double kMonthCalendarRowHeight = 50;
 /// Density dots are capped at this many per day ([_DayCell]).
 const int kMonthCalendarMaxDensityDots = 3;
 
-/// [MonthCalendar]'s total laid-out height when [MonthCalendar
-/// .composeWeekdayBar] and [MonthCalendar.sixWeekRows] are both `true` — the
-/// drag-interpolated expanded resting height `BookingsMonthCalendarPanel`
-/// needs: top pad ([VelvetSpacing.sm]) + header ([kMonthCalendarHeaderHeight])
-/// + gap ([VelvetSpacing.sm]) + weekday bar ([kMonthCalendarWeekdayBarHeight])
-/// + gap ([VelvetSpacing.xs]) + six rows ([kMonthCalendarRowHeight] each).
-/// Meaningless for the default `composeWeekdayBar: false` configuration both
+/// [MonthCalendar]'s total laid-out height in the exact configuration
+/// `BookingsMonthCalendarPanel` composes it with — [MonthCalendar
+/// .composeWeekdayBar] and [MonthCalendar.sixWeekRows] both `true`,
+/// [MonthCalendar.showHeader] `false` — i.e. the drag-interpolated expanded
+/// resting height that panel needs: top pad ([VelvetSpacing.sm]) + weekday bar
+/// ([kMonthCalendarWeekdayBarHeight]) + gap ([VelvetSpacing.xs]) + six rows
+/// ([kMonthCalendarRowHeight] each). Meaningless for the default
+/// `composeWeekdayBar: false` / `showHeader: true` configuration both
 /// pre-existing callers use.
+///
+/// This USED to include [kMonthCalendarHeaderHeight] + a [VelvetSpacing.sm]
+/// gap (380dp total). The bookings panel no longer renders a per-month header
+/// at all — the month+year label now lives permanently in the panel's own
+/// `_TopRow` and months change by horizontal paging, so the grid's own header
+/// (and its ‹ › chevrons) would have been a second, redundant readout of the
+/// same value. Dropping it reclaims 48dp of expanded height, which is 48dp
+/// more short-device headroom (see
+/// `bookings_month_calendar_short_device_test.dart`'s probe table).
 const double kMonthCalendarExpandedHeight =
-    VelvetSpacing.sm +
-    kMonthCalendarHeaderHeight +
     VelvetSpacing.sm +
     kMonthCalendarWeekdayBarHeight +
     VelvetSpacing.xs +
@@ -113,10 +121,13 @@ class CalendarWeekdayBar extends StatelessWidget {
   }
 }
 
-/// A SINGLE-MONTH calendar. Only [visibleMonth] is rendered; stepping months
-/// swaps the grid in place (no scrolling). Days for which [isAvailable]
-/// returns true read camel and are tappable; others are faint and ignore
-/// taps. Tapping an available day invokes [onSelectDay].
+/// A SINGLE-MONTH calendar. Only [visibleMonth] is rendered; this widget
+/// never scrolls or animates between months itself — a caller either swaps
+/// [visibleMonth] in place (the ‹ › chevrons, [showHeader] `true`) or mounts
+/// one instance per month inside its own pager ([showHeader] `false`, what
+/// `BookingsMonthCalendarPanel` does). Days for which [isAvailable] returns
+/// true read camel and are tappable; others are faint and ignore taps.
+/// Tapping an available day invokes [onSelectDay].
 class MonthCalendar extends StatelessWidget {
   const MonthCalendar({
     super.key,
@@ -125,14 +136,20 @@ class MonthCalendar extends StatelessWidget {
     required this.selected,
     required this.isAvailable,
     required this.onSelectDay,
-    required this.onPrevMonth,
-    required this.onNextMonth,
+    this.onPrevMonth,
+    this.onNextMonth,
     this.composeWeekdayBar = false,
     this.sixWeekRows = false,
+    this.showHeader = true,
     this.bookingCount,
     this.allowTapOnUnavailable = false,
     this.stateLabelResolver,
-  });
+  }) : assert(
+         showHeader || (onPrevMonth == null && onNextMonth == null),
+         'onPrevMonth/onNextMonth are the ‹ › chevrons _MonthHeader renders — '
+         'passing either with showHeader: false silently drops it, which is '
+         'always a wiring mistake rather than an intent.',
+       );
 
   /// The single month currently rendered (day-of-month is ignored).
   final DateTime visibleMonth;
@@ -148,10 +165,12 @@ class MonthCalendar extends StatelessWidget {
 
   final ValueChanged<DateTime> onSelectDay;
 
-  /// Page to the previous month; `null` disables the ‹ chevron.
+  /// Page to the previous month; `null` disables the ‹ chevron. Meaningless
+  /// (and asserted absent) when [showHeader] is `false`.
   final VoidCallback? onPrevMonth;
 
-  /// Page to the next month; `null` disables the › chevron.
+  /// Page to the next month; `null` disables the › chevron. Meaningless (and
+  /// asserted absent) when [showHeader] is `false`.
   final VoidCallback? onNextMonth;
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -177,6 +196,24 @@ class MonthCalendar extends StatelessWidget {
   /// this widget's height under a drag gesture — a variable row count would
   /// move the gesture's own destination mid-swipe.
   final bool sixWeekRows;
+
+  /// Renders [_MonthHeader] — the month+year caption between the ‹ › paging
+  /// chevrons — above the grid. `true` (the default) is the ORIGINAL
+  /// behaviour and is what [SlotDateScreen] and `MasterSchedulePage` both
+  /// rely on: the chevrons are their ONLY month-navigation affordance.
+  ///
+  /// `false` is for a caller that already renders the month+year ITSELF, in a
+  /// position that does not move between states, and navigates months by a
+  /// gesture rather than by buttons — today only
+  /// `BookingsMonthCalendarPanel`, whose `_TopRow` label is permanent and
+  /// whose month pager is a horizontal `PageView` over this widget. Keeping
+  /// the header there would put the same month name on screen twice and add
+  /// two buttons the locked design explicitly forbids.
+  ///
+  /// Changes this widget's laid-out HEIGHT — see
+  /// [kMonthCalendarExpandedHeight], which is derived for the `false`
+  /// configuration.
+  final bool showHeader;
 
   /// Bookings-count callback driving up to [kMonthCalendarMaxDensityDots]
   /// density dots under each day number, dimmed on an unavailable day.
@@ -220,12 +257,14 @@ class MonthCalendar extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MonthHeader(
-            month: visibleMonth,
-            onPrev: onPrevMonth,
-            onNext: onNextMonth,
-          ),
-          const SizedBox(height: VelvetSpacing.sm),
+          if (showHeader) ...<Widget>[
+            _MonthHeader(
+              month: visibleMonth,
+              onPrev: onPrevMonth,
+              onNext: onNextMonth,
+            ),
+            const SizedBox(height: VelvetSpacing.sm),
+          ],
           if (composeWeekdayBar) ...<Widget>[
             const SizedBox(
               height: kMonthCalendarWeekdayBarHeight,

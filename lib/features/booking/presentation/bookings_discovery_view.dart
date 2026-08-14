@@ -70,6 +70,16 @@
 // and all of them funnel through the same single mutation path
 // ([_applySelectedDay], via [_selectDay]'s debounce or [_selectImmediate]).
 //
+// ## Two horizontal pagers (user-requested rework, this session)
+//
+// The rail is now a Mon→Sun WEEK pager and the expanded grid a MONTH pager;
+// the grid's ‹ › chevrons are retired and the panel's month+year label is
+// permanent. The list of things that change [_day] is UNCHANGED by that —
+// only the gesture that produces a "month step" is different. The contract
+// keeping the two pagers, the label and the query in agreement is written
+// out in full on [_BookingsDiscoveryViewState._selectDay]; read it before
+// touching either pager.
+//
 // ## CANCELLED/DECLINED are hidden by default — on the WIRE, not after
 //
 // Locked product decision (2026-08-13): a provider's day list opens showing
@@ -265,12 +275,20 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// outside its declaring file by `scripts/forbid_raw_bookings_query.sh`).
   late BookingsDayQuery _liveQuery;
 
-  final ScrollController _railController = ScrollController();
+  /// Pages the day rail one WEEK at a time. A [PageController], not a bare
+  /// [ScrollController]: the rail has no valid resting position between two
+  /// weeks (Monday first, Sunday last, always), so there is no pixel offset
+  /// for this class to compute any more — see [_showRailWeekOf], which
+  /// replaced the retired `_centreRailOn`/`_alignRailTodayFirst` pair and
+  /// their `kRailItemExtent` arithmetic.
+  late final PageController _railController;
 
   /// Kyiv "today", captured once at open — not host "today". See the file
   /// header's "day is NOT read from query" section.
   late final DateTime _today;
-  late final DateTime _railFirstDay;
+
+  /// The Monday the rail's FIRST week page starts on.
+  late final DateTime _railFirstWeekStart;
 
   /// Debounces day-chip taps. A scroll-fling across the rail can land a dozen
   /// taps in under a second, and each one is a new family member and a new
@@ -355,8 +373,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _today = kyivToday(ref.read(clockProvider));
     // CALENDAR arithmetic — `subtract(Duration(days: n))` would land on 23:00
     // or 01:00 across a Europe/Kyiv DST transition and skew every rail date
-    // derived from it. See `bookings_day_rail.dart`'s header.
-    _railFirstDay = railDayAt(_today, -kBookedDaysSpanDays);
+    // derived from it. See `bookings_day_rail.dart`'s header. `mondayOf`
+    // routes through the same `railDayAt` for the same reason.
+    _railFirstWeekStart = railDayAt(
+      mondayOf(_today),
+      -kRailWeekLength * kBookingsDayRailWeekSpan,
+    );
     _day = _today;
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
@@ -365,23 +387,16 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // (via [BookingsDayQuery.dayList]), and a landing query built any other way
     // would skip it.
     _rebuildQuery();
+    // The rail opens on the week containing `_day` (= Kyiv today) with NO
+    // post-frame correction: `initialPage` is applied before the pager's
+    // first layout, so there is no frame where the rail shows week 0 of the
+    // span and then jumps. The retired `_alignRailTodayFirst` needed a
+    // post-frame callback only because a pixel offset cannot be computed
+    // before `position.viewportDimension` is known; a PAGE index can.
+    _railController = PageController(
+      initialPage: railWeekIndex(_railFirstWeekStart, _day),
+    );
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
-
-    // Align the rail to today-first once first layout has happened
-    // (`position.viewportDimension` is 0 before it). Unlike the retired
-    // screen's `_centreRailOnOpen`, this needs no async gate on
-    // `bookedDaysProvider` resolving — the day to align on is already known
-    // synchronously (there is no "nearest booked day" search any more).
-    //
-    // `_alignRailTodayFirst`, NOT `_centreRailOn` — the INITIAL resting
-    // position is today-leftmost, not today-centred. See
-    // `_alignRailTodayFirst`'s doc for why, and for why every OTHER
-    // rail-scroll call site (`_selectImmediate`, via `_stepMonth`/
-    // `_goToToday`) keeps centring unchanged.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _alignRailTodayFirst(_day);
-    });
   }
 
   @override
@@ -392,91 +407,79 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     super.dispose();
   }
 
-  // ── Rail scrolling ──────────────────────────────────────────────────────
+  // ── Rail paging ─────────────────────────────────────────────────────────
+  //
+  // The rail is a Monday→Sunday WEEK pager (user-requested, this session —
+  // "it should always start from Monday … the first day is monday and last is
+  // sunday"). Two methods retired with the continuous strip it replaced:
+  //
+  //   * `_centreRailOn` — there is nothing to centre. A week page fills the
+  //     viewport, so the only question left is WHICH week, and the answer is
+  //     an index, not a pixel offset.
+  //   * `_alignRailTodayFirst` — "today leftmost" is not expressible any
+  //     more, and the design intent behind it survives anyway: the week
+  //     containing today opens with today already on screen, alongside the
+  //     rest of the week the master is actually working.
+  //
+  // Both carried DST-unsafe-arithmetic warnings in their docs; that hazard is
+  // now concentrated in `railWeekIndex`/`mondayOf`
+  // (`bookings_day_rail.dart`), which is where the tests pin it.
 
-  /// Scrolls the rail so [day] sits in the middle of the viewport.
-  void _centreRailOn(DateTime day, {bool animated = false}) {
+  /// Pages the rail to the week containing [day].
+  ///
+  /// Called ONLY from [_selectImmediate] — i.e. for a grid-cell tap, a month
+  /// page turn, or «Сьогодні». A rail-chip tap deliberately does NOT page
+  /// (the tapped day is already on the visible week), and neither does the
+  /// master's own paging: see [_selectDay]'s doc for the rail↔calendar
+  /// consistency contract those two halves uphold between them.
+  ///
+  /// [animated] is a REQUEST, not a guarantee — see [_kRailAnimateMaxPages].
+  void _showRailWeekOf(DateTime day, {bool animated = false}) {
     if (!_railController.hasClients) return;
-    final ScrollPosition position = _railController.position;
-    if (position.viewportDimension <= 0) return;
-
-    // `calendarDayCount`, NEVER `.difference(...).inDays` — a plain
-    // Duration-based day count is not DST-safe (see that function's doc):
-    // it silently returns one day fewer whenever `_railFirstDay` and `day`
-    // straddle a Europe/Kyiv DST transition, which is most of the year, and
-    // mis-centres the rail by exactly one `kRailItemExtent` on open.
-    final int dayIndex = calendarDayCount(_railFirstDay, dateOnly(day));
-    // The calendar button is a PINNED sibling of the day-chip `ListView`, not
-    // a lead item inside it (`bookings_day_rail.dart`'s `BookingsDayRail
-    // .build`) — so `dayIndex` IS the day's `ListView.builder` item index.
-    // No lead-item offset (the retired `kRailLeadItems`) is added here.
-    final double target =
-        dayIndex * kRailItemExtent -
-        position.viewportDimension / 2 +
-        kRailItemExtent / 2;
-    final double clamped = target.clamp(0.0, position.maxScrollExtent);
-
-    if (animated) {
-      _railController.animateTo(
-        clamped,
+    // Clamped: the rail's week span is finite (± [kBookingsDayRailWeekSpan]),
+    // and while it is deliberately far wider than any realistic navigation,
+    // `animateToPage`/`jumpToPage` assert on an out-of-range index — a
+    // corrupt selection must park the rail at its edge, not crash the screen.
+    final int target = railWeekIndex(
+      _railFirstWeekStart,
+      dateOnly(day),
+    ).clamp(0, _railWeekCount - 1);
+    // mobile-perf LOW fix (finding #2). Every caller but «Сьогодні» reaches
+    // here while the month panel is EXPANDED, i.e. while the rail sits under
+    // `Opacity(0)` + `IgnorePointer` — so the 320ms sweep is invisible, and
+    // `animateToPage` still builds and lays out every week page it passes
+    // through (≈26 of them after a six-month excursion across the grid).
+    // Jumping when the distance is more than one page skips all of that and
+    // reads identically, since the only frame the master can ever see is the
+    // one after the panel collapses. This is the same choice, for the same
+    // reason, that the panel's own month pager already makes in
+    // `bookings_month_calendar_panel.dart`'s `didUpdateWidget`.
+    //
+    // `page` can still be null with clients attached (before the rail's first
+    // layout), in which case the distance is unknowable and jumping — the
+    // cheaper, always-correct branch — wins.
+    final double? current = _railController.page;
+    final bool adjacent =
+        current != null && (target - current).abs() <= _kRailAnimateMaxPages;
+    if (animated && adjacent) {
+      _railController.animateToPage(
+        target,
         duration: const Duration(milliseconds: 320),
         curve: Curves.easeOut,
       );
     } else {
-      _railController.jumpTo(clamped);
+      _railController.jumpToPage(target);
     }
   }
 
-  /// Scrolls the rail so [day] renders as the FIRST (leftmost) visible day
-  /// chip — the design decision this screen opens on: a master should land
-  /// on "today, then what's ahead" rather than a centred view that spends
-  /// half the viewport on days already past.
-  ///
-  /// Used ONLY for the rail's INITIAL resting position (`initState`'s
-  /// post-frame callback). Every other rail-scroll call site —
-  /// [_centreRailOn], via [_selectImmediate] (itself reached from
-  /// [_stepMonth] and [_goToToday]) — keeps centring: those are
-  /// user-INITIATED jumps to a day that is not already on screen, where
-  /// centring the target in the viewport (rather than pinning it to an edge)
-  /// is the more legible landing spot. Only the screen's FIRST paint
-  /// changes.
-  ///
-  /// Unlike [_centreRailOn] this needs no `viewportDimension` term — "flush
-  /// left" does not depend on how much viewport there is, only on [day]'s
-  /// day index and [kRailItemExtent]: scrolling exactly `dayIndex *
-  /// kRailItemExtent` puts that day's leading edge at the same on-screen
-  /// position the `ListView`'s own item 0 occupies at scroll offset zero
-  /// (the list's own `padding` is trailing-only now, so [day] lands flush
-  /// against whatever precedes the list — the pinned calendar button).
-  ///
-  /// The calendar button is a PINNED sibling of the day-chip `ListView`, not
-  /// a lead item inside it (`bookings_day_rail.dart`'s `BookingsDayRail
-  /// .build`) — it stays on screen at every scroll offset, including this
-  /// one, so there is no lead-item offset to add here (see the retired
-  /// `kRailLeadItems`): a day's index into [_railFirstDay] IS its
-  /// `ListView.builder` item index.
-  ///
-  /// This deliberately does NOT touch [_railFirstDay]/`dayCount` — the rail
-  /// keeps spanning the full today ± `kBookedDaysSpanDays` range; only the
-  /// resting SCROLL POSITION moves. At this offset every day strictly before
-  /// [day] scrolls out of the initial viewport — the calendar button does
-  /// not, and remains reachable with zero scrolling — and nothing here
-  /// shrinks the list to fake reachability (that would be the retired
-  /// `_clampToRailSpan`'s forward-only-range mistake, which this change
-  /// must NOT repeat): every past day remains fully reachable by scrolling
-  /// left — `maxScrollExtent` is untouched.
-  void _alignRailTodayFirst(DateTime day) {
-    if (!_railController.hasClients) return;
-    final ScrollPosition position = _railController.position;
-    if (position.viewportDimension <= 0) return;
+  /// How far the rail may travel before [_showRailWeekOf] downgrades an
+  /// animated request to a jump. One page: a neighbouring week is the only
+  /// distance whose sweep carries any meaning, and it is also the only one
+  /// that builds no page the master will not end up looking at.
+  static const double _kRailAnimateMaxPages = 1;
 
-    // Same DST-safe day-index derivation `_centreRailOn` uses — see that
-    // method's doc for why `.difference(...).inDays` is unsafe here.
-    final int dayIndex = calendarDayCount(_railFirstDay, dateOnly(day));
-    final double target = dayIndex * kRailItemExtent;
-    final double clamped = target.clamp(0.0, position.maxScrollExtent);
-    _railController.jumpTo(clamped);
-  }
+  /// Total rail week pages — symmetric around the week containing [_today].
+  static const int _railWeekCount = kBookingsDayRailWeekSpan * 2 + 1;
 
   // ── Month calendar panel (Варіант D port) ───────────────────────────────
   //
@@ -499,18 +502,24 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   void _selectImmediate(DateTime day) {
     _dayDebounce?.cancel();
     _applySelectedDay(day);
-    _centreRailOn(day, animated: true);
+    _showRailWeekOf(day, animated: true);
   }
 
-  /// Resolves a month step ([BookingsMonthCalendarPanel.onStepMonth],
-  /// [delta] = ±1) into a selection: the SAME day-of-month in the target
-  /// month, clamped to that month's length — so "the 31st" survives a jump
-  /// into a 30-day month, exactly as the approved design's own `_stepMonth`.
-  /// Not clamped to the rail's ±[kBookedDaysSpanDays] span — that clamp
-  /// belonged to the OLD rail-scroll-only chevrons; [_centreRailOn] already
-  /// clamps the resulting SCROLL offset on its own, so a day far outside the
-  /// rail's span simply parks the rail at its edge instead of crashing, and
-  /// the query (unlike the rail) has no such bound to respect.
+  /// Resolves a month step ([BookingsMonthCalendarPanel.onStepMonth] — a
+  /// settled horizontal page turn on the grid, [delta] a signed month count)
+  /// into a selection: the SAME day-of-month in the target month, clamped to
+  /// that month's length — so "the 31st" survives a jump into a 30-day month,
+  /// exactly as the approved design's own `_stepMonth`. Not clamped to the
+  /// rail's own week span; [_showRailWeekOf] clamps the resulting PAGE INDEX
+  /// on its own, so a day outside the rail's span parks the rail at its edge
+  /// instead of crashing, and the query (unlike the rail) has no such bound
+  /// to respect.
+  ///
+  /// SELECTING, not merely relabelling, is the locked contract — see
+  /// `integration_test/master_bookings_month_step_flow_test.dart`. It is what
+  /// keeps the `_TopRow` label, the rail, and the fetched list agreeing on
+  /// one day, and it is unchanged by the chevrons' retirement: the gesture
+  /// that resolves the step changed, the meaning of a step did not.
   void _stepMonth(int delta) {
     final DateTime targetMonth = DateTime(_day.year, _day.month + delta);
     final int lastDayOfTargetMonth = DateTime(
@@ -547,6 +556,40 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// Selecting a rail day narrows to exactly that day. Debounced; see
   /// [_dayDebounce] — a rail flick can land a dozen taps in under a second,
   /// and each one is a new family member and a new request without this.
+  ///
+  /// ## THE RAIL↔CALENDAR CONSISTENCY CONTRACT (locked, this session)
+  ///
+  /// Two horizontal pagers now sit in one panel — the rail's week pager and
+  /// the expanded grid's month pager. They cannot desync, because only ONE of
+  /// the four possible moves writes date state:
+  ///
+  ///   1. Rail chip TAP → selects (here, debounced). The tapped day is on the
+  ///      visible week already, so nothing pages.
+  ///   2. Rail week PAGE → selects NOTHING. It moves the rail's own viewport
+  ///      and nothing else, exactly as scrolling the old continuous strip
+  ///      did. A pager that selected on settle would fire one query per week
+  ///      flick, which is precisely what [_dayDebounce] exists to prevent,
+  ///      and would make an idle flick through the month rewrite the
+  ///      timeline half a dozen times.
+  ///   3. Grid cell TAP / «Сьогодні» → selects immediately ([_selectImmediate])
+  ///      and pages the rail to the new day's week.
+  ///   4. Grid month PAGE → selects immediately too ([_stepMonth] → same
+  ///      day-of-month, clamped → [_selectImmediate]) and likewise pages the
+  ///      rail.
+  ///
+  /// So [_day] stays the single source of truth, and the two derived views
+  /// agree by construction: `_TopRow`'s label is `_day`'s month, the grid's
+  /// resting page is `_day`'s month, the rail's resting page is `_day`'s week
+  /// AFTER any move that changed `_day`. Collapsing the panel having paged to
+  /// month M+1 therefore lands on: label M+1, rail on the selected day's week
+  /// inside M+1, timeline on that day's bookings. Nothing to reconcile,
+  /// because nothing was ever separately stored.
+  ///
+  /// The one state that is deliberately NOT reconciled is a rail the master
+  /// paged away from the selection by hand (move 2). That is a browsing
+  /// position, not a disagreement — the selected chip is simply off-screen,
+  /// as it always was when the old strip was scrolled away — and re-opening
+  /// the calendar still shows `_day`'s month, unmoved.
   void _selectDay(DateTime day) {
     _dayDebounce?.cancel();
     _dayDebounce = Timer(const Duration(milliseconds: 220), () {
@@ -819,8 +862,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
                   return BookingsMonthCalendarPanel(
                     railController: _railController,
-                    railFirstDay: _railFirstDay,
-                    dayCount: kBookedDaysSpanDays * 2 + 1,
+                    railFirstWeekStart: _railFirstWeekStart,
+                    weekCount: _railWeekCount,
                     today: _today,
                     selectedDay: _day,
                     bookedDays: bookedDays,

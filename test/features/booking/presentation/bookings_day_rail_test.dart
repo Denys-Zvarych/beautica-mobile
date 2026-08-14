@@ -111,6 +111,15 @@ String _dstSuffix(bool observed) => observed
           'UTC offset across this transition, so the skew cannot occur here — '
           'covered on CI by the TZ=Europe/Kyiv step]';
 
+/// Pumps the rail as a WEEK pager (this session's user-requested rework —
+/// see `bookings_day_rail.dart`'s header).
+///
+/// [firstDay] is the day whose WEEK is page 0, and is snapped to that week's
+/// Monday with the widget's own [mondayOf]: the pre-rework rail could start
+/// on any weekday, this one cannot, and every call site below keeps naming a
+/// day rather than a Monday so the tests read the same way they always did.
+/// [weekCount] replaces the old `dayCount` — 1 renders exactly one Mon→Sun
+/// page.
 Widget _rail({
   required DateTime firstDay,
   required DateTime today,
@@ -118,13 +127,14 @@ Widget _rail({
   // callers that care which day override it explicitly.
   DateTime? selectedDay,
   Set<DateTime> bookedDays = const <DateTime>{},
-  int dayCount = 7,
+  int weekCount = 3,
+  int initialPage = 0,
   ValueChanged<DateTime>? onSelectDay,
 }) {
   return BookingsDayRail(
-    controller: ScrollController(),
-    firstDay: firstDay,
-    dayCount: dayCount,
+    controller: PageController(initialPage: initialPage),
+    firstWeekStart: mondayOf(firstDay),
+    weekCount: weekCount,
     today: today,
     selectedDay: selectedDay ?? today,
     bookedDays: bookedDays,
@@ -346,7 +356,7 @@ void main() {
       // cannot drift apart: the string contract AND the rail's use of it are
       // both pinned.
       final DateTime today = DateTime(2026, 7, 20);
-      await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 2));
+      await tester.pumpApp(_rail(firstDay: today, today: today, weekCount: 1));
       await tester.pumpAndSettle();
 
       expect(
@@ -361,41 +371,49 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('rendering', () {
-    testWidgets('is lazily built — a ListView.builder, never eager children', (
+    testWidgets('is lazily built — a PageView.builder, never eager children', (
       tester,
     ) async {
       final DateTime today = DateTime(2026, 7, 18);
       await tester.pumpApp(
-        _rail(firstDay: railDayAt(today, -180), today: today, dayCount: 361),
+        _rail(
+          firstDay: railDayAt(today, -7 * 260),
+          today: today,
+          weekCount: 521,
+          initialPage: 260,
+        ),
       );
       await tester.pumpAndSettle();
 
-      final ListView list = tester.widget<ListView>(
+      final PageView pager = tester.widget<PageView>(
         find.byKey(const Key('master-bookings-day-rail')),
       );
-      // A `ListView.builder` has a non-null `itemExtent` + a lazily-evaluated
-      // childrenDelegate; an eager `ListView(children: [...])` would report
-      // its full child count up front.
-      expect(list.itemExtent, kRailItemExtent);
       expect(
-        list.childrenDelegate,
+        pager.childrenDelegate,
         isA<SliverChildBuilderDelegate>(),
-        reason: '361 eagerly-built chips is exactly the jank this rail avoids.',
+        reason:
+            '521 eagerly-built week pages (3647 chips) is exactly the jank '
+            'this rail avoids — the span is deliberately years wide now (see '
+            'kBookingsDayRailWeekSpan), which is only affordable BECAUSE the '
+            'pager builds one page at a time.',
       );
-      // Only a window of the 363 items is built.
+      // A handful of pages at most — the visible one plus whatever the
+      // viewport's cache extent reaches — never 521.
       expect(
         tester.widgetList(find.byType(GestureDetector)).length,
-        lessThan(60),
+        lessThan(kRailWeekLength * 4),
       );
     });
 
     testWidgets('a dot marks exactly the booked days', (tester) async {
+      // A Saturday, so its Mon→Sun week spans Jul 13–19 and the assertions
+      // below sit either side of the booked day INSIDE one page.
       final DateTime today = DateTime(2026, 7, 18);
       await tester.pumpApp(
         _rail(
           firstDay: today,
           today: today,
-          dayCount: 3,
+          weekCount: 1,
           bookedDays: <DateTime>{railDayAt(today, 1)},
         ),
       );
@@ -403,7 +421,7 @@ void main() {
 
       expect(find.byKey(dayDotKey(DateTime(2026, 7, 19))), findsOne);
       expect(find.byKey(dayDotKey(DateTime(2026, 7, 18))), findsNothing);
-      expect(find.byKey(dayDotKey(DateTime(2026, 7, 20))), findsNothing);
+      expect(find.byKey(dayDotKey(DateTime(2026, 7, 17))), findsNothing);
     });
 
     // ── The two rendered DST guards ────────────────────────────────────────
@@ -411,69 +429,78 @@ void main() {
     // These MUST straddle the transition INSTANT, not merely name a date near
     // it — and getting that wrong is exactly how they were first written.
     //
-    // Europe/Kyiv springs forward at 03:00 on 2026-03-29. The original tests
-    // used `firstDay = 2026-03-27` and asserted the dot on 2026-03-29, an
-    // offset of 2 days. Under the `add(Duration(days: 2))` mutation that is
-    // Mar 27 00:00+02 plus 48 absolute hours = Mar 29 00:00+02 — still BEFORE
-    // 03:00, so still local midnight, so the dot survived and the test passed
-    // while the bug was fully present. The rendered guards were strictly
-    // weaker than their names promised; only the `railDayAt` unit group above
-    // actually held the contract.
+    // ⚠ RE-DERIVED for the week pager (this session). Read this before
+    // touching either test: the previous derivation is now INERT, and it is
+    // inert for a structural reason, not a fixable one.
     //
-    // The booked day is therefore now placed on the far side of the
-    // transition: the derivation must cross it for the skew to exist at all.
-    // With the mutation, Mar 27 00:00+02 + 96h lands on Mar 31 01:00+03, which
-    // is NOT the local midnight `bookedDaysProvider` puts in its `Set`, so
-    // `contains()` misses and the dot disappears — which is the real-world
-    // failure, rendered.
+    // Europe/Kyiv springs forward at 03:00 on SUNDAY 2026-03-29 and back at
+    // 04:00 on SUNDAY 2026-10-25. Both transition instants therefore fall on
+    // the LAST day of a Mon→Sun week. The old rail derived every cell as
+    // `railDayAt(firstDay, dayIndex)` over a continuous 361-day span, so a
+    // cell offset could freely straddle a transition; the pager derives the
+    // seven cells of a page as `railDayAt(weekStart, 0..6)` from that page's
+    // OWN Monday — and Monday + 6 days lands on Sunday 00:00, which is still
+    // BEFORE 03:00/04:00. Within one page, the mutation and the correct
+    // arithmetic agree exactly. A guard written the old way would pass on a
+    // fully-broken rail.
+    //
+    // What still crosses — and is now the whole of the rendered risk — is the
+    // PAGE stride: `railDayAt(firstWeekStart, weekIndex * 7)`. So both guards
+    // below render page 1 of a two-page rail whose page 0 sits on the near
+    // side of the transition, and put the booked day on that second page's
+    // Monday:
+    //
+    //   spring: firstWeekStart = Mon 2026-03-23 (+02). Correct → page 1 starts
+    //           Mon 2026-03-30 00:00 (+03). Mutant (`add(Duration(days: 7))`)
+    //           → Mar 23 00:00+02 + 168h = Mar 30 01:00+03. Same CALENDAR day,
+    //           so `dayDotKey`/`toApiDate` are identical between the two —
+    //           only `bookedDays.contains(d)` can tell them apart, because
+    //           `Set<DateTime>` membership is exact-instant equality and
+    //           01:00 != 00:00. The dot vanishes. That IS the production
+    //           failure, rendered.
+    //   autumn: firstWeekStart = Mon 2026-10-19 (+03). Correct → Mon
+    //           2026-10-26 00:00 (+02). Mutant → 168h later is 2026-10-25
+    //           23:00, a different calendar day entirely — the dot vanishes
+    //           for an even louder reason.
+    //
+    // CONSEQUENCE, unchanged from the previous revision: a future refactor of
+    // the rail toward comparing days by KEY or by `toApiDate` string (a
+    // natural-looking simplification) would make the SPRING case pass under
+    // the mutation while the bug is fully present. If that comparison ever
+    // changes, these guards must be re-derived again — do not assume they
+    // still bite.
     //
     // Both are host-zone dependent BY NATURE, and that is a fact about the
     // production code, not a weakness of the tests: `railDayAt` is built on
     // bare `DateTime`, whose DST behaviour comes from the process zone and
     // nowhere else. On a UTC host `add(Duration(days:))` and calendar
     // arithmetic are genuinely equivalent — the bug does not exist there, so
-    // no test can detect it there. See `_kDstSkipReason` for how CI covers it.
-    //
-    // ── HOW THE SPRING CASE ACTUALLY DETECTS THE MUTATION ─────────────────
-    //
-    // Read this before refactoring either test.
-    //
-    // Under the `add(Duration(days: 4))` mutation the spring cell lands on
-    // 2026-03-31 01:00 — the SAME CALENDAR DAY as the correct 2026-03-31
-    // 00:00. So `dayDotKey(d)`, `toApiDate(d)` and every other
-    // day-granularity projection are IDENTICAL between mutant and original.
-    // The dot's disappearance comes solely from `bookedDays.contains(d)`:
-    // `Set<DateTime>` membership is exact-instant equality, and 01:00 != 00:00.
-    //
-    // CONSEQUENCE: a future refactor of the rail toward comparing days by KEY
-    // or by `toApiDate` string (a natural-looking simplification) would make
-    // this test pass under the mutation while the bug is fully present. The
-    // autumn case is the same shape. If that comparison ever changes, these
-    // guards must be re-derived — do not assume they still bite.
-    // `railDayAt`'s midnight-invariant unit group above is the host-independent
-    // half of the contract and stays valid either way.
+    // no test can detect it there. See `_dstSuffix` for how CI covers it.
+    // `railDayAt`'s midnight-invariant unit group above is the
+    // host-independent half of the contract and stays valid either way.
 
     final bool springObserved = _hostObservesTransition(
-      DateTime(2026, 3, 27),
-      DateTime(2026, 3, 31),
+      DateTime(2026, 3, 23),
+      DateTime(2026, 3, 30),
     );
     final bool autumnObserved = _hostObservesTransition(
-      DateTime(2026, 10, 23),
-      DateTime(2026, 10, 27),
+      DateTime(2026, 10, 19),
+      DateTime(2026, 10, 26),
     );
 
     testWidgets(
-      'a dot SURVIVES a span CROSSING the spring DST transition — the '
+      'a dot SURVIVES a PAGE STRIDE crossing the spring DST transition — the '
       'regression this rail was built to prevent${_dstSuffix(springObserved)}',
       (tester) async {
-        final DateTime firstDay = DateTime(2026, 3, 27);
-        final DateTime booked = DateTime(2026, 3, 31); // past the 03:00 switch
+        final DateTime firstDay = DateTime(2026, 3, 23); // a Monday, pre-switch
+        final DateTime booked = DateTime(2026, 3, 30); // page 1's own Monday
 
         await tester.pumpApp(
           _rail(
             firstDay: firstDay,
             today: firstDay,
-            dayCount: 6,
+            weekCount: 2,
+            initialPage: 1,
             bookedDays: <DateTime>{booked},
           ),
         );
@@ -484,22 +511,24 @@ void main() {
           findsOne,
           reason:
               'The dot vanished across the spring-forward transition — the '
-              'rail is deriving cell dates with Duration arithmetic again.',
+              'rail is deriving page start dates with Duration arithmetic '
+              'again.',
         );
       },
       skip: !springObserved,
     );
 
-    testWidgets('a dot SURVIVES a span CROSSING the autumn DST transition'
-        '${_dstSuffix(autumnObserved)}', (tester) async {
-      final DateTime firstDay = DateTime(2026, 10, 23);
-      final DateTime booked = DateTime(2026, 10, 27); // past the 04:00 switch
+    testWidgets('a dot SURVIVES a PAGE STRIDE crossing the autumn DST '
+        'transition${_dstSuffix(autumnObserved)}', (tester) async {
+      final DateTime firstDay = DateTime(2026, 10, 19); // a Monday, pre-switch
+      final DateTime booked = DateTime(2026, 10, 26); // page 1's own Monday
 
       await tester.pumpApp(
         _rail(
           firstDay: firstDay,
           today: firstDay,
-          dayCount: 6,
+          weekCount: 2,
+          initialPage: 1,
           bookedDays: <DateTime>{booked},
         ),
       );
@@ -513,10 +542,18 @@ void main() {
     }, skip: !autumnObserved);
 
     testWidgets(
-      'the list\'s own item 0 is a day chip — no lead item of any kind',
+      'a page is exactly one Mon→Sun week — 7 chips, Monday leftmost, '
+      'Sunday rightmost, and no lead item of any kind',
       (tester) async {
+        // A SATURDAY, deliberately: the page must render its week's Monday
+        // first regardless of which weekday the caller named. Under the
+        // retired continuous strip this same call rendered Sat, Sun, Mon…
+        // — a mid-week resting span, which is exactly the locked requirement
+        // this test now pins against ("it should always starts from Monday").
         final DateTime today = DateTime(2026, 7, 18);
-        await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
+        await tester.pumpApp(
+          _rail(firstDay: today, today: today, weekCount: 1),
+        );
         await tester.pumpAndSettle();
 
         expect(
@@ -524,11 +561,102 @@ void main() {
           findsNothing,
           reason: '«Всі» must not render anywhere in the rail post-7.11.',
         );
-        // At scroll offset zero the list's OWN leftmost item is `firstDay`'s
-        // chip — there is no lead-item offset any more (the retired
-        // `kRailLeadItems`): a day's offset from `firstDay` IS its
-        // `ListView.builder` item index.
-        expect(find.byKey(dayChipKey(today)), findsOne);
+
+        final DateTime monday = DateTime(2026, 7, 13);
+        final DateTime sunday = DateTime(2026, 7, 19);
+        expect(monday.weekday, DateTime.monday, reason: 'fixture precondition');
+        expect(sunday.weekday, DateTime.sunday, reason: 'fixture precondition');
+
+        // All seven, and ONLY seven.
+        for (int i = 0; i < 7; i++) {
+          expect(find.byKey(dayChipKey(railDayAt(monday, i))), findsOne);
+        }
+        expect(
+          find.byKey(dayChipKey(railDayAt(monday, -1))),
+          findsNothing,
+          reason: 'the Sunday BEFORE this week must not be on the page',
+        );
+        expect(
+          find.byKey(dayChipKey(railDayAt(sunday, 1))),
+          findsNothing,
+          reason: 'the Monday AFTER this week must not be on the page',
+        );
+
+        // …and in the right ORDER, measured, not assumed: Monday is the
+        // leftmost slot and Sunday the rightmost.
+        final double mondayX = tester
+            .getCenter(find.byKey(dayChipKey(monday)))
+            .dx;
+        final double sundayX = tester
+            .getCenter(find.byKey(dayChipKey(sunday)))
+            .dx;
+        for (int i = 0; i < 7; i++) {
+          final double x = tester
+              .getCenter(find.byKey(dayChipKey(railDayAt(monday, i))))
+              .dx;
+          expect(x, greaterThanOrEqualTo(mondayX));
+          expect(x, lessThanOrEqualTo(sundayX));
+        }
+        expect(
+          sundayX,
+          greaterThan(mondayX),
+          reason:
+              'fixture guard: the week rendered right-to-left (or collapsed '
+              'to one slot), so the ordering assertions above are vacuous',
+        );
+      },
+    );
+
+    testWidgets(
+      'paging moves a WHOLE week — the rail never rests on a mid-week span',
+      (tester) async {
+        // THE headline contract of this rework, and the one thing a
+        // continuous strip could not give: after a horizontal fling the rail
+        // must sit on the NEXT Mon→Sun page, not 3.4 chips further along.
+        final DateTime today = DateTime(2026, 7, 15); // a Wednesday
+        await tester.pumpApp(
+          _rail(firstDay: today, today: today, weekCount: 2),
+        );
+        await tester.pumpAndSettle();
+
+        // `_rail` starts page 0 on `firstDay`'s own Monday, so page 0 IS the
+        // week of `today` and page 1 is the one after it.
+        final DateTime thisMonday = DateTime(2026, 7, 13);
+        expect(find.byKey(dayChipKey(thisMonday)), findsOne);
+
+        await tester.fling(
+          find.byKey(const Key('master-bookings-day-rail')),
+          const Offset(-300, 0),
+          800,
+        );
+        await tester.pumpAndSettle();
+
+        final DateTime nextMonday = railDayAt(thisMonday, 7);
+        expect(
+          find.byKey(dayChipKey(nextMonday)),
+          findsOne,
+          reason: 'the fling did not land on the following week at all',
+        );
+        // The settled page is a WHOLE week: its Monday sits at the same
+        // leading inset the previous page's Monday did, to the pixel. A
+        // continuous strip resting mid-week would put some Wednesday there
+        // instead.
+        final Rect railRect = tester.getRect(
+          find.byKey(const Key('master-bookings-day-rail')),
+        );
+        expect(
+          tester.getRect(find.byKey(dayChipKey(nextMonday))).left,
+          closeTo(railRect.left + VelvetSpacing.lg, 1.0),
+          reason:
+              'the rail came to rest between two weeks — the first visible '
+              'chip is not the new week\'s Monday, flush at the rail\'s own '
+              'leading inset',
+        );
+        expect(
+          find.byKey(dayChipKey(railDayAt(nextMonday, 6))).evaluate().length,
+          1,
+          reason: 'the settled page must still end on a Sunday',
+        );
       },
     );
 
@@ -549,7 +677,7 @@ void main() {
       (tester) async {
         final DateTime today = DateTime(2026, 7, 18);
         await tester.pumpApp(
-          _rail(firstDay: railDayAt(today, -180), today: today, dayCount: 361),
+          _rail(firstDay: today, today: today, weekCount: 53, initialPage: 26),
         );
         await tester.pumpAndSettle();
 
@@ -561,41 +689,47 @@ void main() {
     );
 
     // Phase 7.16 — with the calendar button (and the leading inset it used to
-    // carry on its own `Padding`) gone, the `ListView` must regain a
-    // SYMMETRIC horizontal inset so the first chip does not sit flush against
-    // the screen edge. Measures the real rendered geometry, not the private
+    // carry on its own `Padding`) gone, the strip must carry a SYMMETRIC
+    // horizontal inset so the first chip does not sit flush against the
+    // screen edge. Measures the real rendered geometry, not the private
     // padding constant — see the 78->70dp group's header for why that
     // discipline matters here.
+    //
+    // Since the week-pager rework that inset carries a SECOND meaning worth
+    // keeping green: it is `VelvetSpacing.lg`, the exact figure
+    // `MonthCalendar` self-pads by, so the collapsed rail's seven chips land
+    // on the same seven columns as the expanded grid's seven day columns.
     testWidgets(
-      'the first day chip sits VelvetSpacing.lg inset from the rail\'s '
-      'leading edge — the restored leading inset',
+      'the week\'s Monday sits VelvetSpacing.lg inset from the rail\'s '
+      'leading edge — shared with MonthCalendar\'s own column grid',
       (tester) async {
         final DateTime today = DateTime(2026, 7, 18);
-        await tester.pumpApp(_rail(firstDay: today, today: today, dayCount: 3));
+        await tester.pumpApp(
+          _rail(firstDay: today, today: today, weekCount: 1),
+        );
         await tester.pumpAndSettle();
 
         final Rect railRect = tester.getRect(
           find.byKey(const Key('master-bookings-day-rail')),
         );
         final Rect firstChipRect = tester.getRect(
-          find.byKey(dayChipKey(today)),
+          find.byKey(dayChipKey(mondayOf(today))),
         );
 
         expect(
           firstChipRect.left,
           closeTo(railRect.left + VelvetSpacing.lg, 1.0),
           reason:
-              'the first chip must sit VelvetSpacing.lg from the rail\'s own '
-              'leading edge now that the calendar button (which used to own '
-              'that inset on its own Padding) is gone — a flush-left first '
-              'chip means the leading inset never came back.',
+              'the week\'s Monday must sit VelvetSpacing.lg from the rail\'s '
+              'own leading edge — a flush-left first chip means the inset is '
+              'gone and the rail no longer shares MonthCalendar\'s columns.',
         );
       },
     );
 
     testWidgets(
       'a day is always selected — even a day with no bookings on it, and '
-      'even when it is the ONLY day rendered',
+      'even when its week is the ONLY page rendered',
       (tester) async {
         final DateTime today = DateTime(2026, 7, 18);
         // No entry for `today` in bookedDays — this pins that selection does
@@ -604,7 +738,7 @@ void main() {
           _rail(
             firstDay: today,
             today: today,
-            dayCount: 1,
+            weekCount: 1,
             selectedDay: today,
             bookedDays: const <DateTime>{},
           ),
@@ -639,16 +773,18 @@ void main() {
         _rail(
           firstDay: today,
           today: today,
-          dayCount: 3,
+          weekCount: 1,
           onSelectDay: (DateTime d) => tapped = d,
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 20))));
+      // A day inside the SAME Mon→Sun page (Jul 13–19) — a pager only ever
+      // renders one week, so a target outside it is not on screen to tap.
+      await tester.tap(find.byKey(dayChipKey(DateTime(2026, 7, 17))));
       await tester.pumpAndSettle();
 
-      expect(tapped, DateTime(2026, 7, 20));
+      expect(tapped, DateTime(2026, 7, 17));
       expect(tapped!.hour, 0, reason: 'the reported day must be date-only');
     });
 
@@ -657,15 +793,119 @@ void main() {
     ) async {
       // 2026-07-20 is a Monday.
       final DateTime monday = DateTime(2026, 7, 20);
-      await tester.pumpApp(_rail(firstDay: monday, today: monday, dayCount: 2));
+      await tester.pumpApp(
+        _rail(firstDay: monday, today: monday, weekCount: 1),
+      );
       await tester.pumpAndSettle();
 
       final AppLocalizations l10n = AppLocalizations.of(
         tester.element(find.byType(BookingsDayRail)),
       );
+      // A page is a full week, so every abbreviation renders exactly once.
       expect(find.text(l10n.weekdayShortMon), findsOne);
       expect(find.text(l10n.weekdayShortTue), findsOne);
+      expect(find.text(l10n.weekdayShortSun), findsOne);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Seven chips on a narrow phone at the largest accessibility text scale
+  // -------------------------------------------------------------------------
+  //
+  // The pager put SEVEN chips on screen at once where the continuous strip
+  // showed ~5, and made their width derived rather than fixed: at the 320dp
+  // floor a slot is `(320 - 2 * VelvetSpacing.lg) / 7` = 38.9dp, against a
+  // chip column laid out at 44dp and (at textScale 2.0) roughly 89dp tall
+  // inside a 70dp strip. Both dimensions overflow without the
+  // `BoxFit.scaleDown` fit in `_DayChip` — see its class doc.
+  //
+  // These carry NO manual overflow assertion: `pumpApp` arms
+  // `installOverflowGuard`, which fails the test at tearDown on any
+  // `RenderFlex overflowed`. Reaching the assertions below without the guard
+  // firing IS the proof.
+  //
+  // The tap case is not incidental. The fit introduces a `FittedBox` — i.e. a
+  // transform — into the chip subtree, and mobile-backlog's
+  // `project_animatedscale_root_breaks_tap_by_key` records a transform at a
+  // keyed widget's root silently dropping it out of the hit-test path, a
+  // failure that only goes hard-red at the integration tier. `_DayChip` keeps
+  // the keyed `GestureDetector` OUTSIDE the fit specifically to avoid that;
+  // this pins it, at the scale where the fit is actually engaged.
+  group('seven chips fit a narrow phone at every text scale', () {
+    for (final double scale in <double>[1.0, 1.3, 2.0]) {
+      testWidgets('a full week renders at 320dp x$scale without overflow', (
+        tester,
+      ) async {
+        final DateTime today = DateTime(2026, 7, 15); // a Wednesday
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _rail(
+                firstDay: today,
+                today: today,
+                weekCount: 1,
+                bookedDays: <DateTime>{today},
+              ),
+            ],
+          ),
+          width: 320,
+          textScaleFactor: scale,
+        );
+        await tester.pumpAndSettle();
+
+        final DateTime monday = mondayOf(today);
+        for (int i = 0; i < 7; i++) {
+          expect(find.byKey(dayChipKey(railDayAt(monday, i))), findsOne);
+        }
+        // The strip's own height is unmoved by the text scale — the chip
+        // scales into it rather than pushing it out.
+        expect(
+          tester
+              .getSize(find.byKey(const Key('master-bookings-day-rail')))
+              .height,
+          70.0,
+        );
+      });
+    }
+
+    testWidgets(
+      'a chip is still tappable by key at 320dp x2.0 — the fit must not '
+      'drop the keyed GestureDetector out of the hit-test path',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15);
+        DateTime? tapped;
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _rail(
+                firstDay: today,
+                today: today,
+                weekCount: 1,
+                onSelectDay: (DateTime d) => tapped = d,
+              ),
+            ],
+          ),
+          width: 320,
+          textScaleFactor: 2.0,
+        );
+        await tester.pumpAndSettle();
+
+        final DateTime target = railDayAt(mondayOf(today), 4); // the Friday
+        // NO `warnIfMissed: false` — a miss here is the bug, not noise.
+        await tester.tap(find.byKey(dayChipKey(target)));
+        await tester.pumpAndSettle();
+
+        expect(
+          tapped,
+          target,
+          reason:
+              'the tap did not reach the chip at 320dp x2.0 — the scale-down '
+              'fit has been moved above the keyed GestureDetector',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -682,6 +922,13 @@ void main() {
   //   * the has-bookings dot stays full accent on a past day regardless of
   //     selection — muting it would fight the rail's "where is the work"
   //     scannability. Pinned as a DELIBERATE choice, not an oversight.
+  //
+  // FIXTURE NOTE (week-pager rework): "today" here is a THURSDAY
+  // (2026-07-23), not the Monday it used to be, and every page pumps
+  // `weekCount: 1`. A pager renders exactly one Mon→Sun week, so the past
+  // day, today, and the day after today all have to live INSIDE that one
+  // week for these colour assertions to have anything to address —
+  // mid-week is the only anchor where all three do.
   group('past-day muting', () {
     /// The day-number `Text`'s resolved colour for the cell keyed to [day] —
     /// the second `Text` in the chip's column (weekday caption, then day
@@ -702,13 +949,13 @@ void main() {
     testWidgets(
       'a past, unselected day mutes its day number to BrandColors.muted',
       (tester) async {
-        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime today = DateTime(2026, 7, 23);
         final DateTime past = railDayAt(today, -3);
         await tester.pumpApp(
           _rail(
-            firstDay: railDayAt(today, -5),
+            firstDay: today,
             today: today,
-            dayCount: 10,
+            weekCount: 1,
             selectedDay: today,
           ),
         );
@@ -740,12 +987,12 @@ void main() {
     testWidgets(
       'today is NEVER muted, even though it renders unselected here',
       (tester) async {
-        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime today = DateTime(2026, 7, 23);
         await tester.pumpApp(
           _rail(
-            firstDay: railDayAt(today, -5),
+            firstDay: today,
             today: today,
-            dayCount: 10,
+            weekCount: 1,
             // A day other than today is selected, so today itself renders
             // UNSELECTED — the only state in which muting could plausibly
             // (and wrongly) apply to it.
@@ -769,15 +1016,10 @@ void main() {
       'a SELECTED past day reads as selected (full accent), not muted — '
       'selection outranks pastness',
       (tester) async {
-        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime today = DateTime(2026, 7, 23);
         final DateTime past = railDayAt(today, -3);
         await tester.pumpApp(
-          _rail(
-            firstDay: railDayAt(today, -5),
-            today: today,
-            dayCount: 10,
-            selectedDay: past,
-          ),
+          _rail(firstDay: today, today: today, weekCount: 1, selectedDay: past),
         );
         await tester.pumpAndSettle();
 
@@ -797,13 +1039,13 @@ void main() {
       'the has-bookings dot stays full accent on a past day — history '
       'remains scannable by design',
       (tester) async {
-        final DateTime today = DateTime(2026, 7, 20);
+        final DateTime today = DateTime(2026, 7, 23);
         final DateTime past = railDayAt(today, -3);
         await tester.pumpApp(
           _rail(
-            firstDay: railDayAt(today, -5),
+            firstDay: today,
             today: today,
-            dayCount: 10,
+            weekCount: 1,
             selectedDay: today,
             bookedDays: <DateTime>{past},
           ),
@@ -870,7 +1112,7 @@ void main() {
           Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              _rail(firstDay: today, today: today, dayCount: 3),
+              _rail(firstDay: today, today: today, weekCount: 1),
             ],
           ),
         );
@@ -905,7 +1147,7 @@ void main() {
           Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              _rail(firstDay: today, today: today, dayCount: 3),
+              _rail(firstDay: today, today: today, weekCount: 1),
             ],
           ),
         );

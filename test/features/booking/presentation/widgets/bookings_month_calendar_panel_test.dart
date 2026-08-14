@@ -99,7 +99,7 @@ class _RebuildProbeHost extends StatefulWidget {
     required this.onStepMonth,
   });
 
-  final ScrollController railController;
+  final PageController railController;
   final DateTime today;
   final DateTime selectedDay;
   final ValueChanged<DateTime> onSelectRailDay;
@@ -129,12 +129,14 @@ class _RebuildProbeHostState extends State<_RebuildProbeHost> {
         Expanded(
           child: BookingsMonthCalendarPanel(
             railController: widget.railController,
-            railFirstDay: DateTime(
-              widget.today.year,
-              widget.today.month,
-              widget.today.day - 5,
+            railFirstWeekStart: mondayOf(
+              DateTime(
+                widget.today.year,
+                widget.today.month,
+                widget.today.day - 7,
+              ),
             ),
-            dayCount: 11,
+            weekCount: 3,
             today: widget.today,
             selectedDay: widget.selectedDay,
             bookedDays: const <DateTime>{},
@@ -163,7 +165,7 @@ void main() {
     final GlobalKey<_RebuildProbeHostState> hostKey =
         GlobalKey<_RebuildProbeHostState>();
     final DateTime today = DateTime(2026, 7, 15);
-    final ScrollController controller = ScrollController();
+    final PageController controller = PageController(initialPage: 1);
     addTearDown(controller.dispose);
 
     await tester.pumpApp(

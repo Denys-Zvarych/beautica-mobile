@@ -6,21 +6,25 @@
 // MasterBookingsCalendar/lib/screens/variant_d_screen.dart` (+
 // `widgets/day_rail.dart`, `widgets/month_calendar.dart`,
 // `widgets/variant_scaffold.dart`'s `_TopRow`/`_DragHandle` shape). See that
-// package's README for the four `MonthCalendar` adaptations this panel
-// switches on (`composeWeekdayBar` / `sixWeekRows` / `bookingCount` /
-// `allowTapOnUnavailable`, all opt-in on the SHARED production
+// package's README for the `MonthCalendar` adaptations this panel switches
+// on (`composeWeekdayBar` / `sixWeekRows` / `bookingCount` /
+// `allowTapOnUnavailable`, plus `showHeader: false` added by this session's
+// headerless-grid rework — all opt-in on the SHARED production
 // `month_calendar.dart` — `SlotDateScreen` and `MasterSchedulePage` never set
 // any of them and render byte-identically to before this panel existed).
 //
 // ## One source of truth — this widget owns NO date state
 //
 // [selectedDay] is the only date input. The visible month, the top row's
-// label, and the rail's scroll position (via [railController], driven by the
-// HOST through [BookingsDiscoveryView]'s existing `_centreRailOn`) are all
-// derived from it. The one thing this widget DOES own is [_open], the
-// drag/expand fraction — a view preference the host never overrides, exactly
-// as the approved design locks it: "the expand state is the only thing on
-// the screen not derived from the selection."
+// label, and the rail's week page (via [railController], driven by the HOST
+// through [BookingsDiscoveryView]'s `_showRailWeekOf`) are all derived from
+// it. Two things this widget DOES own, both VIEW state the host never
+// overrides: [_open], the drag/expand fraction — exactly as the approved
+// design locks it, "the expand state is the only thing on the screen not
+// derived from the selection" — and [_monthPage], whose resting page is
+// itself a pure function of [selectedDay] and is resynced from it in
+// [_BookingsMonthCalendarPanelState.didUpdateWidget], so it can hold no
+// month the selection does not already imply.
 //
 // ## The timeline lives INSIDE this widget's subtree (mobile-perf HIGH
 // follow-up, this session)
@@ -60,25 +64,65 @@
 //   * [onSelectDay] — a grid-cell tap or the «Сьогодні» pill. Both are single
 //     deliberate actions, not a rapid-fire source like a rail flick, so the
 //     host applies them immediately (`_selectImmediate`).
-//   * [onStepMonth] — a resolved month step (the calendar's own ‹ › chevrons,
-//     or a sideways swipe on the grid), carrying the SIGN only (-1 / +1).
-//     This widget does no date arithmetic of its own beyond deriving
-//     [_month] from [selectedDay] — the host computes the actual target day
-//     (same day-of-month, clamped to the target month's length) and funnels
-//     it through [_selectImmediate].
+//   * [onStepMonth] — a resolved month step (a horizontal page turn on the
+//     grid), carrying the signed month DELTA. This widget does no date
+//     arithmetic of its own beyond deriving [_month] from [selectedDay] — the
+//     host computes the actual target day (same day-of-month, clamped to the
+//     target month's length) and funnels it through [_selectImmediate].
 //
-// ## Gesture layering
+// ## The month+year label is PERMANENT, and the grid has no header of its own
+//
+// (user-requested, this session — "keep month and year in same place because
+// now it disappears".) [_TopRow]'s label used to cross-fade OUT as the panel
+// expanded, because `MonthCalendar`'s own `_MonthHeader` took over carrying
+// the month name once the grid was legible. That made the one piece of text
+// the master navigates by vanish mid-drag and reappear 40dp lower.
+//
+// It is now rendered unconditionally, in one anchor, at one size, in both
+// resting states and every drag fraction between — and `MonthCalendar` is
+// composed with `showHeader: false`, so the month name exists exactly ONCE on
+// screen. That also retires the ‹ › chevrons outright: the locked requirement
+// is "don't add any new buttons", and a horizontal page turn is now the only
+// month-navigation mechanism. Two side effects worth naming: the expanded
+// panel is 48dp shorter (see [kMonthCalendarExpandedHeight]'s doc), and the
+// label is now the ONLY affordance teaching what the grid's horizontal swipe
+// does — which is why it must never move.
+//
+// ## Gesture layering — two pagers, one vertical drag, no arbitration code
 //
 // The outer `GestureDetector` claims ONLY the vertical axis
-// (`HitTestBehavior.deferToChild`) — the rail (a horizontal `ListView`) and
-// the grid (its own inner horizontal-drag `GestureDetector`) own the
-// horizontal axis themselves, so Flutter's gesture arena separates the two
-// by direction, exactly as the approved design's own composition. Every day
-// cell keeps its own `GestureDetector` as a descendant (never wrapped by an
-// `AnimatedScale`/`Transform` at ITS root — see mobile-backlog's
+// (`HitTestBehavior.deferToChild`); the rail (a horizontal `PageView`) and the
+// month grid (another horizontal `PageView`) own the horizontal axis
+// themselves. Flutter's gesture arena separates them by DIRECTION — a
+// `VerticalDragGestureRecognizer` and a `HorizontalDragGestureRecognizer` in
+// one arena each reject as soon as the pointer's dominant axis is the other
+// one — so no hand-written arbitration is needed and none exists. This
+// replaced a hand-rolled `onHorizontalDrag*` recogniser on the grid that
+// accumulated `_swipeDx` and compared it against a distance/velocity pair:
+// two competing horizontal paths, neither with real fling physics. The two
+// pagers never compete with EACH OTHER either, because they are never both
+// interactive: the grid layer is `IgnorePointer(ignoring: t < _kPanelHandoffT)`
+// and the rail layer `IgnorePointer(ignoring: t >= _kPanelHandoffT)` — a
+// strict-complement pair sharing ONE constant, so every `t` resolves to
+// EXACTLY one interactive layer (never zero, never two): rail owns
+// `[0, _kPanelHandoffT)`, grid owns `[_kPanelHandoffT, 1]`. mobile-perf
+// MEDIUM fix (this session): the opacity curves and the two `ignoring`
+// checks used to be tuned independently (rail opacity hit zero at 0.45,
+// but stayed hit-testable past 0.5; the grid became hit-testable only at
+// 0.5) — for `0.45 < t < 0.5` the rail was invisible yet still swallowed
+// every tap/drag aimed at the grid, which was simultaneously non-interactive
+// and already ~27-33% visible, and at exactly `t == 0.5` neither `t < 0.5`
+// nor `t > 0.5` held so BOTH layers were interactive at once. Both defects
+// are gap/overlap bugs from the two `IgnorePointer`s not sharing a single
+// flip point; they cannot recur now that both read the same constant.
+//
+// Every day cell keeps its own `GestureDetector` as a descendant (never
+// wrapped by an `AnimatedScale`/`Transform` at ITS root — see mobile-backlog's
 // `project_animatedscale_root_breaks_tap_by_key` note), so taps stay
 // reachable at every expand fraction; only the collapse/expand `SizedBox`
 // height is animated, one level up.
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -110,7 +154,7 @@ const double _kTravel = _kExpandedHeight - _kCollapsedHeight;
 /// frame, every settle tick) forced the timeline to relayout in step —
 /// `RepaintBoundary` cannot fix this because the coupling is at LAYOUT
 /// time, not paint time. Reserving the EXPANDED height instead was
-/// considered and rejected: it would leave a permanent ~310dp dead gap
+/// considered and rejected: it would leave a permanent ~262dp dead gap
 /// above the timeline in the panel's normal resting (collapsed) state,
 /// trading a frame-rate win for a constant, highly visible layout
 /// regression in the state the master actually lives in.
@@ -144,19 +188,30 @@ const double kBookingsMonthCalendarPanelCollapsedHeight =
 /// design's own figure.
 const double _kDragFlingVelocity = 320;
 
-/// Same idea for the horizontal month-swipe gesture on the grid.
-const double _kSwipeFlingVelocity = 300;
+/// The single expand-fraction [_open] flips hit-testing between the rail and
+/// the grid — see "Gesture layering" above. Matches the rail's own opacity
+/// curve (`railOpacity = (1 - t / 0.45).clamp(...)`, fully transparent at
+/// `t == 0.45`) so the handoff never leaves the rail hit-testable while
+/// invisible, and never leaves the grid hit-testable while it is still
+/// mostly transparent (`gridOpacity` is already ~0.27 at this point and
+/// rising). Both `IgnorePointer`s below MUST read this one constant as a
+/// strict-complement pair (`>=` / `<`) — never two independent literals —
+/// or the gap/overlap this constant fixed comes back.
+const double _kPanelHandoffT = 0.45;
 
-/// Minimum accumulated horizontal drag, in logical px, that still turns the
-/// page on a slow release ending at near-zero velocity.
-const double _kSwipeDistanceThreshold = 60;
+/// Months the grid's `PageView` spans either side of [BookingsMonthCalendarPanel
+/// .today]'s own month — 50 years each way. `PageView.builder` is lazy, so the
+/// only cost of a generous span is that a page index stays in range no matter
+/// how far the master pages; nothing here is ever built for a month that is
+/// not on (or adjacent to) the screen.
+const int _kMonthPageSpan = 600;
 
 class BookingsMonthCalendarPanel extends StatefulWidget {
   const BookingsMonthCalendarPanel({
     super.key,
     required this.railController,
-    required this.railFirstDay,
-    required this.dayCount,
+    required this.railFirstWeekStart,
+    required this.weekCount,
     required this.today,
     required this.selectedDay,
     required this.bookedDays,
@@ -166,16 +221,18 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
     required this.timeline,
   });
 
-  final ScrollController railController;
+  /// Drives which WEEK the collapsed rail shows. Owned (and paged) by the
+  /// host — see [BookingsDayRail.controller].
+  final PageController railController;
 
-  /// The rail's first day — `today - kBookedDaysSpanDays`, date-only.
-  final DateTime railFirstDay;
+  /// The Monday the rail's first week page starts on. Threaded through rather
+  /// than computed here, mirroring [BookingsDayRail]'s own parameter — the
+  /// host owns the rail's span.
+  final DateTime railFirstWeekStart;
 
-  /// Inclusive rail day count — `2 * kBookedDaysSpanDays + 1`. Threaded
-  /// through rather than computed here, mirroring [BookingsDayRail]'s own
-  /// `dayCount` parameter — the host already owns `kBookedDaysSpanDays`
-  /// (`application/booked_days_notifier.dart`).
-  final int dayCount;
+  /// Number of rail week pages. Same threading rationale as
+  /// [railFirstWeekStart].
+  final int weekCount;
 
   final DateTime today;
 
@@ -197,7 +254,9 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
   /// A grid-cell tap or the «Сьогодні» pill — applied immediately.
   final ValueChanged<DateTime> onSelectDay;
 
-  /// A resolved month step, sign only (`-1` previous, `1` next).
+  /// A resolved month step, as a signed month DELTA (`-1` previous, `1` next;
+  /// a multi-page fling can resolve to a larger magnitude and the host's own
+  /// `_stepMonth` handles any value). Never fires with `0`.
   final ValueChanged<int> onStepMonth;
 
   /// The booking timeline, built ONCE by the host — see the file header's
@@ -223,16 +282,70 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// achieves the retired `_focusedMonth` ValueNotifier's rebuild-scoping
   /// goal WITHOUT it: the isolation now comes from the animation living
   /// inside a separate widget/State, not from withholding a real selection
-  /// change. A genuine month STEP (a resolved chevron tap or swipe) DOES
+  /// change. A genuine month STEP (a settled horizontal page turn) DOES
   /// change the host's `_day` and therefore its query — which correctly
   /// rebuilds the timeline once, for the new day's data. That is required
   /// behaviour under the new "month step selects" contract, not a
   /// regression of the old label-only optimisation.
   late final AnimationController _open;
 
-  /// Accumulated horizontal drag on the grid, so a slow swipe still steps
-  /// the month when it ends with almost no velocity.
-  double _swipeDx = 0;
+  /// The grid's month pager. Like [_open] this is a VIEW object, not date
+  /// state: its resting page is always `_pageForMonth(_month)`, i.e. a pure
+  /// function of [BookingsMonthCalendarPanel.selectedDay], and the two are
+  /// kept in lockstep from both directions ([_onMonthPageChanged] pushes a
+  /// user page turn OUT to the host as a selection; [didUpdateWidget] pulls
+  /// any OTHER selection change — a rail tap, «Сьогодні» — back IN as a page
+  /// jump). Nothing here ever remembers a month the selection does not
+  /// already imply, which is what keeps the file header's "this widget owns
+  /// NO date state" invariant true.
+  late final PageController _monthPage;
+
+  /// The month page index space's origin — [BookingsMonthCalendarPanel.today]'s
+  /// month. Captured once: `today` is itself captured once by the host
+  /// (`_BookingsDiscoveryViewState._today`) and never changes for this
+  /// widget's lifetime, so a stored anchor cannot drift from a rebuilt one,
+  /// and page indices stay stable across every rebuild.
+  late final DateTime _anchorMonth;
+
+  /// True from the instant the month pager's viewport starts moving until it
+  /// has come completely to rest — the whole gesture INCLUDING the ballistic
+  /// settle, not just the pointer-down window.
+  ///
+  /// mobile-perf HIGH fix (finding #1, secondary risk): [didUpdateWidget]
+  /// resyncs the pager with `jumpToPage`, and `ScrollPositionWithSingleContext
+  /// .jumpTo` opens with `goIdle()` — so a selection change arriving from the
+  /// host mid-drag (a second pointer on «Сьогодні», a rail tap racing the
+  /// gesture) would kill the master's live drag under their finger. While
+  /// this flag is set the pull-IN half of the two-way sync stands down; the
+  /// push-OUT half then repairs the desync for free, because
+  /// [_resolveMonthPage] computes its delta against the CURRENT [_month] at
+  /// settle time, so wherever the gesture lands becomes the selection. The
+  /// pager can therefore never be left holding a month the host disagrees
+  /// with — it is the pager that wins, one frame later, instead of the
+  /// gesture being cancelled.
+  bool _monthPagerScrolling = false;
+
+  /// Whether the month pager's PAGE CONTENT (the real [MonthCalendar] grids)
+  /// is mounted. False whenever the panel is fully collapsed.
+  ///
+  /// mobile-perf LOW fix (finding #3): a month grid is 31 keyed `_DayCell`s,
+  /// each an `AnimatedContainer` — a `State`, an `AnimationController` and a
+  /// `Ticker` apiece. `RenderOpacity` skips PAINT at α=0 but never build or
+  /// layout, so at rest — the state the master actually lives in — every day
+  /// tap and every `bookedDaysProvider` emission paid for a grid nobody could
+  /// see.
+  ///
+  /// ⚠ WHY THE GATE IS ON THE CONTENT AND NOT ON THE PAGER. `Offstage` /
+  /// `Visibility(visible: false)` / dropping the `PageView` itself all skip
+  /// LAYOUT, which detaches [_monthPage] — `hasClients` goes false, `page`
+  /// returns null, and [didUpdateWidget]'s early return then silently strands
+  /// the pager on a stale month until the master pages by hand. This gate
+  /// swaps only the per-page CHILD for a `SizedBox.shrink()`; the `PageView`,
+  /// its viewport and its attached [_monthPage] stay mounted and laid out at
+  /// every expand fraction, so `hasClients`/`page` are exactly as valid at
+  /// rest as when expanded and the existing sync path needs no resync hook at
+  /// all. Stranding is not handled — it is unreachable.
+  bool _gridContentMounted = false;
 
   @override
   void initState() {
@@ -241,10 +354,49 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
+    // Flips [_gridContentMounted] on the 0 ↔ >0 boundary only — twice per
+    // open/close cycle, not once per drag frame. The `setState` it issues is
+    // confined to THIS `State`; the host is never rebuilt, which is what
+    // `bookings_month_calendar_panel_test.dart` pins.
+    _open.addListener(_onOpenChanged);
+    _anchorMonth = DateTime(widget.today.year, widget.today.month);
+    _monthPage = PageController(initialPage: _pageForMonth(_month));
+  }
+
+  void _onOpenChanged() {
+    final bool next = _open.value > 0;
+    if (next == _gridContentMounted) return;
+    setState(() => _gridContentMounted = next);
+  }
+
+  @override
+  void didUpdateWidget(covariant BookingsMonthCalendarPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Only a selection change that crossed a MONTH boundary can desync the
+    // pager — a rail tap inside the visible month must not jolt the grid.
+    final DateTime previous = DateTime(
+      oldWidget.selectedDay.year,
+      oldWidget.selectedDay.month,
+    );
+    if (previous == _month || !_monthPage.hasClients) return;
+    // Never yank the pager out from under a live gesture — see
+    // [_monthPagerScrolling]'s doc for why standing down here cannot strand
+    // the pager.
+    if (_monthPagerScrolling) return;
+    final int target = _pageForMonth(_month);
+    // Already there — this is the echo of the user's OWN page turn coming
+    // back through the host, so re-jumping would fight the settle animation.
+    if ((_monthPage.page ?? target.toDouble()).round() == target) return;
+    // `jumpToPage`, not `animateToPage`: the grid is usually invisible when
+    // this fires (a rail tap happens with the panel collapsed), and an
+    // animation the master cannot see is a frame budget spent on nothing.
+    _monthPage.jumpToPage(target);
   }
 
   @override
   void dispose() {
+    _monthPage.dispose();
+    _open.removeListener(_onOpenChanged);
     _open.dispose();
     super.dispose();
   }
@@ -252,6 +404,24 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// Derived, never stored — the invariant this whole port is about.
   DateTime get _month =>
       DateTime(widget.selectedDay.year, widget.selectedDay.month);
+
+  /// Months since year 0, so month arithmetic is plain integer arithmetic.
+  static int _monthOrdinal(DateTime m) => m.year * 12 + (m.month - 1);
+
+  /// [month]'s index in the grid pager. Clamped defensively: 600 months
+  /// either side of [_anchorMonth] is 50 years, so a real master can never
+  /// reach the edge, but `jumpToPage` asserts on an out-of-range index and a
+  /// corrupt selection must not crash the screen.
+  int _pageForMonth(DateTime month) =>
+      (_monthOrdinal(month) - _monthOrdinal(_anchorMonth) + _kMonthPageSpan)
+          .clamp(0, _kMonthPageCount - 1);
+
+  DateTime _monthForPage(int page) => DateTime(
+    _anchorMonth.year,
+    _anchorMonth.month + (page - _kMonthPageSpan),
+  );
+
+  static const int _kMonthPageCount = 2 * _kMonthPageSpan + 1;
 
   void _toggle() {
     if (_open.value > 0.5) {
@@ -284,20 +454,66 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
     }
   }
 
-  void _onSwipeStart(DragStartDetails _) => _swipeDx = 0;
+  /// The month pager's scroll lifecycle — the ONE place a month step is
+  /// resolved now that the grid's ‹ › chevrons are retired.
+  ///
+  /// ## Why a `ScrollEndNotification` and not `onPageChanged`
+  ///
+  /// mobile-perf HIGH fix (finding #1). `PageView.onPageChanged` does NOT
+  /// fire on settle — it fires on every page-MIDPOINT CROSSING during the
+  /// drag itself (`page_view.dart`: a `ScrollUpdateNotification` handler
+  /// comparing `metrics.page.round()` against the last reported index). A
+  /// month step SELECTS (see [BookingsMonthCalendarPanel.onStepMonth]), and
+  /// the host applies a selection through `_selectImmediate`, which
+  /// explicitly CANCELS the 220ms rail debounce — so it is not rate-limited
+  /// by anything. One hesitant back-and-forth drag was measured emitting
+  /// `[1, -1, 1, -1]` and ending on the month it started from: four
+  /// selections, four `GET /bookings/me`, four `effectiveSchedule` fetches,
+  /// and a visibly flickering month label, for a gesture that navigated
+  /// nowhere. The hand-rolled `onHorizontalDrag*` recogniser this pager
+  /// replaced fired at most once per gesture, so that was a regression, and a
+  /// correctness one as much as a perf one — days the master never chose were
+  /// being selected.
+  ///
+  /// `ScrollEndNotification` fires exactly once per gesture, at the end of
+  /// the BALLISTIC settle: `ScrollPosition.beginActivity` calls
+  /// `didEndScroll()` only on the transition from a scrolling activity to a
+  /// non-scrolling one, and drag → ballistic is scrolling → scrolling. So one
+  /// settled gesture is one `onStepMonth`, whatever route the finger took to
+  /// get there, and the month lands where the gesture actually ended.
+  ///
+  /// `depth != 0` is dropped so a scrollable INSIDE a month page could never
+  /// be mistaken for the pager itself.
+  bool _onMonthPagerScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    if (notification is ScrollStartNotification) {
+      _monthPagerScrolling = true;
+    } else if (notification is ScrollEndNotification) {
+      _monthPagerScrolling = false;
+      _resolveMonthPage();
+    }
+    return false;
+  }
 
-  void _onSwipeUpdate(DragUpdateDetails d) => _swipeDx += d.primaryDelta ?? 0;
-
-  void _onSwipeEnd(DragEndDetails d) {
-    final double v = d.primaryVelocity ?? 0;
-    // Velocity first (a flick); distance as the fallback (a slow drag ends
-    // at ~0 velocity but still clearly meant to turn the page).
-    final double direction = v.abs() > _kSwipeFlingVelocity
-        ? v
-        : (_swipeDx.abs() > _kSwipeDistanceThreshold ? _swipeDx : 0);
-    if (direction == 0) return;
-    // Dragging left reveals the next month.
-    widget.onStepMonth(direction < 0 ? 1 : -1);
+  /// Turns the pager's settled page into a SELECTION, not merely a relabel:
+  /// `onStepMonth` reaches the host's `_stepMonth`, which picks the same
+  /// day-of-month in the target month (clamped to its length) and applies it
+  /// through `_selectImmediate`. That is the locked "month stepping selects"
+  /// contract this whole port exists to hold — pinned end-to-end by
+  /// `integration_test/master_bookings_month_step_flow_test.dart`.
+  ///
+  /// The `delta == 0` early return is what makes the two-way sync loop-free:
+  /// `ScrollPositionWithSingleContext.jumpTo` dispatches its own
+  /// `didEndScroll()`, so the PROGRAMMATIC `jumpToPage` in [didUpdateWidget]
+  /// reaches this method too — but it jumps to exactly `_pageForMonth(_month)`
+  /// with `_month` already updated, so the delta is arithmetically guaranteed
+  /// to be zero and no second selection is ever bounced back at the host.
+  void _resolveMonthPage() {
+    final double? page = _monthPage.hasClients ? _monthPage.page : null;
+    if (page == null) return;
+    final int delta = page.round() - _pageForMonth(_month);
+    if (delta == 0) return;
+    widget.onStepMonth(delta);
   }
 
   /// Accessibility state word for the composed grid's day cells — see
@@ -422,14 +638,14 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                               key: const Key(
                                 'bookings-month-calendar-grid-layer',
                               ),
-                              ignoring: t < 0.5,
+                              ignoring: t < _kPanelHandoffT,
                               child: Opacity(
                                 opacity: gridOpacity,
                                 child: child,
                               ),
                             );
                           },
-                          child: _calendar(l10n),
+                          child: _monthPager(l10n),
                         ),
                       ),
                       Positioned(
@@ -449,7 +665,7 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                               key: const Key(
                                 'bookings-month-calendar-rail-layer',
                               ),
-                              ignoring: t > 0.5,
+                              ignoring: t >= _kPanelHandoffT,
                               child: Opacity(
                                 opacity: railOpacity,
                                 child: child,
@@ -458,8 +674,8 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                           },
                           child: BookingsDayRail(
                             controller: widget.railController,
-                            firstDay: widget.railFirstDay,
-                            dayCount: widget.dayCount,
+                            firstWeekStart: widget.railFirstWeekStart,
+                            weekCount: widget.weekCount,
                             today: widget.today,
                             selectedDay: widget.selectedDay,
                             bookedDays: widget.bookedDays,
@@ -479,35 +695,78 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
     );
   }
 
-  Widget _calendar(AppLocalizations l10n) {
-    return GestureDetector(
-      // Horizontal lives here, inside the grid layer, so it never enters the
-      // arena against the rail's own horizontal scroll.
-      behavior: HitTestBehavior.deferToChild,
-      onHorizontalDragStart: _onSwipeStart,
-      onHorizontalDragUpdate: _onSwipeUpdate,
-      onHorizontalDragEnd: _onSwipeEnd,
-      child: MonthCalendar(
+  /// The month pager — one headerless [MonthCalendar] per page, snapping one
+  /// month per horizontal swipe in either direction.
+  ///
+  /// A `PageView` rather than the hand-rolled `onHorizontalDrag*` recogniser
+  /// it replaces: fling velocity, partial-drag rubber-band, mid-drag reversal
+  /// and the settle animation all come from `PageScrollPhysics` for free,
+  /// where the old code approximated exactly one of those four with a
+  /// distance/velocity threshold pair and snapped instantly with no
+  /// transition at all.
+  Widget _monthPager(AppLocalizations l10n) {
+    final int currentPage = _pageForMonth(_month);
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onMonthPagerScroll,
+      child: PageView.builder(
         key: const Key('bookings-month-calendar-grid'),
-        visibleMonth: _month,
-        today: widget.today,
-        selected: widget.selectedDay,
-        composeWeekdayBar: true,
-        sixWeekRows: true,
-        // ⚠ The one behavioural adaptation — every day stays tappable. See
-        // [MonthCalendar.allowTapOnUnavailable]'s doc: the rail directly
-        // underneath this grid already lets the master open any past day,
-        // so refusing the tap here would make the two halves of one control
-        // disagree.
-        allowTapOnUnavailable: true,
-        isAvailable: (DateTime d) => !d.isBefore(widget.today),
-        bookingCount: (DateTime d) => widget.bookedDays.contains(d) ? 1 : 0,
-        stateLabelResolver:
-            ({required bool available, required bool selected}) =>
-                _stateLabel(l10n, available: available, selected: selected),
-        onSelectDay: widget.onSelectDay,
-        onPrevMonth: () => widget.onStepMonth(-1),
-        onNextMonth: () => widget.onStepMonth(1),
+        controller: _monthPage,
+        physics: const PageScrollPhysics(parent: BouncingScrollPhysics()),
+        itemCount: _kMonthPageCount,
+        // No `onPageChanged:` — see [_onMonthPagerScroll]'s doc. It fires on
+        // every midpoint crossing DURING the drag, which made a single
+        // hesitant gesture select (and fetch) four times over.
+        itemBuilder: (BuildContext context, int page) {
+          // The collapsed panel's grid is invisible (`Opacity(0)`) and
+          // unreachable (`IgnorePointer`), so its 31 `AnimatedContainer` day
+          // cells are built and laid out for nothing — see
+          // [_gridContentMounted], including why the gate is here on the
+          // CONTENT rather than on the `PageView` above it.
+          if (!_gridContentMounted) return const SizedBox.shrink();
+          final DateTime month = _monthForPage(page);
+          // A `PageView` keeps NO cache extent at rest — `page_view.dart`
+          // sets `cacheExtent: allowImplicitScrolling ? 1.0 : 0.0` and
+          // `allowImplicitScrolling` defaults to `false` — so exactly one
+          // month is alive between gestures. DURING A DRAG, though, two (and
+          // momentarily three) months straddle the viewport and are all
+          // built. That is fine for paint but not for accessibility: several
+          // months of `booking-calendar-day-N` nodes in the semantics tree
+          // would have a screen reader announce days that are not visible,
+          // several times over, with colliding labels. Only the month the
+          // selection actually names is ever exposed.
+          return ExcludeSemantics(
+            excluding: page != currentPage,
+            child: MonthCalendar(
+              key: ValueKey<int>(page),
+              visibleMonth: month,
+              today: widget.today,
+              selected: widget.selectedDay,
+              composeWeekdayBar: true,
+              sixWeekRows: true,
+              // No header, no ‹ › chevrons — the month+year lives in `_TopRow`
+              // permanently now and paging is the only navigation. See the file
+              // header and [MonthCalendar.showHeader].
+              showHeader: false,
+              // ⚠ The one behavioural adaptation — every day stays tappable.
+              // See [MonthCalendar.allowTapOnUnavailable]'s doc: the rail
+              // directly underneath this grid already lets the master open any
+              // past day, so refusing the tap here would make the two halves of
+              // one control disagree.
+              allowTapOnUnavailable: true,
+              isAvailable: (DateTime d) => !d.isBefore(widget.today),
+              bookingCount: (DateTime d) =>
+                  widget.bookedDays.contains(d) ? 1 : 0,
+              stateLabelResolver:
+                  ({required bool available, required bool selected}) =>
+                      _stateLabel(
+                        l10n,
+                        available: available,
+                        selected: selected,
+                      ),
+              onSelectDay: widget.onSelectDay,
+            ),
+          );
+        },
       ),
     );
   }
@@ -516,11 +775,25 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
 /// The row above the calendar: month + year with a dropdown chevron, and the
 /// «Сьогодні» pill.
 ///
-/// The label is present only while the calendar is closed. Once the month
-/// opens, [MonthCalendar]'s own header carries the month name between its
-/// ‹ › chevrons — so the label here fades out exactly as that one fades in,
-/// and the screen never shows the same month twice. The chevron and the pill
-/// stay put throughout, so the toggle is always one tap away.
+/// ## The label never moves and never fades (user-requested, this session)
+///
+/// It used to be wrapped in `if (t < 0.45) Opacity(...)`, cross-fading out as
+/// the panel expanded because [MonthCalendar]'s own header took the month name
+/// over at 40dp lower. The master's complaint was exactly that: the one label
+/// they navigate by disappeared the moment they opened the thing they were
+/// navigating.
+///
+/// It is now unconditional — same anchor, same [VelvetText.monthSwitcherLabel],
+/// same baseline, at every value of [open] — and the grid is composed with
+/// `showHeader: false`, so this is the SINGLE month readout on the screen.
+/// With months now changing by a horizontal page turn rather than a tapped
+/// chevron, a permanently-visible label is also the only thing that tells the
+/// master the swipe landed, which is a second, independent reason it cannot
+/// be allowed to animate.
+///
+/// Only the dropdown chevron reads [open] now, so only IT sits inside an
+/// `AnimatedBuilder` — the label subtree is built once per real month change
+/// and never per drag frame.
 class _TopRow extends StatelessWidget {
   const _TopRow({
     required this.label,
@@ -557,36 +830,40 @@ class _TopRow extends StatelessWidget {
                 onTap: onToggle,
                 child: SizedBox(
                   height: kMonthCalendarHeaderHeight,
-                  child: AnimatedBuilder(
-                    animation: open,
-                    builder: (BuildContext context, Widget? _) {
-                      final double t = open.value;
-                      return Row(
-                        children: <Widget>[
-                          if (t < 0.45)
-                            Flexible(
-                              child: Opacity(
-                                opacity: (1 - t / 0.45).clamp(0.0, 1.0),
-                                child: Text(
-                                  label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: VelvetText.monthSwitcherLabel,
-                                ),
-                              ),
-                            ),
-                          const SizedBox(width: VelvetSpacing.xs),
-                          Transform.rotate(
-                            angle: t * 3.14159,
-                            child: const Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              size: 22,
-                              color: BrandColors.accentDeep,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                  child: Row(
+                    children: <Widget>[
+                      // Unconditional, un-faded, un-translated — see the
+                      // class doc. `Flexible` + ellipsis so a long month name
+                      // at a large text scale yields to the chevron beside it
+                      // instead of overflowing the row.
+                      Flexible(
+                        child: Text(
+                          label,
+                          key: const Key('bookings-month-calendar-label'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: VelvetText.monthSwitcherLabel,
+                        ),
+                      ),
+                      const SizedBox(width: VelvetSpacing.xs),
+                      AnimatedBuilder(
+                        animation: open,
+                        // `child:` — the icon itself is constant; only the
+                        // rotation reads the animation, so a drag frame
+                        // rebuilds one `Transform`, never the label above.
+                        child: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 22,
+                          color: BrandColors.accentDeep,
+                        ),
+                        builder: (BuildContext context, Widget? child) {
+                          return Transform.rotate(
+                            angle: open.value * math.pi,
+                            child: child,
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),

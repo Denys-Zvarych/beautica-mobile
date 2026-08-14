@@ -110,6 +110,7 @@ import 'master_booking_provider_actions_flow_test.dart'
 import 'master_bookings_flow_test.dart' as master_bookings;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
+import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
 import 'master_bookings_declared_time_cards_flow_test.dart'
     as master_bookings_declared_time_cards;
 import 'master_bookings_working_hours_window_flow_test.dart'
@@ -320,6 +321,12 @@ void main() {
   // `master_bookings_flow`, whose screen and login/router scaffolding it
   // shares.
   group('master_bookings_month_step_flow', master_bookings_month_step.main);
+  // Week-pager / headerless-grid rework (mobile-qa, Step 2.7 Rule 3b) — the
+  // rail opens on today's Mon→Sun week and pages whole weeks; paging selects
+  // NOTHING and fetches nothing; the month+year label is permanent, anchored
+  // identically in both resting states, follows a month page and survives the
+  // collapse; and no ‹ › chevrons exist on this screen.
+  group('master_bookings_week_rail_flow', master_bookings_week_rail.main);
   // Phase 244 — the master booking timeline's working-hours window: a day
   // with no published hours shows the gray state (CTA → /schedule?date=,
   // pre-selected); a day with hours + a booking renders the bounded timeline

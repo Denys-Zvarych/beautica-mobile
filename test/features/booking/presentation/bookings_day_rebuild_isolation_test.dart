@@ -410,33 +410,56 @@ void main() {
   // `_Loaded.build`, so `identical()` genuinely reflects a rebuild.
 
   group('month step (Варіант D calendar) rebuilds the timeline', () {
-    /// The visible month+year label `Text`. While the calendar is COLLAPSED
-    /// this is the panel's own top-row label; once EXPANDED, `_TopRow`
-    /// removes that label from the tree entirely (`if (t < 0.45)`) so the
-    /// screen never shows the same month name twice, and `MonthCalendar`'s
-    /// OWN header (inside the composed grid, key
-    /// `bookings-month-calendar-grid`) carries it instead — its `Text` comes
-    /// first in that subtree, ahead of `CalendarWeekdayBar`'s seven weekday
-    /// captions. Every test in this group calls [expandCalendar] first, so
-    /// this always reads the grid header. Reached structurally (never a
-    /// hard-coded Cyrillic month name — the i18n-finder gate) so it never
-    /// depends on `monthNominative`'s exact formatting.
+    /// The visible month+year label `Text`.
+    ///
+    /// ⚠ REPOINTED (this session). This used to read the FIRST `Text` inside
+    /// `bookings-month-calendar-grid`, because `_TopRow` dropped its own
+    /// label from the tree once the calendar opened (`if (t < 0.45)`) and
+    /// `MonthCalendar`'s `_MonthHeader` carried the month name from then on.
+    /// Both halves of that are gone: the top-row label is now PERMANENT and
+    /// `MonthCalendar` is composed with `showHeader: false`, so the month
+    /// name exists exactly once on screen, in one place, in every state. The
+    /// grid's first `Text` today is `CalendarWeekdayBar`'s "пн", which never
+    /// changes and would have quietly defanged every fixture guard below.
+    ///
+    /// Reached by key (never a hard-coded Cyrillic month name — the
+    /// i18n-finder gate) so it never depends on `monthNominative`'s exact
+    /// formatting.
     String monthLabel(WidgetTester tester) => tester
-        .widget<Text>(
-          find
-              .descendant(
-                of: find.byKey(const Key('bookings-month-calendar-grid')),
-                matching: find.byType(Text),
-              )
-              .first,
-        )
+        .widget<Text>(find.byKey(const Key('bookings-month-calendar-label')))
         .data!;
 
-    /// Expands the calendar (the month grid's own ‹ › chevrons are
-    /// unreachable while collapsed — `IgnorePointer(ignoring: t < 0.5)`) and
-    /// waits out the 280ms open animation.
+    /// Expands the calendar (the month pager is unreachable while collapsed —
+    /// `IgnorePointer(ignoring: t < 0.5)`) and waits out the 280ms open
+    /// animation.
     Future<void> expandCalendar(WidgetTester tester) async {
       await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
+      await tester.pumpAndSettle();
+    }
+
+    /// Turns the month pager one page.
+    ///
+    /// ⚠ REPLACES a `tap(Key('booking-calendar-next-month'))`. The grid's
+    /// ‹ › chevrons are retired outright (locked requirement: "don't add any
+    /// new buttons" — and the two that existed went with them), so a
+    /// horizontal page turn is the ONLY month-navigation mechanism left. The
+    /// CONTRACT under test is unchanged and deliberately so: a month step
+    /// still SELECTS (same day-of-month, clamped), it is just reached by a
+    /// different gesture.
+    ///
+    /// `fling`, not `drag`: `PageScrollPhysics` resolves a page turn from
+    /// velocity, and a slow drag of less than half a viewport settles BACK to
+    /// the page it started on — which would make every assertion below fail
+    /// for a reason that has nothing to do with the code under test.
+    Future<void> pageMonth(
+      WidgetTester tester, {
+      required int direction,
+    }) async {
+      await tester.fling(
+        find.byKey(const Key('bookings-month-calendar-grid')),
+        Offset(-300.0 * direction, 0),
+        800,
+      );
       await tester.pumpAndSettle();
     }
 
@@ -589,9 +612,9 @@ void main() {
       ).called(calls);
     }
 
-    testWidgets('stepping the month forward relabels the calendar AND rebuilds '
+    testWidgets('PAGING the month forward relabels the calendar AND rebuilds '
         'BookingsTimelineGrid — the port\'s locked "month step selects" '
-        'contract', (tester) async {
+        'contract, now reached by swipe instead of a chevron', (tester) async {
       final _MockBookingRepository repo = await pumpScreen(tester);
       await expandCalendar(tester);
       // The landing fetch — exactly one call before any interaction.
@@ -600,7 +623,7 @@ void main() {
       final BookingsTimelineGrid before = grid(tester);
       final String labelBefore = monthLabel(tester);
 
-      await tester.tap(find.byKey(const Key('booking-calendar-next-month')));
+      await pageMonth(tester, direction: 1);
       // A resolved month step funnels through `_selectImmediate`, which
       // does not itself debounce, but the surrounding `pumpAndSettle`
       // below covers both the query round trip and any animation.
@@ -637,7 +660,7 @@ void main() {
       expectFetchCount(repo, 1);
     });
 
-    testWidgets('stepping BACK behaves the same way', (tester) async {
+    testWidgets('paging BACK behaves the same way', (tester) async {
       final _MockBookingRepository repo = await pumpScreen(tester);
       await expandCalendar(tester);
       expectFetchCount(repo, 1);
@@ -645,7 +668,7 @@ void main() {
       final BookingsTimelineGrid before = grid(tester);
       final String labelBefore = monthLabel(tester);
 
-      await tester.tap(find.byKey(const Key('booking-calendar-prev-month')));
+      await pageMonth(tester, direction: -1);
       // fixed-wait-ok: see the forward-step test above.
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();

@@ -44,6 +44,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/pager_drag.dart';
 
 /// Kyiv "today" **as the app under test computes it** — see
 /// `master_bookings_flow_test.dart`'s identically-named constant for why this
@@ -79,19 +80,38 @@ Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
   await AppHarness.settle(tester);
 }
 
+/// Pages the rail forward until [day]'s chip is on screen, then taps it.
+///
+/// The rail is a Mon→Sun WEEK pager (`PageScrollPhysics`), so it moves one
+/// whole week per fling and only the current page is built — mirrors
+/// `master_bookings_flow_test.dart`'s `_scrollRailTo`, including why this
+/// flings-and-settles instead of using `scrollUntilVisible`.
+/// Pages the rail forward one WHOLE week — deterministically.
+///
+/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
+/// documents the full "why not `fling`" write-up and the steps=4 regression
+/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
+/// `PageController.page` froze mid-drag and never crossed the page boundary).
+Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
+  tester,
+  const Key('master-bookings-day-rail'),
+  forward: true,
+);
+
 Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
-  await tester.scrollUntilVisible(
-    find.byKey(dayChipKey(day)),
-    400,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const Key('master-bookings-day-rail')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 200,
+  final Finder chip = find.byKey(dayChipKey(day));
+  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
+    await _pageRailForward(tester);
+  }
+  expect(
+    chip,
+    findsOneWidget,
+    reason:
+        'the rail never paged forward to $day in 60 whole-week turns. If this '
+        'is a fresh failure, check the two clocks first: the rail opens on '
+        'the INJECTED kFixedNow week.',
   );
-  await tester.tap(find.byKey(dayChipKey(day)));
+  await tester.tap(chip);
   // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
   await tester.pump(const Duration(milliseconds: 300));
   await AppHarness.settle(tester);
