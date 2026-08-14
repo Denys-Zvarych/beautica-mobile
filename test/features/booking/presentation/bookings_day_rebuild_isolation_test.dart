@@ -50,6 +50,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -160,6 +161,33 @@ class _Screen extends StatelessWidget {
     );
   }
 }
+
+/// The anchor "today" for the `'month step (Варіант D calendar) rebuilds
+/// the timeline'` group below — pinned to a MONDAY (2026-08-10), never
+/// `DateTime.now`, and threaded through BOTH the production clock
+/// ([pumpScreen] overrides `clockProvider` with it) and each test's own
+/// `railDayAt(today, N)` offset arithmetic, so app and test read the exact
+/// same day rather than two independent live-clock reads.
+///
+/// FIX (coordinator audit-fix, cycle 2, 2026-08-15): this group used to
+/// compute `today` via `kyivToday(DateTime.now)` — the live host clock —
+/// with no `clockProvider` override anywhere in [pumpScreen], so the
+/// production screen ALSO landed on the live host clock's own Kyiv day.
+/// That is a coherent "both-live" pairing in itself, but two of the
+/// tests then did `railDayAt(today, 1)` / `railDayAt(today, 2)` and tapped
+/// the resulting day's rail CHIP — which only exists on screen if it falls
+/// inside the rail's resting Mon–Sun week (`BookingsDayRail`'s
+/// `PageView.builder` only builds the page at rest, never a neighbour).
+/// Whenever the suite happened to run on a Sunday (breaking the `+1` case)
+/// or a Saturday/Sunday (breaking the `+2` case), the target date rolled
+/// into the NEXT week's page and the tap silently found nothing — a
+/// latent flake that fired on two-to-three specific weekdays a week and
+/// was otherwise invisible. A Monday anchor gives every offset up to +6 (a
+/// whole week) margin before it could ever leave the resting page; this
+/// group only ever offsets by 1 or 2, so Monday is comfortably safe rather
+/// than merely just-safe (a Sunday-adjacent Tuesday anchor would still work
+/// for +1/+2 but leaves no slack for a future test adding a larger offset).
+final DateTime _fixedMonthStepToday = DateTime(2026, 8, 10);
 
 void main() {
   setUpAll(() {
@@ -465,7 +493,12 @@ void main() {
 
     Future<_MockBookingRepository> pumpScreen(WidgetTester tester) async {
       final _MockBookingRepository repo = _MockBookingRepository();
-      final DateTime today = kyivToday(DateTime.now);
+      // Pinned, not `kyivToday(DateTime.now)` — see [_fixedMonthStepToday]'s
+      // doc. `clockProvider` below is overridden with the matching instant,
+      // so the SCREEN's own `_today` (`BookingsDiscoveryView.initState`)
+      // resolves to this exact date too — one source of truth, not two
+      // independent live-clock reads.
+      final DateTime today = _fixedMonthStepToday;
       // `today` is a DATE TOKEN, not an instant (see
       // `lib/shared/time/kyiv_day.dart`'s header): `.toUtc()` on it is on the
       // ILLEGAL list precisely because it reinterprets host-local midnight as
@@ -555,6 +588,14 @@ void main() {
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           bookingRepositoryProvider.overrideWithValue(repo),
           bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+          // Pins the SCREEN's own `_today` to [_fixedMonthStepToday] too —
+          // `asClockInstant` (not the raw date) so the instant lands solidly
+          // inside that Kyiv day regardless of host TZ, exactly as `start`
+          // above does for the fixture booking. See [_fixedMonthStepToday]'s
+          // doc for why this override exists.
+          clockProvider.overrideWithValue(
+            () => asClockInstant(_fixedMonthStepToday),
+          ),
         ],
       );
       await tester.pumpAndSettle();
@@ -692,7 +733,11 @@ void main() {
         await pumpScreen(tester);
 
         final BookingsTimelineGrid before = grid(tester);
-        final DateTime today = kyivToday(DateTime.now);
+        // Pinned, not `kyivToday(DateTime.now)` — see [_fixedMonthStepToday]'s
+        // doc: `railDayAt(today, 1)` below must land inside the rail's
+        // resting week, which a live host clock cannot guarantee on every
+        // weekday.
+        final DateTime today = _fixedMonthStepToday;
 
         await tester.tap(find.byKey(dayChipKey(railDayAt(today, 1))));
         // fixed-wait-ok: advancing past the 220 ms day-select debounce.
@@ -714,7 +759,12 @@ void main() {
       '«Сьогодні» DOES rebuild the timeline — it re-selects the day',
       (tester) async {
         await pumpScreen(tester);
-        final DateTime today = kyivToday(DateTime.now);
+        // Pinned, not `kyivToday(DateTime.now)` — see [_fixedMonthStepToday]'s
+        // doc: `railDayAt(today, 2)` below is EXACTLY the offset that went
+        // red whenever the live host clock's Kyiv day was a Saturday or
+        // Sunday, because it rolled past the resting week's Sunday into a
+        // rail page `PageView.builder` never builds at rest.
+        final DateTime today = _fixedMonthStepToday;
 
         // Move off today first, so «Сьогодні» has a real selection change to
         // make rather than resolving to the day already shown.

@@ -135,6 +135,7 @@ Widget _rail({
   int weekCount = 3,
   int initialPage = 0,
   ValueChanged<DateTime>? onSelectDay,
+  ValueChanged<DateTime>? onVisibleWeekChanged,
 }) {
   return BookingsDayRail(
     controller: PageController(initialPage: initialPage),
@@ -144,6 +145,7 @@ Widget _rail({
     selectedDay: selectedDay ?? today,
     bookedDays: bookedDays,
     onSelectDay: onSelectDay ?? (_) {},
+    onVisibleWeekChanged: onVisibleWeekChanged,
   );
 }
 
@@ -1622,5 +1624,198 @@ void main() {
             'until SOME prior settle has happened.',
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // onVisibleWeekChanged — the settle-only relabel callback (mobile-dev,
+  // 2026-08-14, fixing the frozen «Мої записи» month label)
+  // -------------------------------------------------------------------------
+  //
+  // The bug: `_TopRow`'s month label (`bookings_month_calendar_panel.dart`)
+  // used to be derived from `selectedDay` ALONE — and paging this rail is
+  // deliberately NOT a selection (see the file header's "Paging the rail is
+  // pure NAVIGATION" invariant, unchanged by this callback's existence). So
+  // scrolling the rail into a different month left the label frozen on
+  // whatever month was last SELECTED, until a chip tap finally moved
+  // `selectedDay`. `onVisibleWeekChanged` closes that gap without touching
+  // selection: it is a pure, non-selecting signal the host uses ONLY to
+  // relabel itself.
+  //
+  // Mirrors the haptic cue's own settle-only gating (`CASE 1`-`CASE 6`
+  // above): fired from the SAME `ScrollEndNotification` branch of
+  // `_onRailScroll`, never from a per-frame `ScrollUpdateNotification` — a
+  // pager that relabelled on every drag frame would repaint the label dozens
+  // of times per flick for no benefit, the label only needs to be correct at
+  // rest.
+  group('onVisibleWeekChanged — settle-only relabel callback', () {
+    testWidgets(
+      'a committed week turn reports the SETTLED week\'s Monday, not the '
+      'week the rail started on',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15); // a Wednesday
+        DateTime? reported;
+        await tester.pumpApp(
+          _rail(
+            firstDay: today,
+            today: today,
+            weekCount: 2,
+            onVisibleWeekChanged: (DateTime d) => reported = d,
+          ),
+        );
+        await tester.pumpAndSettle();
+        // Discard anything the initial mount might have reported — this
+        // assertion is about what a COMMITTED TURN reports, not the mount.
+        reported = null;
+
+        await tester.fling(
+          find.byKey(const Key('master-bookings-day-rail')),
+          const Offset(-300, 0),
+          800,
+        );
+        await tester.pumpAndSettle();
+
+        final DateTime thisMonday = mondayOf(today);
+        final DateTime nextMonday = railDayAt(thisMonday, 7);
+        expect(
+          reported,
+          nextMonday,
+          reason:
+              'onVisibleWeekChanged must report the week the rail actually '
+              'settled on — got $reported instead of the next week\'s '
+              'Monday ($nextMonday).',
+        );
+      },
+    );
+
+    // ── THE red-before-fix / green-after-fix REGRESSION for this task ──────
+    testWidgets(
+      'REGRESSION: a week turn that crosses a MONTH boundary reports the '
+      'NEW month — the exact bug this callback exists to fix (the «Мої '
+      'записи» label freezing on the old month while the rail scrolls into '
+      'a new one)',
+      (tester) async {
+        // Monday 2026-01-26 -> Sunday 2026-02-01 is the week straddling the
+        // January/February boundary; the NEXT week (page 1, one fling away)
+        // opens fully inside February.
+        final DateTime firstMonday = DateTime(2026, 1, 26);
+        expect(
+          firstMonday.weekday,
+          DateTime.monday,
+          reason: 'fixture precondition',
+        );
+        DateTime? reported;
+        await tester.pumpApp(
+          _rail(
+            firstDay: firstMonday,
+            today: firstMonday,
+            weekCount: 2,
+            onVisibleWeekChanged: (DateTime d) => reported = d,
+          ),
+        );
+        await tester.pumpAndSettle();
+        reported = null;
+
+        await tester.fling(
+          find.byKey(const Key('master-bookings-day-rail')),
+          const Offset(-300, 0),
+          800,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          reported,
+          isNotNull,
+          reason:
+              'the settle never reported a visible week at all — '
+              'onVisibleWeekChanged did not fire on ScrollEndNotification.',
+        );
+        expect(
+          reported,
+          DateTime(2026, 2, 2),
+          reason:
+              'the rail settled into the week of Feb 2, but the reported '
+              'week was $reported. Before this fix, BookingsDayRail had NO '
+              'way at all to tell its host which week/month it had scrolled '
+              'into — the host\'s month label stayed on January no matter '
+              'how far the rail was paged.',
+        );
+        expect(reported!.month, DateTime.february);
+      },
+    );
+
+    testWidgets('a mid-drag frame does NOT fire the callback — only a settled '
+        '(ScrollEndNotification) turn does', (tester) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      int fireCount = 0;
+      await tester.pumpApp(
+        _rail(
+          firstDay: today,
+          today: today,
+          weekCount: 2,
+          onVisibleWeekChanged: (DateTime _) => fireCount++,
+        ),
+      );
+      await tester.pumpAndSettle();
+      fireCount = 0;
+
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('master-bookings-day-rail'))),
+      );
+      for (int i = 0; i < 5; i++) {
+        await gesture.moveBy(const Offset(-20, 0));
+        await tester.pump();
+      }
+      expect(
+        fireCount,
+        0,
+        reason:
+            'onVisibleWeekChanged fired mid-drag — it must fire only on '
+            'settle, mirroring the haptic cue\'s own '
+            'ScrollEndNotification-only gating. Firing per drag frame '
+            'would relabel the header on every pixel of a flick instead '
+            'of once at rest.',
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+      'a programmatic jumpToPage resync still reports the landed week — '
+      'mirrors the haptic\'s CASE 3, but this callback fires either way',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15);
+        final PageController controller = PageController(initialPage: 0);
+        DateTime? reported;
+        await tester.pumpApp(
+          BookingsDayRail(
+            controller: controller,
+            firstWeekStart: mondayOf(today),
+            weekCount: 10,
+            today: today,
+            selectedDay: today,
+            bookedDays: const <DateTime>{},
+            onSelectDay: (_) {},
+            onVisibleWeekChanged: (DateTime d) => reported = d,
+          ),
+        );
+        await tester.pumpAndSettle();
+        reported = null;
+
+        controller.jumpToPage(5);
+        await tester.pumpAndSettle();
+
+        expect(
+          reported,
+          railDayAt(mondayOf(today), 5 * kRailWeekLength),
+          reason:
+              'a programmatic resync (mirroring '
+              '`_BookingsDiscoveryViewState._showRailWeekOf`) must still '
+              'report the week it landed on — the host relies on this to '
+              'keep the label correct after «Сьогодні» or a chip tap pages '
+              'the rail away from a browsed-to week.',
+        );
+      },
+    );
   });
 }

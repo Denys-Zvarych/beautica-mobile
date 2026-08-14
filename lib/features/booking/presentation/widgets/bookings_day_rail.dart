@@ -264,6 +264,7 @@ class BookingsDayRail extends StatefulWidget {
     required this.selectedDay,
     required this.bookedDays,
     required this.onSelectDay,
+    this.onVisibleWeekChanged,
   });
 
   /// Drives which WEEK is on screen. A [PageController] rather than a bare
@@ -299,6 +300,26 @@ class BookingsDayRail extends StatefulWidget {
   final Set<DateTime> bookedDays;
 
   final ValueChanged<DateTime> onSelectDay;
+
+  /// Fires with the MONDAY of the week page that just SETTLED — on a
+  /// `ScrollEndNotification` only (mirroring [_lastSettledPage]'s haptic
+  /// cue), never on a per-drag-frame `ScrollUpdateNotification`. A rail flick
+  /// through several weeks therefore reports its LANDING week exactly once,
+  /// not once per frame it swept past.
+  ///
+  /// Pure RELABELLING signal, nothing else: paging the rail is still pure
+  /// navigation (see the file header's "Paging the rail is pure NAVIGATION
+  /// and never changes the selection" — that guarantee is unchanged by this
+  /// callback existing). This must never be wired to a selection or a fetch —
+  /// [onSelectDay] remains the only path that does either. It exists solely
+  /// so a host showing a month/week LABEL above this rail (`_TopRow` in
+  /// `bookings_month_calendar_panel.dart`) can track which week is actually
+  /// on screen instead of freezing on whatever week was last SELECTED.
+  ///
+  /// `null` is accepted (unlike [onSelectDay]) so every pre-existing call
+  /// site — including direct `BookingsDayRail(...)` constructions in tests —
+  /// keeps compiling without opting in.
+  final ValueChanged<DateTime>? onVisibleWeekChanged;
 
   @override
   State<BookingsDayRail> createState() => _BookingsDayRailState();
@@ -380,7 +401,21 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
         HapticFeedback.selectionClick();
       }
       _draggedSinceLastSettle = false;
-      if (endRounded != null) _lastSettledPage = endRounded;
+      if (endRounded != null) {
+        _lastSettledPage = endRounded;
+        // Every settle, not gated on `_draggedSinceLastSettle` like the
+        // haptic above: a programmatic resync (`_showRailWeekOf`'s
+        // jumpToPage/animateToPage) ALSO ends on a `ScrollEndNotification`
+        // (see `bookings_day_rail_test.dart`'s haptic CASE 3/3b), and the
+        // host's label must stay correct through that path too — a chip tap
+        // on a week the rail had drifted away from, or «Сьогодні», both
+        // resync the rail programmatically and must not leave the label
+        // frozen on the drifted-to week. The host de-dupes on an unchanged
+        // month, so this costs nothing when the settle didn't move anything.
+        widget.onVisibleWeekChanged?.call(
+          railDayAt(widget.firstWeekStart, endRounded * kRailWeekLength),
+        );
+      }
     }
     return false;
   }

@@ -25,6 +25,18 @@
 //     original bug this whole port fixes was precisely a label and a query
 //     disagreeing.
 //
+// mobile-qa (2026-08-14) addendum — the day-rail MONTH-LABEL fix
+// (`BookingsDayRail.onVisibleWeekChanged`, a pure relabel with NO selection
+// and NO fetch, fired on rail settle). Neither pre-existing test below
+// exercises it: the first test's paging excursion nets exactly one week
+// (never crosses a month, by construction of its own fixture — see that
+// test's own group comment for the arithmetic); the second drives the GRID's
+// month pager (`_stepMonth`), a SELECTING move on an entirely different code
+// path. A third test, right after the first, browses the RAIL across a real
+// month boundary and back via «Сьогодні» — the exact composed scenario the
+// widget-tier `bookings_discovery_view_visible_month_test.dart` also pins,
+// here against the real HTTP boundary instead of a mocked repository.
+//
 // CLOCK DISCIPLINE (mobile-qa M15). Every date here is derived from the
 // harness's INJECTED `kFixedNow` through `toBeauticaTime`/`dateOnly` — the
 // same pair the app under test uses — never from `DateTime.now()`. The rail's
@@ -279,6 +291,17 @@ void main() {
             '_selectDay) is that a week flick moves the viewport and nothing '
             'else — only a chip TAP selects.',
       );
+      // FIXTURE GUARD (mobile-qa, 2026-08-14): this excursion is 2 pages
+      // forward + 3 pages back — net ONE WEEK INTO THE PAST from
+      // `mondayOf(_kyivToday)` — which stays inside the SAME calendar month
+      // by construction of the fixture (`_kyivToday` is mid-June; one week
+      // earlier is still June). So `_label(tester) == labelOnOpen` below is
+      // true whether or not the label actually follows the rail's viewport
+      // across a MONTH boundary — it only proves the label does not move
+      // for a same-month browse. This assertion pins PAGING MECHANICS only
+      // and is NOT month-label coverage; the real month-crossing case is the
+      // dedicated "browsing the WEEK RAIL across a month boundary…" test
+      // below (see also the file header's 2026-08-14 addendum).
       expect(
         _label(tester),
         labelOnOpen,
@@ -329,6 +352,117 @@ void main() {
       // visible page, so nothing pages, and the week must not jump.
       _expectWholeWeekAtRest(tester, at: 'after a chip tap');
       expect(_restingWeekMonday(tester), pastWeekMonday);
+    },
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // mobile-qa (2026-08-14) — the day-rail month-label fix, composed against a
+  // real HTTP boundary.
+  //
+  // WHY THE TEST ABOVE DOES NOT ALREADY COVER THIS. Its own paging excursion
+  // (2 forward, 3 back, net ONE WEEK INTO THE PAST from `_kyivToday` = Kyiv
+  // 2026-06-14) never leaves June — `mondayOf(_kyivToday)` is 2026-06-08, and
+  // one week earlier is 2026-06-01, still June — so its
+  // `_label(tester) == labelOnOpen` assertion is true whether or not paging
+  // relabels the screen. It pins "paging selects/fetches nothing"; it was
+  // never a test of the label following a MONTH-crossing browse, and reading
+  // it as one would be a false sense of coverage. Confirmed by fixture: 5
+  // week-pages forward from 2026-06-08 lands on 2026-07-13, genuinely a
+  // different month.
+  //
+  // The second test below (month+year label…) only drives the GRID's month
+  // pager (`_stepMonth`, a SELECTING move) — a different code path from the
+  // rail's `onVisibleWeekChanged` (a pure relabel, no selection, no fetch)
+  // this fix added. Neither existing flow reaches it.
+  testWidgets(
+    'browsing the WEEK RAIL across a month boundary relabels the panel, '
+    'issues no request, and «Сьогодні» resyncs the label back — the exact '
+    'composed defect the day-rail month-label fix closes, end-to-end '
+    'against a real HTTP boundary',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      await _openBookings(tester, fb);
+
+      final String labelOnOpen = _label(tester);
+      final int fetchesAfterLanding = fb.getMyBookingsCalls;
+      expect(
+        fetchesAfterLanding,
+        greaterThan(0),
+        reason:
+            'fixture guard: the landing fetch never happened, so the '
+            'no-extra-fetch assertions below would prove nothing',
+      );
+
+      // Five week-pages forward from `_kyivToday`'s own week — see the group
+      // comment above for why this (and not the sibling test's ±few-page
+      // excursion) is what actually crosses a month boundary.
+      for (int i = 0; i < 5; i++) {
+        await _pageRail(tester, forward: true);
+      }
+      _expectWholeWeekAtRest(tester, at: 'five weeks forward');
+
+      final DateTime browsedMonday = _restingWeekMonday(tester);
+      expect(
+        browsedMonday.month,
+        isNot(_kyivToday.month),
+        reason:
+            'fixture guard: five week-pages did not leave the landing '
+            'month, so the relabel assertion below proves nothing',
+      );
+      expect(
+        _rail(tester).selectedDay,
+        _kyivToday,
+        reason:
+            'browsing moved the SELECTION — it must stay pure navigation, '
+            'exactly as the sibling test above pins for a same-month '
+            'excursion',
+      );
+
+      final String expectedBrowsed =
+          '${monthNominative(browsedMonday.month)} ${browsedMonday.year}';
+      expect(
+        _label(tester),
+        expectedBrowsed,
+        reason:
+            'the month+year label did not follow the rail across a month '
+            'boundary — this is the production defect ("Мої записи" showing '
+            'the OLD month while the rail is scrolled into a new one) the '
+            'day-rail month-label fix exists to close.',
+      );
+
+      // "Also verify": paging the rail is pure navigation — no request, ever
+      // — including across a month boundary, at the level where a request
+      // would actually reach the fake backend.
+      expect(
+        fb.getMyBookingsCalls,
+        fetchesAfterLanding,
+        reason:
+            'browsing the rail across a month boundary issued GET '
+            '/bookings/me — a week flick must only ever relabel',
+      );
+
+      // «Сьогодні» — the day never actually changes (it was already Kyiv
+      // today), so this is a pure relabel-back, the exact scenario the bug
+      // report describes.
+      await tester.tap(find.byKey(const Key('master-bookings-today')));
+      await AppHarness.settle(tester);
+
+      expect(
+        _label(tester),
+        labelOnOpen,
+        reason:
+            'pressing «Сьогодні» after browsing across a month boundary '
+            'left the label on the browsed-to month instead of the current '
+            'one.',
+      );
+      // No new fetch: `_day` never actually changed (today → today), so the
+      // value-equal query never re-triggers `bookingsDayProvider`'s
+      // keepalive family — see
+      // `bookings_discovery_view_visible_month_test.dart`'s matching widget
+      // test for the same observation spelled out in full.
+      expect(fb.getMyBookingsCalls, fetchesAfterLanding);
+      _expectWholeWeekAtRest(tester, at: 'after «Сьогодні»');
+      expect(_restingWeekMonday(tester), mondayOf(_kyivToday));
     },
   );
 

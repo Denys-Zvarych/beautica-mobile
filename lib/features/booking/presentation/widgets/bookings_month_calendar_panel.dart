@@ -219,6 +219,8 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
     required this.onSelectRailDay,
     required this.onSelectDay,
     required this.onStepMonth,
+    this.visibleMonth,
+    this.onVisibleWeekChanged,
     required this.timeline,
   });
 
@@ -259,6 +261,34 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
   /// a multi-page fling can resolve to a larger magnitude and the host's own
   /// `_stepMonth` handles any value). Never fires with `0`.
   final ValueChanged<int> onStepMonth;
+
+  /// The month the RAIL is currently scrolled to, owned by the host and
+  /// mirroring `BookingsDayRail.onVisibleWeekChanged` — see that field's doc.
+  /// `_TopRow`'s label reads this (never [selectedDay]'s month directly)
+  /// whenever the rail is the interactive layer, so paging the rail relabels
+  /// `_TopRow` even though it never selects. See [_month]/[build] for the
+  /// handoff between this and [selectedDay]'s own month once the grid takes
+  /// over.
+  ///
+  /// The host resyncs this to `selectedDay`'s own month on every SELECTION
+  /// change (a chip tap, «Сьогодні», a grid tap, a month step) — see
+  /// `BookingsDiscoveryView._applySelectedDay` — so a stale browsed-to month
+  /// never survives a fresh selection; only genuine rail scrolling can move
+  /// it away from [selectedDay]'s month again afterwards.
+  ///
+  /// `null` (and [onVisibleWeekChanged] left unset) falls back to [_month] —
+  /// i.e. exactly this widget's pre-existing behaviour — so every call site
+  /// that predates this feature, including every widget test constructing
+  /// this panel directly without a host, keeps compiling and rendering
+  /// byte-identically.
+  final DateTime? visibleMonth;
+
+  /// Forwarded verbatim into `BookingsDayRail.onVisibleWeekChanged` — see
+  /// that field's doc. Routed through this widget rather than reaching the
+  /// rail directly because the host never constructs `BookingsDayRail`
+  /// itself; this panel does, one level down. `null` is a legitimate steady
+  /// state (see [visibleMonth]'s doc), not merely a transient default.
+  final ValueChanged<DateTime>? onVisibleWeekChanged;
 
   /// The booking timeline, built ONCE by the host — see the file header's
   /// "the timeline lives INSIDE this widget's subtree" section. Passed
@@ -348,6 +378,23 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// all. Stranding is not handled — it is unreachable.
   bool _gridContentMounted = false;
 
+  /// Whether `_TopRow`'s label should read [BookingsMonthCalendarPanel
+  /// .visibleMonth] (the rail's own browsed-to month) rather than
+  /// [_month] (derived from [BookingsMonthCalendarPanel.selectedDay]).
+  /// `true` at rest (`_open.value == 0 < _kPanelHandoffT`) — the rail is the
+  /// interactive layer there, so its month is the one the label must track.
+  /// Flipped on the SAME [_kPanelHandoffT] boundary the two `IgnorePointer`s
+  /// already use to swap which pager is hit-testable (see the file header's
+  /// "Gesture layering" section) — this is deliberately the identical
+  /// constant, not an independent one, so the label switches exactly when
+  /// control of the panel switches, never before or after.
+  ///
+  /// Flipped only at the boundary (mirroring [_gridContentMounted]'s own
+  /// 0-boundary pattern), not read as a raw `_open.value` on every frame —
+  /// `_TopRow`'s label is built once per real change, never per drag frame,
+  /// per the class doc.
+  bool _railInteractive = true;
+
   @override
   void initState() {
     super.initState();
@@ -355,9 +402,10 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
-    // Flips [_gridContentMounted] on the 0 ↔ >0 boundary only — twice per
-    // open/close cycle, not once per drag frame. The `setState` it issues is
-    // confined to THIS `State`; the host is never rebuilt, which is what
+    // Flips [_gridContentMounted] (0 boundary) and [_railInteractive]
+    // ([_kPanelHandoffT] boundary) — each only on its own crossing, not once
+    // per drag frame. The `setState` this issues is confined to THIS
+    // `State`; the host is never rebuilt, which is what
     // `bookings_month_calendar_panel_test.dart` pins.
     _open.addListener(_onOpenChanged);
     _anchorMonth = DateTime(widget.today.year, widget.today.month);
@@ -365,9 +413,16 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   }
 
   void _onOpenChanged() {
-    final bool next = _open.value > 0;
-    if (next == _gridContentMounted) return;
-    setState(() => _gridContentMounted = next);
+    final bool nextGridMounted = _open.value > 0;
+    final bool nextRailInteractive = _open.value < _kPanelHandoffT;
+    if (nextGridMounted == _gridContentMounted &&
+        nextRailInteractive == _railInteractive) {
+      return;
+    }
+    setState(() {
+      _gridContentMounted = nextGridMounted;
+      _railInteractive = nextRailInteractive;
+    });
   }
 
   @override
@@ -534,9 +589,17 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // While the rail is the interactive layer, the label tracks where the
+    // rail is SCROLLED TO, not [_month] (derived from [selectedDay]) — see
+    // [_railInteractive]'s doc and `BookingsDayRail.onVisibleWeekChanged`.
+    // Once the grid takes over (`_railInteractive == false`) the grid's own
+    // pager already selects on every settled step (`_resolveMonthPage`), so
+    // [_month] is correct there and is what this falls back to.
+    final DateTime labelMonth = _railInteractive
+        ? (widget.visibleMonth ?? _month)
+        : _month;
     final String monthLabel =
-        '${monthNominative(widget.selectedDay.month)} '
-        '${widget.selectedDay.year}';
+        '${monthNominative(labelMonth.month)} ${labelMonth.year}';
 
     return Stack(
       children: <Widget>[
@@ -681,6 +744,7 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                             selectedDay: widget.selectedDay,
                             bookedDays: widget.bookedDays,
                             onSelectDay: widget.onSelectRailDay,
+                            onVisibleWeekChanged: widget.onVisibleWeekChanged,
                           ),
                         ),
                       ),

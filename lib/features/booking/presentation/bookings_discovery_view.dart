@@ -250,6 +250,33 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// no «Всі» / null-day state (Phase 7.11).
   late DateTime _day;
 
+  /// The month `_TopRow` (`bookings_month_calendar_panel.dart`) labels
+  /// itself with WHILE THE RAIL IS COLLAPSED AND INTERACTIVE — separate from
+  /// [_day] on purpose. [_day] only ever changes on a SELECTION (a chip tap,
+  /// a grid tap, «Сьогодні», a month step); paging the rail is deliberately
+  /// NOT a selection (see [_selectDay]'s "RAIL↔CALENDAR CONSISTENCY
+  /// CONTRACT" doc) and must stay that way — no additional fetch may result
+  /// from a rail flick. Before this field existed, `_TopRow`'s label read
+  /// [_day]'s month directly, so scrolling the rail into a different month
+  /// left the label frozen on the OLD month until the master tapped a chip.
+  ///
+  /// Kept in lockstep with [_day] from BOTH directions:
+  ///   * every mutation of [_day] ([_applySelectedDay]) resets this to the
+  ///     NEW [_day]'s month in the SAME `setState` — so «Сьогодні» / a chip
+  ///     tap / a grid tap / a month step always lands the label on the
+  ///     freshly selected month immediately, even if the rail itself is
+  ///     still mid-animation back to that week's page.
+  ///   * [BookingsDayRail.onVisibleWeekChanged] ([_onRailVisibleWeekChanged])
+  ///     updates it independently whenever the rail SETTLES on a different
+  ///     week — including a week the master merely scrolled past without
+  ///     selecting anything in it.
+  ///
+  /// `BookingsMonthCalendarPanel` reads this only while its own rail layer is
+  /// interactive (`t < _kPanelHandoffT`); once the grid takes over it derives
+  /// the label from [_day] instead, because the grid's own pager already
+  /// selects on every settled step — see that widget's `_railInteractive`.
+  late DateTime _visibleMonth;
+
   /// The USER's status selection — what the filter sheet resolved with, and
   /// EMPTY until the master picks a group. Deliberately the RAW selection, NOT
   /// the set that goes on the wire: the default cancelled/declined exclusion is
@@ -381,6 +408,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       -kRailWeekLength * kBookingsDayRailWeekSpan,
     );
     _day = _today;
+    _visibleMonth = DateTime(_today.year, _today.month);
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
     // Through [_rebuildQuery], NOT a second inline `BookingsDayQuery.of` — it
@@ -613,8 +641,38 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     final DateTime selected = dateOnly(day);
     setState(() {
       _day = selected;
+      // Resyncs the `_TopRow` label to the FRESH selection immediately — see
+      // [_visibleMonth]'s doc. For a NON-adjacent [_showRailWeekOf] resync
+      // (`jumpToPage`, synchronous) this is redundant with the independent
+      // `onVisibleWeekChanged` relabel that follows it in the very same
+      // frame, so mutating it alone cannot be made to fail through most
+      // scenarios — confirmed, not merely assumed (mobile-qa, 2026-08-14).
+      // It IS load-bearing for the one case that actually samples a gap: an
+      // ADJACENT-week resync (`animateToPage`, a real 280-320ms
+      // `AnimationController` sweep — see `_kRailAnimateMaxPages`) that also
+      // crosses a month boundary. Without this line, the label stays on the
+      // browsed-to month for that whole window instead of updating the
+      // instant the selection changes; RED/GREEN-proven by
+      // `bookings_discovery_view_visible_month_test.dart`'s
+      // "REGRESSION (mid-animation window)" case, which samples via
+      // `pump(Duration)` mid-animation rather than `pumpAndSettle()`.
+      _visibleMonth = DateTime(selected.year, selected.month);
       _rebuildQuery();
     });
+  }
+
+  /// `BookingsDayRail.onVisibleWeekChanged` (routed through
+  /// `BookingsMonthCalendarPanel`) — fires with the Monday of whichever week
+  /// the rail just SETTLED on, on scroll-end only. Updates ONLY
+  /// [_visibleMonth]: never [_day], never [_liveQuery] — see that field's doc
+  /// for why paging the rail must stay pure navigation. No `setState` (hence
+  /// no rebuild, hence no provider fetch) when the settled week's month
+  /// hasn't actually changed — a spring-back, or a programmatic resync that
+  /// lands back on the already-shown month, is a no-op here.
+  void _onRailVisibleWeekChanged(DateTime weekStart) {
+    final DateTime month = DateTime(weekStart.year, weekStart.month);
+    if (_visibleMonth == month) return;
+    setState(() => _visibleMonth = month);
   }
 
   /// The «Скинути фільтри» escape hatch on the filter-empty state — clears
@@ -877,6 +935,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                     onSelectRailDay: _selectDay,
                     onSelectDay: _selectImmediate,
                     onStepMonth: _stepMonth,
+                    visibleMonth: _visibleMonth,
+                    onVisibleWeekChanged: _onRailVisibleWeekChanged,
                     timeline: timeline,
                   );
                 },

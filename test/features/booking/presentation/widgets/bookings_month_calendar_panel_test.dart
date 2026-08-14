@@ -63,6 +63,7 @@
 
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_month_calendar_panel.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -143,6 +144,15 @@ class _RebuildProbeHostState extends State<_RebuildProbeHost> {
             onSelectRailDay: widget.onSelectRailDay,
             onSelectDay: widget.onSelectDay,
             onStepMonth: widget.onStepMonth,
+            // Not under test in this file — its whole scope is the
+            // drag/settle rebuild-isolation claim, not the label. A fixed
+            // value matching `selectedDay`'s own month is the simplest input
+            // that keeps this panel's invariants satisfied.
+            visibleMonth: DateTime(
+              widget.selectedDay.year,
+              widget.selectedDay.month,
+            ),
+            onVisibleWeekChanged: (DateTime _) {},
             timeline: const _TimelineStandIn(),
           ),
         ),
@@ -376,4 +386,149 @@ void main() {
       );
     },
   );
+
+  // ---------------------------------------------------------------------
+  // `_TopRow`'s label — visibleMonth vs selectedDay handoff (mobile-dev,
+  // 2026-08-14) — fixes the «Мої записи» month label freezing when the
+  // collapsed rail is scrolled into a different month without a selection.
+  // ---------------------------------------------------------------------
+  //
+  // `BookingsDayRail.onVisibleWeekChanged` (a settle-only, non-selecting
+  // callback pinned in `bookings_day_rail_test.dart`) feeds this panel's
+  // `visibleMonth` input via the host (`BookingsDiscoveryView._visibleMonth`)
+  // — this file pins the PANEL half of the fix: that `_TopRow` actually reads
+  // it while the rail is the interactive layer, and hands back off to
+  // `selectedDay`'s own month once the grid takes over (the grid already
+  // selects on every settled step, so its own month is authoritative there).
+  group('label — visibleMonth vs selectedDay handoff', () {
+    Widget panel({
+      required PageController railController,
+      required DateTime today,
+      required DateTime selectedDay,
+      required DateTime? visibleMonth,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Expanded(
+            child: BookingsMonthCalendarPanel(
+              railController: railController,
+              railFirstWeekStart: mondayOf(
+                DateTime(today.year, today.month, today.day - 7),
+              ),
+              weekCount: 3,
+              today: today,
+              selectedDay: selectedDay,
+              bookedDays: const <DateTime>{},
+              onSelectRailDay: (DateTime _) {},
+              onSelectDay: (DateTime _) {},
+              onStepMonth: (int _) {},
+              visibleMonth: visibleMonth,
+              onVisibleWeekChanged: (DateTime _) {},
+              timeline: const SizedBox.shrink(),
+            ),
+          ),
+        ],
+      );
+    }
+
+    const Key labelKey = Key('bookings-month-calendar-label');
+    const Key toggleKey = Key('bookings-month-calendar-toggle');
+
+    testWidgets('the label reads visibleMonth while the rail is collapsed/'
+        'interactive, NOT selectedDay\'s own month', (tester) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      final DateTime visibleMonth = DateTime(2026, 3); // browsed to March
+      final PageController controller = PageController(initialPage: 1);
+      addTearDown(controller.dispose);
+
+      await tester.pumpApp(
+        panel(
+          railController: controller,
+          today: today,
+          selectedDay: today, // still July — nothing has been SELECTED
+          visibleMonth: visibleMonth,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Text label = tester.widget<Text>(find.byKey(labelKey));
+      expect(
+        label.data,
+        '${monthNominative(3)} 2026',
+        reason:
+            'the label must track the rail\'s browsed-to month '
+            '(visibleMonth), not selectedDay\'s July — this is exactly '
+            'the frozen-month-label bug this feature fixes.',
+      );
+    });
+
+    testWidgets('expanding hands the label back to selectedDay\'s month, and '
+        'collapsing hands it back to visibleMonth', (tester) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      final DateTime visibleMonth = DateTime(2026, 3);
+      final PageController controller = PageController(initialPage: 1);
+      addTearDown(controller.dispose);
+
+      await tester.pumpApp(
+        panel(
+          railController: controller,
+          today: today,
+          selectedDay: today,
+          visibleMonth: visibleMonth,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(toggleKey));
+      await tester.pumpAndSettle();
+
+      final Text expandedLabel = tester.widget<Text>(find.byKey(labelKey));
+      expect(
+        expandedLabel.data,
+        '${monthNominative(today.month)} ${today.year}',
+        reason:
+            'once expanded (grid interactive), the label must read '
+            'selectedDay\'s own month — the grid\'s pager already '
+            'selects on every settled step, so it is authoritative '
+            'there, not the stale visibleMonth the rail was left '
+            'scrolled to before expanding.',
+      );
+
+      await tester.tap(find.byKey(toggleKey));
+      await tester.pumpAndSettle();
+
+      final Text collapsedAgain = tester.widget<Text>(find.byKey(labelKey));
+      expect(
+        collapsedAgain.data,
+        '${monthNominative(3)} 2026',
+        reason:
+            'collapsing back must hand the label back to visibleMonth — '
+            'the host does not clear it merely because the panel closed.',
+      );
+    });
+
+    testWidgets(
+      'a null visibleMonth (every pre-existing call site) falls back to '
+      'selectedDay\'s own month — unchanged pre-feature behaviour',
+      (tester) async {
+        final DateTime today = DateTime(2026, 7, 15);
+        final PageController controller = PageController(initialPage: 1);
+        addTearDown(controller.dispose);
+
+        await tester.pumpApp(
+          panel(
+            railController: controller,
+            today: today,
+            selectedDay: today,
+            visibleMonth: null,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Text label = tester.widget<Text>(find.byKey(labelKey));
+        expect(label.data, '${monthNominative(today.month)} ${today.year}');
+      },
+    );
+  });
 }

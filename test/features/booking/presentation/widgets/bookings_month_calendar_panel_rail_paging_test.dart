@@ -248,15 +248,39 @@ void main() {
   );
 
   testWidgets(
-    'paging the rail ACROSS a month boundary leaves the month+year label '
-    'untouched — the label names the SELECTED month, never the browsed one',
+    'with NO `visibleMonth`/`onVisibleWeekChanged` wired (this harness\'s '
+    '`_PanelHost` never sets either), paging the rail ACROSS a month '
+    'boundary leaves the label on `_month` — the PRE-feature null-fallback, '
+    'not the live product behaviour',
     (tester) async {
+      // ⚠ mobile-qa (2026-08-14) — rationale corrected. This assertion is
+      // still legitimate — it pins `BookingsMonthCalendarPanel`'s
+      // `visibleMonth ?? _month` NULL FALLBACK (`labelMonth = _railInteractive
+      // ? (widget.visibleMonth ?? _month) : _month`) — but its ORIGINAL
+      // reason string claimed the frozen label WAS the intended product
+      // behaviour everywhere, which stopped being true the moment
+      // `onVisibleWeekChanged`/`visibleMonth` shipped: on the real screen
+      // (`BookingsDiscoveryView`), paging the rail into a different month
+      // DOES relabel — that is the whole fix. This test only still passes
+      // because `_PanelHost` below constructs `BookingsMonthCalendarPanel`
+      // WITHOUT `visibleMonth:`/`onVisibleWeekChanged:` (both optional,
+      // defaulting to `null`), so it is exercising the null-fallback path
+      // deliberately left in place for every OTHER pre-existing call site —
+      // never the live relabel path itself. See
+      // `bookings_discovery_view_visible_month_test.dart` for the composed,
+      // host-level proof that a REAL rail browse DOES move this label, and
+      // `bookings_day_rail_test.dart`'s `onVisibleWeekChanged` group for the
+      // callback's own unit coverage. Do not restore the old framing, and do
+      // not delete this test — the null fallback itself is still a real
+      // contract (every pre-existing direct `BookingsMonthCalendarPanel(...)`
+      // construction, including this one, must keep rendering byte-identically).
       final _Emissions emissions = await pumpPanel(tester);
       final String opening = label(tester);
 
       // Six weeks forward from mid-July is comfortably into September, so a
-      // label derived from the rail's viewport rather than from the selection
-      // cannot fail to change.
+      // label derived from the rail's viewport rather than from `_month`
+      // cannot fail to change — this is what makes the assertion below mean
+      // something rather than being vacuously true because nothing moved.
       for (int i = 0; i < 6; i++) {
         await flingRail(tester, -300);
       }
@@ -273,17 +297,19 @@ void main() {
         isNot(_today.month),
         reason:
             'fixture guard: six week pages did not leave July, so a label '
-            'tracking the viewport would look identical to one tracking the '
-            'selection and the assertion below proves nothing',
+            'tracking the viewport would look identical to one tracking '
+            '`_month` and the assertion below proves nothing',
       );
 
       expect(
         label(tester),
         opening,
         reason:
-            'the month label followed the RAIL\'s viewport instead of the '
-            'selection — the master is now looking at a month name that no '
-            'part of the query, the grid or the timeline agrees with',
+            'the month label followed the RAIL\'s viewport even though this '
+            'harness wired neither `visibleMonth` nor `onVisibleWeekChanged` '
+            '— the `?? _month` null fallback in `BookingsMonthCalendarPanel'
+            '.build` regressed, which would also change what every OTHER '
+            'pre-existing direct-construction call site renders',
       );
       expect(emissions.isEmpty, isTrue, reason: emissions.toString());
     },
