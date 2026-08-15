@@ -440,7 +440,10 @@ void main() {
         expect(froms, <DateTime?>[_kyivToday]);
 
         // Move the rail to a DIFFERENT day; that day fails too.
-        final DateTime otherDay = railDayAt(_kyivToday, 1);
+        // NOT `railDayAt(_kyivToday, 1)` — that walks off the visible
+        // week-page whenever `_kyivToday` is late in the week (e.g. Sunday),
+        // leaving no matching chip to tap. See `_otherDaysThisWeek`'s doc.
+        final DateTime otherDay = _otherDaysThisWeek.first;
         await tester.tap(find.byKey(dayChipKey(otherDay)));
         // fixed-wait-ok: advancing past the 220 ms day-select debounce.
         await tester.pump(const Duration(milliseconds: 300));
