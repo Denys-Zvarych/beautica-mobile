@@ -188,18 +188,20 @@ class _Screen extends StatelessWidget {
 /// than merely just-safe (a Sunday-adjacent Tuesday anchor would still work
 /// for +1/+2 but leaves no slack for a future test adding a larger offset).
 ///
-/// `.utc(...)`, not a bare local `DateTime(2026, 8, 10)` — this value is
+/// Deliberately a BARE local `DateTime`, not `.utc(...)`. This value is
 /// consumed ONLY through [railDayAt] and [asClockInstant], both of which
 /// read exactly its `.year`/`.month`/`.day` fields and rebuild a fresh
-/// `DateTime` from them, so the UTC/local flag on the DECLARATION itself is
-/// unobservable either way; `.utc()` is still the right spelling because it
-/// makes the value's role (a calendar-day token, never an instant compared
-/// directly) unambiguous to the next reader and matches
-/// `scripts/forbid_host_local_instant_anchor.sh`'s accepted-fix shape.
-/// Confirmed by running this file's whole `TZ=Europe/Kyiv` /`TZ=UTC`
-/// /`TZ=Asia/Tokyo` matrix both before and after this change — all green
-/// throughout, this was never a live TZ bug.
-final DateTime _fixedMonthStepToday = DateTime.utc(2026, 8, 10);
+/// `DateTime` from them, so the UTC/local flag on the DECLARATION is
+/// unobservable — the whole `TZ=Europe/Kyiv` / `TZ=UTC` / `TZ=Asia/Tokyo`
+/// matrix is green either way, and this was never a live TZ bug.
+///
+/// It was briefly switched to `.utc(...)` (2026-08-15) purely for
+/// expressiveness, which turned out to BREAK CI: this file sits under
+/// `test/features/booking/`, where `scripts/forbid_stale_future_date_fixture
+/// .sh` forbids absolute future `DateTime.utc(...)` literals outright. Since
+/// the spelling buys nothing observable here, the bare form is the correct
+/// one — do not "improve" it back.
+final DateTime _fixedMonthStepToday = DateTime(2026, 8, 10);
 
 void main() {
   setUpAll(() {
