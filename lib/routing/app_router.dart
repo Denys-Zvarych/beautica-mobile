@@ -92,6 +92,7 @@ import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
 import '../features/services/domain/category_slug.dart';
+import '../shared/formatters/api_date.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'role_home.dart';
@@ -1046,9 +1047,33 @@ GoRouter appRouter(Ref ref) {
       // suppressed it. `context.go(RouteNames.masterSchedule)` elsewhere (the
       // weekly editor's save/cancel returns) is unaffected — `.go` replaces the
       // stack regardless of page type.
+      // `?date=yyyy-MM-dd` — pre-selects a date instead of today (see
+      // `RouteNames.masterSchedule`'s doc). Malformed/absent → `null` →
+      // [MasterScheduleScreen] opens on today, unchanged.
       GoRoute(
         path: RouteNames.masterSchedule,
-        builder: (context, state) => const MasterScheduleScreen(),
+        builder: (context, state) {
+          final String? raw = state.uri.queryParameters['date'];
+          DateTime? initialDate;
+          if (raw != null) {
+            try {
+              initialDate = parseApiDate(raw);
+            } on FormatException {
+              initialDate = null;
+            } on ArgumentError {
+              // Defence in depth (mobile-security HIGH). `parseApiDate`
+              // itself now bound-checks before ever constructing a
+              // `DateTime`, so this branch should be unreachable — but this
+              // route is reachable from an explicit, component-targeted deep
+              // link an attacker fully controls (`MainActivity` is
+              // `exported="true"`; see this route's doc), so a second net
+              // against `DateTime`'s own `ArgumentError` costs nothing and
+              // survives a future regression in that bound check.
+              initialDate = null;
+            }
+          }
+          return MasterScheduleScreen(initialDate: initialDate);
+        },
       ),
       // Phase 15.5 — the REAL weekly-template editor («Робочі дні та години»),
       // graduating the Phase 15.2 [WeeklyTemplateEditorStubScreen] at the same

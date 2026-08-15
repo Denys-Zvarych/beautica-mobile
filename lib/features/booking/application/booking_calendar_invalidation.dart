@@ -53,15 +53,42 @@ import 'my_bookings_notifier.dart';
 ///     `OverrideConflict.date` from the conflict check that authorised the
 ///     write), so there is no need to guess at the whole family.
 ///
-///     LIMITATION, accepted: this reaches only the PLAIN
-///     `BookingsDayQuery.of(day: d)` member (no status/serviceId filters). A
-///     FILTERED LRU entry for the same day — e.g. the rail narrowed to
-///     CONFIRMED-only — is a different family key and is not caught here; it
-///     goes stale until its own keepAlive window elapses or it is next
-///     rebuilt naturally. That is a stale filtered view, never wrong data
-///     rendered as fresh (the common, unfiltered view is always correct
-///     immediately), so it is not worth widening this to every filter
-///     combination that has ever touched [affectedDates].
+///     TWO members per date, not one — and that is a correctness
+///     requirement, not belt-and-braces (mobile-perf HIGH, 2026-08-13):
+///
+///       – `BookingsDayQuery.dayList(day: d)` — the DEFAULT day-list member
+///         (`{CONFIRMED, COMPLETED, NOT_COMPLETED}` on the wire). This is the
+///         one `BookingsDiscoveryView` actually watches on an untouched
+///         «Мої записи», so it is the one that MUST drop. It did not exist
+///         when this function was written; when the day list started hiding
+///         CANCELLED/DECLINED by default (locked 2026-08-13) the screen moved
+///         to a new family key and this site kept invalidating the old one,
+///         so a decline through `DayHoursSheet` left the master's own list
+///         serving the declined booking as CONFIRMED — pinned across screen
+///         disposal by `bookings_day_notifier.dart`'s ≤3-day keepAlive LRU,
+///         recoverable only by a manual pull-to-refresh. Built through the
+///         shared factory so this can never drift from the screen again.
+///       – `BookingsDayQuery.of(day: d)` — the PLAIN, empty-status member.
+///         No other `lib/` host reads it today (checked, mobile-perf
+///         2026-08-13); it is load-bearing because the DAY LIST ITSELF
+///         resolves to this key once the master ticks every filter group —
+///         `BookingStatus.dayListWireStatuses` maps the maximal selection to
+///         `const <BookingStatus>{}`, i.e. no `status` param at all, which is
+///         exactly this member. Dropping this call would leave the
+///         select-all view stale.
+///
+///     Invalidating a family member with no live listener is a documented
+///     no-op, so the second call costs nothing whenever only one is mounted.
+///
+///     LIMITATION, accepted: a member carrying a MASTER-CHOSEN filter — the
+///     list narrowed to «Скасовані», or to one service — is a third family
+///     key and is not caught here; it goes stale until its own keepAlive
+///     window elapses or it is next rebuilt naturally. That is a stale
+///     filtered view behind a visible funnel badge, on a screen the master
+///     deliberately narrowed, so it is not worth widening this to every
+///     filter combination that has ever touched [affectedDates]. The two
+///     members above are the ones a master lands on without choosing
+///     anything, which is why they are not part of that trade.
 ///   • [myBookingsProvider] `upcoming` + `cancelled` tabs — a DECLINED
 ///     booking leaves `upcoming` and enters `cancelled`; same two tabs
 ///     `BookingDetailScreen` invalidates after its own decline. These two
@@ -89,6 +116,9 @@ void invalidateBookingViewsAfterExternalDecline(
     ref.invalidate(bookingDetailProvider(id));
   }
   for (final DateTime day in affectedDates.toSet()) {
+    // BOTH members — see the doc above. `.dayList` is the one the master's own
+    // «Мої записи» watches by default; `.of` is the plain one other hosts use.
+    ref.invalidate(bookingsDayProvider(BookingsDayQuery.dayList(day: day)));
     ref.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: day)));
   }
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));

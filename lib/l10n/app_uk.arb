@@ -3756,6 +3756,21 @@
   "@bookingDayUnavailableState": {
     "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the time screen's fallback message when the slots fetch itself fails."
   },
+  "bookingsCalendarPastDayState": "минулий день",
+  "@bookingsCalendarPastDayState": {
+    "description": "Accessibility state word for a past day in BookingsMonthCalendarPanel's expandable month grid (master's «Записи» screen) — distinct from bookingDayUnavailableState, which means 'has no bookable slots' in the slot-picker context; here every day stays tappable, so 'unavailable' would be the wrong word."
+  },
+  "bookingsMonthCalendarToggleSemantics": "Місяць {month}, розгорнути або згорнути календар",
+  "@bookingsMonthCalendarToggleSemantics": {
+    "description": "Accessibility label for BookingsMonthCalendarPanel's top-row tap target that expands/collapses the month calendar over the day rail.",
+    "placeholders": {
+      "month": { "type": "String", "example": "Липень 2026" }
+    }
+  },
+  "bookingsMonthCalendarHandleSemantics": "Розгорнути або згорнути календар",
+  "@bookingsMonthCalendarHandleSemantics": {
+    "description": "Accessibility label for BookingsMonthCalendarPanel's drag handle below the calendar."
+  },
   "bookingNoSlotsTitle": "Немає вільного часу",
   "@bookingNoSlotsTitle": {
     "description": "Empty-state heading on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
@@ -5073,6 +5088,10 @@
       "service": { "type": "String", "example": "Манікюр з покриттям" }
     }
   },
+  "masterBookingsDeclaredTimeFree": "Вільно",
+  "@masterBookingsDeclaredTimeFree": {
+    "description": "Line 2 of a free declared-time card on an EXPLICIT_TIMES day in the master's «Мої записи» timeline (Phase 244 follow-up) — this declared time has no booking on it."
+  },
   "masterBookingsEmptyTitle": "Поки немає записів",
   "@masterBookingsEmptyTitle": {
     "description": "True-empty state title on the master's booking list — the master has no bookings at all and no filter is active."
@@ -5092,6 +5111,10 @@
   "masterBookingsClearFilters": "Скинути фільтри",
   "@masterBookingsClearFilters": {
     "description": "The escape hatch on the master's filter-empty state — clears every filter so the master is never stranded on a blank list."
+  },
+  "masterBookingsNoScheduleTitle": "На цей день графік не задано",
+  "@masterBookingsNoScheduleTitle": {
+    "description": "Title of MasterBookingsNoWorkingHoursState (dayOff: false) — the selected day has no published working hours at all (NO_SCHEDULE or a working source with empty intervals/times), so the booking timeline is replaced by this state instead of an empty grid."
   },
   "bookingFilterSheetTitle": "Фільтри",
   "@bookingFilterSheetTitle": {

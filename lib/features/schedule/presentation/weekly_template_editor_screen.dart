@@ -44,6 +44,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -103,9 +104,11 @@ class WeeklyTemplateEditorScreen extends ConsumerStatefulWidget {
   /// on every read: a midnight rollover between picking the validity window and
   /// pressing Save yields a fresh "today", letting the submit-time clamp correct
   /// a now-stale cached `validFrom` instead of POSTing yesterday's date (which
-  /// the backend rejects with a 400 `@FutureOrPresent`). Defaults to
-  /// `DateTime.now()` in production; tests pass a callback over a mutable clock
-  /// they can advance between pick and Save to exercise the regression.
+  /// the backend rejects with a 400 `@FutureOrPresent`). When unset (the
+  /// router never passes it), `_today` falls back to `ref.read(clockProvider)`
+  /// — never a bare `DateTime.now()` — so the E2E harness's pinned clock still
+  /// reaches this screen. Tests pass a callback over a mutable clock they can
+  /// advance between pick and Save to exercise the regression.
   final DateTime Function()? _clock;
 
   @override
@@ -223,9 +226,16 @@ class _WeeklyTemplateEditorScreenState
   /// (`atStartOfDay(TimeZones.KYIV)`), so "today" here must be the Kyiv day
   /// the injected clock's instant falls on — not the device's own calendar
   /// day. See `shared/time/kyiv_day.dart`'s file header.
+  ///
+  /// The explicit constructor `clock:` (used by widget tests to pin "today")
+  /// always wins when supplied. When the screen is reached through the
+  /// router — which never passes `clock:` — this falls back to the injected
+  /// `clockProvider` seam (mirrors `MasterSchedulePage._today` /
+  /// `SlotPickerScreen._today`) rather than a bare `DateTime.now()`, so the
+  /// E2E harness's globally-pinned clock reaches this screen too.
   DateTime get _today {
     // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
-    final DateTime c = widget._clock?.call() ?? DateTime.now();
+    final DateTime c = widget._clock?.call() ?? ref.read(clockProvider)();
     return kyivDayOf(c);
   }
 

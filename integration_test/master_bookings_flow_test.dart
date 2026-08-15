@@ -68,14 +68,17 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -96,6 +99,7 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/pager_drag.dart';
 
 /// The REAL rendered geometry of the [MasterBookingCard] keyed
 /// `timeline-card-<id>` — mirrors `bookings_timeline_grid_test.dart`'s own
@@ -132,41 +136,108 @@ AppLocalizations _l10nOf(WidgetTester tester, Type screen) =>
 /// instead of passing by coincidence.
 final DateTime _kyivToday = dateOnly(toBeauticaTime(kFixedNow));
 
-/// Scrolls the day rail until [day]'s chip is actually built, taps it, and
-/// waits out the screen's 220 ms day-tap debounce.
+/// Seeds `GET …/effective-schedule` with a wide 09:00–21:00 Kyiv working
+/// window for every day in [days] — a fixture-gap fix, not a behaviour
+/// change: `FakeBackend`'s default (empty, every date resolves to
+/// NO_SCHEDULE — see `seedEffectiveSchedule`'s own doc) now gates the
+/// timeline behind published working hours (Phase 244), so any flow in this
+/// file that asserts a card's presence has to publish hours for every day it
+/// actually views — the LANDING day (`_kyivToday`, since
+/// `BookingsDiscoveryView.initState` opens on `_day = _today`) and/or
+/// whichever day a rail selection narrows to (`fb.bookingStartsAt`'s date,
+/// or a hand-derived `seededDay` for the flows with their own dataset).
 ///
-/// The rail is a LAZY `ListView.builder` — 361 chips at a fixed
-/// `kRailItemExtent`, of which only the visible handful are ever built — and
-/// it opens aligned to "today"-first, so roughly six days are on screen at
-/// once. Every seeded-booking day in this file comes from
-/// `fb.bookingStartsAt`, which is anchored to the REAL clock (7 days out)
-/// while the rail is anchored to the INJECTED one, leaving the target ~45
-/// cells to the right of the viewport and therefore never built. A bare
+/// 09:00 matches this file's own "grid begins at 09:00" comments and every
+/// booking's start; 21:00 is strictly past the latest seeded start (20:00
+/// Kyiv). Deliberately NOT 18:00 — `ScheduleTimelineWindow.includesStart` on
+/// an INTERVAL day excludes its own `windowEndMinute` (strict `<`), and the
+/// default `booking-1` fixture starts at exactly 18:00 Kyiv
+/// (`FakeBackend._kFixtureDay`), so an 18:00 end would silently drop it.
+void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
+  fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+    for (final DateTime day in days)
+      FakeBackend.seedEffectiveScheduleDay(
+        day,
+        intervals: const <(String, String)>[('09:00:00', '21:00:00')],
+      ),
+  ]);
+}
+
+/// EVERY rendered gridline (`BookingsTimelineGrid`'s hour + half-hour
+/// `ColoredBox` hairlines), sorted ascending by rendered top — mirrors
+/// `bookings_timeline_grid_test.dart`'s identically-named widget-tier helper.
+///
+/// mobile-qa (this session): `find.byType(BookingsTimelineGrid)` /
+/// `find.byType(TimelineHourRuler)` `findsOneWidget` is satisfied by the
+/// COLLAPSED widget too — the collapsed-height bug leaves both types in the
+/// tree, just at zero height. This helper backs the REAL-geometry assertion
+/// that actually guards it at the integration tier.
+List<Rect> _gridlineLadderAscending(WidgetTester tester) {
+  final Color halfHour = BrandColors.faint.withValues(alpha: 0.4);
+  final Iterable<Element> elements = find
+      .byWidgetPredicate(
+        (Widget w) =>
+            w is ColoredBox &&
+            (w.color == BrandColors.faint || w.color == halfHour),
+      )
+      .evaluate();
+  return elements.map((Element e) {
+    final RenderBox box = e.renderObject! as RenderBox;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }).toList()..sort((Rect a, Rect b) => a.top.compareTo(b.top));
+}
+
+/// Pages the rail forward one WHOLE week — deterministically.
+///
+/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
+/// documents the full "why not `fling`" write-up and the steps=4 regression
+/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
+/// `PageController.page` froze mid-drag and never crossed the page boundary,
+/// which surfaced here as "Found 0 widgets with key
+/// master-bookings-day-chip-…" after up to 60 fruitless `_selectRailDay`
+/// turns per call site).
+Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
+  tester,
+  const Key('master-bookings-day-rail'),
+  forward: true,
+);
+
+/// Pages the day rail until [day]'s chip is BUILT and on screen, without
+/// tapping it — for assertions about a cell's own content (its has-bookings
+/// dot) that must not also change the selection. A no-op when the chip is
+/// already visible, so it is safe to call ahead of [_selectRailDay] on the
+/// same day.
+///
+/// The rail is a LAZY `PageView.builder` of Mon→Sun WEEK pages, of which only
+/// the current one (plus whatever the viewport's cache extent reaches) is ever
+/// built, and it opens on the week containing the INJECTED clock's "today".
+/// Every seeded-booking day in this file comes from `fb.bookingStartsAt`,
+/// which is anchored to the REAL clock (7 days out), so the target is several
+/// WEEK PAGES to the right and therefore never built. A bare
 /// `tester.tap(find.byKey(dayChipKey(day)))` then fails the finder outright:
-/// "Found 0 widgets with key master-bookings-day-chip-2026-07-29".
+/// "Found 0 widgets with key master-bookings-day-chip-2026-08-20".
 ///
-/// Production is correct here — a real master scrolls the rail to reach a
-/// day, which is precisely what this helper does. Same class of fix, and the
-/// same reasoning, as `tapCalendarDay` in `test/helpers/pump_app.dart`
-/// (commit `e177305`), which scrolls `MonthCalendar` cells into view before
-/// tapping them.
-/// Scrolls the day rail until [day]'s chip is BUILT and on screen, without
-/// tapping it — for assertions about a cell's own content (its
-/// has-bookings dot) that must not also change the selection.
-///
-/// A no-op when the chip is already visible, so it is safe to call ahead of
-/// [_selectRailDay] on the same day.
+/// Production is correct here — a real master pages the rail to reach a day,
+/// which is precisely what this helper does. Same class of fix, and the same
+/// reasoning, as `tapCalendarDay` in `test/helpers/pump_app.dart` (commit
+/// `e177305`), which scrolls `MonthCalendar` cells into view before tapping.
 Future<void> _scrollRailTo(WidgetTester tester, DateTime day) async {
-  await tester.scrollUntilVisible(
-    find.byKey(dayChipKey(day)),
-    400,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const Key('master-bookings-day-rail')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 200,
+  final Finder chip = find.byKey(dayChipKey(day));
+  // 60 week pages is ~14 months forward — far past anything this suite seeds
+  // (`fb.bookingStartsAt` is the real clock + 7 days, and the rail opens on
+  // the INJECTED clock's week, so the gap is bounded by how far apart the two
+  // clocks drift, not by the fixture).
+  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
+    await _pageRailForward(tester);
+  }
+  expect(
+    chip,
+    findsOneWidget,
+    reason:
+        'the day rail never paged forward to $day in 60 whole-week turns '
+        '(~14 months). If this is a fresh failure, check the two clocks '
+        'first: the rail opens on the INJECTED kFixedNow week while '
+        'fb.bookingStartsAt is anchored to the REAL one.',
   );
 }
 
@@ -212,6 +283,64 @@ Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
   await AppHarness.settle(tester);
 }
 
+/// Opens the «Мої записи» filter sheet, TOGGLES every row in [groups], and
+/// applies — driving the real sheet a master would, not a notifier back door.
+///
+/// ## Why flows that assert on a cancelled card must call this
+///
+/// Locked product decision (2026-08-13): the provider's day list HIDES
+/// `CANCELLED` + `DECLINED` by default
+/// (`BookingStatus.hiddenFromDayListByDefault`) — they share the one
+/// «Скасовано» badge and are reachable only by ticking «Скасовані» here.
+///
+/// ## Why the ACTIVE groups have to be ticked alongside «Скасовані»
+///
+/// `BookingStatus.dayListWireStatuses` — applied by the
+/// `BookingsDayQuery.dayList` factory the view builds its query through —
+/// REPLACES the default set with the master's selection rather than unioning
+/// the two, so ticking «Скасовані» alone sends exactly
+/// `status=CANCELLED,DECLINED` and filters every live booking off the wire. A flow that needs a cancelled card AND an active one
+/// on screen together — every lane-layout flow in this file — must therefore
+/// pass BOTH groups. This mirrors the master's own click path: the sheet's
+/// rows are additive multi-select.
+///
+/// Each row is scrolled into the sheet's own `ListView` first: it is lazy, and
+/// «Скасовані» is the last of the four status rows.
+Future<void> _applyStatusFilter(
+  WidgetTester tester,
+  List<BookingStatusFilterGroup> groups,
+) async {
+  await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+  await AppHarness.settle(tester);
+  expect(
+    find.byKey(const Key('master-bookings-filter-sheet')),
+    findsOneWidget,
+    reason: 'the filter sheet must have opened before any row is ticked',
+  );
+
+  for (final BookingStatusFilterGroup group in groups) {
+    final Finder row = find.byKey(
+      Key('master-bookings-filter-status-${group.name}'),
+    );
+    await tester.scrollUntilVisible(
+      row,
+      80,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key('master-bookings-filter-sheet')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      maxScrolls: 20,
+    );
+    await tester.tap(row);
+    await AppHarness.settle(tester);
+  }
+
+  await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+  await AppHarness.settle(tester);
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -224,6 +353,14 @@ void main() {
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
+
+      // Phase 244 fixture gap: publish hours for both the landing day
+      // (`_kyivToday`) and the seeded booking's own day — see
+      // `_seedWorkingHours`'s doc.
+      _seedWorkingHours(fb, <DateTime>[
+        _kyivToday,
+        DateTime.parse(fb.bookingStartsAt),
+      ]);
 
       expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -260,42 +397,59 @@ void main() {
       );
 
       // ── 3. The list rendered from GET /bookings/me. ───────────────────────
+      //
+      // NOTE (fixture gap, not a behaviour change): `booking-1` is anchored
+      // to `fb.bookingStartsAt` (the REAL device clock + 7 days), which is
+      // deliberately unrelated to the INJECTED clock's Kyiv day (`_kyivToday`
+      // — see that constant's own doc) this screen LANDS on. Phase 244's
+      // `bookingsInsideScheduleWindow` measures a booking's start in minutes
+      // since the VIEWED day's own Kyiv midnight; a booking dated on a
+      // different calendar day lands many thousands of minutes outside any
+      // window, so it is correctly EXCLUDED from the landing day regardless
+      // of what hours are published for it — the same date fence a real
+      // backend's own `from == to` filter already provides, which this fake
+      // does not model (see `_slicedBookingsPageEnvelope`'s own doc). So the
+      // landing render is genuinely empty here (zero bookings, no filter
+      // active), and the card-content assertion that used to sit here moved
+      // to step 6, right after the rail narrows to `booking-1`'s own day.
+      // This step keeps only what is actually true of the un-narrowed
+      // landing fetch: that it reached the fake at all, and its own wire
+      // shape.
+      //
+      // BUG FIX (user-reported): a working day with a resolved schedule
+      // window now ALWAYS renders the grid (hour ruler + gridlines), even
+      // with zero bookings — `MasterBookingsEmptyState`'s illustrated
+      // placeholder is retired for that case (locked product decision: no
+      // accompanying text, just the grid). The published `_kyivToday` window
+      // above is exactly what makes this the grid-no-cards case rather than
+      // NO_SCHEDULE.
       expect(
         fb.getMyBookingsCalls,
         greaterThan(0),
         reason: 'the list must be served by the real endpoint',
       );
       expect(
-        find.byKey(const Key('master-booking-card-booking-1')),
-        findsOneWidget,
-      );
-      // The PROVIDER-side identity fields the mapper gained in Phase 7.2 must
-      // survive the whole wire → DTO → domain → widget path.
-      expect(
-        find.text('${fb.clientFirstName} ${fb.clientLastName}'),
-        findsWidgets,
-        reason:
-            'the master\'s card must name the CLIENT — clientFirstName/'
-            'clientLastName decoded off the wire, not the master\'s own name',
-      );
-
-      // ── 3b. Phases 7.9–7.11: the TIMELINE body, and the day-scoped wire
-      //        shape — this is the part this flow did NOT prove before the
-      //        rework (it predates it and never asserted anything specific to
-      //        it; the widget/unit tier covers this shape against a MOCKED
-      //        repository — `bookings_day_notifier_test.dart`,
-      //        `master_bookings_screen_test.dart` — this is the same
-      //        invariant proven against a REAL HTTP round trip instead). ────
-      expect(
         find.byType(BookingsTimelineGrid),
         findsOneWidget,
-        reason: 'the body must be the day-scoped timeline, not a vertical list',
+        reason:
+            "booking-1 is not dated on _kyivToday, so the landing day is "
+            'genuinely empty, but its working-hours window is still '
+            'published — the grid must render regardless, per the '
+            'zero-bookings-still-renders-the-grid fix',
       );
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
       expect(
-        find.byKey(const Key('master-bookings-list')),
+        find.byKey(const Key('master-booking-card-booking-1')),
         findsNothing,
-        reason: 'the retired paginated vertical list must not resurface',
       );
+
+      // ── 3b. Phases 7.9–7.11: the day-scoped wire shape — this is the part
+      //        this flow did NOT prove before the rework (it predates it and
+      //        never asserted anything specific to it; the widget/unit tier
+      //        covers this shape against a MOCKED repository —
+      //        `bookings_day_notifier_test.dart`,
+      //        `master_bookings_screen_test.dart` — this is the same
+      //        invariant proven against a REAL HTTP round trip instead). ────
       final Map<String, dynamic>? landingQuery = fb.lastMyBookingsQuery;
       expect(
         landingQuery,
@@ -364,10 +518,40 @@ void main() {
         reason: 'a single-day rail selection is from == to on the wire',
       );
       expect(q['to'], expectedDay);
+      // The narrowed day re-mounts the grid at scroll offset 0, and the
+      // published window anchors its top to 09:00 while `booking-1` starts
+      // at 18:00 Kyiv — re-scroll to the (still ~9h-down) card before
+      // asserting/tapping it.
+      await _scrollTimelineTo(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
+      // This is also the FIRST point in the flow where `booking-1` can
+      // actually render — see step 3's note on why the un-narrowed landing
+      // day never can.
+      expect(
+        find.byType(BookingsTimelineGrid),
+        findsOneWidget,
+        reason: 'the body must be the day-scoped timeline, not a vertical list',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-list')),
+        findsNothing,
+        reason: 'the retired paginated vertical list must not resurface',
+      );
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsOneWidget,
         reason: 'the narrowed day still contains the seeded booking',
+      );
+      // The PROVIDER-side identity fields the mapper gained in Phase 7.2 must
+      // survive the whole wire → DTO → domain → widget path.
+      expect(
+        find.text('${fb.clientFirstName} ${fb.clientLastName}'),
+        findsWidgets,
+        reason:
+            'the master\'s card must name the CLIENT — clientFirstName/'
+            'clientLastName decoded off the wire, not the master\'s own name',
       );
 
       // ── 6. Open the detail — the PROVIDER view. ───────────────────────────
@@ -425,6 +609,12 @@ void main() {
       );
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
       expect(find.byType(BookingDetailScreen), findsNothing);
+      // Returning from the detail route re-mounts the grid at scroll offset
+      // 0 too.
+      await _scrollTimelineTo(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsOneWidget,
@@ -537,6 +727,10 @@ void main() {
       // exact pair the «Завершено» filter chip must isolate to prove the
       // wiring, not merely that SOME request fired.
       final DateTime seededStart = DateTime.parse(fb.bookingStartsAt);
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededStart`'s day before any card assertion, so only
+      // that one day needs published hours.
+      _seedWorkingHours(fb, <DateTime>[seededStart]);
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'filter-confirmed',
@@ -568,6 +762,15 @@ void main() {
       );
       await _selectRailDay(tester, bookedDay);
 
+      // The published window anchors the grid's top to 09:00, so both cards
+      // (18:00 and 20:00 Kyiv) sit well below the initial vertical-culling
+      // band. Scrolling to the LATER one is enough for both — culling is
+      // bottom-only, so it never evicts the earlier card once built (see
+      // `_scrollTimelineTo`'s doc).
+      await _scrollTimelineTo(
+        tester,
+        find.byKey(const ValueKey<String>('timeline-card-filter-completed')),
+      );
       expect(
         find.byKey(const ValueKey<String>('timeline-card-filter-confirmed')),
         findsOneWidget,
@@ -635,6 +838,13 @@ void main() {
       //      catch a status-filter regression the query-param assertion above
       //      cannot: a notifier that recorded the right query but dropped it
       //      before actually re-fetching would leave BOTH cards on screen. ──
+      // Applying the filter re-scrolls the grid to offset 0 (a fresh
+      // culling pass over the narrowed list) — scroll back to the surviving
+      // card before asserting on it.
+      await _scrollTimelineTo(
+        tester,
+        find.byKey(const ValueKey<String>('timeline-card-filter-completed')),
+      );
       expect(
         find.byKey(const ValueKey<String>('timeline-card-filter-confirmed')),
         findsNothing,
@@ -820,6 +1030,9 @@ void main() {
       // day and neither card could ever be found. Deriving the day keeps the
       // two in lockstep by construction.
       final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
       // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
       final DateTime firstStart = DateTime.utc(
         seededDay.year,
@@ -996,6 +1209,9 @@ void main() {
       const int wireDurationMinutes = 60;
       final DateTime wireEnd = wireStart.add(const Duration(minutes: 45));
 
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         <String, dynamic>{
           ...fb.datasetBookingRow(
@@ -1160,6 +1376,10 @@ void main() {
         seededDay.day,
         6,
       );
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
 
       // 45 minutes and 60 minutes, back to back with a gap, so both land in the
       // SAME lane column. The durations are the whole fixture: at ADDENDUM 8's
@@ -1470,6 +1690,10 @@ void main() {
       );
       const Duration wireDuration = Duration(minutes: 30);
 
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
+
       // `datasetBookingRow` seeds the MASTER-side identity only — the compact
       // row 1 renders the CLIENT, so the counterparty fields are spread in on
       // top, from the same `/users/me` persona every other flow asserts
@@ -1631,84 +1855,38 @@ void main() {
     },
   );
 
-  // ── 2026-07-22 — the month switcher is a PURE rail-scroll affordance ───────
+  // ── RETIRED (mobile-qa, 2026-08-14) — "the month switcher only moves the
+  //    rail" ────────────────────────────────────────────────────────────────
   //
-  // Step 2.7 Rule 3b: `_prevMonth`/`_nextMonth` (`bookings_discovery_view
-  // .dart`) are documented as deliberately NOT touching `_day`/`_liveQuery` —
-  // stepping the month moves only the switcher's own label and the rail's
-  // scroll position, mirroring the approved design's own `_prevMonth`. Nothing
-  // in the widget tier drives this through a REAL `GET /bookings/me` call
-  // count: a regression that made a month step start re-selecting a day (and
-  // re-fetching) would leave every mocked-repository assertion untouched,
-  // because a mock never notices an EXTRA call it wasn't told to expect.
-  testWidgets(
-    'the month switcher only moves the rail — the label changes but the '
-    'selected day and the live query do not, and no extra GET /bookings/me '
-    'fires',
-    (tester) async {
-      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
-      final GoRouter router = await AppHarness.boot(tester, fb);
-      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-      await AppHarness.settle(tester);
-      expect(find.byType(MasterBookingsScreen), findsOneWidget);
-      expect(
-        AppHarness.location(router),
-        startsWith(RouteNames.masterBookings),
-      );
-
-      // The screen opens on Kyiv "today"'s month — where "today" is the
-      // INJECTED clock the screen actually reads (`clockProvider`, overridden
-      // to `kFixedNow` by `AppHarness.boot`), not the host runner's date. See
-      // `_kyivToday`'s doc: reaching for `DateTime.now()` here made this
-      // assertion demand «Липень 2026» of a screen correctly rendering
-      // «Червень 2026».
-      final DateTime todayKyiv = _kyivToday;
-      final String initialLabel =
-          '${monthNominative(todayKyiv.month)} ${todayKyiv.year}';
-      expect(find.text(initialLabel), findsOneWidget);
-
-      final int callsBeforeSwitch = fb.getMyBookingsCalls;
-      final Map<String, dynamic>? queryBeforeSwitch = fb.lastMyBookingsQuery;
-
-      // ── Step forward one month — only the label moves. ────────────────────
-      await tester.tap(find.byKey(const Key('master-bookings-month-next')));
-      await AppHarness.settle(tester);
-
-      final DateTime nextMonth = DateTime(todayKyiv.year, todayKyiv.month + 1);
-      final String nextLabel =
-          '${monthNominative(nextMonth.month)} ${nextMonth.year}';
-      expect(find.text(nextLabel), findsOneWidget);
-      expect(find.text(initialLabel), findsNothing);
-
-      // ── …then back — the label returns to the original month. ─────────────
-      await tester.tap(find.byKey(const Key('master-bookings-month-prev')));
-      await AppHarness.settle(tester);
-      expect(find.text(initialLabel), findsOneWidget);
-      expect(find.text(nextLabel), findsNothing);
-
-      // ── Neither step touched the selection or issued a new request. ───────
-      expect(
-        fb.getMyBookingsCalls,
-        callsBeforeSwitch,
-        reason:
-            'a month step is a pure rail-scroll affordance — it must not '
-            'issue a NEW GET /bookings/me',
-      );
-      expect(
-        fb.lastMyBookingsQuery,
-        same(queryBeforeSwitch),
-        reason:
-            'the recorded query object itself must be the SAME instance — a '
-            'new fetch would have replaced it with a fresh map',
-      );
-      expect(
-        find.byKey(const Key('master-booking-card-booking-1')),
-        findsOneWidget,
-        reason: "the originally-selected day's content must still be shown",
-      );
-    },
-  );
+  // A test used to live here asserting that a month step relabelled the
+  // switcher WITHOUT moving `_day`, the live query, or the fetch count, by
+  // tapping `Key('master-bookings-month-next')`.
+  //
+  // BOTH halves of it are dead:
+  //
+  //   * the KEY has not existed since `a3f74f92` (the Варіант D port replaced
+  //     the month switcher with the expandable calendar), so the test has been
+  //     RED — `tester.tap` on a finder matching nothing — from that commit
+  //     onward, in a file CI runs on every push;
+  //   * the CONTRACT was deliberately REVERSED by that same port. A month
+  //     step now SELECTS: it moves `_day`, the wire query and the rendered
+  //     list together (`bookings_discovery_view.dart`'s `_stepMonth` →
+  //     `_selectImmediate`). Keeping this test green would have meant
+  //     re-breaking the exact field bug the port exists to fix — one month's
+  //     label over another month's list.
+  //
+  // Its coverage is not lost; it moved and inverted, at the SAME tier against
+  // the SAME fake backend and the same `getMyBookingsCalls` counter:
+  //
+  //   * a month page turn SELECTS and moves the query →
+  //     `master_bookings_month_step_flow_test.dart`;
+  //   * the one move that still must NOT select — paging the RAIL — →
+  //     `master_bookings_week_rail_flow_test.dart`, which asserts the
+  //     selection, the label and the fetch count are all unchanged across a
+  //     multi-week browsing excursion, with a chip-tap positive control.
+  //
+  // Do not restore this test. Restore the CONTRACT only if the product
+  // decision is reversed back.
 
   // ── 2026-07-22 — «Сьогодні» jumps the SELECTION back to Kyiv today ─────────
   //
@@ -1869,6 +2047,18 @@ void main() {
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // never narrows off the landing day, so only `_kyivToday` needs
+      // published hours. NOTE: `booking-1` is anchored to
+      // `fb.bookingStartsAt` (the REAL device clock + 7 days), deliberately
+      // unrelated to `_kyivToday` — see `master_bookings_flow_test.dart`'s
+      // first test for the full explanation of why it can never render on
+      // the landing day. This flow never narrows to its own day, so the
+      // resolved body below is the empty-but-working grid, not the seeded
+      // card.
+      _seedWorkingHours(fb, <DateTime>[_kyivToday]);
+
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
       // Gate ONLY the day-scoped `/bookings/me` fetch, not the FILTER-
@@ -1934,54 +2124,114 @@ void main() {
 
       expect(find.byKey(const Key('master-bookings-skeleton')), findsNothing);
       expect(
-        find.byKey(const Key('master-booking-card-booking-1')),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
             'once the fetch resolves the skeleton must clear and the '
-            'seeded booking must render',
+            'empty-but-working grid must render — booking-1 is not this '
+            "day's own booking, see the note above; the working-hours "
+            'window keeps this from reading as `MasterBookingsEmptyState`',
+      );
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
       );
     },
   );
 
-  // ── 2026-07-22 — a genuinely empty day: the TRUE empty state ───────────────
+  // ── a genuinely empty WORKING day renders the grid, not an illustration ────
   //
-  // Step 2.7 Rule 3b: `MasterBookingsEmptyState` vs `MasterBookingsNoResultsState`
-  // is a real product distinction (see `master_bookings_states.dart`'s file
-  // header) the widget tier already pins against a mocked, hand-built empty
-  // page. This closes the same gap every other flow in this file closes for
-  // its own surface: proving the distinction survives a REAL, empty
+  // BUG FIX (user-reported, superseding the original "TRUE empty state, not
+  // the filter-empty one" version of this test): `MasterBookingsEmptyState`
+  // vs `MasterBookingsNoResultsState` (see `master_bookings_states.dart`'s
+  // file header) is still a real distinction, but ONLY once no working-hours
+  // window has resolved (`window == null` — legacy/loading/error paths, and
+  // the `useScheduleWindow: false` client screen). Once a window HAS
+  // resolved, a day with zero (visible) bookings — whether that's genuinely
+  // no bookings, a filter matching nothing, or every booking falling outside
+  // the window — must render the hour ruler AND gridlines with no cards on
+  // them, never either illustrated empty state (locked product decision: no
+  // accompanying text). This test proves that against a REAL, empty
   // `GET /bookings/me` page — `seedManyBookingsDataset` with an EMPTY list is
   // the fake's own supported way to serve a real (statuses, sort, page) slice
-  // over NOTHING, so no filter needs to be forced to get here, matching the
-  // "no filter active, nothing to reset" precondition the true-empty copy
-  // requires.
-  testWidgets('a genuinely empty day renders the TRUE empty state, not the '
-      'no-results-from-filter one', (tester) async {
-    final fb = FakeBackend()
-      ..currentRole = UserRole.independentMaster
-      ..seedManyBookingsDataset(const <Map<String, dynamic>>[]);
-    final GoRouter router = await AppHarness.boot(tester, fb);
-    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+  // over NOTHING — with a PUBLISHED working-hours window, which is exactly
+  // the reported bug's reproduction shape.
+  testWidgets(
+    'a genuinely empty WORKING day renders the timeline grid (ruler + '
+    'gridlines, no cards), never an illustrated empty state',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..seedManyBookingsDataset(const <Map<String, dynamic>>[]);
+      final GoRouter router = await AppHarness.boot(tester, fb);
 
-    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-    await AppHarness.settle(tester);
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. The landing
+      // day must resolve to a PUBLISHED, empty day (this seed), not to
+      // NO_SCHEDULE (`FakeBackend`'s unseeded default) — the latter would
+      // still correctly render `MasterBookingsNoWorkingHoursState` (that
+      // path is unchanged by this fix), which is not what this test is
+      // about.
+      _seedWorkingHours(fb, <DateTime>[_kyivToday]);
 
-    expect(find.byType(MasterBookingsScreen), findsOneWidget);
-    expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
-    expect(
-      find.byType(MasterBookingsEmptyState),
-      findsOneWidget,
-      reason:
-          'no filter is active — an empty day must render the TRUE empty '
-          'state, not the filter-empty one',
-    );
-    expect(find.byKey(const Key('master-bookings-empty')), findsOneWidget);
-    expect(find.byKey(const Key('master-bookings-no-results')), findsNothing);
-    expect(
-      find.byKey(const Key('master-booking-card-booking-1')),
-      findsNothing,
-    );
-  });
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+      expect(
+        find.byType(BookingsTimelineGrid),
+        findsOneWidget,
+        reason:
+            'a working day with zero bookings must still render the '
+            'timeline grid — see the bug-fix note above',
+      );
+      expect(find.byType(TimelineHourRuler), findsOneWidget);
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
+      expect(find.byKey(const Key('master-bookings-empty')), findsNothing);
+      expect(find.byKey(const Key('master-bookings-no-results')), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
+      );
+
+      // mobile-qa (this session) — THE CAUSE-2 GEOMETRY ASSERTION. Every
+      // check above is satisfied by the COLLAPSED grid too: `_kyivToday` has
+      // zero bookings, so `lanesCount == 0`, which is exactly the
+      // precondition for the second (subtler) cause of the reported bug —
+      // the gridline `Stack` collapsing to `Size.zero` while
+      // `BookingsTimelineGrid`/`TimelineHourRuler` remain present in the
+      // tree. `find.byType(...).findsOneWidget` cannot distinguish a
+      // collapsed grid from a real one; only rendered geometry can.
+      final List<Rect> ladder = _gridlineLadderAscending(tester);
+      expect(
+        ladder.length,
+        25,
+        reason:
+            'the seeded 09:00-21:00 window (`_seedWorkingHours`) is 12 '
+            'hours = 24 half-hour rungs + the origin rung',
+      );
+      final double rungBand = ladder[1].top - ladder[0].top;
+      expect(rungBand, greaterThan(0));
+      final double expectedGridHeight = (ladder.length - 1) * rungBand + 1;
+      final double gridHeight = tester
+          .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+          .height;
+      expect(
+        gridHeight,
+        closeTo(expectedGridHeight, 0.5),
+        reason:
+            'on the collapsed-height bug this reads ~0 (the Stack sizes to '
+            'its empty lane Row) while every find.byType assertion above '
+            'keeps passing regardless',
+      );
+    },
+  );
 
   // ── 2026-07-22 — a failed fetch: the error state, and a working retry ──────
   //
@@ -2019,6 +2269,18 @@ void main() {
         fb,
         retry: (int retryCount, Object error) => null,
       );
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // never narrows off the landing day, so only `_kyivToday` needs
+      // published hours. NOTE: `booking-1` is anchored to
+      // `fb.bookingStartsAt` (the REAL device clock + 7 days), deliberately
+      // unrelated to `_kyivToday` — see `master_bookings_flow_test.dart`'s
+      // first test for the full explanation of why it can never render on
+      // the landing day. This flow never narrows to its own day, so a
+      // successful retry resolves to the empty-but-working grid, not the
+      // seeded card.
+      _seedWorkingHours(fb, <DateTime>[_kyivToday]);
+
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
       int hits = 0;
@@ -2072,12 +2334,211 @@ void main() {
       );
       expect(find.byKey(const Key('my_bookings_error')), findsNothing);
       expect(
-        find.byKey(const Key('master-booking-card-booking-1')),
+        find.byType(BookingsTimelineGrid),
         findsOneWidget,
         reason:
-            'the retry must have succeeded and rendered the seeded '
-            'booking',
+            'the retry must have succeeded and rendered the day\'s real '
+            "state — the empty-but-working grid, since booking-1 is not "
+            "this day's own booking (see the note above) but the "
+            'working-hours window is still resolved',
       );
+      expect(find.byType(MasterBookingsEmptyState), findsNothing);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsNothing,
+      );
+    },
+  );
+
+  // ── 2026-08-13 — CANCELLED/DECLINED are HIDDEN from the master's day list
+  //      by default, and reachable only through «Скасовані» ────────────────
+  //
+  // Step 2.7 Rule 3b. The lower tiers each prove one half against a stub:
+  // `booking_status_test.dart` pins `visibleInDayListByDefault` as a
+  // DERIVATION of `filterable` (a pure-Dart constant, no wire), and
+  // `master_bookings_filter_wiring_test.dart` pins the status set the
+  // notifier hands a MOCKED `BookingRepository`. Neither can prove the rule
+  // reaches the master: the mock never re-derives wire shape from what it was
+  // called with, so a regression that serialised the set as a single
+  // comma-joined scalar, or that unioned the default with the user's
+  // selection instead of replacing it, stays green at both tiers while the
+  // day list shows exactly the wrong rows. This drives the real chain —
+  // landing `GET /bookings/me` -> a fake backend that genuinely filters on
+  // the repeated `status` param -> `BookingMapper` -> `BookingsDayNotifier`
+  // -> `BookingsTimelineGrid` — and asserts on rendered cards, not on a
+  // recorded query alone.
+  //
+  // Three phases, each a real sheet interaction:
+  //   1. LANDING — the cancelled card is absent, its CONFIRMED same-day
+  //      sibling is present. Absence alone would also be satisfied by a
+  //      broken day, an unresolved schedule window or a failed fetch; the
+  //      sibling is what makes it a STATUS filter. The funnel badge stays
+  //      dark, pinning that the default exclusion is a rendering default and
+  //      not something the master chose.
+  //   2. «Скасовані» alone — the cancelled card appears AND the confirmed one
+  //      leaves. That departure is the REPLACE semantics of
+  //      `BookingStatus.dayListWireStatuses` observed end to end; a union
+  //      would leave both on screen.
+  //   3. «Підтверджено» added on top — both together, which is the state the
+  //      two lane-layout flows below depend on.
+  //
+  // No `integration_test/patrol/` case is needed — nothing here touches a
+  // native surface (no OS dialog, deep link, push, WebView or biometric).
+  testWidgets(
+    'a CANCELLED booking is HIDDEN from the master day list by default and '
+    'renders only once «Скасовані» is ticked, while its CONFIRMED same-day '
+    'sibling follows the opposite path — through a real GET /bookings/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // Same Kyiv day as the fake's booked-days seed, derived from
+      // `fb.bookingStartsAt` rather than hand-typed — see the "two
+      // back-to-back" test below for the incident that idiom prevents.
+      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — the top of the seeded
+      // window, and 08:00 UTC == 11:00 Kyiv two hours below it. Both sit well
+      // inside `BookingsTimelineGrid`'s initial culling band, so neither
+      // needs a vertical scroll and an ABSENCE assertion can never pass
+      // merely because the row was never built.
+      final DateTime confirmedStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        6,
+      );
+      final DateTime cancelledStart = DateTime.utc(
+        seededDay.year,
+        seededDay.month,
+        seededDay.day,
+        8,
+      );
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'default-visible',
+          status: 'CONFIRMED',
+          startsAt: confirmedStart,
+          duration: const Duration(minutes: 60),
+        ),
+        fb.datasetBookingRow(
+          id: 'default-hidden',
+          status: 'CANCELLED',
+          startsAt: cancelledStart,
+          duration: const Duration(minutes: 60),
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      final DateTime bookedDay = parseApiDate(
+        fb.bookingStartsAt.substring(0, 10),
+      );
+      await _selectRailDay(tester, bookedDay);
+
+      final Finder confirmedCard = find.byKey(
+        const Key('master-booking-card-default-visible'),
+      );
+      final Finder cancelledCard = find.byKey(
+        const Key('master-booking-card-default-hidden'),
+      );
+
+      // ── 1. LANDING — nothing ticked. ──────────────────────────────────────
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'COMPLETED', 'NOT_COMPLETED']),
+        reason:
+            'the untouched day list must name the three visible statuses on '
+            'the wire — `GET /bookings/me` has no exclude parameter, and '
+            'dropping the rows after the fetch would let cancelled bookings '
+            'spend the single size:100 page budget the live ones need',
+      );
+      expect(
+        confirmedCard,
+        findsOneWidget,
+        reason:
+            'the CONFIRMED booking is untouched by the default exclusion — '
+            'without this the absence below would also be satisfied by a '
+            'broken day, an unresolved window or a failed fetch',
+      );
+      expect(
+        cancelledCard,
+        findsNothing,
+        reason:
+            'THE NEW DEFAULT (locked 2026-08-13): a CANCELLED booking is not '
+            'on the master\'s day list until «Скасовані» is ticked',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-filter-badge')),
+        findsNothing,
+        reason:
+            'the default exclusion is a RENDERING default, not a filter the '
+            'master chose — it must never light the funnel badge',
+      );
+
+      // ── 2. «Скасовані» alone — REPLACE, not union. ────────────────────────
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.cancelled,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CANCELLED', 'DECLINED']),
+        reason:
+            'the master\'s selection REPLACES the default set — the two '
+            'statuses «Скасовані» owns go out, and nothing else. They travel '
+            'together because both render the identical «Скасовано» badge',
+      );
+      expect(
+        cancelledCard,
+        findsOneWidget,
+        reason:
+            'ticking «Скасовані» must bring the hidden booking back onto the '
+            'day list — hidden by default, never removed',
+      );
+      expect(
+        confirmedCard,
+        findsNothing,
+        reason:
+            'and the CONFIRMED sibling must LEAVE — the selection replaced '
+            'the default rather than being added to it. A union bug would '
+            'leave this card on screen',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-filter-badge')),
+        findsOneWidget,
+        reason: 'a status the MASTER picked does light the funnel badge',
+      );
+
+      // ── 3. «Підтверджено» added on top — the sheet is additive. ───────────
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
+        reason:
+            'the sheet reopens carrying the previous selection and the rows '
+            'are multi-select, so «Підтверджено» ADDS to «Скасовані»',
+      );
+      expect(
+        confirmedCard,
+        findsOneWidget,
+        reason:
+            'both cards on screen together — the state the two lane-layout '
+            'flows below rely on',
+      );
+      expect(cancelledCard, findsOneWidget);
     },
   );
 
@@ -2103,11 +2564,21 @@ void main() {
   // notification, WebView, or biometric prompt); it is pure Flutter
   // widget/HTTP plumbing, fully reachable through the existing fake-backed
   // `integration_test/` harness.
+  // 2026-08-13 — cancelled bookings are now HIDDEN from the day list until the
+  // master ticks «Скасовані». That is a default, NOT a removal: `assignLanes`'
+  // pass 2 (`booking_lane_layout.dart:116-123`, `:200+`) exists solely for the
+  // cancelled-vs-replacement overlap this test pins, and it is still live the
+  // moment the filter re-shows those rows — which is exactly when the master
+  // is looking for the dead card and must not find it hiding the live one. So
+  // this flow now drives the real filter sheet first and asserts EXACTLY as it
+  // did before; nothing was relaxed. «Підтверджено» is ticked alongside
+  // «Скасовані» because the wire set REPLACES rather than unions — see
+  // [_applyStatusFilter]'s doc.
   testWidgets(
-    'a CANCELLED booking overlapping a live CONFIRMED one at the same slot: '
-    'the CONFIRMED card renders in the leftmost lane, and the cancelled one '
-    'is still present (reachable, not filtered), through a real GET '
-    '/bookings/me',
+    'a CANCELLED booking overlapping a live CONFIRMED one at the same slot, '
+    'with «Скасовані» ticked: the CONFIRMED card renders in the leftmost lane, '
+    'and the cancelled one is still present (reachable, not filtered), '
+    'through a real GET /bookings/me',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -2133,6 +2604,10 @@ void main() {
       final DateTime confirmedStart = cancelledStart.add(
         const Duration(minutes: 5),
       );
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
 
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
@@ -2163,6 +2638,23 @@ void main() {
         fb.bookingStartsAt.substring(0, 10),
       );
       await _selectRailDay(tester, bookedDay);
+
+      // Re-show the cancelled row the way a master does — through the real
+      // sheet, not a notifier back door. Without this the day list sends
+      // `status=CONFIRMED,COMPLETED,NOT_COMPLETED` and `cancelled-slot` never
+      // leaves the fake backend.
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+        BookingStatusFilterGroup.cancelled,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
+        reason:
+            'both ticked groups must reach the wire together — if only the '
+            'cancelled pair went out, the CONFIRMED card below would be '
+            'absent for a reason that has nothing to do with lane assignment',
+      );
 
       expect(
         fb.getMyBookingsCalls,
@@ -2245,10 +2737,16 @@ void main() {
   // notification, WebView, or biometric prompt); it is pure Flutter
   // widget/HTTP plumbing, fully reachable through the existing fake-backed
   // `integration_test/` harness.
+  // 2026-08-13 — same note as the overlap-demotion flow directly above: the
+  // cancelled row is now hidden by DEFAULT, never removed, and pass 2's
+  // isolated-cancelled branch is live the moment «Скасовані» is ticked. The
+  // filter is driven first; every assertion below is byte-for-byte the one it
+  // made before.
   testWidgets(
     'a CANCELLED booking overlapping NOTHING, sandwiched between an early '
-    'and a late active booking, still renders in the leftmost lane — '
-    'left-aligned with both active cards — through a real GET /bookings/me',
+    'and a late active booking, with «Скасовані» ticked: still renders in the '
+    'leftmost lane — left-aligned with both active cards — through a real GET '
+    '/bookings/me',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -2281,6 +2779,10 @@ void main() {
         seededDay.day,
         14,
       );
+
+      // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
+      // narrows to `seededDay` before any card assertion.
+      _seedWorkingHours(fb, <DateTime>[seededDay]);
 
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
@@ -2317,6 +2819,22 @@ void main() {
         fb.bookingStartsAt.substring(0, 10),
       );
       await _selectRailDay(tester, bookedDay);
+
+      // Re-show the cancelled row through the real sheet. «Підтверджено» goes
+      // with it — the wire set REPLACES, so ticking «Скасовані» alone would
+      // filter BOTH active cards this test left-aligns against off the wire.
+      await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
+        BookingStatusFilterGroup.confirmed,
+        BookingStatusFilterGroup.cancelled,
+      ]);
+      expect(
+        fb.lastMyBookingsQuery!['status'],
+        unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
+        reason:
+            'all three seeded bookings must be inside the requested status '
+            'set — otherwise a missing card below would be a filter artefact, '
+            'not the lane bug under test',
+      );
 
       expect(
         fb.getMyBookingsCalls,

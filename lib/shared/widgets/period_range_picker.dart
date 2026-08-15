@@ -59,6 +59,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart';
 
 /// Widget key for the picker's cell representing [day].
 ///
@@ -121,6 +122,11 @@ class PeriodRangePickerStrings {
 /// is the earliest tappable DAY and [lastSelectableDay] the latest — days
 /// outside the pair render faint and ignore taps. [maxSpanDays] caps how wide
 /// a selection may get; see [PeriodRangePicker.maxSpanDays].
+///
+/// [clock] is forwarded verbatim to [PeriodRangePicker.clock] — the injectable
+/// LIVE "now" source for the "today" ring. `null` falls back to
+/// [PeriodRangePicker]'s own [DateTime.now] default, so callers that don't
+/// route through an injected clock seam are unaffected.
 Future<DateTimeRange?> showPeriodRangePicker(
   BuildContext context, {
   required DateTime firstMonth,
@@ -131,6 +137,7 @@ Future<DateTimeRange?> showPeriodRangePicker(
   DateTime? initialScrollMonth,
   int? maxSpanDays,
   int monthCount = kPeriodRangePickerDefaultMonths,
+  DateTime Function()? clock,
 }) {
   return showModalBottomSheet<DateTimeRange>(
     context: context,
@@ -156,6 +163,7 @@ Future<DateTimeRange?> showPeriodRangePicker(
           monthCount: monthCount,
           initialRange: initialRange,
           strings: strings,
+          clock: clock,
         ),
       );
     },
@@ -563,16 +571,17 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
   }
 
   Widget _weekdayHeaderBar() {
+    // `VelvetSpacing.md` — matching `_monthGrid`'s own effective inset (the
+    // `ListView`'s `EdgeInsets.fromLTRB(VelvetSpacing.md, …)` content padding
+    // in `build()` below) exactly, so the seven weekday labels line up with
+    // the seven day-grid columns beneath them. mobile-backlog D4/D5: this
+    // used to be `VelvetSpacing.md + 2` (18dp/side) — a leftover mismatch
+    // against the grid's own 16dp inset that a hand-rolled forked copy of
+    // this bar never had a way to catch; now both derive from the SAME
+    // shared [CalendarWeekdayBar] contract `month_calendar.dart` uses.
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md + 2),
-      child: Row(
-        children: <Widget>[
-          for (final String w in widget.strings.weekdayShort)
-            Expanded(
-              child: Center(child: Text(w, style: VelvetText.label11)),
-            ),
-        ],
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md),
+      child: CalendarWeekdayBar(labels: widget.strings.weekdayShort),
     );
   }
 
@@ -637,52 +646,13 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
           const _DayInfo.blank(),
     ];
 
-    final List<_SelRun> runs = <_SelRun>[];
-    int? runStart;
-    for (int c = 0; c < 7; c++) {
-      final bool sel = infos[c].selected;
-      if (sel && runStart == null) {
-        runStart = c;
-      } else if (!sel && runStart != null) {
-        runs.add(_SelRun(runStart, c - 1));
-        runStart = null;
-      }
-    }
-    if (runStart != null) {
-      runs.add(_SelRun(runStart, 6));
-    }
-
-    return SizedBox(
-      height: 44,
-      child: Stack(
-        children: <Widget>[
-          for (final _SelRun run in runs)
-            Positioned.fill(
-              child: Row(
-                children: <Widget>[
-                  for (int c = 0; c < 7; c++)
-                    Expanded(
-                      child: c < run.start || c > run.end
-                          ? const SizedBox.shrink()
-                          : const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 3),
-                              child: NeumorphicInset(
-                                radius: 12,
-                                child: SizedBox.expand(),
-                              ),
-                            ),
-                    ),
-                ],
-              ),
-            ),
-          Row(
-            children: <Widget>[
-              for (final _DayInfo info in infos)
-                Expanded(child: _DayCell(info: info)),
-            ],
-          ),
-        ],
-      ),
+    // Shared with `month_calendar.dart`'s own week row (mobile-backlog D5) —
+    // see `calendar_grid.dart`'s file header.
+    return CalendarWeekRow(
+      selectedRuns: computeSelectedRuns(<bool>[
+        for (final _DayInfo info in infos) info.selected,
+      ]),
+      cells: <Widget>[for (final _DayInfo info in infos) _DayCell(info: info)],
     );
   }
 
@@ -695,16 +665,13 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
       isEnd: _isEnd(d),
       inBetween: _inBetween(d),
       isToday: _isToday(d),
+      // mobile-backlog D3 — see `calendar_grid.dart`'s file header for the
+      // precedence [_DayCell] applies: endpoint/in-between beats disabled
+      // beats weekend beats normal.
+      isWeekend: isWeekendWeekday(d.weekday),
       onTap: () => _onTapDay(d),
     );
   }
-}
-
-/// A contiguous run of selected columns within a single week row (inclusive).
-class _SelRun {
-  const _SelRun(this.start, this.end);
-  final int start;
-  final int end;
 }
 
 /// Per-column classification for one day in a week row.
@@ -717,6 +684,7 @@ class _DayInfo {
     required this.isEnd,
     required this.inBetween,
     required this.isToday,
+    required this.isWeekend,
     required this.onTap,
   }) : blank = false;
 
@@ -728,6 +696,7 @@ class _DayInfo {
       isEnd = false,
       inBetween = false,
       isToday = false,
+      isWeekend = false,
       onTap = null,
       blank = true;
 
@@ -741,6 +710,9 @@ class _DayInfo {
   final bool isEnd;
   final bool inBetween;
   final bool isToday;
+
+  /// Saturday/Sunday — see [isWeekendWeekday]. Mobile-backlog D3.
+  final bool isWeekend;
   final bool blank;
   final VoidCallback? onTap;
 
@@ -748,52 +720,84 @@ class _DayInfo {
 }
 
 /// One day cell layered over the week-row inset trough. Endpoints are bold
-/// camel numbers (no ring) so the selected span reads as one recessed band; the
-/// camel ring is reserved for "today" (drawn whether or not today is selected).
+/// camel numbers (no ring) so the selected span reads as one recessed band;
+/// the camel ring marks "today" — mobile-backlog D2: ONLY when today is not
+/// itself part of the selected span, since the trough already carries the
+/// "picked" signal (see `calendar_grid.dart`'s file header — this cell used
+/// to draw the ring unconditionally, which read as mud on a selected today).
 class _DayCell extends StatelessWidget {
   const _DayCell({required this.info});
 
   final _DayInfo info;
 
-  /// The four reachable number styles, resolved once at class-load instead of
-  /// via a `copyWith` per cell per rebuild (~90 throwaway `TextStyle`s a frame
-  /// during a scroll — perf P5).
+  /// The five reachable number colors.
   ///
-  /// Precedence matches the original conditional exactly: endpoint wins over
-  /// disabled, which wins over in-between. A non-endpoint passes
-  /// `fontWeight: null` to `copyWith`, which PRESERVES `bodyStrong15`'s own
-  /// weight rather than clearing it — so these are not "w700 vs w400", they are
-  /// "w700 vs whatever the token says".
+  /// Precedence, mobile-backlog D3 extends this table by one rung: endpoint
+  /// wins over disabled, which wins over in-between, which wins over WEEKEND
+  /// (new), which wins over normal. A selected (endpoint/in-between) weekend
+  /// day therefore never turns muted — see [_DayCell]'s class doc.
+  ///
+  /// mobile-security LOW (calendar-consolidation audit, WCAG 2.1 SC 1.4.3):
+  /// [_disabledColor] is legal at 1.66:1 only because a disabled day here is
+  /// a genuinely INACTIVE component — `build()`'s `onTap: info.disabled ?
+  /// null : info.onTap` unconditionally nulls the tap for every disabled
+  /// cell, at every [PeriodRangePicker] call site; there is no
+  /// `allowTapOnUnavailable`-style override in this widget the way
+  /// `MonthCalendar` has, so this exemption determination is caller-
+  /// independent (unlike `month_calendar.dart`'s `_dayCell`, which must
+  /// check per-cell). [_weekendColor] is `weekendMuted`, not `muted`: a
+  /// weekend day IS interactive here (an in-range weekend day is still
+  /// selectable), so it needs a token that clears AA on its own — see
+  /// [BrandColors.weekendMuted]'s doc.
+  static const Color _endpointColor = BrandColors.accentDeep;
+  static const Color _disabledColor = BrandColors.faint;
+  static const Color _inBetweenColor = BrandColors.accentDeep;
+  static const Color _weekendColor = BrandColors.weekendMuted;
+  static const Color _normalColor = BrandColors.text;
+
+  /// The five reachable number STYLES, resolved once at class-load instead
+  /// of via a `copyWith` per cell per rebuild (~90 throwaway `TextStyle`s a
+  /// frame during a scroll — perf P5). Endpoint keeps its own explicit bold
+  /// weight (w700); every other state preserves `bodyStrong15`'s own w700,
+  /// unchanged from before this consolidation — `VelvetText.bodyStrong15` is
+  /// already w700, so this is a no-op weight, kept explicit for parity with
+  /// the pre-consolidation styles this restores.
   static final TextStyle _endpointStyle = VelvetText.bodyStrong15.copyWith(
-    color: BrandColors.accentDeep,
+    color: _endpointColor,
     fontWeight: FontWeight.w700,
   );
   static final TextStyle _disabledStyle = VelvetText.bodyStrong15.copyWith(
-    color: BrandColors.faint,
+    color: _disabledColor,
   );
   static final TextStyle _inBetweenStyle = VelvetText.bodyStrong15.copyWith(
-    color: BrandColors.accentDeep,
+    color: _inBetweenColor,
+  );
+  static final TextStyle _weekendStyle = VelvetText.bodyStrong15.copyWith(
+    color: _weekendColor,
   );
   static final TextStyle _normalStyle = VelvetText.bodyStrong15.copyWith(
-    color: BrandColors.text,
-  );
-
-  /// The "today" ring — hoisted for the same reason as the styles: it depends
-  /// on nothing per-cell, so it was a `BoxDecoration` + `Border` + `Color`
-  /// rebuilt for every today-cell render. `static final` rather than `const`
-  /// only because the camel is alpha-adjusted (`withValues` is not const).
-  static final BoxDecoration _todayRing = BoxDecoration(
-    shape: BoxShape.circle,
-    border: Border.all(
-      color: BrandColors.accent.withValues(alpha: 0.95),
-      width: 1.8,
-    ),
+    color: _normalColor,
   );
 
   @override
   Widget build(BuildContext context) {
     if (info.blank) {
-      return const SizedBox(height: 44);
+      return const CalendarDayCell(
+        day: null,
+        cellKey: null,
+        // Unused — [CalendarDayCell.build] returns before reading
+        // [CalendarDayCell.numberStyle] for a `day: null` cell. A trivial
+        // const value only so this constructor call stays `const`
+        // (mobile-perf, calendar-consolidation audit) — the hoisted
+        // `static final` styles below can't be used in a `const` context.
+        numberStyle: TextStyle(),
+        isToday: false,
+        hasSelectionTrough: false,
+        semanticsSelected: false,
+        ringColor: BrandColors.accent,
+        semanticsLabel: '',
+        onTap: null,
+      );
     }
 
     final bool endpoint = info.isStart || info.isEnd;
@@ -803,44 +807,20 @@ class _DayCell extends StatelessWidget {
         ? _disabledStyle
         : info.inBetween
         ? _inBetweenStyle
+        : info.isWeekend
+        ? _weekendStyle
         : _normalStyle;
 
-    // A plain `Container`, not an `AnimatedContainer` (perf P2).
-    //
-    // `decoration` was the only animated property and it is driven solely by
-    // `info.isToday`, which is CONSTANT for a cell's whole lifetime — a given
-    // column in a given week row of a given month is always the same date. So
-    // every one of these was a `StatefulWidget` with an `AnimationController`
-    // and a `Ticker` registered and scheduled to animate a value that never
-    // changes: ~40 per visible month, ~90 live during a scroll. Renders
-    // identically at rest, which is what the golden suite pins.
-    final Widget content = Container(
-      height: 38,
-      width: 38,
-      alignment: Alignment.center,
-      decoration: info.isToday ? _todayRing : null,
-      child: Text('${info.day}', style: numberStyle),
-    );
-
-    final Widget centered = SizedBox(height: 44, child: Center(child: content));
-
-    if (info.disabled) {
-      return Semantics(
-        key: info.cellKey,
-        label: '${info.day}',
-        child: centered,
-      );
-    }
-    return Semantics(
-      key: info.cellKey,
-      button: true,
-      selected: endpoint,
-      label: '${info.day}',
-      child: GestureDetector(
-        onTap: info.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: centered,
-      ),
+    return CalendarDayCell(
+      day: info.day,
+      cellKey: info.cellKey,
+      numberStyle: numberStyle,
+      isToday: info.isToday,
+      hasSelectionTrough: info.selected,
+      semanticsSelected: endpoint,
+      ringColor: BrandColors.accent.withValues(alpha: 0.95),
+      semanticsLabel: '${info.day}',
+      onTap: info.disabled ? null : info.onTap,
     );
   }
 }

@@ -53,6 +53,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 import '../../../helpers/clock_instant.dart';
+import '../../../helpers/pump_app.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
@@ -951,6 +952,7 @@ AppLocalizations _l10n(WidgetTester tester) =>
 /// strip row.
 Future<void> _selectStripDay(WidgetTester tester, int dayNumber) async {
   // The strip shows the day-of-month number; tap it to select that date.
+  // i18n-finder-ok: Arabic-numeral day-of-month digits, locale-invariant.
   final Finder dayText = find.text('$dayNumber');
   await tester.tap(dayText.first);
   await tester.pumpAndSettle();
@@ -2646,20 +2648,43 @@ void main() {
         // ── Assertion 1: month and year are TWO SEPARATE Text widgets ─────────
         // (NOT a single combined "<month> <year>" Text). The pre-change code had
         // one Text — so the combined finder matched and these two did not.
-        final Finder monthText = find.text(monthName);
-        final Finder yearText = find.text(yearLabel);
+        // Found by Key (not `find.text(monthName)`) so the finder itself stays
+        // locale-proof; the content check right below still pins the RENDERED
+        // value against `monthNominative` — the assertion this test exists for.
+        final Finder monthText = find.byKey(
+          const Key('schedule-month-nav-month-text'),
+        );
+        final Finder yearText = find.byKey(
+          const Key('schedule-month-nav-year-text'),
+        );
         expect(
           monthText,
           findsOneWidget,
           reason: 'the month name renders as its own Text node',
         );
         expect(
+          tester.widget<Text>(monthText).data,
+          monthName,
+          reason: 'the month Text node must render the current month name',
+        );
+        expect(
           yearText,
           findsOneWidget,
           reason: 'the year renders as its own Text node',
         );
+        expect(
+          tester.widget<Text>(yearText).data,
+          yearLabel,
+          reason: 'the year Text node must render the current year',
+        );
         // The combined single-line label must NOT exist (regression guard
-        // against collapsing the two rows back into one Text).
+        // against collapsing the two rows back into one Text). This asserts
+        // ABSENCE, so there is no single widget to key on; `monthName` /
+        // `yearLabel` are computed via the same `monthNominative` derivation
+        // production uses, not a hardcoded copy string, so the finder tracks
+        // whatever the app actually renders in either locale.
+        // i18n-finder-ok: computed from monthNominative(), same source as
+        // production — not a hardcoded literal.
         expect(
           find.text('$monthName $yearLabel'),
           findsNothing,
@@ -4130,6 +4155,84 @@ void main() {
         );
 
         await _drainKeepAliveTimers(tester);
+      },
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Phase 244 — MasterScheduleScreen.initialDate: the master booking
+  // timeline's "no working hours" CTA routes here with the day it was
+  // showing pre-selected, instead of opening on today.
+  // ───────────────────────────────────────────────────────────────────────
+  group('MasterScheduleScreen — initialDate pre-selection (Phase 244)', () {
+    testWidgets(
+      'initialDate pre-selects that day\'s week-strip cell instead of today',
+      (tester) async {
+        final DateTime target = _dateOnly(
+          _weekStart.add(const Duration(days: 2)),
+        );
+        expect(
+          target,
+          isNot(_today),
+          reason:
+              'fixture guard: the target must differ from "today" or '
+              'the pre-selection cannot be distinguished from the default',
+        );
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+
+        await tester.pumpApp(
+          MasterScheduleScreen(
+            initialDate: target,
+            clock: () => asClockInstant(_today),
+          ),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            _fakeWorkingHours(),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _selectedStripDayNumber(tester),
+          target.day,
+          reason: 'initialDate must pre-select that day, not today',
+        );
+      },
+    );
+
+    testWidgets(
+      'initialDate: null (every pre-existing call site) opens on today, unchanged',
+      (tester) async {
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+
+        await tester.pumpApp(
+          MasterScheduleScreen(clock: () => asClockInstant(_today)),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            _fakeWorkingHours(),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(_selectedStripDayNumber(tester), _today.day);
       },
     );
   });

@@ -138,6 +138,85 @@ class MasterBookingsNoResultsState extends StatelessWidget {
   }
 }
 
+/// Shown INSTEAD OF the timeline when the selected day has no working hours
+/// at all (`useScheduleWindow: true` — the master's own screen only; see
+/// `bookings_discovery_view.dart`'s "working-hours window" section). Replaces
+/// the WHOLE loaded body, unconditionally — even if bookings happen to exist
+/// for the day (a locked product decision: the backend gates booking
+/// creation on schedule fit, so a client cannot book such a day, and this
+/// state exists to steer the master to fix the schedule rather than to
+/// describe the (irrelevant) booking count).
+///
+/// Two copy variants sharing one construction (mirrors
+/// [MasterBookingsEmptyState] / [MasterBookingsNoResultsState]'s shape):
+/// [dayOff] picks the title between a settled day-off reading and a
+/// "no schedule published" reading. Both share the same helper body and the
+/// same «Додати робочі години» CTA, which routes to the schedule screen with
+/// this date pre-selected — see `bookings_discovery_view.dart`'s
+/// `onAddWorkingHours`.
+class MasterBookingsNoWorkingHoursState extends StatelessWidget {
+  const MasterBookingsNoWorkingHoursState({
+    super.key,
+    required this.dayOff,
+    required this.onAddHours,
+  });
+
+  /// `true` for a settled day off (`EffectiveSource.overrideDayOff`);
+  /// `false` for the unset NO_SCHEDULE state (or a working day whose
+  /// intervals/times defensively resolved empty).
+  final bool dayOff;
+
+  final VoidCallback onAddHours;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Center(
+      key: const Key('master-bookings-no-schedule'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                dayOff ? Icons.bedtime_rounded : Icons.event_busy_outlined,
+                size: 48,
+                color: BrandColors.accent,
+              ),
+              const SizedBox(height: VelvetSpacing.md),
+              Text(
+                dayOff
+                    ? l10n.scheduleDayOffEmptyState
+                    : l10n.masterBookingsNoScheduleTitle,
+                textAlign: TextAlign.center,
+                style: VelvetText.subheading(),
+              ),
+              const SizedBox(height: VelvetSpacing.xs),
+              Text(
+                l10n.scheduleNoScheduleHelper,
+                textAlign: TextAlign.center,
+                style: VelvetText.body(),
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+              SizedBox(
+                width: double.infinity,
+                child: NeumorphicButton(
+                  key: const Key('master-bookings-no-schedule-cta'),
+                  label: l10n.scheduleAddHoursCta,
+                  icon: Icons.event_available_rounded,
+                  onPressed: onAddHours,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The persistent "day too dense" notice for [BookingsDayState.isTruncated].
 /// See this file's header for why `isTruncated` is a genuinely reachable
 /// case, not a defensive one.

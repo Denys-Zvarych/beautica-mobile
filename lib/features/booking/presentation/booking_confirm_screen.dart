@@ -248,7 +248,25 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
             dateOnly(toBeauticaTime(widget.args.startAt)),
             if (oldStartAt != null) dateOnly(toBeauticaTime(oldStartAt)),
           };
+          // BOTH day-list family members per affected date, mirroring
+          // `booking_calendar_invalidation.dart` (mobile-perf HIGH,
+          // 2026-08-13): `.dayList` is the member `BookingsDiscoveryView`
+          // watches on an untouched «Мої записи» (CANCELLED/DECLINED hidden by
+          // default, locked 2026-08-13), `.of` the plain empty-status one the
+          // SAME list resolves to once the master ticks EVERY filter group —
+          // `BookingStatus.dayListWireStatuses` maps the maximal selection to
+          // `const {}`, i.e. no `status` param, which IS that key. No other
+          // `lib/` host reads `.of` today, so the select-all path is the whole
+          // justification for the second call. Invalidating only the latter —
+          // which this loop did until the day list gained its default — left
+          // the master's own screen showing the moved item at its OLD slot,
+          // pinned across disposal by the ≤3-day keepAlive LRU. Built through
+          // `BookingsDayQuery.dayList`, never a hand-written status literal,
+          // so the two can never drift.
           for (final DateTime day in affectedDays) {
+            ref.invalidate(
+              bookingsDayProvider(BookingsDayQuery.dayList(day: day)),
+            );
             ref.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: day)));
           }
         }

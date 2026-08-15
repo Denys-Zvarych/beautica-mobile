@@ -422,9 +422,20 @@ import 'booking_status_badge.dart';
 ///    two content rows, inside the same decorated box — the card visually
 ///    fills the slot its duration occupies, per-pixel, while the content
 ///    itself never resizes.
-///  * When [minHeight] is omitted (`null`, the default — every call site
-///    outside `BookingsTimelineGrid`), the card behaves exactly as before:
-///    sizes itself to its own natural content height with nothing forced.
+///  * When [minHeight] is omitted (`null`, the default), the card behaves
+///    exactly as before: sizes itself to its own natural content height with
+///    nothing forced.
+///
+/// A SECOND non-null-[minHeight] caller, besides `BookingsTimelineGrid`
+/// (2026-08 declared-times swap): `DeclaredTimeCards`
+/// (`declared_time_cards.dart`) renders a booked EXPLICIT_TIMES entry as this
+/// card, unmodified, at a fixed `minHeight: 120` — the FULL body, deliberately
+/// (120 clears [fullLayoutMinHeight]), rather than the timeline's own
+/// duration-derived floor. That file's free «Вільно» card is floored at the
+/// SAME 120 at textScaler 1.0; above 1.0 it tracks THIS card's own growth via
+/// that file's `_freeCardMinHeightFor`, so every entry in its list — booked
+/// or free — renders the same box at any text scale, not just at 1.0; see
+/// that file's `_kEntryMinHeight` doc for the full reasoning.
 ///
 /// An earlier version of this widget accepted optional `width`/`height`
 /// constructor params and, whenever `height` came in smaller than the card's
@@ -880,8 +891,11 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// `durationMinutes` (which would be a second, independently-driftable
   /// source of truth for a decision the timeline already made).
   ///
-  /// `null` — every call site outside `BookingsTimelineGrid` — is COMPACT, not
-  /// micro: it means "no constraint", not "a very tight one".
+  /// `null` — the default at every call site — is COMPACT, not micro: it
+  /// means "no constraint", not "a very tight one". `DeclaredTimeCards`
+  /// (`declared_time_cards.dart`) is a second non-null-[minHeight] caller
+  /// besides `BookingsTimelineGrid` — see [minHeight]'s own doc — and passes
+  /// a fixed `120`, which resolves to FULL here, deliberately.
   _MasterCardLayout get _layout {
     final double? minHeight = widget.minHeight;
     if (minHeight == null) return _MasterCardLayout.compact;

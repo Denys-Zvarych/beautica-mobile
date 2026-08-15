@@ -377,7 +377,16 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
           ),
         ),
         const SizedBox(height: VelvetSpacing.md),
-        const CalendarWeekdayBar(),
+        // `CalendarWeekdayBar` renders no horizontal padding of its own
+        // (mobile-backlog D4/D5 — see `calendar_grid.dart`'s file header):
+        // every caller wraps it in whatever inset its own sibling grid uses.
+        // `MonthCalendar` self-pads by this same `VelvetSpacing.lg`, so
+        // matching it here is what keeps the bar's captions above the day
+        // columns they describe.
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          child: CalendarWeekdayBar(),
+        ),
         const SizedBox(height: VelvetSpacing.xs),
         calendarBody,
       ],

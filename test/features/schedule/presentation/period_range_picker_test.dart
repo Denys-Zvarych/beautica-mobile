@@ -59,10 +59,14 @@ void main() {
   final firstMonth = DateTime(2024, 6);
   final firstSelectable = DateTime(2024, 6, 10);
 
-  /// Pumps the picker; the popped range is captured into [popped].
+  /// Pumps the picker; the popped range is captured into [popped]. [clock]
+  /// overrides the "today" ring's anchor (defaults to production's
+  /// `DateTime.now`, Kyiv-anchored via [PeriodRangePicker.clock]) — needed by
+  /// the D2 parity group below, which must pin a specific day as "today".
   Future<void> pumpPicker(
     WidgetTester tester, {
     required void Function(DateTimeRange?) onPopped,
+    DateTime Function()? clock,
   }) async {
     final router = GoRouter(
       initialLocation: '/',
@@ -84,6 +88,7 @@ void main() {
                           firstMonth: firstMonth,
                           firstSelectableDay: firstSelectable,
                           strings: _strings,
+                          clock: clock,
                         ),
                       ),
                     );
@@ -165,5 +170,143 @@ void main() {
     expect(popped, isNotNull);
     expect(popped!.start, DateTime(2024, 6, 12));
     expect(popped!.end, DateTime(2024, 6, 20));
+  });
+
+  // mobile-qa (calendar-consolidation cross-surface parity audit) —
+  // [PeriodRangePicker] forked ~250 lines of `month_calendar.dart` before
+  // this consolidation, so it is the highest-risk surface for D1–D4 having
+  // been fixed in the shared primitive but never actually reaching this
+  // caller. `month_calendar_test.dart` already pins D1–D4 against
+  // `MonthCalendar`; these two groups pin the two of D1–D4 that apply here
+  // (D2 — this picker renders no density dots, so D1 does not apply) against
+  // THIS widget specifically, by the same ground-truth measurement technique
+  // (`tester.getCenter`/decoration inspection) — a regenerated golden proves
+  // nothing here either (`feedback_golden_not_acceptance`).
+  group('cross-surface parity — today ring vs. selection precedence (D2)', () {
+    // The shared `CalendarDayCell` badge is a `Container(height: 38, width:
+    // 38, decoration: ring)` — `decoration == null` iff the ring is
+    // suppressed. `dayCell(day)` (this file's own helper, above) resolves the
+    // day-NUMBER `Text` itself, and that `Text` is the badge `Container`'s
+    // CHILD — so the badge is an ANCESTOR of `dayCell(day)`, not a
+    // descendant (unlike `month_calendar_test.dart`'s identically-named
+    // helper, whose `cell` is the outer keyed Semantics/GestureDetector
+    // wrapping the whole cell, making the badge a genuine descendant there).
+    // `.first` because `find.ancestor` also matches the `SizedBox`-wrapped
+    // `centered` ancestor chain's own intermediate boxes before reaching the
+    // one 38x38-constrained `Container` — the innermost/closest match.
+    Finder badgeContainer(Finder cell) => find
+        .ancestor(
+          of: cell,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Container &&
+                w.constraints ==
+                    const BoxConstraints.tightFor(width: 38, height: 38),
+          ),
+        )
+        .first;
+
+    testWidgets('today ring renders when today is NOT selected', (
+      tester,
+    ) async {
+      // "Today" = 15 Jun 2024 (selectable — after firstSelectable 10 Jun);
+      // the picker's own selection (12→13 Jun) never touches it.
+      await pumpPicker(
+        tester,
+        onPopped: (_) {},
+        clock: () => DateTime.utc(2024, 6, 15, 12),
+      );
+      await tester.tap(dayCell(12));
+      await tester.pumpAndSettle();
+      await tester.tap(dayCell(13));
+      await tester.pumpAndSettle();
+
+      final Container badge = tester.widget<Container>(
+        badgeContainer(dayCell(15)),
+      );
+      expect(
+        badge.decoration,
+        isNotNull,
+        reason:
+            'today (15 Jun), unselected, must render the camel ring — same '
+            'contract as MonthCalendar',
+      );
+    });
+
+    testWidgets('today ring is SUPPRESSED when today is ALSO the picked start '
+        'endpoint (no double disc)', (tester) async {
+      // "Today" IS the day about to be tapped as the range start.
+      await pumpPicker(
+        tester,
+        onPopped: (_) {},
+        clock: () => DateTime.utc(2024, 6, 15, 12),
+      );
+      await tester.tap(dayCell(15));
+      await tester.pumpAndSettle();
+
+      final Container badge = tester.widget<Container>(
+        badgeContainer(dayCell(15)),
+      );
+      expect(
+        badge.decoration,
+        isNull,
+        reason:
+            'a selected (start-endpoint) today must not ALSO paint the '
+            'ring — the recessed trough + bold camel number already carry '
+            'the "picked" signal; this is the exact mud the D2 fix in '
+            'calendar_grid.dart exists to prevent, proven here against '
+            'PeriodRangePicker specifically, not just MonthCalendar',
+      );
+    });
+  });
+
+  // D4 — the weekday header/day-grid column-alignment invariant, pinned
+  // against PeriodRangePicker's OWN `_weekdayHeaderBar()` composition (a
+  // `Padding(horizontal: VelvetSpacing.md)` wrapping the shared, self-
+  // padding-free `CalendarWeekdayBar` — see that file's comment). Before the
+  // consolidation this picker's header used a DIFFERENT inset
+  // (`VelvetSpacing.md + 2`) than its own grid, an 18dp-vs-16dp mismatch a
+  // golden would not have caught either (both were "the current render").
+  group('cross-surface parity — weekday header/grid column alignment (D4)', () {
+    testWidgets(
+      'the composed weekday header aligns with the day-grid edge columns',
+      (tester) async {
+        await pumpPicker(tester, onPopped: (_) {});
+
+        // June 2024: the 1st is a Saturday, so `leadingBlanks = 5` and the
+        // grid's SECOND week row (guaranteed fully populated, mirroring
+        // `month_calendar_test.dart`'s identical derivation) starts at
+        // Monday-the-3rd.
+        const int mondayDay = 3;
+        const int sundayDay = 9;
+
+        // Located via `_strings.weekdayShort` — the SAME source the widget
+        // itself renders (`_weekdayHeaderBar()` passes `widget.strings
+        // .weekdayShort` straight to `CalendarWeekdayBar`) — never a fresh
+        // Cyrillic literal (M2/`forbid_cyrillic_finder.sh`): a hardcoded copy
+        // here would duplicate `_strings` and drift the moment either one
+        // changes, defeating the point of sourcing both from one constant.
+        final double mondayHeaderX = tester
+            .getCenter(find.text(_strings.weekdayShort[0]))
+            .dx;
+        final double sundayHeaderX = tester
+            .getCenter(find.text(_strings.weekdayShort[6]))
+            .dx;
+        final double mondayGridX = tester.getCenter(dayCell(mondayDay)).dx;
+        final double sundayGridX = tester.getCenter(dayCell(sundayDay)).dx;
+
+        expect(
+          mondayHeaderX,
+          closeTo(mondayGridX, 1.5),
+          reason:
+              'Monday ("Пн") weekday label must sit directly above the '
+              'Monday day-number column — a header/grid inset mismatch '
+              'drifts the label off the column, worst at the edge columns '
+              '(the pre-consolidation bug: VelvetSpacing.md + 2 header vs. '
+              'VelvetSpacing.md grid)',
+        );
+        expect(sundayHeaderX, closeTo(sundayGridX, 1.5));
+      },
+    );
   });
 }

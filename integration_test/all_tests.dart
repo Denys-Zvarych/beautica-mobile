@@ -108,6 +108,13 @@ import 'master_appointment_child_booking_actions_flow_test.dart'
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'master_bookings_month_step_flow_test.dart'
+    as master_bookings_month_step;
+import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
+import 'master_bookings_declared_time_cards_flow_test.dart'
+    as master_bookings_declared_time_cards;
+import 'master_bookings_working_hours_window_flow_test.dart'
+    as master_bookings_working_hours_window;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -308,6 +315,34 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Варіант D port (mobile-qa, Step 2.7 Rule 3b) — pins the ORIGINAL field
+  // bug this rework fixes: a month step must move BOTH the selection and the
+  // fetched query, not just relabel/re-scroll. Registered beside
+  // `master_bookings_flow`, whose screen and login/router scaffolding it
+  // shares.
+  group('master_bookings_month_step_flow', master_bookings_month_step.main);
+  // Week-pager / headerless-grid rework (mobile-qa, Step 2.7 Rule 3b) — the
+  // rail opens on today's Mon→Sun week and pages whole weeks; paging selects
+  // NOTHING and fetches nothing; the month+year label is permanent, anchored
+  // identically in both resting states, follows a month page and survives the
+  // collapse; and no ‹ › chevrons exist on this screen.
+  group('master_bookings_week_rail_flow', master_bookings_week_rail.main);
+  // Phase 244 — the master booking timeline's working-hours window: a day
+  // with no published hours shows the gray state (CTA → /schedule?date=,
+  // pre-selected); a day with hours + a booking renders the bounded timeline
+  // (Step 2.7 Rule 3b).
+  group(
+    'master_bookings_working_hours_window_flow',
+    master_bookings_working_hours_window.main,
+  );
+  // Phase 244 follow-up — the declared-time cards: an EXPLICIT_TIMES day
+  // renders DeclaredTimeCards (a booked slot + a free slot), never the grid,
+  // never the gray state (Step 2.7 Rule 3b). Registered beside the
+  // working-hours-window flow, whose composition it shares.
+  group(
+    'master_bookings_declared_time_cards_flow',
+    master_bookings_declared_time_cards.main,
+  );
   // Kyiv-day-authority audit (backlog :226, mobile-qa 2026-08-02) — pins the
   // «Мої записи» day-scoped landing fetch AND the booked-days rail window to
   // the KYIV calendar day, never the UTC/device one, against a real

@@ -51,8 +51,11 @@ import 'widgets/slot_colors.dart';
 
 /// The calendar-first Master Schedule screen.
 class MasterScheduleScreen extends ConsumerStatefulWidget {
-  const MasterScheduleScreen({super.key, DateTime Function()? clock})
-    : _clock = clock;
+  const MasterScheduleScreen({
+    super.key,
+    DateTime Function()? clock,
+    this.initialDate,
+  }) : _clock = clock;
 
   /// Injectable LIVE "now" source (wall-clock decoupling, mirroring
   /// [WeeklyTemplateEditorScreen]): "today" — which day the calendar selects on
@@ -65,6 +68,18 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
   /// they can advance so the rendered calendar (and its goldens) stay run-day
   /// independent.
   final DateTime Function()? _clock;
+
+  /// Pre-selects this date on open instead of today — e.g. the master's
+  /// booking timeline's "no working hours" empty state routes here with the
+  /// day it was showing (`RouteNames.masterScheduleForDate`, parsed in
+  /// `app_router.dart`), so the master lands directly on the day they need to
+  /// edit rather than on today. `null` (the default, and every pre-existing
+  /// call site — the Календар bottom-nav tile included) opens on today,
+  /// unchanged. Date-only; any time-of-day is discarded. A date outside the
+  /// initially-fetched month/week range is still valid — [_range] is derived
+  /// FROM the selection, not the other way round, so the first fetch already
+  /// covers it.
+  final DateTime? initialDate;
 
   @override
   ConsumerState<MasterScheduleScreen> createState() =>
@@ -102,6 +117,16 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// NOT read directly by [_isPast] any more — see [_todayCache].
   // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
   DateTime get _today => kyivDayOf(widget._clock?.call() ?? DateTime.now());
+
+  /// The date the calendar opens on: [MasterScheduleScreen.initialDate] when
+  /// given (date-only, per that field's doc), else [_today]. Read exactly
+  /// once, by the `late` field initializers below — a screen instance never
+  /// re-derives its OPENING selection mid-lifetime (a midnight rollover after
+  /// mount is [_today]'s/[_todayCache]'s concern, not this one's).
+  DateTime get _initialSelection {
+    final DateTime? requested = widget.initialDate;
+    return requested == null ? _today : _dateOnly(requested);
+  }
 
   /// Cached mirror of [_today] (mobile-perf LOW, 2026-08-02 audit) — [_isPast]
   /// reads THIS, never the getter directly.
@@ -143,13 +168,16 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// the isolated [_SelectedDayView] — rebuild. The static siblings
   /// (month navigator, weekly-template card, legend) never re-run on a tap.
   late final ValueNotifier<DateTime> _selected = ValueNotifier<DateTime>(
-    _today,
+    _initialSelection,
   );
 
-  late DateTime _visibleMonth = DateTime(_today.year, _today.month);
+  late DateTime _visibleMonth = DateTime(
+    _initialSelection.year,
+    _initialSelection.month,
+  );
 
   /// Monday of the week currently shown in the strip.
-  late DateTime _weekStart = _mondayOf(_today);
+  late DateTime _weekStart = _mondayOf(_initialSelection);
 
   @override
   void dispose() {
@@ -842,11 +870,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 children: <Widget>[
                   Text(
                     monthNominative(_visibleMonth.month),
+                    key: const Key('schedule-month-nav-month-text'),
                     textAlign: TextAlign.center,
                     style: VelvetText.monthNavTitle,
                   ),
                   Text(
                     '${_visibleMonth.year}',
+                    key: const Key('schedule-month-nav-year-text'),
                     textAlign: TextAlign.center,
                     style: VelvetText.monthNavTitle,
                   ),
