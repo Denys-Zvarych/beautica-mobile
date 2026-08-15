@@ -45,6 +45,22 @@ final class FakeAuthRepository implements AuthRepository {
   /// Whether [logout] should throw.
   bool logoutThrows = false;
 
+  /// When non-null, [logout] awaits a FRESHLY-CONSTRUCTED
+  /// `Future.delayed(logoutDelayDuration)` before returning / throwing.
+  ///
+  /// Deliberately a [Duration], NOT a pre-built [Future] (unlike [meDelay] /
+  /// [resendDelay], which use `Completer<void>().future` — a Completer never
+  /// fires on its own, so eager construction is harmless). A pre-built
+  /// `Future.delayed(...)` starts its timer at CONSTRUCTION time. Under
+  /// `testWidgets`' FakeAsync zone, any `tester.pump(duration)` calls between
+  /// building the fake and the code path that actually awaits the future
+  /// advance the same fake clock — so a delay built long before `logout()`
+  /// runs can already have fired by the time it is awaited, silently turning
+  /// an intended "slow logout" repro into a no-op. Building the `Future.delayed`
+  /// lazily inside [logout] (below) starts the timer exactly when the call
+  /// happens, matching real device latency.
+  Duration? logoutDelayDuration;
+
   /// Return value for the next [verifyEmail] call.
   ///
   /// Accepted values:
@@ -284,6 +300,8 @@ final class FakeAuthRepository implements AuthRepository {
   @override
   Future<void> logout() async {
     logoutCallCount++;
+    final delay = logoutDelayDuration;
+    if (delay != null) await Future<void>.delayed(delay);
     if (logoutThrows) throw const UnauthorizedFailure();
   }
 
