@@ -1504,24 +1504,57 @@ void main() {
     //
     // ARITHMETIC (mirrors the real screen, `bookings_discovery_view.dart`,
     // which wraps `BookingsTimelineGrid` in
-    // `EdgeInsets.fromLTRB(VelvetSpacing.lg, 0, VelvetSpacing.lg,
+    // `EdgeInsets.fromLTRB(_kTimelineLeftInset, 0, VelvetSpacing.lg,
     // VelvetSpacing.xxl)`) — this harness reproduces that horizontal
-    // padding rather than pumping the raw grid at 360dp directly, because
-    // the padding is part of what starves the lane area down to 266dp;
-    // skipping it would understate the bug by 48dp:
-    //   360 (device)  − 24 − 24 (VelvetSpacing.lg screen padding, L/R)
-    //     = 312 (width available to BookingsTimelineGrid.build's own Row)
-    //   312 − 42 (TimelineHourRuler._kRulerWidth)
+    // padding rather than pumping the raw grid at a device width directly,
+    // because the padding is part of what starves the lane area; skipping
+    // it would understate the chrome by 36dp.
+    //
+    // UPDATED 2026-08-15 — the screen's LEFT inset was halved (24 → 12) so
+    // the ruler sits closer to the edge and the lane area reclaims 12dp:
+    //   360 (device)  − 12 (left inset) − 24 (VelvetSpacing.lg, right)
+    //     = 324 (width available to BookingsTimelineGrid.build's own Row)
+    //   324 − 42 (TimelineHourRuler._kRulerWidth)
     //       − 4  (VelvetSpacing.xs ruler↔grid gap)
-    //     = 266 (the lane area's real LayoutBuilder constraints.maxWidth)
+    //     = 278 (the lane area's real LayoutBuilder constraints.maxWidth)
+    // 278 >= 272, so the 360dp baseline NO LONGER CLAMPS — that is the
+    // point of the change and the first assertion below pins it. The clamp
+    // itself is still live and still load-bearing below `deviceWidth 354`,
+    // which is why the regression cases moved down to a 320dp device
+    // rather than being deleted: at 360dp they would assert nothing.
+    const double kRulerWidth = 42; // TimelineHourRuler._kRulerWidth (private)
+
+    /// Mirrors `bookings_discovery_view.dart`'s private
+    /// `_kTimelineLeftInset` — deliberately half `VelvetSpacing.lg`. Private
+    /// to that library, so it is restated from the same tokens; if the
+    /// screen's value moves, this must move with it.
+    const double kTimelineLeftInset = VelvetSpacing.sm + VelvetSpacing.xs; // 12
+
+    /// Total horizontal chrome consumed before a card can start: both screen
+    /// insets, the ruler, and the ruler↔grid gap. 82 as of this change (was
+    /// 94 while the left inset was also `VelvetSpacing.lg`).
+    const double kChrome =
+        kTimelineLeftInset + VelvetSpacing.lg + kRulerWidth + VelvetSpacing.xs;
+
     const double kDeviceWidth = 360;
-    const double kAvailableCardArea = 266; // 360 - 94, see file header
+    const double kLaneArea360 = kDeviceWidth - kChrome; // 278
+
+    /// A device narrow enough that the clamp still bites after the inset
+    /// change (the threshold is now `_kCardW + kChrome` = 354dp).
+    const double kNarrowDeviceWidth = 320;
+    const double kNarrowLaneArea = kNarrowDeviceWidth - kChrome; // 238
+
     const double kFixedCardW = 272; // BookingsTimelineGrid._kCardW
 
     final DateTime day = _day;
 
     Widget screenShapedGrid(List<Booking> bookings) => Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+      padding: const EdgeInsets.fromLTRB(
+        kTimelineLeftInset,
+        0,
+        VelvetSpacing.lg,
+        0,
+      ),
       child: BookingsTimelineGrid(
         bookings: bookings,
         day: day,
@@ -1530,12 +1563,12 @@ void main() {
     );
 
     testWidgets(
-      'single-lane 360dp device: the leading card never renders wider '
-      'than the available lane area (was a fixed 272dp, clipped 6dp past '
-      'the real 266dp)',
+      'single-lane 360dp device: the card renders at its FULL 272dp ceiling '
+      '— the halved left inset (24 → 12) reclaimed the 12dp that used to '
+      'clamp it down to 266',
       (WidgetTester tester) async {
         final Booking solo = _booking(
-          id: 'narrow-solo',
+          id: 'baseline-solo',
           startAtUtc: _kyivAtUtc(9),
           durationMinutes: 60,
         );
@@ -1546,16 +1579,53 @@ void main() {
         );
         await tester.pump();
 
+        final Rect cardRect = _cardRect(tester, 'baseline-solo');
+
+        // THE NEW TRUTH on the most common Android width: 278dp of lane area
+        // against a 272dp ceiling, so `math.min` picks the ceiling and the
+        // card is un-clamped for the first time. Goes red if anyone restores
+        // the symmetric 24dp inset (which would put it back at 266).
+        expect(
+          cardRect.width,
+          closeTo(kFixedCardW, 0.5),
+          reason:
+              'the 360dp baseline must now fit the full card — if this reads '
+              '~266 the screen inset regressed back to VelvetSpacing.lg',
+        );
+        expect(kLaneArea360, greaterThanOrEqualTo(kFixedCardW));
+
+        // Unchanged invariant: the card's right edge lands inside the device
+        // viewport. 12 (inset) + 42 (ruler) + 4 (gap) + 272 = 330 <= 360.
+        expect(cardRect.right, lessThanOrEqualTo(kDeviceWidth));
+      },
+    );
+
+    testWidgets(
+      'single-lane 320dp device: the leading card never renders wider than '
+      'the available lane area (the clamp is still live below 354dp)',
+      (WidgetTester tester) async {
+        final Booking solo = _booking(
+          id: 'narrow-solo',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 60,
+        );
+
+        await tester.pumpApp(
+          screenShapedGrid(<Booking>[solo]),
+          width: kNarrowDeviceWidth,
+        );
+        await tester.pump();
+
         final Rect cardRect = _cardRect(tester, 'narrow-solo');
 
         // THE ASSERTION THAT FAILS ON THE OLD FIXED-WIDTH CODE: pre-fix,
         // `cardWidth` was the raw `_kCardW` constant (272) regardless of
         // `constraints.maxWidth`, so `cardRect.width` would render ~272
-        // here — 6dp WIDER than the 266dp actually available. This bound
-        // goes red against the un-clamped code (272 > 266.5).
+        // here — 34dp WIDER than the 238dp actually available. This bound
+        // goes red against the un-clamped code (272 > 238.5).
         expect(
           cardRect.width,
-          lessThanOrEqualTo(kAvailableCardArea + 0.5),
+          lessThanOrEqualTo(kNarrowLaneArea + 0.5),
           reason:
               'the card rendered wider than the lane area actually has '
               'room for — this is the narrow-device clip regression',
@@ -1563,17 +1633,17 @@ void main() {
         // Positive pin, not just an upper bound: the clamp must use ALL
         // the room it has (never shrink further than necessary), and it
         // must NOT still be the raw fixed constant.
-        expect(cardRect.width, closeTo(kAvailableCardArea, 0.5));
+        expect(cardRect.width, closeTo(kNarrowLaneArea, 0.5));
         expect(cardRect.width, isNot(closeTo(kFixedCardW, 0.5)));
 
         // The real symptom, restated in device coordinates: the card's
         // right edge must land inside the device viewport, not past it.
-        expect(cardRect.right, lessThanOrEqualTo(kDeviceWidth));
+        expect(cardRect.right, lessThanOrEqualTo(kNarrowDeviceWidth));
       },
     );
 
     testWidgets(
-      'multi-lane 360dp device (2 overlapping bookings): both lanes clamp '
+      'multi-lane 320dp device (2 overlapping bookings): both lanes clamp '
       'to the same available width — uniform, not just lane 0 — and the '
       'grid still scrolls horizontally to reach lane 2',
       (WidgetTester tester) async {
@@ -1588,9 +1658,13 @@ void main() {
           durationMinutes: 60,
         );
 
+        // 320dp, NOT the 360dp baseline: at 360 the lane area (278) now
+        // exceeds the 272 ceiling, so both lanes would sit at the ceiling
+        // and the "uniform clamp" assertion would pass without the clamp
+        // ever running. The device width is what gives this test its teeth.
         await tester.pumpApp(
           screenShapedGrid(<Booking>[laneA, laneB]),
-          width: kDeviceWidth,
+          width: kNarrowDeviceWidth,
         );
         await tester.pump();
 
@@ -1600,21 +1674,21 @@ void main() {
         // Uniform clamp — pins the file header's "THE CLAMP IS
         // UNCONDITIONAL" decision: EVERY lane clamps to the same
         // effectiveCardW, not only lane 0. A future "only clamp when
-        // lanesCount <= 1" regression would leave rectA at 266 but
+        // lanesCount <= 1" regression would leave rectA at 238 but
         // rectB back at 272, tripping this.
-        expect(rectA.width, closeTo(kAvailableCardArea, 0.5));
-        expect(rectB.width, closeTo(kAvailableCardArea, 0.5));
+        expect(rectA.width, closeTo(kNarrowLaneArea, 0.5));
+        expect(rectB.width, closeTo(kNarrowLaneArea, 0.5));
         expect(rectA.width, closeTo(rectB.width, 0.01));
 
         // The LEADING lane (lane 0, visible without any horizontal
         // scroll) must never clip past the device viewport, exactly as
         // the single-lane case above.
         expect(rectA.left, lessThan(rectB.left));
-        expect(rectA.right, lessThanOrEqualTo(kDeviceWidth));
+        expect(rectA.right, lessThanOrEqualTo(kNarrowDeviceWidth));
 
         // Pin the OTHER half of the deliberate decision: multi-lane days
         // are still expected to need horizontal scroll to reach lane 2+.
-        // Two 266dp lanes plus the inter-lane gap need MORE room than a
+        // Two 238dp lanes plus the inter-lane gap need MORE room than a
         // single lane area has, so the grid's real content width must
         // exceed what's available — a future "fix" that also shrinks
         // lane 2+ to avoid scrolling (e.g. dividing the available width
@@ -1623,7 +1697,7 @@ void main() {
         final double gridContentWidth = tester
             .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
             .width;
-        expect(gridContentWidth, greaterThan(kAvailableCardArea));
+        expect(gridContentWidth, greaterThan(kNarrowLaneArea));
       },
     );
 
