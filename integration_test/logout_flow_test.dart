@@ -60,6 +60,53 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
+/// Bounded poll for the router settling on [RouteNames.login] after the
+/// logout confirm tap.
+///
+/// WHY NOT `pumpAndSettle()` (confirmed flaky in CI — diagnosed, not
+/// hypothesized): `_loggingOut` in `settings_hub_screen.dart` is a bare
+/// `ValueNotifier<bool>` with no `ValueListenableBuilder`/`AnimatedBuilder`
+/// consumer anywhere, so nothing schedules frames while
+/// `runLogoutFlow`'s `await ref.read(authProvider.notifier).logout()`
+/// (`logout_action.dart`) is in flight — a real Keystore wipe. A plain
+/// unfinished `Future` with no frame-scheduling work does not hold
+/// `pumpAndSettle()` open, so once the confirm dialog's pop animation
+/// settles, `pumpAndSettle()` can return BEFORE `logout()` resolves and
+/// `context.go(RouteNames.login)` runs. CI evidence: failing run landed on
+/// `/master/menu` with 32 skipped frames / 396.59 ms avg frame; the passing
+/// run (34 skipped frames / 303.09 ms avg) simply outran the same race.
+///
+/// WHY NOT [AppHarness.pumpUntilCondition]: that helper deliberately THROWS
+/// a `TestFailure` on timeout so a genuine hang fails fast — exactly right
+/// for boot/login. Here we want the OPPOSITE on timeout: fall through
+/// silently so the `expect(AppHarness.location(router), ...)` a few lines
+/// below still runs and reports the real location plus this test's own
+/// `reason:`, rather than a generic "timed out waiting for X" message. That
+/// is a different contract from the shared helper, so it stays local rather
+/// than becoming a second exported variant.
+///
+/// Still bites a genuine regression: if `logout()` never navigates, this
+/// loop simply exhausts its timeout and returns — the assertion below then
+/// fails with the real (stale) location, exactly as it would have with a
+/// hung `pumpAndSettle()`, just without the false negative on a slow frame.
+Future<void> _pumpUntilLoggedOut(
+  WidgetTester tester,
+  GoRouter router, {
+  Duration timeout = const Duration(seconds: 10),
+  Duration step = const Duration(milliseconds: 100),
+}) async {
+  // instant-ok: elapsed-wall-time poll deadline, mirrors AppHarness.pumpUntilFound/pumpUntilCondition
+  final DateTime deadline = DateTime.now().add(timeout);
+  while (!AppHarness.location(router).startsWith(RouteNames.login)) {
+    // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+    if (DateTime.now().isAfter(deadline)) break;
+    await tester.pump(step);
+  }
+  // One extra frame so a condition that just went true is fully built before
+  // the caller inspects it (mirrors AppHarness.pumpUntilFound/Condition).
+  await tester.pump();
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -120,7 +167,10 @@ void main() {
       // Pump through: dialog pop → logout() server call (fake) → secure-storage
       // wipe → state flips Unauthenticated → masterProfile/services watchers
       // rebuild (the cascade) → context.go(/login) → router redirect settles.
-      await tester.pumpAndSettle();
+      //
+      // BOUNDED POLL, NOT pumpAndSettle() — see _pumpUntilLoggedOut's doc
+      // comment for the confirmed CI race this replaces.
+      await _pumpUntilLoggedOut(tester, router);
 
       // 1) Landed back on /login. If the cyclic-invalidation bug were present,
       //    logout() would have thrown CircularDependencyError, context.go(login)
