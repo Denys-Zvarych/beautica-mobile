@@ -884,12 +884,13 @@ void main() {
 
         // ADDENDUM 8: a 60-minute booking's proportional height is
         // `60/60 * 120 = 120dp`, which clears the adaptive FULL layout's own
-        // 118dp natural content by 2dp — so the duration-derived height still
-        // wins outright and the card lands EXACTLY on its end-time line
-        // (kSlotH * 2 = 120). 60 minutes is the break-even for the full
-        // layout at this scale: that 2dp of headroom (3dp until the card's
-        // ROW-1 GLYPH pass took the full natural 117 -> 118) is exactly why
-        // `_kHourH` must not drop below 120 without moving
+        // 115dp natural content by 5dp (was 118dp / 2dp before the 2026-08-15
+        // font-size pass, and 117dp / 3dp before that, until the card's
+        // ROW-1 GLYPH pass took the full natural 117 -> 118) — so the
+        // duration-derived height still wins outright and the card lands
+        // EXACTLY on its end-time line (kSlotH * 2 = 120). 60 minutes is the
+        // break-even for the full layout at this scale: that headroom is
+        // exactly why `_kHourH` must not drop below 120 without moving
         // `fullLayoutMinHeight` too.
         expect(height, closeTo(kSlotH * 2, 0.5));
       },
@@ -942,7 +943,7 @@ void main() {
     );
 
     testWidgets('a booking shorter than the break-even still renders, '
-        'un-clipped, at the MICRO layout\'s 28dp legibility floor rather than '
+        'un-clipped, at the MICRO layout\'s 27dp legibility floor rather than '
         'a duration-scaled sliver', (WidgetTester tester) async {
       final Booking b = _booking(
         id: 'dur-10',
@@ -959,13 +960,14 @@ void main() {
       await tester.pump();
 
       // ADDENDUM 8: sub-break-even bookings floor at the MICRO layout's
-      // natural height (`MasterBookingCard.microLayoutNaturalHeight`, 28dp),
-      // NOT a duration-scaled 20dp sliver (10/60*120) which no layout can
-      // render, NOT the old 56dp compact natural (the micro row is what let
-      // the floor come down), and NOT the 60dp gridline slot (the floor is
-      // decoupled from the slot). This is the documented residual overrun
-      // below the 14.0-minute break-even — irreducible because a card cannot
-      // render below its own natural height and services can be 1 minute long.
+      // natural height (`MasterBookingCard.microLayoutNaturalHeight`, 27dp as
+      // of the 2026-08-15 font-size pass, was 28dp), NOT a duration-scaled
+      // 20dp sliver (10/60*120) which no layout can render, NOT the old 56dp
+      // compact natural (the micro row is what let the floor come down), and
+      // NOT the 60dp gridline slot (the floor is decoupled from the slot).
+      // This is the documented residual overrun below the (now 13.5-minute)
+      // break-even — irreducible because a card cannot render below its own
+      // natural height and services can be 1 minute long.
       expect(
         _cardRect(tester, 'dur-10').height,
         closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
@@ -997,8 +999,8 @@ void main() {
         findsNothing,
       );
       expect(find.text(b.serviceName), findsOneWidget);
-      // The CLIENT NAME is deliberately absent from the VISUAL: a 28dp box
-      // selects `MasterBookingCard`'s MICRO layout, which renders
+      // The CLIENT NAME is deliberately absent from the VISUAL: a sub-54dp
+      // box selects `MasterBookingCard`'s MICRO layout, which renders
       // service · time · dot only. It is still announced, because
       // `masterBookingCardSemantics` («{client}, {service}») has ALWAYS carried
       // it for all three layouts — the micro pass did not "move the client
@@ -1029,13 +1031,13 @@ void main() {
         );
         await tester.pump();
 
-        // 15/60 * 120 = 30, clear of `microLayoutNaturalHeight` (28) — the
-        // proportional height wins over the floor, so the card bottom lands
-        // precisely on its end-time line with no residual. (The exact
-        // break-even is 14.0 minutes, and 14 — not 15 — is the shortest whole
-        // minute at or past it since the micro natural came down to 28; that
-        // boundary has its OWN case directly below. 15 is kept because it is
-        // the shortest slot any real service catalogue uses.)
+        // 15/60 * 120 = 30, clear of `microLayoutNaturalHeight` (27, was 28
+        // before the 2026-08-15 font-size pass) — the proportional height
+        // wins over the floor, so the card bottom lands precisely on its
+        // end-time line with no residual. (The exact break-even is now 13.5
+        // minutes — not a whole minute, see the case directly below — so 14
+        // is the shortest WHOLE minute at or past it. 15 is kept because it
+        // is the shortest slot any real service catalogue uses.)
         expect(
           _cardRect(tester, 'dur-20').height,
           closeTo(kHourH * 15 / 60, 0.5),
@@ -1047,27 +1049,42 @@ void main() {
     // ---------------------------------------------------------------------
     // The break-even is `microLayoutNaturalHeight / kHourH * 60` — it MOVED
     // from 14.5 to 14.0 minutes when the ONE-TIME-STYLE pass (2026-07-24)
-    // took the micro natural from 29dp to 28dp. The cases above and below
-    // this one sweep 15 and up (proportional wins) and 10 and down (the floor
-    // wins); NEITHER touches the boundary the pass created, so until this
-    // case existed the whole geometric consequence of the type change was
-    // pinned only one dp away from where it actually bites.
+    // took the micro natural from 29dp to 28dp, and moved AGAIN, to 13.5
+    // minutes, when the 2026-08-15 font-size pass took it from 28dp to 27dp
+    // (see `master_booking_card.dart`'s `microLayoutNaturalHeight` doc). The
+    // cases above and below this one sweep 15 and up (proportional wins) and
+    // 10 and down (the floor wins); NEITHER touches the boundary either pass
+    // created, so until this case existed the whole geometric consequence of
+    // the type change was pinned only one dp away from where it actually
+    // bites.
     //
-    // 14 is the discriminating minute, and it discriminates in BOTH
-    // directions:
-    //   * at the current 28dp natural, 14/60 × 120 = 28.0 == the floor, so a
-    //     14-minute booking is the SHORTEST duration that lands exactly on
-    //     its own end-time line with zero residual overrun;
-    //   * at the outgoing 29dp natural it was BELOW the break-even, floored
-    //     to 29, and overran its line by 1dp.
+    // 13.5 IS NOT A WHOLE MINUTE, so — unlike the 2026-07-24 pass, which
+    // landed the break-even exactly on an integer (14.0) — no real booking
+    // duration can sit EXACTLY at this one any more. 14 is still the
+    // discriminating minute, but the relationship changed from COINCIDE to
+    // CROSSES:
+    //   * at the current 27dp natural, 14/60 × 120 = 28.0dp, 1dp PAST the
+    //     natural rather than equal to it. The micro body's own rendered box
+    //     is `max(minHeight, natural)` (`MasterBookingCard.occupiedHeightFor`),
+    //     so a 28dp floor against a 27dp natural still resolves to exactly
+    //     28dp — the card still lands on its own end-time line with zero
+    //     residual, just via the PROPORTIONAL term winning the `max` rather
+    //     than the two terms being numerically equal;
+    //   * at the 28dp natural (until 2026-08-15) 14/60 × 120 = 28.0 == the
+    //     floor exactly, so this case used to be the literal break-even
+    //     point, not merely the first duration past it;
+    //   * at the outgoing 29dp natural (until 2026-07-24) it was BELOW the
+    //     break-even, floored to 29, and overran its line by 1dp.
     // So this case fails if the natural ever drifts back up — including via
     // the `height: 1.2` that `VelvetText.masterCardTime` deliberately leaves
     // out of the typography-equality group, which is a layout knob whose
     // only guard is geometry like this.
     testWidgets(
-      'the NEW break-even is 14.0 minutes: a 14-minute booking lands its card '
-      'bottom EXACTLY on its end-time line (zero residual), while a '
-      '13-minute one is the longest booking the micro floor still inflates',
+      'the break-even is now 13.5 minutes (not a whole minute): a 14-minute '
+      'booking still lands its card bottom EXACTLY on its end-time line '
+      '(zero residual, via the proportional term winning rather than tying '
+      'the micro natural), while a 13-minute one is the longest booking the '
+      'micro floor still inflates',
       (WidgetTester tester) async {
         final Booking atBreakEven = _booking(
           id: 'dur-14',
@@ -1102,18 +1119,24 @@ void main() {
           reason:
               'a 14-minute booking must land exactly on its end-time line. '
               'If it renders taller, the MICRO natural has drifted back above '
-              '28dp and the break-even is no longer 14.0 — re-measure '
-              'MasterBookingCard.microLayoutNaturalHeight and update every '
-              'doc that quotes the break-even.',
+              '27dp and 14 minutes is no longer past the (now 13.5-minute) '
+              'break-even — re-measure MasterBookingCard.microLayoutNaturalHeight '
+              'and update every doc that quotes the break-even.',
         );
-        // Stated as the floor rather than as a number, so the pairing (not
-        // the literal 28) is what is pinned.
+        // Stated relative to the natural rather than as an equality, since
+        // the 2026-08-15 font-size pass took the natural to an ODD number
+        // (27dp) — no whole-minute duration can coincide with it exactly any
+        // more (the true break-even is 13.5 minutes). At 14 minutes the
+        // proportional band (28dp) is 1dp PAST the natural, so `max` picks
+        // the band, not the floor — this asserts that relationship rather
+        // than a numeric tie.
         expect(
           _cardRect(tester, 'dur-14').height,
-          closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
+          closeTo(MasterBookingCard.microLayoutNaturalHeight + 1, 0.5),
           reason:
-              'at the break-even the proportional band and the micro floor '
-              'COINCIDE — that is what makes 14.0 the break-even',
+              'at 14 minutes the proportional band must sit exactly 1dp past '
+              'the micro natural — that is what makes 14 the first WHOLE '
+              'minute past the (fractional) 13.5-minute break-even',
         );
 
         // One minute below, the floor genuinely binds again: the card is
@@ -1504,24 +1527,57 @@ void main() {
     //
     // ARITHMETIC (mirrors the real screen, `bookings_discovery_view.dart`,
     // which wraps `BookingsTimelineGrid` in
-    // `EdgeInsets.fromLTRB(VelvetSpacing.lg, 0, VelvetSpacing.lg,
+    // `EdgeInsets.fromLTRB(_kTimelineLeftInset, 0, VelvetSpacing.lg,
     // VelvetSpacing.xxl)`) — this harness reproduces that horizontal
-    // padding rather than pumping the raw grid at 360dp directly, because
-    // the padding is part of what starves the lane area down to 266dp;
-    // skipping it would understate the bug by 48dp:
-    //   360 (device)  − 24 − 24 (VelvetSpacing.lg screen padding, L/R)
-    //     = 312 (width available to BookingsTimelineGrid.build's own Row)
-    //   312 − 42 (TimelineHourRuler._kRulerWidth)
+    // padding rather than pumping the raw grid at a device width directly,
+    // because the padding is part of what starves the lane area; skipping
+    // it would understate the chrome by 36dp.
+    //
+    // UPDATED 2026-08-15 — the screen's LEFT inset was halved (24 → 12) so
+    // the ruler sits closer to the edge and the lane area reclaims 12dp:
+    //   360 (device)  − 12 (left inset) − 24 (VelvetSpacing.lg, right)
+    //     = 324 (width available to BookingsTimelineGrid.build's own Row)
+    //   324 − 42 (TimelineHourRuler._kRulerWidth)
     //       − 4  (VelvetSpacing.xs ruler↔grid gap)
-    //     = 266 (the lane area's real LayoutBuilder constraints.maxWidth)
+    //     = 278 (the lane area's real LayoutBuilder constraints.maxWidth)
+    // 278 >= 272, so the 360dp baseline NO LONGER CLAMPS — that is the
+    // point of the change and the first assertion below pins it. The clamp
+    // itself is still live and still load-bearing below `deviceWidth 354`,
+    // which is why the regression cases moved down to a 320dp device
+    // rather than being deleted: at 360dp they would assert nothing.
+    const double kRulerWidth = 42; // TimelineHourRuler._kRulerWidth (private)
+
+    /// Mirrors `bookings_discovery_view.dart`'s private
+    /// `_kTimelineLeftInset` — deliberately half `VelvetSpacing.lg`. Private
+    /// to that library, so it is restated from the same tokens; if the
+    /// screen's value moves, this must move with it.
+    const double kTimelineLeftInset = VelvetSpacing.sm + VelvetSpacing.xs; // 12
+
+    /// Total horizontal chrome consumed before a card can start: both screen
+    /// insets, the ruler, and the ruler↔grid gap. 82 as of this change (was
+    /// 94 while the left inset was also `VelvetSpacing.lg`).
+    const double kChrome =
+        kTimelineLeftInset + VelvetSpacing.lg + kRulerWidth + VelvetSpacing.xs;
+
     const double kDeviceWidth = 360;
-    const double kAvailableCardArea = 266; // 360 - 94, see file header
+    const double kLaneArea360 = kDeviceWidth - kChrome; // 278
+
+    /// A device narrow enough that the clamp still bites after the inset
+    /// change (the threshold is now `_kCardW + kChrome` = 354dp).
+    const double kNarrowDeviceWidth = 320;
+    const double kNarrowLaneArea = kNarrowDeviceWidth - kChrome; // 238
+
     const double kFixedCardW = 272; // BookingsTimelineGrid._kCardW
 
     final DateTime day = _day;
 
     Widget screenShapedGrid(List<Booking> bookings) => Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+      padding: const EdgeInsets.fromLTRB(
+        kTimelineLeftInset,
+        0,
+        VelvetSpacing.lg,
+        0,
+      ),
       child: BookingsTimelineGrid(
         bookings: bookings,
         day: day,
@@ -1530,12 +1586,12 @@ void main() {
     );
 
     testWidgets(
-      'single-lane 360dp device: the leading card never renders wider '
-      'than the available lane area (was a fixed 272dp, clipped 6dp past '
-      'the real 266dp)',
+      'single-lane 360dp device: the card renders at its FULL 272dp ceiling '
+      '— the halved left inset (24 → 12) reclaimed the 12dp that used to '
+      'clamp it down to 266',
       (WidgetTester tester) async {
         final Booking solo = _booking(
-          id: 'narrow-solo',
+          id: 'baseline-solo',
           startAtUtc: _kyivAtUtc(9),
           durationMinutes: 60,
         );
@@ -1546,16 +1602,53 @@ void main() {
         );
         await tester.pump();
 
+        final Rect cardRect = _cardRect(tester, 'baseline-solo');
+
+        // THE NEW TRUTH on the most common Android width: 278dp of lane area
+        // against a 272dp ceiling, so `math.min` picks the ceiling and the
+        // card is un-clamped for the first time. Goes red if anyone restores
+        // the symmetric 24dp inset (which would put it back at 266).
+        expect(
+          cardRect.width,
+          closeTo(kFixedCardW, 0.5),
+          reason:
+              'the 360dp baseline must now fit the full card — if this reads '
+              '~266 the screen inset regressed back to VelvetSpacing.lg',
+        );
+        expect(kLaneArea360, greaterThanOrEqualTo(kFixedCardW));
+
+        // Unchanged invariant: the card's right edge lands inside the device
+        // viewport. 12 (inset) + 42 (ruler) + 4 (gap) + 272 = 330 <= 360.
+        expect(cardRect.right, lessThanOrEqualTo(kDeviceWidth));
+      },
+    );
+
+    testWidgets(
+      'single-lane 320dp device: the leading card never renders wider than '
+      'the available lane area (the clamp is still live below 354dp)',
+      (WidgetTester tester) async {
+        final Booking solo = _booking(
+          id: 'narrow-solo',
+          startAtUtc: _kyivAtUtc(9),
+          durationMinutes: 60,
+        );
+
+        await tester.pumpApp(
+          screenShapedGrid(<Booking>[solo]),
+          width: kNarrowDeviceWidth,
+        );
+        await tester.pump();
+
         final Rect cardRect = _cardRect(tester, 'narrow-solo');
 
         // THE ASSERTION THAT FAILS ON THE OLD FIXED-WIDTH CODE: pre-fix,
         // `cardWidth` was the raw `_kCardW` constant (272) regardless of
         // `constraints.maxWidth`, so `cardRect.width` would render ~272
-        // here — 6dp WIDER than the 266dp actually available. This bound
-        // goes red against the un-clamped code (272 > 266.5).
+        // here — 34dp WIDER than the 238dp actually available. This bound
+        // goes red against the un-clamped code (272 > 238.5).
         expect(
           cardRect.width,
-          lessThanOrEqualTo(kAvailableCardArea + 0.5),
+          lessThanOrEqualTo(kNarrowLaneArea + 0.5),
           reason:
               'the card rendered wider than the lane area actually has '
               'room for — this is the narrow-device clip regression',
@@ -1563,17 +1656,17 @@ void main() {
         // Positive pin, not just an upper bound: the clamp must use ALL
         // the room it has (never shrink further than necessary), and it
         // must NOT still be the raw fixed constant.
-        expect(cardRect.width, closeTo(kAvailableCardArea, 0.5));
+        expect(cardRect.width, closeTo(kNarrowLaneArea, 0.5));
         expect(cardRect.width, isNot(closeTo(kFixedCardW, 0.5)));
 
         // The real symptom, restated in device coordinates: the card's
         // right edge must land inside the device viewport, not past it.
-        expect(cardRect.right, lessThanOrEqualTo(kDeviceWidth));
+        expect(cardRect.right, lessThanOrEqualTo(kNarrowDeviceWidth));
       },
     );
 
     testWidgets(
-      'multi-lane 360dp device (2 overlapping bookings): both lanes clamp '
+      'multi-lane 320dp device (2 overlapping bookings): both lanes clamp '
       'to the same available width — uniform, not just lane 0 — and the '
       'grid still scrolls horizontally to reach lane 2',
       (WidgetTester tester) async {
@@ -1588,9 +1681,13 @@ void main() {
           durationMinutes: 60,
         );
 
+        // 320dp, NOT the 360dp baseline: at 360 the lane area (278) now
+        // exceeds the 272 ceiling, so both lanes would sit at the ceiling
+        // and the "uniform clamp" assertion would pass without the clamp
+        // ever running. The device width is what gives this test its teeth.
         await tester.pumpApp(
           screenShapedGrid(<Booking>[laneA, laneB]),
-          width: kDeviceWidth,
+          width: kNarrowDeviceWidth,
         );
         await tester.pump();
 
@@ -1600,21 +1697,21 @@ void main() {
         // Uniform clamp — pins the file header's "THE CLAMP IS
         // UNCONDITIONAL" decision: EVERY lane clamps to the same
         // effectiveCardW, not only lane 0. A future "only clamp when
-        // lanesCount <= 1" regression would leave rectA at 266 but
+        // lanesCount <= 1" regression would leave rectA at 238 but
         // rectB back at 272, tripping this.
-        expect(rectA.width, closeTo(kAvailableCardArea, 0.5));
-        expect(rectB.width, closeTo(kAvailableCardArea, 0.5));
+        expect(rectA.width, closeTo(kNarrowLaneArea, 0.5));
+        expect(rectB.width, closeTo(kNarrowLaneArea, 0.5));
         expect(rectA.width, closeTo(rectB.width, 0.01));
 
         // The LEADING lane (lane 0, visible without any horizontal
         // scroll) must never clip past the device viewport, exactly as
         // the single-lane case above.
         expect(rectA.left, lessThan(rectB.left));
-        expect(rectA.right, lessThanOrEqualTo(kDeviceWidth));
+        expect(rectA.right, lessThanOrEqualTo(kNarrowDeviceWidth));
 
         // Pin the OTHER half of the deliberate decision: multi-lane days
         // are still expected to need horizontal scroll to reach lane 2+.
-        // Two 266dp lanes plus the inter-lane gap need MORE room than a
+        // Two 238dp lanes plus the inter-lane gap need MORE room than a
         // single lane area has, so the grid's real content width must
         // exceed what's available — a future "fix" that also shrinks
         // lane 2+ to avoid scrolling (e.g. dividing the available width
@@ -1623,7 +1720,7 @@ void main() {
         final double gridContentWidth = tester
             .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
             .width;
-        expect(gridContentWidth, greaterThan(kAvailableCardArea));
+        expect(gridContentWidth, greaterThan(kNarrowLaneArea));
       },
     );
 
@@ -1947,8 +2044,9 @@ void main() {
     //
     // That reasoning is about `MasterBookingCard`'s COMPACT layout only. The
     // card switches to its ADAPTIVE FULL layout once
-    // `minHeight >= fullLayoutNaturalHeight` (118dp, `_kFullLayoutMinHeight`),
-    // and the full layout's own natural content also measures 118dp.
+    // `minHeight >= fullLayoutNaturalHeight` (115dp as of the 2026-08-15
+    // font-size pass, was 118dp — `_kFullLayoutMinHeight`), and the full
+    // layout's own natural content also measures 115dp.
     //
     // HISTORICAL MOTIVATION (scale 112, pre-ADDENDUM 7): a 60-minute booking's
     // floor was 112dp but its real card rendered at 117dp (full layout), so a
@@ -1960,14 +2058,16 @@ void main() {
     // That is exactly why the placeholder must reserve `occupiedHeightFor`
     // (which accounts for the layout switch), not the bare `minHeight`.
     //
-    // AT THE CURRENT 120dp SCALE (ADDENDUM 8) that specific 5dp gap still
-    // does not arise — a 60-minute floor is 120dp >= 118dp, so
-    // `occupiedHeightFor` and `minHeight` coincide there — but
-    // `occupiedHeightFor` is NO LONGER a no-op the way it was at 168: the
-    // grid's card floor is now `microLayoutNaturalHeight` (28dp), so every
-    // booking under the 14.0-minute break-even has a floor BELOW its layout's
-    // natural and the `max` genuinely binds. It is also the general,
-    // scale-independent predictor for any future scale.
+    // AT THE CURRENT 120dp SCALE (ADDENDUM 8) that specific gap still does
+    // not arise — a 60-minute floor is 120dp >= 115dp (was 118dp before the
+    // 2026-08-15 font-size pass; the margin widened from 2dp to 5dp, it did
+    // not close), so `occupiedHeightFor` and `minHeight` coincide there —
+    // but `occupiedHeightFor` is NO LONGER a no-op the way it was at 168: the
+    // grid's card floor is now `microLayoutNaturalHeight` (27dp, was 28dp),
+    // so every booking under the break-even (now 13.5 minutes, not a whole
+    // minute — was 14.0) has a floor BELOW its layout's natural and the
+    // `max` genuinely binds. It is also the general, scale-independent
+    // predictor for any future scale.
     //
     // How it was resolved: ADDENDUM 5 took the first branch — the
     // placeholder reserves `MasterBookingCard.occupiedHeightFor(floor)`, the
@@ -2403,8 +2503,9 @@ void main() {
       'offset — including the maximum staleness just before a re-anchor — no '
       'culled card is above the fold',
       (WidgetTester tester) async {
-        // 15-minute bookings tile at exactly 30dp (band 30dp vs the 28dp
-        // micro floor), giving the sweep 4x the resolution of the 120dp
+        // 15-minute bookings tile at exactly 30dp (band 30dp vs the 27dp
+        // micro floor, was 28dp before the 2026-08-15 font-size pass), giving
+        // the sweep 4x the resolution of the 120dp
         // fixtures above. 09:00–21:00 is 48 cards / 1440dp — comfortably past
         // the 893dp window edge, so culling genuinely engages (a shorter day
         // fits INSIDE the window and the sweep would assert nothing; the

@@ -1415,9 +1415,21 @@ abstract final class VelvetText {
   // (see `master_booking_card.dart`'s header), so their type must not share a
   // namespace where a future edit could "consolidate" two unrelated sizes.
   //
-  // There is no `masterCardPrice`: the price pill is `pill()` verbatim — that
-  // token is already Nunito 11/800 accentDeep, so a `.copyWith(fontSize: 11)`
-  // on it would be a no-op wearing a new name.
+  // LEGIBILITY FLOOR (2026-08-15, mobile-perf/mobile-security audit of the
+  // font-size pass below): no LIVE `masterCard*` token goes below 9 sp.
+  // [masterCardBadgeLabel] was stepped to 8.3 sp by the font-size pass and
+  // bumped back to 9.0 sp for this reason — see that token's own doc. A
+  // future density pass must not quietly cross this floor again; if a
+  // `masterCard*` token needs to go below 9 sp, that is a deliberate
+  // legibility trade-off to call out explicitly, not a mechanical ~8% step.
+  //
+  // UPDATE (2026-08-15): there IS now a `masterCardPricePill` — see that
+  // token's own doc. Until the font-size pass below, there was deliberately
+  // no `masterCardPrice`: the price pill rendered `pill()` verbatim, and a
+  // `.copyWith(fontSize: 11)` on it would have been a no-op wearing a new
+  // name. The pass needed the card's own price figure to shrink without
+  // moving `pill()` itself (shared with wishlist/passport), which is what
+  // finally justified a dedicated token.
   //
   // Compact-timeline pass (2026-07-20, see `master_booking_card.dart`'s class
   // doc): the card dropped its avatar row entirely and moved to a two-line
@@ -1431,17 +1443,26 @@ abstract final class VelvetText {
   // needs the date. [masterCardTime] and [masterCardBadgeLabel] are new for
   // the same pass.
 
-  /// Client name on a master booking card (row 2) — subheading at 12.5 sp,
+  /// Client name on a master booking card (row 2) — subheading at 11.5 sp,
   /// height 1.2.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 12.5 sp. User request: "make all fonts
+  /// of all existed elements in bookings cards a little bit lower" — a
+  /// uniform ~1 sp step-down across every `masterCard*`/`masterFreeCard*`
+  /// token, size-only (no colour/weight/reorder). See
+  /// `master_booking_card.dart`'s class doc for the re-measured naturals this
+  /// pass produced.
   static final TextStyle masterCardClientName = _subheadingStyle.copyWith(
-    fontSize: 12.5,
+    fontSize: 11.5,
     height: 1.2,
   );
 
-  /// Service name on a master booking card (row 1) — bodyStrong at 11 sp,
+  /// Service name on a master booking card (row 1) — bodyStrong at 10 sp,
   /// height 1.2 (down from the base style's 1.5 — see this section's header).
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 11 sp; see [masterCardClientName]'s doc.
   static final TextStyle masterCardService = _bodyStrongStyle.copyWith(
-    fontSize: 11,
+    fontSize: 10,
     height: 1.2,
   );
 
@@ -1482,22 +1503,92 @@ abstract final class VelvetText {
     height: 1.2,
   );
 
-  /// [TimelineStatusBadge]'s label — feedback base at 9 sp, height 1.1 (down
+  /// FROZEN COPY of [masterCardTime]'s pre-2026-08-15 recipe (Nunito 11 sp,
+  /// [BrandColors.muted], height 1.2) — literal values, NOT derived from
+  /// [masterCardDateFull], so it cannot move when that token does.
+  ///
+  /// [masterCardTime] itself shrank as part of the 2026-08-15 booking-card
+  /// font-size pass (see [masterCardClientName]'s doc) because it derives
+  /// from [masterCardDateFull], which the pass also stepped down (11 -> 10 sp)
+  /// for the FULL card's own time caption and the free-card label. But
+  /// [masterCardTime] is ALSO consumed by three screens that are NOT the
+  /// booking card and were explicitly out of scope — `wishlist_row.dart`,
+  /// `wishlist_compact_card.dart` and `passport_derived_block.dart` — and
+  /// those three must render byte-identically to before. This token is what
+  /// they now point at instead, so the booking card's own shrink cannot leak
+  /// into them.
+  ///
+  /// Do NOT point a new booking-card call site at this — use
+  /// [masterCardTime], which stays the single source recipe for the card's
+  /// three densities (see that token's own "ONE TIME STYLE" doc).
+  static final TextStyle masterCardTimeShared = _feedbackBase.copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+    height: 1.2,
+  );
+
+  /// [TimelineStatusBadge]'s label — feedback base at 9.0 sp, height 1.1 (down
   /// from the base's 1.4 — a compact pill has no room for generous leading).
   /// Colour (the resolved [BookingStatusVisual.accent]) is applied at the
   /// call site via a single `copyWith`, mirroring [feedback]'s own pattern.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 9 sp; see [masterCardClientName]'s doc.
+  /// Stepped by 0.7 sp (~7.8%) rather than the usual 1 sp: at 9 sp this was
+  /// already the smallest live token on the card, and a full 1 sp cut (11%)
+  /// would have pushed it below what the "roughly 8%" step this pass targets
+  /// allows for the rest of the scale.
+  ///
+  /// RESTORED to 9.0 sp the same day (mobile-perf/mobile-security audit):
+  /// 8.3 sp fell below this section's 9 sp legibility floor (see the section
+  /// header) — both auditors independently flagged it as the smallest live
+  /// token on the card. This is a REVERSAL of the cut above, not a further
+  /// step: the badge is back to its pre-pass size while every other
+  /// `masterCard*` token keeps its ~1 sp reduction.
+  ///
+  /// GEOMETRY CHECK: growing this 0.7 sp back does NOT move
+  /// [MasterBookingCard.fullLayoutNaturalHeight]. The FULL layout's row 3 is
+  /// `max(price pill, badge)`, and the price pill
+  /// ([VelvetText.masterCardPricePill] at [PriceTag.defaultVerticalPadding])
+  /// measures 20dp there — comfortably taller than the badge at either 8.3 or
+  /// 9.0 sp. Measured directly (`tester.getSize` on the real
+  /// [TimelineStatusBadge], not token arithmetic): 15.0dp tall at 8.3 sp,
+  /// 16.0dp at 9.0 sp, both textScaler 1.0 — still short of the pill's 20dp,
+  /// so row 3, [fullLayoutNaturalHeight] (115) and the full/compact threshold
+  /// are all unchanged by this restoration. Re-verify this margin if the
+  /// price pill's own vertical padding or type size ever shrinks again.
   static final TextStyle masterCardBadgeLabel = _feedbackBase.copyWith(
-    fontSize: 9,
+    fontSize: 9.0,
     height: 1.1,
   );
 
   /// Client monogram initials on a master booking card's avatar — subheading
-  /// stepped to 15 sp, accentDeep. Unused since the compact-timeline pass
+  /// stepped to 14 sp, accentDeep. Unused since the compact-timeline pass
   /// dropped the avatar row (see `master_booking_card.dart`'s
   /// `_ClientAvatar` doc) — kept for the same future-reuse reason.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 15 sp; see [masterCardClientName]'s
+  /// doc. Stepped for token-family consistency even though this token has no
+  /// live call site today.
   static final TextStyle masterCardInitials = _subheadingStyle.copyWith(
-    fontSize: 15,
+    fontSize: 14,
     color: BrandColors.accentDeep,
+  );
+
+  /// The master booking card's OWN price-pill figure — [PriceTag]'s `pill()`
+  /// verbatim, stepped down 0.8 sp (11 -> 10.2 sp, ~7.3%) for the 2026-08-15
+  /// font-size pass (see [masterCardClientName]'s doc).
+  ///
+  /// `pill()` ITSELF IS UNCHANGED, on purpose: `PriceTag` (`core/widgets/
+  /// price_tag.dart`) is shared with `wishlist_row.dart`,
+  /// `wishlist_compact_card.dart` and `passport_derived_block.dart`, none of
+  /// which were in scope for this pass — see [masterCardTimeShared] for the
+  /// same constraint on the time caption. `PriceTag` now takes an optional
+  /// `style` override (defaulting to `null`, which keeps `pill()`); only
+  /// `master_booking_card.dart`'s TWO `PriceTag` call sites (the compact and
+  /// full bodies) pass this token — the MICRO body has no price row (see
+  /// that widget's class doc), so it never renders a `PriceTag` at all.
+  static final TextStyle masterCardPricePill = _pillStyle.copyWith(
+    fontSize: 10.2,
   );
 
   // Adaptive-layout pass (2026-07-20, later the same day as the compact
@@ -1511,21 +1602,28 @@ abstract final class VelvetText {
   // dedicated type, not to be consolidated with the compact tokens above or
   // the client-side `bookingCard*` family).
 
-  /// Client name on the FULL layout's row 1 — subheading at 13.5 sp.
+  /// Client name on the FULL layout's row 1 — subheading at 12.5 sp.
   /// Transcribed from the design's `VelvetText.subheading().copyWith(
   /// fontSize: 13.5)`.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 13.5 sp; see
+  /// [masterCardClientName]'s doc. [masterFreeCardTime] derives from this
+  /// token and shrinks with it (deliberate — see that token's doc).
   static final TextStyle masterCardClientNameFull = _subheadingStyle.copyWith(
-    fontSize: 13.5,
-  );
-
-  /// Service name on the FULL layout's row (below the divider) — bodyStrong
-  /// at 12.5 sp. Transcribed from the design's
-  /// `VelvetText.bodyStrong().copyWith(fontSize: 12.5)`.
-  static final TextStyle masterCardServiceFull = _bodyStrongStyle.copyWith(
     fontSize: 12.5,
   );
 
-  /// The FULL layout's time caption — feedback base at 11 sp, muted.
+  /// Service name on the FULL layout's row (below the divider) — bodyStrong
+  /// at 11.5 sp. Transcribed from the design's
+  /// `VelvetText.bodyStrong().copyWith(fontSize: 12.5)`.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 12.5 sp; see
+  /// [masterCardClientName]'s doc.
+  static final TextStyle masterCardServiceFull = _bodyStrongStyle.copyWith(
+    fontSize: 11.5,
+  );
+
+  /// The FULL layout's time caption — feedback base at 10 sp, muted.
   /// Transcribed from the design's
   /// `VelvetText.feedback(VelvetColors.muted).copyWith(fontSize: 11)`.
   ///
@@ -1535,8 +1633,15 @@ abstract final class VelvetText {
   /// `master_booking_card.dart`'s "The time is a RANGE" header section. The
   /// token name is left alone deliberately: it is purely a size/colour recipe
   /// and renaming it would churn every reference for no behavioural gain.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 11 sp; see [masterCardClientName]'s
+  /// doc. [masterCardTime] (the compact/micro range) and [masterFreeCardLabel]
+  /// (the free card's «Вільно» caption) both derive from this token and
+  /// shrink with it — deliberate, both are in scope. The three EXTERNAL
+  /// consumers of [masterCardTime] (wishlist/passport) do NOT shrink — see
+  /// [masterCardTimeShared].
   static final TextStyle masterCardDateFull = _feedbackBase.copyWith(
-    fontSize: 11,
+    fontSize: 10,
     color: BrandColors.muted,
   );
 
@@ -1554,18 +1659,23 @@ abstract final class VelvetText {
   // sibling of a booked one rather than a headline shouting over it.
 
   /// The EXPLICIT_TIMES free-card's declared time — [masterCardClientNameFull]
-  /// verbatim (Comfortaa 13.5/600) recoloured to [BrandColors.accentDeep].
-  /// The mocha recolour is deliberate and unchanged from the original intent
-  /// (the card's anchor reads as structure, not a headline) — only the SIZE
-  /// tier moved, from the stat-value family down to the full-layout
-  /// client-name family.
+  /// verbatim (Comfortaa 12.5/600 as of the 2026-08-15 font-size pass, was
+  /// 13.5/600) recoloured to [BrandColors.accentDeep]. The mocha recolour is
+  /// deliberate and unchanged from the original intent (the card's anchor
+  /// reads as structure, not a headline) — only the SIZE tier moved, first
+  /// from the stat-value family down to the full-layout client-name family
+  /// (Phase 244), then down again with the rest of that family in the
+  /// 2026-08-15 pass (see [masterCardClientName]'s doc) — it derives from
+  /// [masterCardClientNameFull], so it tracks that token automatically.
   static final TextStyle masterFreeCardTime = masterCardClientNameFull.copyWith(
     color: BrandColors.accentDeep,
   );
 
   /// The EXPLICIT_TIMES free-card's «Вільно» caption — [masterCardDateFull]
-  /// verbatim (Nunito 11/700, [BrandColors.muted]), i.e. the FULL layout's
-  /// own secondary-tier recipe, unmodified.
+  /// verbatim (Nunito 10/700, [BrandColors.muted] as of the 2026-08-15
+  /// font-size pass, was 11/700), i.e. the FULL layout's own secondary-tier
+  /// recipe, unmodified — it derives from [masterCardDateFull] and tracks it
+  /// automatically.
   static final TextStyle masterFreeCardLabel = masterCardDateFull;
 
   // ---------------------------------------------------------------------------

@@ -250,7 +250,14 @@ class WishlistRow extends StatelessWidget {
       children: <Widget>[
         // Time + price wear the master booking card's own treatments: a
         // muted caption, then the figure in a pill.
-        if (duration != null) Text(duration, style: VelvetText.masterCardTime),
+        //
+        // `masterCardTimeShared`, NOT `masterCardTime` — the 2026-08-15
+        // booking-card font-size pass shrank `masterCardTime` for the card's
+        // own three densities; this screen was explicitly out of scope and
+        // must render byte-identically, so it borrows the frozen pre-pass
+        // recipe instead. See `velvet_text.dart`'s `masterCardTimeShared` doc.
+        if (duration != null)
+          Text(duration, style: VelvetText.masterCardTimeShared),
         if (item.showsPrice) PriceTag(price: item.priceLabel),
       ],
     );

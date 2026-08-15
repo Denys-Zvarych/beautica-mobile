@@ -524,4 +524,64 @@ void main() {
       },
     );
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // THE BRANCH CARVE-OUT — DeclaredTimeCards KEEPS the 24dp inset
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // 2026-08-15: the timeline branch's left screen inset was halved to 12dp
+  // so its hour ruler sits closer to the edge. `DeclaredTimeCards` has NO
+  // ruler gutter — its cards start flush at the padding edge — so it
+  // deliberately KEEPS `VelvetSpacing.lg` (24) to stay aligned with the
+  // 24dp day header (`masterBookingsCount`) and `MasterBookingsTruncated
+  // Notice`'s 24dp margin above it. Without this test the ternary in
+  // `bookings_discovery_view.dart` could be collapsed to the single 12dp
+  // value and nothing would go red; the INTERVAL-side pin in
+  // `bookings_discovery_view_schedule_window_test.dart` only guards the
+  // OTHER arm. Asserts rendered geometry, not the source expression.
+  group('the declared-times branch\'s left screen inset', () {
+    testWidgets(
+      'stays at 24dp — the halved timeline inset must NOT bleed into this '
+      'branch, whose flush cards align with the 24dp day header',
+      (tester) async {
+        await pump(
+          tester,
+          bookings: <Booking>[
+            _booking(id: 'inset', startAtUtc: _kyivAtUtc(11)),
+          ],
+          scheduleDays: <EffectiveDay>[
+            EffectiveDay(
+              date: _day,
+              source: EffectiveSource.overrideCustom,
+              intervals: const <WorkInterval>[],
+              times: const <TimeOfDay>[TimeOfDay(hour: 11, minute: 0)],
+            ),
+          ],
+        );
+
+        // Fixture sanity: we really are on the declared-times arm.
+        expect(find.byType(DeclaredTimeCards), findsOneWidget);
+
+        // `DeclaredTimeCards` is the direct child of the screen's body
+        // `Padding`, so its rendered left edge IS that padding's left inset.
+        expect(
+          tester.getRect(find.byType(DeclaredTimeCards)).left,
+          closeTo(24, 0.01),
+          reason:
+              'reading ~12 means the timeline branch\'s halved inset leaked '
+              'into the declared-times arm, misaligning its flush cards with '
+              'the 24dp day header above them',
+        );
+
+        // Pin the ALIGNMENT this inset exists to preserve, not just the
+        // number: the day-header count and the cards share one left edge.
+        expect(
+          tester.getRect(find.byKey(const Key('master-bookings-count'))).left,
+          closeTo(tester.getRect(find.byType(DeclaredTimeCards)).left, 0.01),
+          reason:
+              'the declared-times cards must stay flush with the day header',
+        );
+      },
+    );
+  });
 }

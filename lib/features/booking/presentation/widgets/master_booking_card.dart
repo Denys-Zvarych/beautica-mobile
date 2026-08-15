@@ -36,8 +36,10 @@
 // │ ──────────────────────────────────── │  ← hairline (BrandColors.faint)
 // │ Стрижка жіноча              450 ₴    │  ← what · how much
 // └──────────────────────────────────────┘
-//                 56dp
+//                 54dp
 // ```
+// (54dp as of the 2026-08-15 font-size pass — was 56dp; see
+// [MasterBookingCard.estimatedNaturalHeight]'s doc.)
 //
 // Row 1 is IDENTITY (who, then when), row 2 is the TRANSACTION (what + how
 // much), and the hairline is the same cut [_buildFullBody] makes between
@@ -66,41 +68,56 @@
 // `person_outlined` glyph the pass originally introduced (see its row-1
 // comment); compact row 1's client name has NEITHER, so on this
 // one axis the "miniature" claim is currently weaker than it was. That is
-// scope, not oversight: the brief was the >=1h card, and compact's own 41dp
-// budget is at ZERO slack at textScaler 1.0 (the table above), so a 16dp
-// glyph against its 15dp name line box would cost 1dp the layout does not
-// have — [MasterBookingCard.estimatedNaturalHeight] would go 56 -> 57 and
+// scope, not oversight: the brief was the >=1h card, and compact's own 39dp
+// budget (41dp before the 2026-08-15 font-size pass, see "THE 39dp BUDGET"
+// below) is at ZERO slack at textScaler 1.0 (the table above), so a 16dp
+// glyph against its now-14dp name line box would cost 2dp the layout does
+// not have — [MasterBookingCard.estimatedNaturalHeight] would go 54 -> 56 and
 // drag the timeline's compact/micro boundary with it. Giving compact the
 // glyph is therefore a real density decision (something else on the row
 // would have to pay for it), NOT a consistency fix to apply by reflex.
 // Pinned meanwhile by `master_booking_card_test.dart`'s "does NOT render on
 // the COMPACT body" case so the divergence stays deliberate and visible.
 //
-// THE 41dp BUDGET, AND WHAT IT COST TO ADD A DIVIDER
+// THE 39dp BUDGET, AND WHAT IT COST TO ADD A DIVIDER
 // -----------------------------------------------------------------------
-// At textScaler 1.0 a 56dp box leaves `56 − 3 (border 1.5 × 2) − 12
-// ([_compactPadding] vertical 6 × 2) = 41dp` of content. The stack:
+// At textScaler 1.0 a 54dp box leaves `54 − 3 (border 1.5 × 2) − 12
+// ([_compactPadding] vertical 6 × 2) = 39dp` of content. The stack:
 //
-//   | row 1     | 15 | [VelvetText.masterCardClientName] 12.5 × 1.2 — the
-//   |           |    | tallest child (the range is 13, the dot 8)
+//   | row 1     | 14 | [VelvetText.masterCardClientName] 11.5 × 1.2 — the
+//   |           |    | tallest child (the range is 12, the dot 8)
 //   | gap       |  4 | `VelvetSpacing.xs`
 //   | hairline  |  1 |
 //   | gap       |  4 | `VelvetSpacing.xs`
-//   | row 2     | 17 | the price pill: 15dp line + [_kCompactPriceVPad] × 2
-//   | TOTAL     | 41 | = the budget exactly, zero slack at scale 1.0
+//   | row 2     | 16 | the price pill: 14dp line + [_kCompactPriceVPad] × 2
+//   | TOTAL     | 39 | = the budget exactly, zero slack at scale 1.0
+//
+// WAS the 41dp BUDGET until the 2026-08-15 font-size pass (user request:
+// "make all fonts of all existed elements in bookings cards a little bit
+// lower" — see `velvet_text.dart`'s `masterCardClientName` doc). Row 1 lost
+// 1dp (12.5 -> 11.5 sp) and row 2's pill lost 1dp (a new card-scoped
+// `VelvetText.masterCardPricePill`, 10.2 sp, vs the shared `pill()`'s 11 sp —
+// `pill()` itself is unchanged, since it is also rendered by the wish-list
+// and passport screens, which were out of scope; see that token's doc). The
+// TABLE and the DIVIDER/HAIRLINE story below it are otherwise unchanged —
+// this pass was size-only, no reflow, no reorder, no recolour.
 //
 // The divider and its two gaps are 9dp of NET-NEW vertical cost the
-// outgoing two-row layout did not carry (it measured 55dp natural). The
-// status dot buys WIDTH, not height. That 9dp was paid for out of the
-// PRICE PILL's own vertical padding — 3dp -> 1dp via [PriceTag]'s new
-// `verticalPadding` knob (default 3, so [_buildFullBody] renders
-// byte-identically) — and NOT out of any type size: in a card whose whole
-// job is legibility at a glance in a scrolling timeline, the type scale is
-// the last thing to cut. 6dp of a 21dp pill was air; a recessed well that
-// generously padded is over-articulated at this size anyway.
+// outgoing two-row layout did not carry (it measured 55dp natural, back when
+// the budget itself was 41dp — see above). The status dot buys WIDTH, not
+// height. That 9dp was paid for out of the PRICE PILL's own vertical
+// padding — 3dp -> 1dp via [PriceTag]'s new `verticalPadding` knob (default
+// 3, so [_buildFullBody] renders byte-identically) — and NOT out of any type
+// size: in a card whose whole job is legibility at a glance in a scrolling
+// timeline, the type scale is the last thing to cut. 6dp of a 21dp pill was
+// air; a recessed well that generously padded is over-articulated at this
+// size anyway. (The 2026-08-15 pass above is a SEPARATE, later decision to
+// also step the type down — "a little bit" — once the user asked for it
+// explicitly; it does not retract this paragraph's original reasoning about
+// where the DIVIDER's 9dp came from.)
 //
 // Zero slack at 1.0 is deliberate and is ASSERTED (`master_booking_card_
-// test.dart`'s "the 41dp vertical budget" group) rather than left as a
+// test.dart`'s "the 39dp vertical budget" group) rather than left as a
 // claim — any regression overflows rather than quietly eating the gaps.
 // Above 1.0 the box simply grows: [minHeight] is a floor, never a ceiling
 // (see the class doc), so a 1.3-scaled card renders taller than its slot
@@ -155,8 +172,11 @@
 // than 86.6dp at the 1.3 textScaler ceiling — which HANDS BACK ~4dp to the
 // compact identity row's `Expanded` client name. The compact (56dp) and full
 // (117dp at the time; 118 since the ROW-1 GLYPH pass below) naturals did not
-// move at all in THIS pass: compact row 1's height is set by the client name's
-// taller 15dp line box either way.
+// move at all in THIS (2026-07-24) pass: compact row 1's height is set by the
+// client name's taller 15dp line box either way. HISTORICAL as of
+// 2026-08-15: the font-size pass below (this file's `estimatedNaturalHeight`
+// / `fullLayoutNaturalHeight` docs) moved BOTH of these — compact is now
+// 54dp, full 115dp. Do not read 56 / 117-118 as current.
 //
 // Dropping the avatar ROW is the main height saving, not a smaller font pass.
 // (The client's PHOTO did later return — but inline, inside row 1's existing
@@ -284,10 +304,12 @@
 // via [_ClientAvatarMark] — the glyph demoted to that widget's fallback.
 // This is not the design's avatar row returning by the back door and does
 // not reopen the decision above: the mark occupies a slot that already
-// existed, at a size already paid for, so the body's natural height is
-// unchanged at 118dp (measured, not argued — see
-// [MasterBookingCard.fullLayoutNaturalHeight]). The 42dp row, the second
-// identity line and the master name all remain out.
+// existed, at a size already paid for, so the body's natural height was
+// unchanged BY THIS PASS (measured, not argued — see
+// [MasterBookingCard.fullLayoutNaturalHeight], now 115dp after the
+// UNRELATED 2026-08-15 font-size pass — that later pass, not this one, is
+// what moved the number). The 42dp row, the second identity line and the
+// master name all remain out.
 //
 // PRICE MAY BE A FROZEN BAND — «450 ₴» OR «300–500 ₴»
 // -----------------------------------------------------------------------
@@ -314,9 +336,11 @@
 //
 // [PriceTag] caps its own width and scales down rather than clipping — see
 // its doc — because a two-number band is materially wider than the single
-// figure this card's compact 56dp layout was originally sized around.
+// figure this card's compact 54dp layout (56dp before the 2026-08-15
+// font-size pass) was originally sized around.
 //
-// ## THE MICRO LAYOUT (2026-07-24) — A THIRD DENSITY, FOR SLOTS UNDER 56dp
+// ## THE MICRO LAYOUT (2026-07-24) — A THIRD DENSITY, FOR SLOTS UNDER 54dp
+// (56dp before the 2026-08-15 font-size pass)
 //
 // `bookings_timeline_grid.dart`'s VERTICAL-SCALE-DOWN pass (its "ADDENDUM 8")
 // dropped `_kHourH` to `120`, which puts a 30-minute booking at `60dp` and a
@@ -352,21 +376,28 @@
 // dropped from the visual stays one tap away on «Деталі запису» — the whole
 // card is still the same single tap target it is in the other two layouts.
 //
-// THE 28dp BUDGET: border (1.5 × 2 = 3) + [_MasterBookingCardState.
+// THE 27dp BUDGET: border (1.5 × 2 = 3) + [_MasterBookingCardState.
 // _compactPadding]'s vertical 6 × 2 (12) + ONE text row, whose height is the
 // tallest of the three children — [VelvetText.masterCardTime] and
-// [VelvetText.masterCardService], BOTH Nunito 11 at `height: 1.2` and both
-// measuring a 13dp line box, plus the 8dp dot. = **28dp** at textScaler 1.0,
-// pinned as [MasterBookingCard.microLayoutNaturalHeight]. It is MEASURED,
-// not what the raw token arithmetic (11 × 1.2 = 13.2) multiplies out to.
-// The grid floors its cards at this number, so a 15-minute band
-// (`15/60 × 120 = 30dp`) clears it with 2dp to spare.
+// [VelvetText.masterCardService], BOTH Nunito 10 sp (down from 11, 2026-08-15
+// font-size pass — see `velvet_text.dart`'s `masterCardClientName` doc) at
+// `height: 1.2` and both measuring a 12dp line box, plus the 8dp dot. =
+// **27dp** at textScaler 1.0, pinned as
+// [MasterBookingCard.microLayoutNaturalHeight]. It is MEASURED, matching
+// (not merely close to) the raw token arithmetic this time (10 × 1.2 = 12.0
+// exactly — unlike the pre-pass 11 × 1.2 = 13.2 vs measured 13, the smaller
+// size happens to land on a whole number). The grid floors its cards at this
+// number, so a 15-minute band (`15/60 × 120 = 30dp`) clears it with 3dp to
+// spare (was 2dp before the pass).
 //
-// WAS 29dp UNTIL 2026-07-24, when the range's own style moved onto the FULL
-// card's recipe (Nunito 11 muted — see [VelvetText.masterCardTime]'s doc) so
-// all three densities read as one time style. The outgoing 11.5 sp recipe
+// WAS 28dp (29dp before THAT) UNTIL 2026-08-15, when the font-size pass
+// dropped both tied tokens 11 -> 10 sp uniformly, so the row lost another 1dp
+// without breaking the tie the 2026-07-24 pass (below) established. WAS 29dp
+// UNTIL 2026-07-24, when the range's own style moved onto the FULL card's
+// recipe (Nunito 11 muted — see [VelvetText.masterCardTime]'s doc) so all
+// three densities read as one time style. The outgoing 11.5 sp recipe
 // measured a 14dp line box and made the RANGE the row's tallest child; at 11
-// it ties [VelvetText.masterCardService] instead, and the row lost the odd
+// it tied [VelvetText.masterCardService] instead, and the row lost the odd
 // dp. Re-measure this number rather than deriving it if either token moves.
 //
 // THE SELECTION IS THREE-WAY BUT `null` STILL MEANS COMPACT. [_layout] reads
@@ -486,33 +517,38 @@ class MasterBookingCard extends StatefulWidget {
   /// number) — so getting this value wrong costs visual density and scroll
   /// extent, never correctness.
   ///
-  /// Derivation, post MINIATURE-OF-THE-FULL-CARD pass (this file's "THE 41dp
+  /// Derivation, post MINIATURE-OF-THE-FULL-CARD pass (this file's "THE 39dp
   /// BUDGET" header section, which carries the same arithmetic in full):
   /// border (1.5 × 2 = 3) + [_MasterBookingCardState._compactPadding]'s
-  /// vertical 6 × 2 (12) + row 1 (15, the client name — the tallest of the
+  /// vertical 6 × 2 (12) + row 1 (14, the client name — the tallest of the
   /// range label / name / dot) + a `VelvetSpacing.xs` gap (4) + the hairline
-  /// (1) + a second `VelvetSpacing.xs` gap (4) + row 2 (17, the price pill:
-  /// a 15dp line box plus [_MasterBookingCardState._kCompactPriceVPad] × 2)
-  /// = **56dp exactly**.
+  /// (1) + a second `VelvetSpacing.xs` gap (4) + row 2 (16, the price pill:
+  /// a 14dp line box plus [_MasterBookingCardState._kCompactPriceVPad] × 2)
+  /// = **54dp exactly**.
   ///
-  /// NO LONGER A ROUNDED-UP ESTIMATE. The outgoing divider-less grid
-  /// measured 55dp natural against this same 56 and the constant carried
-  /// ~1dp of slop "to absorb font-metric overhead". The re-composed layout
-  /// lands on 56 on the nose at textScaler 1.0 — the budget and the constant
-  /// are now the same number, which is the point: the layout was sized TO
-  /// this box rather than measured after the fact, so a regression that
-  /// eats a gap or re-inflates the pill shows up as a real overflow instead
-  /// of quietly consuming slack. Pinned by `master_booking_card_test.dart`'s
-  /// "the 41dp vertical budget" group. Above textScaler 1.0 the real card is
-  /// TALLER than this (measured 60dp at 1.15, 65dp at 1.3) and the box grows
-  /// to meet it — [minHeight] is a floor, never a ceiling.
+  /// FONT-SIZE PASS (2026-08-15) — was 56dp. User request: "make all fonts of
+  /// all existed elements in bookings cards a little bit lower" — see
+  /// `velvet_text.dart`'s `masterCardClientName` doc. Re-MEASURED, not
+  /// computed from the token arithmetic alone (this file's own long-standing
+  /// warning that the two can disagree): a widget test rendered the real card
+  /// at textScaler 1.0 and read `tester.getSize(...)`. Row 1 dropped 15 -> 14
+  /// (`masterCardClientName` 12.5 -> 11.5 sp), row 2's pill dropped 17 -> 16
+  /// (`masterCardPricePill` — a new, card-scoped 10.2 sp token, since the
+  /// price pill's own `pill()` recipe is shared with the wish-list/passport
+  /// screens and stayed put — see that token's doc). NOT a rounded-up
+  /// estimate: the layout still spends its ENTIRE budget with zero slack —
+  /// 39dp of content in a 54dp box, same invariant as before the pass, just a
+  /// smaller box. Pinned by `master_booking_card_test.dart`'s "the 39dp
+  /// vertical budget" group. Above textScaler 1.0 the real card is TALLER
+  /// than this (measured 58dp at 1.15, 62dp at 1.3) and the box grows to meet
+  /// it — [minHeight] is a floor, never a ceiling.
   ///
-  /// Row 2's 17dp term is the price pill, and that pill's height is pinned
+  /// Row 2's 16dp term is the price pill, and that pill's height is pinned
   /// independently of its horizontal `BoxFit.scaleDown` — see [PriceTag]'s
   /// zero-width height anchor. Without that anchor a band wide enough to hit
   /// the pill's width cap would have scaled the pill's HEIGHT down with it
   /// (uniform fit), silently dragging the compact card below this figure.
-  static const double estimatedNaturalHeight = 56;
+  static const double estimatedNaturalHeight = 54;
 
   /// The [minHeight] at or above which this card renders its fuller divided
   /// layout instead of the compact grid — the public face of
@@ -533,53 +569,75 @@ class MasterBookingCard extends StatefulWidget {
   /// Derivation: border (1.5 × 2 = 3) + [_MasterBookingCardState._fullPadding]
   /// (16 × 2 = 32) + the client-name row + `VelvetSpacing.sm + 2` + the 1dp
   /// hairline + `VelvetSpacing.sm + 2` + the service/time row +
-  /// `VelvetSpacing.xs + 2` + the price/badge row = **118dp**.
+  /// `VelvetSpacing.xs + 2` + the price/badge row = **115dp**.
+  ///
+  /// FONT-SIZE PASS (2026-08-15) — was 118dp; re-MEASURED (widget test,
+  /// `tester.getSize` at textScaler 1.0), not computed from the token
+  /// arithmetic — see `velvet_text.dart`'s `masterCardClientName` doc for the
+  /// pass and [estimatedNaturalHeight] for the same caveat on the compact
+  /// body. The three rows: client-name row 16dp (the 16dp
+  /// [_ClientAvatarMark] STILL beats [VelvetText.masterCardClientNameFull]'s
+  /// now-14dp line box — was 15dp before the pass, so the glyph's margin over
+  /// the text widened, not narrowed), service/time row 17dp
+  /// ([VelvetText.masterCardServiceFull]'s 17dp line box, down from a
+  /// previously-larger box but still the row's tallest child over the 14dp
+  /// range and the 12dp `schedule_outlined` glyph), price/badge row 20dp
+  /// ([PriceTag] rendered in [VelvetText.masterCardPricePill] at
+  /// [PriceTag.defaultVerticalPadding] — still taller than
+  /// [TimelineStatusBadge]'s 15dp). Full sum: 3 + 32 + 16 + 10 + 1 + 10 + 17 +
+  /// 6 + 20 = 115.
   ///
   /// WAS 117 UNTIL 2026-07-24, when row 1 gained its leading
   /// `person_outlined` glyph (see [_buildFullBody]'s row-1 comment for the
   /// design rationale). The glyph is 16dp against
-  /// [VelvetText.masterCardClientNameFull]'s 15dp line box, so it became the
-  /// client-name row's tallest child and took that row 15 -> 16dp. That is
-  /// the ONLY term that moved; nothing else in the stack was retuned to
-  /// absorb it.
+  /// [VelvetText.masterCardClientNameFull]'s then-15dp line box, so it became
+  /// the client-name row's tallest child and took that row 15 -> 16dp. THEN
+  /// 118 until the 2026-08-15 font-size pass above dropped the OTHER two rows
+  /// (service/time, price/badge) by 3dp combined while row 1 stayed
+  /// glyph-pinned at 16 — net **118 -> 115**.
   ///
-  /// STILL 118 after the CLIENT-PHOTO pass later the same day. Row 1's
-  /// leading slot became [_ClientAvatarMark] (photo when the booking has one,
-  /// that same glyph when it does not), and that widget renders an exactly
-  /// 16 x 16dp box in ALL FOUR of its states — loaded, loading, errored and
-  /// null — precisely so this constant could not move. Re-measured at 118.0
-  /// with and without a photo. See that widget's "SIZE INVARIANT" section:
-  /// it exists because of the clearance arithmetic below.
+  /// STILL GLYPH-PINNED at 16dp for row 1 after the CLIENT-PHOTO pass and the
+  /// 2026-08-15 font-size pass alike. Row 1's leading slot is
+  /// [_ClientAvatarMark] (photo when the booking has one, the glyph when it
+  /// does not), and that widget renders an exactly 16 x 16dp box in ALL FOUR
+  /// of its states — loaded, loading, errored and null — precisely so this
+  /// constant's row-1 term could not move on its own. See that widget's
+  /// "SIZE INVARIANT" section: it exists because of the clearance arithmetic
+  /// below.
   ///
-  /// ONLY AT 1.0. `Icon` does not scale with `textScaler`, so at 1.15 (a
-  /// 17dp line box) and 1.3 (20dp) the TEXT is still the row's tallest child
-  /// and those two naturals are unchanged at 124 / 132dp — re-measured, not
-  /// assumed.
+  /// ONLY AT 1.0. `Icon` does not scale with `textScaler`, and the
+  /// 2026-08-15 pass narrowed [VelvetText.masterCardClientNameFull]'s margin
+  /// under the glyph, not widened it, so row 1's own tallest-child winner now
+  /// changes ACROSS the scale sweep where it never used to: 16dp (glyph wins)
+  /// at 1.0, a 16dp TIE at 1.15 (glyph == text, both 16), then 18dp (text
+  /// wins) at 1.3. Re-measured (not assumed) full-body naturals: **115 / 120
+  /// / 126dp** at 1.0 / 1.15 / 1.3 (was 118 / 124 / 132).
   ///
   /// THE TIMELINE CONSEQUENCE, and why this did not need `_kHourH` to move:
   /// this constant IS [_MasterBookingCardState._kFullLayoutMinHeight], the
-  /// full/compact switch, so the threshold rose with it. A 60-minute booking
-  /// is floored at `BookingsTimelineGrid._kHourH` (120dp), which still clears
-  /// 118 — but the margin is now **2dp, down from 3**, and the exact boundary
-  /// duration moved `58.5` -> `59.0` minutes (`118 / 120 × 60`). A 59-minute
-  /// booking therefore still selects the full body, but at EXACTLY zero
-  /// clearance (floor `118.0`, threshold `118`) rather than 1dp. Any further
-  /// growth in this body pushes 59-minute bookings back to the compact grid,
-  /// and growth past 120 would do the same to hour-long ones — the bulk of a
-  /// real working day. Re-measure before adding a sixth term to
-  /// [_buildFullBody].
+  /// full/compact switch, so the threshold FELL with it. A 60-minute booking
+  /// is floored at `BookingsTimelineGrid._kHourH` (120dp), which clears 115 —
+  /// the margin is now **5dp, up from 2** — and the exact boundary duration
+  /// moved `59.0` -> `57.5` minutes (`115 / 120 × 60`). A 58-minute booking
+  /// (floor 116dp) now selects the full body with 1dp clearance; a 57-minute
+  /// one (floor 114dp) stays on the compact grid. Re-measure before adding a
+  /// sixth term to [_buildFullBody].
   ///
   /// Pinned by `master_booking_card_test.dart`'s "the FULL body still
-  /// measures exactly 118dp at textScaler 1.0" case, and — as the input to
+  /// measures exactly 115dp at textScaler 1.0" case, and — as the input to
   /// [occupiedHeightFor] — by `master_booking_card_layout_height_test.dart`,
   /// which renders the real card at every floor the timeline can produce and
   /// asserts the prediction matches to the pixel.
   ///
-  /// TEXT SCALE 1.0 ONLY. The same measurement is 124dp at 1.15 and 132dp at
+  /// TEXT SCALE 1.0 ONLY. The same measurement is 120dp at 1.15 and 126dp at
   /// 1.3, so any caller predicting a box from this constant MUST gate itself
   /// on `MediaQuery.textScalerOf(context).scale(1) <= 1.0` — see
-  /// `bookings_timeline_grid.dart`'s "ADDENDUM 5".
-  static const double fullLayoutNaturalHeight = 118;
+  /// `bookings_timeline_grid.dart`'s "ADDENDUM 5". NOTE (2026-08-15): the
+  /// 120dp @1.15 value happens to equal `declared_time_cards.dart`'s
+  /// `_kEntryMinHeight` (also 120) — see that file's `_freeCardMinHeightFor`
+  /// doc for the consequence (the booked/free floor now ties at 1.15 instead
+  /// of the booked card leading).
+  static const double fullLayoutNaturalHeight = 115;
 
   /// [_buildMicroBody]'s natural rendered height at textScaler 1.0 — the third
   /// layout's counterpart to [estimatedNaturalHeight] /
@@ -590,22 +648,32 @@ class MasterBookingCard extends StatefulWidget {
   /// border (1.5 × 2 = 3) + [_MasterBookingCardState._compactPadding]'s
   /// vertical 6 × 2 (12) + the row's tallest child — since the ONE-TIME-STYLE
   /// pass (2026-07-24) the time range ([VelvetText.masterCardTime]) and the
-  /// service name ([VelvetText.masterCardService]) are both Nunito 11 at
-  /// `height: 1.2` and TIE at a 13dp line box, comfortably over the 8dp
-  /// status dot = **28dp**.
+  /// service name ([VelvetText.masterCardService]) are both Nunito at
+  /// `height: 1.2` and TIE at a 12dp line box (10 sp as of the 2026-08-15
+  /// font-size pass, down from 11 — see `velvet_text.dart`'s
+  /// `masterCardClientName` doc), comfortably over the 8dp status dot =
+  /// **27dp**.
   ///
-  /// 28, not the 28.2 the unrounded arithmetic gives, and 29 until the range
-  /// moved off its old 11.5 sp recipe. It is a MEASURED number:
-  /// `bookings_timeline_grid.dart`'s `_cardMinHeightFor` floors every card at
-  /// it and [occupiedHeightFor] predicts real boxes from it, so it has to be
-  /// what the card actually renders rather than what the type tokens multiply
-  /// out to — measured identical (28.0) at 226 / 266 / 272dp of lane. Pinned
-  /// by `master_booking_card_test.dart`'s "the MICRO body measures exactly
-  /// 28dp" case and, as an [occupiedHeightFor] input, by
-  /// `master_booking_card_layout_height_test.dart`.
+  /// FONT-SIZE PASS (2026-08-15) — was 28dp. Re-MEASURED, not computed: a
+  /// 13dp line box at 11 sp became a 12dp line box at 10 sp (both round
+  /// numbers here, unlike the pre-2026-07-24 11.5 sp recipe, which is why the
+  /// unrounded arithmetic and the measured figure now agree exactly — 3 + 12
+  /// + 12 = 27 with nothing left over).
   ///
-  /// TEXT SCALE 1.0 ONLY, exactly as [fullLayoutNaturalHeight].
-  static const double microLayoutNaturalHeight = 28;
+  /// 27, not 28.2 nor any other unrounded-arithmetic figure, and was 29 until
+  /// the 2026-07-24 pass moved the range off its old 11.5 sp recipe. It is a
+  /// MEASURED number: `bookings_timeline_grid.dart`'s `_cardMinHeightFor`
+  /// floors every card at it and [occupiedHeightFor] predicts real boxes from
+  /// it, so it has to be what the card actually renders rather than what the
+  /// type tokens multiply out to — measured identical (27.0) at 226 / 266 /
+  /// 272dp of lane. Pinned by `master_booking_card_test.dart`'s "the MICRO
+  /// body measures exactly 27dp" case and, as an [occupiedHeightFor] input,
+  /// by `master_booking_card_layout_height_test.dart`.
+  ///
+  /// TEXT SCALE 1.0 ONLY, exactly as [fullLayoutNaturalHeight]. Re-measured
+  /// (this pass) at 29dp @1.15 and 31dp @1.3 — no prior doc published these
+  /// two figures to compare against.
+  static const double microLayoutNaturalHeight = 27;
 
   /// The [minHeight] BELOW which this card renders its single-row micro
   /// layout — equal to [estimatedNaturalHeight] because that IS the compact
@@ -633,8 +701,8 @@ class MasterBookingCard extends StatefulWidget {
   /// argument, and the doc comments claiming otherwise were stale. The micro
   /// layout moved the grid's floor down to [microLayoutNaturalHeight], so the
   /// `max` genuinely binds again in the sub-compact band: a 10-minute booking
-  /// at `120dp/hour` has a `20dp` wall-clock band, a `28dp` floor, and a
-  /// `28dp` real box.
+  /// at `120dp/hour` has a `20dp` wall-clock band, a `27dp` floor (was `28dp`
+  /// before the 2026-08-15 font-size pass), and a `27dp` real box.
   ///
   /// Exists for `bookings_timeline_grid.dart`'s viewport culling, whose
   /// placeholder must reserve precisely the room the real card would take or
@@ -740,9 +808,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// The height, in dp, at or above which [build] switches from the
   /// compact grid to the fuller divided layout — see this file's
   /// "Adaptive full/compact layout" header section for the full mechanism.
-  /// Equal to [MasterBookingCard.fullLayoutNaturalHeight] (`118dp`, the full
-  /// body's own natural floor at textScaler 1.0): a booking whose
-  /// duration-derived floor reaches `118dp` or more gets the fuller layout;
+  /// Equal to [MasterBookingCard.fullLayoutNaturalHeight] (`115dp`, the full
+  /// body's own natural floor at textScaler 1.0 — was `118dp` before the
+  /// 2026-08-15 font-size pass, see that constant's doc): a booking whose
+  /// duration-derived floor reaches `115dp` or more gets the fuller layout;
   /// anything shorter stays on the compact grid.
   ///
   /// ## WHICH DURATIONS REACH IT — RE-DERIVE THIS, NEVER QUOTE IT
@@ -750,30 +819,35 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// The threshold itself is stable (the full body's own natural floor, so a
   /// card takes the fuller shape exactly when its ruled band can contain it
   /// without overhang), but WHICH durations clear it is a function of
-  /// `BookingsTimelineGrid._kHourH`, which has now moved three times. At the
-  /// current `120dp/hour` (that file's "ADDENDUM 8"):
+  /// `BookingsTimelineGrid._kHourH`, which has now moved three times, AND of
+  /// the threshold's own value, which the 2026-08-15 font-size pass moved for
+  /// the first time (118 -> 115). At the current `120dp/hour` (that file's
+  /// "ADDENDUM 8") against the current `115dp` threshold:
   ///
-  ///   * `>= 59` min — floor `>= 118dp`, clears `118`: FULL layout. The exact
-  ///     boundary duration is now `59.0` min (`118 / 120 × 60`), so a
-  ///     59-minute booking sits at EXACTLY zero clearance and an hour-long
-  ///     one only `2dp` clear — which is why `_kHourH` cannot drop below
-  ///     `120` without moving this threshold too.
-  ///   * `28`-`58` min — floor `56`-`116dp`: COMPACT grid.
-  ///   * `< 28` min — floor below the compact body's own `56dp` natural
-  ///     (`56 / 120 × 60 = 28` exactly): MICRO, the single row (see this
+  ///   * `>= 58` min — floor `>= 116dp`, clears `115`: FULL layout. The exact
+  ///     boundary duration is now `57.5` min (`115 / 120 × 60`), so a
+  ///     58-minute booking sits at `1dp` clearance and an hour-long one `5dp`
+  ///     clear (both up from the pre-pass `0dp` / `2dp` — the threshold fell,
+  ///     the floor did not) — which is why `_kHourH` cannot drop below `120`
+  ///     without moving this threshold too.
+  ///   * `27`-`57` min — floor `54`-`114dp`: COMPACT grid.
+  ///   * `< 27` min — floor below the compact body's own `54dp` natural
+  ///     (`54 / 120 × 60 = 27` exactly): MICRO, the single row (see this
   ///     file's "THE MICRO LAYOUT" section).
   ///
   /// Two earlier revisions of this doc asserted a 45-minute answer, in
   /// opposite directions (`112` → compact, `168` → full). At `120` it is
-  /// compact again (`45/60 × 120 = 90dp`). The lesson recorded here rather
-  /// than the answer: this list is DERIVED, and any `_kHourH` change
-  /// invalidates it wholesale.
+  /// compact again (`45/60 × 120 = 90dp`), and the 2026-08-15 threshold drop
+  /// does not change that (`90dp` is still well under `115`). The lesson
+  /// recorded here rather than the answer: this list is DERIVED, and any
+  /// `_kHourH` OR `fullLayoutNaturalHeight` change invalidates it wholesale.
   ///
   /// [_buildFullBody]'s NATURAL height (the same fixture the compact sweeps
   /// use — a long service name, a frozen RANGE band, a full client name)
-  /// measures 118dp at textScaler 1.0 (124dp at 1.15, 132dp at 1.3); it is
-  /// identical at 226 / 266 / 272dp of lane because every row is flex-driven,
-  /// so lane width moves the ellipsis, never the height.
+  /// measures 115dp at textScaler 1.0 (120dp at 1.15, 126dp at 1.3 — was 118 /
+  /// 124 / 132 before the 2026-08-15 pass); it is identical at 226 / 266 /
+  /// 272dp of lane because every row is flex-driven, so lane width moves the
+  /// ellipsis, never the height.
   ///
   /// Nothing clips in either branch (the box grows — see "NO CLIPPING, either
   /// branch" above); this threshold only chooses which layout renders.
@@ -799,12 +873,20 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// against [PriceTag]'s own 3dp default which [_buildFullBody] keeps.
   ///
   /// This 4dp (2 × 2) is exactly what paid for the hairline divider and its
-  /// two `VelvetSpacing.xs` gaps — see this file's "THE 41dp BUDGET" header
-  /// section. It is spent on the pill rather than on a type step-down on
-  /// purpose: 6dp of the pill's 21dp was air, and a recessed well padded for
-  /// a 112dp card is over-articulated inside a 56dp one, whereas shrinking
-  /// the type would cost the card the legibility-at-a-glance that is its
-  /// entire job in a scrolling timeline.
+  /// two `VelvetSpacing.xs` gaps — see this file's "THE 39dp BUDGET" (was
+  /// "THE 41dp BUDGET" before the 2026-08-15 font-size pass) header section.
+  /// At the time this padding split was chosen (2026-07-21), it was spent on
+  /// the pill rather than on a type step-down on purpose: 6dp of the pill's
+  /// 21dp was air, and a recessed well padded for a 112dp card is
+  /// over-articulated inside a 56dp one, whereas shrinking the type would
+  /// have cost the card legibility-at-a-glance.
+  ///
+  /// THAT REASONING NO LONGER APPLIES AS STATED — the 2026-08-15 pass DID
+  /// step every token on this card down (user request, "a little bit lower");
+  /// this padding split is simply unrelated to that later, separate decision
+  /// and was not reverted by it. Both economies coexist: the padding still
+  /// pays for the divider, and the type is now also a step smaller. See
+  /// `velvet_text.dart`'s `masterCardClientName` doc for the font-size pass.
   static const double _kCompactPriceVPad = PriceTag.compactVerticalPadding;
 
   // THE COMPACT PRICE CAP IS GONE — REMOVED 2026-07-22 (mobile-perf MEDIUM)
@@ -944,8 +1026,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 
   /// The MINIATURE of [_buildFullBody] — identity row (client name ·
   /// start–end range · status dot), a hairline, then the transaction row
-  /// (service name · price). The only shape proven to fit a 30-minute (56dp)
-  /// slot without clipping. See this file's "The compact layout is a
+  /// (service name · price). The only shape proven to fit a 30-minute (54dp,
+  /// was 56dp before the 2026-08-15 font-size pass) slot without clipping.
+  /// See this file's "The compact layout is a
   /// MINIATURE OF THE FULL CARD" and "THE 41dp BUDGET" header sections.
   Widget _buildCompactBody(Booking b, String clientName) {
     return Column(
@@ -1119,6 +1202,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               PriceTag(
                 price: b.priceLabel,
                 verticalPadding: _kCompactPriceVPad,
+                style: VelvetText.masterCardPricePill,
               ),
             ],
           ],
@@ -1299,7 +1383,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               Expanded(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: PriceTag(price: b.priceLabel),
+                  child: PriceTag(
+                    price: b.priceLabel,
+                    style: VelvetText.masterCardPricePill,
+                  ),
                 ),
               )
             else
@@ -1511,7 +1598,8 @@ class TimelineStatusDot extends StatelessWidget {
     // tooltip's `LongPressGestureRecognizer` wins the arena at its 500ms
     // deadline, and `onTapCancel` fires so the card's `_pressed` does not
     // stick. That is correct tooltip behaviour over an 8dp target on a
-    // ~226x56dp card: a deliberate long-press on the status dot asks "what is
+    // ~226x54dp card (was 56dp before the 2026-08-15 font-size pass): a
+    // deliberate long-press on the status dot asks "what is
     // this?", not "open this". Documented expectation, not a defect.
     return Tooltip(
       message: v.label,
@@ -1646,15 +1734,18 @@ class TimelineStatusBadge extends StatelessWidget {
 /// This widget renders a box of EXACTLY [_kSize] × [_kSize] dp in all four
 /// states. Not "about", not "at most": exactly, and in the error and loading
 /// states too. The full body has effectively no vertical headroom —
-/// [MasterBookingCard.fullLayoutNaturalHeight] is 118dp against
-/// `BookingsTimelineGrid._kHourH`'s 120dp/hour, so a 59-minute booking's floor
-/// is 118 (zero clearance) and an hour-long one's is 120 (2dp). Row 1's height
-/// IS this mark's height (16dp beats the client name's 15dp line box at
-/// textScaler 1.0 — that is the whole reason the constant is 118 and not 117),
-/// so one stray dp here silently demotes every hour-long booking — most of a
-/// working day — to the compact layout. The size is pinned from the OUTSIDE by
-/// `master_booking_card_test.dart`'s 43.5dp interior-headroom assertion, which
-/// a `minHeight` floor cannot pad away.
+/// [MasterBookingCard.fullLayoutNaturalHeight] is 115dp (was 118dp before the
+/// 2026-08-15 font-size pass — see that constant's own doc) against
+/// `BookingsTimelineGrid._kHourH`'s 120dp/hour, so a 58-minute booking's floor
+/// is 116 (1dp clearance) and an hour-long one's is 120 (5dp). Row 1's height
+/// IS this mark's height (16dp beats the client name's now-14dp line box at
+/// textScaler 1.0 — that margin WIDENED in the 2026-08-15 pass, from a 15dp
+/// line box, so the glyph's grip on this row got firmer, not weaker), so one
+/// stray dp here would still silently demote hour-long bookings to the
+/// compact layout if it ever pushed row 1 taller than the icon. The size is
+/// pinned from the OUTSIDE by `master_booking_card_test.dart`'s
+/// interior-headroom assertion, which a `minHeight` floor cannot pad away
+/// (re-measured for the new 115dp natural — see that test's own value).
 ///
 /// That is why the photo goes INSIDE the glyph's footprint rather than beside
 /// it or scaled up to a conventional avatar size, and why every state below
@@ -1845,8 +1936,12 @@ class _ClientAvatarMark extends StatelessWidget {
               image: ResizeImage(
                 // Disk-cached, TLS-controlled shared provider — the ONLY change
                 // from the hand-built NetworkImage: same ResizeImage wrapper,
-                // same policy/bounds, so the decode shape and the 118dp height
-                // are mathematically unchanged.
+                // same policy/bounds, so the decode shape and the full body's
+                // natural height (115dp as of the 2026-08-15 font-size pass,
+                // 118dp when this comment was written — see
+                // [MasterBookingCard.fullLayoutNaturalHeight]) are
+                // mathematically unchanged BY THIS media-provider swap; the
+                // later, unrelated font-size pass is what moved the number.
                 beauticaMediaProvider(url),
                 width: side,
                 height: side,

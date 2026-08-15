@@ -194,6 +194,53 @@ final Set<BookingStatus> _kMaximalFilterStatuses = <BookingStatus>{
     ...g.statuses,
 };
 
+/// The timeline column's LEFT screen inset — deliberately HALF the
+/// `VelvetSpacing.lg` (24) used everywhere else on this screen, so the hour
+/// ruler sits closer to the screen edge and the lane area reclaims 12dp.
+///
+/// WHY: the horizontal chrome budget before a card could start was
+/// `24 (screen pad L) + 42 (TimelineHourRuler._kRulerWidth) + 4
+/// (VelvetSpacing.xs, the ruler↔grid gap)` = 70dp. On the 360dp Android
+/// baseline that left only 266dp of lane area against
+/// `BookingsTimelineGrid._kCardW` (272), so ADDENDUM 3's
+/// `math.min(_kCardW, constraints.maxWidth)` clamped the card DOWN by 6dp on
+/// the single most common device. At 12dp the lane area becomes 278dp and the
+/// leading card renders at its full natural 272dp on 360dp for the first
+/// time. See "ADDENDUM 3" in `widgets/bookings_timeline_grid.dart` — its
+/// arithmetic is stated there and kept in sync with this constant.
+///
+/// APPLIES TO THE TIMELINE-GRID BRANCH ONLY. `DeclaredTimeCards` (the
+/// EXPLICIT_TIMES day) has NO ruler gutter — its cards start flush at the
+/// padding edge, so moving it left would misalign it with the day header
+/// (`masterBookingsCount`, 24dp) and `MasterBookingsTruncatedNotice` (24dp
+/// margin). The grid is safe precisely because 12 + 42 + 4 = 58dp still puts
+/// its first card comfortably right of the 24dp header.
+///
+/// Do NOT "fix" this by shrinking `TimelineHourRuler._kRulerWidth` (42) —
+/// that would break "23:00" at 11sp, and worse at accessibility text scales.
+/// The ruler keeps its width; only the column's left offset moves.
+const double _kTimelineLeftInset = VelvetSpacing.sm + VelvetSpacing.xs; // 12
+
+/// The two body insets, hoisted WHOLE rather than selected term-by-term.
+///
+/// Both branches differ only in the left term, so the tempting spelling is one
+/// `EdgeInsets.fromLTRB(cond ? a : b, …)`. That silently drops `const`: a
+/// ternary is not a constant expression, so the whole `EdgeInsets` becomes a
+/// per-`build` allocation. Selecting between two fully-const insets keeps the
+/// canonicalised instances and makes the rebuild a pointer choice.
+const EdgeInsets _kTimelineBodyPadding = EdgeInsets.fromLTRB(
+  _kTimelineLeftInset,
+  0,
+  VelvetSpacing.lg,
+  VelvetSpacing.xxl,
+);
+const EdgeInsets _kDeclaredBodyPadding = EdgeInsets.fromLTRB(
+  VelvetSpacing.lg,
+  0,
+  VelvetSpacing.lg,
+  VelvetSpacing.xxl,
+);
+
 /// The shared «Записи» discovery composition: header, count toolbar, day
 /// rail, timeline body, and the four async states. Parameterised over scope
 /// so the salon-wide screen can reuse it verbatim — see the file header.
@@ -853,6 +900,16 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
             loading: () => ListView(
               key: const Key('master-bookings-skeleton'),
               physics: const AlwaysScrollableScrollPhysics(),
+              // Stays at `VelvetSpacing.lg` (24) even though the timeline body
+              // moved to [_kTimelineLeftInset] (12) — deliberately, and it
+              // NARROWS the load→loaded shift rather than widening it.
+              // `BookingsSkeleton` is a bare `_SkeletonCard` column with no
+              // ruler gutter, so its card edge IS this padding edge (24). The
+              // grid's first card edge is 12 + 42 (`_kRulerWidth`) + 4
+              // (ruler↔grid gap) = 58, so the eye tracks a 34dp card→card
+              // offset, down from 24→70 = 46dp before the inset change.
+              // Matching 12 here would push it back out to 46dp. The
+              // declared-times branch (also 24, no gutter) stays a 0dp swap.
               padding: const EdgeInsets.fromLTRB(
                 VelvetSpacing.lg,
                 0,
@@ -1369,12 +1426,13 @@ class _Loaded extends StatelessWidget {
         if (state.isTruncated) const MasterBookingsTruncatedNotice(),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              VelvetSpacing.lg,
-              0,
-              VelvetSpacing.lg,
-              VelvetSpacing.xxl,
-            ),
+            // The LEFT inset is branch-dependent — see [_kTimelineLeftInset].
+            // Only the ruler-bearing timeline grid moves left; the
+            // declared-times branch keeps `VelvetSpacing.lg` so its flush
+            // cards stay aligned with the 24dp day header above.
+            padding: declaredTimes != null
+                ? _kDeclaredBodyPadding
+                : _kTimelineBodyPadding,
             child: declaredTimes != null
                 ? DeclaredTimeCards(
                     declaredTimes: declaredTimes,

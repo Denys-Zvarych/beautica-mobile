@@ -140,8 +140,13 @@ class WishlistCompactCard extends StatelessWidget {
               spacing: AppSpacing.xxs,
               runSpacing: VelvetSpacing.xs / 2,
               children: <Widget>[
+                // `masterCardTimeShared`, NOT `masterCardTime` — see
+                // `wishlist_row.dart`'s identical note and
+                // `velvet_text.dart`'s `masterCardTimeShared` doc: this
+                // screen is out of scope for the 2026-08-15 booking-card
+                // font-size pass and must render byte-identically.
                 if (duration != null)
-                  Text(duration, style: VelvetText.masterCardTime),
+                  Text(duration, style: VelvetText.masterCardTimeShared),
                 if (item.showsPrice)
                   PriceTag(
                     price: item.priceLabel,

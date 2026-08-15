@@ -686,4 +686,68 @@ void main() {
       },
     );
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // THE TIMELINE BRANCH'S LEFT SCREEN INSET — pinned on the REAL view
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // WHY THIS LIVES HERE AND NOT IN `bookings_timeline_grid_test.dart`:
+  // that file's ADDENDUM 3 group restates the inset as its own local
+  // `kTimelineLeftInset` const and pumps a HAND-ROLLED `Padding` around a
+  // bare `BookingsTimelineGrid`. It therefore proves the grid's arithmetic
+  // given an inset — it cannot prove the SCREEN still supplies that inset.
+  // Until this group existed, `bookings_discovery_view.dart`'s
+  // `_kTimelineLeftInset` could be reverted to `VelvetSpacing.lg` and the
+  // entire suite stayed green (mobile-security LOW, 2026-08-15).
+  //
+  // The assertion reads RENDERED GEOMETRY (`getRect(...).left`), never the
+  // source expression, so it survives the constant being hoisted, renamed,
+  // or folded into a file-level `EdgeInsets`.
+  group('the timeline branch\'s left screen inset', () {
+    testWidgets(
+      'an INTERVAL day lays the hour ruler out 12dp from the screen edge — '
+      'HALF the 24dp used elsewhere, so the lane area reclaims 12dp',
+      (tester) async {
+        await pump(
+          tester,
+          useScheduleWindow: true,
+          bookings: <Booking>[_booking(id: 'inset', startAtUtc: _kyivAtUtc(9))],
+          scheduleOverride: effectiveScheduleProvider.overrideWith(
+            () => _DataSchedule(<EffectiveDay>[
+              EffectiveDay(
+                date: _day,
+                source: EffectiveSource.template,
+                intervals: <WorkInterval>[_interval(9, 0, 18, 0)],
+              ),
+            ]),
+          ),
+        );
+
+        // Fixture sanity: we are genuinely on the grid branch, not a
+        // fallback state that would make the geometry below vacuous.
+        expect(find.byType(BookingsTimelineGrid), findsOneWidget);
+
+        // The grid is the direct child of the screen's body `Padding`, so
+        // its rendered left edge IS that padding's left inset.
+        expect(
+          tester.getRect(find.byType(BookingsTimelineGrid)).left,
+          closeTo(12, 0.01),
+          reason:
+              'the timeline body must keep the halved inset — reading ~24 '
+              'means bookings_discovery_view.dart regressed to '
+              'VelvetSpacing.lg, which re-clamps the leading card to 266dp '
+              'on the 360dp Android baseline (see that file\'s '
+              '_kTimelineLeftInset doc and the grid\'s ADDENDUM 3)',
+        );
+
+        // The ruler is flush at the grid's leading edge, so it inherits the
+        // same offset — this is the pixel the user actually sees move.
+        expect(
+          tester.getRect(find.byType(TimelineHourRuler)).left,
+          closeTo(12, 0.01),
+          reason: 'the hour ruler must sit 12dp from the screen edge',
+        );
+      },
+    );
+  });
 }

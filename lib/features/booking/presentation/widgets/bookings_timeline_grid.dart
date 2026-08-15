@@ -250,16 +250,27 @@
 // overflow error (there is no exception to assert against; the content is
 // just off-screen).
 //
-// THE ARITHMETIC: the lane area's available width is
-//   deviceWidth − 24 (screen padding L) − 24 (screen padding R)
+// THE ARITHMETIC (as of 2026-08-15 — the left inset halved, see below):
+//   deviceWidth − 12 (screen padding L) − 24 (screen padding R)
 //              − 42 (`TimelineHourRuler._kRulerWidth`)
 //              − 4  (`VelvetSpacing.xs`, the ruler↔grid gap above)
-//   = deviceWidth − 94.
-// [_kCardW] (272) only fits once `deviceWidth − 94 >= 272`, i.e.
-// `deviceWidth >= 366`. The common 360dp Android baseline clears every term
-// above EXCEPT this one — it has only 266dp of lane area, 6dp short of the
-// fixed 272dp card, so the card's right edge is permanently clipped on first
-// paint.
+//   = deviceWidth − 82.
+// [_kCardW] (272) fits once `deviceWidth − 82 >= 272`, i.e.
+// `deviceWidth >= 354` — so the common 360dp Android baseline now HAS 278dp
+// of lane area and renders the card at its full natural 272dp. The clamp is
+// inert there; it still bites below 354dp (e.g. 320dp small phones, and any
+// device once a 2+-lane overlap narrows the per-lane budget).
+//
+// THE ORIGINAL NUMBERS (kept so the fix's motivation stays legible): the
+// screen padding was symmetric `VelvetSpacing.lg` on both sides, making the
+// chrome `24 + 24 + 42 + 4` = 94dp, so the lane area was `deviceWidth − 94`
+// and [_kCardW] needed `deviceWidth >= 366`. The 360dp baseline cleared every
+// term EXCEPT that one — 266dp of lane area, 6dp short of the fixed 272dp
+// card — so the card's right edge was permanently clipped on first paint.
+// `bookings_discovery_view.dart`'s `_kTimelineLeftInset` (12) is what closed
+// that 6dp gap; it is applied to THIS branch only (`DeclaredTimeCards` has no
+// ruler gutter and keeps the 24dp inset). Do NOT shrink [_kRulerWidth] to buy
+// width — "23:00" stops fitting at 11sp and worse at large text scales.
 //
 // THE FIX: [_kCardW] stays defined as-is but becomes a CEILING, not a fixed
 // width — [build]'s `LayoutBuilder` computes
