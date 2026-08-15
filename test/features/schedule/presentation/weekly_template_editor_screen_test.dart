@@ -62,6 +62,29 @@ import '../../../helpers/velvet_snack_matchers.dart';
 /// throughout this file for `validFrom`/`ScheduleRange.month`/assertion
 /// comparisons. Never pass it directly to a `clock:` param; use
 /// [asClockInstant] (test/helpers/clock_instant.dart) for that instead.
+///
+/// DO NOT "fix" this to `DateTime.utc(2026, 6, 9)` — it looks like the
+/// `forbid_host_local_instant_anchor.sh` anti-pattern but is not one, and
+/// converting it introduces a REAL regression (verified, not theorised):
+/// this token is compared with bare `==` directly against production's own
+/// `validFrom` output at the "UPDATE path: _buildSchedule clamps ... UP to
+/// today" test (`weekly.savedSchedule!.validFrom` equals `_clock`), and that
+/// `validFrom` is itself `kyivDayOf(...)`'s result — ALWAYS a host-local
+/// midnight `DateTime` (`kyiv_day.dart`'s own contract), never UTC. Dart's
+/// `DateTime==` compares the underlying INSTANT, not the UTC/local flag, so
+/// a bare-local `_clock` and a bare-local production token always agree on
+/// every host `TZ` (both resolve through the SAME host offset and cancel
+/// out — a coherent "both host-local" pairing, not a host-TZ-dependent
+/// one), while a `.utc()` `_clock` would only agree when the host TZ offset
+/// happens to be zero. Reproduced: swapping to `.utc()` and running under
+/// `TZ=Asia/Tokyo` fails that exact test with `Expected: ...00.000Z` /
+/// `Actual: ...00.000` (no `Z`) — confirmed, then reverted. This file's
+/// clock-INSTANT need is already served by [asClockInstant] at every
+/// `clock:` call site; this bare declaration must stay host-local because
+/// its OTHER role — a direct-equality fixture against `kyivDayOf`'s
+/// host-local output — depends on matching its construction style, not its
+/// calendar value. The whole `TZ=Europe/Kyiv`/`TZ=UTC`/`TZ=Asia/Tokyo`
+/// matrix passes with this declaration exactly as written; do not touch it.
 final DateTime _clock = DateTime(2026, 6, 9);
 
 WorkInterval _interval(int sh, int sm, int eh, int em) => WorkInterval(

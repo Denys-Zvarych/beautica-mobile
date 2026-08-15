@@ -187,7 +187,19 @@ class _Screen extends StatelessWidget {
 /// group only ever offsets by 1 or 2, so Monday is comfortably safe rather
 /// than merely just-safe (a Sunday-adjacent Tuesday anchor would still work
 /// for +1/+2 but leaves no slack for a future test adding a larger offset).
-final DateTime _fixedMonthStepToday = DateTime(2026, 8, 10);
+///
+/// `.utc(...)`, not a bare local `DateTime(2026, 8, 10)` — this value is
+/// consumed ONLY through [railDayAt] and [asClockInstant], both of which
+/// read exactly its `.year`/`.month`/`.day` fields and rebuild a fresh
+/// `DateTime` from them, so the UTC/local flag on the DECLARATION itself is
+/// unobservable either way; `.utc()` is still the right spelling because it
+/// makes the value's role (a calendar-day token, never an instant compared
+/// directly) unambiguous to the next reader and matches
+/// `scripts/forbid_host_local_instant_anchor.sh`'s accepted-fix shape.
+/// Confirmed by running this file's whole `TZ=Europe/Kyiv` /`TZ=UTC`
+/// /`TZ=Asia/Tokyo` matrix both before and after this change — all green
+/// throughout, this was never a live TZ bug.
+final DateTime _fixedMonthStepToday = DateTime.utc(2026, 8, 10);
 
 void main() {
   setUpAll(() {

@@ -49,6 +49,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -62,8 +63,38 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 
 /// Mid-July 2026, a Wednesday — the same fixture day
 /// `bookings_month_calendar_panel_rail_paging_test.dart` uses, so a reader
-/// who has seen that file recognises the shape immediately. Injected through
-/// `clockProvider`, never read as the host wall clock.
+/// who has seen that file recognises the shape immediately.
+///
+/// A DATE TOKEN (see `lib/shared/time/kyiv_day.dart`) — deliberately bare
+/// host-local, NOT `.utc()`. This value plays TWO roles below and each needs
+/// DIFFERENT treatment (verified by RUNNING both the naive fix and this one
+/// through the full `TZ=Europe/Kyiv`/`TZ=UTC`/`TZ=Asia/Tokyo` matrix, not
+/// just reasoned about):
+///   (1) `BookingsDayQuery.of(day: _today)` below, and the
+///       `expect(calls, [(_today, _today)])` assertions in the tests that
+///       follow — `BookingsDayQuery.of` truncates via `dateOnly`
+///       (`shared/formatters/api_date.dart`), which reads only
+///       `_today.year`/`.month`/`.day` and rebuilds a fresh bare-local
+///       `DateTime` from them, so the CAPTURED query argument is always
+///       bare-local too. Comparing it against `_today` via `==` then only
+///       agrees on EVERY host `TZ` if `_today` ALSO stays bare-local — both
+///       sides then resolve through the identical constructor + identical
+///       inputs, hence the identical instant, on any one given host (the
+///       same coherent-pairing argument
+///       `weekly_template_editor_screen_test.dart`'s `_clock` doc makes).
+///       Switching `_today`'s own declaration to `.utc()` breaks this half
+///       on EVERY host, Kyiv included — confirmed by running it.
+///   (2) the production CLOCK (`clockProvider`, in `_pump` below) — here
+///       `_today` must NOT be fed raw. [asClockInstant] wraps it into a
+///       genuine INSTANT (noon UTC on this same calendar day) first, which
+///       is what makes the widget's own `kyivToday(clockProvider)` resolve
+///       to this SAME calendar day on every host `TZ` instead of drifting a
+///       day under e.g. `TZ=Asia/Tokyo` — feeding `_today` raw here (the
+///       pre-fix shape) is the actual bug this fixture exists to not
+///       reintroduce (`scripts/forbid_host_local_instant_anchor.sh`'s
+///       RULE 2; worked reference:
+///       `test/features/schedule/presentation/weekly_template_editor_screen_test.dart`'s
+///       `_pump`, which applies the identical split).
 final DateTime _today = DateTime(2026, 7, 15);
 
 const Key _railKey = Key('master-bookings-day-rail');
@@ -134,7 +165,9 @@ _pump(WidgetTester tester, {DateTime? today}) async {
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
       bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
-      clockProvider.overrideWithValue(() => effectiveToday),
+      // `asClockInstant`, not the raw date token — see `_today`'s doc for
+      // why the two roles need different treatment.
+      clockProvider.overrideWithValue(() => asClockInstant(effectiveToday)),
     ],
   );
   await tester.pumpAndSettle();
@@ -366,7 +399,18 @@ void main() {
       // makes `_showRailWeekOf` choose the ANIMATED `animateToPage` branch
       // (not the synchronous `jumpToPage` one) when «Сьогодні» resyncs the
       // rail below.
+      //
+      // A DATE TOKEN like `_today` above — deliberately bare host-local, fed
+      // to `clockProvider` only via `_pump`'s `asClockInstant` wrap, never
+      // raw. This test never compares `todayFeb` via `==` directly (only
+      // `.weekday`, and `calls` against `isEmpty`), so unlike `_today` it
+      // has no SECOND role forcing the bare-local requirement here — it
+      // stays bare-local anyway, for consistency with `_today`'s doc and
+      // because a date token is what this value conceptually is.
       final DateTime todayFeb = DateTime(2026, 2, 2);
+      // `.weekday` reads only the calendar date, never the instant/host
+      // `TZ`; verifying the precondition still holds rather than trusting
+      // it.
       expect(todayFeb.weekday, DateTime.monday, reason: 'fixture precondition');
 
       final result = await _pump(tester, today: todayFeb);
