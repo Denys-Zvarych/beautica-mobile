@@ -33,8 +33,6 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
-import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
-    show CalendarWeekendColumnBand;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -897,12 +895,6 @@ void main() {
 
         expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(find.byKey(const Key('booking-month-calendar')), findsOneWidget);
-        // SlotDateScreen never opts into `MonthCalendar
-        // .showWeekendColumnBand` (mobile-qa INFO gap-fix, this session) —
-        // the weekend column band is `BookingsMonthCalendarPanel`-only; this
-        // screen's weekend days must keep rendering exactly as they did
-        // before that feature existed.
-        expect(find.byType(CalendarWeekendColumnBand), findsNothing);
       },
     );
 

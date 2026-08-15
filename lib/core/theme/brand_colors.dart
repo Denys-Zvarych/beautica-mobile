@@ -80,133 +80,14 @@ abstract final class BrandColors {
   /// per-state exemption determination) — a day that is merely a *weekend*
   /// is not inactive, so it needs a token that is legal on its own, not an
   /// exemption.
+  ///
+  /// A whole-column tinted band was tried (2026-08-14/15) and removed at
+  /// user request. Worth knowing if it is ever revisited: a colorimetrically
+  /// exact-neutral grey (`#E8E8E8`, Lab a*=b*=0) READS BLUE against this warm
+  /// base (`#E6DDD0`, Lab b*≈+7.5) via simultaneous chromatic contrast — the
+  /// same reason this token itself keeps a residual warm cast. Neutral is
+  /// not safe here; it is the worst case.
   static const Color weekendMuted = Color(0xFF5F5A55);
-
-  /// Column-spanning tint behind Saturday/Sunday in the master's expanded
-  /// «Мої записи» month calendar (`BookingsMonthCalendarPanel`, via
-  /// `MonthCalendar.showWeekendColumnBand`) — the weekend cue moved from the
-  /// day NUMBER (see [weekendMuted]'s D3 history) to the whole column, per
-  /// explicit user request ("put whole weekend columns into grey / other
-  /// colour ... not grey day numbers"): inside the band the day numbers now
-  /// render at the same colour as any other day ([accentDeep]/[textSecondary]/
-  /// [faint], never [weekendMuted]) — the band alone carries the signal.
-  ///
-  /// SECOND DERIVATION (2026-08-15, explicit user request: "change the
-  /// weekend column fill color into light grey") — the hue/chroma-shifted
-  /// warm-sand value this token originally held (`#F0DBC0`) was correct on
-  /// its own terms (see the retained history below) but was never grey, so
-  /// it stopped matching the ask outright. Grey means near-zero CIE Lab
-  /// chroma (a≈0, b≈0), which rules out the old "shift [base]'s hue/chroma
-  /// toward [shadowDarkCard]" recipe entirely — that recipe's whole point
-  /// was to STAY warm. This value is instead a pure neutral: `#E8E8E8`, Lab
-  /// (L≈92.00, a≈0.00, b≈0.00).
-  ///
-  /// The neutral axis turned out to have a floor a naive "desaturate [base]
-  /// in place" reading misses: holding L AT [base]'s own L≈88.49 while
-  /// dropping a/b to 0 gives ΔE76 vs [base] of only ~7.52 — [base]'s own
-  /// residual chroma (a≈0.87, b≈7.47) is almost the entire distance being
-  /// measured, so sitting at the same lightness fails this codebase's own
-  /// >= 8.0 perceptibility bar (see `_kMinPerceptibleDeltaE` in
-  /// `test/shared/widgets/calendar_grid_contrast_test.dart`) by removing the
-  /// one component (chroma) that theory relies on to create distance, while
-  /// contributing nothing back on the L axis. Neutral grey NEEDS a lightness
-  /// offset from [base] to clear ΔE 8 — there is no shortcut around it.
-  ///
-  /// That offset could go darker or lighter; darker was tried first and
-  /// rejected. A darker neutral grey clearing ΔE >= 8 (L <~85.75, e.g.
-  /// `#D4D4D4`/`#D6D6D6`) DROPS contrast for every dark foreground that
-  /// lands on the band, because WCAG contrast against a light background
-  /// rises with the background's OWN luminance — darkening the band erodes
-  /// exactly the margin the foregrounds need. At `#D6D6D6` [textSecondary]
-  /// measures ~4.65:1 and [weekendMuted] ~4.69:1: both still clear AA's
-  /// 4.5:1, but by a sliver thin enough that any future foreground or token
-  /// tweak could tip one under. Going LIGHTER than [base] instead makes both
-  /// numbers move the same direction: distance from [base] and contrast
-  /// margin both increase together, because a lighter background is both
-  /// further from [base] on the L axis (more ΔE) and further from the dark
-  /// foregrounds (more contrast) at once — no trade-off to balance. `#E8E8E8`
-  /// sits on that side, L≈92.00 versus [base]'s L≈88.49 — only ~3.5 lighter,
-  /// which is why it still reads as a subtle wash rather than a highlight,
-  /// while comfortably clearing both bars (measured below).
-  ///
-  /// A residual-warm-chroma variant (mirroring how [weekendMuted] keeps a
-  /// trace of its own hue) was also tried and rejected for the opposite
-  /// reason to the darker-grey path: at this same L, giving the grey back
-  /// even ~2 units of [base]'s own b (its warm axis) pulls it BACK toward
-  /// [base] in Lab space and measurably shrinks ΔE76 (e.g. L≈91.3 with
-  /// a≈-0.03/b≈2.18 measures ΔE76≈6.08 versus the pure-neutral ΔE76≈8.30 at
-  /// the same L) — because [base] itself already sits on the warm axis, any
-  /// warmth added back to the "grey" moves it toward [base], not away from
-  /// it. Unlike [weekendMuted] (whose neighbour, [textSecondary], is ALSO
-  /// warm, so a shared residual hue does not cost distance), [weekendColumn]
-  /// is being measured against [base] itself — so here, staying perfectly
-  /// neutral is what maximises both the "reads as grey" property the user
-  /// asked for AND the measured distance. `#E8E8E8` is therefore exactly
-  /// neutral (a=0, b=0), not warm-tinted.
-  ///
-  /// THIRD DERIVATION (2026-08-15, same day, user report: "reads blue, not
-  /// grey") — the exact-neutral `#E8E8E8` above shipped, was pixel-verified
-  /// to actually be `#E8E8E8` (no rendering bug — no gradient/blend/filter
-  /// sits between the token and the framebuffer), and was STILL reported as
-  /// looking blue-tinted rather than grey. This is not a contradiction: it is
-  /// simultaneous chromatic contrast, the same induction effect that makes an
-  /// exactly-neutral grey patch read as tinted toward the OPPONENT of
-  /// whatever hue surrounds it. [base] anchors the entire adapted visual
-  /// field at Lab b*≈+7.5 (warm/yellow); a patch sitting at b*=0 inside that
-  /// field is perceived as pulled toward the opposite pole of the b* axis —
-  /// i.e. cool/blue — even though its measured chroma is zero. Decomposing
-  /// the ΔE76 the second derivation's own doc above already reports (8.30)
-  /// by axis confirms b* carries ~81% of it — the same axis induction acts
-  /// on — so "exactly neutral" and "reads neutral inside this warm field"
-  /// turned out to be different properties, and only the second one is what
-  /// a viewer actually experiences.
-  ///
-  /// The fix keeps the whole-column-band idea and the "lighter than [base],
-  /// never darker" AA argument from the second derivation (both still
-  /// hold — see the retained history below) but gives the grey back a small
-  /// residual WARM cast on the b* axis, deliberately mirroring how
-  /// [weekendMuted] keeps its own residual warmth for the same reason: not
-  /// "less neutral," but "compensated so it reads as neutral once it sits in
-  /// this palette's warm field." The residual-warm-chroma variant the SECOND
-  /// derivation tried and rejected (Lab a≈-0.03/b≈2.18) was rejected purely
-  /// because it shrank ΔE at the SAME lightness the exact-neutral pick used —
-  /// that math still holds, so this derivation raises L to compensate, which
-  /// simultaneously restores ΔE margin AND increases contrast against every
-  /// dark foreground (both bars move the same direction when going lighter,
-  /// exactly as the second derivation's own "going lighter" argument already
-  /// established) — no new trade-off, just re-applying that argument one step
-  /// further out. Targeted at [weekendMuted]'s own proven warm-cast band
-  /// (a≈+1.0, b≈+3.6) rather than the barely-warm `#F3F0EC` (b*≈2.3) a first
-  /// pass at this fix considered — undershooting the cast a second time would
-  /// cost a third round-trip on the same perceptual bug.
-  ///
-  /// `#FAF5EF`, Lab (L≈96.76, a*≈0.64, b*≈3.47). CIE Lab ΔE76 vs [base] =
-  /// **9.19** (clears the >= 8.0 floor with ~15% margin). Contrast on the
-  /// band: [accentDeep] **7.39:1**, [textSecondary] **6.23:1**,
-  /// [weekendMuted] **6.29:1** — all clear WCAG AA's 4.5:1 floor by more than
-  /// a point and a half of headroom. See
-  /// `test/shared/widgets/calendar_grid_contrast_test.dart`'s "warm-neutral
-  /// band" group (renamed from the second derivation's "true neutral grey"
-  /// group, which by construction could never pass again) for the computed
-  /// pin: it now asserts a* and b* fall inside a BAND, not near zero — upper
-  /// bound so a revert to sandy `#F0DBC0` (b*≈15.9) still fails, lower bound
-  /// so a revert to colorimetrically-neutral `#E8E8E8` (b*≈0, the exact
-  /// defect reported in this derivation) ALSO fails.
-  ///
-  /// Retained history (still true, from the second derivation): a pure
-  /// alpha-blend toward [shadowDarkCard] was rejected because it DARKENS as
-  /// well as tints, so contrast against dark text erodes with every step
-  /// toward a visible band. A darker neutral clearing ΔE >= 8 was rejected
-  /// for the same reason (thin AA margins that erode further with any future
-  /// tweak). Going lighter than [base] moves ΔE-margin and AA-margin in the
-  /// same direction at once, which is why this derivation, like the second,
-  /// resolves the whole problem by raising L rather than by trading one
-  /// margin against the other. The weekend cue lives on the whole COLUMN, not
-  /// the day number, per the user request recorded on
-  /// [MonthCalendar.showWeekendColumnBand]'s call site — inside the band the
-  /// day numbers keep rendering [accentDeep]/[textSecondary]/[faint] like any
-  /// other day; the band alone carries the signal.
-  static const Color weekendColumn = Color(0xFFFAF5EF);
 
   /// Input placeholder text.
   static const Color placeholder = Color(0xFFAD9A82);
