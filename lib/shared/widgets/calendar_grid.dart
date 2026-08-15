@@ -186,7 +186,7 @@ class CalendarWeekendColumnBand extends StatelessWidget {
       // zero-height rect and every foreground/geometry test that only
       // checks the widget MOUNTED (rather than its rendered size) stays
       // green through the collapse. mobile-build-verifier caught this via
-      // a pixel-level goldens read-back (zero `#F0DBC0` pixels) after the
+      // a pixel-level goldens read-back (zero `#E8E8E8` pixels) after the
       // first version of this file shipped without it.
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[

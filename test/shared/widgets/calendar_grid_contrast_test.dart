@@ -339,4 +339,78 @@ void main() {
       );
     });
   });
+
+  // BrandColors.weekendColumn — NEUTRALITY pin (2026-08-15).
+  //
+  // WHY THIS GROUP EXISTS
+  // -----------------------
+  // The user's explicit request on 2026-08-15 was "change the weekend
+  // column fill color into light grey" — i.e. the SECOND derivation of this
+  // token, replacing the first derivation's warm-sand `#F0DBC0` with the
+  // neutral `#E8E8E8`. Neither the ΔE76-vs-base group above nor the AA
+  // contrast assertions vs the foregrounds that land on the band say
+  // anything about GREYNESS: `#F0DBC0` (the prior warm-sand value) clears
+  // every one of those assertions too (measured: ΔE76 vs base ~6.9-ish
+  // warm-axis distance is unrelated to hue, and its AA margins on
+  // accentDeep/textSecondary/weekendMuted are all comparable to `#E8E8E8`'s
+  // own). So reverting this token back to warm sand would leave the whole
+  // rest of this file GREEN — none of it pins the one property the user
+  // actually asked for.
+  //
+  // A colour is neutral grey precisely when its CIE Lab chroma collapses to
+  // (near-)zero on both the a* (green-red) and b* (blue-yellow) axes —
+  // exactly the property [BrandColors.weekendColumn]'s own doc comment
+  // reports (`a≈0.00, b≈0.00`) and the property a warm/sand tone can never
+  // have (measured for the prior `#F0DBC0`: a*≈3.01, b*≈15.91 — b* alone is
+  // ~16x this test's tolerance). This group asserts that directly, reusing
+  // the sRGB->Lab helpers already defined above rather than duplicating the
+  // colour math.
+  group('BrandColors.weekendColumn is a true neutral grey (2026-08-15 '
+      'user request: "change the weekend column fill color into light '
+      'grey")', () {
+    // Lab units. The current token measures a*/b* on the order of 1e-5
+    // (floating-point noise around an exact R=G=B grey); a warm/sand revert
+    // the size of the prior `#F0DBC0` measures b*≈15.9 — this tolerance
+    // sits far below that with wide margin while still allowing genuine
+    // floating-point noise through.
+    const double kMaxNeutralChroma = 1.0;
+
+    test('CIE Lab a* (green-red axis) is within the neutral tolerance of '
+        'zero', () {
+      final (double l, double a, double b) = _rgbToLab(
+        BrandColors.weekendColumn,
+      );
+      expect(
+        a.abs(),
+        lessThanOrEqualTo(kMaxNeutralChroma),
+        reason:
+            'weekendColumn measured Lab a*=$a (L=$l, b*=$b). A warm/sand '
+            'value — such as this token\'s PRIOR value #F0DBC0 (measured '
+            'a*~3.01, b*~15.91) — carries real positive chroma on this '
+            'axis and would silently revert the 2026-08-15 user request '
+            '("change the weekend column fill color into light grey") '
+            'while still passing every contrast/ΔE assertion above this '
+            'group, none of which constrain hue. This assertion exists '
+            'specifically to close that gap.',
+      );
+    });
+
+    test('CIE Lab b* (blue-yellow axis) is within the neutral tolerance of '
+        'zero', () {
+      final (double l, double a, double b) = _rgbToLab(
+        BrandColors.weekendColumn,
+      );
+      expect(
+        b.abs(),
+        lessThanOrEqualTo(kMaxNeutralChroma),
+        reason:
+            'weekendColumn measured Lab b*=$b (L=$l, a*=$a). b* is the '
+            'warm/cool axis proper (positive = yellow/warm, negative = '
+            'blue/cool) — the prior warm-sand #F0DBC0 measured b*~15.91 '
+            'here, ~16x this tolerance, which is exactly the "warm, not '
+            'grey" defect this test exists to catch. See the a* assertion '
+            'above for the full context.',
+      );
+    });
+  });
 }

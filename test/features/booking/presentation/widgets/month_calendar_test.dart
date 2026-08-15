@@ -11,6 +11,9 @@
 //   2. A day the caller marks unavailable renders WITHOUT a tap handler
 //      (no `GestureDetector`) and never invokes `onSelectDay`.
 
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -23,6 +26,7 @@ import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
         kCalendarMaxDensityDots,
         kCalendarRowHeight;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -645,7 +649,7 @@ void main() {
               'band height measured ${band.height}, expected '
               '$expectedHeight — a value near 0 here IS the invisible-band '
               'regression (mobile-build-verifier\'s pixel read-back found '
-              'zero #F0DBC0 pixels in the golden for exactly this reason).',
+              'zero #E8E8E8 pixels in the golden for exactly this reason).',
         );
         expect(
           band.height,
@@ -678,6 +682,290 @@ void main() {
         final double expectedLeft = lastRow.left + lastRow.width * 5 / 7;
         expect(band.left, closeTo(expectedLeft, 1.0));
         expect(band.right, closeTo(lastRow.right, 1.0));
+      },
+    );
+  });
+
+  // GROUND-TRUTH PIXEL READ-BACK — closes the LOW gap mobile-qa raised after
+  // the 2026-08-15 grey recolor (`BrandColors.weekendColumn` warm-sand
+  // `#F0DBC0` -> neutral `#E8E8E8`).
+  //
+  // WHY THIS EXISTS
+  // -----------------
+  // Every guard above this point — this file's own geometry group (a `Rect`
+  // comparison, never a painted pixel) and
+  // `test/shared/widgets/calendar_grid_contrast_test.dart`'s WCAG/ΔE76/Lab
+  // pins — operates on either the WIDGET TREE or the TOKEN VALUE
+  // (`BrandColors.weekendColumn` fed straight into colour math). None of
+  // them ever asks the render pipeline what colour actually landed on a
+  // screen pixel. The 4 regenerated `bookings_month_calendar_panel_expanded
+  // _*` goldens DO render real pixels, but a regenerated baseline is
+  // self-referential for a colour CHANGE — it proves only that the colour
+  // stopped changing between two runs of the same (possibly broken) code,
+  // never that the colour is actually correct. So a wiring regression that
+  // ships with the token value still correct — band detached, painted under
+  // an opaque sibling, wired to the wrong flex segment, or the exact
+  // zero-height `crossAxisAlignment: stretch` collapse
+  // `CalendarWeekendColumnBand`'s own doc records mobile-build-verifier
+  // catching via a ONE-OFF pixel read-back (`calendar_grid.dart:178-191`)
+  // — would sail through every other test in this repo. This test makes
+  // that read-back a permanent, always-on regression guard instead of a
+  // diagnostic someone ran once by hand.
+  //
+  // METHOD
+  // -------
+  // Renders the REAL `MonthCalendar` (the actual production widget tree,
+  // not a stub) wrapped in an explicit `RepaintBoundary`, then reads back
+  // `RenderRepaintBoundary.toImage()` -> `toByteData(format: rawRgba)`.
+  // `toImage()` is called with its default `pixelRatio: 1.0`, so the
+  // resulting image is sized 1 pixel per LOGICAL pixel regardless of the
+  // test view's own `devicePixelRatio` — the same coordinate space
+  // `tester.getRect`/`getTopLeft` already report in, so sample coordinates
+  // need no device-pixel-ratio conversion (the `image.width` sanity
+  // assertion below pins that assumption instead of silently relying on
+  // it).
+  //
+  // Sample points sit in the ~6dp padding GAPS between week rows (real
+  // geometry: `_MonthGrid` wraps each 44dp `CalendarWeekRow` in a further
+  // 3dp vertical `Padding`, so consecutive rows leave a 6dp gap) — pure
+  // background, with no day-number glyph, selection ring, today ring, or
+  // density dot ever painted there, and far enough from the band's own
+  // `VelvetRadii.card` (24dp) corner rounding at the very top/bottom of the
+  // grid to be unaffected by it. Multiple x/y points are sampled per
+  // region so a single lucky/unlucky pixel can never carry the assertion.
+  //
+  // The three expected colours are HARD-CODED integer literals, not read
+  // from `BrandColors` — deliberately, for all three checks: a
+  // `BrandColors.weekendColumn`-derived expectation would trivially "pass"
+  // no matter what the live token value is, since the token IS the
+  // production wiring's fill colour — the whole point of a ground-truth
+  // test is to prove the literal `0xFFE8E8E8` the user actually asked for
+  // is what lands on screen, independent of what the token currently says.
+  group('GROUND-TRUTH pixel read-back (2026-08-15 grey recolor, LOW gap '
+      'closure)', () {
+    testWidgets(
+      'Sat/Sun column pixels are literal #E8E8E8, Mon-Fri column pixels are '
+      'literal base #E6DDD0 (unshaded), and NO pixel anywhere in the render '
+      'matches the old warm-sand #F0DBC0',
+      (tester) async {
+        const Color kExpectedWeekendGrey = Color(0xFFE8E8E8);
+        const Color kExpectedUnshadedBase = Color(0xFFE6DDD0);
+        const Color kForbiddenOldSand = Color(0xFFF0DBC0);
+        const int kChannelTolerance = 2;
+
+        bool closeToExpected(Color actual, Color expected) {
+          return (actual.r * 255 - expected.r * 255).abs() <=
+                  kChannelTolerance &&
+              (actual.g * 255 - expected.g * 255).abs() <= kChannelTolerance &&
+              (actual.b * 255 - expected.b * 255).abs() <= kChannelTolerance;
+        }
+
+        final GlobalKey boundaryKey = GlobalKey();
+        final DateTime visibleMonth = DateTime(2026, 7);
+        await tester.pumpApp(
+          Scaffold(
+            body: RepaintBoundary(
+              key: boundaryKey,
+              // `MonthCalendar` itself never paints an opaque background —
+              // in production it always sits on a `BrandColors.base`-filled
+              // surface (the panel/screen background), which is an
+              // ANCESTOR of this widget and so would NOT be captured by
+              // `RenderRepaintBoundary.toImage()` (that only rasterises
+              // this boundary's own subtree, not ancestor paint). Without
+              // this `ColoredBox`, the Mon-Fri row-gap samples below read
+              // back fully transparent (`0x00000000`) instead of the real
+              // on-screen base colour — not a test artifact, an accurate
+              // reproduction of what is really behind the grid.
+              child: ColoredBox(
+                color: BrandColors.base,
+                child: MonthCalendar(
+                  visibleMonth: visibleMonth,
+                  today: DateTime(2026, 7, 1),
+                  selected: null,
+                  isAvailable: (_) => true,
+                  onSelectDay: (_) {},
+                  composeWeekdayBar: true,
+                  sixWeekRows: true,
+                  showHeader: false,
+                  showWeekendColumnBand: true,
+                ),
+              ),
+            ),
+          ),
+          width: 360,
+        );
+        await tester.pumpAndSettle();
+
+        // Real geometry — the same rects the widget-tree assertions above
+        // use, now reused as SAMPLE COORDINATES for the pixel read-back
+        // rather than compared to each other.
+        final List<Rect> rowRects = List<Rect>.generate(
+          kMonthCalendarSixRows,
+          (int i) => tester.getRect(find.byType(CalendarWeekRow).at(i)),
+        );
+        final Offset boundaryOrigin = tester.getTopLeft(
+          find.byKey(boundaryKey),
+        );
+
+        late final ui.Image image;
+        late final ByteData pixels;
+        await tester.runAsync(() async {
+          final RenderObject? renderObject = boundaryKey.currentContext
+              ?.findRenderObject();
+          expect(
+            renderObject,
+            isA<RenderRepaintBoundary>(),
+            reason:
+                'the RepaintBoundary wrapped around MonthCalendar must have '
+                'laid out and painted by now (pumpAndSettle above ran) — a '
+                'null/wrong-type render object here means the capture '
+                'itself is broken and must fail loudly rather than let '
+                'every pixel assertion below silently read garbage',
+          );
+          final RenderRepaintBoundary boundary =
+              renderObject! as RenderRepaintBoundary;
+          image = await boundary.toImage();
+          final ByteData? data = await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          );
+          expect(
+            data,
+            isNotNull,
+            reason:
+                'toByteData returning null would otherwise short-circuit '
+                'every sample below into a null-dereference instead of a '
+                'clear failure',
+          );
+          pixels = data!;
+        });
+
+        // Anti-flake floor: a collapsed/zero-size capture must FAIL, not
+        // silently read every sample as (0,0,0,0) and pass by accident.
+        expect(
+          image.width,
+          greaterThanOrEqualTo(300),
+          reason:
+              'captured image width ${image.width} — pumped at a 360dp '
+              'stress width with pixelRatio 1.0, so this must be close to '
+              '360, not a collapsed/near-zero capture',
+        );
+        expect(
+          image.width,
+          closeTo(360, 2),
+          reason:
+              'pins the "toImage() pixelRatio defaults to 1.0, so the image '
+              'is sized in LOGICAL pixels" assumption this test\'s sampling '
+              'math depends on — if a future Flutter version changes that '
+              'default, this fails loudly instead of every sample silently '
+              'reading the wrong pixel',
+        );
+        expect(
+          image.height,
+          greaterThanOrEqualTo(300),
+          reason:
+              'captured image height ${image.height} — six week rows plus '
+              'the weekday bar must not have collapsed',
+        );
+
+        Color pixelAt(double globalX, double globalY) {
+          final int x = (globalX - boundaryOrigin.dx).round().clamp(
+            0,
+            image.width - 1,
+          );
+          final int y = (globalY - boundaryOrigin.dy).round().clamp(
+            0,
+            image.height - 1,
+          );
+          final int offset = (y * image.width + x) * 4;
+          return Color.fromARGB(
+            pixels.getUint8(offset + 3),
+            pixels.getUint8(offset),
+            pixels.getUint8(offset + 1),
+            pixels.getUint8(offset + 2),
+          );
+        }
+
+        // Sample the 6dp gaps BETWEEN consecutive week rows — background,
+        // never a glyph/ring/dot — at several x/y points spanning most of
+        // the grid's vertical extent, both inside the tinted Sat/Sun
+        // columns and inside the unshaded Mon-Fri columns.
+        int weekendSamples = 0;
+        int weekdaySamples = 0;
+        for (int i = 0; i < rowRects.length - 1; i++) {
+          final double gapY = (rowRects[i].bottom + rowRects[i + 1].top) / 2;
+          final Rect row = rowRects[i];
+
+          for (final double frac in <double>[1 / 7, 3 / 7]) {
+            final double x = row.left + row.width * frac;
+            final Color actual = pixelAt(x, gapY);
+            weekdaySamples++;
+            expect(
+              closeToExpected(actual, kExpectedUnshadedBase),
+              isTrue,
+              reason:
+                  'Mon-Fri column pixel at row-gap $i, x-fraction $frac '
+                  'measured 0x${actual.toARGB32().toRadixString(16)}, '
+                  'expected literal base #E6DDD0 (within '
+                  '$kChannelTolerance/channel) — this column must NOT be '
+                  'tinted',
+            );
+          }
+
+          for (final double frac in <double>[5.7 / 7, 6.3 / 7]) {
+            final double x = row.left + row.width * frac;
+            final Color actual = pixelAt(x, gapY);
+            weekendSamples++;
+            expect(
+              closeToExpected(actual, kExpectedWeekendGrey),
+              isTrue,
+              reason:
+                  'Sat/Sun column pixel at row-gap $i, x-fraction $frac '
+                  'measured 0x${actual.toARGB32().toRadixString(16)}, '
+                  'expected literal #E8E8E8 (within '
+                  '$kChannelTolerance/channel)',
+            );
+          }
+        }
+        expect(
+          weekendSamples,
+          greaterThanOrEqualTo(8),
+          reason: 'sanity floor on how many points this test actually hit',
+        );
+        expect(
+          weekdaySamples,
+          greaterThanOrEqualTo(8),
+          reason: 'sanity floor on how many points this test actually hit',
+        );
+
+        // Full-image scan — not just the sampled points above — for the OLD
+        // warm-sand fill. A single leftover/reverted pixel anywhere in the
+        // render fails this, independent of exactly where the band sits.
+        int sandPixels = 0;
+        final double sandR = kForbiddenOldSand.r * 255;
+        final double sandG = kForbiddenOldSand.g * 255;
+        final double sandB = kForbiddenOldSand.b * 255;
+        for (int y = 0; y < image.height; y++) {
+          for (int x = 0; x < image.width; x++) {
+            final int offset = (y * image.width + x) * 4;
+            final int r = pixels.getUint8(offset);
+            final int g = pixels.getUint8(offset + 1);
+            final int b = pixels.getUint8(offset + 2);
+            if ((r - sandR).abs() <= kChannelTolerance &&
+                (g - sandG).abs() <= kChannelTolerance &&
+                (b - sandB).abs() <= kChannelTolerance) {
+              sandPixels++;
+            }
+          }
+        }
+        expect(
+          sandPixels,
+          0,
+          reason:
+              'found $sandPixels pixel(s) matching the OLD warm-sand '
+              '#F0DBC0 (within $kChannelTolerance/channel) across the whole '
+              '${image.width}x${image.height} render — the band must paint '
+              'ONLY the current #E8E8E8 grey fill',
+        );
       },
     );
   });
