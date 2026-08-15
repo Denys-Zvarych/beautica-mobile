@@ -1234,21 +1234,48 @@ void main() {
     // ABOVE 1.0 TEXT SCALE — the gap `_freeCardMinHeightFor` closes. The
     // booked card's FULL body genuinely grows past `_kEntryMinHeight`
     // above scale 1.0 (real `Text` widgets, not an estimate — see
-    // `MasterBookingCard.fullLayoutNaturalHeight`'s doc: "124dp @ 1.15,
-    // 132dp @ 1.3 — re-measured, not assumed"); the free card's own floor
+    // `MasterBookingCard.fullLayoutNaturalHeight`'s doc: "120dp @ 1.15,
+    // 126dp @ 1.3 — re-measured, not assumed"); the free card's own floor
     // must track that growth instead of staying pinned at 120, or the
     // "same box" contract above holds only at the one scale most devices
     // happen to run at.
     //
-    // MUTATION-VERIFIED (see this session's report): reverting
+    // FONT-SIZE PASS (2026-08-15) — these two expected figures were 124 /
+    // 132 (the booked card's naturals before the pass; see
+    // `velvet_text.dart`'s `masterCardClientName` doc). At 1.15 the booked
+    // card's natural now happens to TIE `_kEntryMinHeight` (120 == 120)
+    // rather than exceed it — re-measured via the real widget, not derived
+    // — so this table's 1.15 row looks unchanged from `_kEntryMinHeight`
+    // itself but is NOT a no-op case: see `declared_time_cards.dart`'s
+    // `_freeCardMinHeightFor` doc for why the segment below 1.15 is now
+    // flat rather than merely shallow.
+    //
+    // MUTATION-VERIFIED (pre-pass; the mechanism is unchanged by the font
+    // sizes moving, only the numbers are): reverting
     // `_freeCardMinHeightFor` to return the bare `_kEntryMinHeight`
-    // constant unconditionally turns the 1.15 and 1.3 cases in this loop
-    // RED, with the booked card measurably taller than the free one
-    // (124 vs 120, 132 vs 120) — the 1.0 case stays green either way,
-    // which is exactly why a single-scale test cannot catch this gap.
+    // constant unconditionally turns the 1.3 case in this loop RED, with
+    // the booked card measurably taller than the free one (126 vs 120) —
+    // the 1.0 AND 1.15 cases stay green either way now that the booked
+    // card's 1.15 natural ties the floor, which is exactly why a
+    // single-scale test cannot catch this gap.
+    //
+    // mobile-qa (2026-08-15 font-size pass) — 1.08 ADDED as an INTERIOR point
+    // of the [1.0, 1.15] segment. `_freeCardMinHeightFor`'s own doc says that
+    // segment "degenerates to flat automatically now that both ends read
+    // 120" — a claim the 1.0/1.15 endpoint pair alone cannot fully verify: a
+    // future edit that replaced the linear interpolation with, say, a
+    // midpoint bump (still exact at both endpoints, wrong everywhere between
+    // them) would leave every existing case here green. 1.08 is the
+    // discriminator: on a genuinely flat segment the free card's floor is
+    // 120 regardless of where inside [1.0, 1.15] it is sampled.
     // ═══════════════════════════════════════════════════════════════════
     for (final (double scale, double expectedHeight)
-        in const <(double, double)>[(1.0, 120), (1.15, 124), (1.3, 132)]) {
+        in const <(double, double)>[
+          (1.0, 120),
+          (1.08, 120),
+          (1.15, 120),
+          (1.3, 126),
+        ]) {
       testWidgets('a FREE card and a BOOKED card match at textScaler $scale '
           '(expected box: ${expectedHeight}dp)', (tester) async {
         final Booking booking = _booking(

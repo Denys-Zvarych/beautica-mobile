@@ -62,6 +62,7 @@ class PriceTag extends StatelessWidget {
     super.key,
     required this.price,
     this.verticalPadding = defaultVerticalPadding,
+    this.style,
   });
 
   /// The pill's default vertical padding — the approved design's own value,
@@ -91,6 +92,33 @@ class PriceTag extends StatelessWidget {
   /// host renders byte-identically. The HEIGHT ANCHOR below is unaffected: it
   /// pins the pill's LINE box, and this knob only moves the padding around it.
   final double verticalPadding;
+
+  /// Overrides [VelvetText.pill] for BOTH the height anchor and the price
+  /// text below (see the two comments further down for why both must move
+  /// together — the two can never desync, by construction, since a single
+  /// `resolvedStyle` feeds both). `null` (the default) keeps `pill()`, so
+  /// every existing call site — the wish-list surfaces, the passport screen —
+  /// renders byte-identically.
+  ///
+  /// Added for the 2026-08-15 booking-card font-size pass:
+  /// `master_booking_card.dart`'s TWO `PriceTag` call sites (the compact and
+  /// full bodies — the MICRO body has no price row, see that widget's class
+  /// doc) pass `VelvetText.masterCardPricePill` (10.2 sp, down from
+  /// `pill()`'s 11 sp) so the card's own price figure can shrink without
+  /// moving `pill()` itself, which `wishlist_row.dart`,
+  /// `wishlist_compact_card.dart` and `passport_derived_block.dart` also
+  /// render and which were out of scope for that pass. See
+  /// `velvet_text.dart`'s `masterCardPricePill` doc.
+  ///
+  /// GUARDRAIL FOR FUTURE CALLERS: any override MUST preserve legibility and
+  /// contrast — this is still price text a master reads at a glance in a
+  /// scrolling timeline, not decorative chrome. Do not pass a transparent or
+  /// low-contrast colour here. Because the same [resolvedStyle] anchors BOTH
+  /// the zero-width height anchor above and the visible price band, a colour
+  /// override cannot desync the two — but it CAN make the visible band
+  /// unreadable while the anchor still reserves the right height, which is a
+  /// silent accessibility regression rather than a loud layout one.
+  final TextStyle? style;
 
   /// The widest the pill's TEXT may grow before it scales down. A CAP, not a
   /// column width — a short «450 ₴» still sizes to its own content.
@@ -141,6 +169,11 @@ class PriceTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Resolved ONCE and reused for both the height anchor and the price text
+    // below — they must always be the SAME style (see the anchor's own
+    // comment: it only holds the pill's height if it is measured in the
+    // exact style the visible band renders in).
+    final TextStyle resolvedStyle = style ?? VelvetText.pill();
     return NeumorphicInset(
       radius: VelvetRadii.pill,
       child: Padding(
@@ -149,30 +182,38 @@ class PriceTag extends StatelessWidget {
         // ---------------------------------------------------------------
         // `BoxFit.scaleDown` scales UNIFORMLY, so the moment [maxTextWidth]
         // binds it shrinks the band's HEIGHT by the same factor, not just its
-        // width — measured: an over-cap band renders its text at 13.0 dp
-        // instead of the style's natural 15.0 dp. Left alone that silently
-        // drags the whole host card shorter (the master card's compact body
-        // names this pill's ~20 dp row as its tallest).
+        // width — measured (default [VelvetText.pill] style): an over-cap band
+        // renders its text at 13.0 dp instead of the style's natural 15.0 dp.
+        // Left alone that silently drags the whole host card shorter (the
+        // master card's compact body names this pill's ~20 dp row as its
+        // tallest).
         //
         // The zero-width [Text] below is a HEIGHT ANCHOR: an empty string in
-        // the same [VelvetText.pill] style lays out at Size(0.0, 15.0) — no
-        // width contributed to the [Row], full natural line height held. The
-        // [Row] then takes the taller of (anchor, scaled band), which is the
-        // anchor for every scale <= 1, so the pill keeps its natural height no
-        // matter how far the band scales horizontally.
+        // [resolvedStyle] — the SAME style the visible band renders in, see
+        // that field's declaration above — lays out with no width contributed
+        // to the [Row] but the full natural line height held (15.0 dp for the
+        // default [VelvetText.pill] style; smaller for
+        // [VelvetText.masterCardPricePill], the booking card's own override —
+        // see that token's doc). The [Row] then takes the taller of (anchor,
+        // scaled band), which is the anchor for every scale <= 1, so the pill
+        // keeps its natural height no matter how far the band scales
+        // horizontally.
         //
-        // IT MUST STAY A [Text], NOT A `SizedBox(height: 15)`. 15.0 is the line
+        // IT MUST STAY A [Text], NOT A `SizedBox(height: 15)`. 15.0 (the
+        // default [VelvetText.pill] style's natural height) is the line
         // height at textScaler 1.0 ONLY; a box cannot see the ambient scaler,
         // so under the app's own MediaQuery clamp (`main.dart`'s 1.3 ceiling)
         // it would under-anchor and hand the height back to the scaled band —
         // measured with the constant swapped in: at 1.1 the pill goes 23.0
         // (in-cap) vs 21.0 (over-cap), at 1.3 23.76 vs 21.0, i.e. exactly the
         // defect this anchor removes. The [Text] re-derives its height from the
-        // inherited scaler on every build; a constant freezes one scale.
+        // inherited scaler on every build; a constant freezes one scale. The
+        // same argument applies at any [resolvedStyle] — only the natural
+        // number moves.
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text('', style: VelvetText.pill()),
+            Text('', style: resolvedStyle),
             // [Flexible], not a bare [ConstrainedBox] — see the file header's
             // "the cap is a CEILING" section. A [Row] hands its NON-flex
             // children unbounded width, so without this the [ConstrainedBox]
@@ -185,7 +226,7 @@ class PriceTag extends StatelessWidget {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerRight,
-                  child: Text(price, style: VelvetText.pill(), maxLines: 1),
+                  child: Text(price, style: resolvedStyle, maxLines: 1),
                 ),
               ),
             ),

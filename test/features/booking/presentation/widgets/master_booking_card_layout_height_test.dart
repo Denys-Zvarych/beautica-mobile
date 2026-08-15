@@ -134,35 +134,46 @@ void main() {
     'MasterBookingCard.occupiedHeightFor predicts the rendered box exactly',
     () {
       // Every duration the timeline can realistically hand a card, chosen to
-      // straddle BOTH switches. At ADDENDUM 8's 120dp/hour the micro/compact
-      // boundary is 56dp (duration 28min) and the compact/full boundary is
-      // 118dp (duration 59.0min — 117/58.5 until the card's ROW-1 GLYPH pass
-      // grew the full body by 1dp):
+      // straddle BOTH switches.
       //
-      //   5   — 10dp proportional, floored at the 28dp micro natural; MICRO,
+      // FONT-SIZE PASS (2026-08-15) — the naturals this sweep straddles all
+      // moved (`estimatedNaturalHeight` 56 -> 54, `fullLayoutNaturalHeight`
+      // 118 -> 115; see `master_booking_card.dart`'s doc for both). The
+      // per-row comments below are updated to match. NOTE what did NOT need
+      // to change: this whole group's assertions compare
+      // `MasterBookingCard.occupiedHeightFor(floor)` against the REAL
+      // rendered card, both computed from the CURRENT constants at test-run
+      // time — so the sweep is self-consistent by construction and would
+      // have passed even with stale comments. The comments are informative
+      // documentation, not a second source of truth the assertions depend on.
+      //
+      // At ADDENDUM 8's 120dp/hour the micro/compact boundary is now 54dp
+      // (duration 27min, was 56dp/28min) and the compact/full boundary is now
+      // 115dp (duration 57.5min — an ODD number of dp, so unlike the old
+      // 118dp threshold, no WHOLE-minute duration lands exactly on it; the
+      // nearest points are 57min/114dp COMPACT and 58min/116dp FULL, 1dp
+      // clear):
+      //
+      //   5   — 10dp proportional, floored at the 27dp micro natural; MICRO,
       //         and the one row where the floor is BELOW the natural, so
       //         occupiedHeightFor genuinely raises it
-      //   10  — 20dp proportional, floored at 28; MICRO, same non-echo branch
-      //   13  — 26dp proportional, floored at 28; the LONGEST duration the
+      //   10  — 20dp proportional, floored at 27; MICRO, same non-echo branch
+      //   13  — 26dp proportional, floored at 27; the LONGEST duration the
       //         floor still raises, one minute under the break-even
-      //   14  — 28dp proportional == the 28dp floor EXACTLY: the break-even
-      //         itself, where `_floorFor`'s `max` is degenerate and
-      //         occupiedHeightFor's prediction has to be right for both
-      //         reasons at once. Added when the ONE-TIME-STYLE pass
-      //         (2026-07-24) moved the break-even from 14.5 to 14.0 — at the
-      //         outgoing 29dp natural this row was a floored one, so it is
-      //         precisely the row that changed branch and was not covered.
-      //   15  — floor 30 (15/60*120), just clears the micro natural; MICRO
-      //   28  — floor 56, exactly the micro/compact boundary; COMPACT (the
-      //         bound is exclusive), floor == natural == 56
-      //   30  — floor 60, COMPACT (60 < 118)
+      //   14  — 28dp proportional, now 1dp ABOVE the 27dp floor (was exactly
+      //         AT the 28dp floor pre-pass) — no longer the break-even row,
+      //         kept in the sweep as an ordinary MICRO case
+      //   15  — floor 30 (15/60*120), clears the micro natural; MICRO
+      //   28  — floor 56, now 2dp PAST the micro/compact boundary (was
+      //         exactly on it pre-pass); COMPACT
+      //   30  — floor 60, COMPACT (60 < 115)
       //   45  — floor 90, COMPACT — this flipped back from full when the
       //         scale came down from 168; see `_kFullLayoutMinHeight`'s doc
-      //   58  — floor 116, one step BELOW the full switch; COMPACT with the
-      //         floor well above the 56 natural
-      //   59  — floor 118, EXACTLY the switch since the ROW-1 GLYPH pass;
-      //         FULL, floor == the 118 natural at zero clearance (it used to
-      //         sit one step above a 117 natural)
+      //   58  — floor 116, now the FIRST duration in this sweep to clear the
+      //         full switch (was one step BELOW it pre-pass) — FULL, 1dp
+      //         clearance over the 115dp natural
+      //   59  — floor 118, FULL, 3dp clearance (was EXACTLY the switch,
+      //         zero clearance, before the 2026-08-15 pass)
       //   60  — floor 120, FULL; lands exactly on its end-time line
       //   90  — floor 180, comfortably content-independent
       //   120 — floor 240, the long tail

@@ -450,15 +450,17 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
 ///     `static const double _kHourH = 120`) — literally "one hour" at that
 ///     grid's dp/hour scale, matching the user's own stated preference for
 ///     the booked card's size ("1 hour maybe will be the best option").
-///   * It clears [MasterBookingCard.fullLayoutMinHeight] (118dp — the floor
-///     at or above which that card renders its FULL body rather than compact
-///     or micro; see that constant's own doc) with 2dp to spare. A booked
-///     entry here therefore ALWAYS selects the full body — never falls back
-///     to compact/micro — which is the whole point of picking the "1 hour"
-///     size deliberately rather than any value `>= 118`.
+///   * It clears [MasterBookingCard.fullLayoutMinHeight] (115dp as of the
+///     2026-08-15 font-size pass, was 118dp — the floor at or above which
+///     that card renders its FULL body rather than compact or micro; see
+///     that constant's own doc) with 5dp to spare (was 2dp). A booked entry
+///     here therefore ALWAYS selects the full body — never falls back to
+///     compact/micro — which is the whole point of picking the "1 hour" size
+///     deliberately rather than any value `>= 115`.
 ///   * [MasterBookingCard.occupiedHeightFor] resolves this to exactly
-///     `max(120, 118) == 120` at textScaler 1.0, so the booked card's REAL
-///     rendered box is 120, not merely floored at it with slack above.
+///     `max(120, 115) == 120` at textScaler 1.0 (was `max(120, 118)`), so the
+///     booked card's REAL rendered box is 120, not merely floored at it with
+///     slack above.
 ///
 /// [_FreeTimeCard] is floored at this SAME constant (a `BoxConstraints
 /// (minHeight: _kEntryMinHeight)` on its own `Container`, never a fixed
@@ -482,10 +484,9 @@ const double _kEntryMinHeight = 120;
 /// text. [_FreeTimeCard]'s own two-line content, by contrast, never grows
 /// enough on its own to reach a taller floor at any realistic scale, so a
 /// bare `120` constraint on it stopped matching the booked card's real box
-/// above 1.0 — measured 124dp @ 1.15 and 132dp @ 1.3 for the booked card,
-/// pinned by [MasterBookingCard.fullLayoutNaturalHeight]'s own doc ("ONLY AT
-/// 1.0 ... at 1.15 (a 17dp line box) and 1.3 (20dp) ... those two naturals
-/// are unchanged at 124 / 132dp — re-measured, not assumed"). This function
+/// above 1.0 — measured 120dp @ 1.15 and 126dp @ 1.3 for the booked card as
+/// of the 2026-08-15 font-size pass (was 124dp / 132dp — pinned by
+/// [MasterBookingCard.fullLayoutNaturalHeight]'s own doc). This function
 /// makes [_FreeTimeCard]'s floor track that same growth.
 ///
 /// NO SCALE-AWARE API EXISTS ON [MasterBookingCard] TO REUSE HERE.
@@ -501,18 +502,28 @@ const double _kEntryMinHeight = 120;
 /// numbers those two docs already publish, rather than inventing a second,
 /// possibly-drifting copy of the same measurement.
 ///
-/// THE THREE MEASURED POINTS (re-measured, never assumed):
-///   * 1.00 -> 120 (the booked card's full body naturally measures 118dp at
-///     1.0 — [MasterBookingCard.fullLayoutNaturalHeight] — under the 120dp
-///     floor, so the floor wins and both variants land on 120)
-///   * 1.15 -> 124
-///   * 1.30 -> 132
+/// THE THREE MEASURED POINTS (re-measured, never assumed; re-measured AGAIN
+/// for the 2026-08-15 font-size pass):
+///   * 1.00 -> 120 (the booked card's full body naturally measures 115dp at
+///     1.0 — [MasterBookingCard.fullLayoutNaturalHeight], was 118dp — under
+///     the 120dp floor, so the floor wins and both variants land on 120)
+///   * 1.15 -> 120 (the booked card's full body naturally measures 120dp at
+///     1.15 too, was 124dp — it now happens to TIE the `120dp` floor exactly
+///     rather than exceed it, which is why the segment below this point is
+///     flat rather than merely shallow)
+///   * 1.30 -> 126 (was 132dp)
 ///
 /// THE DERIVATION — piecewise-linear across those three points, each segment
 /// exact at its own endpoints (not merely "close"):
-///   * at or below 1.0 -> flat at [_kEntryMinHeight] (120);
-///   * (1.0, 1.15] -> linear between (1.0, 120) and (1.15, 124);
-///   * (1.15, +inf) -> linear between (1.15, 124) and (1.30, 132),
+///   * at or below 1.15 -> flat at [_kEntryMinHeight] (120) — this segment
+///     used to be flat ONLY at or below 1.0 and rise from (1.0, 120) to
+///     (1.15, 124); the 2026-08-15 font-size pass moved the 1.15 point down
+///     to exactly 120, so the two endpoints coincide and the segment
+///     collapsed to flat. The code below is UNCHANGED (still a linear
+///     interpolation between `_kEntryMinHeight` and `kAt115`); it degenerates
+///     to a no-op automatically now that both ends read `120`, which is why
+///     this is a doc-only consequence, not a code branch that needed adding;
+///   * (1.15, +inf) -> linear between (1.15, 120) and (1.30, 126),
 ///     EXTRAPOLATED past 1.3, never clamped — the booked card keeps growing
 ///     past 1.3 too (nothing in [MasterBookingCard]'s full body caps out
 ///     there), so clamping this side would silently reopen the exact gap
@@ -532,15 +543,19 @@ double _freeCardMinHeightFor(BuildContext context) {
   final double scale = MediaQuery.textScalerOf(context).scale(1);
   if (scale <= 1.0) return _kEntryMinHeight;
 
-  const double kAt115 = 124;
+  // 120, as of the 2026-08-15 font-size pass (was 124) — see this function's
+  // doc: the 1.15 point now TIES `_kEntryMinHeight`, so this segment
+  // degenerates to flat automatically without a code change.
+  const double kAt115 = 120;
   if (scale <= 1.15) {
-    // (1.0 -> 120) to (1.15 -> 124).
+    // (1.0 -> 120) to (1.15 -> 120).
     return _kEntryMinHeight +
         (scale - 1.0) / 0.15 * (kAt115 - _kEntryMinHeight);
   }
 
-  const double kAt130 = 132;
-  // (1.15 -> 124) to (1.30 -> 132) — extrapolated, not clamped, past 1.30.
+  // 126, as of the 2026-08-15 font-size pass (was 132).
+  const double kAt130 = 126;
+  // (1.15 -> 120) to (1.30 -> 126) — extrapolated, not clamped, past 1.30.
   return kAt115 + (scale - 1.15) / 0.15 * (kAt130 - kAt115);
 }
 
@@ -737,17 +752,23 @@ class _FreeTimeCard extends StatelessWidget {
 
   /// The declared time. `VelvetText.masterFreeCardTime` — the sibling
   /// [MasterBookingCard]'s own FULL-layout client-name tier (Comfortaa
-  /// 13.5/600), recoloured to mocha so the card's anchor still reads as
-  /// structure. Was `VelvetText.statValue()` (Comfortaa 17/700) — a full
-  /// size tier louder than anything else in this list; see
-  /// `velvet_text.dart`'s "Phase 244 typography-scale fix" comment for why
-  /// that read as out-of-scale against the booked card beside it.
+  /// 12.5/600 as of the 2026-08-15 font-size pass, was 13.5/600), recoloured
+  /// to mocha so the card's anchor still reads as structure. It derives from
+  /// [VelvetText.masterCardClientNameFull] and tracks that token, so this
+  /// card shrinks in lockstep with the booked card's own font-size pass — see
+  /// `velvet_text.dart`'s `masterCardClientName` doc. Was
+  /// `VelvetText.statValue()` (Comfortaa 17/700) — a full size tier louder
+  /// than anything else in this list; see `velvet_text.dart`'s "Phase 244
+  /// typography-scale fix" comment for why that read as out-of-scale against
+  /// the booked card beside it.
   static final TextStyle _timeStyle = VelvetText.masterFreeCardTime;
 
   /// «Вільно», muted. `VelvetText.masterFreeCardLabel` — the sibling
-  /// [MasterBookingCard]'s own FULL-layout secondary tier (Nunito 11/700,
-  /// muted), verbatim. Was `VelvetText.subheading()` (Comfortaa 14/600) —
-  /// same over-scale issue as [_timeStyle] above.
+  /// [MasterBookingCard]'s own FULL-layout secondary tier (Nunito 10/700 as
+  /// of the 2026-08-15 font-size pass, was 11/700, muted), verbatim — it
+  /// derives from [VelvetText.masterCardDateFull] and tracks it. Was
+  /// `VelvetText.subheading()` (Comfortaa 14/600) — same over-scale issue as
+  /// [_timeStyle] above.
   static final TextStyle _freeStyle = VelvetText.masterFreeCardLabel;
 
   @override

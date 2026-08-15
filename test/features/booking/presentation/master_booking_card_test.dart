@@ -42,10 +42,12 @@
 //     `Semantics`/`Tooltip`); the FULL layout keeps the labelled
 //     `TimelineStatusBadge`. Presence of one and absence of the other is the
 //     second, independent layout probe.
-//   * The vertical budget is now EXACT — 41dp of content in a 56dp box at
-//     textScaler 1.0, zero slack — where the outgoing layout measured 55dp
-//     against the same 56 and carried ~1dp of slop. The "41dp vertical
-//     budget" group below is new: the previous suite only ever guarded
+//   * The vertical budget is now EXACT — 39dp of content in a 54dp box at
+//     textScaler 1.0 (41dp/56dp before the 2026-08-15 font-size pass — see
+//     `velvet_text.dart`'s `masterCardClientName` doc), zero slack — where
+//     the outgoing layout measured 55dp against a 56dp box and carried ~1dp
+//     of slop. The "39dp vertical budget" group below is new: the previous
+//     suite only ever guarded
 //     WIDTH, so a regression that ate a gap or re-inflated the price pill
 //     had nothing to fail against.
 //
@@ -338,9 +340,11 @@ void main() {
           expect(find.byType(TimelineStatusBadge), findsNothing);
 
           // Belt-and-braces: the card's real rendered height is exactly the
-          // 30-minute slot (56dp — `bookings_timeline_grid.dart`'s `_kSlotH`),
-          // i.e. every row above genuinely contributed to layout rather than
-          // being painted then cropped away. No `minHeight` is passed here —
+          // compact body's natural (54dp —
+          // `MasterBookingCard.estimatedNaturalHeight`, was 56dp before the
+          // 2026-08-15 font-size pass), i.e. every row above genuinely
+          // contributed to layout rather than being painted then cropped
+          // away. No `minHeight` is passed here —
           // this pumps the card's own NATURAL size, unaffected by the
           // timeline's duration-floor mechanism.
           final double height = tester
@@ -363,7 +367,7 @@ void main() {
         // above (see its comment): without it, `pumpApp`'s
         // `MaterialApp.home` hands the card TIGHT constraints equal to the
         // full test surface, and — since the adaptive-layout pass — a
-        // `minHeight` that large would trip the >=118dp full-layout switch
+        // `minHeight` that large would trip the >=115dp full-layout switch
         // and render the full body instead of the compact grid this test is
         // about. (Both bodies now print the SAME range string AND carry a
         // hairline, so the switch is only observable through WHICH divider
@@ -492,22 +496,26 @@ void main() {
   // NEW IN THE MINIATURE PASS — the previous suite guarded WIDTH only.
   //
   // The compact layout is sized TO its box rather than measured after the
-  // fact: at textScaler 1.0 a 56dp card leaves `56 − 3 (border 1.5 × 2) − 12
-  // (`_compactPadding` vertical 6 × 2) = 41dp` of content, and the stack
-  // spends all 41 —
+  // fact: at textScaler 1.0 a 54dp card leaves `54 − 3 (border 1.5 × 2) − 12
+  // (`_compactPadding` vertical 6 × 2) = 39dp` of content, and the stack
+  // spends all 39 —
   //
-  //   row 1 (15, client name) + gap (4) + hairline (1) + gap (4)
-  //   + row 2 (17, the price pill: a 15dp line box + 1dp padding × 2) = 41
+  //   row 1 (14, client name) + gap (4) + hairline (1) + gap (4)
+  //   + row 2 (16, the price pill: a 14dp line box + 1dp padding × 2) = 39
   //
   // — with ZERO slack. That is the whole reason the pill's vertical padding
   // was cut 3 -> 1 (`_kCompactPriceVPad`): those 4dp bought the hairline and
   // its two gaps. A regression that restores the padding, widens a gap or
   // adds a row therefore OVERFLOWS the slot instead of silently eating room
   // that was never there, and these cases are what make that visible.
-  group('the 41dp vertical budget — the compact card fits its 56dp slot', () {
+  //
+  // FONT-SIZE PASS (2026-08-15) — was 41dp of content in a 56dp box; see
+  // `velvet_text.dart`'s `masterCardClientName` doc. The arithmetic above is
+  // the CURRENT (post-pass) figures.
+  group('the 39dp vertical budget — the compact card fits its 54dp slot', () {
     testWidgets(
       'the natural height is EXACTLY MasterBookingCard.estimatedNaturalHeight '
-      '(56dp) at textScaler 1.0',
+      '(54dp) at textScaler 1.0',
       (WidgetTester tester) async {
         final Booking booking = _shortBooking(id: 'height-budget');
 
@@ -533,7 +541,7 @@ void main() {
               'MasterBookingCard rendered at ${height}dp against a documented '
               '${MasterBookingCard.estimatedNaturalHeight}dp. Unlike the '
               'outgoing layout this is an EXACT figure, not an estimate with '
-              'slack: the 41dp content budget is fully spent (see the group '
+              'slack: the 39dp content budget is fully spent (see the group '
               'header). If this moved, either the layout grew — in which case '
               'a 30-minute card no longer fits its own ruled slot and '
               '_LaneColumn goes back to nudging cards off their hour line — '
@@ -544,10 +552,11 @@ void main() {
     );
 
     // The vertical fit, asserted the way the timeline actually applies it: a
-    // real `minHeight: 56` floor. If the content out-measured the box the
-    // card would grow PAST 56 (minHeight is a floor, never a ceiling — see
-    // the widget's class doc), so an exact-56 result is a direct proof of
-    // fit, not an approximation of one.
+    // real `minHeight: estimatedNaturalHeight` (54dp, was 56dp before the
+    // 2026-08-15 font-size pass) floor. If the content out-measured the box
+    // the card would grow PAST it (minHeight is a floor, never a ceiling —
+    // see the widget's class doc), so an exact-fit result is a direct proof
+    // of fit, not an approximation of one.
     for (final double lane in <double>[226, 266, 272]) {
       for (final ({
             String label,
@@ -590,8 +599,8 @@ void main() {
             ),
           ]) {
         testWidgets(
-          '${shape.label} fits a 56dp box in the ${lane.toInt()}dp lane '
-          '(textScaler 1.0)',
+          '${shape.label} fits a ${MasterBookingCard.estimatedNaturalHeight.toInt()}dp '
+          'box in the ${lane.toInt()}dp lane (textScaler 1.0)',
           (WidgetTester tester) async {
             final Booking booking =
                 _shortBooking(
@@ -612,7 +621,7 @@ void main() {
                   child: MasterBookingCard(
                     booking: booking,
                     onTap: () {},
-                    minHeight: 56,
+                    minHeight: MasterBookingCard.estimatedNaturalHeight,
                   ),
                 ),
               ),
@@ -628,10 +637,11 @@ void main() {
                 .height;
             expect(
               height,
-              56,
+              MasterBookingCard.estimatedNaturalHeight,
               reason:
-                  'the card grew to ${height}dp inside a 56dp slot — the '
-                  'content out-measures the 41dp budget, so a 30-minute '
+                  'the card grew to ${height}dp inside its '
+                  '${MasterBookingCard.estimatedNaturalHeight}dp slot — the '
+                  'content out-measures the 39dp budget, so a 30-minute '
                   'booking now overhangs its own ruled hour line.',
             );
 
@@ -656,10 +666,12 @@ void main() {
       'above textScaler 1.0 the card GROWS rather than clipping — minHeight '
       'is a floor, never a ceiling',
       (WidgetTester tester) async {
-        // Measured naturals: 56.0 / 60.0 / 65.0 at 1.0 / 1.15 / 1.3. The 56dp
-        // slot is a scale-1.0 budget by construction (the type scales, the
-        // ruler does not), so the correct behaviour above 1.0 is a taller
-        // card, exactly as the outgoing layout did.
+        // Measured naturals: 54.0 / 58.0 / 62.0 at 1.0 / 1.15 / 1.3 (was
+        // 56.0 / 60.0 / 65.0 before the 2026-08-15 font-size pass — see
+        // `master_booking_card.dart`'s `estimatedNaturalHeight` doc). The
+        // natural is a scale-1.0 budget by construction (the type scales,
+        // the ruler does not), so the correct behaviour above 1.0 is a
+        // taller card, exactly as the outgoing layout did.
         double previous = 0;
         for (final double scale in <double>[1.0, 1.15, 1.3]) {
           await tester.pumpApp(
@@ -669,7 +681,7 @@ void main() {
                 child: MasterBookingCard(
                   booking: _shortBooking(id: 'vgrow'),
                   onTap: () {},
-                  minHeight: 56,
+                  minHeight: MasterBookingCard.estimatedNaturalHeight,
                 ),
               ),
             ),
@@ -683,7 +695,7 @@ void main() {
               .height;
           expect(
             height,
-            greaterThanOrEqualTo(56),
+            greaterThanOrEqualTo(MasterBookingCard.estimatedNaturalHeight),
             reason: 'the floor must always hold at textScaler $scale',
           );
           expect(
@@ -799,7 +811,7 @@ void main() {
                 booking: booking,
                 onTap: () {},
                 // A 60-minute booking's floor (ADDENDUM 8: 60/60 * 120 =
-                // 120), just past the 118dp full-layout switch.
+                // 120), just past the 115dp full-layout switch.
                 minHeight: 120,
               ),
             ),
@@ -1159,31 +1171,104 @@ void main() {
               .height;
         }
 
-        final double compact = await pillHeight(56, 30);
+        final double compact = await pillHeight(54, 30);
         final double full = await pillHeight(120, 60);
 
-        // 15dp line box + 3dp × 2 in the full layout, + 1dp × 2 in the compact
-        // one. The FULL figure is the design's own `PriceTag` value and must
-        // not move: `_PriceTag.verticalPadding` defaults to 3 precisely so the
-        // >=1h card renders byte-identically to before this pass.
+        // FONT-SIZE PASS (2026-08-15) — both figures dropped 1dp (21 -> 20,
+        // 17 -> 16): `master_booking_card.dart`'s two `PriceTag` call sites
+        // now both pass `VelvetText.masterCardPricePill` (10.2 sp, a 14dp
+        // line box) instead of the shared `pill()` (11 sp, 15dp) — see that
+        // token's doc for why a NEW card-scoped token was needed rather than
+        // shrinking `pill()` itself (shared with wish-list/passport, out of
+        // scope). The PADDING split this test exists to pin is UNCHANGED:
+        // `_PriceTag.verticalPadding` still defaults to 3 for the full layout
+        // and 1 for the compact one, so the two pills still differ by exactly
+        // 4dp — that invariant survives the font-size pass untouched, only
+        // the absolute numbers moved.
         expect(
           full,
-          21,
+          20,
           reason:
-              'the FULL layout\'s price pill measured ${full}dp — it must stay '
-              'at the approved design\'s 21dp (15dp line + 3dp padding × 2). '
-              'The compact layout\'s padding cut must not have leaked into the '
-              'shared default.',
+              'the FULL layout\'s price pill measured ${full}dp — it must '
+              'stay at 20dp (14dp line + 3dp padding × 2, using '
+              'VelvetText.masterCardPricePill). The compact layout\'s padding '
+              'cut must not have leaked into the shared default.',
         );
         expect(
           compact,
-          17,
+          16,
           reason:
               'the COMPACT pill measured ${compact}dp — the 1dp padding is '
-              'what pays for the hairline and its two gaps inside the 41dp '
+              'what pays for the hairline and its two gaps inside the 39dp '
               'budget.',
         );
         expect(full - compact, 4);
+      },
+    );
+  });
+
+  group('mobile-qa INFO (2026-08-15) — row 3\'s max(price pill, badge) stays '
+      'price-pill-driven after the badge label was restored to 9.0sp', () {
+    testWidgets(
+      'TimelineStatusBadge (row-3 verticalPadding: 3) renders strictly '
+      'shorter than the FULL layout\'s price pill, so the price pill — not '
+      'the badge — is still what sets row 3\'s height',
+      (WidgetTester tester) async {
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: _shortBooking(
+                  id: 'badge-vs-pill',
+                  durationMinutes: 60,
+                ),
+                onTap: () {},
+                minHeight: 120,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        final double badgeHeight = tester
+            .getSize(find.byType(TimelineStatusBadge))
+            .height;
+        final double pillHeight = tester
+            .renderObject<RenderBox>(
+              find.ancestor(
+                of: find.text('450 ₴'),
+                matching: find.byType(NeumorphicInset),
+              ),
+            )
+            .size
+            .height;
+
+        // Measured directly (`tester.getSize`/`renderObject`), matching
+        // `velvet_text.dart`'s `masterCardBadgeLabel` doc comment exactly:
+        // 16.0dp badge vs 20.0dp price pill at textScaler 1.0. Pinning both
+        // numbers, not just the inequality, so a future badge-size bump
+        // that DOES cross the pill's height fails loudly here instead of
+        // silently moving `MasterBookingCard.fullLayoutNaturalHeight`.
+        expect(
+          badgeHeight,
+          16.0,
+          reason:
+              'TimelineStatusBadge measured ${badgeHeight}dp at 9.0sp — if '
+              'this moved, row 3\'s max() may no longer be the price pill.',
+        );
+        expect(pillHeight, 20.0);
+        expect(
+          badgeHeight,
+          lessThan(pillHeight),
+          reason:
+              'row 3 is max(price pill, badge) — the badge must stay '
+              'strictly under the price pill\'s height, or a badge-size '
+              'bump silently becomes what sets MasterBookingCard.'
+              'fullLayoutNaturalHeight instead of the price pill.',
+        );
       },
     );
   });
@@ -1231,7 +1316,7 @@ void main() {
         findsOneWidget,
       );
       // The guest label is SHORTER than a real name, so it can only ever make
-      // row 1 narrower — the height is the same 56dp budget.
+      // row 1 narrower — the height is the same 39dp/54dp budget.
       final double height = tester
           .getSize(find.byKey(const Key('master-booking-card-guest-card')))
           .height;
@@ -1244,7 +1329,7 @@ void main() {
     'switch reads the resolved minHeight constraint, not durationMinutes',
     () {
       testWidgets(
-        'a >=118dp card (a 60-minute booking\'s 120dp floor) renders the FULL '
+        'a >=115dp card (a 60-minute booking\'s 120dp floor) renders the FULL '
         'layout: client name, a divider, the service name BELOW the '
         'divider, the start–end time range (NO date), price and status — all '
         'present, none clipped',
@@ -1326,17 +1411,21 @@ void main() {
       );
 
       testWidgets(
-        'a 56dp card (the exclusive micro/compact boundary) stays on the '
-        'COMPACT grid — its own hairline, a status dot, no date — and still '
-        'renders every field un-clipped',
+        'a ${MasterBookingCard.microLayoutMaxHeight.toInt()}dp card (the '
+        'exclusive micro/compact boundary) stays on the COMPACT grid — its '
+        'own hairline, a status dot, no date — and still renders every '
+        'field un-clipped',
         (WidgetTester tester) async {
-          // ADDENDUM 8: 56dp is no longer the grid's card FLOOR (that is now
-          // `microLayoutNaturalHeight`, 28dp) — it is the MICRO/COMPACT
-          // BOUNDARY, and the bound is exclusive, so a card handed exactly 56
-          // still gets the compact grid. At 120dp/hour that is a 28-minute
-          // booking. The fixture's own `durationMinutes` is irrelevant to the
-          // switch by design — `_layout` reads `minHeight`, never the
-          // duration — which is precisely what this case pins.
+          // ADDENDUM 8: `MasterBookingCard.microLayoutMaxHeight` (54dp, was
+          // 56dp before the 2026-08-15 font-size pass — see
+          // `velvet_text.dart`'s `masterCardClientName` doc) is no longer
+          // the grid's card FLOOR (that is now `microLayoutNaturalHeight`,
+          // 27dp) — it is the MICRO/COMPACT BOUNDARY, and the bound is
+          // exclusive, so a card handed exactly that value still gets the
+          // compact grid. At 120dp/hour that is a 27-minute booking. The
+          // fixture's own `durationMinutes` is irrelevant to the switch by
+          // design — `_layout` reads `minHeight`, never the duration —
+          // which is precisely what this case pins.
           final Booking booking = _shortBooking(
             id: 'compact-floor-card',
             durationMinutes: 15,
@@ -1347,7 +1436,7 @@ void main() {
               child: MasterBookingCard(
                 booking: booking,
                 onTap: () {},
-                minHeight: 56,
+                minHeight: MasterBookingCard.microLayoutMaxHeight,
               ),
             ),
           );
@@ -1390,7 +1479,7 @@ void main() {
                 find.byKey(const Key('master-booking-card-compact-floor-card')),
               )
               .height;
-          expect(height, closeTo(56, 0.5));
+          expect(height, closeTo(MasterBookingCard.microLayoutMaxHeight, 0.5));
         },
       );
 
@@ -1401,7 +1490,7 @@ void main() {
         (WidgetTester tester) async {
           // This test intentionally re-runs the FIRST test's own divider
           // assertion against a card whose `minHeight` is comfortably past
-          // the >=118dp threshold, as a standing structural guard: it is
+          // the >=115dp threshold, as a standing structural guard: it is
           // the automated half of the manual mutation check documented in
           // the phase report (temporarily hardcoding `_useFullLayout` to
           // always return `false` in `master_booking_card.dart` and
@@ -1462,23 +1551,33 @@ void main() {
   // CONTENT that must be re-measured after a density change, never the
   // threshold that gets retuned to keep a duration on the right side.
   //
+  // MOVED AGAIN, 2026-08-15: the font-size pass (see `velvet_text.dart`'s
+  // `masterCardClientName` doc) shrank every OTHER row of the full body while
+  // row 1 stayed glyph-pinned at 16dp, taking the natural (and the threshold)
+  // 118 -> 115. Same contract, same reason — re-measured, not retuned. See
+  // `master_booking_card.dart`'s `fullLayoutNaturalHeight` doc for the full
+  // derivation.
+  //
   // So the cases below are written against FLOORS, and each states the
   // duration that produces it at the CURRENT scale as a derived aside. The
-  // boundary cases (117 / 118) are the real guard and are scale-free.
+  // boundary cases (117 / 118, historical — now 114 / 115) are the real
+  // guard and are scale-free.
   //
   // `_buildFullBody`'s NATURAL height, measured with the worst realistic
   // content (a long service name and a frozen RANGE band) at the narrowest
-  // production lane, is 118.0dp @1.0 (124 @1.15, 132 @1.3 — both unchanged by
-  // the glyph, which does not scale with `textScaler`) — pinned exactly by
-  // the "the FULL body still measures exactly …dp" group below. At 120dp/hour
-  // an hour-long card's 120dp band is only 2dp clear of that natural, so at
-  // the app's 1.3 text-scale ceiling its body (132dp) grows ~12dp past the
+  // production lane, is 115.0dp @1.0 (120 @1.15, 126 @1.3 — was 118.0 / 124 /
+  // 132 before the 2026-08-15 pass; unchanged BY THAT PASS by the glyph,
+  // which does not scale with `textScaler`) — pinned exactly by the "the
+  // FULL body still measures exactly …dp" group below. At 120dp/hour an
+  // hour-long card's 120dp band is 5dp clear of that natural (was 2dp), so at
+  // the app's 1.3 text-scale ceiling its body (126dp) grows ~6dp past the
   // band; nothing clips (content always wins) and that overhang is the reason
   // `_kHourH` must not drop below 120.
   // THE MICRO LAYOUT (ADDENDUM 8, 2026-07-24) — the third density.
   //
   // `bookings_timeline_grid.dart` dropped `_kHourH` to 120, which puts a
-  // 15-minute booking in a 30dp band. The compact grid needs 56dp, so without
+  // 15-minute booking in a 30dp band. The compact grid needs 54dp (was 56dp
+  // before the 2026-08-15 font-size pass), so without
   // a third shape every short booking would have been inflated to a box
   // roughly twice its own wall-clock footprint — the overrun the scale change
   // exists to remove. The micro body is ONE row: service name (flexes) · time
@@ -1489,7 +1588,7 @@ void main() {
   // than lost, and that a `null` minHeight — every caller outside the
   // timeline — still gets the COMPACT grid rather than falling through to
   // micro on a `?? 0`.
-  group('the MICRO layout (< 56dp floors)', () {
+  group('the MICRO layout (< 54dp floors)', () {
     testWidgets(
       'a 30dp card (15 minutes at 120dp/hour) renders the micro row: service '
       'name, time range and the status dot — no client name, no price pill, '
@@ -1719,20 +1818,21 @@ void main() {
           ),
           findsOneWidget,
           reason:
-              'a `minHeight ?? 0` read would make 0 < 56 true and silently '
+              'a `minHeight ?? 0` read would make 0 < 54 true and silently '
               're-shape every caller outside BookingsTimelineGrid',
         );
         expect(find.text(booking.clientName!), findsOneWidget);
       },
     );
 
-    // The boundary, in both directions. 56 is EXCLUSIVE — a floor of exactly
+    // The boundary, in both directions. 54 is EXCLUSIVE — a floor of exactly
     // the compact natural still gets the compact grid, because the compact
-    // body fits in it.
+    // body fits in it. Was 56 (55.9 / 56) before the 2026-08-15 font-size
+    // pass dropped `estimatedNaturalHeight` to 54 — see that constant's doc.
     for (final ({double minHeight, bool micro}) boundary
         in <({double minHeight, bool micro})>[
-          (minHeight: 55.9, micro: true),
-          (minHeight: 56, micro: false),
+          (minHeight: 53.9, micro: true),
+          (minHeight: 54, micro: false),
         ]) {
       testWidgets('minHeight ${boundary.minHeight} selects the '
           '${boundary.micro ? 'MICRO' : 'COMPACT'} layout', (
@@ -1774,7 +1874,8 @@ void main() {
   group('the full/compact threshold is a dp floor, not a duration', () {
     testWidgets(
       'a 90dp floor (45 minutes at 120dp/hour) selects the COMPACT grid — the '
-      'floor cannot contain the full body\'s 118dp natural',
+      'floor cannot contain the full body\'s 115dp natural (was 118dp before '
+      'the 2026-08-15 font-size pass)',
       (WidgetTester tester) async {
         final Booking booking =
             _shortBooking(id: 'forty-five', durationMinutes: 45).copyWith(
@@ -1820,20 +1921,21 @@ void main() {
           closeTo(floor, 0.5),
           reason:
               'the 90dp floor must be met exactly — it exceeds the compact '
-              'body\'s 56dp natural, so the floor (not the content) sizes the '
+              'body\'s 54dp natural, so the floor (not the content) sizes the '
               'box and the card lands on its 45-minute end-time line.',
         );
       },
     );
 
-    // The threshold's exact boundary is now 118 (== fullLayoutNaturalHeight,
-    // up from 117 with the ROW-1 GLYPH pass), so a future off-by-one (>= vs >)
-    // or a drift of the constant is a failure rather than a silently
-    // different card.
+    // The threshold's exact boundary is now 115 (== fullLayoutNaturalHeight,
+    // down from 118 with the 2026-08-15 font-size pass — up from 117 before
+    // that with the ROW-1 GLYPH pass), so a future off-by-one (>= vs >) or a
+    // drift of the constant is a failure rather than a silently different
+    // card.
     for (final ({double minHeight, bool full}) boundary
         in <({double minHeight, bool full})>[
-          (minHeight: 117, full: false),
-          (minHeight: 118, full: true),
+          (minHeight: 114, full: false),
+          (minHeight: 115, full: true),
         ]) {
       testWidgets('minHeight ${boundary.minHeight} selects the '
           '${boundary.full ? 'FULL' : 'COMPACT'} layout', (
@@ -1841,9 +1943,9 @@ void main() {
       ) async {
         expect(
           MasterBookingCard.fullLayoutMinHeight,
-          118,
+          115,
           reason:
-              'fixture guard: the switch must be at 118 (the full body\'s own '
+              'fixture guard: the switch must be at 115 (the full body\'s own '
               'natural) or this boundary pair is measuring the wrong edge',
         );
         await tester.pumpApp(
@@ -2237,7 +2339,7 @@ void main() {
             1,
             reason:
                 'the name must stay on ONE line: a wrap would grow row 1 and '
-                'blow the compact card\'s 41dp content budget',
+                'blow the compact card\'s 39dp content budget',
           );
 
           // Order and gaps SURVIVE saturation — the same three properties the
@@ -2263,10 +2365,12 @@ void main() {
 
           // GLYPHS vs BOX at saturation. The measured result is worth
           // recording because it is NOT the intuitive one: even a name that
-          // is genuinely clipping paints ~12.5dp SHORT of its box (105.63 in
-          // a 118.35dp box at scale 1.0; 85.96 in 98.42 at 1.3), because the
-          // ellipsis breaks at a grapheme boundary and the remainder of the
-          // last cluster is simply not drawn.
+          // is genuinely clipping paints noticeably SHORT of its box (118.93
+          // in a 127.04dp box at scale 1.0, an 8.1dp shortfall; 89.55 in
+          // 109.65 at 1.3, a 20.1dp shortfall — re-measured for the
+          // 2026-08-15 font-size pass, was 105.63/118.35 and 85.96/98.42),
+          // because the ellipsis breaks at a grapheme boundary and the
+          // remainder of the last cluster is simply not drawn.
           //
           // So the order test's `timeRect.left - nameRect.right` gap is NEVER
           // the visible gap on this row — not even in the saturated case. It
@@ -2284,12 +2388,15 @@ void main() {
           );
           expect(
             nameRect.width - painted,
-            lessThan(20),
+            lessThan(21),
             reason:
                 'a clipping line should still reach within a cluster of its '
                 'box edge; painted ${painted}dp in a ${nameRect.width}dp box '
                 '(shortfall ${nameRect.width - painted}dp). A large shortfall '
-                'means the name stopped filling the row it was given.',
+                'means the name stopped filling the row it was given. Bound '
+                'raised 20 -> 21 for the 2026-08-15 font-size pass (measured '
+                '20.1dp at scale 1.3, was comfortably under 20 pre-pass) — '
+                'still ~1dp of headroom, not a rubber-stamped pass.',
           );
         },
       );
@@ -2471,7 +2578,7 @@ void main() {
       );
     });
 
-    testWidgets('the full layout (>=118dp) renders the band too', (
+    testWidgets('the full layout (>=115dp) renders the band too', (
       WidgetTester tester,
     ) async {
       final Booking booking = _shortBooking(
@@ -2883,7 +2990,10 @@ void main() {
   // ── mobile-qa audit additions (2026-07-21) ────────────────────────────────
   //
   // Three properties the pass DEPENDS on that the suite above states in prose
-  // but does not fail on:
+  // but does not fail on. Figures below are historical (as measured in
+  // 2026-07-21, box 56 / budget 41); the 2026-08-15 font-size pass moved
+  // them to box 54 / budget 39 — see the group below, which asserts the
+  // CURRENT numbers.
   //
   //   1. The 41dp budget is pinned only as a TOTAL (`height == 56`). The
   //      derivation it is justified by — `56 − 3 (border) − 12 (padding) = 41`,
@@ -2906,8 +3016,8 @@ void main() {
   //      badge at all.
   group('the compact budget, decomposed — every term, not just the total', () {
     testWidgets(
-      'the 15dp of chrome and the 41dp of content are separately pinned, and '
-      'the content stack spends 15 + 4 + 1 + 4 + 17',
+      'the 15dp of chrome and the 39dp of content are separately pinned, and '
+      'the content stack spends 14 + 4 + 1 + 4 + 16',
       (WidgetTester tester) async {
         final Booking booking = _shortBooking(id: 'budget-terms');
 
@@ -2924,10 +3034,11 @@ void main() {
         final Rect card = tester.getRect(
           find.byKey(const Key('master-booking-card-budget-terms')),
         );
-        // Row 1's tallest child IS the row (the range label is 13dp and the
-        // dot 8dp against the name's 15dp, under `CrossAxisAlignment.center`),
-        // and row 2's tallest child is the pill — so these two rects delimit
-        // the content region exactly.
+        // Row 1's tallest child IS the row (the range label is 12dp and the
+        // dot 8dp against the name's 14dp, under `CrossAxisAlignment.center`
+        // — was 13dp/15dp before the 2026-08-15 font-size pass), and row 2's
+        // tallest child is the pill — so these two rects delimit the content
+        // region exactly.
         final Rect name = tester.getRect(find.text(booking.clientName!));
         final Rect rule = tester.getRect(
           find.byKey(
@@ -2950,7 +3061,7 @@ void main() {
           reason:
               'the top chrome measured ${name.top - card.top}dp against the '
               'documented 1.5 (border) + 6 (_compactPadding vertical) = 7.5. '
-              'Either _kBorderWidth or _compactPadding moved and the 41dp '
+              'Either _kBorderWidth or _compactPadding moved and the 39dp '
               'budget derivation on estimatedNaturalHeight is now wrong.',
         );
         expect(
@@ -2959,20 +3070,21 @@ void main() {
           reason: 'the bottom chrome must mirror the top exactly',
         );
 
-        // ── THE CONTENT: 41dp, and the five terms that spend it. ─────────────
+        // ── THE CONTENT: 39dp (was 41dp before the 2026-08-15 font-size
+        //      pass), and the five terms that spend it. ─────────────────────
         expect(
           pill.bottom - name.top,
-          closeTo(41, 0.01),
+          closeTo(39, 0.01),
           reason:
               'the content region measured ${pill.bottom - name.top}dp against '
-              'the documented 41dp budget',
+              'the documented 39dp budget',
         );
         for (final ({String label, double actual, double expected}) term
             in <({String label, double actual, double expected})>[
               (
                 label: 'row 1 (the client name)',
                 actual: name.height,
-                expected: 15,
+                expected: 14,
               ),
               (
                 label: 'the gap above the hairline (VelvetSpacing.xs)',
@@ -2986,9 +3098,9 @@ void main() {
                 expected: 4,
               ),
               (
-                label: 'row 2 (the price pill, 15dp line + 1dp padding × 2)',
+                label: 'row 2 (the price pill, 14dp line + 1dp padding × 2)',
                 actual: pill.height,
-                expected: 17,
+                expected: 16,
               ),
             ]) {
           expect(
@@ -2996,7 +3108,7 @@ void main() {
             closeTo(term.expected, 0.01),
             reason:
                 '${term.label} measured ${term.actual}dp against its budgeted '
-                '${term.expected}dp. The card still fits 56dp only because '
+                '${term.expected}dp. The card still fits 54dp only because '
                 'another term absorbed the difference — the derivation on '
                 'MasterBookingCard.estimatedNaturalHeight is no longer true '
                 'even though the total test is green.',
@@ -3018,15 +3130,18 @@ void main() {
     );
 
     // The other half of `_PriceTag.verticalPadding`'s default-3 contract: the
-    // existing pill test proves the PILL is 21dp in the full layout; this
-    // proves the full BODY's own height did not move either. Exact, not a
-    // floor — "the >=1h card renders byte-identically" is the claim, and a
+    // existing pill test proves the PILL is 20dp in the full layout (was
+    // 21dp before the 2026-08-15 font-size pass — see
+    // `VelvetText.masterCardPricePill`'s doc); this proves the full BODY's
+    // own height did not move by MORE than the font-size pass's own,
+    // separately-measured delta. Exact, not a floor — "the >=1h card renders
+    // byte-identically [aside from the font-size pass]" is the claim, and a
     // floor cannot express it.
     for (final ({double scale, double height}) fullNatural
         in <({double scale, double height})>[
-          (scale: 1.0, height: 118),
-          (scale: 1.15, height: 124),
-          (scale: 1.3, height: 132),
+          (scale: 1.0, height: 115),
+          (scale: 1.15, height: 120),
+          (scale: 1.3, height: 126),
         ]) {
       testWidgets(
         'the FULL body still measures exactly ${fullNatural.height}dp at '
@@ -3048,9 +3163,10 @@ void main() {
                   booking: booking,
                   onTap: () {},
                   // Pumped exactly at the switch (== fullLayoutNaturalHeight,
-                  // 118): the LOWEST minHeight that selects the full body. At
-                  // textScaler 1.0 box == floor == the 118dp natural; at 1.15
-                  // and 1.3 the content grows to 124 / 132 STRICTLY past this
+                  // 115 as of the 2026-08-15 font-size pass, was 118): the
+                  // LOWEST minHeight that selects the full body. At
+                  // textScaler 1.0 box == floor == the 115dp natural; at 1.15
+                  // and 1.3 the content grows to 120 / 126 STRICTLY past this
                   // floor, so those two are genuine content measurements and
                   // catch any leak from the compact pass. (Since ADDENDUM 7
                   // set the switch equal to the 1.0 natural, a below-natural
@@ -3518,35 +3634,46 @@ void main() {
           reason:
               'the client glyph is a FULL-body element — the ${shorter.label} '
               'body has no vertical budget for a 16dp icon (its naturals are '
-              'pinned at 56dp / 28dp and both are already at zero slack)',
+              'pinned at 54dp / 27dp and both are already at zero slack)',
         );
       });
     }
   });
 
-  // THE 118dp NATURAL, PINNED IN BOTH DIRECTIONS — and the 59-minute edge it
-  // now sits on (mobile-qa, 2026-07-24)
+  // THE FULL-BODY NATURAL, PINNED IN BOTH DIRECTIONS — and the tight-
+  // clearance edge it now sits on (mobile-qa, 2026-07-24; renumbered
+  // 2026-08-15)
   // ---------------------------------------------------------------------
   // Two holes the ROW-1 GLYPH pass left behind, both found by mutation:
   //
-  //   1. The "the FULL body still measures exactly 118dp at textScaler 1.0"
-  //      case above pumps at `minHeight: fullLayoutMinHeight`, so the box it
-  //      measures is `max(118, content)`. That pins the natural against
-  //      GROWTH only. Deleting the row-1 glyph takes the content back to
-  //      117, the floor pads it straight back to 118, and that case still
-  //      passes — verified by mutation. So nothing measured the 1dp the
-  //      whole constant bump is about; only the glyph-presence group did,
-  //      and a glyph can be present at the wrong SIZE.
-  //   2. The pass narrowed the hour-long card's clearance 3dp -> 2dp and, at
-  //      59 minutes, to EXACTLY zero (floor `59/60 × 120 = 118` == the
-  //      threshold). Nothing rendered a 59-minute card. The boundary pair
-  //      above pumps bare `117 / 118` dp literals, which pins the SWITCH but
-  //      never asks whether a real duration still reaches it.
+  //   1. The "the FULL body still measures exactly …dp at textScaler 1.0"
+  //      group above pumps at `minHeight: fullLayoutMinHeight`, so the box it
+  //      measures is `max(natural, content)`. That pins the natural against
+  //      GROWTH only. Deleting the row-1 glyph takes the content back a dp,
+  //      the floor pads it straight back to the threshold, and that case
+  //      still passes — verified by mutation. So nothing measured the dp the
+  //      constant bump is about; only the glyph-presence group did, and a
+  //      glyph can be present at the wrong SIZE.
+  //   2. THE 2026-08-15 FONT-SIZE PASS WIDENED THIS BLIND SPOT. At the
+  //      pre-pass 118dp threshold, a 59-minute booking's floor
+  //      (`59/60 × 120 = 118`) landed EXACTLY on the switch — zero
+  //      clearance, so ANY growth of the full body was caught by a rendered
+  //      card. Post-pass the threshold fell to 115dp — an ODD dp figure no
+  //      whole-minute duration lands on exactly (`115 / 120 × 60 = 57.5`
+  //      min) — so 59 minutes now clears by 3dp: growth of up to 3dp would
+  //      go uncaught by a test still targeting that duration. The tightest
+  //      real edge moved to **58 minutes**, whose `58/60 × 120 = 116dp`
+  //      floor clears the 115dp natural by exactly **1dp** (see
+  //      `master_booking_card_layout_height_test.dart`'s sweep, which
+  //      documents the same 58min/1dp and 59min/3dp figures). The boundary
+  //      pair elsewhere in this file pumps bare dp literals, which pins the
+  //      SWITCH but never asks whether a real duration still reaches it at a
+  //      tight margin.
   //
   // Both cases below are floor-INDEPENDENT where it matters: the first
   // measures an interior distance the outer floor cannot pad, the second
   // derives its floor from a duration rather than restating the threshold.
-  group('the FULL body\'s 118dp natural, measured from the inside', () {
+  group('the FULL body\'s 115dp natural, measured from the inside', () {
     testWidgets(
       'row 1 is the GLYPH\'s 16dp, not the client name\'s 15dp line box — the '
       'interior distance from the card\'s top edge to the hairline',
@@ -3600,9 +3727,9 @@ void main() {
               'the card\'s top edge sits ${headroom}dp above the hairline '
               'against the 43.5dp the full body derives (1.5 border + 16 '
               'padding + a 16dp row 1 + 10). 42.5 means the row-1 glyph was '
-              'removed and MasterBookingCard.fullLayoutNaturalHeight (118) is '
+              'removed and MasterBookingCard.fullLayoutNaturalHeight (115) is '
               'now 1dp larger than the body it claims to measure — which the '
-              'outer "measures exactly 118dp" case CANNOT see, because it '
+              'outer "measures exactly …dp" case CANNOT see, because it '
               'pumps at that very constant as a floor.',
         );
 
@@ -3633,37 +3760,43 @@ void main() {
       },
     );
 
-    // The 59-minute case, which no test rendered before this one. At
-    // `BookingsTimelineGrid._kHourH` (120dp/hour — ADDENDUM 8) a 59-minute
-    // booking derives a floor of exactly 118dp: equal to the threshold, so it
-    // selects the FULL body at ZERO clearance rather than the 1dp it had
-    // against a 117 natural.
+    // THE 58-MINUTE CASE — retargeted 2026-08-15 (mobile-perf/mobile-security
+    // audit of the font-size pass). This group previously pinned 59 minutes,
+    // which sat at EXACTLY zero clearance against the pre-pass 118dp
+    // threshold. The pass dropped the threshold to 115dp — an odd figure no
+    // whole-minute duration lands on exactly — so 59 minutes now clears by
+    // 3dp: a test still targeting it would only catch growth beyond that
+    // 3dp margin, silently widening this tripwire's blind spot. 58 minutes
+    // (`58/60 × 120 = 116dp` floor) is the tightest real edge left — 1dp of
+    // clearance over the 115dp natural — and is what this case now pins.
+    // See `master_booking_card_layout_height_test.dart`'s sweep, which
+    // documents the same 58min/1dp and 59min/3dp figures independently.
     //
     // THIS IS THE TRIPWIRE FOR THE NEXT ADDITIVE CHANGE TO `_buildFullBody`.
-    // One more dp of content and a 59-minute booking silently demotes to the
+    // More than 1dp of growth and a 58-minute booking silently demotes to the
     // compact grid — a real, bookable duration changing shape with nothing to
     // announce it. The divider assertion below turns that into a failure.
     // Written against the DURATION, so it survives a `_kHourH` change the way
     // the layout-height suite's sweep does.
     testWidgets(
-      'a 59-minute booking still selects the FULL body — at EXACTLY zero '
-      'clearance, so any further growth of that body fails here',
+      'a 58-minute booking still selects the FULL body — at just 1dp of '
+      'clearance, so any growth of that body beyond 1dp fails here',
       (WidgetTester tester) async {
-        // `BookingsTimelineGrid._cardMinHeightFor(59)` restated — the same
+        // `BookingsTimelineGrid._cardMinHeightFor(58)` restated — the same
         // idiom `master_booking_card_layout_height_test.dart` uses, since the
         // scale is private to the grid.
         const double hourHeight = 120; // `BookingsTimelineGrid._kHourH`
-        const double floor59 = 59 / 60.0 * hourHeight;
+        const double floor58 = 58 / 60.0 * hourHeight;
 
         expect(
-          floor59,
+          floor58,
           greaterThanOrEqualTo(MasterBookingCard.fullLayoutMinHeight),
           reason:
-              'a 59-minute booking derives a ${floor59}dp floor, which no '
+              'a 58-minute booking derives a ${floor58}dp floor, which no '
               'longer reaches the full-layout switch '
               '(${MasterBookingCard.fullLayoutMinHeight}dp). The full body '
               'grew past the last duration that could contain it — every '
-              '59-minute booking has just changed shape. Either give the dp '
+              '58-minute booking has just changed shape. Either give the dp '
               'back, or make the demotion a deliberate, documented decision.',
         );
 
@@ -3672,9 +3805,9 @@ void main() {
             child: SizedBox(
               width: 226,
               child: MasterBookingCard(
-                booking: _shortBooking(id: 'fifty-nine', durationMinutes: 59),
+                booking: _shortBooking(id: 'fifty-eight', durationMinutes: 58),
                 onTap: () {},
-                minHeight: floor59,
+                minHeight: floor58,
               ),
             ),
           ),
@@ -3683,34 +3816,48 @@ void main() {
         expect(tester.takeException(), isNull);
 
         expect(
-          find.byKey(const Key('master-booking-card-divider-fifty-nine')),
+          find.byKey(const Key('master-booking-card-divider-fifty-eight')),
           findsOneWidget,
           reason:
-              'a 59-minute booking must still render the FULL divided layout',
+              'a 58-minute booking must still render the FULL divided layout',
         );
         expect(
           find.byKey(
-            const Key('master-booking-card-compact-divider-fifty-nine'),
+            const Key('master-booking-card-compact-divider-fifty-eight'),
           ),
           findsNothing,
           reason: 'the compact body is the demotion this test exists to catch',
         );
         expect(find.byIcon(Icons.person_outlined), findsOneWidget);
 
-        // ZERO CLEARANCE, STATED AS A MEASUREMENT: box == floor == natural.
+        // 1dp CLEARANCE, STATED AS A MEASUREMENT: box == floor == natural + 1.
         // A box LARGER than the floor would mean the content outgrew the
-        // band it is allotted and the card overhangs its own end-time line.
+        // 1dp margin the band allots it and the card overhangs its own
+        // end-time line. This is deliberately NOT `closeTo(natural, 0.01)` —
+        // the floor (116) sits 1dp above the natural (115) by construction,
+        // so the box is pinned to the FLOOR, and it is the floor-vs-natural
+        // GAP (asserted below) that is the real tripwire.
         final double height = tester
-            .getSize(find.byKey(const Key('master-booking-card-fifty-nine')))
+            .getSize(find.byKey(const Key('master-booking-card-fifty-eight')))
             .height;
         expect(
           height,
-          closeTo(floor59, 0.01),
+          closeTo(floor58, 0.01),
           reason:
-              'the 59-minute card measured ${height}dp against its ${floor59}dp '
-              'band — they are supposed to coincide exactly, which is what '
-              '"zero clearance" means here. A larger box is the full body '
+              'the 58-minute card measured ${height}dp against its ${floor58}dp '
+              'band — they are supposed to coincide, since the floor still '
+              'exceeds the natural by 1dp. A larger box is the full body '
               'overhanging the booking\'s end-time line.',
+        );
+        expect(
+          floor58 - MasterBookingCard.fullLayoutNaturalHeight,
+          closeTo(1, 0.01),
+          reason:
+              'the whole point of targeting 58 minutes is that its floor '
+              '(${floor58}dp) clears the full body\'s natural '
+              '(${MasterBookingCard.fullLayoutNaturalHeight}dp) by only 1dp — '
+              'if this gap has grown, a LARGER duration is now the tight '
+              'edge and this case should be retargeted at it.',
         );
       },
     );

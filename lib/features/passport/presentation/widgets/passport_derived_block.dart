@@ -215,7 +215,15 @@ class PassportDerivedBlock extends StatelessWidget {
                   style: _unknownStyle,
                 )
               else ...<Widget>[
-                Text(kApproximatelyMarker, style: VelvetText.masterCardTime),
+                // `masterCardTimeShared`, NOT `masterCardTime` — see
+                // `wishlist_row.dart`'s identical note: this screen is out of
+                // scope for the 2026-08-15 booking-card font-size pass and
+                // must render byte-identically. See `velvet_text.dart`'s
+                // `masterCardTimeShared` doc.
+                Text(
+                  kApproximatelyMarker,
+                  style: VelvetText.masterCardTimeShared,
+                ),
                 const SizedBox(width: AppSpacing.xxs),
                 PriceTag(price: average),
               ],
