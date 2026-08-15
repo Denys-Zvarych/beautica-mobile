@@ -340,76 +340,122 @@ void main() {
     });
   });
 
-  // BrandColors.weekendColumn — NEUTRALITY pin (2026-08-15).
+  // BrandColors.weekendColumn — WARM-NEUTRAL BAND pin (2026-08-15, THIRD
+  // derivation).
   //
-  // WHY THIS GROUP EXISTS
-  // -----------------------
-  // The user's explicit request on 2026-08-15 was "change the weekend
-  // column fill color into light grey" — i.e. the SECOND derivation of this
-  // token, replacing the first derivation's warm-sand `#F0DBC0` with the
-  // neutral `#E8E8E8`. Neither the ΔE76-vs-base group above nor the AA
-  // contrast assertions vs the foregrounds that land on the band say
-  // anything about GREYNESS: `#F0DBC0` (the prior warm-sand value) clears
-  // every one of those assertions too (measured: ΔE76 vs base ~6.9-ish
-  // warm-axis distance is unrelated to hue, and its AA margins on
-  // accentDeep/textSecondary/weekendMuted are all comparable to `#E8E8E8`'s
-  // own). So reverting this token back to warm sand would leave the whole
-  // rest of this file GREEN — none of it pins the one property the user
-  // actually asked for.
+  // WHY THIS GROUP EXISTS (AND WHY IT IS NOT A "NEUTRAL GREY" PIN ANY MORE)
+  // --------------------------------------------------------------------
+  // The user's first 2026-08-15 request was "change the weekend column fill
+  // color into light grey", which the SECOND derivation answered with an
+  // EXACT colorimetric neutral, `#E8E8E8` (a*≈0, b*≈0) — and this group
+  // originally pinned exactly that: both axes within ±1.0 of zero.
   //
-  // A colour is neutral grey precisely when its CIE Lab chroma collapses to
-  // (near-)zero on both the a* (green-red) and b* (blue-yellow) axes —
-  // exactly the property [BrandColors.weekendColumn]'s own doc comment
-  // reports (`a≈0.00, b≈0.00`) and the property a warm/sand tone can never
-  // have (measured for the prior `#F0DBC0`: a*≈3.01, b*≈15.91 — b* alone is
-  // ~16x this test's tolerance). This group asserts that directly, reusing
-  // the sRGB->Lab helpers already defined above rather than duplicating the
-  // colour math.
-  group('BrandColors.weekendColumn is a true neutral grey (2026-08-15 '
-      'user request: "change the weekend column fill color into light '
-      'grey")', () {
-    // Lab units. The current token measures a*/b* on the order of 1e-5
-    // (floating-point noise around an exact R=G=B grey); a warm/sand revert
-    // the size of the prior `#F0DBC0` measures b*≈15.9 — this tolerance
-    // sits far below that with wide margin while still allowing genuine
-    // floating-point noise through.
-    const double kMaxNeutralChroma = 1.0;
+  // That shipped, was pixel-verified to literally BE `#E8E8E8` (no
+  // rendering-pipeline bug), and the SAME DAY the user reported it "reads
+  // blue, not grey." This is simultaneous chromatic contrast: [base]
+  // anchors the whole visual field at Lab b*≈+7.5 (warm/yellow), and inside
+  // that field a patch sitting at b*=0 is perceived as pulled toward the
+  // OPPONENT pole of the b* axis — i.e. cool/blue — even though its
+  // measured chroma is exactly zero. Decomposing the ΔE76 between
+  // `#E8E8E8` and [base] by axis shows b* alone carries ~81% of it — the
+  // very axis induction acts on. So the original version of this group was
+  // asserting, and enforcing, the precise property that was causing the
+  // complaint: an exactly-neutral a*/b* is what makes the patch read cool
+  // against this warm field, not what makes it read grey.
+  //
+  // The THIRD derivation, `#FAF5EF` (a*≈0.64, b*≈3.47 — see
+  // [BrandColors.weekendColumn]'s own doc for the full derivation and the
+  // measured ΔE76/contrast numbers), fixes this by giving the grey back a
+  // small residual WARM cast — the same compensating-cast idea
+  // [BrandColors.weekendMuted] already relies on (that token keeps a≈+1.0,
+  // b≈+3.6 rather than going to true zero, for the identical reason: a
+  // pure neutral reads cold inside this palette's warm field). This value
+  // FAILS the old ±1.0-of-zero assertion by construction, so that assertion
+  // must change — but simply deleting it or widening the tolerance until it
+  // accepts everything would stop guarding anything. What this token
+  // actually needs guarded is a BAND, not a point:
+  //   - an UPPER bound so a revert toward genuinely sandy/tan (the prior
+  //     `#F0DBC0`, b*≈15.91) still fails — that was this group's original
+  //     job and still matters;
+  //   - a LOWER bound so a future "let's make this properly neutral" edit
+  //     that walks b* back down toward 0 (i.e. exactly `#E8E8E8` — the value
+  //     that produced THIS bug report) ALSO fails. This is the new guard
+  //     the 2026-08-15 "reads blue, not grey" report requires — nothing
+  //     upstream of this group pins induction, only colorimetry, so without
+  //     this lower bound the exact regression that prompted this derivation
+  //     could ship again with every other test in this file green.
+  //
+  // Both bounds are expressed in Lab units, reusing the sRGB->Lab helpers
+  // already defined above rather than duplicating the colour math.
+  group('BrandColors.weekendColumn is a WARM-NEUTRAL grey — reads grey '
+      'inside a warm field, not colorimetrically neutral (2026-08-15 '
+      '"reads blue, not grey" user report; see BrandColors.weekendMuted '
+      'for the same compensating-cast precedent)', () {
+    // Lab units. Upper bound: well below the prior warm-sand #F0DBC0's
+    // b*≈15.91/a*≈3.01, so a revert to genuinely sandy/tan still fails.
+    // Lower bound: strictly above the exact-neutral #E8E8E8's a*≈0/b*≈0 —
+    // the value that produced the "reads blue" complaint this group exists
+    // to prevent from silently reintroducing itself. The current token
+    // (a*≈0.64, b*≈3.47) sits with real margin inside both bands.
+    //
+    // kMinWarmB (mobile-qa, 2026-08-15 QA pass): originally set to 1.5, which
+    // is BELOW this very file's own ~2.3 CIE76 just-noticeable-difference
+    // figure (see [_kMinPerceptibleDeltaE]'s doc above) — a token landing
+    // exactly at that floor would be a single-axis Euclidean distance of
+    // only 1.5 from the exact-neutral #E8E8E8 that produced this bug report,
+    // i.e. WITHIN the JND of the defect itself, so the guard could pass
+    // while readmitting a perceptually-indistinguishable "reads blue" patch.
+    // Raised to 2.5 — clear of the 2.3 JND floor, so anything that clears
+    // this bound is provably NOT a JND-indistinguishable neighbour of the
+    // bug value — while keeping ~0.97 of margin below the shipped token's
+    // measured b*≈3.47 and staying under [BrandColors.weekendMuted]'s own
+    // proven-good b*≈3.6 reference cast.
+    const double kMinWarmA = 0.0;
+    const double kMaxWarmA = 1.5;
+    const double kMinWarmB = 2.5;
+    const double kMaxWarmB = 5.0;
 
-    test('CIE Lab a* (green-red axis) is within the neutral tolerance of '
-        'zero', () {
+    test('CIE Lab a* (green-red axis) sits inside the warm-neutral band, '
+        'not at sandy chroma', () {
       final (double l, double a, double b) = _rgbToLab(
         BrandColors.weekendColumn,
       );
       expect(
-        a.abs(),
-        lessThanOrEqualTo(kMaxNeutralChroma),
+        a,
+        allOf(greaterThanOrEqualTo(kMinWarmA), lessThanOrEqualTo(kMaxWarmA)),
         reason:
-            'weekendColumn measured Lab a*=$a (L=$l, b*=$b). A warm/sand '
-            'value — such as this token\'s PRIOR value #F0DBC0 (measured '
-            'a*~3.01, b*~15.91) — carries real positive chroma on this '
-            'axis and would silently revert the 2026-08-15 user request '
-            '("change the weekend column fill color into light grey") '
-            'while still passing every contrast/ΔE assertion above this '
-            'group, none of which constrain hue. This assertion exists '
-            'specifically to close that gap.',
+            'weekendColumn measured Lab a*=$a (L=$l, b*=$b), expected in '
+            '[$kMinWarmA, $kMaxWarmA]. This band keeps a* small and '
+            'non-negative like weekendMuted\'s own residual warm cast — '
+            'a value at or above the prior warm-sand #F0DBC0\'s a*≈3.01 '
+            'would silently revert the "light grey, not sand" 2026-08-15 '
+            'request this token still has to honour.',
       );
     });
 
-    test('CIE Lab b* (blue-yellow axis) is within the neutral tolerance of '
-        'zero', () {
+    test('CIE Lab b* (blue-yellow axis) sits inside the warm-neutral band '
+        '— warm enough to counteract induction against base, not warm '
+        'enough to read as sand', () {
       final (double l, double a, double b) = _rgbToLab(
         BrandColors.weekendColumn,
       );
       expect(
-        b.abs(),
-        lessThanOrEqualTo(kMaxNeutralChroma),
+        b,
+        allOf(greaterThanOrEqualTo(kMinWarmB), lessThanOrEqualTo(kMaxWarmB)),
         reason:
-            'weekendColumn measured Lab b*=$b (L=$l, a*=$a). b* is the '
-            'warm/cool axis proper (positive = yellow/warm, negative = '
-            'blue/cool) — the prior warm-sand #F0DBC0 measured b*~15.91 '
-            'here, ~16x this tolerance, which is exactly the "warm, not '
-            'grey" defect this test exists to catch. See the a* assertion '
-            'above for the full context.',
+            'weekendColumn measured Lab b*=$b (L=$l, a*=$a), expected in '
+            '[$kMinWarmB, $kMaxWarmB]. b* is the warm/cool axis proper '
+            '(positive = yellow/warm, negative = blue/cool). Below '
+            '$kMinWarmB the band collapses back toward the exact-neutral '
+            '#E8E8E8 (b*≈0) that produced the 2026-08-15 "reads blue, not '
+            'grey" report — simultaneous chromatic contrast against '
+            '[base]\'s own b*≈7.5 field reads a near-zero b* patch as '
+            'cool-tinted even though it is measured neutral. Above '
+            '$kMaxWarmB the band drifts toward the prior warm-sand '
+            '#F0DBC0 (b*≈15.91), the OTHER failure mode this token has '
+            'already been through once. Both bounds must hold for the '
+            'band to read as a warm-neutral grey rather than either '
+            'extreme.',
       );
     });
   });

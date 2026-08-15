@@ -688,7 +688,13 @@ void main() {
 
   // GROUND-TRUTH PIXEL READ-BACK — closes the LOW gap mobile-qa raised after
   // the 2026-08-15 grey recolor (`BrandColors.weekendColumn` warm-sand
-  // `#F0DBC0` -> neutral `#E8E8E8`).
+  // `#F0DBC0` -> neutral `#E8E8E8`), and updated the SAME DAY for the THIRD
+  // derivation: `#E8E8E8` read as blue rather than grey (simultaneous
+  // chromatic contrast against base's own warm b*≈7.5 field), so the token
+  // moved again, to warm-neutral `#FAF5EF` — see
+  // `BrandColors.weekendColumn`'s own doc for the full derivation. Both
+  // prior values (`#F0DBC0` sandy, `#E8E8E8` blue-reading-neutral) are now
+  // forbidden pixel values, not just the first one.
   //
   // WHY THIS EXISTS
   // -----------------
@@ -734,23 +740,25 @@ void main() {
   // grid to be unaffected by it. Multiple x/y points are sampled per
   // region so a single lucky/unlucky pixel can never carry the assertion.
   //
-  // The three expected colours are HARD-CODED integer literals, not read
-  // from `BrandColors` — deliberately, for all three checks: a
+  // The expected/forbidden colours are HARD-CODED integer literals, not read
+  // from `BrandColors` — deliberately, for every check: a
   // `BrandColors.weekendColumn`-derived expectation would trivially "pass"
   // no matter what the live token value is, since the token IS the
   // production wiring's fill colour — the whole point of a ground-truth
-  // test is to prove the literal `0xFFE8E8E8` the user actually asked for
+  // test is to prove the literal `0xFFFAF5EF` the user actually asked for
   // is what lands on screen, independent of what the token currently says.
-  group('GROUND-TRUTH pixel read-back (2026-08-15 grey recolor, LOW gap '
-      'closure)', () {
+  group('GROUND-TRUTH pixel read-back (2026-08-15 grey recolor, third '
+      'derivation — warm-neutral fix for the "reads blue" report)', () {
     testWidgets(
-      'Sat/Sun column pixels are literal #E8E8E8, Mon-Fri column pixels are '
+      'Sat/Sun column pixels are literal #FAF5EF, Mon-Fri column pixels are '
       'literal base #E6DDD0 (unshaded), and NO pixel anywhere in the render '
-      'matches the old warm-sand #F0DBC0',
+      'matches the old warm-sand #F0DBC0 or the blue-reading exact-neutral '
+      '#E8E8E8',
       (tester) async {
-        const Color kExpectedWeekendGrey = Color(0xFFE8E8E8);
+        const Color kExpectedWeekendGrey = Color(0xFFFAF5EF);
         const Color kExpectedUnshadedBase = Color(0xFFE6DDD0);
         const Color kForbiddenOldSand = Color(0xFFF0DBC0);
+        const Color kForbiddenExactNeutral = Color(0xFFE8E8E8);
         const int kChannelTolerance = 2;
 
         bool closeToExpected(Color actual, Color expected) {
@@ -921,7 +929,7 @@ void main() {
               reason:
                   'Sat/Sun column pixel at row-gap $i, x-fraction $frac '
                   'measured 0x${actual.toARGB32().toRadixString(16)}, '
-                  'expected literal #E8E8E8 (within '
+                  'expected literal #FAF5EF (within '
                   '$kChannelTolerance/channel)',
             );
           }
@@ -937,13 +945,19 @@ void main() {
           reason: 'sanity floor on how many points this test actually hit',
         );
 
-        // Full-image scan — not just the sampled points above — for the OLD
-        // warm-sand fill. A single leftover/reverted pixel anywhere in the
-        // render fails this, independent of exactly where the band sits.
+        // Full-image scan — not just the sampled points above — for EITHER
+        // prior fill this token has held: the original warm-sand `#F0DBC0`,
+        // and the exact-neutral `#E8E8E8` that replaced it and then read as
+        // blue. A single leftover/reverted pixel matching either anywhere in
+        // the render fails this, independent of exactly where the band sits.
         int sandPixels = 0;
+        int exactNeutralPixels = 0;
         final double sandR = kForbiddenOldSand.r * 255;
         final double sandG = kForbiddenOldSand.g * 255;
         final double sandB = kForbiddenOldSand.b * 255;
+        final double neutralR = kForbiddenExactNeutral.r * 255;
+        final double neutralG = kForbiddenExactNeutral.g * 255;
+        final double neutralB = kForbiddenExactNeutral.b * 255;
         for (int y = 0; y < image.height; y++) {
           for (int x = 0; x < image.width; x++) {
             final int offset = (y * image.width + x) * 4;
@@ -955,6 +969,11 @@ void main() {
                 (b - sandB).abs() <= kChannelTolerance) {
               sandPixels++;
             }
+            if ((r - neutralR).abs() <= kChannelTolerance &&
+                (g - neutralG).abs() <= kChannelTolerance &&
+                (b - neutralB).abs() <= kChannelTolerance) {
+              exactNeutralPixels++;
+            }
           }
         }
         expect(
@@ -964,7 +983,20 @@ void main() {
               'found $sandPixels pixel(s) matching the OLD warm-sand '
               '#F0DBC0 (within $kChannelTolerance/channel) across the whole '
               '${image.width}x${image.height} render — the band must paint '
-              'ONLY the current #E8E8E8 grey fill',
+              'ONLY the current #FAF5EF warm-neutral fill',
+        );
+        expect(
+          exactNeutralPixels,
+          0,
+          reason:
+              'found $exactNeutralPixels pixel(s) matching the exact-neutral '
+              '#E8E8E8 (within $kChannelTolerance/channel) across the whole '
+              '${image.width}x${image.height} render — that value is what '
+              'produced the 2026-08-15 "reads blue, not grey" report '
+              '(simultaneous chromatic contrast against base\'s own warm '
+              'field), so a revert back to it must fail here too, not just '
+              'in the Lab-space band pinned by '
+              'calendar_grid_contrast_test.dart',
         );
       },
     );

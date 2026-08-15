@@ -144,24 +144,69 @@ abstract final class BrandColors {
   /// asked for AND the measured distance. `#E8E8E8` is therefore exactly
   /// neutral (a=0, b=0), not warm-tinted.
   ///
-  /// Measured (see `test/shared/widgets/calendar_grid_contrast_test.dart`):
-  /// CIE Lab ΔE76 vs [base] = **8.30** (clears the >= 8.0 floor with real
-  /// margin, not sitting on the edge like the rejected darker options).
-  /// Contrast on the band: [accentDeep] **6.53:1**, [textSecondary]
-  /// **5.52:1**, [weekendMuted] **5.56:1** — all clear WCAG AA's 4.5:1 floor
-  /// by more than a full point of headroom.
+  /// THIRD DERIVATION (2026-08-15, same day, user report: "reads blue, not
+  /// grey") — the exact-neutral `#E8E8E8` above shipped, was pixel-verified
+  /// to actually be `#E8E8E8` (no rendering bug — no gradient/blend/filter
+  /// sits between the token and the framebuffer), and was STILL reported as
+  /// looking blue-tinted rather than grey. This is not a contradiction: it is
+  /// simultaneous chromatic contrast, the same induction effect that makes an
+  /// exactly-neutral grey patch read as tinted toward the OPPONENT of
+  /// whatever hue surrounds it. [base] anchors the entire adapted visual
+  /// field at Lab b*≈+7.5 (warm/yellow); a patch sitting at b*=0 inside that
+  /// field is perceived as pulled toward the opposite pole of the b* axis —
+  /// i.e. cool/blue — even though its measured chroma is zero. Decomposing
+  /// the ΔE76 the second derivation's own doc above already reports (8.30)
+  /// by axis confirms b* carries ~81% of it — the same axis induction acts
+  /// on — so "exactly neutral" and "reads neutral inside this warm field"
+  /// turned out to be different properties, and only the second one is what
+  /// a viewer actually experiences.
   ///
-  /// Retained history (still true, from the first derivation): a pure
+  /// The fix keeps the whole-column-band idea and the "lighter than [base],
+  /// never darker" AA argument from the second derivation (both still
+  /// hold — see the retained history below) but gives the grey back a small
+  /// residual WARM cast on the b* axis, deliberately mirroring how
+  /// [weekendMuted] keeps its own residual warmth for the same reason: not
+  /// "less neutral," but "compensated so it reads as neutral once it sits in
+  /// this palette's warm field." The residual-warm-chroma variant the SECOND
+  /// derivation tried and rejected (Lab a≈-0.03/b≈2.18) was rejected purely
+  /// because it shrank ΔE at the SAME lightness the exact-neutral pick used —
+  /// that math still holds, so this derivation raises L to compensate, which
+  /// simultaneously restores ΔE margin AND increases contrast against every
+  /// dark foreground (both bars move the same direction when going lighter,
+  /// exactly as the second derivation's own "going lighter" argument already
+  /// established) — no new trade-off, just re-applying that argument one step
+  /// further out. Targeted at [weekendMuted]'s own proven warm-cast band
+  /// (a≈+1.0, b≈+3.6) rather than the barely-warm `#F3F0EC` (b*≈2.3) a first
+  /// pass at this fix considered — undershooting the cast a second time would
+  /// cost a third round-trip on the same perceptual bug.
+  ///
+  /// `#FAF5EF`, Lab (L≈96.76, a*≈0.64, b*≈3.47). CIE Lab ΔE76 vs [base] =
+  /// **9.19** (clears the >= 8.0 floor with ~15% margin). Contrast on the
+  /// band: [accentDeep] **7.39:1**, [textSecondary] **6.23:1**,
+  /// [weekendMuted] **6.29:1** — all clear WCAG AA's 4.5:1 floor by more than
+  /// a point and a half of headroom. See
+  /// `test/shared/widgets/calendar_grid_contrast_test.dart`'s "warm-neutral
+  /// band" group (renamed from the second derivation's "true neutral grey"
+  /// group, which by construction could never pass again) for the computed
+  /// pin: it now asserts a* and b* fall inside a BAND, not near zero — upper
+  /// bound so a revert to sandy `#F0DBC0` (b*≈15.9) still fails, lower bound
+  /// so a revert to colorimetrically-neutral `#E8E8E8` (b*≈0, the exact
+  /// defect reported in this derivation) ALSO fails.
+  ///
+  /// Retained history (still true, from the second derivation): a pure
   /// alpha-blend toward [shadowDarkCard] was rejected because it DARKENS as
   /// well as tints, so contrast against dark text erodes with every step
-  /// toward a visible band — the lesson generalises to this derivation too
-  /// (it is exactly why the darker-neutral option above was also rejected).
-  /// The weekend cue lives on the whole COLUMN, not the day number, per the
-  /// same user request recorded on [MonthCalendar.showWeekendColumnBand]'s
-  /// call site — inside the band the day numbers keep rendering
-  /// [accentDeep]/[textSecondary]/[faint] like any other day; the band alone
-  /// carries the signal.
-  static const Color weekendColumn = Color(0xFFE8E8E8);
+  /// toward a visible band. A darker neutral clearing ΔE >= 8 was rejected
+  /// for the same reason (thin AA margins that erode further with any future
+  /// tweak). Going lighter than [base] moves ΔE-margin and AA-margin in the
+  /// same direction at once, which is why this derivation, like the second,
+  /// resolves the whole problem by raising L rather than by trading one
+  /// margin against the other. The weekend cue lives on the whole COLUMN, not
+  /// the day number, per the user request recorded on
+  /// [MonthCalendar.showWeekendColumnBand]'s call site — inside the band the
+  /// day numbers keep rendering [accentDeep]/[textSecondary]/[faint] like any
+  /// other day; the band alone carries the signal.
+  static const Color weekendColumn = Color(0xFFFAF5EF);
 
   /// Input placeholder text.
   static const Color placeholder = Color(0xFFAD9A82);
