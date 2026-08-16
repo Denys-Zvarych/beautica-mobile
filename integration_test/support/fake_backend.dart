@@ -4719,11 +4719,36 @@ final class FakeBackend {
     // PROVIDER complete write path. No request body (`completeBooking`'s
     // generated client call sends none) — flips the seeded booking to
     // COMPLETED.
+    //
+    // Phase 231 (mobile-qa) — ALSO mutates the `booking-1` row of
+    // [_bookingsDataset], when one is seeded, to `status: 'COMPLETED'`.
+    // Without this, a dataset-backed flow (`master_archive_flow_test.dart`)
+    // that closes `booking-1` and then re-fetches through
+    // `masterArchiveProvider`'s invalidation would see the SAME unchanged
+    // CONFIRMED row come back — the write would appear to succeed (200,
+    // `completeBookingCalls` climbs) while the list silently kept showing
+    // stale data, which is a materially weaker proof than "the booking
+    // actually left the «Підтверджено» filter after closing". Every other
+    // field on the row is preserved via spread; only `status` moves. Mirrors
+    // [declineChild]'s existing per-row mutation for the non-dataset seeded
+    // booking.
     _adapter.onRoute(
       '/api/v1/bookings/booking-1/complete',
       (server) => server.replyCallback(200, (_) {
         completeBookingCalls++;
         bookingStatus = 'COMPLETED';
+        final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+        if (dataset != null) {
+          final int idx = dataset.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (idx != -1) {
+            dataset[idx] = <String, dynamic>{
+              ...dataset[idx],
+              'status': 'COMPLETED',
+            };
+          }
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch),

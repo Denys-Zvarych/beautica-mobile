@@ -272,6 +272,20 @@ abstract final class RouteNames {
   static String masterBookingDetail(String bookingId) =>
       '$masterBookings/${Uri.encodeComponent(bookingId)}';
 
+  /// Phase 231 — the master «Архів» page: a paginated, filterable list of
+  /// PAST bookings reached from a header button on [masterBookings], from
+  /// which a not-yet-closed visit can be closed in place.
+  ///
+  /// A CHILD of [masterBookings] (`/master/bookings/archive`), NOT a sibling
+  /// top-level route — same reasoning as [masterBookingDetail]: it inherits
+  /// the `/master/*` prefix role gate in `auth_redirect.dart` (currently
+  /// INDEPENDENT_MASTER-only — see that file's own comment on why no other
+  /// provider role is carved into `/master/*` yet) for free, and pushes onto
+  /// the master's own stack so back returns to the still-scrolled day
+  /// timeline. `archive`, not `:something`, because there is exactly one —
+  /// no id to parametrise.
+  static const String masterBookingsArchive = '$masterBookings/archive';
+
   /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback), nested
   /// under [masterBookingDetail] so it pushes onto the master's own stack and
   /// pops back to the detail — mirrors [bookingReview]'s nesting for the

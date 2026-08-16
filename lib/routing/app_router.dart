@@ -51,6 +51,7 @@ import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
+import '../features/booking/presentation/master_archive_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
@@ -900,6 +901,17 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterBookings,
         builder: (context, state) => const MasterBookingsScreen(),
         routes: [
+          // Phase 231 — /master/bookings/archive, the master «Архів» page.
+          // Registered BEFORE the `:bookingId` sibling below so the literal
+          // segment is never shadowed by the dynamic one (go_router matches
+          // in declaration order among siblings). `builder:` (MaterialPage)
+          // so the theme's CupertinoPageTransitionsBuilder installs the
+          // left-edge swipe-back gesture, matching every other pushed
+          // /master/* sub-route.
+          GoRoute(
+            path: 'archive',
+            builder: (context, state) => const MasterArchiveScreen(),
+          ),
           // /master/bookings/:bookingId — the PROVIDER view of «Деталі
           // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client
           // route renders: one screen, role-branched off the session (locked

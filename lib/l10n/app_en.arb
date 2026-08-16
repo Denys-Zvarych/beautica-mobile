@@ -5177,6 +5177,38 @@
   "@masterBookingsAddComingSoon": {
     "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
   },
+  "masterArchiveOpenSemantics": "Open booking archive",
+  "@masterArchiveOpenSemantics": {
+    "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."
+  },
+  "masterArchiveTitle": "Archive",
+  "@masterArchiveTitle": {
+    "description": "Screen title of the master «Архів» page (Phase 231) — a paginated, filterable list of the master's PAST bookings."
+  },
+  "masterArchiveEmptyTitle": "Archive is empty",
+  "@masterArchiveEmptyTitle": {
+    "description": "True-empty state title on the master «Архів» page — the master has no past bookings at all and no filter is active."
+  },
+  "masterArchiveEmptyBody": "Completed and past bookings will appear here.",
+  "@masterArchiveEmptyBody": {
+    "description": "True-empty state body on the master «Архів» page."
+  },
+  "masterArchiveNoResultsBody": "Try a different filter — or view all bookings.",
+  "@masterArchiveNoResultsBody": {
+    "description": "Filter-empty state body on the master «Архів» page (bookings exist, none match the active status/service filter). The title reuses masterBookingsNoResultsTitle; this body is a dedicated key because that screen's own body mentions 'day', which the archive has no day rail to filter by."
+  },
+  "masterArchiveScanningSemantics": "Checking further archive pages",
+  "@masterArchiveScanningSemantics": {
+    "description": "Accessibility live-region label on the master «Архів» page while it auto-fetches further raw server pages after a fetched page contained zero rows matching the active client-side status filter (mobile-perf HIGH-1/2 fix) — the visible spinner alone announces nothing to a screen reader."
+  },
+  "masterArchiveContinueBody": "No bookings matching the filter have turned up on the loaded pages yet.",
+  "@masterArchiveContinueBody": {
+    "description": "Body shown on the master «Архів» page when the automatic continuation (fetching further raw server pages looking for a filter match) has hit its bounded attempt cap while server pages still remain — offers a manual 'load more' CTA instead of an indefinite spinner."
+  },
+  "masterArchiveLoadMoreCta": "Load more",
+  "@masterArchiveLoadMoreCta": {
+    "description": "Button label that resumes fetching further raw server pages after the automatic continuation on the master «Архів» page has hit its attempt cap."
+  },
   "statTileNoDataSemantics": "{caption}: no data",
   "@statTileNoDataSemantics": {
     "description": "Accessibility label for a profile StatTile whose value is the em-dash zero/unresolved placeholder. The dash is meaningless read aloud ('— Services'), so screen readers get this spoken form instead. VISUAL output is unaffected — the tile still renders the em-dash.",
