@@ -286,17 +286,27 @@ abstract final class RouteNames {
   /// no id to parametrise.
   static const String masterBookingsArchive = '$masterBookings/archive';
 
-  /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback), nested
-  /// under [masterBookingDetail] so it pushes onto the master's own stack and
-  /// pops back to the detail — mirrors [bookingReview]'s nesting for the
-  /// opposite (CLIENT→MASTER) direction.
+  /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
   ///
-  /// Reached from the detail's COMPLETED-provider-booking entry CTA
-  /// (`_DetailBody._providerActions`). Unlike [bookingReview] there is no
-  /// server-computed canReview-equivalent flag for the provider side yet, so
-  /// the CTA is offered on every COMPLETED provider booking; a duplicate
-  /// submit's 409 is handled ON the destination screen (see
-  /// `LeaveClientFeedbackScreen`'s file header).
+  /// Same URL shape as [masterBookingDetail]'s `/review` child would be, but
+  /// registered in `app_router.dart` as a STANDALONE top-level `GoRoute`
+  /// (mirroring the `/masters/:masterId` + `/masters/:masterId/reviews`
+  /// sibling pair), NOT nested under it — nesting under a plain content
+  /// screen (not a shell) made go_router insert the detail route's own match
+  /// into every push, silently mounting a shadow `BookingDetailScreen`
+  /// underneath the review screen and breaking pop-back for the archive
+  /// entry path. See the route registration's own comment in
+  /// `app_router.dart` for the full investigation. A push here therefore
+  /// pops back to whatever the caller actually had on the stack: the
+  /// [masterBookingDetail] screen when reached from its COMPLETED-provider-
+  /// booking entry CTA (`_DetailBody._providerActions`), or the
+  /// `/master/bookings/archive` list when reached from there
+  /// (`master_archive_screen.dart`).
+  ///
+  /// Unlike [bookingReview] there is no server-computed canReview-equivalent
+  /// flag for the provider side yet, so the CTA is offered on every
+  /// COMPLETED provider booking; a duplicate submit's 409 is handled ON the
+  /// destination screen (see `LeaveClientFeedbackScreen`'s file header).
   static String clientReview(String bookingId) =>
       '${masterBookingDetail(bookingId)}/review';
 

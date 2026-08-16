@@ -21,21 +21,37 @@
 // ## The gating (read before touching this file)
 //
 // The CLIENT→MASTER mirror gates its form on `Booking.canReview`; this
-// PROVIDER→CLIENT direction now mirrors it exactly via
-// `Booking.providerCanReviewClient` — a server-computed flag
-// `BookingDetailScreen`'s provider footer pre-gates its entry CTA on (see
-// `_DetailBody._providerActions`), so a booking whose client was already
-// reviewed no longer shows the CTA at all. This screen keeps its OWN 409
-// handling as defense-in-depth, not as the primary gate: a stale list load
-// racing a submit from another device can still land here with a booking
-// that was reviewable a moment ago and isn't anymore. The 409 the backend
-// returns in that case ([ClientReviewAlreadyExistsFailure]) is caught here
-// and swaps the form for the SAME not-reviewable info state a stale CLIENT
-// review deep link shows — see [_LeaveClientFeedbackScreenState._submit].
+// PROVIDER→CLIENT direction mirrors it via `Booking.providerCanReviewClient`
+// — a server-computed flag that is only ever accurate on `GET /bookings/{id}`
+// (list endpoints hardcode it `false` — see `MasterBookingCard.onReview`'s
+// doc for why the master «Архів» page's «Відгук» button is deliberately
+// UNGATED and reachable regardless). This screen fetches that single-booking
+// endpoint on open via `bookingDetailProvider(bookingId)` and PRE-GATES on
+// the real value in `build()`: `providerCanReviewClient == false` renders
+// `_NotReviewable` immediately, before the form is ever built, so a master
+// who taps «Відгук» on an already-reviewed archive row never types into a
+// form that was always going to be rejected.
 //
-// go_router only: pushed at `/master/bookings/:bookingId/review`, nested under
-// the provider's own booking-detail route so swipe-back returns to the
-// detail. Reached from the detail's COMPLETED-provider-booking entry CTA.
+// This screen ALSO keeps its OWN post-submit 409 handling as defense-in-
+// depth, not as the primary gate: the pre-gate reads a snapshot at open
+// time, so a review landing between this screen loading and the master
+// submitting (another device, a race) still slips past it. The 409 the
+// backend returns in that case ([ClientReviewAlreadyExistsFailure]) is
+// caught in [_LeaveClientFeedbackScreenState._submit] and swaps the form for
+// the SAME `_NotReviewable` info state the pre-gate would have shown.
+//
+// go_router only: pushed at `/master/bookings/:bookingId/review`, registered
+// as a STANDALONE top-level route (not nested under the booking-detail
+// route — see `app_router.dart`'s registration comment for why a naive
+// nesting silently mounted a shadow `BookingDetailScreen` under every push).
+// Swipe-back / pop therefore returns to whatever the caller actually had on
+// the stack: the detail screen when reached from its COMPLETED-provider-
+// booking entry CTA, or the `/master/bookings/archive` list when reached
+// from a completed archive row's «Відгук» button
+// (`master_archive_screen.dart`'s `_openReview`, which also prefetches
+// `bookingDetailProvider` before pushing — that list is fed by
+// `GET /bookings/me`, which never warms it, unlike the detail path where the
+// still-mounted `BookingDetailScreen` keeps it warm for free).
 //
 // SEC: renders the client's identity and is a form — acquires the app-wide
 // [ScreenProtectionManager] for its lifetime, exactly like `LeaveReviewScreen`
@@ -172,14 +188,20 @@ class _LeaveClientFeedbackScreenState
             ),
             Expanded(
               child: async.when(
-                loading: () => const Center(
-                  child: CircularProgressIndicator(color: BrandColors.accent),
-                ),
+                loading: () => const _LoadingForm(),
                 error: (Object e, StackTrace _) => _ErrorState(
                   onRetry: () =>
                       ref.invalidate(bookingDetailProvider(widget.bookingId)),
                 ),
-                data: (Booking booking) => _alreadyReviewed
+                // Pre-gate: `providerCanReviewClient` is the REAL,
+                // server-computed value on this single-booking fetch (see the
+                // file header) — false means this booking's client was
+                // already reviewed, so the not-reviewable state renders
+                // immediately and the form is never built. `_alreadyReviewed`
+                // is the SEPARATE post-submit signal (a 409 racing this
+                // snapshot) and swaps to the same state once true.
+                data: (Booking booking) =>
+                    (!booking.providerCanReviewClient || _alreadyReviewed)
                     ? const _NotReviewable()
                     : _Form(
                         booking: booking,
@@ -195,6 +217,241 @@ class _LeaveClientFeedbackScreenState
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The loading state, rendered while `bookingDetailProvider` fetches this
+/// booking — shaped like [_Form] (client card / rating card / comment card /
+/// pinned submit CTA, same paddings) so the real content replaces it without
+/// a layout pop. Same "recessed wells breathing on the taupe base" idiom as
+/// `BookingsSkeleton` (`widgets/my_bookings_states.dart`) — deliberately NOT
+/// a shimmer or a bare spinner, matching this feature's established loading
+/// language.
+///
+/// This became the COMMON case for the archive→«Відгук» entry path once that
+/// tap started prefetching a real `GET /bookings/{id}` (see
+/// `master_archive_screen.dart`'s `_openReview`); the detail→review path was
+/// already a cache hit (the still-mounted `BookingDetailScreen` keeps
+/// `bookingDetailProvider` warm) and rarely shows this at all.
+class _LoadingForm extends StatefulWidget {
+  const _LoadingForm();
+
+  @override
+  State<_LoadingForm> createState() => _LoadingFormState();
+}
+
+class _LoadingFormState extends State<_LoadingForm>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final bool disabled =
+          MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+      if (disabled) {
+        _controller.value = 1.0;
+      } else {
+        _controller.repeat(reverse: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final Animation<double> curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    );
+
+    Widget breathe(Widget content) => AnimatedBuilder(
+      animation: curved,
+      // 0.55 → 1.0 — same shallow breathe as `BookingsSkeleton`, not a blink.
+      builder: (BuildContext context, Widget? child) =>
+          Opacity(opacity: 0.55 + curved.value * 0.45, child: child),
+      child: content,
+    );
+
+    return Semantics(
+      key: const Key('leave-client-feedback-loading'),
+      label: l10n.clientReviewLoadingSemantics,
+      liveRegion: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Expanded(
+            child: breathe(
+              const SingleChildScrollView(
+                physics: NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  VelvetSpacing.xs,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _ClientCardWell(),
+                    SizedBox(height: VelvetSpacing.lg),
+                    _RatingCardWell(),
+                    SizedBox(height: VelvetSpacing.md),
+                    _CommentCardWell(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          breathe(
+            const Padding(
+              padding: EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                0,
+                VelvetSpacing.lg,
+                VelvetSpacing.md,
+              ),
+              child: _Well(
+                width: double.infinity,
+                height: VelvetSizes.cta,
+                radius: VelvetRadii.button,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Silhouette of [ClientFeedbackCard] — a round avatar well + name/role/
+/// context line wells.
+class _ClientCardWell extends StatelessWidget {
+  const _ClientCardWell();
+
+  // Same camel wash as the real card's surface.
+  static const Color _cardColor = Color(0xFFEDE4D5);
+
+  @override
+  Widget build(BuildContext context) {
+    return NeumorphicCard(
+      color: _cardColor,
+      padding: const EdgeInsets.all(VelvetSpacing.md),
+      child: Row(
+        children: <Widget>[
+          const _Well(width: 48, height: 48, radius: 24),
+          const SizedBox(width: VelvetSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _Well(width: _fraction(context, 0.4), height: 15),
+                const SizedBox(height: VelvetSpacing.xs),
+                _Well(width: _fraction(context, 0.22), height: 12),
+                const SizedBox(height: VelvetSpacing.xs),
+                _Well(width: _fraction(context, 0.5), height: 12),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _fraction(BuildContext context, double f) =>
+      MediaQuery.sizeOf(context).width * f;
+}
+
+/// Silhouette of `_RatingCard` — a section-label well + a row of five star
+/// wells.
+class _RatingCardWell extends StatelessWidget {
+  const _RatingCardWell();
+
+  @override
+  Widget build(BuildContext context) {
+    return const NeumorphicCard(
+      showBorder: true,
+      padding: EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.md,
+        vertical: VelvetSpacing.lg,
+      ),
+      child: Column(
+        children: <Widget>[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _Well(width: 120, height: 12),
+          ),
+          SizedBox(height: VelvetSpacing.md),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              _Well(width: 36, height: 36, radius: 18),
+              _Well(width: 36, height: 36, radius: 18),
+              _Well(width: 36, height: 36, radius: 18),
+              _Well(width: 36, height: 36, radius: 18),
+              _Well(width: 36, height: 36, radius: 18),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Silhouette of `_CommentCard` — a section-label well + a tall multi-line
+/// well.
+class _CommentCardWell extends StatelessWidget {
+  const _CommentCardWell();
+
+  @override
+  Widget build(BuildContext context) {
+    return const NeumorphicCard(
+      showBorder: true,
+      padding: EdgeInsets.all(VelvetSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _Well(width: 140, height: 12),
+          ),
+          SizedBox(height: VelvetSpacing.sm),
+          _Well(width: double.infinity, height: 96),
+        ],
+      ),
+    );
+  }
+}
+
+/// A single recessed placeholder well. Mirrors `_Well` in
+/// `widgets/my_bookings_states.dart` (private to that file, so re-declared
+/// here rather than imported — see `ARCHITECTURE-mobile.md`'s DRY-on-third-
+/// repetition rule; this is the second occurrence, not the third).
+class _Well extends StatelessWidget {
+  const _Well({required this.width, required this.height, this.radius = 6});
+
+  final double width;
+  final double height;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    return NeumorphicInset(
+      radius: radius,
+      child: SizedBox(width: width, height: height),
     );
   }
 }
@@ -527,8 +784,9 @@ class _TopBar extends StatelessWidget {
 }
 
 /// The informative state shown once feedback about this booking's client has
-/// already been left — reached ONLY via the submit-time 409 (see the file
-/// header's gating-limitation note; there is no way to pre-empt this state).
+/// already been left — reached either as a PRE-GATE (the real
+/// `providerCanReviewClient` fetched on open is already `false`) or via the
+/// post-submit 409 backstop for a race (see the file header's gating note).
 class _NotReviewable extends StatelessWidget {
   const _NotReviewable();
 

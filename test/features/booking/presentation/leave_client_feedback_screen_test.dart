@@ -32,11 +32,17 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/client_review_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -49,6 +55,17 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+
+class _MockBookingRepository extends Mock implements BookingRepository {}
+
+class _StubAuth extends AuthNotifier {
+  _StubAuth(this._session);
+
+  final AuthSession _session;
+
+  @override
+  Future<AuthSession> build() async => _session;
+}
 
 const String _bookingId = 'b1';
 
@@ -67,6 +84,10 @@ Booking _booking({
   String? clientFirstName = 'Олена',
   String? clientLastName = 'Ткаченко',
   String? clientId = 'c1',
+  // Defaults `true` — most of this suite exercises the reviewable form;
+  // the pre-gate tests below pass `false` explicitly to pin the
+  // not-reviewable-on-open behaviour.
+  bool providerCanReviewClient = true,
 }) {
   // A fixed PAST instant, not a stale future one (scripts/
   // forbid_stale_future_date_fixture.sh): this fixture defaults to a
@@ -96,6 +117,7 @@ Booking _booking({
     endAt: start.add(const Duration(minutes: 90)),
     status: status,
     canReview: false,
+    providerCanReviewClient: providerCanReviewClient,
   );
 }
 
@@ -437,6 +459,78 @@ void main() {
     );
 
     testWidgets(
+      'providerCanReviewClient == true renders the form (rating stars + '
+      'submit CTA), not the not-reviewable state',
+      (tester) async {
+        await pumpFeedback(
+          tester,
+          detail: (ref) async => _booking(providerCanReviewClient: true),
+        );
+
+        expect(
+          find.byKey(const Key('leave-client-feedback-stars')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('leave-client-feedback-submit')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('leave-client-feedback-unavailable-back')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'PRE-GATE: providerCanReviewClient == false renders the not-reviewable '
+      'state IMMEDIATELY on open — the form never appears',
+      (tester) async {
+        final repo = _MockClientReviewRepository();
+
+        await pumpFeedback(
+          tester,
+          repo: repo,
+          detail: (ref) async => _booking(providerCanReviewClient: false),
+        );
+
+        final AppLocalizations l10n = _l10n(tester);
+        expect(
+          find.byKey(const Key('leave-client-feedback-unavailable-back')),
+          findsOneWidget,
+          reason:
+              'a booking that is not reviewable on open must pre-gate to '
+              'the not-reviewable state without ever building the form',
+        );
+        expect(find.text(l10n.clientReviewUnavailableTitle), findsOneWidget);
+        expect(
+          find.byKey(const Key('leave-client-feedback-stars')),
+          findsNothing,
+          reason:
+              'the rating form must never render for a non-reviewable '
+              'booking',
+        );
+        expect(
+          find.byKey(const Key('leave-client-feedback-submit')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('leave-client-feedback-comment')),
+          findsNothing,
+        );
+        // Confirms the pre-gate never even reaches the repository — no
+        // wasted typing was possible because no form existed to submit.
+        verifyNever(
+          () => repo.createClientReview(
+            bookingId: any(named: 'bookingId'),
+            rating: any(named: 'rating'),
+            comment: any(named: 'comment'),
+          ),
+        );
+      },
+    );
+
+    testWidgets(
       'a guest booking renders the «Гість» fallback name and the guest role '
       'label instead of «Клієнт»',
       (tester) async {
@@ -481,10 +575,29 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      // mobile-qa LOW fix (2026-08-16, finding 3) — a bare spinner used to
+      // sit here; replaced with a skeleton shaped like the real form so the
+      // archive→«Відгук» path (now a guaranteed cold fetch, see
+      // `master_archive_screen.dart`'s `_openReview` prefetch) doesn't flash
+      // blank-then-pop into the loaded layout.
+      expect(
+        find.byKey(const Key('leave-client-feedback-loading')),
+        findsOneWidget,
+      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(
         find.byKey(const Key('leave-client-feedback-back')),
         findsOneWidget,
+      );
+      // Neither the form nor the not-reviewable state may flash while the
+      // pre-gate's own fetch is still in flight.
+      expect(
+        find.byKey(const Key('leave-client-feedback-stars')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsNothing,
       );
 
       completer.complete(_booking());
@@ -529,6 +642,102 @@ void main() {
       expect(
         find.byKey(const Key('leave-client-feedback-error-retry')),
         findsOneWidget,
+      );
+    });
+  });
+
+  group('LeaveClientFeedbackScreen — entering from BookingDetailScreen '
+      '(efficiency)', () {
+    testWidgets('REGRESSION GUARD: pushing from the detail screen\'s own '
+        '«Залишити відгук про клієнта» CTA reuses the already-loaded '
+        'bookingDetailProvider — no second fetch', (tester) async {
+      // Real router nesting matching production
+      // (`RouteNames.masterBookingDetail` / `.clientReview`) — the
+      // detail screen stays mounted (paused, not disposed) beneath the
+      // pushed leave-feedback route, exactly like the live app.
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.masterBookingDetail(_bookingId),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/master/bookings/:bookingId',
+            builder: (BuildContext context, GoRouterState state) =>
+                BookingDetailScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+          ),
+          GoRoute(
+            path: '/master/bookings/:bookingId/review',
+            builder: (BuildContext context, GoRouterState state) =>
+                LeaveClientFeedbackScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+          ),
+        ],
+      );
+
+      int fetchCount = 0;
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
+          // Independent master → BookingViewerRole.provider, the SAME
+          // derivation production uses (never overriding
+          // bookingViewerRoleProvider directly).
+          authProvider.overrideWith(
+            () => _StubAuth(
+              const AuthSession.authenticated(
+                user: User(
+                  id: 'u1',
+                  email: 'm@e.com',
+                  role: UserRole.independentMaster,
+                ),
+                accessToken: 't',
+              ),
+            ),
+          ),
+          bookingDetailProvider(_bookingId).overrideWith((ref) async {
+            fetchCount++;
+            return _booking(); // providerCanReviewClient: true (default)
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        fetchCount,
+        1,
+        reason: 'exactly one fetch backs the detail screen\'s load',
+      );
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      // The form must render immediately (pre-gate passed using the
+      // ALREADY-CACHED provider state) — and, the whole point of this
+      // test, WITHOUT a second network round trip.
+      expect(
+        find.byKey(const Key('leave-client-feedback-stars')),
+        findsOneWidget,
+      );
+      expect(
+        fetchCount,
+        1,
+        reason:
+            'entering LeaveClientFeedbackScreen from BookingDetailScreen '
+            'must reuse the SAME bookingDetailProvider(bookingId) '
+            'instance — BookingDetailScreen stays mounted (paused, not '
+            'disposed) beneath the pushed route and keeps it alive, so '
+            'the second `ref.watch` attaches to already-resolved '
+            'AsyncData instead of re-running the fetch',
       );
     });
   });

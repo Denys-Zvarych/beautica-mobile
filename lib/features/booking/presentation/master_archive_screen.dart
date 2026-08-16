@@ -23,15 +23,22 @@
 // composed around it and not a forked near-duplicate widget (user-locked
 // decision, 2026-08-16: "reuse widgets that already exist... if one widget
 // should be fixed, all other pages that used this widget will have the fix
-// as well"). Every OTHER consumer of the card
-// (`bookings_timeline_grid.dart`, `declared_time_cards.dart`) never passes
-// `onComplete`, so it renders byte-identically to before this phase — see
-// that field's own doc on `MasterBookingCard` for the full "additive, not
-// disruptive" contract and why nesting a real `GestureDetector`-based button
-// inside the card's own tap region is safe (Flutter's gesture arena
-// resolves to the innermost recognizer; empirically verified while
-// authoring this phase — see the handoff notes for the throwaway probe
-// test that confirmed it before this shipped).
+// as well"). The same day, the «Відгук» leave-client-feedback action was
+// added as a SECOND additive slot on the same card
+// (`MasterBookingCard.onReview`), pushing the already-shipped
+// `LeaveClientFeedbackScreen` (Track 7.x Wave B) for a COMPLETED row — see
+// that field's own doc for why it is deliberately NOT gated on
+// `booking.providerCanReviewClient` (that flag is hardcoded `false` on every
+// `GET /bookings/me` row this screen's own list is built from). Every OTHER
+// consumer of the card (`bookings_timeline_grid.dart`,
+// `declared_time_cards.dart`) never passes `onComplete` or `onReview`, so it
+// renders byte-identically to before either phase — see those fields' own
+// docs on `MasterBookingCard` for the full "additive, not disruptive"
+// contract and why nesting a real `GestureDetector`-based button inside the
+// card's own tap region is safe (Flutter's gesture arena resolves to the
+// innermost recognizer; empirically verified while authoring the «Виконано»
+// slot — see the handoff notes for the throwaway probe test that confirmed
+// it before that shipped).
 //
 // The filter sheet is the SAME `BookingsFilterSheet`
 // (`widgets/bookings_filter_sheet.dart`) «Мої записи» already opens — no
@@ -87,7 +94,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
-import '../application/bookings_day_notifier.dart';
+import '../application/booking_calendar_invalidation.dart';
+import '../application/booking_detail_notifier.dart';
 import '../application/master_archive_dialog_visible_notifier.dart';
 import '../application/master_archive_in_flight_notifier.dart';
 import '../application/master_archive_notifier.dart';
@@ -241,6 +249,50 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     context.push(RouteNames.masterBookingDetail(booking.id));
   }
 
+  /// «Відгук» — pushes the SHIPPED leave-client-feedback screen (Track 7.x
+  /// Wave B) for a COMPLETED row. See `MasterBookingCard.onReview`'s doc for
+  /// why this is offered on every COMPLETED row without a
+  /// `providerCanReviewClient` gate (that flag is hardcoded `false` on every
+  /// `GET /bookings/me` row, which is what feeds this screen) — a
+  /// user-locked decision, 2026-08-16.
+  ///
+  /// Unlike the detail→review path (where `BookingDetailScreen` stays
+  /// mounted underneath and keeps `bookingDetailProvider(id)` warm), this
+  /// screen is fed by `GET /bookings/me`, which never touches that provider
+  /// — so a bare push here would be a guaranteed cold `GET /bookings/{id}`
+  /// AFTER `LeaveClientFeedbackScreen` builds. Kick the fetch off first so it
+  /// overlaps the push transition instead.
+  ///
+  /// A bare `ref.read(bookingDetailProvider(id).future)` would NOT be
+  /// enough: that is a one-off read, not a durable listener, so
+  /// `bookingDetailProvider` (an autoDispose family) gets disposed again the
+  /// instant this synchronous call stack unwinds — well before the pushed
+  /// `LeaveClientFeedbackScreen` gets a chance to attach its OWN
+  /// `ref.watch`, so it would just fire a SECOND, independent
+  /// `GET /bookings/{id}` on a fresh element (proven red first — see
+  /// `master_archive_screen_test.dart`'s «Відгук» real-route-topology
+  /// group). `listenManual` instead holds a REAL subscription, keeping the
+  /// SAME element (and its in-flight/resolved future) alive across the
+  /// navigation for `LeaveClientFeedbackScreen`'s `ref.watch` to attach to
+  /// — exactly one network round trip, just started earlier. The
+  /// subscription is closed one frame after the push (by then the
+  /// destination screen's own watch is what's keeping the provider alive),
+  /// not left open for this screen's remaining lifetime — `MasterArchiveScreen`
+  /// itself never rebuilds off `bookingDetailProvider`, so no rebuild is
+  /// lost by closing it.
+  ///
+  /// The `(_, _) {}` listener body is a deliberate no-op: any error surfaces
+  /// through `LeaveClientFeedbackScreen`'s own `AsyncValue.error` branch,
+  /// which watches this very same provider — never through this warm-up.
+  void _openReview(Booking booking) {
+    final ProviderSubscription<AsyncValue<Booking>> warmup = ref.listenManual(
+      bookingDetailProvider(booking.id),
+      (AsyncValue<Booking>? previous, AsyncValue<Booking> next) {},
+    );
+    context.push(RouteNames.clientReview(booking.id));
+    WidgetsBinding.instance.addPostFrameCallback((_) => warmup.close());
+  }
+
   /// «Виконано» — see file header's ROLE GATING/CLOSE ACTION notes.
   ///
   /// RE-ENTRANCY (mirrors `booking_cancel_navigation.dart`'s
@@ -313,14 +365,17 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       }
 
       if (!mounted) return;
-      // Invalidate EVERY cached filter combination of the archive (a bare
-      // family reference drops all of them — Riverpod eagerly recomputes
-      // only the ones with a live listener right now) plus the master's own
-      // day timeline, which just lost a CONFIRMED row to COMPLETED. Mirrors
-      // `booking_detail_screen.dart`'s `_confirmComplete` invalidation
-      // exactly.
-      ref.invalidate(masterArchiveProvider);
-      ref.invalidate(bookingsDayProvider);
+      // Same shared fan-out `booking_detail_screen.dart`'s own
+      // decline/complete now routes through — see
+      // `invalidateBookingViewsAfterProviderClose`'s doc: EVERY cached
+      // archive filter combination, the master's own day timeline (which
+      // just lost a CONFIRMED row to COMPLETED), and — a no-op here, since
+      // this screen never has the booking's own detail warm to begin with —
+      // `bookingDetailProvider(booking.id)`. Migrated to the shared helper
+      // (2026-08-16) so this screen and `booking_detail_screen.dart` cannot
+      // independently drift on the contract again; this call site's own
+      // observable behaviour (which caches drop) is unchanged.
+      invalidateBookingViewsAfterProviderClose(ref, booking.id);
     } finally {
       inFlight.end();
     }
@@ -506,6 +561,15 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                               minHeight: MasterBookingCard.fullLayoutMinHeight,
                               onComplete: () => _confirmComplete(booking),
                               completing: completing,
+                              // «Відгук» — additive slot, COMPLETED rows only
+                              // (the card itself re-checks `booking.status`;
+                              // see `MasterBookingCard.onReview`'s doc). Not
+                              // gated on `booking.status` here too — passing
+                              // a non-null callback unconditionally keeps the
+                              // "which statuses show it" decision in exactly
+                              // ONE place (the card) rather than duplicated
+                              // at every call site.
+                              onReview: () => _openReview(booking),
                             ),
                           );
                         },

@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -48,6 +49,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/features/booking/domain/master_archive_query.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -703,6 +705,142 @@ void main() {
             page: any(named: 'page'),
             size: any(named: 'size'),
             cancelToken: any(named: 'cancelToken'),
+          ),
+        ).called(2); // initial watch fetch + the post-complete refetch.
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Archive staleness (2026-08-16 fix) — a decline/complete performed from
+  // THIS screen must also invalidate `masterArchiveProvider`, not only
+  // `bookingDetailProvider`/`bookingsDayProvider` — a master who opened this
+  // very booking FROM `MasterArchiveScreen`
+  // (`master_archive_screen.dart:248-250` pushes the same
+  // `BookingDetailScreen` every other entry point does) would otherwise see
+  // the archive list keep serving the stale pre-close row. Routed through
+  // the shared `invalidateBookingViewsAfterProviderClose` — see that
+  // function's doc.
+  // -------------------------------------------------------------------------
+
+  group('archive invalidation on success (2026-08-16 fix)', () {
+    /// Stubs `getMyBookings` in the SHAPE `MasterArchiveNotifier._fetchFirstPage`
+    /// calls it (statuses/partition/serviceIds/sort/page — no from/to/size/
+    /// cancelToken), distinct from `stubDayList`'s day-list shape above so
+    /// the two never accidentally satisfy each other's `verify`.
+    void stubArchiveList(_MockBookingRepository repo) {
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer(
+        (_) async => const PageResponse<Booking>(
+          items: <Booking>[],
+          page: 0,
+          totalPages: 1,
+          totalElements: 0,
+        ),
+      );
+    }
+
+    testWidgets(
+      'a successful decline refetches an actively-watched masterArchiveProvider '
+      'filter combination — RED before the 2026-08-16 fix (only '
+      'bookingDetailProvider/bookingsDayProvider were invalidated, never '
+      'masterArchiveProvider)',
+      (tester) async {
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          startAt: futureBookingStart(),
+        );
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.declineBooking(any(), comment: any(named: 'comment')),
+        ).thenAnswer((_) async {});
+        stubArchiveList(repo);
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: _overrides(booking, repo),
+        );
+        await tester.pumpAndSettle();
+
+        // Mirrors what `MasterArchiveScreen` keeps warm underneath this
+        // pushed detail screen in the real navigation stack: a LIVE
+        // subscription on the default (untouched-filter) archive query.
+        final MasterArchiveQuery archiveQuery = MasterArchiveQuery.of();
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingDetailScreen)),
+        );
+        final ProviderSubscription<AsyncValue<MasterArchiveState>> sub =
+            container.listen(masterArchiveProvider(archiveQuery), (_, _) {});
+        addTearDown(sub.close);
+        await container.read(masterArchiveProvider(archiveQuery).future);
+
+        await tester.tap(find.byKey(const Key('booking-detail-decline')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        ).called(2); // initial watch fetch + the post-decline refetch.
+      },
+    );
+
+    testWidgets(
+      'a successful complete refetches an actively-watched masterArchiveProvider '
+      'filter combination — RED before the 2026-08-16 fix',
+      (tester) async {
+        final DateTime start = DateTime.now().toUtc().subtract(
+          const Duration(minutes: 5),
+        );
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          startAt: start,
+          durationMinutes: 90,
+        );
+        final repo = _MockBookingRepository();
+        when(() => repo.completeBooking(booking.id)).thenAnswer((_) async {});
+        stubArchiveList(repo);
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: _overrides(booking, repo),
+        );
+        await tester.pumpAndSettle();
+
+        final MasterArchiveQuery archiveQuery = MasterArchiveQuery.of();
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingDetailScreen)),
+        );
+        final ProviderSubscription<AsyncValue<MasterArchiveState>> sub =
+            container.listen(masterArchiveProvider(archiveQuery), (_, _) {});
+        addTearDown(sub.close);
+        await container.read(masterArchiveProvider(archiveQuery).future);
+
+        await tester.tap(find.byKey(const Key('booking-detail-complete')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
           ),
         ).called(2); // initial watch fetch + the post-complete refetch.
       },

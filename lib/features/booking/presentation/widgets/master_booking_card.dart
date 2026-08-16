@@ -432,6 +432,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
+import '../../domain/booking_status.dart';
 import 'booking_status_badge.dart';
 
 /// A provider-perspective booking row. The whole card is one tap target that
@@ -487,6 +488,7 @@ class MasterBookingCard extends StatefulWidget {
     this.minHeight,
     this.onComplete,
     this.completing = false,
+    this.onReview,
   });
 
   final Booking booking;
@@ -528,6 +530,45 @@ class MasterBookingCard extends StatefulWidget {
   /// `null`. Mirrors `NeumorphicButton.loading`'s own contract (the button
   /// this renders internally).
   final bool completing;
+
+  /// Master «Архів» page (2026-08-16) — an ADDITIVE, optional trailing
+  /// «Відгук» action appended below the price/status row, rendered ONLY on
+  /// the FULL layout AND ONLY when [Booking.status] is
+  /// [BookingStatus.completed]. Mirrors [onComplete]'s own additive contract
+  /// exactly — see that field's doc for the general shape (`null`, the
+  /// default at every OTHER call site, renders nothing here, byte-identical
+  /// to this widget before this field existed).
+  ///
+  /// ## Deliberately NOT gated on [Booking.providerCanReviewClient]
+  ///
+  /// [Booking.providerCanReviewClient] is the correct, server-computed
+  /// "has this client already been reviewed for this booking" flag — but the
+  /// backend hardcodes it `false` on every LISTING path
+  /// (`BookingService.java`'s `GET /bookings/me`, both the client and
+  /// provider rows — see that field's own doc), and only ever computes a real
+  /// value on `GET /bookings/{id}`. `master_archive_screen.dart` reads
+  /// `GET /bookings/me`, so gating this button on that flag would make it
+  /// PERMANENTLY INVISIBLE on this screen, not merely conservative.
+  ///
+  /// User-locked decision (2026-08-16), made after being shown that
+  /// trade-off: show the button on every COMPLETED row regardless of real
+  /// reviewability, accepting that a master may tap a booking they already
+  /// reviewed and land on `LeaveClientFeedbackScreen`'s "already reviewed"
+  /// state. That screen fetches the real per-booking value on open and
+  /// pre-gates immediately (no form flash); a submit-time 409 remains as a
+  /// backstop for a race — see that screen's file header. Do NOT re-derive
+  /// reviewability client-side either
+  /// — the real predicate needs "no `ClientReview` exists yet for this
+  /// booking", which list data cannot know, and [Booking] itself documents
+  /// [providerCanReviewClient] as server-computed, not to be re-derived.
+  ///
+  /// The proper fix is backend-side: populate a real value on the provider
+  /// rows of `GET /bookings/me` too (tracked in
+  /// `docs/backend-phases/backlog.md`). **A future reader who "fixes" this by
+  /// adding a `booking.providerCanReviewClient` gate here will silently make
+  /// this button vanish from the archive — that is this comment's whole
+  /// reason for existing.**
+  final VoidCallback? onReview;
 
   /// The COMPACT body's EXACT natural rendered height at textScaler 1.0 (see
   /// the derivation below) — the middle of this card's three naturals,
@@ -1292,8 +1333,20 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// the 16dp inline mark does not reopen.
   Widget _buildFullBody(Booking b, String clientName) {
     final Widget content = _fullBodyContent(b, clientName);
-    // See [MasterBookingCard.onComplete]'s doc — additive, gated slot.
-    if (widget.onComplete == null || !b.awaitingClosure) return content;
+    // See [MasterBookingCard.onComplete] / [MasterBookingCard.onReview]'s
+    // docs — both additive, independently-gated slots. Structurally these
+    // two conditions can never both be true on the same [Booking]:
+    // [Booking.awaitingClosure] requires `status == BookingStatus.confirmed`
+    // (see that field's own doc), while [showReview] requires
+    // `status == BookingStatus.completed` — one [Booking.status] value
+    // cannot satisfy both at the same time. Both branches are still
+    // independent `if`s below (not an if/else) so a future relaxation of
+    // either gate degrades to "both render, stacked" rather than "one
+    // silently wins and the other vanishes".
+    final bool showComplete = widget.onComplete != null && b.awaitingClosure;
+    final bool showReview =
+        widget.onReview != null && b.status == BookingStatus.completed;
+    if (!showComplete && !showReview) return content;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -1306,16 +1359,35 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // body that genuinely depends on [widget.completing], so it is the
         // only part that must rebuild when that flag flips (see
         // [_fullBodyContentCache]'s doc).
-        Padding(
-          padding: const EdgeInsets.only(top: VelvetSpacing.xs),
-          child: NeumorphicButton(
-            key: Key('master-booking-card-complete-${b.id}'),
-            label: AppLocalizations.of(context).bookingDetailCompleteCta,
-            icon: Icons.check_circle_rounded,
-            loading: widget.completing,
-            onPressed: widget.completing ? null : widget.onComplete,
+        if (showComplete)
+          Padding(
+            padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+            child: NeumorphicButton(
+              key: Key('master-booking-card-complete-${b.id}'),
+              label: AppLocalizations.of(context).bookingDetailCompleteCta,
+              icon: Icons.check_circle_rounded,
+              loading: widget.completing,
+              onPressed: widget.completing ? null : widget.onComplete,
+            ),
           ),
-        ),
+        // Master «Архів» page — the ADDITIVE «Відгук» slot. See
+        // [MasterBookingCard.onReview]'s doc for the gating rationale.
+        // Deliberately OUTSIDE [_fullBodyContent]'s cache for the same
+        // reason as the «Виконано» slot above: it is built fresh every call
+        // rather than baked into the memoized, `identical()`-shortcut
+        // subtree, so a caller that flips [onReview] (null <-> non-null)
+        // between rebuilds of an otherwise-unchanged [Booking] is never
+        // silently skipped by Flutter's `updateChild` identity check.
+        if (showReview)
+          Padding(
+            padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+            child: NeumorphicButton(
+              key: Key('master-booking-card-review-${b.id}'),
+              label: AppLocalizations.of(context).masterArchiveReviewCta,
+              icon: Icons.rate_review_outlined,
+              onPressed: widget.onReview,
+            ),
+          ),
       ],
     );
   }

@@ -106,6 +106,7 @@ import 'logout_flow_test.dart' as logout;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
 import 'master_archive_flow_test.dart' as master_archive;
+import 'master_archive_review_flow_test.dart' as master_archive_review;
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
@@ -323,6 +324,12 @@ void main() {
   // Registered beside `master_bookings_flow`, whose login/router scaffolding
   // it shares.
   group('master_archive_flow', master_archive.main);
+  // 2026-08-16 follow-up (mobile-qa, Step 2.7 Rule 3b) — the archive's
+  // «Відгук» entry point + the invalidation-regression guard for a decline
+  // performed from the pushed detail screen (not the archive's own
+  // «Виконано» slot). Registered beside `master_archive_flow`, whose
+  // login/router scaffolding it shares.
+  group('master_archive_review_flow', master_archive_review.main);
   // Варіант D port (mobile-qa, Step 2.7 Rule 3b) — pins the ORIGINAL field
   // bug this rework fixes: a month step must move BOTH the selection and the
   // fetched query, not just relabel/re-scroll. Registered beside

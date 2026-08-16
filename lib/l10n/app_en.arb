@@ -4355,6 +4355,10 @@
   "@clientReviewBackSemantics": {
     "description": "Accessibility label for the back button on the leave-client-feedback screen."
   },
+  "clientReviewLoadingSemantics": "Loading review form",
+  "@clientReviewLoadingSemantics": {
+    "description": "Accessibility live-region label for the leave-client-feedback loading skeleton."
+  },
   "clientReviewRatingSection": "CLIENT RATING",
   "@clientReviewRatingSection": {
     "description": "Section eyebrow above the required star-rating input on the leave-client-feedback screen."
@@ -5208,6 +5212,10 @@
   "masterArchiveLoadMoreCta": "Load more",
   "@masterArchiveLoadMoreCta": {
     "description": "Button label that resumes fetching further raw server pages after the automatic continuation on the master «Архів» page has hit its attempt cap."
+  },
+  "masterArchiveReviewCta": "Review",
+  "@masterArchiveReviewCta": {
+    "description": "Short CTA label for MasterBookingCard's additive «Відгук» slot on a COMPLETED row of the master «Архів» page — pushes LeaveClientFeedbackScreen. Deliberately short (unlike bookingDetailClientReviewCta's full-sentence label) to fit a card-width button; see MasterBookingCard.onReview's doc for why this is offered on every COMPLETED row without a providerCanReviewClient gate."
   },
   "statTileNoDataSemantics": "{caption}: no data",
   "@statTileNoDataSemantics": {

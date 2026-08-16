@@ -34,6 +34,7 @@ import '../domain/booking_tab.dart';
 import '../domain/bookings_day_query.dart';
 import 'booking_detail_notifier.dart';
 import 'bookings_day_notifier.dart';
+import 'master_archive_notifier.dart';
 import 'my_bookings_notifier.dart';
 
 /// Invalidates every cached master-facing booking view after an external
@@ -124,4 +125,57 @@ void invalidateBookingViewsAfterExternalDecline(
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
   ref.invalidate(nextAppointmentProvider);
+}
+
+/// Invalidates every master-facing booking cache a PROVIDER-INITIATED close
+/// (decline or complete) of [bookingId] must drop, regardless of which
+/// screen performed the write.
+///
+/// 2026-08-16 bug this fixes: `BookingDetailScreen._confirmDecline`/
+/// `._confirmComplete` invalidated `bookingDetailProvider`+`bookingsDayProvider`
+/// by hand and never `masterArchiveProvider`; separately,
+/// `MasterArchiveScreen._confirmComplete` invalidated `masterArchiveProvider`+
+/// `bookingsDayProvider` by hand and never worried about `bookingDetailProvider`.
+/// Two independent hand-rolled fan-outs implementing the same "a booking's
+/// status just closed" contract is exactly how one of them silently missed a
+/// target — a master who declined/completed a booking they opened FROM the
+/// archive (`master_archive_screen.dart:248-250` pushes the SAME
+/// `BookingDetailScreen` every other entry point does) saw the archive list
+/// keep serving the stale pre-close row until its own eventual, unrelated
+/// refetch. ONE fan-out point (mirrors
+/// [invalidateBookingViewsAfterExternalDecline]'s "one fan-out point"
+/// precedent above) so `booking_detail_screen.dart` and
+/// `master_archive_screen.dart` cannot independently drift on this again —
+/// every future call site of either wires through here.
+///
+///   • [bookingDetailProvider] — this one [bookingId] (autoDispose family; a
+///     no-op for any id nobody is currently viewing — including a call from
+///     the archive screen, which never has this booking's detail warm to
+///     begin with, so this is free there, not merely harmless).
+///   • [bookingsDayProvider] — the BARE family (no query argument), not a
+///     per-date target: unlike [invalidateBookingViewsAfterExternalDecline]
+///     (whose caller always knows every affected date from its own
+///     conflict-check response), a manual decline/complete from the detail
+///     screen or the archive is always exactly ONE booking with no separate
+///     "which calendar day(s) changed" signal reaching this helper — the
+///     booking's own `startAt` is available at both call sites, but deriving
+///     "the affected date" from it would still be one date, and passing the
+///     bare family costs nothing extra: Riverpod only EAGERLY recomputes the
+///     family members that currently have an active listener (at most the
+///     bounded ≤3-day keepAlive LRU's worth, `bookings_day_notifier.dart`'s
+///     `_kMaxKeptDays`); every other cached day refetches lazily the next
+///     time it's watched. Same reasoning `BookingDetailScreen` documented at
+///     its own former call site before this helper existed.
+///   • [masterArchiveProvider] — the BARE family (every filter combination a
+///     master may have applied) — the fix. `MasterArchiveNotifier` is
+///     `autoDispose` per filter combination (its own file header), so this is
+///     a no-op for any combination the master isn't currently viewing.
+///
+/// Cost: one refetch per LIVE subscriber, same accounting as
+/// [invalidateBookingViewsAfterExternalDecline] — calling this while none of
+/// these screens are on-screen costs nothing.
+void invalidateBookingViewsAfterProviderClose(WidgetRef ref, String bookingId) {
+  ref.invalidate(bookingDetailProvider(bookingId));
+  ref.invalidate(bookingsDayProvider);
+  ref.invalidate(masterArchiveProvider);
 }

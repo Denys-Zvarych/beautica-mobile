@@ -4702,6 +4702,18 @@ final class FakeBackend {
     // just that a mocked repository method was invoked with the right Dart
     // arguments (that gap is exactly what the widget-tier
     // `booking_detail_provider_footer_test.dart` cannot close).
+    //
+    // 2026-08-16 (mobile-qa) — ALSO mutates the `booking-1` row of
+    // [_bookingsDataset], when one is seeded, to `status: 'DECLINED'`, mirroring
+    // the `/complete` route's identical dataset mutation below. Without this,
+    // `master_archive_review_flow_test.dart`'s invalidation regression guard
+    // (archive → pushed detail → decline → back to archive) could never
+    // observe the row leave the archive's PAST partition
+    // (`_partitionOf`: DECLINED classifies as CANCELLED, never PAST) even with
+    // a byte-correct `invalidateBookingViewsAfterProviderClose` fix — the
+    // dataset itself would still report the pre-decline CONFIRMED row on the
+    // very next `GET /bookings/me`, and the test could not tell "the cache
+    // never dropped" apart from "the fake never learned about the write".
     _adapter.onRoute(
       '/api/v1/bookings/booking-1/decline',
       (server) => server.replyCallback(200, (req) {
@@ -4710,6 +4722,18 @@ final class FakeBackend {
         lastDeclineComment = body['comment'] as String?;
         lastDeclineCancellationReason = body['cancellationReason'] as String?;
         bookingStatus = 'DECLINED';
+        final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+        if (dataset != null) {
+          final int idx = dataset.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (idx != -1) {
+            dataset[idx] = <String, dynamic>{
+              ...dataset[idx],
+              'status': 'DECLINED',
+            };
+          }
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),

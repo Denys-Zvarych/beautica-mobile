@@ -33,15 +33,23 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -231,6 +239,30 @@ void main() {
           path: '/archive',
           builder: (BuildContext context, GoRouterState state) =>
               const MasterArchiveScreen(),
+        ),
+        // A probe standing in for `LeaveClientFeedbackScreen` at the SAME
+        // path `RouteNames.clientReview` builds — proves the «Відгук» slot
+        // pushes the real route rather than merely calling some callback.
+        //
+        // Registered as a plain top-level `GoRoute`, which is now what
+        // `app_router.dart` ACTUALLY does (mobile-qa MEDIUM/finding-1 fix,
+        // 2026-08-16): `review` used to be nested under a
+        // `masterBookingDetail`-shaped parent there, which made go_router
+        // insert that ancestor's own match into every push and silently
+        // mount a shadow `BookingDetailScreen` underneath — including on
+        // THIS archive→review path, where popping then landed on the
+        // shadow detail screen instead of back on the archive list. See
+        // `app_router.dart`'s `review` route registration comment for the
+        // full investigation. This isolated probe only proves the PUSH call
+        // itself is correct (id, path); it does NOT exercise the ancestor-
+        // insertion question — `master_archive_screen_test.dart`'s own
+        // «real route topology» group below does, against the real
+        // `BookingDetailScreen` + `LeaveClientFeedbackScreen` widgets.
+        GoRoute(
+          path: '/master/bookings/:bookingId/review',
+          builder: (BuildContext context, GoRouterState state) => Scaffold(
+            key: Key('review-probe-${state.pathParameters['bookingId']}'),
+          ),
         ),
       ],
     );
@@ -1031,6 +1063,176 @@ void main() {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // 2026-08-16 — `_confirmComplete` migrated from a hand-rolled
+  // `ref.invalidate(masterArchiveProvider); ref.invalidate(bookingsDayProvider);`
+  // pair to the shared `invalidateBookingViewsAfterProviderClose` helper
+  // (`booking_calendar_invalidation.dart`) — this screen's OWN close action
+  // already invalidated both correctly by hand; this group pins that the
+  // migration preserved the observable behaviour exactly, on both targets.
+  // The archive-list half is already implicit in the existing «Виконано»
+  // tests above (the screen watches `masterArchiveProvider` directly, so a
+  // dropped invalidation would leave the closed row's card still showing
+  // «Виконано»/spinner state) — this group's own contribution is the
+  // `bookingsDayProvider` half, which nothing above establishes a live
+  // subscription to.
+  // -------------------------------------------------------------------------
+
+  group('day-timeline invalidation survives the shared-helper migration '
+      '(2026-08-16)', () {
+    void stubDayList(_MockBookingRepository repo) {
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => const PageResponse<Booking>(
+          items: <Booking>[],
+          page: 0,
+          totalPages: 1,
+          totalElements: 0,
+        ),
+      );
+    }
+
+    testWidgets('a successful «Виконано» close refetches an actively-watched '
+        'bookingsDayProvider family member for the booking\'s day', (
+      WidgetTester tester,
+    ) async {
+      final Booking booking = _booking(
+        id: 'awaiting',
+        status: BookingStatus.confirmed,
+        awaitingClosure: true,
+      );
+      stubList(<Booking>[booking]);
+      stubDayList(repo);
+      when(() => repo.completeBooking('awaiting')).thenAnswer((_) async {});
+
+      await pump(tester);
+      await tester.pumpAndSettle();
+
+      // Mirrors `booking_detail_provider_footer_test.dart`'s identical
+      // "day-list invalidation on success" group: a LIVE subscription on
+      // the plain empty-status day-list member for this booking's day,
+      // standing in for whatever screen underneath keeps it warm.
+      final BookingsDayQuery dayQuery = BookingsDayQuery.of(
+        day: booking.startAt,
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(MasterArchiveScreen)),
+      );
+      final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+          .listen(bookingsDayProvider(dayQuery), (_, _) {});
+      addTearDown(sub.close);
+      await container.read(bookingsDayProvider(dayQuery).future);
+
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-complete-awaiting')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(2); // initial watch fetch + the post-complete refetch.
+    });
+  });
+
+  group('«Відгук» review action', () {
+    testWidgets('renders ONLY on a COMPLETED row, never on an awaitingClosure '
+        'CONFIRMED row — a fixture carrying both proves this is not vacuous', (
+      WidgetTester tester,
+    ) async {
+      stubList(<Booking>[
+        _booking(
+          id: 'awaiting',
+          status: BookingStatus.confirmed,
+          awaitingClosure: true,
+        ),
+        _booking(id: 'done', status: BookingStatus.completed),
+      ]);
+
+      await pump(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-done')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-awaiting')),
+        findsNothing,
+      );
+      // The «Виконано» / «Відгук» pairing is mutually exclusive by
+      // construction (`Booking.awaitingClosure` requires
+      // `status == confirmed`; the review slot requires
+      // `status == completed`) — pinned here alongside the review
+      // assertions above, on the SAME two-row fixture, so a future change
+      // to either gate that let both render on one row would turn one of
+      // these four expectations red.
+      expect(
+        find.byKey(const Key('master-booking-card-complete-awaiting')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-complete-done')),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      "tap pushes RouteNames.clientReview with the tapped row's own booking "
+      'id — via a real context.push, not a bare callback assertion',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(id: 'done', status: BookingStatus.completed),
+        ]);
+        // `_openReview` prefetches `bookingDetailProvider('done')` (finding-2
+        // fix) before pushing, which calls this on the shared mock —
+        // unstubbed, mocktail throws `MissingStubError`. The probe route
+        // never reads the result, so any resolved `Booking` is fine here.
+        when(() => repo.getBookingById(any())).thenAnswer(
+          (_) async => _booking(id: 'done', status: BookingStatus.completed),
+        );
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          RouteNames.clientReview('done'),
+          '/master/bookings/done/review',
+          reason:
+              'sanity-check the route this test drives through actually is '
+              'the one MasterArchiveScreen calls',
+        );
+
+        await tester.tap(
+          find.byKey(const Key('master-booking-card-review-done')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('review-probe-done')), findsOneWidget);
+      },
+    );
+  });
+
   group('navigation', () {
     testWidgets('the back arrow pops the route', (WidgetTester tester) async {
       stubList(const <Booking>[]);
@@ -1044,6 +1246,161 @@ void main() {
 
       expect(find.byKey(const Key('from-stub')), findsOneWidget);
       expect(find.byKey(const Key('master-archive-screen')), findsNothing);
+    });
+  });
+
+  group('«Відгук» real route topology (regression guard — finding 1 & 2)', () {
+    // Mirrors `app_router.dart`'s ACTUAL registration, not a simplified
+    // stand-in: `archive` nested as a real child of the `masterBookings`
+    // tab-root (exactly like production — the archive DOES legitimately
+    // inherit that ancestor), `:bookingId` a sibling child rendering the
+    // REAL `BookingDetailScreen`, and `review` registered as a STANDALONE
+    // top-level route — NOT nested under `:bookingId`. This is the shape
+    // that would go RED if a future change reintroduced nesting review
+    // under the detail route (see `app_router.dart`'s `review` route
+    // registration comment for why that silently mounts a shadow
+    // `BookingDetailScreen`).
+    Future<void> pumpRealTopology(
+      WidgetTester tester, {
+      required Booking archiveRow,
+      required void Function() bumpFetchCount,
+    }) async {
+      stubList(<Booking>[archiveRow]);
+
+      final GoRouter router = GoRouter(
+        // Straight to the archive location so go_router computes the full
+        // ancestor + leaf match list ONCE, at parse time — pushing it as a
+        // second step after an initial `masterBookings` location would
+        // insert a SECOND, redundant `masterBookings` match (ancestor-
+        // insertion applies per-push, not de-duplicated across an existing
+        // stack), which is beside the point of this test.
+        initialLocation: RouteNames.masterBookingsArchive,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.masterBookings,
+            builder: (BuildContext context, GoRouterState state) =>
+                const Scaffold(key: Key('master-bookings-tab-root-stub')),
+            routes: <RouteBase>[
+              GoRoute(
+                path: 'archive',
+                builder: (BuildContext context, GoRouterState state) =>
+                    const MasterArchiveScreen(),
+              ),
+              GoRoute(
+                path: ':bookingId',
+                builder: (BuildContext context, GoRouterState state) =>
+                    BookingDetailScreen(
+                      bookingId: state.pathParameters['bookingId']!,
+                    ),
+              ),
+            ],
+          ),
+          // STANDALONE — a sibling of `masterBookings`, exactly matching
+          // `app_router.dart`'s real registration; deliberately NOT nested
+          // under the `:bookingId` route above.
+          GoRoute(
+            path: '/master/bookings/:bookingId/review',
+            builder: (BuildContext context, GoRouterState state) =>
+                LeaveClientFeedbackScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          bookingRepositoryProvider.overrideWithValue(repo),
+          masterServiceCatalogProvider.overrideWith(
+            (ref) async => const <MasterService>[],
+          ),
+          bookingDetailProvider(archiveRow.id).overrideWith((ref) async {
+            bumpFetchCount();
+            return archiveRow;
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('master-archive-screen')), findsOneWidget);
+    }
+
+    testWidgets('tapping «Відгук» from an archive row lands on '
+        'LeaveClientFeedbackScreen, NEVER mounts a shadow BookingDetailScreen, '
+        'prefetches bookingDetailProvider with exactly ONE network fetch, and '
+        'popping returns to the ARCHIVE list — not a detail screen', (
+      WidgetTester tester,
+    ) async {
+      final Booking booking = _booking(
+        id: 'done',
+        status: BookingStatus.completed,
+      );
+      int fetchCount = 0;
+      await pumpRealTopology(
+        tester,
+        archiveRow: booking,
+        bumpFetchCount: () => fetchCount++,
+      );
+
+      expect(
+        find.byType(BookingDetailScreen),
+        findsNothing,
+        reason: 'no detail screen was ever navigated to on this path',
+      );
+      expect(fetchCount, 0, reason: 'no prefetch has fired yet');
+
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-review-done')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      expect(
+        find.byType(BookingDetailScreen),
+        findsNothing,
+        reason:
+            'REGRESSION GUARD (finding 1): nesting `review` under the '
+            'detail route would silently mount BookingDetailScreen '
+            'underneath via go_router\'s ancestor-match insertion — this '
+            'must never happen on the archive entry path',
+      );
+      expect(
+        fetchCount,
+        1,
+        reason:
+            'the archive list is fed by GET /bookings/me, which never '
+            'warms bookingDetailProvider — `_openReview` must prefetch it '
+            'exactly once, via `listenManual` (NOT a bare `ref.read(...'
+            'future)`, which would not survive the navigation — proven RED '
+            'first), so the round trip overlaps the push transition AND '
+            'LeaveClientFeedbackScreen\'s own `ref.watch` reuses the SAME '
+            'element instead of firing an independent second GET',
+      );
+
+      await tester.tap(find.byKey(const Key('leave-client-feedback-back')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(LeaveClientFeedbackScreen),
+        findsNothing,
+        reason: 'popped away from the review screen',
+      );
+      expect(
+        find.byType(BookingDetailScreen),
+        findsNothing,
+        reason:
+            'REGRESSION GUARD (finding 1): pop must not land on a '
+            'shadow detail screen',
+      );
+      expect(
+        find.byKey(const Key('master-archive-screen')),
+        findsOneWidget,
+        reason:
+            'REGRESSION GUARD (finding 1): popping the review screen must '
+            'return to the ARCHIVE list the master actually came from',
+      );
     });
   });
 }

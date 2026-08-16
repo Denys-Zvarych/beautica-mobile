@@ -82,10 +82,10 @@ import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
+import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
-import '../application/bookings_day_notifier.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
@@ -202,22 +202,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       return;
     }
     if (!mounted) return;
-    ref.invalidate(bookingDetailProvider(booking.id));
-    // The booking just left CONFIRMED for DECLINED — the master's own
-    // «Мої записи» day timeline (`master_bookings_screen.dart` /
-    // `bookings_discovery_view.dart`, both reading `bookingsDayProvider`)
-    // would otherwise keep showing it as CONFIRMED until its bounded
-    // keepAlive cache (≤3 days, `DayKeepAliveLru`) happens to evict and
-    // refetch on its own. Passing the bare FAMILY (no query argument) drops
-    // every cached day's value at once; Riverpod only EAGERLY recomputes the
-    // family members that still have an active listener right now (at most
-    // the ≤3-entry LRU's worth), so the actual refetch cost is bounded — any
-    // other cached day refetches lazily the next time it's watched. Cheaper
-    // than guessing which single `BookingsDayQuery` (day + filters) the
-    // master was last viewing, which this screen has no way to know. Mirrors
-    // `_confirmCancel`'s `myBookingsProvider` invalidation above, one family
-    // reference standing in for that enumerable tab set.
-    ref.invalidate(bookingsDayProvider);
+    // The booking just left CONFIRMED for DECLINED — every master-facing
+    // cache that status close must drop (own detail, day timeline, archive
+    // list) goes through the ONE shared fan-out point; see that function's
+    // doc for the bare-family rationale on both `bookingsDayProvider` and
+    // `masterArchiveProvider`, and for the 2026-08-16 archive-staleness bug
+    // this replaced two independently-drifting hand-rolled call sites for.
+    invalidateBookingViewsAfterProviderClose(ref, booking.id);
   }
 
   /// Track 27.x Wave A — the PROVIDER's «Завершити» opens a plain confirm
@@ -263,10 +254,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       return;
     }
     if (!mounted) return;
-    ref.invalidate(bookingDetailProvider(booking.id));
-    // Same day-list staleness fix as `_confirmDecline` — the booking just
-    // left CONFIRMED for COMPLETED.
-    ref.invalidate(bookingsDayProvider);
+    // Same shared fan-out as `_confirmDecline` — the booking just left
+    // CONFIRMED for COMPLETED.
+    invalidateBookingViewsAfterProviderClose(ref, booking.id);
   }
 
   /// Track 30.x (superseding track 27.x/MO-6's whole-visit flow): when
