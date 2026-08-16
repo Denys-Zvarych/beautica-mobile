@@ -93,6 +93,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -103,12 +104,34 @@ import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_status.dart';
 import '../domain/master_archive_query.dart';
+import 'widgets/archive_day_groups.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/complete_booking_dialog.dart';
 import 'widgets/master_booking_card.dart';
 import 'widgets/my_bookings_states.dart';
 
 const String _tag = 'feature.booking.masterArchive';
+
+/// Test-only observability for
+/// `_MasterArchiveScreenState._groupedEntries`'s identity memo — counts real
+/// (cache-MISS) calls into `groupArchiveByKyivDay` so a test can assert the
+/// memo actually SKIPS the O(n) regroup on a rebuild that doesn't change
+/// `state.items`'s identity, rather than asserting on the grouped output
+/// (which would look identical with or without the memo, since the function
+/// is pure — see `master_archive_screen_test.dart`'s memoization group).
+/// Mirrors `time_zones.dart`'s `@visibleForTesting` debug-hook precedent; an
+/// int increment is negligible cost so this stays live in every build
+/// config rather than needing a `kReleaseMode` no-op branch.
+@visibleForTesting
+int debugGroupArchiveByKyivDayCallCount = 0;
+
+/// Resets [debugGroupArchiveByKyivDayCallCount] to 0 — call at the top of
+/// each test that asserts on it, since the counter is process-global and
+/// otherwise carries over between tests in the same run.
+@visibleForTesting
+void debugResetGroupArchiveByKyivDayCallCount() {
+  debugGroupArchiveByKyivDayCallCount = 0;
+}
 
 /// The master's «Архів» page. See file header.
 class MasterArchiveScreen extends ConsumerStatefulWidget {
@@ -183,6 +206,32 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
+
+  /// mobile-perf MEDIUM fix — identity-keyed memo for
+  /// [groupArchiveByKyivDay]. `build()` also watches
+  /// `masterArchiveInFlightProvider`/`masterArchiveDialogVisibleProvider`
+  /// (the «Виконано» flow flips both without ever changing `state.items`'s
+  /// identity — `master_archive_notifier.dart`'s `copyWith` only allocates a
+  /// new `items` list on `_fetchFirstPage`/`refresh`/`loadMore`; every other
+  /// `copyWith` call reuses the prior reference), so re-running the O(n)
+  /// grouping pass on those rebuilds is pure waste. `identical()` is a sound
+  /// cache key here specifically because [groupArchiveByKyivDay] is pure
+  /// over `items` alone (no clock/locale read — see that function's file
+  /// header) and `MasterArchiveState.items` is only ever REPLACED, never
+  /// mutated in place. The day-header LABEL itself is formatted separately,
+  /// at widget-build time, in `_ArchiveDayHeader.build()` — so a locale
+  /// change is unaffected by this cache.
+  List<Booking>? _lastGroupedItems;
+  List<ArchiveListEntry>? _lastGroupedEntries;
+
+  List<ArchiveListEntry> _groupedEntries(List<Booking> items) {
+    if (identical(_lastGroupedItems, items)) return _lastGroupedEntries!;
+    debugGroupArchiveByKyivDayCallCount++;
+    final List<ArchiveListEntry> entries = groupArchiveByKyivDay(items);
+    _lastGroupedItems = items;
+    _lastGroupedEntries = entries;
+    return entries;
+  }
 
   MasterArchiveQuery get _query =>
       MasterArchiveQuery.of(statuses: _statuses, serviceIds: _serviceIds);
@@ -528,50 +577,64 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                           ],
                         );
                       }
-                      final List<Booking> items = state.items;
+                      // Flattened header-or-card list over the FULL
+                      // accumulated `state.items` (every raw page fetched so
+                      // far, already merged by the notifier) — see
+                      // `archive_day_groups.dart`'s file header for why
+                      // grouping the merged list, rather than each freshly
+                      // fetched page independently, is exactly what makes a
+                      // Kyiv day that straddles a page boundary collapse to
+                      // ONE header instead of two. `ListView.separated` stays
+                      // index-addressable over this flat list, so
+                      // virtualization and the per-row `RepaintBoundary`
+                      // below are unaffected — only the index math changed,
+                      // not the widget shape.
+                      final List<ArchiveListEntry> entries = _groupedEntries(
+                        state.items,
+                      );
                       final int extra = state.hasMore ? 1 : 0;
                       return ListView.separated(
                         key: const Key('master-archive-list'),
                         controller: _scrollController,
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: kMyBookingsListPadding,
-                        itemCount: items.length + extra,
-                        separatorBuilder: (BuildContext context, int i) =>
-                            const SizedBox(height: VelvetSpacing.md),
+                        itemCount: entries.length + extra,
+                        separatorBuilder: (BuildContext context, int i) {
+                          final ArchiveListEntry? current = i < entries.length
+                              ? entries[i]
+                              : null;
+                          final ArchiveListEntry? next = i + 1 < entries.length
+                              ? entries[i + 1]
+                              : null;
+                          if (current is ArchiveDayHeaderEntry) {
+                            // Header directly above its first card — a tight
+                            // gap reads as "belongs together".
+                            return const SizedBox(height: VelvetSpacing.sm);
+                          }
+                          if (next is ArchiveDayHeaderEntry) {
+                            // Last card of a group directly above the NEXT
+                            // day's header — a wider gap reads as "new
+                            // group".
+                            return const SizedBox(height: VelvetSpacing.lg);
+                          }
+                          return const SizedBox(height: VelvetSpacing.md);
+                        },
                         itemBuilder: (BuildContext context, int i) {
-                          if (i >= items.length) {
+                          if (i >= entries.length) {
                             return const MyBookingsLoadMoreSpinner();
                           }
-                          final Booking booking = items[i];
-                          return RepaintBoundary(
-                            key: ValueKey<String>(booking.id),
-                            // «Виконано» is now an ADDITIVE slot on
-                            // `MasterBookingCard` itself (user-locked
-                            // decision, 2026-08-16 — reuse and fix shared
-                            // widgets in place, never fork/wrap) — see that
-                            // widget's `onComplete` doc. Pinned to the FULL
-                            // layout regardless of `durationMinutes`: the
-                            // archive is a list, not a duration-proportional
-                            // timeline. Mirrors `declared_time_cards.dart`'s
-                            // existing non-timeline caller of the same
-                            // `minHeight` knob.
-                            child: MasterBookingCard(
-                              booking: booking,
-                              onTap: () => _openDetail(booking),
-                              minHeight: MasterBookingCard.fullLayoutMinHeight,
-                              onComplete: () => _confirmComplete(booking),
-                              completing: completing,
-                              // «Відгук» — additive slot, COMPLETED rows only
-                              // (the card itself re-checks `booking.status`;
-                              // see `MasterBookingCard.onReview`'s doc). Not
-                              // gated on `booking.status` here too — passing
-                              // a non-null callback unconditionally keeps the
-                              // "which statuses show it" decision in exactly
-                              // ONE place (the card) rather than duplicated
-                              // at every call site.
-                              onReview: () => _openReview(booking),
+                          final ArchiveListEntry entry = entries[i];
+                          return switch (entry) {
+                            ArchiveDayHeaderEntry() => _ArchiveDayHeader(
+                              key: ValueKey<String>(
+                                'master-archive-day-header-'
+                                '${entry.kyivDay.toIso8601String()}',
+                              ),
+                              entry: entry,
                             ),
-                          );
+                            ArchiveBookingEntry(:final Booking booking) =>
+                              _archiveBookingRow(booking, completing),
+                          };
                         },
                       );
                     },
@@ -581,6 +644,74 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The per-row `RepaintBoundary`-wrapped `MasterBookingCard` — split out
+  /// of the `itemBuilder` switch above purely so that switch stays a clean
+  /// one-line-per-variant match; identical widget to what this screen
+  /// rendered before date-group headers existed.
+  Widget _archiveBookingRow(Booking booking, bool completing) {
+    return RepaintBoundary(
+      key: ValueKey<String>(booking.id),
+      // «Виконано» is now an ADDITIVE slot on `MasterBookingCard` itself
+      // (user-locked decision, 2026-08-16 — reuse and fix shared widgets in
+      // place, never fork/wrap) — see that widget's `onComplete` doc. Pinned
+      // to the FULL layout regardless of `durationMinutes`: the archive is a
+      // list, not a duration-proportional timeline. Mirrors
+      // `declared_time_cards.dart`'s existing non-timeline caller of the
+      // same `minHeight` knob.
+      child: MasterBookingCard(
+        booking: booking,
+        onTap: () => _openDetail(booking),
+        minHeight: MasterBookingCard.fullLayoutMinHeight,
+        onComplete: () => _confirmComplete(booking),
+        completing: completing,
+        // «Відгук» — additive slot, COMPLETED rows only (the card itself
+        // re-checks `booking.status`; see `MasterBookingCard.onReview`'s
+        // doc). Not gated on `booking.status` here too — passing a non-null
+        // callback unconditionally keeps the "which statuses show it"
+        // decision in exactly ONE place (the card) rather than duplicated
+        // at every call site.
+        onReview: () => _openReview(booking),
+      ),
+    );
+  }
+}
+
+/// A date-group header row above every run of bookings that share a Kyiv
+/// calendar day — see `archive_day_groups.dart`'s file header for the
+/// grouping/page-boundary-merge contract this renders. Plain (non-sticky),
+/// matching the approved preview shape; no scroll-pinning behaviour.
+class _ArchiveDayHeader extends StatelessWidget {
+  const _ArchiveDayHeader({required this.entry, super.key});
+
+  final ArchiveDayHeaderEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    // `formatBookingDayHeader` performs its OWN `toBeauticaTime` conversion,
+    // so it takes the group's REPRESENTATIVE INSTANT — never `entry.kyivDay`
+    // itself, which is a date token, not an instant (see that field's doc
+    // and `kyiv_day.dart`'s date-token-vs-instant warning).
+    final String label = formatBookingDayHeader(entry.representativeInstant);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.xs,
+        0,
+        VelvetSpacing.xs,
+        0,
+      ),
+      // `header: true` + `excludeSemantics: true` collapses the header text
+      // into a SINGLE semantic announcement per date group, rather than a
+      // screen reader reading it as an ordinary stray label indistinguishable
+      // from the cards around it.
+      child: Semantics(
+        header: true,
+        label: label,
+        excludeSemantics: true,
+        child: Text(label, style: VelvetText.label()),
       ),
     );
   }

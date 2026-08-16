@@ -36,6 +36,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -43,6 +44,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/features/booking/domain/master_archive_query.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
@@ -50,6 +52,9 @@ import 'package:beautica_mobile/features/services/data/master_service_catalog_pr
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,6 +77,14 @@ Booking _booking({
   required String id,
   required BookingStatus status,
   bool awaitingClosure = false,
+  // Overridable ONLY for the date-group-header tests below, which need
+  // several distinct instants to exercise grouping — every other call site
+  // in this file relies on the fixed PAST literal default (this screen is
+  // HISTORY-scoped by construction, HISTORY ⊇ PAST, and a fixed past instant
+  // can never drift into "upcoming"; see
+  // `test/helpers/booking_fixture_dates.dart`'s header on why a FUTURE
+  // fixture needs the relative helper but a PAST one does not).
+  DateTime? startAt,
 }) => Booking(
   id: id,
   masterId: 'm-$id',
@@ -84,13 +97,10 @@ Booking _booking({
   serviceName: 'Манікюр з покриттям',
   durationMinutes: 60,
   price: 500,
-  // A fixed PAST literal — this screen is HISTORY-scoped by construction
-  // (HISTORY ⊇ PAST), and a fixed past instant can never drift into
-  // "upcoming" (see
-  // `test/helpers/booking_fixture_dates.dart`'s header on why a FUTURE
-  // fixture needs the relative helper but a PAST one does not).
-  startAt: DateTime.utc(2000, 1, 1, 10),
-  endAt: DateTime.utc(2000, 1, 1, 11),
+  startAt: startAt ?? DateTime.utc(2000, 1, 1, 10),
+  endAt: (startAt ?? DateTime.utc(2000, 1, 1, 10)).add(
+    const Duration(hours: 1),
+  ),
   status: status,
   canReview: false,
   awaitingClosure: awaitingClosure,
@@ -107,6 +117,9 @@ void main() {
   setUpAll(() {
     registerFallbackValue(BookingStatus.confirmed);
     registerFallbackValue(BookingPartition.past);
+    // Idempotent — needed by the date-group-header tests below, which read
+    // real Kyiv-day boundaries via `kyivDayOf`/`formatBookingDayHeader`.
+    initBeauticaTimeZones();
   });
 
   late _MockBookingRepository repo;
@@ -114,6 +127,33 @@ void main() {
   setUp(() {
     repo = _MockBookingRepository();
   });
+
+  /// Stubs a DIFFERENT raw server page per requested `page` index, for EVERY
+  /// request regardless of `statuses`/`partition` (unlike
+  /// [stubConfirmedFilterPages], which only differentiates on the
+  /// «Підтверджено» filter) — used by the date-group-header pagination test
+  /// below, which never applies a filter and needs page 0 and page 1 to
+  /// return genuinely different rows on the SAME (unfiltered) request shape.
+  void stubByPage(Map<int, List<Booking>> byPage, {required int totalPages}) {
+    when(
+      () => repo.getMyBookings(
+        statuses: any(named: 'statuses'),
+        partition: any(named: 'partition'),
+        serviceIds: any(named: 'serviceIds'),
+        sort: any(named: 'sort'),
+        page: any(named: 'page'),
+      ),
+    ).thenAnswer((Invocation invocation) async {
+      final int page = invocation.namedArguments[#page] as int;
+      final List<Booking> items = byPage[page] ?? const <Booking>[];
+      return PageResponse<Booking>(
+        items: items,
+        page: page,
+        totalPages: totalPages,
+        totalElements: byPage.values.fold<int>(0, (int a, l) => a + l.length),
+      );
+    });
+  }
 
   void stubList(List<Booking> items) {
     when(
@@ -368,6 +408,317 @@ void main() {
         findsNothing,
       );
     });
+  });
+
+  group('date-group headers — grouping ONLY, `master_booking_card.dart` '
+      'itself untouched', () {
+    /// A day header's expected `Key`, mirroring
+    /// `master_archive_screen.dart`'s own construction (`kyivDayOf` +
+    /// `toIso8601String()`). Kept as a helper so a test asserting on a
+    /// specific header does not have to hand-derive the timezone math.
+    Key headerKeyFor(DateTime instant) => ValueKey<String>(
+      'master-archive-day-header-${kyivDayOf(instant).toIso8601String()}',
+    );
+
+    testWidgets(
+      'bookings on the SAME Kyiv day render under exactly ONE header; a '
+      'different day gets a SEPARATE header, newest-first order preserved '
+      '— `MasterBookingCard` itself renders unchanged (bare time range, no '
+      'date)',
+      (WidgetTester tester) async {
+        final DateTime sameDayLater = DateTime.utc(
+          2024,
+          8,
+          12,
+          11,
+        ); // 14:00 Kyiv
+        final DateTime sameDayEarlier = DateTime.utc(
+          2024,
+          8,
+          12,
+          6,
+        ); // 09:00 Kyiv
+        final DateTime otherDay = DateTime.utc(2024, 8, 10, 8);
+
+        stubList(<Booking>[
+          _booking(
+            id: 'a',
+            status: BookingStatus.completed,
+            startAt: sameDayLater,
+          ),
+          _booking(
+            id: 'b',
+            status: BookingStatus.completed,
+            startAt: sameDayEarlier,
+          ),
+          _booking(id: 'c', status: BookingStatus.completed, startAt: otherDay),
+        ]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(headerKeyFor(sameDayLater)), findsOneWidget);
+        expect(
+          find.byKey(headerKeyFor(otherDay)),
+          findsOneWidget,
+          reason: 'a genuinely different Kyiv day gets its own header',
+        );
+        expect(
+          find.byKey(headerKeyFor(sameDayEarlier)),
+          findsOneWidget,
+          reason:
+              'same key as sameDayLater — both on Aug 12 Kyiv, so this must '
+              'resolve to the SAME single header widget, not a second one',
+        );
+
+        // `sameDayLater` and `sameDayEarlier` derive the IDENTICAL Key (both
+        // resolve to Aug 12 Kyiv) — the single `findsOneWidget` above,
+        // located by that shared key, already proves the merge: two
+        // separate headers could never both satisfy a `findsOneWidget`
+        // lookup on the same key.
+        expect(headerKeyFor(sameDayLater), headerKeyFor(sameDayEarlier));
+
+        expect(find.text(formatBookingDayHeader(sameDayLater)), findsOneWidget);
+        expect(find.text(formatBookingDayHeader(otherDay)), findsOneWidget);
+
+        // Every card still renders — grouping is purely additive.
+        expect(find.byKey(const ValueKey<String>('a')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('b')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('c')), findsOneWidget);
+
+        // `MasterBookingCard` itself was never touched — no per-card date
+        // text, only the bare `formatSlotTimeRange` time range it always
+        // rendered.
+        expect(find.textContaining('–'), findsNWidgets(3));
+      },
+    );
+
+    testWidgets(
+      'the list stays VIRTUALIZED (builder-backed `ListView`, never an '
+      'eager `Column`) after flattening in headers',
+      (WidgetTester tester) async {
+        stubList(<Booking>[_booking(id: 'a', status: BookingStatus.completed)]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        final ListView listView = tester.widget<ListView>(
+          find.byKey(const Key('master-archive-list')),
+        );
+        expect(
+          listView.childrenDelegate,
+          isA<SliverChildBuilderDelegate>(),
+          reason:
+              'builder-backed — proves the flattened header-or-card list '
+              'is still index-addressed through itemBuilder, not eagerly '
+              'materialised as a Column of widgets',
+        );
+      },
+    );
+
+    testWidgets(
+      'a Kyiv day whose bookings straddle a PAGE BOUNDARY collapses to '
+      'exactly ONE header once loadMore() appends the second raw page — '
+      'the core trap: grouping runs over the notifier\'s FULL accumulated '
+      '`state.items`, not per fetched page',
+      (WidgetTester tester) async {
+        // Mirrors `archive_day_groups_test.dart`'s pure-function fixture:
+        // page 0's last row (23:50 Kyiv) and page 1's first row (20:00
+        // Kyiv, earlier in wall-clock terms but on a LATER-fetched raw
+        // page) share the SAME Kyiv day.
+        final DateTime p0First = DateTime.utc(2024, 8, 12, 8);
+        final DateTime p0Last = DateTime.utc(2024, 8, 12, 20, 50); // 23:50 Kyiv
+        final DateTime p1First = DateTime.utc(
+          2024,
+          8,
+          12,
+          17,
+        ); // 20:00 Kyiv, same day
+        final DateTime p1Second = DateTime.utc(2024, 8, 11, 9);
+
+        stubByPage(<int, List<Booking>>{
+          0: <Booking>[
+            _booking(
+              id: 'p0-first',
+              status: BookingStatus.completed,
+              startAt: p0First,
+            ),
+            _booking(
+              id: 'p0-last',
+              status: BookingStatus.completed,
+              startAt: p0Last,
+            ),
+          ],
+          1: <Booking>[
+            _booking(
+              id: 'p1-first',
+              status: BookingStatus.completed,
+              startAt: p1First,
+            ),
+            _booking(
+              id: 'p1-second',
+              status: BookingStatus.completed,
+              startAt: p1Second,
+            ),
+          ],
+        }, totalPages: 2);
+
+        await pump(tester);
+        await tester.pumpUntilFound(
+          find.byKey(const ValueKey<String>('p0-last')),
+        );
+
+        // Exactly ONE header for Aug 12 before page 1 has even loaded.
+        expect(find.byKey(headerKeyFor(p0First)), findsOneWidget);
+
+        // Drive `loadMore()` directly through the real provider (the exact
+        // same call `_onScroll` fires past the threshold) — deterministic
+        // regardless of whether a 2-row page 0 happens to overflow this
+        // test's viewport enough for a drag gesture to cross the 320px
+        // threshold, which two short rows cannot reliably guarantee. Mirrors
+        // `master_archive_screen_test.dart`'s own existing
+        // `ProviderScope.containerOf` idiom (day-timeline invalidation
+        // group below).
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(MasterArchiveScreen)),
+        );
+        // Matches the screen's own default (untouched filter selection —
+        // `_MasterArchiveScreenState._query` with empty `_statuses`/
+        // `_serviceIds`).
+        final MasterArchiveQuery query = MasterArchiveQuery.of(
+          statuses: const <BookingStatus>{},
+          serviceIds: const <String>{},
+        );
+        unawaited(
+          container.read(masterArchiveProvider(query).notifier).loadMore(),
+        );
+        await tester.pumpUntilFound(
+          find.byKey(const ValueKey<String>('p1-first')),
+        );
+
+        // STILL exactly ONE Aug-12 header — proves it was NOT duplicated
+        // when the second raw page landed. Checked BEFORE scrolling further
+        // (below) so the Aug-12 header, near the TOP of the list, is still
+        // built rather than recycled off-screen.
+        expect(
+          find.byKey(headerKeyFor(p0First)),
+          findsOneWidget,
+          reason:
+              'a naive per-page grouping would emit a SECOND Aug-12 header '
+              'here, at the start of the newly-appended page',
+        );
+
+        // `p1-second` (the last row, on a different Kyiv day) may sit below
+        // the test viewport once 4 full-layout cards + 2 headers are laid
+        // out — scroll it into view before asserting on it.
+        await tester.scrollUntilVisible(
+          find.byKey(const ValueKey<String>('p1-second')),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+
+        expect(
+          find.byKey(const ValueKey<String>('p1-second')),
+          findsOneWidget,
+          reason: 'page 1 genuinely arrived — both its rows are present',
+        );
+        expect(find.byKey(headerKeyFor(p1Second)), findsOneWidget);
+      },
+    );
+  });
+
+  group('mobile-perf MEDIUM (2026-08-16) — grouping identity memo', () {
+    // `debugGroupArchiveByKyivDayCallCount` only increments on a real
+    // cache-MISS call into `groupArchiveByKyivDay` (see
+    // `_MasterArchiveScreenState._groupedEntries`) — asserting on it, rather
+    // than on the rendered output, is load-bearing: the function is PURE, so
+    // a regression back to calling it unconditionally on every build would
+    // render byte-identical output and pass every OTHER test in this file.
+    setUp(debugResetGroupArchiveByKyivDayCallCount);
+
+    testWidgets(
+      'the «Виконано» dialog open/close flow (opened, then dismissed with '
+      '«Залишити», never confirmed) rebuilds the screen several times over '
+      'an UNCHANGED state.items reference — none of those rebuilds may '
+      're-run the O(n) regroup',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(
+            id: 'awaiting',
+            status: BookingStatus.confirmed,
+            awaitingClosure: true,
+          ),
+        ]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        // The initial `data` build is the one and only expected cache MISS.
+        expect(debugGroupArchiveByKyivDayCallCount, 1);
+
+        await tester.tap(
+          find.byKey(const Key('master-booking-card-complete-awaiting')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('complete-booking-dialog')),
+          findsOneWidget,
+        );
+
+        // «Залишити» — backs out without confirming. This still round-trips
+        // `masterArchiveInFlightProvider`/`masterArchiveDialogVisibleProvider`
+        // through begin() → begin() → end() → end() (see
+        // `_confirmComplete`'s doc), each flip forcing a fresh `build()` —
+        // but `state.items` itself never changes, since no write ever fires.
+        await tester.tap(find.byKey(const Key('complete-booking-keep')));
+        await tester.pumpAndSettle();
+
+        expect(
+          debugGroupArchiveByKyivDayCallCount,
+          1,
+          reason:
+              'the dialog open/close flow rebuilds the screen several times '
+              'over the SAME state.items reference — the memo must absorb '
+              'every one of them, not just the first',
+        );
+      },
+    );
+
+    testWidgets(
+      'loadMore() appending a new raw page DOES re-run groupArchiveByKyivDay '
+      '— state.items becomes a genuinely NEW List reference',
+      (WidgetTester tester) async {
+        stubByPage(<int, List<Booking>>{
+          0: <Booking>[_booking(id: 'p0', status: BookingStatus.completed)],
+          1: <Booking>[_booking(id: 'p1', status: BookingStatus.completed)],
+        }, totalPages: 2);
+
+        await pump(tester);
+        await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p0')));
+        expect(debugGroupArchiveByKyivDayCallCount, 1);
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(MasterArchiveScreen)),
+        );
+        final MasterArchiveQuery query = MasterArchiveQuery.of(
+          statuses: const <BookingStatus>{},
+          serviceIds: const <String>{},
+        );
+        unawaited(
+          container.read(masterArchiveProvider(query).notifier).loadMore(),
+        );
+        await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p1')));
+
+        expect(
+          debugGroupArchiveByKyivDayCallCount,
+          2,
+          reason:
+              'loadMore() replaces state.items with a NEW List (the spread '
+              'in master_archive_notifier.dart) — the memo must treat this '
+              'as a genuine cache MISS and regroup',
+        );
+      },
+    );
   });
 
   group('mobile-security LOW (2026-08-16) — the REAL, newly-live 400 failure '

@@ -22,7 +22,7 @@
 // partition predicate (`FakeBackend._partitionOf` — CONFIRMED classifies as
 // PAST only once `endsAt` has elapsed against `serverNow`).
 //
-// Three scenarios:
+// Four scenarios:
 //   1. PRIMARY JOURNEY — master logs in, opens «Мої записи», taps the header
 //      archive button, sees past bookings INCLUDING an elapsed-unclosed
 //      (`awaitingClosure`) one, filters to «Підтверджено», closes it via
@@ -40,6 +40,15 @@
 //      auto-continue fix could regress into "never shows an empty state at
 //      all" and nothing above would catch it (both other scenarios always
 //      end on a non-empty list).
+//   4. DATE-GROUP HEADERS (Phase 231 amendment) — the archive is a flat list
+//      spanning arbitrary past days, so rows are grouped under Kyiv-day
+//      headers (`archive_day_groups.dart`). `archive_day_groups_test.dart`
+//      (pure function) and `master_archive_screen_test.dart` (mocked
+//      repository) already pin the grouping mechanism in isolation; this
+//      scenario is the mobile-qa-mandated end-to-end check that the REAL
+//      screen, fed by the REAL fake-backed HTTP boundary, renders the
+//      correct headers for real server rows — not merely that it renders
+//      whatever a mock was told to hand it.
 //
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears
 // only via `l10n.<key>` content assertions, never a raw literal.
@@ -55,6 +64,7 @@ import 'package:beautica_mobile/features/booking/presentation/master_archive_scr
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -430,6 +440,115 @@ void main() {
       expect(
         find.byKey(const Key('master-booking-card-done-2')),
         findsOneWidget,
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 4. DATE-GROUP HEADERS — Phase 231 amendment, pinned end-to-end
+  // ==========================================================================
+  testWidgets(
+    'archive rows render grouped under Kyiv date headers end-to-end: two '
+    'bookings on the SAME Kyiv day collapse under exactly ONE header, a '
+    'booking on a genuinely DIFFERENT Kyiv day gets its own, and the newer '
+    'day\'s header renders ABOVE the older one — against the REAL '
+    'fake-backed screen and a real HTTP round trip, not a mocked repository',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // hdr-a/hdr-b share a Kyiv calendar day (different hours, same day);
+      // hdr-c sits 3 days earlier — a genuinely different Kyiv day. All
+      // COMPLETED so partition classification (PAST) never depends on
+      // elapsed-time precision. Anchored to `kFixedNow` throughout — never
+      // `DateTime.now()`.
+      final DateTime sameDayLater = elapsedStart(2);
+      final DateTime sameDayEarlier = elapsedStart(
+        2,
+      ).subtract(const Duration(hours: 4));
+      final DateTime otherDay = elapsedStart(5);
+
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'hdr-a',
+          status: 'COMPLETED',
+          startsAt: sameDayLater,
+        ),
+        fb.datasetBookingRow(
+          id: 'hdr-b',
+          status: 'COMPLETED',
+          startsAt: sameDayEarlier,
+        ),
+        fb.datasetBookingRow(
+          id: 'hdr-c',
+          status: 'COMPLETED',
+          startsAt: otherDay,
+        ),
+      ]);
+
+      await openArchive(tester, fb);
+
+      Key headerKeyFor(DateTime instant) => ValueKey<String>(
+        'master-archive-day-header-${kyivDayOf(instant).toIso8601String()}',
+      );
+
+      // All three cards genuinely arrived over the real HTTP boundary.
+      expect(
+        find.byKey(const Key('master-booking-card-hdr-a')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-hdr-b')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-hdr-c')),
+        findsOneWidget,
+      );
+
+      // hdr-a/hdr-b share a Kyiv day -> the SAME derived header key — two
+      // distinct header widgets could never both satisfy a single-key
+      // findsOneWidget lookup, so this alone proves the merge.
+      expect(find.byKey(headerKeyFor(sameDayLater)), findsOneWidget);
+      expect(headerKeyFor(sameDayLater), headerKeyFor(sameDayEarlier));
+
+      // hdr-c sits on a genuinely different Kyiv day -> its own, DIFFERENT
+      // header key.
+      expect(find.byKey(headerKeyFor(otherDay)), findsOneWidget);
+      expect(headerKeyFor(sameDayLater), isNot(headerKeyFor(otherDay)));
+
+      // Exactly TWO day-header widgets total for three bookings across two
+      // Kyiv days — not zero (feature reverted / grouping dropped) and not
+      // three (a per-row-header regression that would still individually
+      // satisfy the specific-key checks above).
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>).value.startsWith(
+                'master-archive-day-header-',
+              ),
+        ),
+        findsNWidgets(2),
+        reason:
+            'three bookings across two Kyiv days must yield exactly two '
+            'header widgets — never one-per-row, never zero',
+      );
+
+      // Ordering: newest-first, matching the underlying list — the header
+      // for the more recent Kyiv day (hdr-a/hdr-b) must paint ABOVE the
+      // header for the older one (hdr-c).
+      final double newerHeaderY = tester
+          .getTopLeft(find.byKey(headerKeyFor(sameDayLater)))
+          .dy;
+      final double olderHeaderY = tester
+          .getTopLeft(find.byKey(headerKeyFor(otherDay)))
+          .dy;
+      expect(
+        newerHeaderY,
+        lessThan(olderHeaderY),
+        reason:
+            'the newer Kyiv day\'s header must render ABOVE the older '
+            'one — newest-first, matching the server-ordered list',
       );
     },
   );
