@@ -35,13 +35,20 @@
 //      every assertion below runs AFTER popping back and settling, never
 //      between the decline and the pop.
 //
-//      DECLINED classifies into the CANCELLED partition, never PAST
-//      (`FakeBackend._partitionOf`), so a correctly-invalidated,
-//      correctly-refetched archive drops the row from its (always
-//      `partition: PAST`, unfiltered) fetch entirely — a stronger, cleaner
-//      signal than "left the active status filter" alone. A sibling PAST
-//      row that was never touched stays, proving this is a genuine refetch
-//      that reclassified one row, not the whole list quietly going empty.
+//      2026-08-16 HISTORY cutover update: `masterArchiveProvider` now
+//      requests `partition: BookingPartition.history` (`PAST ∪ CANCELLED`),
+//      not the old `PAST`-only fetch — DECLINED rows are now genuinely
+//      included, not dropped. So the row staying visible in the UNFILTERED
+//      list after decline no longer distinguishes "genuinely refetched" from
+//      "stale cache" by itself (either way the card would render). The
+//      distinguishing signal is now the «Скасовано» filter
+//      (`BookingStatusFilterGroup.cancelled`, CANCELLED/DECLINED): a
+//      pre-decline CONFIRMED row can never match it, so booking-1 appearing
+//      there proves the resumed archive genuinely re-fetched and
+//      reclassified the row server-side. A sibling PAST row that was never
+//      touched stays visible unfiltered and drops out of the «Скасовано»
+//      filter, proving this is a genuine per-row reclassification, not the
+//      whole list quietly going empty or a stale cache being replayed.
 //
 //      `FakeBackend`'s `/bookings/booking-1/decline` route was extended
 //      (2026-08-16, this same pass) to ALSO mutate the seeded dataset row's
@@ -250,20 +257,50 @@ void main() {
       );
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
-        findsNothing,
+        findsOneWidget,
         reason:
-            'DECLINED classifies into the CANCELLED partition, never '
-            'PAST (FakeBackend._partitionOf) — a correctly-invalidated, '
-            'correctly-resumed archive must no longer serve this row under '
-            'its fixed partition:PAST fetch',
+            'HISTORY (`partition: BookingPartition.history`, the archive '
+            'HISTORY cutover) includes DECLINED rows — booking-1 stays '
+            'served, reclassified, rather than dropped from the archive '
+            'entirely. This alone does not yet prove a genuine refetch (a '
+            'stale cache would also still render this card) — see the '
+            '«Скасовано» filter check below for the signal that does.',
       );
       expect(
         find.byKey(const Key('master-booking-card-past-anchor-1')),
         findsOneWidget,
+        reason: 'the untouched sibling PAST row must still render',
+      );
+
+      // ── Filtering to «Скасовано» is the signal a stale cache cannot fake:
+      //    a pre-decline CONFIRMED row could never match it, so booking-1
+      //    appearing here proves the resumed archive genuinely re-fetched
+      //    and reclassified the row server-side, not merely kept rendering
+      //    the pre-decline card. ────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.byKey(const Key('master-bookings-filter-status-cancelled')),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
         reason:
-            'the untouched sibling PAST row must still render — proof '
-            'this is a genuine per-row reclassification on a real refetch, '
-            'not the whole list going empty or staying on a stale cache',
+            'booking-1 is now DECLINED — only a genuinely refetched, '
+            'correctly reclassified row can match the «Скасовано» filter',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-past-anchor-1')),
+        findsNothing,
+        reason:
+            'the untouched sibling is COMPLETED — it must not survive the '
+            '«Скасовано» filter, proving this is a genuine per-row '
+            'reclassification, not the whole list going empty or a stale '
+            'cache being replayed',
       );
     },
   );

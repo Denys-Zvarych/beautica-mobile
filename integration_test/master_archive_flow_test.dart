@@ -105,7 +105,7 @@ void main() {
   }
 
   /// Applies the «Підтверджено» row of the reused `BookingsFilterSheet` —
-  /// which, within the archive's fixed `partition: PAST` scope, IS the
+  /// which, within the archive's fixed `partition: HISTORY` scope, IS the
   /// «Потребують закриття» filter with no bespoke UI (see
   /// `master_archive_notifier.dart`'s file header). Deliberately NOT
   /// `AppHarness.settle` after the apply tap — the filtered request's own
@@ -177,16 +177,16 @@ void main() {
 
       final GoRouter router = await openArchive(tester, fb);
 
-      // ── Unfiltered landing: every PAST row, including the elapsed-unclosed
-      //    one. Anti-vacuity for the filter step below — if this card were
-      //    never rendered unfiltered, "absent after completing" would prove
-      //    nothing. ──────────────────────────────────────────────────────
+      // ── Unfiltered landing: every HISTORY row, including the
+      //    elapsed-unclosed one. Anti-vacuity for the filter step below — if
+      //    this card were never rendered unfiltered, "absent after
+      //    completing" would prove nothing. ─────────────────────────────
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsOneWidget,
         reason:
             'the elapsed-unclosed CONFIRMED booking must be served under '
-            'the archive\'s fixed partition:PAST scope',
+            'the archive\'s fixed partition:HISTORY scope',
       );
       expect(
         find.byKey(const Key('master-booking-card-booking-9')),
@@ -198,7 +198,7 @@ void main() {
       );
 
       // ── Filter to «Підтверджено» — narrows to the two CONFIRMED/
-      //    awaitingClosure rows, client-side, on top of the fixed PAST
+      //    awaitingClosure rows, client-side, on top of the fixed HISTORY
       //    fetch. ────────────────────────────────────────────────────────
       await applyConfirmedFilter(tester);
       await AppHarness.settle(tester);

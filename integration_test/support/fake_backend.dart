@@ -2889,6 +2889,28 @@ final class FakeBackend {
     }
   }
 
+  /// Whether dataset row [row] matches the requested [partition] WIRE VALUE
+  /// — composes [_partitionOf]'s four disjoint COVER buckets with the
+  /// backend's UNION *views* over them. `HISTORY` (mobile `BookingPartition
+  /// .history`, backend `81e8166` `feat/booking-partition-history`) is
+  /// `PAST ∪ CANCELLED` ≡ everything except `UPCOMING` — mirrors
+  /// `AWAITING_CLOSURE`'s own category of view (a SUBSET rather than a fifth
+  /// disjoint bucket); `AWAITING_CLOSURE` itself is not modelled by this
+  /// fake, as no current suite drives it against `FakeBackend`. A row whose
+  /// status [_partitionOf] cannot classify (the defensive `default: null`
+  /// case — no real occurrence in this dataset) matches neither a disjoint
+  /// bucket NOR `HISTORY`, mirroring the backend never classifying an
+  /// unrecognised status into any partition at all.
+  static bool _matchesPartition(
+    Map<String, dynamic> row,
+    String partition,
+    DateTime now,
+  ) {
+    final String? bucket = _partitionOf(row, now);
+    if (partition == 'HISTORY') return bucket != null && bucket != 'UPCOMING';
+    return bucket == partition;
+  }
+
   /// Builds one dataset row in the same wire shape [_seededBookingJson] uses,
   /// parameterized by [id]/[status]/[startsAt] so a test can seed a large,
   /// scrambled-insertion-order table. [duration] defaults to a realistic
@@ -3062,7 +3084,7 @@ final class FakeBackend {
         dataset
             .where(
               (Map<String, dynamic> b) => partition != null
-                  ? _partitionOf(b, now) == partition
+                  ? _matchesPartition(b, partition, now)
                   : (statuses == null || statuses.contains(b['status'])),
             )
             .toList(growable: false)
@@ -4708,9 +4730,10 @@ final class FakeBackend {
     // the `/complete` route's identical dataset mutation below. Without this,
     // `master_archive_review_flow_test.dart`'s invalidation regression guard
     // (archive → pushed detail → decline → back to archive) could never
-    // observe the row leave the archive's PAST partition
-    // (`_partitionOf`: DECLINED classifies as CANCELLED, never PAST) even with
-    // a byte-correct `invalidateBookingViewsAfterProviderClose` fix — the
+    // observe the row reclassify into the «Скасовано»
+    // (`BookingStatusFilterGroup.cancelled`) filter on the archive's fixed
+    // `partition: HISTORY` fetch (see [_matchesPartition]) even with a
+    // byte-correct `invalidateBookingViewsAfterProviderClose` fix — the
     // dataset itself would still report the pre-decline CONFIRMED row on the
     // very next `GET /bookings/me`, and the test could not tell "the cache
     // never dropped" apart from "the fake never learned about the write".

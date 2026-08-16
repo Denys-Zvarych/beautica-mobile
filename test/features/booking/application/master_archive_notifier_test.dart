@@ -7,17 +7,21 @@
 //
 // This suite pins the load-bearing decisions from
 // `master_archive_notifier.dart`'s file header:
-//   * EVERY request sends `partition: BookingPartition.past` UNCONDITIONALLY
-//     (never conditional on the filter selection) PLUS a legacy `status`
-//     set — asserted on the CAPTURED request, not just "a call happened".
+//   * EVERY request sends `partition: BookingPartition.history`
+//     UNCONDITIONALLY (never conditional on the filter selection) PLUS a
+//     legacy `status` set — asserted on the CAPTURED request, not just "a
+//     call happened".
 //   * Ticking «Підтверджено» alone (no new UI) isolates exactly the
 //     `awaitingClosure` rows — proven non-vacuous with a fixture containing
 //     non-awaiting rows too.
 //   * Select-all (all three `BookingStatusFilterGroup` rows) collapses to
 //     "no predicate", keeping a legacy NOT_COMPLETED row visible.
-//   * Ticking «Скасовано» against a PAST-partition fixture (which
-//     structurally never contains CANCELLED/DECLINED) resolves to an empty
-//     visible list — the documented, deliberate scope limit.
+//   * Ticking «Скасовано» against a HISTORY-partition fixture returns
+//     EXACTLY the cancelled/declined rows — the 2026-08-16 HISTORY cutover
+//     fix for the reported bug (a declined visit never appeared in the
+//     archive, and this filter always came back empty under the old
+//     `partition: PAST` fetch). This test used to assert the OLD, now-wrong
+//     "always empty" behaviour; it is inverted here as the regression guard.
 //   * `kArchiveFilterCoverage` stays in lockstep with
 //     `BookingStatusFilterGroup`'s real coverage (the ONE cross-layer
 //     assertion in this file — see that constant's own doc for why the
@@ -101,121 +105,130 @@ ProviderContainer _container(_MockBookingRepository repo) {
 }
 
 void main() {
-  group('request shaping — partition is ALWAYS BookingPartition.past, PLUS a '
-      'legacy status set, on EVERY request regardless of filter selection', () {
-    test('default (no filter): partition=PAST + legacy statuses={COMPLETED, '
-        'NOT_COMPLETED} — asserted on the CAPTURED request', () async {
-      final repo = _MockBookingRepository();
-      when(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          partition: any(named: 'partition'),
-          serviceIds: any(named: 'serviceIds'),
-          sort: any(named: 'sort'),
-          page: 0,
-        ),
-      ).thenAnswer((_) async => _page(const <Booking>[]));
-      final c = _container(repo);
-
-      await c.read(masterArchiveProvider(MasterArchiveQuery.of()).future);
-
-      final captured = verify(
-        () => repo.getMyBookings(
-          statuses: captureAny(named: 'statuses'),
-          partition: captureAny(named: 'partition'),
-          serviceIds: any(named: 'serviceIds'),
-          sort: any(named: 'sort'),
-          page: 0,
-        ),
-      ).captured;
-      final Set<BookingStatus>? sentStatuses =
-          captured[0] as Set<BookingStatus>?;
-      final BookingPartition? sentPartition = captured[1] as BookingPartition?;
-
-      expect(
-        sentPartition,
-        BookingPartition.past,
-        reason: 'the archive is scoped to the PAST partition, always',
-      );
-      expect(
-        sentPartition?.wireValue,
-        'PAST',
-        reason:
-            'asserts the WIRE STRING, not just the enum member — a '
-            'wireValue swap would pass an enum-only assertion',
-      );
-      expect(
-        sentStatuses,
-        const <BookingStatus>{
-          BookingStatus.completed,
-          BookingStatus.notCompleted,
-        },
-        reason:
-            'the legacy status set must still travel on every request '
-            '— that is what makes the safety valve safe on an old '
-            'backend (mirrors BookingTab.past.statuses exactly)',
-      );
-    });
-
-    test('a NON-EMPTY filter selection still sends partition=PAST — it is '
-        'never conditional on the filter', () async {
-      final repo = _MockBookingRepository();
-      when(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          partition: any(named: 'partition'),
-          serviceIds: any(named: 'serviceIds'),
-          sort: any(named: 'sort'),
-          page: 0,
-        ),
-      ).thenAnswer((_) async => _page(const <Booking>[]));
-      final c = _container(repo);
-
-      await c.read(
-        masterArchiveProvider(
-          MasterArchiveQuery.of(
-            statuses: const <BookingStatus>{BookingStatus.completed},
+  group(
+    'request shaping — partition is ALWAYS BookingPartition.history, PLUS a '
+    'legacy status set, on EVERY request regardless of filter selection',
+    () {
+      test('default (no filter): partition=HISTORY + legacy statuses='
+          '{COMPLETED, NOT_COMPLETED, CANCELLED, DECLINED} — asserted on the '
+          'CAPTURED request', () async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
           ),
-        ).future,
-      );
+        ).thenAnswer((_) async => _page(const <Booking>[]));
+        final c = _container(repo);
 
-      verify(
-        () => repo.getMyBookings(
-          statuses: const <BookingStatus>{BookingStatus.completed},
-          partition: BookingPartition.past,
-          serviceIds: any(named: 'serviceIds'),
-          sort: any(named: 'sort'),
-          page: 0,
-        ),
-      ).called(1);
-    });
+        await c.read(masterArchiveProvider(MasterArchiveQuery.of()).future);
 
-    test('newest-first sort is requested', () async {
-      final repo = _MockBookingRepository();
-      when(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          partition: any(named: 'partition'),
-          serviceIds: any(named: 'serviceIds'),
-          sort: any(named: 'sort'),
-          page: 0,
-        ),
-      ).thenAnswer((_) async => _page(const <Booking>[]));
-      final c = _container(repo);
+        final captured = verify(
+          () => repo.getMyBookings(
+            statuses: captureAny(named: 'statuses'),
+            partition: captureAny(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).captured;
+        final Set<BookingStatus>? sentStatuses =
+            captured[0] as Set<BookingStatus>?;
+        final BookingPartition? sentPartition =
+            captured[1] as BookingPartition?;
 
-      await c.read(masterArchiveProvider(MasterArchiveQuery.of()).future);
+        expect(
+          sentPartition,
+          BookingPartition.history,
+          reason: 'the archive is scoped to the HISTORY partition, always',
+        );
+        expect(
+          sentPartition?.wireValue,
+          'HISTORY',
+          reason:
+              'asserts the WIRE STRING, not just the enum member — a '
+              'wireValue swap would pass an enum-only assertion',
+        );
+        expect(
+          sentStatuses,
+          const <BookingStatus>{
+            BookingStatus.completed,
+            BookingStatus.notCompleted,
+            BookingStatus.cancelled,
+            BookingStatus.declined,
+          },
+          reason:
+              'the legacy status set must still travel on every request '
+              '— best-effort HISTORY approximation for a backend old enough '
+              'to have no `partition` param at all (mirrors '
+              '`_legacyStatusesFor`\'s own doc for why this can never be full '
+              'parity)',
+        );
+      });
 
-      verify(
-        () => repo.getMyBookings(
-          statuses: any(named: 'statuses'),
-          partition: any(named: 'partition'),
-          serviceIds: any(named: 'serviceIds'),
-          sort: BookingSort.newest,
-          page: 0,
-        ),
-      ).called(1);
-    });
-  });
+      test('a NON-EMPTY filter selection still sends partition=HISTORY — it '
+          'is never conditional on the filter', () async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).thenAnswer((_) async => _page(const <Booking>[]));
+        final c = _container(repo);
+
+        await c.read(
+          masterArchiveProvider(
+            MasterArchiveQuery.of(
+              statuses: const <BookingStatus>{BookingStatus.completed},
+            ),
+          ).future,
+        );
+
+        verify(
+          () => repo.getMyBookings(
+            statuses: const <BookingStatus>{BookingStatus.completed},
+            partition: BookingPartition.history,
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).called(1);
+      });
+
+      test('newest-first sort is requested', () async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).thenAnswer((_) async => _page(const <Booking>[]));
+        final c = _container(repo);
+
+        await c.read(masterArchiveProvider(MasterArchiveQuery.of()).future);
+
+        verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: BookingSort.newest,
+            page: 0,
+          ),
+        ).called(1);
+      });
+    },
+  );
 
   group(
     'client-side status predicate — «Потребують закриття» is «Підтверджено» '
@@ -305,46 +318,146 @@ void main() {
         },
       );
 
-      test(
-        'ticking ONLY cancelled against a PAST-partition fixture (which '
-        'structurally never contains CANCELLED/DECLINED) resolves to an '
-        'EMPTY visible list — the documented, deliberate scope limit',
-        () async {
-          final repo = _MockBookingRepository();
-          when(
-            () => repo.getMyBookings(
-              statuses: any(named: 'statuses'),
-              partition: any(named: 'partition'),
-              serviceIds: any(named: 'serviceIds'),
-              sort: any(named: 'sort'),
-              page: 0,
+      test('ticking ONLY cancelled against a HISTORY-partition fixture returns '
+          'EXACTLY the cancelled AND declined rows — the 2026-08-16 HISTORY '
+          'cutover fix (this test previously asserted the OLD, now-wrong '
+          '"always empty" behaviour against a `PAST`-partition fixture; '
+          'inverted here as the regression guard for the reported bug: a '
+          'declined visit never appeared in the archive, and this filter '
+          'always came back empty)', () async {
+        final repo = _MockBookingRepository();
+        // Partition-SENSITIVE stub — deliberately NOT a fixed `thenAnswer`
+        // fixture. A stub that ignores which `partition` was actually
+        // requested cannot fail if the notifier regresses to requesting
+        // `BookingPartition.past` (the mock would keep handing back the
+        // same union fixture regardless) — that gap was caught by the
+        // sanity-check RED run (see the notifier's own doc / this file's
+        // handoff notes) and is exactly what this stub closes: it
+        // simulates what a REAL backend would actually return for each
+        // partition value, so this test can only pass against a genuine
+        // `partition: HISTORY` request.
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).thenAnswer((Invocation invocation) async {
+          final BookingPartition? partition =
+              invocation.namedArguments[#partition] as BookingPartition?;
+          final List<Booking> pastEligible = <Booking>[
+            _booking(id: 'c1', status: BookingStatus.completed),
+            _booking(
+              id: 'a1',
+              status: BookingStatus.confirmed,
+              awaitingClosure: true,
             ),
-          ).thenAnswer(
-            (_) async => _page(<Booking>[
-              _booking(id: 'c1', status: BookingStatus.completed),
-              _booking(
-                id: 'a1',
-                status: BookingStatus.confirmed,
-                awaitingClosure: true,
-              ),
-            ]),
-          );
-          final c = _container(repo);
+          ];
+          if (partition == BookingPartition.history) {
+            return _page(<Booking>[
+              ...pastEligible,
+              _booking(id: 'cancelled-1', status: BookingStatus.cancelled),
+              _booking(id: 'declined-1', status: BookingStatus.declined),
+            ]);
+          }
+          // A real `partition: PAST` backend response structurally never
+          // contains a CANCELLED/DECLINED row — mirrors
+          // `FakeBackend._partitionOf`'s own classification.
+          return _page(pastEligible);
+        });
+        final c = _container(repo);
 
-          final MasterArchiveState state = await c.read(
-            masterArchiveProvider(
-              MasterArchiveQuery.of(
-                statuses: const <BookingStatus>{
-                  BookingStatus.cancelled,
-                  BookingStatus.declined,
-                },
-              ),
-            ).future,
-          );
+        final MasterArchiveState state = await c.read(
+          masterArchiveProvider(
+            MasterArchiveQuery.of(
+              statuses: const <BookingStatus>{
+                BookingStatus.cancelled,
+                BookingStatus.declined,
+              },
+            ),
+          ).future,
+        );
 
-          expect(state.items, isEmpty);
-        },
-      );
+        expect(
+          state.items.map((Booking b) => b.id).toSet(),
+          <String>{'cancelled-1', 'declined-1'},
+          reason:
+              'both statuses share the ONE «Скасовано» filter row — '
+              'neither COMPLETED nor the awaitingClosure CONFIRMED row '
+              'must survive it',
+        );
+      });
+
+      test('a declined booking appears in the archive AT ALL with NO filter '
+          'applied — the user-reported bug this cutover fixes', () async {
+        final repo = _MockBookingRepository();
+        // Same partition-sensitive stub shape as the test above — see its
+        // comment for why a fixed fixture cannot prove this.
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).thenAnswer((Invocation invocation) async {
+          final BookingPartition? partition =
+              invocation.namedArguments[#partition] as BookingPartition?;
+          final List<Booking> pastEligible = <Booking>[
+            _booking(id: 'c1', status: BookingStatus.completed),
+          ];
+          if (partition == BookingPartition.history) {
+            return _page(<Booking>[
+              _booking(id: 'declined-1', status: BookingStatus.declined),
+              ...pastEligible,
+            ]);
+          }
+          return _page(pastEligible);
+        });
+        final c = _container(repo);
+
+        final MasterArchiveState state = await c.read(
+          masterArchiveProvider(MasterArchiveQuery.of()).future,
+        );
+
+        expect(
+          state.items.map((Booking b) => b.id),
+          containsAll(<String>['declined-1', 'c1']),
+        );
+      });
+
+      test('an elapsed unclosed CONFIRMED (awaiting-closure) row still appears '
+          'under HISTORY — the cutover must not regress the archive\'s '
+          'original purpose', () async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: 0,
+          ),
+        ).thenAnswer(
+          (_) async => _page(<Booking>[
+            _booking(
+              id: 'awaiting-1',
+              status: BookingStatus.confirmed,
+              awaitingClosure: true,
+            ),
+          ]),
+        );
+        final c = _container(repo);
+
+        final MasterArchiveState state = await c.read(
+          masterArchiveProvider(MasterArchiveQuery.of()).future,
+        );
+
+        expect(state.items.map((Booking b) => b.id), <String>['awaiting-1']);
+      });
     },
   );
 
@@ -406,12 +519,12 @@ void main() {
       expect(after.items.map((Booking b) => b.id), <String>['p0', 'p1']);
       expect(after.page, 1);
       expect(after.hasMore, isFalse);
-      // Every raw page ALSO carries partition=PAST — the second call site,
+      // Every raw page ALSO carries partition=HISTORY — the second call site,
       // not just `_fetchFirstPage`.
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          partition: BookingPartition.past,
+          partition: BookingPartition.history,
           serviceIds: any(named: 'serviceIds'),
           sort: any(named: 'sort'),
           page: 1,
@@ -589,7 +702,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
-          partition: BookingPartition.past,
+          partition: BookingPartition.history,
           serviceIds: any(named: 'serviceIds'),
           sort: any(named: 'sort'),
           page: 0,

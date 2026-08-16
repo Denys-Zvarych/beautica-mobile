@@ -7,7 +7,7 @@
 // reachable from this tree). Covers:
 //   * all 4 async states (loading / data / error / empty — both true-empty
 //     and filter-empty);
-//   * the default request sends BOTH `partition: PAST` and the legacy
+//   * the default request sends BOTH `partition: HISTORY` and the legacy
 //     status set (end-to-end through the real screen, not just the
 //     notifier);
 //   * the reused `BookingsFilterSheet`'s «Підтверджено» row, applied with NO
@@ -31,6 +31,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
@@ -47,7 +48,9 @@ import 'package:beautica_mobile/features/booking/presentation/leave_client_feedb
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -81,8 +84,9 @@ Booking _booking({
   serviceName: 'Манікюр з покриттям',
   durationMinutes: 60,
   price: 500,
-  // A fixed PAST literal — this screen is PAST-scoped by construction, and a
-  // fixed past instant can never drift into "upcoming" (see
+  // A fixed PAST literal — this screen is HISTORY-scoped by construction
+  // (HISTORY ⊇ PAST), and a fixed past instant can never drift into
+  // "upcoming" (see
   // `test/helpers/booking_fixture_dates.dart`'s header on why a FUTURE
   // fixture needs the relative helper but a PAST one does not).
   startAt: DateTime.utc(2000, 1, 1, 10),
@@ -366,8 +370,128 @@ void main() {
     });
   });
 
-  group('default request — partition: BookingPartition.past PLUS the legacy '
-      'status set, unconditionally', () {
+  group('mobile-security LOW (2026-08-16) — the REAL, newly-live 400 failure '
+      'mode of the HISTORY cutover (a pre-81e8166 backend 400s on the '
+      'unrecognised `HISTORY` partition value — see '
+      '`booking_partition.dart`\'s HARD SEQUENCING HAZARD doc), NOT the '
+      'generic `Exception(\'boom\')` UnknownFailure path the async-states '
+      'group above covers', () {
+    testWidgets(
+      'renders the localized errValidation copy — never raw server text, '
+      'never an exception string — and shows neither the skeleton nor '
+      'the empty state',
+      (WidgetTester tester) async {
+        // `HttpBookingRepository` never leaks a raw `DioException` to a
+        // caller — `booking_repository.dart`'s own file header: "Every
+        // method either resolves successfully or throws a [Failure]
+        // subclass". A live 400 first passes through
+        // `ErrorMapperInterceptor`, whose generic 400/422 rule
+        // (`error_mapper_interceptor.dart` ~L170) maps it to
+        // `ValidationFailure`; `_mapDioException`'s
+        // `if (e.error is Failure) return e.error as Failure;` guard then
+        // passes that straight through unchanged. THAT typed value —
+        // not a bare `DioException` — is what this mock (standing in for
+        // the whole repository, so neither the interceptor nor
+        // `_mapDioException` ever runs) must reproduce to test the
+        // SCREEN honestly. Stubbing a raw `DioException` here instead
+        // would misrepresent the repository's own documented contract
+        // AND would actually render `errUnknown`
+        // (`MyBookingsErrorState`'s `error is Failure` check would be
+        // false for a bare `DioException`) — a DIFFERENT bug than the
+        // one this test exists to pin.
+        //
+        // `cause`/`serverMessage` carry the REAL body a modern Spring
+        // Boot default error controller returns for a
+        // `MethodArgumentTypeMismatchException` — `{timestamp, status,
+        // error, message, path}`, NOT the app's own `{success, data,
+        // message}` envelope (same "unrecognised shape" as
+        // `error_mapper_interceptor_test.dart`'s "missing errors key"
+        // case) — so `fieldErrors` comes back empty exactly as the real
+        // interceptor would produce, and the raw `message` is embedded
+        // as a concrete string this test can assert is NEVER shown.
+        const String rawServerMessage =
+            "Failed to convert value of type 'java.lang.String' to "
+            "required type 'com.beautica.booking.BookingPartition'; "
+            "Failed to convert from type [java.lang.String] to type "
+            "[@org.springframework.web.bind.annotation.RequestParam "
+            "com.beautica.booking.BookingPartition] for value [HISTORY]";
+        final RequestOptions opts = RequestOptions(path: '/api/v1/bookings/me');
+        final DioException dioError = DioException(
+          requestOptions: opts,
+          type: DioExceptionType.badResponse,
+          response: Response<Map<String, dynamic>>(
+            requestOptions: opts,
+            statusCode: 400,
+            data: const <String, dynamic>{
+              // Decorative Spring error-envelope filler, never parsed by
+              // any code under test — `ValidationFailure` is constructed
+              // directly below and `MyBookingsErrorState` only ever reads
+              // `Failure.userMessage`, never `cause` or this map.
+              // future-date-ok: not a wall-clock comparison of any kind
+              'timestamp': '2026-08-16T10:00:00.000+00:00',
+              'status': 400,
+              'error': 'Bad Request',
+              'message': rawServerMessage,
+              'path': '/api/v1/bookings/me',
+            },
+          ),
+        );
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        ).thenAnswer(
+          (_) async => throw ValidationFailure(
+            fieldErrors: const <String, String>{},
+            serverMessage: rawServerMessage,
+            cause: dioError,
+          ),
+        );
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterArchiveScreen)),
+        );
+
+        expect(find.byKey(const Key('my_bookings_error')), findsOneWidget);
+        expect(
+          find.text(l10n.errValidation),
+          findsOneWidget,
+          reason:
+              'the 400-from-an-unrecognised-partition-value failure must '
+              'degrade to the SAME localized validation copy every other '
+              'ValidationFailure renders — never a raw server string',
+        );
+        expect(
+          find.text(rawServerMessage),
+          findsNothing,
+          reason:
+              'the raw Spring exception message must never reach the '
+              'UI verbatim — that is exactly the leak this test guards '
+              'against',
+        );
+        expect(find.byKey(const Key('master-archive-skeleton')), findsNothing);
+        expect(
+          find.byKey(const Key('master-archive-empty')),
+          findsNothing,
+          reason:
+              'a blank list would read to the master as "no history" — '
+              'exactly the misreading this whole HISTORY cutover exists '
+              'to fix; the error must render as an ERROR, never as an '
+              'empty result',
+        );
+      },
+    );
+  });
+
+  group('default request — partition: BookingPartition.history PLUS the '
+      'legacy status set, unconditionally', () {
     testWidgets(
       'the landing fetch sends BOTH params together — asserted on the '
       'CAPTURED request',
@@ -391,11 +515,13 @@ void main() {
         final BookingPartition? sentPartition =
             captured[1] as BookingPartition?;
 
-        expect(sentPartition, BookingPartition.past);
-        expect(sentPartition?.wireValue, 'PAST');
+        expect(sentPartition, BookingPartition.history);
+        expect(sentPartition?.wireValue, 'HISTORY');
         expect(sentStatuses, const <BookingStatus>{
           BookingStatus.completed,
           BookingStatus.notCompleted,
+          BookingStatus.cancelled,
+          BookingStatus.declined,
         });
       },
     );

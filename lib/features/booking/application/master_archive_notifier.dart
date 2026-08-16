@@ -1,53 +1,79 @@
-// Phase 231 — «Архів» page: paginated, filterable PAST-partition notifier.
+// Phase 231 (HISTORY cutover, 2026-08-16) — «Архів» page: paginated,
+// filterable HISTORY-partition notifier.
 //
 // A `@riverpod` AsyncNotifier family keyed by [MasterArchiveQuery], mirroring
 // `MyBookingsNotifier`'s pagination shape (`my_bookings_notifier.dart`) —
 // `_fetchFirstPage`/`refresh`/`loadMore`, same in-flight/last-page guards.
 // What is genuinely new here is REQUEST SHAPING, documented below.
 //
-// ## The request is ALWAYS `partition: BookingPartition.past` PLUS a legacy
-// `status` set — never conditional on the filter selection
+// ## The request is ALWAYS `partition: BookingPartition.history` PLUS a
+// legacy `status` set — never conditional on the filter selection
 //
-// This mirrors `MyBookingsNotifier._fetchFirstPage`'s Phase 227 rollout-valve
-// pattern exactly: `partition` wins on a Phase-28.2-capable backend and
-// `status` is IGNORED server-side whenever `partition` is present
-// (`BookingService#getMyBookings`'s javadoc, beautica-backend) — `status` is
-// sent purely so a backend that has not yet deployed 28.2 still degrades to
-// SOME filtering instead of the master's entire unfiltered history. Backend
-// `origin/dev` already carries both `BookingController:150` and
-// `/me/unclosed-count`, so this is a genuine (if now mostly dormant) safety
-// valve, not a TODO.
+// Originally shipped against `BookingPartition.past`; switched to
+// `BookingPartition.history` (backend `beautica-backend` `81e8166`,
+// `feat/booking-partition-history`) because the archive's whole point is to
+// show a master's completed visit history, and `PAST` structurally excludes
+// CANCELLED/DECLINED rows — the reported bug this cutover fixes (a declined
+// visit never appeared here, and ticking «Скасовано» always came back
+// empty). `HISTORY` is a union view, `PAST ∪ CANCELLED` =
+// `COMPLETED ∪ NOT_COMPLETED ∪ (CONFIRMED AND ends_at < now) ∪ CANCELLED ∪
+// DECLINED` ≡ everything except UPCOMING — see [BookingPartition.history]'s
+// doc for the full definition and, critically, the HARD SEQUENCING HAZARD it
+// carries that `past`/`cancelled`/etc. do not: `HISTORY` is an unrecognised
+// VALUE on any backend older than `81e8166`, which is a 400
+// (`MethodArgumentTypeMismatchException`), not a silent degrade. **This
+// notifier now hard-requires a HISTORY-capable backend.**
+//
+// `status` is still sent alongside `partition` — mirrors
+// `MyBookingsNotifier._fetchFirstPage`'s Phase 227 rollout-valve pattern:
+// `partition` wins outright and `status` is IGNORED server-side whenever
+// `partition` is present (`BookingService#getMyBookings`'s javadoc,
+// beautica-backend), so against ANY backend that recognises `partition` at
+// all (HISTORY-capable or not), `status` is dead weight either way. It is
+// kept purely for the one case it can still help: a backend so old it has
+// no `partition` param declared AT ALL (a genuinely pre-28.2 backend, where
+// an unrecognised param NAME — not value — is silently dropped by Spring;
+// see `booking_repository.dart`'s `getMyBookings` doc for that distinct
+// failure mode). Against a backend that HAS `partition` but predates
+// `81e8166` specifically (28.2-but-pre-HISTORY), the legacy `status` set
+// does NOT help — that request still 400s on the unrecognised `HISTORY`
+// value regardless of what `status` carries. So the fallback below is
+// deliberately widened to `{COMPLETED, NOT_COMPLETED, CANCELLED, DECLINED}`
+// — the closest a `status`-only, partition-blind backend can approximate
+// HISTORY (see [_legacyStatusesFor]'s own doc for why `CONFIRMED`/elapsed
+// still cannot be expressed this way, and why that's stated rather than
+// papered over).
 //
 // ## Outcome filtering («Підтверджено»/«Виконано»/«Скасовано») is applied
-// CLIENT-SIDE, on top of the fixed `partition: PAST` fetch
+// CLIENT-SIDE, on top of the fixed `partition: HISTORY` fetch
 //
-// The backend has no way to combine `partition=PAST` with a `status`
+// The backend has no way to combine `partition=HISTORY` with a `status`
 // sub-filter in one request (status is ignored the instant partition is
-// non-null — see above), so narrowing "PAST, but only COMPLETED rows" is not
-// expressible server-side without giving up partition's correctness (the
-// elapsed-CONFIRMED-is-past computation `status` alone cannot do). Filtering
-// the already-fetched PAST page in Dart instead is what makes
+// non-null — see above), so narrowing "HISTORY, but only COMPLETED rows" is
+// not expressible server-side without giving up partition's correctness (the
+// elapsed-CONFIRMED computation `status` alone cannot do). Filtering the
+// already-fetched HISTORY page in Dart instead is what makes
 // [BookingStatusFilterGroup.confirmed] ("Підтверджено") work as the
 // «Потребують закриття» filter with NO new UI (the amendment this phase
-// shipped under, 2026-08-16): within `BookingPartition.past`, a booking is
-// CONFIRMED if and only if `awaitingClosure` is `true` — `PAST`'s own
-// definition is `COMPLETED ∪ NOT_COMPLETED ∪ (CONFIRMED AND elapsed)`, so
-// there is no non-elapsed CONFIRMED row this partition could ever return.
+// shipped under, 2026-08-16): within `BookingPartition.history`, a booking
+// is (still-open) CONFIRMED if and only if `awaitingClosure` is `true` — no
+// non-elapsed CONFIRMED row can ever appear in this partition either.
 // Filtering by `status == confirmed` and filtering by `awaitingClosure ==
 // true` are therefore the SAME predicate here, not merely correlated.
 //
-// KNOWN, DELIBERATE SCOPE LIMIT: ticking «Скасовано»
-// ([BookingStatusFilterGroup.cancelled], CANCELLED/DECLINED) always resolves
-// to an EMPTY visible list. `BookingPartition.past` structurally never
-// contains a CANCELLED/DECLINED row (that is `BookingPartition.cancelled`'s
-// own, disjoint domain — see that enum's backend javadoc: "CANCELLED
-// CANCELLED OR DECLINED (regardless of ends_at)"), so no client-side filter
-// can ever surface one here. This is consistent with the phase's own stated
-// goal ("close the visits they never marked as done or not-done" — nothing
-// about cancellations), not a bug: the archive's domain is `PAST`, full
-// stop. The row stays in the reused sheet (the amendment mandates verbatim
-// reuse, no bespoke chip row) but is inert for this screen — a future reader
-// wondering why is pointed here.
+// ## Ticking «Скасовано» ([BookingStatusFilterGroup.cancelled],
+// CANCELLED/DECLINED) — FIXED by this cutover, no longer a scope limit
+//
+// Under the old `BookingPartition.past` fetch this always resolved to an
+// EMPTY visible list — `PAST` structurally never contained a CANCELLED/
+// DECLINED row (that was `BookingPartition.cancelled`'s own, disjoint
+// domain). `HISTORY` includes both statuses, so
+// [_archiveStatusPredicate]/[_applyPredicate] now surface exactly the
+// cancelled-or-declined rows the fetched HISTORY page contains — no change
+// needed to the predicate/filtering logic itself, only to which partition is
+// requested. Pinned by `master_archive_notifier_test.dart`'s inverted
+// «Скасовано» test (was previously an "empty list" assertion; a former
+// regression guard for the bug this cutover fixes).
 //
 // ## Pagination interacts with client-side filtering
 //
@@ -71,16 +97,18 @@
 // other — hiding CANCELLED/DECLINED on an EMPTY (untouched) selection — is a
 // day-list product decision this screen never adopted (the amendment: "the
 // archive's default is the whole PAST partition, which is NOT the day
-// list's default"). Applying it here would currently be a harmless no-op
-// (`BookingPartition.past` never contains CANCELLED/DECLINED either way),
-// but stating the WRONG intent in code is worse than a harmless no-op — a
-// future reader copying this call site would carry the day-list's default
-// into a screen that never wanted it. So this file writes its own small
-// resolver instead, sharing only the part that is genuinely load-bearing
-// here too: naming every status a filter UI can select must NOT be allowed
-// to silently exclude [BookingStatus.notCompleted], which none of
-// `BookingStatusFilterGroup`'s three rows can express (mobile-security
-// LOW-1's reasoning, restated for this screen's own maximal set).
+// list's default"). Under the original `BookingPartition.past` fetch,
+// applying it here would have been a harmless no-op (`PAST` never contained
+// CANCELLED/DECLINED either way); under the `HISTORY` cutover it would NOT
+// be harmless — HISTORY genuinely returns CANCELLED/DECLINED rows now, so
+// adopting the day-list's default would actively hide them from the
+// archive's unfiltered landing view, defeating this whole cutover. So this
+// file writes its own small resolver instead, sharing only the part that is
+// genuinely load-bearing here too: naming every status a filter UI can
+// select must NOT be allowed to silently exclude
+// [BookingStatus.notCompleted], which none of `BookingStatusFilterGroup`'s
+// three rows can express (mobile-security LOW-1's reasoning, restated for
+// this screen's own maximal set).
 
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -164,8 +192,9 @@ const Set<BookingStatus> kArchiveFilterCoverage = <BookingStatus>{
 };
 
 /// Resolves the master's raw filter-sheet selection into the CLIENT-SIDE
-/// status predicate applied to an already-fetched `PAST`-partition page. An
-/// EMPTY set return means "no predicate — show every fetched row verbatim".
+/// status predicate applied to an already-fetched `HISTORY`-partition page.
+/// An EMPTY set return means "no predicate — show every fetched row
+/// verbatim".
 ///
 /// See file header for the full reasoning. Two cases collapse to "no
 /// predicate": an untouched (empty) selection, and every row the sheet
@@ -179,18 +208,28 @@ Set<BookingStatus> _archiveStatusPredicate(Set<BookingStatus> selected) {
   return selected;
 }
 
-/// The legacy `status` query set sent alongside `partition: PAST` — the
-/// Phase 227 rollout-valve value, honoured only by a backend that does not
-/// yet understand `partition`. See file header.
+/// The legacy `status` query set sent alongside `partition: HISTORY` — the
+/// Phase 227 rollout-valve value, honoured only by a backend old enough to
+/// have no `partition` PARAM at all (see file header for why a backend that
+/// has `partition` but predates `81e8166` gets NO benefit from this — that
+/// request 400s on the unrecognised `HISTORY` value regardless). See file
+/// header for the full reasoning.
 Set<BookingStatus> _legacyStatusesFor(Set<BookingStatus> predicate) {
   if (predicate.isNotEmpty) return predicate;
-  // Best-effort legacy default — mirrors `BookingTab.past.statuses` exactly
-  // (deliberately excludes CONFIRMED: a legacy, partition-blind backend
-  // cannot compute "elapsed", so including it would resurrect every FUTURE
-  // confirmed booking too — the same limitation that tab's own doc accepts).
+  // Best-effort legacy default approximating HISTORY (`PAST ∪ CANCELLED`)
+  // via `status` alone: COMPLETED/NOT_COMPLETED (PAST's terminal statuses)
+  // plus CANCELLED/DECLINED (HISTORY's whole reason for existing over PAST).
+  // This can NEVER be a full HISTORY equivalent — a partition-blind backend
+  // has no way to compute "elapsed", so an unclosed CONFIRMED row that has
+  // already ended is structurally unreachable via `status` alone (the same
+  // limitation `BookingTab.past.statuses` accepts for its own legacy
+  // fallback). Stated here rather than silently accepted: this fallback is
+  // a best-effort approximation, not parity.
   return const <BookingStatus>{
     BookingStatus.completed,
     BookingStatus.notCompleted,
+    BookingStatus.cancelled,
+    BookingStatus.declined,
   };
 }
 
@@ -225,8 +264,9 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
       statuses: _legacyStatusesFor(predicate),
       // ALWAYS sent, unconditionally — see file header's first section. This
       // is the hard requirement asserted on the CAPTURED request, not just
-      // the repository call args.
-      partition: BookingPartition.past,
+      // the repository call args. Requires a HISTORY-capable backend
+      // (`81e8166`+) — see [BookingPartition.history]'s doc.
+      partition: BookingPartition.history,
       serviceIds: query.serviceIds,
       sort: BookingSort.newest,
       page: 0,
@@ -274,7 +314,7 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
     try {
       final PageResponse<Booking> page = await repo.getMyBookings(
         statuses: _legacyStatusesFor(predicate),
-        partition: BookingPartition.past,
+        partition: BookingPartition.history,
         serviceIds: query.serviceIds,
         sort: BookingSort.newest,
         page: current.page + 1,

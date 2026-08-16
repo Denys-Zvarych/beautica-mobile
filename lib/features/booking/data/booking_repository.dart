@@ -415,6 +415,25 @@ final class HttpBookingRepository implements BookingRepository {
           // `status` is slated for removal once the backend floor is
           // confirmed to have 28.2 — not yet. See [getMyBookings]'s doc for
           // the byte-identical back-compat contract this preserves.
+          //
+          // ⚠ HARD SEQUENCING HAZARD — DOES NOT APPLY to `partition:
+          // BookingPartition.history` (the master «Архів» page, since its
+          // HISTORY cutover). The "safely degrades" reasoning two paragraphs
+          // up is about an unrecognised query-parameter NAME (a wholly
+          // pre-28.2 backend, which has no `partition` param declared at
+          // all, so Spring drops it). `HISTORY` is a different failure mode:
+          // `partition` IS a known param on any backend that shipped 28.2,
+          // bound server-side to a typed `BookingPartition` enum
+          // (`@RequestParam(required = false) BookingPartition partition`).
+          // A VALUE that enum doesn't recognise — `HISTORY` against any
+          // backend older than `81e8166` (`feat/booking-partition-history`)
+          // — is a `MethodArgumentTypeMismatchException`, i.e. an HTTP 400,
+          // NOT a silent degrade to the legacy `status` set sent alongside
+          // it. The archive genuinely hard-requires a HISTORY-capable
+          // backend; a future reader must not assume this repository's
+          // additive-rollout valve protects `history` the way it protects
+          // `upcoming`/`past`/`cancelled`/`awaitingClosure`. See
+          // [BookingPartition]'s file header for the full reasoning.
           'partition': ?partition?.wireValue,
         },
         cancelToken: cancelToken,
