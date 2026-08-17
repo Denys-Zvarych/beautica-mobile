@@ -244,6 +244,17 @@ void main() {
       await tester.tap(find.byKey(const Key('complete-booking-confirm')));
       await AppHarness.settle(tester);
 
+      // Same settle-after-provider-close shape as the booking-detail decline/
+      // complete flow (`master_booking_provider_actions_flow_test.dart`):
+      // [AppHarness.settle] can return in the lull between the PATCH
+      // resolving and the follow-up re-fetch landing, reading a stale
+      // pre-write card. Wait for the closed row to genuinely leave this
+      // still-active «Підтверджено» filter before asserting below.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
+
       expect(
         fb.completeBookingCalls,
         1,

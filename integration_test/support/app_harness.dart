@@ -130,21 +130,92 @@ abstract final class AppHarness {
   /// body BEFORE the harness-level abort fires: the test fails as exactly ONE
   /// clean failure, [addTearDown] unmounts normally, and the next test boots
   /// from a clean tree.
+  ///
+  /// THIS BOUND USED TO BE FICTIONAL. `WidgetController.pumpAndSettle`'s own
+  /// timeout check (`if (clock.now().isAfter(endTime)) throw ...`) runs ONLY
+  /// in the gap BETWEEN successive `pump()` calls inside its loop — it cannot
+  /// preempt a single `pump()` that never returns (e.g. the engine never
+  /// delivers the awaited frame callback). A stall inside one `pump()` hung
+  /// FOREVER, with no exception, regardless of this constant. See [settle]
+  /// for the real bound.
   static const Duration settleTimeout = Duration(seconds: 20);
 
-  /// [pumpAndSettle] bounded by [settleTimeout]. Preserves the default
-  /// 100 ms interval / [EnginePhase.sendSemanticsUpdate] phase semantics —
-  /// only the timeout is constrained. Use on the shared boot/login path so a
-  /// single hang cannot cascade across the aggregated isolate (see [settleTimeout]).
+  /// Wall-clock ceiling wrapped around the ENTIRE bounded [pumpAndSettle] call
+  /// in [settle] — see that method's doc for why this exists on top of
+  /// [settleTimeout]. Kept a few seconds above [settleTimeout] so a NORMAL
+  /// pumpAndSettle timeout (pumps are completing, the tree just never settles)
+  /// still gets the chance to throw its own more specific
+  /// `FlutterError("pumpAndSettle timed out")` first; this outer bound exists
+  /// for the case that error can never fire at all — a single stalled `pump()`
+  /// — and is the last line of defense against a genuine infinite hang.
+  static const Duration _settleWallClockBound = Duration(seconds: 25);
+
+  /// [pumpAndSettle] bounded by [settleTimeout], wrapped in a REAL wall-clock
+  /// [Future.timeout] ([_settleWallClockBound]). Preserves the default 100 ms
+  /// interval / [EnginePhase.sendSemanticsUpdate] phase semantics — only the
+  /// timeout handling changes. Use on the shared boot/login path so a single
+  /// hang cannot cascade across the aggregated isolate (see [settleTimeout]).
+  ///
+  /// MECHANISM — why a `Future.timeout` wrapper, not a hand-rolled bounded
+  /// pump loop
+  /// -------------------------------------------------------------------
+  /// [pumpAndSettle]'s internal deadline check cannot preempt a single stalled
+  /// `pump()` (see [settleTimeout]'s doc). `Future.timeout` fixes exactly
+  /// that: it starts a `Timer` on the isolate's event loop, independent of
+  /// whatever the wrapped future is doing. As long as the stall is a genuine
+  /// async wait (never-completing engine callback, never-completing HTTP
+  /// mock, etc.) and not a synchronous infinite loop starving the event loop,
+  /// the `Timer` still fires on schedule and forces the outer `Future` to
+  /// complete with our own attributable [TestFailure] — turning "hangs
+  /// forever, silently" into "throws a clear, named error after ~25 s".
+  ///
+  /// A hand-rolled loop of short bounded `pump()` calls was considered
+  /// instead (poll `binding.hasScheduledFrame` against a wall-clock deadline,
+  /// each individual `pump()` wrapped in its own short `.timeout()`). It would
+  /// pinpoint WHICH pump in the sequence stalled, but every one of its steps
+  /// still needs the same `Future.timeout` primitive underneath to bound a
+  /// single `pump()` call — so it is strictly more code for the same
+  /// underlying guarantee, and it changes [settle]'s observable semantics
+  /// (interval/phase timing) more than a pure wrapper does. Rejected in favor
+  /// of the minimal change that makes the ALREADY-ADVERTISED bound real.
+  ///
+  /// TRADE-OFF ACCEPTED
+  /// -------------------
+  /// `Future.timeout` cannot CANCEL the future it wraps — there is no
+  /// mechanism in Dart to abort an in-flight `pump()`. When this fires, the
+  /// original `tester.pumpAndSettle(...)` call keeps running in the
+  /// background. If it later completes (or throws) after this method has
+  /// already thrown its own [TestFailure] and the test has already failed and
+  /// begun tearing down, that stray completion can touch a binding/tree the
+  /// test no longer owns — the same "1 hang → cascade" risk the file's own
+  /// header already documents for the aggregated suite's file-level
+  /// `Timeout`. This wrapper does not remove that risk; it converts a truly
+  /// UNBOUNDED, UNATTRIBUTED hang into a BOUNDED, ATTRIBUTED failure at ~25 s,
+  /// which is a strictly better failure mode even though the underlying stall
+  /// is not cleanly cancelled.
   static Future<void> settle(
     WidgetTester tester, {
     Duration interval = const Duration(milliseconds: 100),
   }) {
-    return tester.pumpAndSettle(
-      interval,
-      EnginePhase.sendSemanticsUpdate,
-      settleTimeout,
-    );
+    return tester
+        .pumpAndSettle(interval, EnginePhase.sendSemanticsUpdate, settleTimeout)
+        .timeout(
+          _settleWallClockBound,
+          onTimeout: () {
+            throw TestFailure(
+              'AppHarness.settle: pumpAndSettle did not return within '
+              '${_settleWallClockBound.inSeconds}s (its own internal bound is '
+              '${settleTimeout.inSeconds}s). This means a single pump() call '
+              'inside pumpAndSettle itself never returned — pumpAndSettle can '
+              'only check its own deadline BETWEEN pump() calls, so it could '
+              'not preempt this stall on its own. Wrapped in a real wall-clock '
+              'Future.timeout so the stall fails loudly and attributably '
+              'instead of hanging forever. See settle()\'s doc comment for the '
+              'accepted trade-off (the underlying pumpAndSettle is NOT '
+              'cancelled and may complete later in the background).',
+            );
+          },
+        );
   }
 
   // ── Bounded pump-until (spinner-safe) ───────────────────────────────────────
@@ -192,6 +263,47 @@ abstract final class AppHarness {
         throw TestFailure(
           'AppHarness.pumpUntilFound timed out after $timeout waiting for '
           '$finder to appear (polled every $step).',
+        );
+      }
+      await tester.pump(step);
+    }
+    await tester.pump();
+  }
+
+  /// The counterpart to [pumpUntilFound]: pumps in small, bounded steps until
+  /// [finder] resolves to NO widgets, or [timeout] elapses.
+  ///
+  /// A provider-close write (decline/complete) does its server-side work
+  /// (PATCH) and then re-fetches (GET) to confirm the terminal status before
+  /// the UI reflects it. `AppHarness.settle` (a bounded `pumpAndSettle`) can
+  /// return in the LULL between the PATCH resolving and the follow-up GET
+  /// landing — `SchedulerBinding.hasScheduledFrame` genuinely goes false for
+  /// a beat between those two async hops — reporting "settled" while the
+  /// screen is still showing the PRE-write state (e.g. a `booking-detail-
+  /// decline` button that should already be gone). The eventual rebuild that
+  /// reflects the terminal status still happens correctly, just a frame or
+  /// two after `settle` already returned; a caller that asserts immediately
+  /// reads stale UI even though nothing in `lib/` is broken.
+  ///
+  /// Use this right after `settle` on a provider-close tap to wait for the
+  /// PRE-write widget (a button/card key that only exists in the not-yet-
+  /// closed state) to genuinely leave the tree before asserting the
+  /// post-write state. Throws a [TestFailure] on timeout rather than hanging
+  /// or silently reading stale state, exactly like [pumpUntilFound].
+  static Future<void> pumpUntilGone(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    // instant-ok: elapsed-wall-time poll deadline — see pumpUntilFound above
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (finder.evaluate().isNotEmpty) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+      if (DateTime.now().isAfter(deadline)) {
+        throw TestFailure(
+          'AppHarness.pumpUntilGone timed out after $timeout waiting for '
+          '$finder to disappear (polled every $step).',
         );
       }
       await tester.pump(step);
@@ -418,15 +530,38 @@ abstract final class AppHarness {
       // left mid-frame. An unguarded pumpWidget/pumpAndSettle here then collides
       // with that interrupted pump and corrupts the binding for EVERY subsequent
       // test in the isolate — one per-test timeout cascades into 50 failures.
-      // Guarding the unmount localises the blast radius: a single timed-out test
-      // fails exactly ONE test, and the next test still boots from a clean tree.
-      try {
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pumpAndSettle();
-      } catch (_) {
-        // Binding was left in a bad state by an interrupted/timed-out test —
-        // swallow so this teardown cannot turn one failure into a suite wipe.
-      }
+      //
+      // BOUNDED, NOT SILENT (was: unbounded `pumpAndSettle()` — the framework
+      // default 10-MINUTE timeout — inside a bare `catch (_) {}`). That used to
+      // mean two different failure modes were indistinguishable from "clean
+      // teardown": a genuinely wedged binding could hang here for up to 10
+      // minutes before the SUITE-level runner gave up, and even a fast failure
+      // was thrown away silently, so a real regression in the unmount path
+      // could never surface as a test failure — only as a mysteriously slow or
+      // stuck run. Both `pumpWidget` and the settle are now bounded by
+      // [settleTimeout]/[_settleWallClockBound] via [settle], and neither
+      // exception is swallowed: a wedged binding now fails the CURRENT test's
+      // teardown loudly and attributably, exactly the outcome
+      // [_settleWallClockBound]'s doc comment describes as strictly better
+      // than an unbounded hang. If this starts firing on a previously-green
+      // test, that is a REAL pre-existing teardown problem the old
+      // `catch (_) {}` was hiding — do not re-add the swallow to silence it.
+      await tester
+          .pumpWidget(const SizedBox.shrink())
+          .timeout(
+            _settleWallClockBound,
+            onTimeout: () {
+              throw TestFailure(
+                'AppHarness.boot teardown: pumpWidget(SizedBox.shrink()) did not '
+                'return within ${_settleWallClockBound.inSeconds}s while '
+                'unmounting after the test — the binding is likely wedged from an '
+                'earlier interrupted pump. This used to be silently swallowed by '
+                'a bare catch (_) {}; it now surfaces so a wedged binding is '
+                'visible instead of hidden.',
+              );
+            },
+          );
+      await settle(tester);
     });
 
     // RC2 — read the live GoRouter from the ProviderScope container. The

@@ -132,6 +132,15 @@ void main() {
       await tester.tap(find.byKey(const Key('decline-booking-confirm')));
       await AppHarness.settle(tester);
 
+      // [AppHarness.settle] can return in the lull between the PATCH
+      // resolving and the follow-up GET landing (see [pumpUntilGone]'s doc) —
+      // wait for the pre-write decline button to genuinely leave the tree
+      // before asserting the terminal state below.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-decline')),
+      );
+
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('decline-booking-dialog')), findsNothing);
 
@@ -319,6 +328,15 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('decline-booking-confirm')));
     await AppHarness.settle(tester);
+
+    // [AppHarness.settle] can return in the lull between the PATCH
+    // resolving and the follow-up GET landing (see [pumpUntilGone]'s doc) —
+    // wait for the pre-write decline button to genuinely leave the tree
+    // before asserting the terminal state below.
+    await AppHarness.pumpUntilGone(
+      tester,
+      find.byKey(const Key('booking-detail-decline')),
+    );
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const Key('decline-booking-dialog')), findsNothing);
