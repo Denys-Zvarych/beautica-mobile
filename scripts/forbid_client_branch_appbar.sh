@@ -129,6 +129,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   fi
   echo "SELF-TEST PASS: 2 raw AppBars flagged, annotated + ClientTopBar lines clean"
+  echo "SELF-TEST OK: forbid_client_branch_appbar.sh"
   exit 0
 fi
 

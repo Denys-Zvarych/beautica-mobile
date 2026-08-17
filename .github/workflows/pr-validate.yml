@@ -86,35 +86,21 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos --fatal-warnings
 
-      # 2026-08-18 — this step is UNDER REVIEW and is NOT a gate today.
+      # 2026-08-18 — a `dart run custom_lint` step used to sit here. It was
+      # deleted, along with the custom_lint / custom_lint_builder /
+      # riverpod_lint dependencies, because it gated NOTHING: `custom_lint`
+      # was archived upstream 2026-03-24 and riverpod_lint had already left
+      # it in 3.1.0, so the host loaded ZERO plugins and still exited 0.
+      # Falsified with a probe violating three riverpod_lint rules at once —
+      # `No issues found!`, exit 0, `--format=json` -> `{"diagnostics":[]}`.
       #
-      # It was introduced as the `no_raw_ui_strings` error gate. It never
-      # gated anything: `custom_lint` discovers plugins among the analyzed
-      # package's DEPENDENCIES, and a package is never a plugin of itself, so
-      # `lib/beautica_mobile.dart`'s `createPlugin()` was never called. That
-      # rule now lives in `scripts/forbid_raw_ui_strings.sh` (below) and the
-      # plugin host has been deleted.
-      #
-      # `riverpod_lint` was then falsified the same way, in case IT was still
-      # live and worth keeping the step for. It is not. A probe violating
-      # three of its rules at once — a public property on a `Notifier`
-      # (`avoid_public_notifier_properties`), `runApp` without a
-      # `ProviderScope` (`missing_provider_scope`), and `ref.read` inside
-      # `State.dispose` (`avoid_ref_inside_state_dispose`) — produced
-      # `{"version":1,"diagnostics":[]}` and exit 0, while `flutter analyze`
-      # on the same file reported normally, proving the file was in scope.
-      # `custom_lint` is inert here end to end; `.dart_tool/custom_lint/` is
-      # never even created, and a captured `custom_lint.log` shows the plugin
-      # host failing to spawn ("The plugin screen_protector was not found in
-      # the package config").
-      #
-      # Kept only so the deletion is a deliberate call rather than a drive-by:
-      # removing it means dropping custom_lint / custom_lint_builder /
-      # riverpod_lint from pubspec and `plugins: - custom_lint` from
-      # analysis_options.yaml too. Until then it is a ~1s no-op that must not
-      # be cited as coverage for anything.
-      - name: Custom lint (INERT — under review, gates nothing)
-        run: dart run custom_lint
+      # Re-homing riverpod_lint on Dart's native analyzer-plugin path was
+      # attempted in the same pass and abandoned: the rules fire, but their
+      # diagnostics are unsuppressable on this toolchain, so 33 pre-existing
+      # findings would make the `Analyze` step permanently red with no way
+      # to annotate a deliberate exception. See pubspec.yaml's lints block
+      # for the evidence and the revisit condition. No lint plugin is
+      # configured today; `analysis_options.yaml` declares none.
 
       # 2026-08-18 — the REAL `no_raw_ui_strings` gate. AST-based (the
       # Phase 1.3 checker, unchanged and covered by 19 unit tests), driven by
@@ -431,31 +417,26 @@ jobs:
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
+      #
+      # 2026-08-18 — this used to be 22 hand-written `--self-test` lines, one
+      # per guard. That list was itself an un-gated gap: a guard added
+      # without someone remembering to append its line here would have a
+      # --self-test that never ran anywhere, looking covered while being
+      # verified by nothing — the same silent-green class as the two bugs
+      # found today (`no_raw_ui_strings` shipped as a never-loaded
+      # `custom_lint` plugin; `riverpod_lint` silently stopped loading when
+      # `custom_lint` was archived).
+      #
+      # `verify_guards.sh --self-test` derives the list from the SAME
+      # discovery glob normal mode uses (`scripts/forbid_*.sh`), so adding a
+      # guard enrols it automatically — there is no second place to forget.
+      # It requires every discovered guard to BOTH exit 0 AND print
+      # `SELF-TEST OK: <basename>` (exit 0 alone is exactly the failure mode
+      # being retired), asserts sentinel count == discovered count, and
+      # names any guard that produced no sentinel.
       - name: Self-test drift-prevention gates
         shell: bash
-        run: |
-          ./scripts/forbid_client_branch_appbar.sh --self-test
-          ./scripts/forbid_cyrillic_finder.sh --self-test
-          ./scripts/forbid_fixed_wait.sh --self-test
-          ./scripts/forbid_unmocked_approved_categories.sh --self-test
-          ./scripts/forbid_inline_fontsize.sh --self-test
-          ./scripts/forbid_raw_bookings_query.sh --self-test
-          ./scripts/forbid_naive_router_location.sh --self-test
-          ./scripts/forbid_stale_future_date_fixture.sh --self-test
-          ./scripts/forbid_missing_test_text_input.sh --self-test
-          ./scripts/forbid_expectlocation_home.sh --self-test
-          ./scripts/forbid_slash_in_patrol_test_name.sh --self-test
-          ./scripts/forbid_raw_ui_strings.sh --self-test
-          ./scripts/forbid_results_bare_pump_and_settle.sh --self-test
-          ./scripts/forbid_raw_query_param_cast.sh --self-test
-          ./scripts/forbid_blind_calendar_tap.sh --self-test
-          ./scripts/forbid_missing_client_branch_key.sh --self-test
-          ./scripts/forbid_forked_calendar_grid.sh --self-test
-          ./scripts/forbid_magic_padding.sh --self-test
-          ./scripts/forbid_cycle_stub_in_tests.sh --self-test
-          ./scripts/forbid_provider_self_invalidation.sh --self-test
-          ./scripts/forbid_host_local_instant_anchor.sh --self-test
-          ./scripts/forbid_raw_clock_read.sh --self-test
+        run: ./scripts/verify_guards.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH

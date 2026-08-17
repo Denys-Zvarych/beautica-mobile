@@ -126,6 +126,7 @@ EOF
   echo "SELF-TEST PASS: 3 positional raw-literal EdgeInsets flagged;"
   echo "                AppSpacing./VelvetSpacing. lines exempt; the"
   echo "                named-parameter forms remain out of scope (see header)."
+  echo "SELF-TEST OK: forbid_magic_padding.sh"
   exit 0
 fi
 

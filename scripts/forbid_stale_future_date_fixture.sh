@@ -650,6 +650,7 @@ EOF
   echo "                rule ONLY (neither the string rule nor the far-past rule"
   echo "                has a baseline), and skipping one path does not silence"
   echo "                the other root."
+  echo "SELF-TEST OK: forbid_stale_future_date_fixture.sh"
   exit 0
 fi
 

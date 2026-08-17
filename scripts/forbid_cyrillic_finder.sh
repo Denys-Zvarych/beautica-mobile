@@ -162,6 +162,7 @@ if [ "${1:-}" = "--self-test" ]; then
   echo "SELF-TEST PASS: 3 offenders flagged (raw finder; annotation orphaned by real code;"
   echo "second hit in a group not itself annotated)."
   echo "Clean: same-line-above annotation, 2-line wrapped annotation, ASCII, commented-out line."
+  echo "SELF-TEST OK: forbid_cyrillic_finder.sh"
   exit 0
 fi
 

@@ -383,6 +383,7 @@ EOF
   echo "SELF-TEST PASS: both blind-tap shapes flagged (inline and via-variable);"
   echo "                helper-routed / warnIfMissed:false / unrelated-tap clean;"
   echo "                mode 2 flags a wrapper helper that bypasses tapCalendarDay."
+  echo "SELF-TEST OK: forbid_blind_calendar_tap.sh"
   exit 0
 fi
 

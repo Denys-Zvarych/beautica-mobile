@@ -225,6 +225,7 @@ EOF
   echo "                trigger-bound local) flagged; pumpUntilFound / annotated"
   echo "                (single- AND multi-line) / unrelated / prose-only /"
   echo "                settle-before-tap files clean."
+  echo "SELF-TEST OK: forbid_results_bare_pump_and_settle.sh"
   exit 0
 fi
 

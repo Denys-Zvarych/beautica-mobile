@@ -215,6 +215,7 @@ EOF
 
   echo "SELF-TEST PASS: the superseding screen that dropped its key is flagged;"
   echo "                the compliant screen and placeholder-served branches are clean."
+  echo "SELF-TEST OK: forbid_missing_client_branch_key.sh"
   exit 0
 fi
 
