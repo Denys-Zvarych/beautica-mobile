@@ -2378,6 +2378,28 @@ final class FakeBackend {
   /// [bookingCanReview]'s post-review flip.
   bool bookingProviderCanReviewClient = true;
 
+  /// When true, `POST /client-reviews` replies HTTP **409** instead of 200 —
+  /// feedback about this booking's client already exists (it landed from
+  /// another device, or a second submit raced the destination screen's own
+  /// pre-gate snapshot). Drives `ClientReviewRepository`'s 409 branch →
+  /// `ClientReviewAlreadyExistsFailure` → `LeaveClientFeedbackScreen`'s
+  /// `_alreadyReviewed` swap to `_NotReviewable`, which pointedly does NOT pop.
+  /// Off by default so every other flow's submit stays a clean 200.
+  ///
+  /// RE-WIRES ON WRITE — DO NOT COLLAPSE BACK INTO A PLAIN FIELD. See
+  /// [createRejectDuplicate]'s doc for the full `DioAdapter.onRoute`
+  /// registration-time-status trap: `replyCallback` captures its `statusCode`
+  /// when [_wire] runs (from the constructor, where this flag is always still
+  /// false) and only `data` stays lazy, so a plain field would change the BODY
+  /// and leave the status at 200 — silently un-arming any flow that sets it.
+  bool get clientReviewRejectDuplicate => _clientReviewRejectDuplicate;
+  set clientReviewRejectDuplicate(bool value) {
+    _clientReviewRejectDuplicate = value;
+    _wireClientReviews();
+  }
+
+  bool _clientReviewRejectDuplicate = false;
+
   /// `POST /client-reviews` call count + the last rating/comment/bookingId
   /// submitted (track 7.x Wave B — the PROVIDER→CLIENT «ВІДГУК ПРО КЛІЄНТА»
   /// mirror of [createReviewCalls] above). Asserted by the
@@ -2612,6 +2634,42 @@ final class FakeBackend {
   /// upcoming tab fetches the single CONFIRMED status.
   int getBookingDetailCalls = 0;
   int getMyBookingsCalls = 0;
+
+  /// When non-null, `GET /api/v1/bookings/booking-1` replies with THIS HTTP
+  /// status (and a plain error envelope) instead of `200` + the seeded booking.
+  ///
+  /// The single-booking fetch is the one round trip several screens PRE-GATE on
+  /// — `BookingDetailScreen` and `LeaveClientFeedbackScreen` both render their
+  /// whole body out of `bookingDetailProvider(id)` — and until this knob existed
+  /// NO flow could reach either screen's `error:` branch, so their retry
+  /// affordances were E2E-unreachable (mobile-qa INFO, 2026-08-17 cycle 1;
+  /// closed cycle 2). [getBookingDetailCalls] still increments on a failing
+  /// reply, so a flow can prove a manual «Повторити» genuinely RE-ISSUES the
+  /// request rather than merely rebuilding.
+  ///
+  /// PREFER `404`. `beauticaProviderRetry` (`core/errors/failure_retry_policy.dart`)
+  /// classifies the resulting [NotFoundFailure] as DETERMINISTIC, so the element
+  /// settles into `AsyncError` on the FIRST attempt and the error UI renders at
+  /// once. A `5xx` maps to a transient `ServerFailure` and is fed into Riverpod's
+  /// default backoff curve instead — ~10 attempts over ~38 s, parked in
+  /// `AsyncLoading` the whole time, which no bounded `AppHarness.settle` can
+  /// outwait (and which would make [getBookingDetailCalls] non-deterministic).
+  /// Use `5xx` here only with `AppHarness.boot(..., retry: (_, _) => null)`.
+  ///
+  /// RE-WIRES ON WRITE — DO NOT COLLAPSE BACK INTO A PLAIN FIELD. Identical
+  /// `DioAdapter.onRoute` trap to [clientReviewRejectDuplicate] /
+  /// [createRejectDuplicate]: `replyCallback` captures its `statusCode` when
+  /// [_wire] runs (from the constructor, where this is always still null) and
+  /// keeps only `data` lazy, so a plain field would swap the BODY and silently
+  /// leave the status at 200 — the flow would then see a deserialization
+  /// failure, or nothing at all, instead of the error branch it asked for.
+  int? get bookingDetailFailStatus => _bookingDetailFailStatus;
+  set bookingDetailFailStatus(int? value) {
+    _bookingDetailFailStatus = value;
+    _wireBookingDetail();
+  }
+
+  int? _bookingDetailFailStatus;
 
   /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
   int bookedDaysCalls = 0;
@@ -2934,11 +2992,24 @@ final class FakeBackend {
   /// parameterized by [id]/[status]/[startsAt] so a test can seed a large,
   /// scrambled-insertion-order table. [duration] defaults to a realistic
   /// service length.
+  ///
+  /// [providerCanReviewClient] models the REAL per-row value the backend now
+  /// computes on the provider rows of `GET /bookings/me` (backend
+  /// `fix/list-provider-can-review-client`, 2026-08-17). It used to be omitted
+  /// from this row entirely — matching the backend's then-hardcoded `false` —
+  /// which is why `MasterBookingCard.onReview` could not be gated on it. It
+  /// defaults to `false` (an already-reviewed or not-yet-eligible row), so a
+  /// flow that wants the archive's «Відгук» CTA must opt in per row. Note this
+  /// is INDEPENDENT of [bookingProviderCanReviewClient], which is what
+  /// `GET /bookings/{id}` returns — seeding them differently is how a flow
+  /// exercises the stale-list-vs-fresh-detail race the destination screen's
+  /// pre-gate exists for.
   Map<String, dynamic> datasetBookingRow({
     required String id,
     required String status,
     required DateTime startsAt,
     Duration duration = const Duration(minutes: 60),
+    bool providerCanReviewClient = false,
   }) => <String, dynamic>{
     'id': id,
     'masterId': 'master-aaa',
@@ -2963,6 +3034,7 @@ final class FakeBackend {
     'endsAt': startsAt.add(duration).toIso8601String(),
     'status': status,
     'canReview': false,
+    'providerCanReviewClient': providerCanReviewClient,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': null,
@@ -4665,18 +4737,7 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/bookings/booking-1 — «Деталі запису» for the seeded booking.
-    // Concrete path (DioAdapter has no path-template matching); reflects the
-    // CURRENT mutable status/time so a post-cancel / post-reschedule re-open
-    // shows the new state.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1',
-      (server) => server.replyCallback(200, (_) {
-        getBookingDetailCalls++;
-        return _ok(_seededBookingJson());
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
+    _wireBookingDetail();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -4857,28 +4918,79 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
-    // POST /api/v1/client-reviews — PROVIDER leave-client-feedback (track 7.x
-    // Wave B). Records the submitted bookingId/rating/comment and flips
-    // [bookingProviderCanReviewClient] false so a subsequent detail re-fetch
-    // (the screen invalidates `bookingDetailProvider` on success — the exact
-    // regression this flip exists to pin) re-resolves the provider footer's
-    // «Залишити відгук про клієнта» CTA away, mirroring `/api/v1/reviews`
-    // above flipping [bookingCanReview]. The generated
-    // `ClientReviewControllerApi.create` deserializes an
-    // `ApiResponse<ClientReviewResponse>`; a `data: null` envelope is valid
-    // (every `ClientReviewResponse` field is nullable) and the repository
-    // returns void anyway.
+    _wireClientReviews();
+  }
+
+  /// GET /api/v1/bookings/booking-1 — «Деталі запису» for the seeded booking.
+  /// Concrete path (DioAdapter has no path-template matching); reflects the
+  /// CURRENT mutable status/time so a post-cancel / post-reschedule re-open
+  /// shows the new state.
+  ///
+  /// Split out of [_wire] into its own method so [bookingDetailFailStatus]'s
+  /// setter can RE-REGISTER the route with a different status — see that field's
+  /// doc for why a plain field cannot work. [getBookingDetailCalls] is bumped on
+  /// BOTH branches: a flow proving a manual retry re-issues the request needs
+  /// the failing replies counted too.
+  void _wireBookingDetail() {
+    final int? failStatus = _bookingDetailFailStatus;
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1',
+      (server) => server.replyCallback(failStatus ?? 200, (_) {
+        getBookingDetailCalls++;
+        if (failStatus != null) return _bookingNotFoundEnvelope();
+        return _ok(_seededBookingJson());
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// Error envelope for a failing single-booking fetch — the shape the backend's
+  /// `GlobalExceptionHandler` emits for a `NotFoundException` (mirrors
+  /// [_masterNotFoundEnvelope]). Used by [bookingDetailFailStatus].
+  static Map<String, dynamic> _bookingNotFoundEnvelope() => <String, dynamic>{
+    'success': false,
+    'message': 'Booking not found',
+    'data': null,
+  };
+
+  /// POST /api/v1/client-reviews — PROVIDER leave-client-feedback (track 7.x
+  /// Wave B). Records the submitted bookingId/rating/comment and flips
+  /// [bookingProviderCanReviewClient] false so a subsequent detail re-fetch
+  /// (the screen invalidates `bookingDetailProvider` on success — the exact
+  /// regression this flip exists to pin) re-resolves the provider footer's
+  /// «Залишити відгук про клієнта» CTA away, mirroring `/api/v1/reviews`
+  /// flipping [bookingCanReview]. The generated
+  /// `ClientReviewControllerApi.create` deserializes an
+  /// `ApiResponse<ClientReviewResponse>`; a `data: null` envelope is valid
+  /// (every `ClientReviewResponse` field is nullable) and the repository
+  /// returns void anyway.
+  ///
+  /// Split out of [_wire] into its own method so
+  /// [clientReviewRejectDuplicate]'s setter can RE-REGISTER the route with a
+  /// different status — see that field's doc for why a plain field cannot work.
+  void _wireClientReviews() {
     _adapter.onRoute(
       '/api/v1/client-reviews',
-      (server) => server.replyCallback(200, (req) {
-        createClientReviewCalls++;
-        final body = _decodeBody(req.data);
-        lastClientReviewBookingId = body['bookingId'] as String?;
-        lastClientReviewRating = body['rating'] as int?;
-        lastClientReviewComment = body['comment'] as String?;
-        bookingProviderCanReviewClient = false;
-        return _okVoid;
-      }),
+      (server) =>
+          server.replyCallback(_clientReviewRejectDuplicate ? 409 : 200, (req) {
+            createClientReviewCalls++;
+            final body = _decodeBody(req.data);
+            lastClientReviewBookingId = body['bookingId'] as String?;
+            lastClientReviewRating = body['rating'] as int?;
+            lastClientReviewComment = body['comment'] as String?;
+            if (_clientReviewRejectDuplicate) {
+              // Deliberately does NOT flip [bookingProviderCanReviewClient].
+              // The screen's 409 branch invalidates `bookingDetailProvider`,
+              // so the refetch that follows still answers `true` — which means
+              // the `_NotReviewable` state a flow then observes can ONLY have
+              // come from the screen's own `_alreadyReviewed` flag, never from
+              // a conveniently-agreeing server. Flipping it here would make
+              // that assertion pass for the wrong reason.
+              return _okVoid;
+            }
+            bookingProviderCanReviewClient = false;
+            return _okVoid;
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }

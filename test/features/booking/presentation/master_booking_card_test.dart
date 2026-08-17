@@ -3960,12 +3960,17 @@ void main() {
         endAt: startAt.add(const Duration(minutes: 60)),
         status: BookingStatus.completed,
         canReview: false,
+        // The slot's ONLY gate since 2026-08-17 — see
+        // `MasterBookingCard.onReview`'s doc. Without it this fixture is a
+        // COMPLETED-but-already-reviewed row, which must NOT show the CTA.
+        providerCanReviewClient: true,
       );
     }
 
     testWidgets(
-      'a COMPLETED booking with a non-null onReview renders the «Відгук» '
-      'button on the FULL layout, and tapping it fires the callback',
+      'a still-reviewable COMPLETED booking with a non-null onReview renders '
+      'the «Відгук» button on the FULL layout, and tapping it fires the '
+      'callback',
       (WidgetTester tester) async {
         int taps = 0;
         final Booking booking = completedBooking();
@@ -3997,10 +4002,21 @@ void main() {
       },
     );
 
+    // RETARGETED 2026-08-17 alongside the gate itself. This case used to
+    // assert "a CONFIRMED row never renders «Відгук», so the two slots are
+    // mutually exclusive". That invariant is GONE: the slot is now gated on
+    // `providerCanReviewClient` alone, and the server sets it on an
+    // elapsed-but-unclosed CONFIRMED booking too (`isReviewEligible` is
+    // COMPLETED **or** CONFIRMED-and-elapsed) — the old status term was a
+    // live under-inclusion bug, not a guard. What is pinned here now is the
+    // REAL gate, on the same awaitingClosure CONFIRMED fixture: `false` hides
+    // it, `true` shows it. Left non-vacuous by asserting BOTH directions on
+    // one fixture, so the negative half can never pass merely because the
+    // card refused to render at all.
     testWidgets(
-      'a non-COMPLETED (awaitingClosure CONFIRMED) booking never renders '
-      '«Відгук» even with a non-null onReview — proven on the SAME FULL '
-      'layout the completed case above uses, so this is not vacuous',
+      'the «Відгук» slot follows providerCanReviewClient, not status: an '
+      'awaitingClosure CONFIRMED booking hides it when the flag is false and '
+      'renders it when the flag is true, with a non-null onReview throughout',
       (WidgetTester tester) async {
         // future-date-ok: pinned Kyiv wall-clock fixture.
         final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
@@ -4039,14 +4055,16 @@ void main() {
         await tester.pump();
         expect(tester.takeException(), isNull);
 
-        expect(
-          find.byKey(const Key('master-booking-card-review-review-awaiting')),
-          findsNothing,
+        final Finder reviewButton = find.byKey(
+          const Key('master-booking-card-review-review-awaiting'),
         );
-        // The «Виконано» slot IS expected here — this booking is the shape
-        // that renders it — pinning that the two slots are mutually
-        // exclusive on real fixture data, not merely "review happens to be
-        // absent".
+        expect(
+          reviewButton,
+          findsNothing,
+          reason:
+              'providerCanReviewClient is false on this fixture, so the slot '
+              'must be absent regardless of status.',
+        );
         expect(
           find.byKey(const Key('master-booking-card-complete-review-awaiting')),
           findsNothing,
@@ -4056,6 +4074,29 @@ void main() {
               'proves the two additive slots are independently gated on '
               'their OWN callback, not on each other.',
         );
+
+        // Flip ONLY the flag on the SAME CONFIRMED fixture. The button must
+        // now appear — which simultaneously proves (a) the gate is the flag,
+        // not the status, and (b) the negative half above was not passing
+        // because this card/layout cannot render the slot at all.
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: awaitingBooking.copyWith(
+                  providerCanReviewClient: true,
+                ),
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+                onReview: () {},
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(reviewButton, findsOneWidget);
       },
     );
 

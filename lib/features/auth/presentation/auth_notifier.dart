@@ -934,6 +934,19 @@ class AuthNotifier extends _$AuthNotifier {
     // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
     // the full reasoning, including the Riverpod internals this depends on.
     ref.read(dayKeepAliveLruProvider).clear();
+    // NOTE — this belt-and-braces list is NOT the app's full inventory of
+    // keepAlive, user-scoped state, and must not be read as one (mobile-security
+    // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of
+    // BOOKING IDS this provider has left client feedback about) is deliberately
+    // ABSENT: like `BookingsDayNotifier`, its `build()` watches the
+    // authenticated identity itself (`authProvider.select(… user.id …)`), so
+    // the state assignment below already rebuilds it to a fresh empty set
+    // through the ordinary cascade. Unlike the day cache it holds no external
+    // bookkeeping (no LRU, no links map) for that rebuild to miss, so there is
+    // nothing left for an explicit sweep to do — adding one would be redundant
+    // work on every logout. Pinned by `client_review_signal_provider_test.dart`
+    // and by `master_archive_review_flow_test.dart`'s session-boundary scenario,
+    // which drives a real logout → login round trip.
     // Wipe the interceptor's session-lifetime token fallback so no request can
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;

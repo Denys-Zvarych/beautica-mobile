@@ -164,9 +164,16 @@ abstract final class BookingMapper {
       endAt: endsAt,
       status: status,
       canReview: dto.canReview ?? false,
-      // Real value only on GET /bookings/{id}; both GET /bookings/me listing
-      // paths hardcode false server-side, so a null/false wire value here is
-      // the expected shape there, not a missing-field defect. See
+      // The REAL per-row value now arrives on BOTH paths — GET /bookings/{id}
+      // (always did) and the PROVIDER rows of GET /bookings/me (backend
+      // `fix/list-provider-can-review-client`, 2026-08-17). The earlier note
+      // here — "both listing paths hardcode false server-side, so a null/false
+      // wire value is the expected shape there" — is RETRACTED: it described
+      // the pre-2026-08-17 backend and would now tell a reader that a `false`
+      // off a listing carries no information, which is exactly backwards (the
+      // archive's «Відгук» CTA is gated on it — `MasterBookingCard.onReview`).
+      // The `?? false` is a FAIL-CLOSED default for a backend old enough to
+      // OMIT the field, not an expected shape on any current response. See
       // `Booking.providerCanReviewClient`'s doc.
       providerCanReviewClient: dto.providerCanReviewClient ?? false,
       // Phase 29.2 field; defaulted so a pre-29.2 backend omitting it entirely

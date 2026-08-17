@@ -232,15 +232,25 @@ abstract class Booking with _$Booking {
 
     /// `true` only when the CURRENT authenticated viewer is the provider AND
     /// this booking's client may still be reviewed by them — server-computed
-    /// (mirrors [canReview], but from the PROVIDER's side): COMPLETED,
-    /// non-guest client, no `ClientReview` yet for this booking. Defaults to
-    /// `false`, matching the backend's own hardcoded-`false` rows on
-    /// `GET /bookings/me` (both the client and provider listing paths) — only
-    /// `GET /bookings/{id}` ever sends a real value here. Gates the master
-    /// footer's «Залишити відгук про клієнта» CTA; the write endpoint
-    /// (`POST /client-reviews`) re-checks the same conditions server-side
-    /// regardless of this value, so a stale/duplicate submit still surfaces
-    /// as a 409 rather than being trusted client-side.
+    /// (mirrors [canReview], but from the PROVIDER's side): non-guest client,
+    /// no `ClientReview` yet for this booking, AND review-eligible, which the
+    /// backend's `BookingClosureRule.isReviewEligible` defines as COMPLETED
+    /// **or** (CONFIRMED and [endAt] already elapsed) — NOT merely COMPLETED.
+    /// Do not re-derive any part of it client-side; the `!reviewExists` term
+    /// alone is unknowable here.
+    ///
+    /// Sent with a real value on `GET /bookings/{id}` and, since backend
+    /// `fix/list-provider-can-review-client` (2026-08-17), on the provider
+    /// rows of `GET /bookings/me` too — the earlier "hardcoded `false` on
+    /// every listing row" note is retracted. Still defaults to `false` so an
+    /// older backend that omits the field fails CLOSED (hides the CTA) rather
+    /// than offering a doomed one.
+    ///
+    /// Gates the master footer's «Залишити відгук про клієнта» CTA and the
+    /// «Архів» card's «Відгук» slot (`MasterBookingCard.onReview`); the write
+    /// endpoint (`POST /client-reviews`) re-checks the same conditions
+    /// server-side regardless of this value, so a stale/duplicate submit still
+    /// surfaces as a 409 rather than being trusted client-side.
     @Default(false) bool providerCanReviewClient,
 
     /// `true` only when [status] is still [BookingStatus.confirmed] AND

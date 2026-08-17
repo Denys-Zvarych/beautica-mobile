@@ -251,11 +251,23 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
   /// In-flight guard for [refresh] — mirrors `MyBookingsNotifier._refreshing`.
   bool _refreshing = false;
 
+  /// Bumped by every page-0 fetch (an initial [build] or a [refresh]), i.e.
+  /// every time the accumulated list is thrown away and started over. An
+  /// in-flight [loadMore] captures it and refuses to merge its page into a
+  /// LATER generation — see [_mergeTargetFor].
+  ///
+  /// Deliberately not derived from [MasterArchiveState.page]: a refresh landing
+  /// during the FIRST `loadMore` resets the cursor to 0, which is exactly the
+  /// value that call captured, so a cursor comparison would read as "unchanged"
+  /// in the single most common case.
+  int _generation = 0;
+
   @override
   Future<MasterArchiveState> build(MasterArchiveQuery query) =>
       _fetchFirstPage(query);
 
   Future<MasterArchiveState> _fetchFirstPage(MasterArchiveQuery query) async {
+    _generation++;
     final Set<BookingStatus> predicate = _archiveStatusPredicate(
       query.statuses.toSet(),
     );
@@ -298,12 +310,29 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
   ///
   /// No-op when: the notifier has no data yet, a load-more is already in
   /// flight, or the server-side stream is exhausted.
+  ///
+  /// ## The fetched page is merged into the state as it is AFTER the await,
+  /// never into the snapshot captured before it (mobile-perf LOW, 2026-08-17
+  /// cycle 3)
+  ///
+  /// [markClientReviewed] can land at any point during the round trip below,
+  /// and rebuilding state from the pre-await `current` would silently DROP that
+  /// row patch — the «Відгук» CTA would flick back on the moment the page
+  /// landed. The signal-set path ([clientReviewSignalProvider], read by
+  /// `master_archive_screen.dart`'s `_scheduleClientReviewSignalPatch`) would
+  /// re-arm itself on the next build and heal it, but the pop-result-only path
+  /// would NOT: a master who backs out of an already-reviewed booking's
+  /// pre-gate pops `true` WITHOUT submitting, so nothing is ever deposited in
+  /// the signal set and the lost patch is simply gone. Hence [_mergeTargetFor].
   Future<void> loadMore() async {
     final MasterArchiveState? current = state.value;
     if (current == null) return;
     if (current.isLoadingMore) return; // double-fetch guard
     if (!current.hasMore) return; // last raw page no-op
 
+    // The pagination generation this call belongs to — see [_mergeTargetFor].
+    final int generation = _generation;
+    final int fromPage = current.page;
     state = AsyncData(current.copyWith(isLoadingMore: true));
 
     final Set<BookingStatus> predicate = _archiveStatusPredicate(
@@ -317,13 +346,15 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
         partition: BookingPartition.history,
         serviceIds: query.serviceIds,
         sort: BookingSort.newest,
-        page: current.page + 1,
+        page: fromPage + 1,
       );
 
+      final MasterArchiveState? target = _mergeTargetFor(generation);
+      if (target == null) return;
       state = AsyncData(
-        current.copyWith(
+        target.copyWith(
           items: <Booking>[
-            ...current.items,
+            ...target.items,
             ..._applyPredicate(page.items, predicate),
           ],
           page: page.page,
@@ -334,7 +365,127 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
     } catch (_) {
       // A failed load-more must not blow away the already-rendered list —
       // mirrors `MyBookingsNotifier.loadMore`'s identical catch.
-      state = AsyncData(current.copyWith(isLoadingMore: false));
+      final MasterArchiveState? target = _mergeTargetFor(generation);
+      if (target == null) return;
+      state = AsyncData(target.copyWith(isLoadingMore: false));
     }
+  }
+
+  /// The state a completed [loadMore] round trip may write into, re-read AFTER
+  /// its await — or `null` when this call's result must be DISCARDED instead.
+  ///
+  /// Returns `null` in exactly two cases, both meaning "a newer, authoritative
+  /// answer already replaced the list this page was fetched for":
+  ///
+  ///  * the notifier no longer holds data ([refresh] assigns a bare
+  ///    `AsyncLoading` that drops the value, and a failed refresh leaves an
+  ///    `AsyncError`) — writing here would launder that state away, exactly as
+  ///    [markClientReviewed] refuses to;
+  ///  * a page-0 fetch started or landed underneath ([_generation] moved) —
+  ///    appending page `fromPage + 1` onto a list rebuilt from page 0 would
+  ///    leave a hole in the middle AND push the cursor past it, so the NEXT
+  ///    load-more would skip a page entirely. The refresh's own `items`/`page`/
+  ///    `hasMore` are the authoritative bookkeeping, so the in-flight page is
+  ///    dropped rather than merged.
+  ///
+  /// Otherwise the returned state is the SAME pagination generation the fetch
+  /// started in, so its `items` can only differ from the pre-await snapshot by
+  /// in-place row rewrites: [markClientsReviewed] is the only other writer that
+  /// touches state within a generation, and it maps `items` 1:1 (never adds,
+  /// drops or reorders). Appending the fetched page to it therefore cannot
+  /// duplicate a row — the two id sets come from disjoint server pages.
+  MasterArchiveState? _mergeTargetFor(int generation) {
+    if (_generation != generation) return null;
+    final AsyncValue<MasterArchiveState> snapshot = state;
+    if (snapshot is! AsyncData<MasterArchiveState>) return null;
+    return snapshot.value;
+  }
+
+  /// Rewrites the ONE already-loaded row identified by [bookingId] so its
+  /// [Booking.providerCanReviewClient] reads `false` — dropping the «Відгук»
+  /// CTA (`MasterBookingCard.onReview`) from that row alone, with NO network
+  /// call, NO lost pages and NO lost scroll position.
+  ///
+  /// Called by `master_archive_screen.dart`'s `_openReview` when
+  /// `LeaveClientFeedbackScreen` pops `true` — i.e. the provider just left
+  /// feedback about that booking's client, or the destination's own
+  /// `GET /bookings/{id}` pre-gate revealed the row was already reviewed.
+  ///
+  /// ## Why this exists instead of `ref.invalidate(masterArchiveProvider)`
+  ///
+  /// (mobile-perf MEDIUM, 2026-08-17.) Invalidating this family would discard
+  /// every accumulated page and the master's scroll position, and — on a
+  /// FILTERED archive — burn up to
+  /// `_MasterArchiveScreenState._kMaxAutoContinueAttempts` extra `loadMore`
+  /// round trips re-walking raw pages the master had already paged past. It
+  /// would also show the master the full-list SKELETON on pop-back, which is
+  /// worth spelling out because the mechanism is NOT the ordinary "reload shows
+  /// loading" one (`AsyncValue.when` skips that for a refresh — see
+  /// `master_archive_screen.dart`'s own note): the invalidate arrives while the
+  /// archive is COVERED by the review route, so its consumers are PAUSED, and
+  /// an autoDispose provider invalidated with only paused listeners is
+  /// DISPOSED outright — there is no previous value left to retain, and the
+  /// rebuild on resume starts from a bare `AsyncLoading`. All of that to learn
+  /// ONE boolean on ONE row. Leaving a client review changes
+  /// nothing else: [Booking.status] is untouched, so the row cannot move
+  /// between filter partitions or day groups, and the server's own answer for
+  /// this field after a successful write is exactly the `false` written here.
+  ///
+  /// Contrast `_confirmComplete`, which DOES change status (a row can leave
+  /// the «Підтверджено» filter for «Виконано») and therefore legitimately
+  /// reloads through `_reloadArchive` rather than patching locally.
+  ///
+  /// A NO-OP when the notifier holds no data yet (loading/error — nothing to
+  /// patch, and writing `AsyncData` there would launder an error away) and
+  /// when no loaded row is still REVIEWABLE under [bookingId] (a filter changed
+  /// underneath, the row was never in this member's page set, or it is already
+  /// patched). Never throws, never fabricates a row, and never allocates a new
+  /// `items` list on a miss — that list's IDENTITY is
+  /// `_MasterArchiveScreenState._groupedEntries`'s cache key, so a no-op that
+  /// replaced it would silently cost an O(n) regroup.
+  ///
+  /// Deliberately does NOT self-invalidate — see
+  /// `scripts/forbid_provider_self_invalidation.sh`.
+  void markClientReviewed(String bookingId) =>
+      markClientsReviewed(<String>{bookingId});
+
+  /// The BATCH form of [markClientReviewed] — patches every row in
+  /// [bookingIds] in ONE pass over `items`, emitting ONE new state.
+  ///
+  /// Exists for `master_archive_screen.dart`'s
+  /// `_scheduleClientReviewSignalPatch`, which can hold several signalled ids
+  /// at once when a `loadMore` page lands carrying rows the provider already
+  /// reviewed on another screen. Calling the single-id form per id would copy
+  /// the whole `items` list `k` times (O(k·n)) and emit `k` states; this copies
+  /// it once (mobile-perf INFO, 2026-08-17 cycle 3).
+  ///
+  /// [markClientReviewed] DELEGATES here rather than the other way round, so
+  /// there is still exactly ONE `copyWith(providerCanReviewClient:)` call site
+  /// in `lib/` writing exactly one hardcoded `false` — the fail-closed
+  /// invariant `client_review_signal_provider.dart`'s header locks and
+  /// `master_archive_notifier_test.dart`'s FAIL-CLOSED test pins. Keep it that
+  /// way.
+  ///
+  /// The guard tests the FLAG, not merely id presence: a repeat call on a row
+  /// already at `false` must keep the SAME `items` instance, or it would bust
+  /// `_groupedEntries`' identity memo and force a full `ListView` rebuild for
+  /// no visible change (mobile-perf LOW, 2026-08-17 cycle 3). That is also what
+  /// makes the two patch paths — the pop result and the signal set — genuinely
+  /// idempotent rather than idempotent-by-frame-ordering.
+  void markClientsReviewed(Set<String> bookingIds) {
+    final AsyncValue<MasterArchiveState> snapshot = state;
+    if (snapshot is! AsyncData<MasterArchiveState>) return;
+    final MasterArchiveState current = snapshot.value;
+    bool patchable(Booking b) =>
+        b.providerCanReviewClient && bookingIds.contains(b.id);
+    if (!current.items.any(patchable)) return;
+    state = AsyncData<MasterArchiveState>(
+      current.copyWith(
+        items: <Booking>[
+          for (final Booking b in current.items)
+            if (patchable(b)) b.copyWith(providerCanReviewClient: false) else b,
+        ],
+      ),
+    );
   }
 }

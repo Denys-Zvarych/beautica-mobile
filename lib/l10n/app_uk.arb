@@ -5215,7 +5215,7 @@
   },
   "masterArchiveReviewCta": "Відгук",
   "@masterArchiveReviewCta": {
-    "description": "Short CTA label for MasterBookingCard's additive «Відгук» slot on a COMPLETED row of the master «Архів» page — pushes LeaveClientFeedbackScreen. Deliberately short (unlike bookingDetailClientReviewCta's full-sentence label) to fit a card-width button; see MasterBookingCard.onReview's doc for why this is offered on every COMPLETED row without a providerCanReviewClient gate."
+    "description": "Short CTA label for MasterBookingCard's additive «Відгук» slot on a still-reviewable row of the master «Архів» page — pushes LeaveClientFeedbackScreen. Deliberately short (unlike bookingDetailClientReviewCta's full-sentence label) to fit a card-width button; see MasterBookingCard.onReview's doc for the providerCanReviewClient gate the slot is rendered behind."
   },
   "statTileNoDataSemantics": "{caption}: немає даних",
   "@statTileNoDataSemantics": {

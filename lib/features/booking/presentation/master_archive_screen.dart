@@ -26,10 +26,13 @@
 // as well"). The same day, the «Відгук» leave-client-feedback action was
 // added as a SECOND additive slot on the same card
 // (`MasterBookingCard.onReview`), pushing the already-shipped
-// `LeaveClientFeedbackScreen` (Track 7.x Wave B) for a COMPLETED row — see
-// that field's own doc for why it is deliberately NOT gated on
-// `booking.providerCanReviewClient` (that flag is hardcoded `false` on every
-// `GET /bookings/me` row this screen's own list is built from). Every OTHER
+// `LeaveClientFeedbackScreen` (Track 7.x Wave B) for a reviewable row. That
+// slot IS gated on `booking.providerCanReviewClient` — the earlier rationale
+// here ("that flag is hardcoded `false` on every `GET /bookings/me` row this
+// screen's own list is built from") is RETRACTED: the backend now computes a
+// real per-row value on the provider rows of that listing too
+// (`fix/list-provider-can-review-client`, 2026-08-17), so the flag is the
+// authority on both paths. See that field's own doc. Every OTHER
 // consumer of the card (`bookings_timeline_grid.dart`,
 // `declared_time_cards.dart`) never passes `onComplete` or `onReview`, so it
 // renders byte-identically to before either phase — see those fields' own
@@ -98,6 +101,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
+import '../application/client_review_signal_provider.dart';
 import '../application/master_archive_dialog_visible_notifier.dart';
 import '../application/master_archive_in_flight_notifier.dart';
 import '../application/master_archive_notifier.dart';
@@ -105,6 +109,7 @@ import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_status.dart';
 import '../domain/master_archive_query.dart';
+import 'leave_client_feedback_screen.dart' show ClientReviewEntry;
 import 'widgets/archive_day_groups.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/complete_booking_dialog.dart';
@@ -300,11 +305,13 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   /// «Відгук» — pushes the SHIPPED leave-client-feedback screen (Track 7.x
-  /// Wave B) for a COMPLETED row. See `MasterBookingCard.onReview`'s doc for
-  /// why this is offered on every COMPLETED row without a
-  /// `providerCanReviewClient` gate (that flag is hardcoded `false` on every
-  /// `GET /bookings/me` row, which is what feeds this screen) — a
-  /// user-locked decision, 2026-08-16.
+  /// Wave B) for a row the SERVER says is still reviewable. The card gates the
+  /// slot on `booking.providerCanReviewClient`; the old rationale for offering
+  /// it on every COMPLETED row without that gate ("hardcoded `false` on every
+  /// `GET /bookings/me` row, which is what feeds this screen" — a user-locked
+  /// decision, 2026-08-16) is RETRACTED, because the backend now populates a
+  /// real per-row value on that listing's provider rows too. See
+  /// `MasterBookingCard.onReview`'s doc.
   ///
   /// Unlike the detail→review path (where `BookingDetailScreen` stays
   /// mounted underneath and keeps `bookingDetailProvider(id)` warm), this
@@ -334,13 +341,191 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// The `(_, _) {}` listener body is a deliberate no-op: any error surfaces
   /// through `LeaveClientFeedbackScreen`'s own `AsyncValue.error` branch,
   /// which watches this very same provider — never through this warm-up.
-  void _openReview(Booking booking) {
+  ///
+  /// ## The pop result, and why this is NOT an invalidate
+  ///
+  /// The pushed screen reports a `bool` upward — `true` meaning "this booking
+  /// is no longer reviewable by this provider" (feedback submitted, or its own
+  /// `GET /bookings/{id}` pre-gate found the row already reviewed). See
+  /// `LeaveClientFeedbackScreen`'s file header for the full contract.
+  ///
+  /// That result drives `MasterArchiveNotifier.markClientReviewed`, which
+  /// rewrites JUST that row's [Booking.providerCanReviewClient] — zero
+  /// network, accumulated pages and scroll position untouched, CTA gone on the
+  /// same frame the pop lands. It REPLACES the bare
+  /// `ref.invalidate(masterArchiveProvider)` the review screen used to fire on
+  /// its own behalf, which discarded every cached filter combination's pages
+  /// (and, on a filtered archive, burned up to [_kMaxAutoContinueAttempts]
+  /// extra `loadMore` round trips re-walking pages the master had already
+  /// paged past) to learn one boolean — mobile-perf MEDIUM, 2026-08-17. A
+  /// refetch is only defensible when a row's STATUS moved, which is why
+  /// «Виконано» still reloads through [_reloadArchive] and this does not.
+  ///
+  /// `extra` carries the entry point so the destination knows NOT to invalidate
+  /// `bookingDetailProvider` on success — nothing on this stack watches it, so
+  /// that refetch would be read by nobody. See [ClientReviewEntry].
+  ///
+  /// [_query] is re-read AFTER the await deliberately: it is the filter
+  /// combination the row was tapped from, since a covered archive cannot open
+  /// its filter sheet. If a future change ever lets it, the worst case is a
+  /// no-op — `markClientReviewed` ignores an id no loaded row carries.
+  ///
+  /// ## Why the warm-up is preceded by an INVALIDATE (mobile-qa LOW, 2026-08-17
+  /// cycle 3)
+  ///
+  /// `bookingDetailProvider` is autoDispose, but Riverpod DEFERS disposing an
+  /// element whose last listener just left. A master who backs out of this
+  /// screen and immediately re-taps «Відгук» therefore re-attaches to the SAME
+  /// cached element and is re-served its stored value with NO
+  /// `GET /bookings/{id}` at all — measured: the re-entry leaves
+  /// `getBookingDetailCalls` flat, and only ~10 s of idling lets the element go.
+  /// On a failed first attempt that replays the `AsyncError` (the master must
+  /// tap «Повторити» to get anywhere); on a successful one it replays a
+  /// possibly-STALE `providerCanReviewClient`, which is the half that matters
+  /// here — this screen's entire job is to gate on the freshest answer to that
+  /// one flag.
+  ///
+  /// Invalidating first makes the destination ALWAYS fetch fresh. It is close
+  /// to free on the ordinary path: with no element alive, `invalidate` is a
+  /// null-safe lookup that does nothing (`ProviderContainer.invalidate` →
+  /// `readElement(provider)?.invalidateSelf()`), so the exactly-one-round-trip
+  /// property the `listenManual` warm-up below buys is untouched. It must run
+  /// BEFORE the warm-up: invalidating the element the warm-up just subscribed
+  /// to would re-fire the very fetch it exists to start early.
+  ///
+  /// Deliberately NOT done at `BookingDetailScreen`'s own review CTA: there the
+  /// detail screen stays mounted and `ref.watch`es this family itself, so the
+  /// element is never in the disposal-deferred state this fixes — and an
+  /// invalidate there would cost a real refetch of data that screen is actively
+  /// rendering.
+  Future<void> _openReview(Booking booking) async {
+    ref.invalidate(bookingDetailProvider(booking.id));
     final ProviderSubscription<AsyncValue<Booking>> warmup = ref.listenManual(
       bookingDetailProvider(booking.id),
       (AsyncValue<Booking>? previous, AsyncValue<Booking> next) {},
     );
-    context.push(RouteNames.clientReview(booking.id));
+    // Captured BEFORE the post-frame close is scheduled so the synchronous
+    // push→schedule ordering the warm-up depends on is exactly as it was; the
+    // await happens only after both have run.
+    final Future<bool?> popped = context.push<bool>(
+      RouteNames.clientReview(booking.id),
+      extra: ClientReviewEntry.masterArchive,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => warmup.close());
+    final bool? noLongerReviewable = await popped;
+    if (!mounted || noLongerReviewable != true) return;
+    // ADJACENT-PATH patch. This is one of TWO paths that drop a row's «Відгук»
+    // CTA, and the duplication is deliberate — see
+    // [_scheduleClientReviewSignalPatch] for the other one and why neither
+    // subsumes it. This one is the instant patch: it lands synchronously on the
+    // frame the pop resolves, with no dependence on provider delivery ordering,
+    // and it is what QA's integration scenarios pin. It also fires for a case
+    // the signal set never sees at all: the master backing out of an
+    // ALREADY-reviewed booking, where nothing was submitted but the
+    // destination's own pre-gate fetch still popped `true`.
+    ref
+        .read(masterArchiveProvider(_query).notifier)
+        .markClientReviewed(booking.id);
+  }
+
+  /// NON-ADJACENT-PATH patch — the other half of the pair described in
+  /// [_openReview], and the fix for the journey that one structurally cannot
+  /// reach (mobile-perf MEDIUM, 2026-08-17 cycle 2):
+  ///
+  ///   archive → row tap → `BookingDetailScreen` → footer «Залишити відгук про
+  ///   клієнта» → review → submit → pop → pop back to the archive
+  ///
+  /// On that path [_openDetail] is fire-and-forget and the review screen pops
+  /// to the DETAIL screen, so no pop result ever reaches this one; chaining a
+  /// result back through `BookingDetailScreen` would still lose it whenever the
+  /// master leaves via a system/predictive back gesture (which pops `null`).
+  /// The review screen therefore deposits the booking id in the session-scoped
+  /// [clientReviewSignalProvider] instead, and this reads it.
+  ///
+  /// Handles BOTH shapes with one code path, because it runs on every build:
+  /// a signal arriving while this screen is alive (the watch in `build` wakes
+  /// it — on RESUME if this screen is covered, which is when the master can see
+  /// it again), and ids already in the set when this screen is (re)built later.
+  ///
+  /// TERMINATES: the patch flips exactly the matched rows'
+  /// [Booking.providerCanReviewClient] to `false`, so the very next build finds
+  /// no pending id and schedules nothing. The `providerCanReviewClient` term in
+  /// the filter below is what makes that true — without it this would rewrite
+  /// `items` on every build, spinning the frame loop AND defeating
+  /// [_groupedEntries]'s identity memo.
+  ///
+  /// Deferred to a post-frame callback because it WRITES to a provider and is
+  /// called from `build`. [_query] is re-read there: if the filter changed in
+  /// between, the worst case is a no-op (`markClientsReviewed` ignores an id no
+  /// loaded row carries) and the new family member's own build re-derives its
+  /// pending set from its own rows.
+  ///
+  /// Takes the whole [AsyncValue], not just its value, so it can bail on a
+  /// state that CANNOT be patched — an `AsyncError`/`AsyncLoading` that RETAINS
+  /// a previous value still exposes `items` through `.value`, and `pending`
+  /// there never clears (nothing rewrites those rows), so every build in that
+  /// state used to allocate a list + closure for a post-frame callback that
+  /// `markClientsReviewed`'s own `is! AsyncData` guard then dropped on the
+  /// floor. Dead scheduling, not a spin — it emitted nothing — but it is now
+  /// skipped outright (mobile-perf INFO, 2026-08-17 cycle 3). The guard MIRRORS
+  /// `markClientsReviewed`'s deliberately: when the reload lands as `AsyncData`
+  /// this method runs again on that build and patches then.
+  ///
+  /// The patch is applied as ONE batch call rather than a loop of single-id
+  /// ones — see `MasterArchiveNotifier.markClientsReviewed` for why (O(k·n)
+  /// list copies and `k` state emissions collapse to one of each).
+  void _scheduleClientReviewSignalPatch(
+    AsyncValue<MasterArchiveState> async,
+    Set<String> signalled,
+  ) {
+    if (signalled.isEmpty) return;
+    if (async is! AsyncData<MasterArchiveState>) return;
+    final Set<String> pending = <String>{
+      for (final Booking b in async.value.items)
+        if (b.providerCanReviewClient && signalled.contains(b.id)) b.id,
+    };
+    if (pending.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(masterArchiveProvider(_query).notifier)
+          .markClientsReviewed(pending);
+    });
+  }
+
+  /// The ONE place this screen drops its own cached pages — every «Виконано»
+  /// path routes its invalidation through here (mobile-perf LOW, 2026-08-17).
+  ///
+  /// Exists to make ONE invariant local: a reload starts a fresh page 0, so it
+  /// starts with a fresh [_autoContinueAttempts] budget — exactly like
+  /// [_refresh] and [_applyFilters], the two other paths that reset it.
+  ///
+  /// HONEST SCOPE: on THESE two call sites the reset is DEFENSIVE, not a live
+  /// bug fix. Both are reachable only by tapping «Виконано» on a rendered row,
+  /// and `build`'s `data:` branch zeroes the counter on every build whose
+  /// `state.items` is non-empty — so it is provably already 0 whenever a row
+  /// exists to tap. The reset is written here anyway because that argument is
+  /// an emergent property of ANOTHER branch's bookkeeping, one relaxation away
+  /// from silently going stale, and because [_refresh] (reachable by pulling on
+  /// the auto-continue/empty branch, where the counter genuinely IS non-zero)
+  /// proves the invariant belongs to "a fresh page 0", not to "a non-empty
+  /// list". mobile-perf LOW, 2026-08-17.
+  ///
+  /// No `setState`: the invalidation itself rebuilds this widget off the
+  /// watched provider, and [_autoContinueAttempts] is only ever READ during
+  /// that rebuild (same idiom as [_refresh]).
+  ///
+  /// The reload is SEAMLESS — the master keeps their rows and scroll position
+  /// while the fresh page 0 lands. See `build`'s `async.when` note for what
+  /// actually delivers that (measured, not the flag one would assume).
+  ///
+  /// A reload — not a surgical row patch like [_openReview]'s — is genuinely
+  /// right here: closing a booking changes its [BookingStatus], so the row can
+  /// legitimately leave the master's active filter selection or its day group
+  /// entirely, which no local rewrite can decide.
+  void _reloadArchive(void Function() invalidate) {
+    _autoContinueAttempts = 0;
+    invalidate();
   }
 
   /// «Виконано» — see file header's ROLE GATING/CLOSE ACTION notes.
@@ -407,14 +592,31 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         // server's authoritative state.
         if (!mounted) return;
         showErrorSnack(context, failure.userMessage(context));
-        ref.invalidate(masterArchiveProvider);
+        _reloadArchive(() => ref.invalidate(masterArchiveProvider));
         return;
       } catch (e, st) {
         if (kDebugMode) {
+          // SEC: the exception is NOT passed as `error:` — a `DioException`'s
+          // `toString()` embeds the response body/headers, which on this
+          // feature's endpoints carry client PII. The runtime type is enough
+          // to tell a network failure from a mapping bug, and the stack trace
+          // (project code paths only) is not sensitive.
+          // `booking_repository.dart`'s malformed-envelope logs interpolate
+          // `runtimeType` the same way (mobile-security INFO, 2026-08-17).
+          //
+          // Stated precisely, because the earlier blanket claim here ("this is
+          // the shape every OTHER `log()` in this feature already uses — none
+          // of them passes `error:`") was FALSE: the one other `error:`-passing
+          // `log()` in this feature is
+          // `salon_master_coverage_notifier.dart:155`. It is not a
+          // counterexample to the rule this comment defends — what it passes is
+          // a MAPPED `Failure`, which does not override `toString()` (so it
+          // logs `Instance of 'NetworkFailure'`), never a raw `DioException`
+          // whose `toString()` embeds the response body. That site is
+          // deliberately left unchanged.
           log(
-            'completeBooking/completeAppointment failed',
+            'completeBooking/completeAppointment failed: ${e.runtimeType}',
             name: _tag,
-            error: e,
             stackTrace: st,
           );
         }
@@ -434,7 +636,13 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       // (2026-08-16) so this screen and `booking_detail_screen.dart` cannot
       // independently drift on the contract again; this call site's own
       // observable behaviour (which caches drop) is unchanged.
-      invalidateBookingViewsAfterProviderClose(ref, booking.id);
+      //
+      // Wrapped in [_reloadArchive] (2026-08-17) purely for the auto-continue
+      // budget reset the archive's own reload needs — WHICH caches drop is
+      // still entirely the shared helper's decision, unchanged.
+      _reloadArchive(
+        () => invalidateBookingViewsAfterProviderClose(ref, booking.id),
+      );
     } finally {
       inFlight.end();
     }
@@ -459,9 +667,16 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // `itemBuilder` where watching would be out of build scope. See
     // `core/time/clock_provider.dart`.
     final DateTime now = ref.watch(clockProvider)();
+    // The session-scoped set of bookings whose client this provider has already
+    // reviewed — see [_scheduleClientReviewSignalPatch]. `ref.watch` (not
+    // `ref.listen`) on purpose: it is what makes an id deposited while this
+    // screen was COVERED still land, since Riverpod 3 pauses a covered
+    // consumer and flushes the change when it resumes.
+    final Set<String> reviewSignals = ref.watch(clientReviewSignalProvider);
     final MasterArchiveState? data = async.value;
     _hasMore = data?.hasMore ?? false;
     _isLoadingMore = data?.isLoadingMore ?? false;
+    _scheduleClientReviewSignalPatch(async, reviewSignals);
 
     return Scaffold(
       key: const Key('master-archive-screen'),
@@ -484,6 +699,40 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                   onRefresh: _refresh,
                   color: BrandColors.accentDeep,
                   backgroundColor: BrandColors.base,
+                  // A RELOAD of an already-rendered list must keep that list on
+                  // screen instead of replacing every accumulated page (and the
+                  // master's scroll position) with the skeleton — mobile-perf
+                  // LOW, 2026-08-17.
+                  //
+                  // NO FLAG IS NEEDED HERE, and there deliberately isn't one.
+                  // [_reloadArchive] reloads via `ref.invalidate`, and
+                  // `AsyncValue.when` ALREADY skips the loading branch for an
+                  // invalidate/refresh — that is `skipLoadingOnRefresh`, which
+                  // defaults to `true`. Mutation-verified 2026-08-17 against a
+                  // deliberately PENDING reload: with the flag deleted,
+                  // `master_archive_screen_test.dart`'s frame-by-frame
+                  // "«Виконано» reload keeps the list" test stays GREEN.
+                  //
+                  // A `skipLoadingOnReload: true` used to sit below, justified
+                  // as covering the OTHER trigger `skipLoadingOnRefresh` does
+                  // not: a reload caused by one of the provider's own
+                  // dependencies changing. That justification is FALSE for THIS
+                  // provider (mobile-perf INFO, 2026-08-17 cycle 2) —
+                  // `MasterArchiveNotifier.build` only ever `ref.read`s
+                  // (`master_archive_notifier.dart:262,312`), so it has zero
+                  // dependencies and `isReloading` can never be true. The flag
+                  // was provably inert and is removed rather than left as a
+                  // comment a reader would trust. (It IS load-bearing on
+                  // `leave_client_feedback_screen.dart`, whose
+                  // `bookingDetailProvider` really does `ref.watch` — do not
+                  // "consistency-clean" that one away.)
+                  //
+                  // The FIRST load still shows the skeleton below — there is no
+                  // previous value to keep. Pull-to-refresh is unaffected too,
+                  // deliberately: `MasterArchiveNotifier.refresh` assigns a bare
+                  // `const AsyncLoading()` that DROPS the value, so no flag
+                  // could apply and the skeleton renders under the master's own
+                  // pull gesture, where a visible reload is the point.
                   child: async.when(
                     loading: () => ListView(
                       key: const Key('master-archive-skeleton'),
@@ -687,12 +936,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         // Required alongside `onComplete` — the card's start-time gate. See
         // `MasterBookingCard.now`.
         now: now,
-        // «Відгук» — additive slot, COMPLETED rows only (the card itself
-        // re-checks `booking.status`; see `MasterBookingCard.onReview`'s
-        // doc). Not gated on `booking.status` here too — passing a non-null
-        // callback unconditionally keeps the "which statuses show it"
-        // decision in exactly ONE place (the card) rather than duplicated
-        // at every call site.
+        // «Відгук» — additive slot, still-reviewable rows only (the card
+        // itself gates on `booking.providerCanReviewClient`; see
+        // `MasterBookingCard.onReview`'s doc). Not re-gated here — passing a
+        // non-null callback unconditionally keeps the "which rows show it"
+        // decision in exactly ONE place (the card) rather than duplicated at
+        // every call site.
         onReview: () => _openReview(booking),
       ),
     );
