@@ -253,6 +253,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.useScheduleWindow = false,
     this.onAddWorkingHours,
     required this.onBookingTap,
+    this.onOpenArchive,
     super.key,
   }) : assert(
          !useScheduleWindow || onAddWorkingHours != null,
@@ -308,6 +309,15 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// Fires with the tapped booking. Navigation is the HOST's concern — no
   /// `Navigator`/`context.push` anywhere in this widget.
   final ValueChanged<Booking> onBookingTap;
+
+  /// Phase 231 — fires when the header's archive button is tapped. `null`
+  /// (the default) hides the button entirely; only `master_bookings_screen
+  /// .dart` passes a non-null callback (`context.push(RouteNames
+  /// .masterBookingsArchive)`). ADDITIVE ONLY — see this file's own
+  /// "touch it as little as possible" constraint for this phase; no other
+  /// header behaviour changed. Navigation is the HOST's concern, same as
+  /// [onBookingTap]/[onBack] — no `Navigator`/`context.push` in this file.
+  final VoidCallback? onOpenArchive;
 
   @override
   ConsumerState<BookingsDiscoveryView> createState() =>
@@ -972,6 +982,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
               onAdd: _showAddComingSoon,
+              onOpenArchive: widget.onOpenArchive,
             ),
             const _ServiceCatalogueWarmer(),
             // mobile-perf HIGH fix (finding #2), current shape — displacement
@@ -1464,6 +1475,7 @@ class _Header extends StatelessWidget {
     required this.activeFilterCount,
     required this.onOpenFilters,
     required this.onAdd,
+    this.onOpenArchive,
   });
 
   final String title;
@@ -1476,6 +1488,10 @@ class _Header extends StatelessWidget {
   /// screen only ever renders for the independent master's own bookings, the
   /// one scope the design always shows it for.
   final VoidCallback onAdd;
+
+  /// Phase 231 — the archive button. `null` hides it entirely; see
+  /// [BookingsDiscoveryView.onOpenArchive]'s doc.
+  final VoidCallback? onOpenArchive;
 
   // Hoisted — `Color.withValues` and `BorderRadius.circular` are not const,
   // so this can't be `static const`, but resolving once at class-load time
@@ -1534,6 +1550,15 @@ class _Header extends StatelessWidget {
               ),
             ),
             const SizedBox(width: VelvetSpacing.sm),
+            if (onOpenArchive != null) ...<Widget>[
+              NeumorphicIconButton(
+                key: const Key('master-bookings-open-archive'),
+                icon: Icons.inventory_2_outlined,
+                semanticLabel: l10n.masterArchiveOpenSemantics,
+                onTap: onOpenArchive!,
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+            ],
             BookingsFilterButton(
               activeCount: activeFilterCount,
               onTap: onOpenFilters,

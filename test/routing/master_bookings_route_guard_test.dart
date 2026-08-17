@@ -80,12 +80,24 @@ void main() {
   // matches on the LOCATION, so an id-bearing path is what must be tested.
   const String masterList = RouteNames.masterBookings; // /master/bookings
   final String masterDetail = RouteNames.masterBookingDetail('bk-1');
+  // Phase 231 — the master «Архів» page (/master/bookings/archive), a sibling
+  // of masterDetail under the same /master/bookings parent. Added to this
+  // loop rather than a standalone test: it inherits the SAME `/master/*`
+  // prefix gate `auth_redirect.dart` already applies, and this file is the
+  // one place that gate is pinned per-route (see the file header — the
+  // generic `/master/*` prefix sweep lives in `auth_redirect_test.dart`, but
+  // neither list contained a booking sub-route until this file existed).
+  const String masterArchive = RouteNames.masterBookingsArchive;
   const String clientList = RouteNames.clientBookings; // /bookings
   final String clientDetail = RouteNames.bookingDetail('bk-1');
 
   group('the PROVIDER route (/master/bookings/**) admits only '
       'INDEPENDENT_MASTER', () {
-    for (final String route in <String>[masterList, masterDetail]) {
+    for (final String route in <String>[
+      masterList,
+      masterDetail,
+      masterArchive,
+    ]) {
       test('INDEPENDENT_MASTER at $route is admitted', () {
         expect(
           authRedirectForLocation(_master, route),

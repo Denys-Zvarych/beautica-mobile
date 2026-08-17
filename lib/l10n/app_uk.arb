@@ -4355,6 +4355,10 @@
   "@clientReviewBackSemantics": {
     "description": "Accessibility label for the back button on the leave-client-feedback screen."
   },
+  "clientReviewLoadingSemantics": "Завантаження форми відгуку",
+  "@clientReviewLoadingSemantics": {
+    "description": "Accessibility live-region label for the leave-client-feedback loading skeleton."
+  },
   "clientReviewRatingSection": "ОЦІНКА КЛІЄНТА",
   "@clientReviewRatingSection": {
     "description": "Section eyebrow above the required star-rating input on the leave-client-feedback screen."
@@ -5176,6 +5180,42 @@
   "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
   "@masterBookingsAddComingSoon": {
     "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
+  },
+  "masterArchiveOpenSemantics": "Відкрити архів записів",
+  "@masterArchiveOpenSemantics": {
+    "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."
+  },
+  "masterArchiveTitle": "Архів",
+  "@masterArchiveTitle": {
+    "description": "Screen title of the master «Архів» page (Phase 231) — a paginated, filterable list of the master's PAST bookings."
+  },
+  "masterArchiveEmptyTitle": "Архів порожній",
+  "@masterArchiveEmptyTitle": {
+    "description": "True-empty state title on the master «Архів» page — the master has no past bookings at all and no filter is active."
+  },
+  "masterArchiveEmptyBody": "Завершені та минулі записи з'являться тут.",
+  "@masterArchiveEmptyBody": {
+    "description": "True-empty state body on the master «Архів» page."
+  },
+  "masterArchiveNoResultsBody": "Спробуйте інший фільтр — або перегляньте всі записи.",
+  "@masterArchiveNoResultsBody": {
+    "description": "Filter-empty state body on the master «Архів» page (bookings exist, none match the active status/service filter). The title reuses masterBookingsNoResultsTitle; this body is a dedicated key because that screen's own body mentions 'day', which the archive has no day rail to filter by."
+  },
+  "masterArchiveScanningSemantics": "Перевіряємо наступні сторінки архіву",
+  "@masterArchiveScanningSemantics": {
+    "description": "Accessibility live-region label on the master «Архів» page while it auto-fetches further raw server pages after a fetched page contained zero rows matching the active client-side status filter (mobile-perf HIGH-1/2 fix) — the visible spinner alone announces nothing to a screen reader."
+  },
+  "masterArchiveContinueBody": "На завантажених сторінках ще немає записів, що відповідають фільтру.",
+  "@masterArchiveContinueBody": {
+    "description": "Body shown on the master «Архів» page when the automatic continuation (fetching further raw server pages looking for a filter match) has hit its bounded attempt cap while server pages still remain — offers a manual 'load more' CTA instead of an indefinite spinner."
+  },
+  "masterArchiveLoadMoreCta": "Завантажити ще",
+  "@masterArchiveLoadMoreCta": {
+    "description": "Button label that resumes fetching further raw server pages after the automatic continuation on the master «Архів» page has hit its attempt cap."
+  },
+  "masterArchiveReviewCta": "Відгук",
+  "@masterArchiveReviewCta": {
+    "description": "Short CTA label for MasterBookingCard's additive «Відгук» slot on a COMPLETED row of the master «Архів» page — pushes LeaveClientFeedbackScreen. Deliberately short (unlike bookingDetailClientReviewCta's full-sentence label) to fit a card-width button; see MasterBookingCard.onReview's doc for why this is offered on every COMPLETED row without a providerCanReviewClient gate."
   },
   "statTileNoDataSemantics": "{caption}: немає даних",
   "@statTileNoDataSemantics": {

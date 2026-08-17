@@ -51,6 +51,7 @@ import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
+import '../features/booking/presentation/master_archive_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
@@ -900,6 +901,17 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterBookings,
         builder: (context, state) => const MasterBookingsScreen(),
         routes: [
+          // Phase 231 — /master/bookings/archive, the master «Архів» page.
+          // Registered BEFORE the `:bookingId` sibling below so the literal
+          // segment is never shadowed by the dynamic one (go_router matches
+          // in declaration order among siblings). `builder:` (MaterialPage)
+          // so the theme's CupertinoPageTransitionsBuilder installs the
+          // left-edge swipe-back gesture, matching every other pushed
+          // /master/* sub-route.
+          GoRoute(
+            path: 'archive',
+            builder: (context, state) => const MasterArchiveScreen(),
+          ),
           // /master/bookings/:bookingId — the PROVIDER view of «Деталі
           // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client
           // route renders: one screen, role-branched off the session (locked
@@ -913,23 +925,57 @@ GoRouter appRouter(Ref ref) {
             builder: (context, state) => BookingDetailScreen(
               bookingId: state.pathParameters['bookingId']!,
             ),
-            routes: [
-              // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-
-              // feedback), nested under the detail so it pushes onto the
-              // master's own stack (swipe-back returns to the detail).
-              // Reached from the detail's COMPLETED-provider-booking entry
-              // CTA. `builder:` (not `pageBuilder: _instantPage`) so the
-              // default Material transition + left-edge swipe-back apply,
-              // matching the detail route and its CLIENT-side `review` twin.
-              GoRoute(
-                path: 'review',
-                builder: (context, state) => LeaveClientFeedbackScreen(
-                  bookingId: state.pathParameters['bookingId']!,
-                ),
-              ),
-            ],
           ),
         ],
+      ),
+      // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
+      // Registered as a STANDALONE top-level route carrying the SAME full
+      // path [RouteNames.clientReview] resolves to
+      // (`/master/bookings/:bookingId/review`), rather than nested under
+      // `masterBookingDetail` above — mirrors the `/masters/:masterId` +
+      // `/masters/:masterId/reviews` sibling pair further up this file.
+      //
+      // WHY: go_router's matcher inserts every ANCESTOR route's own
+      // `RouteMatch` into a pushed match list for a nested `GoRoute`
+      // (`match.dart`) so it can build the full page stack in one shot. That
+      // is correct when the ancestor is a shell wrapping shared chrome, but
+      // `masterBookingDetail` is a plain content screen, not chrome — nesting
+      // `review` under it meant EVERY push, including the one from the
+      // archive list (`master_archive_screen.dart`), silently built and
+      // mounted a full, invisible `BookingDetailScreen` underneath the
+      // review screen. Popping then landed the user on that shadow detail
+      // screen instead of back on whatever they actually came from (the
+      // archive list, in that case) — a real navigation bug, not just
+      // wasted work.
+      //
+      // As a standalone route this path produces exactly ONE match, so a
+      // push here only ever adds ONE page on top of whatever is already on
+      // the (shared, non-shell) master Navigator stack:
+      //   • from the archive (`/master/bookings/archive` pushed) → pop
+      //     returns to the archive list.
+      //   • from the detail (`/master/bookings/:bookingId` pushed) → pop
+      //     returns to the detail screen, which is legitimately on the
+      //     stack there via the user's own navigation.
+      //
+      // SHELL CHECK: the master surface (`masterBookings` and everything
+      // under it) is NOT a `StatefulShellRoute` — see the doc above
+      // `RouteNames.masterBookings` and this file's own `masterBookings`
+      // registration comment ("the master's four 'tabs' are four flat
+      // routes"). So there is no shell chrome to preserve or lose here: both
+      // before and after this change, `LeaveClientFeedbackScreen` renders as
+      // a plain full-screen page on the root Navigator, with the master
+      // bottom nav supplied by the tab-root screen itself, not by any shell.
+      // Moving this route out of the nested position changes nothing about
+      // that.
+      //
+      // `builder:` (not `pageBuilder: _instantPage`) so the default Material
+      // transition + left-edge swipe-back apply, matching the detail route
+      // and its CLIENT-side `review` twin ([RouteNames.bookingReview]).
+      GoRoute(
+        path: '/master/bookings/:bookingId/review',
+        builder: (context, state) => LeaveClientFeedbackScreen(
+          bookingId: state.pathParameters['bookingId']!,
+        ),
       ),
       // Master profile settings hub + per-section edit pages. These replace the
       // retired monolithic /master/edit form. All auth-guarded (Phase 2.9

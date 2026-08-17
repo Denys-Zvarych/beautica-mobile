@@ -160,6 +160,9 @@ class MasterBookingsScreen extends ConsumerWidget {
             context.go('${RouteNames.masterSchedule}?date=${toApiDate(date)}'),
         onBookingTap: (Booking booking) =>
             context.push(RouteNames.masterBookingDetail(booking.id)),
+        // Phase 231 — the master «Архів» page. Additive-only wiring (see
+        // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
+        onOpenArchive: () => context.push(RouteNames.masterBookingsArchive),
       ),
       // Tile 1 ("Мої записи") — this screen IS that destination.
       bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 1),

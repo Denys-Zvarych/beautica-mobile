@@ -2889,6 +2889,28 @@ final class FakeBackend {
     }
   }
 
+  /// Whether dataset row [row] matches the requested [partition] WIRE VALUE
+  /// — composes [_partitionOf]'s four disjoint COVER buckets with the
+  /// backend's UNION *views* over them. `HISTORY` (mobile `BookingPartition
+  /// .history`, backend `81e8166` `feat/booking-partition-history`) is
+  /// `PAST ∪ CANCELLED` ≡ everything except `UPCOMING` — mirrors
+  /// `AWAITING_CLOSURE`'s own category of view (a SUBSET rather than a fifth
+  /// disjoint bucket); `AWAITING_CLOSURE` itself is not modelled by this
+  /// fake, as no current suite drives it against `FakeBackend`. A row whose
+  /// status [_partitionOf] cannot classify (the defensive `default: null`
+  /// case — no real occurrence in this dataset) matches neither a disjoint
+  /// bucket NOR `HISTORY`, mirroring the backend never classifying an
+  /// unrecognised status into any partition at all.
+  static bool _matchesPartition(
+    Map<String, dynamic> row,
+    String partition,
+    DateTime now,
+  ) {
+    final String? bucket = _partitionOf(row, now);
+    if (partition == 'HISTORY') return bucket != null && bucket != 'UPCOMING';
+    return bucket == partition;
+  }
+
   /// Builds one dataset row in the same wire shape [_seededBookingJson] uses,
   /// parameterized by [id]/[status]/[startsAt] so a test can seed a large,
   /// scrambled-insertion-order table. [duration] defaults to a realistic
@@ -3062,7 +3084,7 @@ final class FakeBackend {
         dataset
             .where(
               (Map<String, dynamic> b) => partition != null
-                  ? _partitionOf(b, now) == partition
+                  ? _matchesPartition(b, partition, now)
                   : (statuses == null || statuses.contains(b['status'])),
             )
             .toList(growable: false)
@@ -4702,6 +4724,19 @@ final class FakeBackend {
     // just that a mocked repository method was invoked with the right Dart
     // arguments (that gap is exactly what the widget-tier
     // `booking_detail_provider_footer_test.dart` cannot close).
+    //
+    // 2026-08-16 (mobile-qa) — ALSO mutates the `booking-1` row of
+    // [_bookingsDataset], when one is seeded, to `status: 'DECLINED'`, mirroring
+    // the `/complete` route's identical dataset mutation below. Without this,
+    // `master_archive_review_flow_test.dart`'s invalidation regression guard
+    // (archive → pushed detail → decline → back to archive) could never
+    // observe the row reclassify into the «Скасовано»
+    // (`BookingStatusFilterGroup.cancelled`) filter on the archive's fixed
+    // `partition: HISTORY` fetch (see [_matchesPartition]) even with a
+    // byte-correct `invalidateBookingViewsAfterProviderClose` fix — the
+    // dataset itself would still report the pre-decline CONFIRMED row on the
+    // very next `GET /bookings/me`, and the test could not tell "the cache
+    // never dropped" apart from "the fake never learned about the write".
     _adapter.onRoute(
       '/api/v1/bookings/booking-1/decline',
       (server) => server.replyCallback(200, (req) {
@@ -4710,6 +4745,18 @@ final class FakeBackend {
         lastDeclineComment = body['comment'] as String?;
         lastDeclineCancellationReason = body['cancellationReason'] as String?;
         bookingStatus = 'DECLINED';
+        final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+        if (dataset != null) {
+          final int idx = dataset.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (idx != -1) {
+            dataset[idx] = <String, dynamic>{
+              ...dataset[idx],
+              'status': 'DECLINED',
+            };
+          }
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
@@ -4719,11 +4766,36 @@ final class FakeBackend {
     // PROVIDER complete write path. No request body (`completeBooking`'s
     // generated client call sends none) — flips the seeded booking to
     // COMPLETED.
+    //
+    // Phase 231 (mobile-qa) — ALSO mutates the `booking-1` row of
+    // [_bookingsDataset], when one is seeded, to `status: 'COMPLETED'`.
+    // Without this, a dataset-backed flow (`master_archive_flow_test.dart`)
+    // that closes `booking-1` and then re-fetches through
+    // `masterArchiveProvider`'s invalidation would see the SAME unchanged
+    // CONFIRMED row come back — the write would appear to succeed (200,
+    // `completeBookingCalls` climbs) while the list silently kept showing
+    // stale data, which is a materially weaker proof than "the booking
+    // actually left the «Підтверджено» filter after closing". Every other
+    // field on the row is preserved via spread; only `status` moves. Mirrors
+    // [declineChild]'s existing per-row mutation for the non-dataset seeded
+    // booking.
     _adapter.onRoute(
       '/api/v1/bookings/booking-1/complete',
       (server) => server.replyCallback(200, (_) {
         completeBookingCalls++;
         bookingStatus = 'COMPLETED';
+        final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+        if (dataset != null) {
+          final int idx = dataset.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (idx != -1) {
+            dataset[idx] = <String, dynamic>{
+              ...dataset[idx],
+              'status': 'COMPLETED',
+            };
+          }
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch),

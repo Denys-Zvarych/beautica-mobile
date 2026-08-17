@@ -1324,6 +1324,83 @@ void main() {
     });
   });
 
+  group('mobile-perf LOW fix (Phase 231) — _fullBodyContent cache keys on '
+      'clientName, not just Booking', () {
+    testWidgets(
+      'a guest booking\'s cached FULL body re-renders the new locale\'s '
+      'fallback label after a locale change, instead of keeping the stale '
+      'cached widget',
+      (WidgetTester tester) async {
+        // See `_shortBooking`'s doc for why a fixed instant is required here.
+        // future-date-ok: pinned Kyiv wall-clock fixture.
+        final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
+        final Booking guestBooking = Booking(
+          id: 'guest-locale-cache',
+          masterId: 'master-1',
+          masterFirstName: 'Оля',
+          masterLastName: 'Коваль',
+          masterType: 'INDEPENDENT_MASTER',
+          clientFirstName: null,
+          clientLastName: null,
+          serviceId: 'service-1',
+          serviceName: 'Стрижка жіноча',
+          durationMinutes: 60,
+          price: 450,
+          startAt: startAt,
+          endAt: startAt.add(const Duration(minutes: 60)),
+          status: BookingStatus.confirmed,
+          canReview: false,
+        );
+
+        // minHeight: 120 forces the FULL body (`_fullBodyContent`'s cache
+        // only exists on this layout) — same floor the badge-vs-pill test
+        // above uses.
+        Widget buildCard() => Center(
+          child: SizedBox(
+            width: 272,
+            child: MasterBookingCard(
+              booking: guestBooking,
+              onTap: () {},
+              minHeight: 120,
+            ),
+          ),
+        );
+
+        await tester.pumpApp(buildCard(), locale: const Locale('uk'));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        // i18n-finder-ok: this test's whole point is pinning the UK-locale
+        // guest fallback string itself, not incidental UI copy.
+        expect(find.text('Гість'), findsOneWidget);
+        expect(find.text('Guest'), findsNothing);
+
+        // Re-pump the SAME Booking (value-equal) under a DIFFERENT locale.
+        // `MasterBookingCard` carries no explicit key here, so Flutter's
+        // element diffing preserves the existing `_MasterBookingCardState`
+        // — and with it `_fullBodyContentCache` — across this rebuild,
+        // exactly reproducing the auditor's repro: an unchanged `Booking`
+        // with a changed `clientName` fallback.
+        await tester.pumpApp(buildCard(), locale: const Locale('en'));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.text('Guest'),
+          findsOneWidget,
+          reason:
+              'the FULL body\'s _fullBodyContent cache keyed on Booking '
+              'alone, so it returned the stale cached widget still '
+              'printing the uk fallback ("Гість") after the locale '
+              'changed to en. The cache guard must also key on '
+              'clientName.',
+        );
+        // i18n-finder-ok: asserting the stale UK fallback is GONE after the
+        // locale change — the reproduction this test pins.
+        expect(find.text('Гість'), findsNothing);
+      },
+    );
+  });
+
   group(
     'adaptive full/compact layout (2026-07-20 design-parity pass) — the '
     'switch reads the resolved minHeight constraint, not durationMinutes',
@@ -3858,6 +3935,203 @@ void main() {
               '(${MasterBookingCard.fullLayoutNaturalHeight}dp) by only 1dp — '
               'if this gap has grown, a LARGER duration is now the tight '
               'edge and this case should be retargeted at it.',
+        );
+      },
+    );
+  });
+
+  group('master «Архів» «Відгук» slot (onReview)', () {
+    Booking completedBooking({String id = 'review-completed'}) {
+      // future-date-ok: pinned Kyiv wall-clock fixture, see `_shortBooking`'s doc.
+      final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
+      return Booking(
+        id: id,
+        masterId: 'master-1',
+        masterFirstName: 'Оля',
+        masterLastName: 'Коваль',
+        masterType: 'INDEPENDENT_MASTER',
+        clientFirstName: 'Марія',
+        clientLastName: 'Іванюк',
+        serviceId: 'service-1',
+        serviceName: 'Стрижка жіноча',
+        durationMinutes: 60,
+        price: 450,
+        startAt: startAt,
+        endAt: startAt.add(const Duration(minutes: 60)),
+        status: BookingStatus.completed,
+        canReview: false,
+      );
+    }
+
+    testWidgets(
+      'a COMPLETED booking with a non-null onReview renders the «Відгук» '
+      'button on the FULL layout, and tapping it fires the callback',
+      (WidgetTester tester) async {
+        int taps = 0;
+        final Booking booking = completedBooking();
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+                onReview: () => taps++,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        final Finder reviewButton = find.byKey(
+          const Key('master-booking-card-review-review-completed'),
+        );
+        expect(reviewButton, findsOneWidget);
+
+        await tester.tap(reviewButton);
+        await tester.pump();
+        expect(taps, 1);
+      },
+    );
+
+    testWidgets(
+      'a non-COMPLETED (awaitingClosure CONFIRMED) booking never renders '
+      '«Відгук» even with a non-null onReview — proven on the SAME FULL '
+      'layout the completed case above uses, so this is not vacuous',
+      (WidgetTester tester) async {
+        // future-date-ok: pinned Kyiv wall-clock fixture.
+        final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
+        final Booking awaitingBooking = Booking(
+          id: 'review-awaiting',
+          masterId: 'master-1',
+          masterFirstName: 'Оля',
+          masterLastName: 'Коваль',
+          masterType: 'INDEPENDENT_MASTER',
+          clientFirstName: 'Марія',
+          clientLastName: 'Іванюк',
+          serviceId: 'service-1',
+          serviceName: 'Стрижка жіноча',
+          durationMinutes: 60,
+          price: 450,
+          startAt: startAt,
+          endAt: startAt.add(const Duration(minutes: 60)),
+          status: BookingStatus.confirmed,
+          canReview: false,
+          awaitingClosure: true,
+        );
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: awaitingBooking,
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+                onReview: () {},
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-review-awaiting')),
+          findsNothing,
+        );
+        // The «Виконано» slot IS expected here — this booking is the shape
+        // that renders it — pinning that the two slots are mutually
+        // exclusive on real fixture data, not merely "review happens to be
+        // absent".
+        expect(
+          find.byKey(const Key('master-booking-card-complete-review-awaiting')),
+          findsNothing,
+          reason:
+              'onComplete was never passed on this card, so even though this '
+              'booking IS awaitingClosure the slot must still be absent — '
+              'proves the two additive slots are independently gated on '
+              'their OWN callback, not on each other.',
+        );
+      },
+    );
+
+    testWidgets(
+      'onReview == null renders ZERO extra widgets on a COMPLETED booking — '
+      'the additive default every OTHER MasterBookingCard consumer '
+      '(BookingsTimelineGrid, DeclaredTimeCards) relies on',
+      (WidgetTester tester) async {
+        final Booking booking = completedBooking(id: 'review-null');
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+                // onReview intentionally omitted — defaults to null.
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-review-null')),
+          findsNothing,
+        );
+        expect(
+          find.byWidgetPredicate((Widget w) => w is NeumorphicButton),
+          findsNothing,
+          reason:
+              'no NeumorphicButton at all should render anywhere on this '
+              'card when both onComplete and onReview are null — the '
+              'byte-identical-to-before-this-field contract the two other '
+              'consumers depend on.',
+        );
+      },
+    );
+
+    testWidgets(
+      'a COMPLETED booking on the COMPACT layout (minHeight below the full '
+      'threshold) never renders «Відгук» — the slot is FULL-layout only',
+      (WidgetTester tester) async {
+        final Booking booking = completedBooking(id: 'review-compact');
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: booking,
+                onTap: () {},
+                // No minHeight — resolves to the COMPACT layout (see
+                // `_layout`'s doc: `null` is compact, never full).
+                onReview: () {},
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-review-compact')),
+          findsNothing,
+        );
+        // Confirms the pump actually landed on the compact body, so the
+        // findsNothing above is not vacuous.
+        expect(
+          find.byKey(
+            const Key('master-booking-card-compact-divider-review-compact'),
+          ),
+          findsOneWidget,
         );
       },
     );
