@@ -86,11 +86,45 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos --fatal-warnings
 
-      # Phase 1.5 — custom lint error gate.
-      # `no_raw_ui_strings` is promoted to ERROR severity; this step fails
-      # the build if any widget carries a raw string literal in a flagged arg.
-      - name: Custom lint (no_raw_ui_strings error gate)
+      # 2026-08-18 — this step is UNDER REVIEW and is NOT a gate today.
+      #
+      # It was introduced as the `no_raw_ui_strings` error gate. It never
+      # gated anything: `custom_lint` discovers plugins among the analyzed
+      # package's DEPENDENCIES, and a package is never a plugin of itself, so
+      # `lib/beautica_mobile.dart`'s `createPlugin()` was never called. That
+      # rule now lives in `scripts/forbid_raw_ui_strings.sh` (below) and the
+      # plugin host has been deleted.
+      #
+      # `riverpod_lint` was then falsified the same way, in case IT was still
+      # live and worth keeping the step for. It is not. A probe violating
+      # three of its rules at once — a public property on a `Notifier`
+      # (`avoid_public_notifier_properties`), `runApp` without a
+      # `ProviderScope` (`missing_provider_scope`), and `ref.read` inside
+      # `State.dispose` (`avoid_ref_inside_state_dispose`) — produced
+      # `{"version":1,"diagnostics":[]}` and exit 0, while `flutter analyze`
+      # on the same file reported normally, proving the file was in scope.
+      # `custom_lint` is inert here end to end; `.dart_tool/custom_lint/` is
+      # never even created, and a captured `custom_lint.log` shows the plugin
+      # host failing to spawn ("The plugin screen_protector was not found in
+      # the package config").
+      #
+      # Kept only so the deletion is a deliberate call rather than a drive-by:
+      # removing it means dropping custom_lint / custom_lint_builder /
+      # riverpod_lint from pubspec and `plugins: - custom_lint` from
+      # analysis_options.yaml too. Until then it is a ~1s no-op that must not
+      # be cited as coverage for anything.
+      - name: Custom lint (INERT — under review, gates nothing)
         run: dart run custom_lint
+
+      # 2026-08-18 — the REAL `no_raw_ui_strings` gate. AST-based (the
+      # Phase 1.3 checker, unchanged and covered by 19 unit tests), driven by
+      # `tool/lints/no_raw_ui_strings.dart` behind the house-pattern shell
+      # guard. Escape comment: `// raw-ui-string-ok: <reason>`
+      # (`// ignore: no_raw_ui_strings` also honoured). Legacy offenders are
+      # grandfathered in `scripts/.raw_ui_strings_allow` — shrink-only ratchet.
+      - name: Forbid raw user-visible string literals under lib/
+        shell: bash
+        run: ./scripts/forbid_raw_ui_strings.sh
 
       # Phase 1.2 spacing scale gate — every padding literal must reference
       # `AppSpacing.*` from `lib/core/theme/app_spacing.dart`. The check
@@ -411,6 +445,7 @@ jobs:
           ./scripts/forbid_missing_test_text_input.sh --self-test
           ./scripts/forbid_expectlocation_home.sh --self-test
           ./scripts/forbid_slash_in_patrol_test_name.sh --self-test
+          ./scripts/forbid_raw_ui_strings.sh --self-test
           ./scripts/forbid_results_bare_pump_and_settle.sh --self-test
           ./scripts/forbid_raw_query_param_cast.sh --self-test
           ./scripts/forbid_blind_calendar_tap.sh --self-test

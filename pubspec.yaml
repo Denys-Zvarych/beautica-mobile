@@ -243,6 +243,30 @@ dev_dependencies:
   custom_lint_builder: ^0.8.1
   riverpod_lint: ^3.1.0
 
+  # Analyzer — a DIRECT dev-dependency, not a transitive accident. Two
+  # first-party dev-side consumers import its AST API:
+  #   - lib/core/lints/no_raw_ui_strings_checker.dart (the pure checker)
+  #   - tool/lints/no_raw_ui_strings.dart             (the CLI host)
+  # Both were previously riding on a transitive resolution; now the version
+  # is declared rather than inherited by accident.
+  #
+  # The checker still carries `// ignore_for_file:
+  # depend_on_referenced_packages`, and MUST: that lint counts only regular
+  # `dependencies`, and the file lives under `lib/`. Promoting analyzer to a
+  # regular dependency to silence it would ship the whole analyzer package
+  # into the app's dependency graph to appease a cosmetic info — the wrong
+  # trade. The checker is dev-side tooling that no runtime code imports
+  # (verified: its only importers are `test/core/lints/` and
+  # `tool/lints/`); it stays in `lib/` only so the test can reach it by
+  # `package:` URI.
+  #
+  # Caret-pinned on the MAJOR resolved in
+  # pubspec.lock (8.4.0) — the checker walks `CompilationUnit` /
+  # `SimpleStringLiteral` / `constructorName.type.name`, whose shapes move
+  # across analyzer majors, so an unbounded constraint would silently break
+  # the gate rather than fail resolution.
+  analyzer: ^8.4.0
+
   # Launcher icon generator — runs at build prep time only (Phase 2.14).
   # Generates Android mipmap-*/launcher_icon.png, adaptive-icon XML, themed
   # monochrome variant, and the iOS AppIcon.appiconset family from the

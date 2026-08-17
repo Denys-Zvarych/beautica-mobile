@@ -66,11 +66,5 @@ linter:
     use_super_parameters: true
     sort_pub_dependencies: false
 
-# Phase 1.5 — `no_raw_ui_strings` promoted from WARNING to ERROR.
-# The l10n key set has settled and all widget targets are covered; any raw
-# string literal in a flagged widget arg now fails `dart run custom_lint`
-# in CI (see `.github/workflows/pr-validate.yml` "Custom lint" step).
-# Severity was WARNING from Phase 1.3 until this promotion.
-custom_lint:
-  rules:
-    - no_raw_ui_strings: error
+# `no_raw_ui_strings` is NOT an analyzer rule — it is a shell guard.
+# See scripts/forbid_raw_ui_strings.sh (CI hard-gate + local runner).
