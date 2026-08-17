@@ -75,6 +75,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -217,10 +218,19 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// [_confirmCancel].
   ///
   /// Track 27.x/MO-6: same appointment-child routing as [_confirmDecline] —
-  /// a non-null [Booking.appointmentId] routes the write to
-  /// `AppointmentRepository.completeAppointment` (whole-visit lockstep) and
-  /// tells the dialog `isAppointment: true` for the whole-visit copy; a plain
+  /// a non-null [Booking.appointmentId] routes the write to the appointment
+  /// repository and tells the dialog `isAppointment: true`; a plain
   /// single-service booking (`appointmentId == null`) is UNCHANGED.
+  ///
+  /// The appointment arm is now PER-ITEM
+  /// (`AppointmentRepository.completeAppointmentService`), matching decline
+  /// (`declineAppointmentService`) and reschedule
+  /// (`rescheduleAppointmentItem`) — complete was the last transition left on
+  /// the whole-visit path. Each service of a visit opens its OWN detail
+  /// screen, so «Завершити» here must close exactly the booking on screen; the
+  /// whole-visit `completeAppointment` completed every sibling in lockstep and
+  /// guarded only the visit's `startsAt`, so a sibling starting hours later
+  /// was completed with no temporal guard at all.
   Future<void> _confirmComplete(BuildContext context, Booking booking) async {
     final bool isAppointment = booking.appointmentId != null;
     final bool? confirmed = await showDialog<bool>(
@@ -234,7 +244,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       if (appointmentId != null) {
         await ref
             .read(appointmentRepositoryProvider)
-            .completeAppointment(appointmentId);
+            .completeAppointmentService(appointmentId, booking.id);
       } else {
         await ref.read(bookingRepositoryProvider).completeBooking(booking.id);
       }
@@ -372,6 +382,11 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       data: (Booking booking) => _DetailBody(
         booking: booking,
         viewer: viewer,
+        // Injected clock seam — the PROVIDER footer's start-time gate reads
+        // this instead of the device clock so tests can pin it. `watch` (not
+        // `read`): a future ticking override must be able to rebuild the
+        // footer. See `core/time/clock_provider.dart`.
+        now: ref.watch(clockProvider)(),
         rescheduleLoading: rescheduleLoading,
         onReschedule: () => _onReschedule(context, booking),
         onCancel: () => _confirmCancel(context, booking),
@@ -392,6 +407,7 @@ class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
     required this.viewer,
+    required this.now,
     required this.rescheduleLoading,
     required this.onReschedule,
     required this.onCancel,
@@ -405,6 +421,12 @@ class _DetailBody extends StatelessWidget {
 
   final Booking booking;
   final BookingViewerRole viewer;
+
+  /// The current instant, sourced from `clockProvider` by the owning
+  /// [ConsumerState] — NEVER read off the device here. Feeds
+  /// [BookingDisplayX.hasStartedAt] in [_providerActions]; see that call site.
+  final DateTime now;
+
   final bool rescheduleLoading;
   final VoidCallback onReschedule;
   final VoidCallback onCancel;
@@ -753,7 +775,10 @@ class _DetailBody extends StatelessWidget {
     if (booking.status != BookingStatus.confirmed) {
       return const <Widget>[];
     }
-    if (booking.hasStarted) {
+    // Injected-clock form of `booking.hasStarted` — identical predicate, but
+    // pinnable from a test's `clockProvider` override instead of reading the
+    // device clock deep inside a getter. See [now].
+    if (booking.hasStartedAt(now)) {
       return <Widget>[
         NeumorphicButton(
           key: const Key('booking-detail-complete'),

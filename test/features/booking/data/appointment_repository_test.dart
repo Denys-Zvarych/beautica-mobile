@@ -40,6 +40,7 @@ const _getPath = '/api/v1/appointments/appt-1';
 const _itemReschedulePath =
     '/api/v1/appointments/appt-1/services/b-1/reschedule';
 const _cancelPath = '/api/v1/appointments/appt-1/cancel';
+const _itemCompletePath = '/api/v1/appointments/appt-1/services/b-1/complete';
 
 AppointmentItemResponse _buildItem({
   String bookingId = 'b-1',
@@ -844,6 +845,134 @@ void main() {
         await expectLater(
           repository.cancelAppointment('appt-1'),
           throwsA(isA<BookingAlreadyElapsedFailure>()),
+        );
+      },
+    );
+  });
+
+  // ── 2026-08-17 CRITICAL regression — PER-SERVICE complete ─────────────────
+  //
+  // `master_archive_screen.dart` and `booking_detail_screen.dart` were routing
+  // an appointment child's «Виконано» to the WHOLE-VISIT
+  // `PATCH /appointments/{id}/complete`, which closes every child of the visit
+  // in lockstep and evaluates its temporal guard against the VISIT's
+  // `startsAt` — so a sibling starting hours later was completed unguarded.
+  // Both now call `completeAppointmentService`.
+  //
+  // The screens' own start-time gate (`Booking.hasStartedAt`) is UX only; the
+  // SERVER clock is authoritative, and its refusal arrives as a 409. That
+  // makes the mapping below the actual backstop for this bug whenever the two
+  // clocks disagree — and it had no coverage at this tier at all.
+  group('completeAppointmentService', () {
+    test(
+      'success: forwards THIS child\'s ids, never the visit id alone',
+      () async {
+        when(
+          () => appointmentApi.completeAppointmentItem(
+            appointmentId: any(named: 'appointmentId'),
+            bookingId: any(named: 'bookingId'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<void>(
+            requestOptions: RequestOptions(path: _itemCompletePath),
+            statusCode: 200,
+          ),
+        );
+
+        await repository.completeAppointmentService('appt-1', 'b-1');
+
+        // Matched by VALUE, not `any()` — the whole bug was passing the wrong
+        // identifier, so a permissive matcher here would accept it.
+        verify(
+          () => appointmentApi.completeAppointmentItem(
+            appointmentId: 'appt-1',
+            bookingId: 'b-1',
+          ),
+        ).called(1);
+      },
+    );
+
+    test('409 (this child has not started, or is already terminal) → '
+        'ProviderCompleteNotStartedFailure', () async {
+      when(
+        () => appointmentApi.completeAppointmentItem(
+          appointmentId: any(named: 'appointmentId'),
+          bookingId: any(named: 'bookingId'),
+        ),
+      ).thenThrow(_dioBadResponse(409, _itemCompletePath));
+
+      await expectLater(
+        repository.completeAppointmentService('appt-1', 'b-1'),
+        throwsA(isA<ProviderCompleteNotStartedFailure>()),
+      );
+    });
+
+    // Pins the ACTUAL behaviour at THIS tier, matching the identical note on
+    // `getAppointment`'s own 404 test above. `completeAppointmentService`'s
+    // docstring says "Throws [NotFoundFailure] on HTTP 404 ... falls through
+    // `_mapProviderActionException` to `_mapDioException`, which maps it to
+    // [NotFoundFailure]" — the MECHANISM half of that is wrong.
+    // `_mapDioException` has no 404 branch at all; every `badResponse` becomes
+    // `ServerFailure(statusCode: …)`. The OUTCOME half is right in production
+    // only because `ErrorMapperInterceptor` (`error_mapper_interceptor.dart`
+    // :146) has already converted the 404 before the repository sees it — see
+    // the next test, which pins that path. A mock of the generated API sits
+    // BELOW the interceptor, so this tier legitimately observes the raw form.
+    test('bare 404 (no interceptor) → ServerFailure carrying the 404 status, '
+        'never the 409 type — a mis-paired id must not read as "not started '
+        'yet"', () async {
+      when(
+        () => appointmentApi.completeAppointmentItem(
+          appointmentId: any(named: 'appointmentId'),
+          bookingId: any(named: 'bookingId'),
+        ),
+      ).thenThrow(_dioBadResponse(404, _itemCompletePath));
+
+      await expectLater(
+        repository.completeAppointmentService('appt-1', 'nope'),
+        throwsA(
+          allOf(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 404),
+            isNot(isA<ProviderCompleteNotStartedFailure>()),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'an interceptor-mapped NotFoundFailure passes through unchanged — the '
+      'PRODUCTION 404 path, and proof the 409 arm does not capture it',
+      () async {
+        // Exactly the shape `ErrorMapperInterceptor` hands the repository: the
+        // DioException still carries the 404 response, but `.error` is already
+        // a domain [Failure], which `_mapDioException`'s first line returns
+        // verbatim. The risk this pins is the 409 arm widening to "any error
+        // on this endpoint means not-started", which would silently relabel a
+        // genuinely missing booking.
+        final DioException mapped = DioException(
+          requestOptions: RequestOptions(path: _itemCompletePath),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _itemCompletePath),
+            statusCode: 404,
+          ),
+          error: const NotFoundFailure(),
+        );
+        when(
+          () => appointmentApi.completeAppointmentItem(
+            appointmentId: any(named: 'appointmentId'),
+            bookingId: any(named: 'bookingId'),
+          ),
+        ).thenThrow(mapped);
+
+        await expectLater(
+          repository.completeAppointmentService('appt-1', 'nope'),
+          throwsA(
+            allOf(
+              isA<NotFoundFailure>(),
+              isNot(isA<ProviderCompleteNotStartedFailure>()),
+            ),
+          ),
         );
       },
     );

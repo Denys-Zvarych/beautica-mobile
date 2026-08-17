@@ -5,21 +5,39 @@
 //   GET    /api/v1/appointments/{appointmentId}                          → enriched detail
 //   PATCH  /api/v1/appointments/{appointmentId}/services/{bookingId}/reschedule
 //                                                                          → CLIENT or PROVIDER per-item reschedule (dual-actor)
+//   PATCH  /api/v1/appointments/{appointmentId}/services/{bookingId}/complete
+//                                                                          → PROVIDER per-item complete
 //   PATCH  /api/v1/appointments/{appointmentId}/cancel                    → CLIENT cancel
 //   PATCH  /api/v1/appointments/{appointmentId}/complete                  → PROVIDER complete
 //   PATCH  /api/v1/appointments/{appointmentId}/decline                   → PROVIDER decline
 //
 // SCOPE (MO-1, extended track 27.x/MO-6, cut over to per-item track 30.x):
 // the CLIENT surface plus [completeAppointment]/[declineAppointment]
-// (PROVIDER-only, whole-visit lockstep) and [rescheduleAppointmentItem]
-// (dual-actor: the visit's own CLIENT or an assigned PROVIDER may call it —
-// see `_onReschedule` in `booking_detail_screen.dart`). The backend
-// `assertNotAppointmentChild` guard 409s EVERY per-booking whole-visit
-// transition once `booking.appointment != null` — a multi-service visit's
-// individual service bookings must be completed/declined in lockstep,
-// through the whole-visit endpoints, never
-// `BookingRepository.completeBooking`/`declineBooking`. Reschedule is the
-// ONE transition that is NOT whole-visit lockstep: the mobile app used to
+// (PROVIDER-only, whole-visit lockstep — retained on the interface, no longer
+// reached from any provider-facing screen) and the per-item trio
+// [rescheduleAppointmentItem] (dual-actor: the visit's own CLIENT or an
+// assigned PROVIDER — see `_onReschedule` in `booking_detail_screen.dart`),
+// [declineAppointmentService] and [completeAppointmentService].
+//
+// HISTORY — WHY THE WHOLE-VISIT ENDPOINTS EXIST, AND WHY NOTHING CALLS THEM
+// ANY MORE. The backend's `assertNotAppointmentChild` guard used to 409 EVERY
+// per-booking transition once `booking.appointment != null`, so a
+// multi-service visit could only be completed/declined in lockstep through the
+// whole-visit endpoints. That is NO LONGER the contract: the backend now
+// exposes a per-item `complete` and `decline` under
+// `.../services/{bookingId}/`, and every provider-facing screen routes an
+// appointment child to the per-item endpoint. Lockstep completion was ALSO a
+// correctness bug on the wire: `PATCH /appointments/{id}/complete` runs its
+// `assertElapsedForComplete` temporal guard against the VISIT's `startsAt`
+// (the FIRST service), so completing from a row whose own service starts hours
+// later silently completed that not-yet-started sibling too — the per-item
+// endpoint guards each child on its OWN `startsAt`. What is still true is the
+// negative: an appointment child must NEVER go through
+// `BookingRepository.completeBooking`/`declineBooking` (the bare per-booking
+// routes) — the visit-aware endpoints on this repository are the only legal
+// path.
+//
+// Reschedule was the FIRST transition to leave lockstep: the mobile app used to
 // call a whole-visit `PATCH /appointments/{id}/reschedule` here (removed —
 // the backend endpoint itself is untouched, only this client's use of it),
 // but now moves exactly ONE service via [rescheduleAppointmentItem], leaving
@@ -123,11 +141,58 @@ abstract interface class AppointmentRepository {
   /// The backend transitions EVERY booking belonging to the visit to
   /// COMPLETED in lockstep; there is no partial-visit completion.
   ///
+  /// NO PROVIDER SCREEN CALLS THIS ANY MORE — use
+  /// [completeAppointmentService]. Its 409 temporal guard is evaluated against
+  /// the VISIT's `startsAt` (the first service), so completing from a row
+  /// whose own service starts later also completed not-yet-started siblings
+  /// with no guard of their own. Kept on the interface only because the
+  /// endpoint still exists; do not reintroduce a call site.
+  ///
   /// Throws [ProviderCompleteNotStartedFailure] on HTTP 409 — the same
   /// `BookingTemporalGuard.assertElapsedForComplete` guard the single-booking
   /// endpoint enforces (the visit's `startsAt` is still in the future; SERVER
   /// clock authoritative).
   Future<void> completeAppointment(String id);
+
+  /// Marks ONE service (`bookingId`) of a multi-service visit
+  /// (`appointmentId`) COMPLETED on behalf of the authenticated PROVIDER,
+  /// leaving the visit's OTHER services CONFIRMED — the per-service
+  /// counterpart to [completeAppointment] (which completes the WHOLE visit in
+  /// lockstep), and the exact mirror of [declineAppointmentService].
+  ///
+  /// Wraps `PATCH /appointments/{appointmentId}/services/{bookingId}/complete`
+  /// — no request body (completion collects no note; see
+  /// `CompleteBookingDialog`'s doc). Per the OpenAPI description: siblings stay
+  /// CONFIRMED, the visit header collapses to COMPLETED and the visit's single
+  /// review-requested notification fires only once the LAST CONFIRMED sibling
+  /// completes.
+  ///
+  /// Each service of a visit opens its OWN single-booking
+  /// `BookingDetailScreen`, and the master «Архів» list renders one row PER
+  /// SERVICE, so the «Виконано»/«Завершити» tapped there must complete only
+  /// that one child — `booking_detail_screen.dart`'s `_confirmComplete` and
+  /// `master_archive_screen.dart`'s `_confirmComplete` both route here
+  /// (passing `appointmentId = Booking.appointmentId`,
+  /// `bookingId = Booking.id`) whenever the shown booking carries a non-null
+  /// `Booking.appointmentId`.
+  ///
+  /// CRITICALLY, the 409 guard is per-CHILD here: the backend evaluates
+  /// `BookingTemporalGuard.assertElapsedForComplete` against THIS booking's
+  /// own `startsAt`, not the visit header's. That is the whole point of the
+  /// cut-over — [completeAppointment] guarded only the FIRST service's start,
+  /// so a sibling starting hours later was completed unguarded.
+  ///
+  /// Throws [NotFoundFailure] on HTTP 404 (the `bookingId` is not a child of
+  /// `appointmentId`) and [ProviderCompleteNotStartedFailure] on HTTP 409 (this
+  /// child has not started yet, or it is already terminal) — the same 409 type
+  /// [completeAppointment] surfaces, so both screens' existing
+  /// `on ProviderCompleteNotStartedFailure` handling covers this route
+  /// unchanged. A 403 (no provider authority) defers to the shared
+  /// error-mapper's [Failure].
+  Future<void> completeAppointmentService(
+    String appointmentId,
+    String bookingId,
+  );
 
   /// Moves ONE service (`bookingId`) of a multi-service visit
   /// (`appointmentId`) to [newStartAt] (track 30.x), leaving the visit's
@@ -385,6 +450,52 @@ final class HttpAppointmentRepository implements AppointmentRepository {
   }
 
   @override
+  Future<void> completeAppointmentService(
+    String appointmentId,
+    String bookingId,
+  ) async {
+    try {
+      await _appointmentApi.completeAppointmentItem(
+        appointmentId: appointmentId,
+        bookingId: bookingId,
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'completeAppointmentService failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      // 409 (THIS child has not started / is already terminal) →
+      // [ProviderCompleteNotStartedFailure], the identical mapping
+      // [completeAppointment] applies — the guard is just evaluated against
+      // this child's own `startsAt` instead of the visit header's. A 404
+      // (bookingId not a child of appointmentId) surfaces as [NotFoundFailure],
+      // but NOT because [_mapDioException] maps it — that method has no 404 arm
+      // at all, and every un-mapped `badResponse` reaching it becomes
+      // [ServerFailure]. `ErrorMapperInterceptor`
+      // (`lib/core/network/error_mapper_interceptor.dart`, the `statusCode ==
+      // 404` arm) has already built the [NotFoundFailure] and attached it to
+      // `DioException.error` by the time this `catch` runs; the chain down
+      // through [_mapProviderActionException] to [_mapDioException] then
+      // returns it verbatim via that method's leading
+      // `if (e.error is Failure) return e.error as Failure`. A 403 reaches the
+      // UI the same way — the interceptor's [Failure], passed through
+      // untouched.
+      throw _mapProviderActionException(
+        e,
+        onConflict: (DioException e) =>
+            ProviderCompleteNotStartedFailure(cause: e),
+      );
+    }
+  }
+
+  @override
   Future<void> declineAppointment(String id, {String? comment}) async {
     // Blank/whitespace-only comment → send no comment at all (the field is
     // optional on the wire; a null keeps the payload clean) — same trim rule
@@ -453,9 +564,11 @@ final class HttpAppointmentRepository implements AppointmentRepository {
       }
       // 409 (child already terminal / temporal guard) →
       // [ProviderDeclineWindowClosedFailure], mirroring [declineAppointment].
-      // A 404 (bookingId not a child of appointmentId) falls through
-      // [_mapProviderActionException] to [_mapDioException], which maps it to
-      // [NotFoundFailure]; a 403 defers to the shared error-mapper's [Failure].
+      // A 404 (bookingId not a child of appointmentId) surfaces as
+      // [NotFoundFailure] by way of `ErrorMapperInterceptor`, not of
+      // [_mapDioException] — see the identical note in
+      // [completeAppointmentService] for the actual mechanism; a 403 reaches
+      // the UI as the interceptor's [Failure], passed through untouched.
       throw _mapProviderActionException(
         e,
         onConflict: (DioException e) =>

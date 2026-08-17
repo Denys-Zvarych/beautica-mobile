@@ -4188,13 +4188,13 @@
   "@completeBookingDialogBody": {
     "description": "Track 27.x Wave A — body text of the PROVIDER complete confirmation dialog."
   },
-  "completeAppointmentDialogTitle": "Complete the visit?",
+  "completeAppointmentDialogTitle": "Complete this service?",
   "@completeAppointmentDialogTitle": {
-    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions every service in the visit, not just the one shown."
+    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions ONLY the opened service (PATCH /appointments/{id}/services/{bookingId}/complete), never its siblings."
   },
-  "completeAppointmentDialogBody": "Confirm that the client's visit took place. Every service in this visit will be marked complete.",
+  "completeAppointmentDialogBody": "Confirm that this service was performed.",
   "@completeAppointmentDialogBody": {
-    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a multi-service visit, making explicit that every service is affected."
+    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a service inside a multi-service visit. Scoped to the single opened service; deliberately carries no clause about the visit's other services (locked product decision 2026-08-17 — a reassurance clause was reviewed and rejected as redundant)."
   },
   "completeBookingConfirmCta": "Yes, complete",
   "@completeBookingConfirmCta": {

@@ -12,6 +12,7 @@ Method | HTTP request | Description
 [**cancelAppointment**](AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
 [**cancelAppointmentItem**](AppointmentControllerApi.md#cancelappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/cancel | Cancel one service line of a visit
 [**completeAppointment**](AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
+[**completeAppointmentItem**](AppointmentControllerApi.md#completeappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/complete | Complete one service line of a visit
 [**createAppointment**](AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
 [**declineAppointment**](AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
 [**declineAppointmentItem**](AppointmentControllerApi.md#declineappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/decline | 
@@ -133,6 +134,50 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **appointmentId** | **String**|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **completeAppointmentItem**
+> completeAppointmentItem(appointmentId, bookingId)
+
+Complete one service line of a visit
+
+Provider-initiated completion of ONE service line of a multi-service visit. Siblings stay CONFIRMED. The header collapses to COMPLETED, and the visit's single review-requested notification fires, only once the last CONFIRMED sibling completes.
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getAppointmentControllerApi();
+final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    api.completeAppointmentItem(appointmentId, bookingId);
+} catch on DioException (e) {
+    print('Exception when calling AppointmentControllerApi->completeAppointmentItem: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **appointmentId** | **String**|  | 
+ **bookingId** | **String**|  | 
 
 ### Return type
 

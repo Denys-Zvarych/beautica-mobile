@@ -87,6 +87,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -382,9 +383,18 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       try {
         final String? appointmentId = booking.appointmentId;
         if (appointmentId != null) {
+          // PER-ITEM, never whole-visit. This list renders ONE ROW PER
+          // SERVICE, so «Виконано» on a row must complete exactly that
+          // service and leave its siblings CONFIRMED. The whole-visit
+          // `completeAppointment` that used to be called here completed the
+          // visit in lockstep AND guarded only the visit's `startsAt` (the
+          // FIRST service), so tapping one row silently completed every other
+          // service of the same visit — including ones that had not started —
+          // and they then surfaced as fresh COMPLETED rows in this very
+          // archive. See `AppointmentRepository.completeAppointmentService`.
           await ref
               .read(appointmentRepositoryProvider)
-              .completeAppointment(appointmentId);
+              .completeAppointmentService(appointmentId, booking.id);
         } else {
           await ref.read(bookingRepositoryProvider).completeBooking(booking.id);
         }
@@ -443,6 +453,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // header for why an un-muted spinner there breaks `pumpAndSettle()`
     // behind the modal `showDialog` barrier.
     final bool dialogVisible = ref.watch(masterArchiveDialogVisibleProvider);
+    // Injected clock seam for the rows' «Виконано» start-time gate — read
+    // ONCE here (the only place `ref.watch` is legal on this state) and
+    // threaded down through `_archiveBookingRow`, which runs inside a lazy
+    // `itemBuilder` where watching would be out of build scope. See
+    // `core/time/clock_provider.dart`.
+    final DateTime now = ref.watch(clockProvider)();
     final MasterArchiveState? data = async.value;
     _hasMore = data?.hasMore ?? false;
     _isLoadingMore = data?.isLoadingMore ?? false;
@@ -633,7 +649,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                               entry: entry,
                             ),
                             ArchiveBookingEntry(:final Booking booking) =>
-                              _archiveBookingRow(booking, completing),
+                              _archiveBookingRow(booking, completing, now),
                           };
                         },
                       );
@@ -652,7 +668,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// of the `itemBuilder` switch above purely so that switch stays a clean
   /// one-line-per-variant match; identical widget to what this screen
   /// rendered before date-group headers existed.
-  Widget _archiveBookingRow(Booking booking, bool completing) {
+  Widget _archiveBookingRow(Booking booking, bool completing, DateTime now) {
     return RepaintBoundary(
       key: ValueKey<String>(booking.id),
       // «Виконано» is now an ADDITIVE slot on `MasterBookingCard` itself
@@ -668,6 +684,9 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         minHeight: MasterBookingCard.fullLayoutMinHeight,
         onComplete: () => _confirmComplete(booking),
         completing: completing,
+        // Required alongside `onComplete` — the card's start-time gate. See
+        // `MasterBookingCard.now`.
+        now: now,
         // «Відгук» — additive slot, COMPLETED rows only (the card itself
         // re-checks `booking.status`; see `MasterBookingCard.onReview`'s
         // doc). Not gated on `booking.status` here too — passing a non-null

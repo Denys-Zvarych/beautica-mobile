@@ -489,7 +489,12 @@ class MasterBookingCard extends StatefulWidget {
     this.onComplete,
     this.completing = false,
     this.onReview,
-  });
+    this.now,
+  }) : assert(
+         onComplete == null || now != null,
+         'A caller that offers «Виконано» must also supply `now` (from '
+         'clockProvider) — the start-time gate cannot be evaluated without it.',
+       );
 
   final Booking booking;
   final VoidCallback onTap;
@@ -569,6 +574,22 @@ class MasterBookingCard extends StatefulWidget {
   /// this button vanish from the archive — that is this comment's whole
   /// reason for existing.**
   final VoidCallback? onReview;
+
+  /// The current instant, supplied by the caller from `clockProvider`
+  /// (`ref.watch(clockProvider)()`) — this card never reads the device clock
+  /// itself, so the «Виконано» gate below is pinnable from a test.
+  ///
+  /// Required whenever [onComplete] is non-null (asserted in the constructor)
+  /// and IGNORED otherwise, which is why it is nullable rather than required:
+  /// every OTHER call site (`BookingsTimelineGrid`, `DeclaredTimeCards`, and
+  /// every widget/golden test that pumps this card bare) leaves both `null`
+  /// and renders byte-identically to before this field existed.
+  ///
+  /// Feeds [BookingDisplayX.hasStartedAt] in [_MasterBookingCardState._buildFullBody]:
+  /// a master may complete a booking only once `now >= that booking's OWN
+  /// startAt`. See that gate's comment for why it is asserted locally rather
+  /// than trusted from [Booking.awaitingClosure] alone.
+  final DateTime? now;
 
   /// The COMPACT body's EXACT natural rendered height at textScaler 1.0 (see
   /// the derivation below) — the middle of this card's three naturals,
@@ -1343,7 +1364,23 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     // independent `if`s below (not an if/else) so a future relaxation of
     // either gate degrades to "both render, stacked" rather than "one
     // silently wins and the other vanishes".
-    final bool showComplete = widget.onComplete != null && b.awaitingClosure;
+    //
+    // START-TIME GATE. A master may complete a booking only once
+    // `now >= that booking's OWN startAt` (the backend's
+    // `BookingTemporalGuard.assertElapsedForComplete`). [Booking.awaitingClosure]
+    // already implies elapsed TODAY, so this third term is belt-and-braces —
+    // but it makes the invariant LOCAL and testable rather than trusting a
+    // server-computed flag that a stale page, a rolled-back clock, or a future
+    // relaxation of `awaitingClosure` could misreport. `now` is the injected
+    // `clockProvider` instant (see [MasterBookingCard.now]); the null branch
+    // is unreachable while [onComplete] is non-null (constructor assert) and
+    // fails CLOSED — no button — if it ever is.
+    final DateTime? now = widget.now;
+    final bool showComplete =
+        widget.onComplete != null &&
+        b.awaitingClosure &&
+        now != null &&
+        b.hasStartedAt(now);
     final bool showReview =
         widget.onReview != null && b.status == BookingStatus.completed;
     if (!showComplete && !showReview) return content;

@@ -193,17 +193,22 @@ void main() {
       // ends well in the future, so `hasStarted` is deterministically true and
       // `isPast` deterministically false regardless of how long this test
       // takes to run on a real device.
-      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
-      // clock on purpose (both `instant-ok` annotated in
-      // `lib/features/booking/domain/booking_display_x.dart`) — a
-      // presentation-only "has this slot passed" signal, deliberately NOT
-      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
-      // would classify as long-elapsed, not underway. See the two-clock
-      // model documented on `FakeBackend.serverNow`.
-      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
-      final DateTime start = DateTime.now().toUtc().subtract(
-        const Duration(hours: 1),
-      );
+      // The window is anchored to the HARNESS'S INJECTED CLOCK ([kFixedNow] —
+      // the same instant `AppHarness` overrides `clockProvider` to), NOT the
+      // device clock it used to track. Since the 2026-08-17 CRITICAL fix the
+      // provider footer's start-time gate reads
+      // `Booking.hasStartedAt(ref.watch(clockProvider)())` instead of the
+      // device-clock `Booking.hasStarted` getter, so the FIXTURE clock and the
+      // APP clock must be the SAME clock (test-clock coherence invariant). A
+      // `DateTime.now()`-anchored window — what this used to be, correctly, on
+      // the old gate — sits far AFTER `kFixedNow` and would read as
+      // not-yet-started, hiding «Завершити» entirely. Both-pinned is now the
+      // only coherent form, and it removes the last wall-clock race here:
+      // started an hour before the app's "now", ending three hours after it.
+      // `isPast` (still device-clock, still `instant-ok`) does not gate the
+      // PROVIDER footer at all — `_providerActions` returns before every
+      // `isPast` branch — so leaving it out of this pinning changes nothing.
+      final DateTime start = kFixedNow.subtract(const Duration(hours: 1));
       final DateTime end = start.add(const Duration(hours: 4));
       fb.bookingStartsAt = start.toIso8601String();
       fb.bookingEndsAt = end.toIso8601String();
@@ -276,17 +281,22 @@ void main() {
     final fb = FakeBackend()..currentRole = UserRole.independentMaster;
     // Same wide, wall-clock-safe "underway/elapsed" window as the complete
     // test above — `hasStarted` deterministically true.
-    // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
-    // clock on purpose (both `instant-ok` annotated in
-    // `lib/features/booking/domain/booking_display_x.dart`) — a
-    // presentation-only "has this slot passed" signal, deliberately NOT
-    // the injected `clockProvider` instant. A `kFixedNow`-anchored window
-    // would classify as long-elapsed, not underway. See the two-clock
-    // model documented on `FakeBackend.serverNow`.
-    // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
-    final DateTime start = DateTime.now().toUtc().subtract(
-      const Duration(hours: 1),
-    );
+    // The window is anchored to the HARNESS'S INJECTED CLOCK ([kFixedNow] —
+    // the same instant `AppHarness` overrides `clockProvider` to), NOT the
+    // device clock it used to track. Since the 2026-08-17 CRITICAL fix the
+    // provider footer's start-time gate reads
+    // `Booking.hasStartedAt(ref.watch(clockProvider)())` instead of the
+    // device-clock `Booking.hasStarted` getter, so the FIXTURE clock and the
+    // APP clock must be the SAME clock (test-clock coherence invariant). A
+    // `DateTime.now()`-anchored window — what this used to be, correctly, on
+    // the old gate — sits far AFTER `kFixedNow` and would read as
+    // not-yet-started, hiding «Завершити» entirely. Both-pinned is now the
+    // only coherent form, and it removes the last wall-clock race here:
+    // started an hour before the app's "now", ending three hours after it.
+    // `isPast` (still device-clock, still `instant-ok`) does not gate the
+    // PROVIDER footer at all — `_providerActions` returns before every
+    // `isPast` branch — so leaving it out of this pinning changes nothing.
+    final DateTime start = kFixedNow.subtract(const Duration(hours: 1));
     final DateTime end = start.add(const Duration(hours: 4));
     fb.bookingStartsAt = start.toIso8601String();
     fb.bookingEndsAt = end.toIso8601String();

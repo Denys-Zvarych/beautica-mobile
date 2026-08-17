@@ -25,9 +25,11 @@
 //     `Navigator`).
 //
 // `booking.appointmentId` is `null` on every fixture in this file — the
-// appointment-child branch (`AppointmentRepository.completeAppointment`)
-// mirrors `booking_detail_screen.dart`'s own identical branch verbatim and
-// is not re-proven here.
+// appointment-child branch (`AppointmentRepository.completeAppointmentService`
+// — the PER-SERVICE endpoint since the 2026-08-17 CRITICAL fix; it used to be
+// the whole-visit `completeAppointment`, which closed every sibling of the
+// visit in lockstep) mirrors `booking_detail_screen.dart`'s own identical
+// branch verbatim and is not re-proven here.
 
 import 'dart:async';
 

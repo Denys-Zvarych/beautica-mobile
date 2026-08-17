@@ -2550,6 +2550,25 @@ final class FakeBackend {
     }
   }
 
+  /// The COMPLETE twin of [declineChild] — flips ONLY the tapped child's
+  /// status to COMPLETED, keyed on [bookingId] (2026-08-17 CRITICAL fix).
+  ///
+  /// Complete was the LAST provider transition still routed through the
+  /// whole-visit `PATCH /appointments/{id}/complete`, which closed every child
+  /// of the visit in lockstep AND evaluated its temporal guard against the
+  /// VISIT's `startsAt` (the first service) — so completing one archive row
+  /// silently completed siblings whose own start had not arrived. Now that
+  /// `completeAppointmentService` passes THIS child's own id, completing
+  /// `booking-1` must leave `booking-2` CONFIRMED; this method is what makes
+  /// that sibling assertion real rather than self-referential.
+  void completeChild(String bookingId) {
+    if (bookingId == 'booking-2') {
+      siblingBookingStatus = 'COMPLETED';
+    } else {
+      bookingStatus = 'COMPLETED';
+    }
+  }
+
   /// Track 30.x (PER-ITEM reschedule) — `booking-2`'s OWN start/end window,
   /// INDEPENDENT of `booking-1`'s [bookingStartsAt]/[bookingEndsAt], mirroring
   /// how [siblingBookingStatus] is independent of [bookingStatus]. Defaults to

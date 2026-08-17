@@ -24,7 +24,13 @@
 //
 // This suite pins:
 //   • complete on an appointment-child booking calls
-//     `AppointmentRepository.completeAppointment(appointmentId)`, NEVER
+//     `AppointmentRepository.completeAppointmentService(appointmentId,
+//     bookingId)` — the PER-SERVICE visit endpoint
+//     (`PATCH /appointments/{id}/services/{bookingId}/complete`), completing
+//     ONLY the tapped service and leaving the visit's siblings CONFIRMED —
+//     NEVER the whole-visit `completeAppointment` (which completed every
+//     service at once, guarding only the VISIT's `startsAt` so not-yet-started
+//     siblings were closed too — the CRITICAL bug this fixes) and NEVER
 //     `BookingRepository.completeBooking`;
 //   • decline on an appointment-child booking calls
 //     `AppointmentRepository.declineAppointmentService(appointmentId,
@@ -502,14 +508,23 @@ void main() {
       );
     }
 
+    // 2026-08-17 CRITICAL fix — this assertion was INVERTED on purpose. It
+    // used to pin the WHOLE-VISIT `completeAppointment(appointmentId)`, which
+    // is exactly the bug: that endpoint completes every sibling of the visit
+    // in lockstep and evaluates its temporal guard against the VISIT's
+    // `startsAt` (the FIRST service), so completing from this screen also
+    // completed siblings whose own start had not arrived. Complete now routes
+    // per-item like decline (`declineAppointmentService`) and reschedule
+    // (`rescheduleAppointmentItem`) already did.
     testWidgets('appointment-child booking: complete calls '
-        'AppointmentRepository.completeAppointment(appointmentId), never '
+        'AppointmentRepository.completeAppointmentService(appointmentId, '
+        'bookingId) — never the whole-visit completeAppointment, never '
         'BookingRepository.completeBooking', (tester) async {
       final Booking booking = startedBooking(appointmentId: 'appt-1');
       final bookingRepo = _MockBookingRepository();
       final appointmentRepo = _MockAppointmentRepository();
       when(
-        () => appointmentRepo.completeAppointment(any()),
+        () => appointmentRepo.completeAppointmentService(any(), any()),
       ).thenAnswer((_) async {});
 
       await _pumpDetail(
@@ -526,7 +541,11 @@ void main() {
       await tester.tap(find.byKey(const Key('complete-booking-confirm')));
       await tester.pumpAndSettle();
 
-      verify(() => appointmentRepo.completeAppointment('appt-1')).called(1);
+      verify(
+        () => appointmentRepo.completeAppointmentService('appt-1', booking.id),
+      ).called(1);
+      // The lockstep endpoint must never be reached again from this screen.
+      verifyNever(() => appointmentRepo.completeAppointment(any()));
       verifyNever(() => bookingRepo.completeBooking(any()));
     });
 
@@ -555,6 +574,9 @@ void main() {
 
       verify(() => bookingRepo.completeBooking(booking.id)).called(1);
       verifyNever(() => appointmentRepo.completeAppointment(any()));
+      verifyNever(
+        () => appointmentRepo.completeAppointmentService(any(), any()),
+      );
     });
   });
 
