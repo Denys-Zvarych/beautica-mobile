@@ -807,6 +807,11 @@ jobs:
   integration:
     name: Integration tests (emulator)
     runs-on: ubuntu-latest
+    # Backstop for the backstop. Each of the six invocations below is
+    # individually `timeout`-bounded (see part 1 attempt 1), so this only has
+    # to cover the case where the emulator action itself wedges outside the
+    # `script:` block. Without it the job inherits GitHub's 6-HOUR default.
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -934,8 +939,27 @@ jobs:
           # separate `integration-profile` job below (2026-06-18, finding 6) so
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
+          #
+          # EXTERNAL `timeout` (2026-08-17) — on every one of the six invocations
+          # below, not just this one. An `integration_test/` flow CAN hang with
+          # no bound whatsoever: `IntegrationTestWidgetsFlutterBinding` sets
+          # `defaultTestTimeout = Timeout.none`, and every bound the harness owns
+          # (`AppHarness.settle`'s `Future.timeout`, `pumpAndSettle`'s internal
+          # deadline, the `pumpUntil*` poll deadlines, an explicit per-test
+          # `Timeout`) is a TIMER — none of which tick once a synchronous
+          # allocating build loop has starved the isolate's event loop. That is
+          # not theoretical: `master_archive_flow_test.dart` scenario 2 ran
+          # unbounded on 2026-08-17 and nothing in-isolate could stop it. A
+          # bound OUTSIDE the process is the only kind that works, which is why
+          # this is `timeout(1)` and not another Dart-side constant.
+          #
+          # 1500 s is per INVOCATION (one aggregated part, ~15 flows in one
+          # isolate) — generous against a healthy run, useless as a hang. It
+          # also composes with the per-attempt retry design: a hung attempt 1
+          # aborts at 25 min and attempt 2 still gets its own fresh emulator,
+          # which a job-level bound alone could not give.
           script: |
-            flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
+            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part1.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
@@ -951,7 +975,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
+            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part1.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
@@ -967,7 +991,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/all_tests_part1.dart > part1.log 2>&1 || true
+            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part1.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
@@ -982,7 +1006,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
+            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part2.dart > part2.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part2.log; echo "PART 2: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part2.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
@@ -998,7 +1022,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
+            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part2.dart > part2.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part2.log; echo "PART 2: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part2.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
@@ -1014,7 +1038,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           script: |
-            flutter test integration_test/all_tests_part2.dart > part2.log 2>&1 || true
+            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part2.dart > part2.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part2.log; echo "PART 2: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part2.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
@@ -1157,7 +1181,7 @@ jobs:
           # This bit us for real: the job is label-gated, so the break sat
           # undetected from 2026-07-07 until a `run-patrol` label first ran it.
           script: |
-            flutter drive --profile --driver=test_driver/integration_test.dart --target=integration_test/logout_flow_test.dart
+            timeout --signal=TERM --kill-after=60 900 flutter drive --profile --driver=test_driver/integration_test.dart --target=integration_test/logout_flow_test.dart; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PROFILE DRIVE: TIMED OUT after 900s (rc=$RC). External bound — an in-isolate one cannot catch event-loop starvation; see the part1/part2 note in the integration job above."; fi; exit $RC
 
   # ---------------------------------------------------------------------------
   # Native-surface change detection — the additive gate for the `patrol` job.

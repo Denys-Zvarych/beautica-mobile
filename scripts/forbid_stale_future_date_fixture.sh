@@ -52,9 +52,53 @@
 # the common case on the widget tier, `_futureInstant()` / the
 # `FakeBackend.bookingStartsAt` fields on the E2E tier.
 #
-# A fixed PAST literal (YYYY < current year for (a), date < today for (b),
-# e.g. `DateTime.utc(2000, 1, 1)` / `'2000-01-01T15:00:00Z'`) is exempt
-# automatically: it can never become "upcoming" again, so it isn't a time bomb.
+# A fixed PAST literal is exempt from (a)/(b) automatically as far as the
+# TIME-BOMB rule goes: it can never become "upcoming" again. It is NOT exempt
+# from rule (c) below.
+#
+#   (c) FAR-PAST CONSTRUCTOR form, `integration_test/` ONLY. No
+#       `DateTime.utc(YYYY, ...)` literal with YYYY < the CURRENT year.
+#
+# WHY (c) EXISTS — a DIFFERENT bug with the same spelling (2026-08-17)
+# --------------------------------------------------------------------
+# `integration_test/master_archive_flow_test.dart` seeded a booking at
+# `DateTime.utc(2020, 1, 1, 10)`. Rules (a) and (b) both passed it clean — it is
+# firmly in the past, so it is not a time bomb — and it hung that file's
+# scenario 2 UNBOUNDEDLY. `MasterBookingsScreen` mounts on the way to the
+# archive and fetches ONE Kyiv day; the 2020 row reached its single-day
+# timeline, which builds one `TimelineHourRuler` row per hour and so tried to
+# build ~56 500 of them. That is a synchronous, allocating loop: it starves the
+# Dart event loop, and every bound the harness owns (`Future.timeout`,
+# `pumpAndSettle`'s deadline, the `pumpUntil*` poll deadlines, a per-test
+# `Timeout`) is a TIMER, so none of them can fire. Nothing failed; the run just
+# never ended.
+#
+# The fixture was wrong for a plain reason: this tier injects a FIXED clock
+# (`kFixedNow`, `integration_test/support/fake_backend.dart`), and every E2E
+# instant is supposed to be derived from it (`kFixedNow.subtract(...)`, a local
+# `elapsedStart(n)` helper, `fb.bookingStartsAt`). An absolute literal is
+# unanchored from the injected clock by construction, so how far it lands from
+# "now" is accidental — which is how one ended up six years off a day-scoped
+# screen. (a)/(b) already push the FUTURE side onto anchored helpers; (c) closes
+# the past side.
+#
+# SCOPE: `integration_test/` ONLY, deliberately. `kFixedNow` is an E2E-tier
+# concept; `test/features/booking/` has no injected-clock convention to point a
+# violator at, and carries 16 legitimate far-past literals (timezone math,
+# mapper round-trips, lane layout) that (c) would flag as pure noise. Widening
+# (c) to that root would mean allow-listing most of it, which is how a guard
+# stops meaning anything.
+#
+# Rule (c) is unblocked with `// past-date-ok: <reason>` — or with the existing
+# `// future-date-ok:`, since both spell the identical claim ("this fixed
+# instant is deliberate"). Accepting either also keeps `kFixedNow`'s own
+# declaration silent once the current year moves past 2026: it is already
+# annotated `future-date-ok:` as the injected clock itself.
+#
+# (c) has NO string-literal counterpart on purpose. A year-granular past-string
+# rule would flag every ordinary `'createdAt': '2026-05-20T09:00:00Z'` fixture
+# in `fake_backend.dart`, and blanket-allow-listing that file is exactly the
+# blind spot rule (b)'s own doc warns against rebuilding.
 #
 # A small number of sites deliberately need a fixed FAR-future instant rather
 # than a now-relative one (e.g. a suite proving BOTH sides of `isPast`'s
@@ -125,6 +169,16 @@ str_pattern="[\"${sq}][0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
 # ONE annotation serves both patterns — a deliberate fixed instant is the same
 # claim whether it is spelled as a constructor call or as a wire string.
 annotation='[/][/][[:space:]]*future-date-ok:'
+# Rule (c)'s annotation: EITHER marker unblocks a far-past literal. `past-date-
+# ok:` is the semantically-correct spelling for new sites; `future-date-ok:` is
+# accepted because it is the same claim, and because `kFixedNow`'s own
+# declaration already carries it (see the header's rule-(c) section).
+past_annotation='[/][/][[:space:]]*(future|past)-date-ok:'
+# Rule (c)'s scan root — a SUBSET of `scan_dirs`. See the header on why the
+# widget tier is deliberately excluded.
+past_scan_dirs=(
+  "integration_test"
+)
 
 # ---------------------------------------------------------------------------
 # scan_file <path> <current_year>
@@ -261,6 +315,83 @@ scan_file_strings() {
 }
 
 # ---------------------------------------------------------------------------
+# scan_file_past <path> <current_year>
+#   Rule (c). Emits "<path>:<line>:<text>" for each un-annotated
+#   `DateTime.utc(YYYY, ...)` literal whose YYYY < <current_year>.
+#
+#   Structurally the MIRROR of [scan_file] — same `strip_strings` masking, same
+#   comment handling, same this-line-or-line-above annotation lookup — with the
+#   year comparison flipped and a wider annotation pattern. Kept as its own
+#   function rather than a parameterised [scan_file] because the two rules do
+#   not share a scan root, an annotation set, or an allow-list, so the only
+#   thing a merged version would share is the awk boilerplate.
+# ---------------------------------------------------------------------------
+scan_file_past() {
+  awk -v file="$1" -v cy="$2" -v pat="$pattern" -v ann="$past_annotation" '
+    function strip_strings(s,   out, c, i, q, esc) {
+      out = ""; q = ""; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (esc) { esc = 0; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == q) { q = "" }
+          continue
+        }
+        if (c == "\"" || c == "'"'"'") { q = c; continue }
+        out = out c
+      }
+      return out
+    }
+    {
+      firsttok = $0
+      sub(/^[[:space:]]+/, "", firsttok)
+      if (firsttok ~ /^[/][/]/) { prev = $0; next }
+
+      codeonly = strip_strings($0)
+      where = match(codeonly, pat)
+      if (where > 0) {
+        before = substr(codeonly, 1, where - 1)
+        if (before ~ /[/][/]/) { prev = $0; next }
+
+        matched = substr(codeonly, where, RLENGTH)
+        yr = matched
+        gsub(/[^0-9]/, "", yr)
+        yr = yr + 0
+        if (yr < cy) {
+          if ($0 ~ ann)   { prev = $0; next }
+          if (prev ~ ann) { prev = $0; next }
+          printf "%s:%d:%s\n", file, NR, $0
+        }
+      }
+      prev = $0
+    }
+  ' "$1"
+}
+
+# ---------------------------------------------------------------------------
+# run_scan_past <tree_root> <current_year>
+#   Rule (c)'s walk, over ${past_scan_dirs[@]} only.
+#
+#   TAKES NO GRANDFATHERED PATHS, ON PURPOSE — same reasoning as
+#   [run_scan_strings]: `.stale_future_date_allow` is the legacy baseline for
+#   the FUTURE constructor rule, and every file it lists is under
+#   `test/features/booking/`, which rule (c) does not scan at all. Sharing it
+#   could only ever create a blind spot.
+# ---------------------------------------------------------------------------
+run_scan_past() {
+  local tree_root="$1"
+  local cy="$2"
+  local d f
+  for d in "${past_scan_dirs[@]}"; do
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      scan_file_past "$f" "$cy"
+    done < <(find "$tree_root/$d" -type f -name '*.dart' 2>/dev/null | sort)
+  done
+}
+
+# ---------------------------------------------------------------------------
 # run_scan <tree_root> <current_year> [grandfathered-repo-relative-path ...]
 #   Emits offenders across every *.dart file under each of ${scan_dirs[@]},
 #   resolved relative to <tree_root>, skipping any path listed in the trailing
@@ -326,6 +457,15 @@ run_scan_strings() {
 #                      calendar date, an annotated future date, a commented-out
 #                      future date, and a quoted future date sitting after a
 #                      `//` on a line of real code.
+#   Far-past rule (c): the un-annotated `DateTime.utc(2000, …)` on line 2 — the
+#                      2026-08-17 hang's exact shape, and a literal BOTH other
+#                      rules deliberately pass clean — plus two annotated
+#                      far-past literals (`past-date-ok:` and `future-date-ok:`,
+#                      either of which must silence it). Because (c) scans
+#                      `integration_test/` only, line 2 must be flagged in the
+#                      E2E probe and NOT in the widget-tier one; the asymmetric
+#                      counts below are what prove that scoping is real rather
+#                      than merely documented.
 #
 # Planting the probe in BOTH roots is the point: it is what proves
 # `integration_test/` is genuinely scanned and not merely listed in `scan_dirs`
@@ -350,11 +490,15 @@ if [ "${1:-}" = "--self-test" ]; then
   dt_offender_line=4
   str_offender_lines=(17 19)
   offenders_per_probe=3
+  # Rule (c) fires on the un-annotated far-past literal, in the E2E probe only.
+  past_offender_line=2
+  past_probe="integration_test/support/fake_backend.dart"
+  widget_probe="test/features/booking/presentation/fixture_test.dart"
 
   for probe in "${probe_paths[@]}"; do
     mkdir -p "$tmp/$(dirname "$probe")"
     cat > "$tmp/$probe" <<EOF
-// A fixed PAST instant — safe forever, must NOT be flagged.
+// Fixed PAST: no time bomb, so rules (a)/(b) pass it — but rule (c) MUST flag
 final DateTime past = DateTime.utc(2000, 1, 1);
 // An un-annotated CURRENT-year literal — the real bug pattern, MUST be flagged.
 final DateTime stale = DateTime.utc($cy, 7, 20, 15);
@@ -381,6 +525,13 @@ const String pinned = '$future_yr-09-09';
 // A quoted future date sitting AFTER a // on a line of real code — the comment
 // wins, must NOT be flagged.
 const String benign = 'ok'; // e.g. '$future_yr-08-01'
+// ---- FAR-PAST constructor literals (rule (c), integration_test/ only) ----
+// An annotated far-past literal — deliberate, must NOT be flagged.
+// past-date-ok: pinned twin of a far-future instant, see group header
+final DateTime pinnedPast = DateTime.utc(2001, 1, 1);
+// future-date-ok unblocks rule (c) too — same claim, must NOT be flagged.
+// future-date-ok: the injected fixed clock itself
+final DateTime pinnedPast2 = DateTime.utc(2002, 1, 1);
 EOF
   done
 
@@ -388,13 +539,15 @@ EOF
   scan_both() {
     run_scan "$@"
     run_scan_strings "$1" "$today"
+    run_scan_past "$1" "$cy"
   }
 
   # (1) Both roots, both rules: three offenders per probe file, on the exact
   #     lines above. Everything else in the probe must stay clean.
   out="$(scan_both "$tmp" "$cy")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  expected=$((${#probe_paths[@]} * offenders_per_probe))
+  # +1: rule (c)'s single offender, which fires in the E2E probe ONLY.
+  expected=$((${#probe_paths[@]} * offenders_per_probe + 1))
   if [ "$flagged" -ne "$expected" ]; then
     echo "SELF-TEST FAIL: expected exactly $expected offenders"
     echo "                ($offenders_per_probe per probe file ×"
@@ -425,6 +578,28 @@ EOF
     done
   done
 
+  # (1c) Rule (c) bit in the E2E root — and did NOT bite in the widget tier,
+  #      where the identical literal sits on the identical line. That asymmetry
+  #      IS the scoping guarantee; a (c) that walked `scan_dirs` would flag both.
+  if ! printf '%s\n' "$out" | grep -q "^$tmp/$past_probe:$past_offender_line:"; then
+    echo "SELF-TEST FAIL: the FAR-PAST rule did not bite on line"
+    echo "                $past_offender_line of '$past_probe'. That literal is"
+    echo "                the 2026-08-17 unbounded-hang fixture's exact shape,"
+    echo "                and rules (a)/(b) both pass it clean by design — (c)"
+    echo "                is the only thing standing between it and the corpus."
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  if printf '%s\n' "$out" | grep -q "^$tmp/$widget_probe:$past_offender_line:"; then
+    echo "SELF-TEST FAIL: the FAR-PAST rule bit in 'test/features/booking/'."
+    echo "                It is scoped to \${past_scan_dirs[*]} on purpose — that"
+    echo "                tree has no injected-clock convention to point a"
+    echo "                violator at and 16 legitimate far-past literals. See"
+    echo "                the header's rule-(c) section."
+    printf '%s\n' "$out"
+    exit 1
+  fi
+
   # (2) Grandfathering silences the CONSTRUCTOR rule in both roots — and
   #     DELIBERATELY DOES NOT silence the STRING rule. `.stale_future_date_allow`
   #     is the legacy baseline for `DateTime.utc` only; if it also swallowed
@@ -432,11 +607,12 @@ EOF
   #     fixture that expired on 2026-07-21.
   out_grandfathered="$(scan_both "$tmp" "$cy" "${probe_paths[@]}")"
   flagged_grandfathered="$(printf '%s\n' "$out_grandfathered" | grep -c . || true)"
-  expected_grandfathered=$((${#probe_paths[@]} * ${#str_offender_lines[@]}))
+  # +1: rule (c) has no allow-list either, so its offender must SURVIVE too.
+  expected_grandfathered=$((${#probe_paths[@]} * ${#str_offender_lines[@]} + 1))
   if [ "$flagged_grandfathered" -ne "$expected_grandfathered" ]; then
     echo "SELF-TEST FAIL: after allow-listing every probe path, expected the"
-    echo "                $expected_grandfathered STRING offenders to REMAIN (the allow-list"
-    echo "                covers the DateTime.utc rule only), got"
+    echo "                $expected_grandfathered STRING + FAR-PAST offenders to REMAIN (the"
+    echo "                allow-list covers the future DateTime.utc rule only), got"
     echo "                $flagged_grandfathered:"
     printf '%s\n' "$out_grandfathered"
     exit 1
@@ -462,14 +638,18 @@ EOF
     exit 1
   fi
 
-  echo "SELF-TEST PASS: past / annotated / commented / string-quoted literals"
-  echo "                are clean under BOTH rules;"
+  echo "SELF-TEST PASS: annotated / commented / string-quoted literals are clean"
+  echo "                under ALL THREE rules;"
   echo "                the un-annotated current-year DateTime.utc literal AND"
   echo "                both future ISO-8601 STRING dates are flagged in BOTH"
   echo "                scan roots (${scan_dirs[*]});"
-  echo "                allow-listed paths are skipped by the DateTime.utc rule"
-  echo "                ONLY (the string rule has no baseline), and skipping one"
-  echo "                path does not silence the other root."
+  echo "                the un-annotated FAR-PAST DateTime.utc literal is flagged"
+  echo "                in ${past_scan_dirs[*]} and NOT in the widget tier, and"
+  echo "                either // past-date-ok: or // future-date-ok: silences it;"
+  echo "                allow-listed paths are skipped by the future DateTime.utc"
+  echo "                rule ONLY (neither the string rule nor the far-past rule"
+  echo "                has a baseline), and skipping one path does not silence"
+  echo "                the other root."
   exit 0
 fi
 
@@ -491,6 +671,7 @@ current_year="$(date -u +%Y)"
 today="$(date -u +%F)"
 offenders="$(run_scan "$root" "$current_year" "${grandfathered[@]:-}")"
 str_offenders="$(run_scan_strings "$root" "$today")"
+past_offenders="$(run_scan_past "$root" "$current_year")"
 
 if [ -n "$str_offenders" ]; then
   echo "Future-dated ISO-8601 STRING literal found under ${scan_dirs[*]}:"
@@ -539,7 +720,37 @@ if [ -n "$offenders" ]; then
   echo "rule above has no baseline and is enforced on every file.)"
 fi
 
-if [ -n "$offenders" ] || [ -n "$str_offenders" ]; then
+if [ -n "$past_offenders" ]; then
+  echo "Absolute FAR-PAST DateTime.utc(...) literal found under ${past_scan_dirs[*]}:"
+  echo "$past_offenders"
+  echo
+  echo "This is NOT the stale-future time bomb above — it is the 2026-08-17"
+  echo "unbounded-hang shape, which rules (a) and (b) both pass clean by design."
+  echo "integration_test/master_archive_flow_test.dart seeded"
+  echo "    startsAt: DateTime.utc(2020, 1, 1, 10)"
+  echo "and a fake that ignored the request's from/to handed that row to a"
+  echo "SINGLE-DAY timeline. BookingsTimelineGrid builds one hour row per hour of"
+  echo "its extent, so it tried to build ~56 500 of them — a synchronous,"
+  echo "allocating loop that starves the Dart event loop. Every bound the harness"
+  echo "owns is a Timer (Future.timeout, pumpAndSettle's deadline, the pumpUntil*"
+  echo "poll deadlines, a per-test Timeout), and timers do not tick on a starved"
+  echo "loop, so nothing failed — the run simply never ended."
+  echo
+  echo "This tier injects a FIXED clock. Anchor the instant to it:"
+  echo "    kFixedNow.subtract(const Duration(days: 40))   // fake_backend.dart"
+  echo "    fb.bookingStartsAt"
+  echo "or a local elapsedStart(n)-style helper derived from kFixedNow. An"
+  echo "absolute literal is unanchored from the injected clock by construction,"
+  echo "so how far it lands from \"now\" is accidental."
+  echo
+  echo "If the instant is genuinely PINNED (e.g. the deliberate far-past twin of"
+  echo "a far-future instant, where the PAIR is the assertion), annotate it:"
+  echo "    // past-date-ok: <why a fixed far-past instant is correct here>"
+  echo "(// future-date-ok: is accepted too — it is the same claim.)"
+  echo
+fi
+
+if [ -n "$offenders" ] || [ -n "$str_offenders" ] || [ -n "$past_offenders" ]; then
   exit 1
 fi
 

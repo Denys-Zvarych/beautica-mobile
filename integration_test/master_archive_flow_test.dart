@@ -191,6 +191,25 @@ void main() {
       //    elapsed-unclosed one. Anti-vacuity for the filter step below — if
       //    this card were never rendered unfiltered, "absent after
       //    completing" would prove nothing. ─────────────────────────────
+      //
+      // DEFENSIVE HARDENING, NOT A BUG FIX (mobile-debugger INFO, 2026-08-17).
+      // `openArchive` ends on `AppHarness.settle`, and quiescence is not a
+      // safe proxy for "the landing fetch landed": the archive's own reloads
+      // are SEAMLESS invalidates (`_reloadArchive`, master_archive_screen.dart
+      // — `AsyncValue.when` skips the loading branch on refresh and RETAINS
+      // the previous value), so a reload paints no spinner and schedules no
+      // frame while its GET is still in flight. `settle` returns on "no
+      // scheduled frame" and a bare `settle` there can read pre-fetch state.
+      // Today the landing is a COLD load whose skeleton keeps frames coming,
+      // so `settle` happens to be safe — that safety is emergent, one
+      // seamless-reload change away from silently going stale. Wait on the
+      // specific row the assertions below target instead. Load-bearing: the
+      // row is genuinely absent (skeleton) before the fetch resolves.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
+
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
         findsOneWidget,
@@ -211,7 +230,46 @@ void main() {
       //    awaitingClosure rows, client-side, on top of the fixed HISTORY
       //    fetch. ────────────────────────────────────────────────────────
       await applyConfirmedFilter(tester);
+      // `settle` here only drains the filter sheet's pop animation — it is NOT
+      // the gate for "the filtered fetch landed". See the wait below.
       await AppHarness.settle(tester);
+
+      // DEFENSIVE HARDENING, NOT A BUG FIX (mobile-debugger LOW, 2026-08-17).
+      // Same reasoning as the landing wait above: quiescence is not a safe
+      // proxy for "the reload landed" when a seamless invalidate paints no
+      // spinner and therefore schedules no frame while its GET is in flight.
+      // This apply happens to be safe today only because it swaps the notifier
+      // FAMILY KEY, so the new provider starts at a valueless `AsyncLoading`
+      // whose skeleton keeps frames scheduled — an emergent property of a
+      // different branch, one `skipLoadingOnRefresh`-style change away from
+      // silently reading the pre-filter list.
+      //
+      // The condition is deliberately COMPOSITE, and neither half alone would
+      // be load-bearing:
+      //   * `booking-1` present is satisfied by the STALE pre-filter list (it
+      //     is on screen both before and after the filter), so waiting on it
+      //     alone would be inert;
+      //   * `past-completed-1` absent is satisfied by the intervening
+      //     `master-archive-skeleton` (the loading branch renders no cards at
+      //     all), so waiting on it alone would return mid-load and the
+      //     assertions below would read an empty list.
+      // Together they describe exactly one state: the FILTERED page rendered.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () =>
+            find
+                .byKey(const Key('master-booking-card-booking-1'))
+                .evaluate()
+                .isNotEmpty &&
+            find
+                .byKey(const Key('master-booking-card-past-completed-1'))
+                .evaluate()
+                .isEmpty,
+        description:
+            'the «Підтверджено» page to render: booking-1 present AND '
+            'past-completed-1 filtered out (neither half alone distinguishes '
+            'the filtered list from the stale one or the loading skeleton)',
+      );
 
       expect(
         find.byKey(const Key('master-booking-card-booking-1')),
@@ -313,6 +371,22 @@ void main() {
     // filler rows get RECENT dates and the match gets a far-older one to
     // guarantee it lands on the second raw page, not scrambled into the
     // first.
+    //
+    // `elapsedStart(40)` — NOT an absolute `DateTime.utc(2020, …)` literal.
+    // The literal that used to sit here hung this scenario UNBOUNDEDLY (see
+    // `scripts/forbid_stale_future_date_fixture.sh`'s far-past rule for the
+    // full write-up): the day-scoped `bookingsDayProvider` fetch that
+    // `MasterBookingsScreen` fires on the way to the archive was handed the
+    // 2020 row by a fake that ignored `from`/`to`, and the single-day
+    // timeline then tried to build ~56 500 hour rows — a synchronous
+    // allocating loop that starves the Dart event loop, so no `Timer`-based
+    // deadline in the whole harness can ever fire.
+    //
+    // The ONLY constraint the scenario needs is that the match sort BELOW
+    // every filler under `startsAt,desc`. The oldest filler is
+    // `elapsedStart(3) − 19d` ≡ `elapsedStart(22)`, so `elapsedStart(40)` is
+    // 18 days clear of it — comfortably page 2, and still `kFixedNow`-
+    // anchored like every other instant in this file.
     final List<Map<String, dynamic>> dataset = <Map<String, dynamic>>[
       for (int i = 0; i < 20; i++)
         fb.datasetBookingRow(
@@ -324,7 +398,7 @@ void main() {
         ...fb.datasetBookingRow(
           id: 'late-match',
           status: 'CONFIRMED',
-          startsAt: DateTime.utc(2020, 1, 1, 10),
+          startsAt: elapsedStart(40),
           duration: const Duration(minutes: 60),
         ),
         'awaitingClosure': true,
@@ -333,6 +407,11 @@ void main() {
     fb.seedManyBookingsDataset(dataset);
 
     await openArchive(tester, fb);
+
+    // Baseline taken AFTER the landing fetches (the master-bookings day fetch
+    // + the archive's own unfiltered fetch) so the delta asserted below is
+    // attributable to the filter apply alone — see that assertion.
+    final int callsBeforeFilter = fb.getMyBookingsCalls;
 
     await applyConfirmedFilter(tester);
 
@@ -344,6 +423,17 @@ void main() {
       tester,
       find.byKey(const Key('master-booking-card-late-match')),
     );
+
+    // `FakeBackend.lastMyBookingsQuery` is a LAST-WRITE-WINS global: every
+    // `GET /bookings/me` from ANY provider overwrites it. Captured HERE, at the
+    // moment the continuation's match has just rendered, rather than read off
+    // the fake after the assertions below — none of which pump today, but any
+    // future `await` inserted between would silently retarget the `page`
+    // assertion at some later, unrelated fetch. Capturing pins it to the
+    // moment of interest without changing what is asserted. (A fully
+    // hazard-free version needs `FakeBackend` to record a LIST of queries;
+    // out of scope for an INFO — flagged here instead.)
+    final Map<String, dynamic>? continuationQuery = fb.lastMyBookingsQuery;
 
     expect(
       find.byKey(const Key('master-booking-card-late-match')),
@@ -378,6 +468,32 @@ void main() {
           'continuation genuinely round-tripped the HTTP boundary a '
           'second time rather than the UI silently keeping page 0\'s '
           'stale (empty) result',
+    );
+
+    // ── ANTI-VACUITY for the count above ───────────────────────────────────
+    // `getMyBookingsCalls >= 3` is a WHOLE-FLOW total, so it can be satisfied
+    // by landing fetches that have nothing to do with the continuation. These
+    // two pin the count to the right reason:
+    //   * the filter apply alone cost at least TWO round trips (raw page 0,
+    //     then the auto-continued raw page 1);
+    //   * the LAST of them genuinely asked the server for `page=1` — the
+    //     second raw page — rather than re-requesting page 0 or serving the
+    //     match out of an already-held buffer.
+    expect(
+      fb.getMyBookingsCalls - callsBeforeFilter,
+      greaterThanOrEqualTo(2),
+      reason:
+          'the «Підтверджено» apply must have cost a page-0 fetch AND an '
+          'auto-continued page-1 fetch — a single fetch here would mean the '
+          'match came from somewhere other than the continuation',
+    );
+    expect(
+      '${continuationQuery?['page']}',
+      '1',
+      reason:
+          'the continuation must have requested the SECOND raw page; '
+          'stringified because the transport hands `page` back as either an '
+          'int or its decimal string depending on the DioAdapter path',
     );
   });
 

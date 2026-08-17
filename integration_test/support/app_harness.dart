@@ -117,19 +117,43 @@ abstract final class AppHarness {
   // ── Cascade guard (Fix #2) ─────────────────────────────────────────────────
 
   /// Bounded settle window for EVERY [pumpAndSettle] on the shared boot/login
-  /// path. The flutter_test default [pumpAndSettle] timeout is 10 MINUTES,
-  /// which is far longer than the per-test [Timeout(Duration(seconds: 45))] used
-  /// by the aggregated suite (integration_test/all_tests.dart, one isolate for
-  /// 17 flows). When a flow hangs in an unbounded pumpAndSettle, the test-level
-  /// Timeout completes the test future WHILE a pump is still in flight, leaving
-  /// the single per-isolate [IntegrationTestWidgetsFlutterBinding] mid-frame —
-  /// corrupting it for EVERY subsequent test (1 hang → ~50 cascade failures).
+  /// path. The flutter_test default [pumpAndSettle] timeout is 10 MINUTES.
   ///
-  /// Capping pumpAndSettle at 20 s (< the 45 s test Timeout) makes a hang throw
-  /// `FlutterError("pumpAndSettle timed out")` SYNCHRONOUSLY inside the test
-  /// body BEFORE the harness-level abort fires: the test fails as exactly ONE
-  /// clean failure, [addTearDown] unmounts normally, and the next test boots
-  /// from a clean tree.
+  /// THERE IS NO AMBIENT PER-TEST `Timeout` HERE (corrected 2026-08-17)
+  /// ------------------------------------------------------------------
+  /// This doc used to claim a per-test `Timeout(Duration(seconds: 45))` applied
+  /// to the aggregated suite, and derived "20 s < 45 s" from it. That was
+  /// false. `IntegrationTestWidgetsFlutterBinding` sets
+  /// `defaultTestTimeout = Timeout.none` (`package:integration_test`), so under
+  /// `integration_test/` a `testWidgets` runs with NO ambient deadline at all
+  /// unless it passes its own `timeout:` argument — and most flows, this file's
+  /// callers included, do not.
+  ///
+  /// So the 20 s cap is not "the tighter of two bounds"; on the aggregated
+  /// isolate it is one of the FEW bounds there is. It still earns its keep for
+  /// the reason the original note gave: a flow that hangs in an unbounded
+  /// `pumpAndSettle` leaves the single per-isolate binding mid-frame, and once
+  /// that happens EVERY subsequent test in the isolate fails (1 hang → ~50
+  /// cascade failures). Capping `pumpAndSettle` makes the ordinary
+  /// never-settles case throw `FlutterError("pumpAndSettle timed out")`
+  /// SYNCHRONOUSLY inside the test body: one clean failure, [addTearDown]
+  /// unmounts normally, and the next test boots from a clean tree.
+  ///
+  /// AND NEITHER THIS NOR ANY OTHER IN-ISOLATE BOUND CATCHES STARVATION
+  /// ------------------------------------------------------------------
+  /// This constant, [settle]'s [_settleWallClockBound] `Future.timeout`, every
+  /// `pumpUntil*` poll deadline below, and a per-test `Timeout` are ALL
+  /// implemented as timers on the isolate's own event loop. A synchronous
+  /// allocating loop inside `build` (the 2026-08-17 incident: a single
+  /// out-of-window booking driving `BookingsTimelineGrid` to ~56 500 hour rows)
+  /// starves that loop, so NONE of them ever tick — measured, a
+  /// `Timer.periodic(1 s)` armed before the triggering tap fired zero times in
+  /// 110 s. The hang is unbounded and unattributed no matter what any of these
+  /// constants say. The ONLY effective backstop for that class is EXTERNAL:
+  /// the `timeout <N>` wrappers around every `flutter test integration_test/…`
+  /// invocation in `.github/workflows/pr-validate.yml`. Keep those; do not
+  /// "replace" them with an in-isolate bound. See [settle]'s doc, which states
+  /// the same exception.
   ///
   /// THIS BOUND USED TO BE FICTIONAL. `WidgetController.pumpAndSettle`'s own
   /// timeout check (`if (clock.now().isAfter(endTime)) throw ...`) runs ONLY
@@ -168,6 +192,14 @@ abstract final class AppHarness {
   /// the `Timer` still fires on schedule and forces the outer `Future` to
   /// complete with our own attributable [TestFailure] — turning "hangs
   /// forever, silently" into "throws a clear, named error after ~25 s".
+  ///
+  /// THAT EXCEPTION IS NOT HYPOTHETICAL — it bit on 2026-08-17. A synchronous,
+  /// allocating build loop (`BookingsTimelineGrid` → `TimelineHourRuler`, one
+  /// row per hour, driven to ~56 500 rows by a single out-of-window booking)
+  /// starved the loop for as long as anyone was willing to wait; this
+  /// `Future.timeout` never fired, because its `Timer` never got to run. See
+  /// [settleTimeout]'s doc: the only bound that catches this class is the
+  /// EXTERNAL `timeout <N>` around the whole `flutter test` invocation in CI.
   ///
   /// A hand-rolled loop of short bounded `pump()` calls was considered
   /// instead (poll `binding.hasScheduledFrame` against a wall-clock deadline,

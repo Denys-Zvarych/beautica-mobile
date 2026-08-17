@@ -1173,6 +1173,14 @@ class _Loaded extends StatelessWidget {
     final AsyncValue<List<EffectiveDay>> schedule =
         scheduleAsync ?? const AsyncValue<List<EffectiveDay>>.loading();
 
+    // NOTE (2026-08-17) — both fallbacks below pass `window: null`, which means
+    // `state.items` reaches `BookingsTimelineGrid` UNFILTERED:
+    // `bookingsInsideScheduleWindow` runs only on the `data:` branch, for an
+    // INTERVAL day, once a real window has resolved. `loading` is the state of
+    // every cold open and `error` is permanent, so that filter can NEVER be
+    // what bounds the grid's extent. The bound lives in the grid itself
+    // (`BookingsTimelineGrid._kMaxEndMinute`) precisely because of this
+    // ordering — see that constant's doc before changing either side.
     return schedule.when(
       // Never flash the gray state while the schedule is still resolving —
       // render exactly as `useScheduleWindow: false` would, using the

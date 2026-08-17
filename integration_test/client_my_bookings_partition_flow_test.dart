@@ -261,6 +261,7 @@ void main() {
     'while the real app (which always sends BOTH) degrades only to the '
     'pre-227 status-only filter, never to "no filter at all"',
     (tester) async {
+      // past-date-ok: deliberately far-past twin of `future` below — the PAIR is the assertion (it proves the partition boundary on both sides regardless of runner wall clock/TZ), so a `kFixedNow`-anchored offset would not be symmetric with the fixed 2035 future instant. Safe from the 2026-08-17 hang shape: this row feeds the client's «Мої записи» LIST, which has no per-day timeline whose extent it could stretch.
       final DateTime past = DateTime.utc(2000, 1, 1, 10);
       // future-date-ok: deliberately far-future twin of `past` above — proves the partition boundary deterministically on both sides regardless of runner wall clock/TZ; a now-relative offset would not be symmetric with the fixed 2000 past instant.
       final DateTime future = DateTime.utc(2035, 1, 1, 10);

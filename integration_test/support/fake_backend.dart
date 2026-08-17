@@ -3138,8 +3138,60 @@ final class FakeBackend {
     return fallback;
   }
 
-  /// The real (statuses, sort, page) slice over [_bookingsDataset] — see the
-  /// section doc above. Filters the WHOLE dataset by the repeated `status`
+  /// The inclusive `[from, to]` LOCAL-DAY window a `/bookings/me` request
+  /// carried, as a date token (`YYYY-MM-DD` → host-local midnight, directly
+  /// comparable to [kyivDayOf]'s output — see `kyiv_day.dart`'s header on date
+  /// tokens). `null` when the param is absent; both are independently optional
+  /// on the real endpoint (`BookingRepository.getMyBookings`'s doc).
+  ///
+  /// Tolerates a full ISO instant as well as a bare date by taking the first
+  /// 10 characters: the repository sends `toApiDate(...)`, but a caller that
+  /// ever sent an instant must not blow up the fake's route callback (the same
+  /// defensive posture [_scalarQueryParam] exists for).
+  static DateTime? _dayWindowBound(Map<String, dynamic> query, String key) {
+    final String? raw = _scalarQueryParam(query, key);
+    if (raw == null || raw.length < 10) return null;
+    return DateTime.tryParse(raw.substring(0, 10));
+  }
+
+  /// Whether dataset [row]'s `startsAt` falls inside the inclusive Kyiv-day
+  /// window `[from, to]` — the fake half of the real endpoint's day filter.
+  ///
+  /// WHY THIS EXISTS (2026-08-17, unbounded-hang fix)
+  /// ------------------------------------------------
+  /// [_slicedBookingsPageEnvelope] used to filter by `partition`/`status`
+  /// ONLY and silently ignore `from`/`to`, so a day-scoped request
+  /// (`from=today&to=today` — what `bookingsDayProvider` sends for the
+  /// master's «Мої записи» timeline) was handed the WHOLE dataset. That is not
+  /// a harmless over-return: the fake was strictly WEAKER than the real
+  /// backend, so it could both mask a bug (a screen that mishandles the day
+  /// window looks fine) and manufacture one (a far-past fixture row reaching a
+  /// single-day timeline made `BookingsTimelineGrid` try to build ~56 500 hour
+  /// rows, starving the Dart event loop and hanging
+  /// `master_archive_flow_test.dart` scenario 2 with no timer-based deadline
+  /// able to fire). A fake that answers a narrower question than it was asked
+  /// is a divergence, full stop — do not relax this to keep a flow green;
+  /// fix the flow's fixture dates instead.
+  ///
+  /// The comparison is by KYIV DAY, not by raw instant, because the real
+  /// endpoint's `from`/`to` are LOCAL calendar days (`toApiDate`), so a
+  /// 21:00 UTC row on the previous UTC day is still "today" in Kyiv.
+  static bool _withinDayWindow(
+    Map<String, dynamic> row,
+    DateTime? from,
+    DateTime? to,
+  ) {
+    if (from == null && to == null) return true;
+    final DateTime day = kyivDayOf(DateTime.parse(row['startsAt'] as String));
+    if (from != null && day.isBefore(from)) return false;
+    if (to != null && day.isAfter(to)) return false;
+    return true;
+  }
+
+  /// The real (day window, statuses, sort, page) slice over
+  /// [_bookingsDataset] — see the section doc above. Filters the WHOLE dataset
+  /// by the inclusive `[from, to]` local-day window ([_withinDayWindow]) AND
+  /// by the repeated `status`
   /// params (or no filter when absent), sorts the filtered set by `startsAt`
   /// in the direction the `sort` param carries — defaulting to `desc` when
   /// `sort` is ABSENT, mirroring the real endpoint's actual default (the
@@ -3170,13 +3222,21 @@ final class FakeBackend {
     final int page = _intQueryParam(query, 'page', 0);
     final int size = _intQueryParam(query, 'size', 20);
     final DateTime now = serverNow;
+    // The inclusive local-day window, honoured BEFORE partition/status —
+    // exactly like the real endpoint. See [_withinDayWindow]'s doc for why
+    // ignoring it (as this did until 2026-08-17) is a genuine divergence and
+    // not a harmless over-return.
+    final DateTime? fromDay = _dayWindowBound(query, 'from');
+    final DateTime? toDay = _dayWindowBound(query, 'to');
 
     final List<Map<String, dynamic>> filtered =
         dataset
             .where(
-              (Map<String, dynamic> b) => partition != null
-                  ? _matchesPartition(b, partition, now)
-                  : (statuses == null || statuses.contains(b['status'])),
+              (Map<String, dynamic> b) =>
+                  _withinDayWindow(b, fromDay, toDay) &&
+                  (partition != null
+                      ? _matchesPartition(b, partition, now)
+                      : (statuses == null || statuses.contains(b['status']))),
             )
             .toList(growable: false)
           ..sort((Map<String, dynamic> a, Map<String, dynamic> b) {

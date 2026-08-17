@@ -472,6 +472,112 @@ void main() {
     });
   });
 
+  group('the loading/error fallback, given an OUT-OF-WINDOW row', () {
+    // ══════════════════════════════════════════════════════════════════════
+    // THE COLD-OPEN PATH, WITH AN OUT-OF-WINDOW ROW (2026-08-18, mobile-qa)
+    // ══════════════════════════════════════════════════════════════════════
+    // The two cases above pump the `loading:`/`error:` fallbacks with an
+    // IN-WINDOW booking only, so they prove the gray state doesn't flash — but
+    // they never exercise what those fallbacks actually DO with a row that
+    // does not belong to [_day]. That matters, because `window: null` hands
+    // `state.items` to `BookingsTimelineGrid` UNFILTERED
+    // (`bookings_discovery_view.dart:1173`): `bookingsInsideScheduleWindow`
+    // runs on the `data:` branch alone. "Schedule still loading" is the state
+    // of EVERY cold open of the master's «Мої записи», and "schedule errored"
+    // is permanent — so this composition, not the filtered one, is where a
+    // real backend's stray row would land, and it is the composition the
+    // 2026-08-17 unbounded hang went through.
+    //
+    // Two claims, both previously unasserted anywhere at any tier:
+    //   (1) the fallback really is UNFILTERED — the stray row reaches the grid
+    //       and is counted, rather than being quietly dropped (if it WERE
+    //       dropped here, `BookingsTimelineGrid._kMaxEndMinute`'s doc and
+    //       `bookings_discovery_view.dart`'s NOTE would both be wrong, and the
+    //       clamp would be dead code);
+    //   (2) the grid stays bounded ANYWAY, through the real composition and
+    //       not just when the widget is pumped in isolation.
+    //
+    // −30 days, not the incident's six years, for the same reason as
+    // `bookings_timeline_grid_test.dart`'s sweep: unclamped this fails RED
+    // (~721 ruler rows), where six years would HANG.
+    for (final ({String name, EffectiveScheduleNotifier Function() build})
+        verdict
+        in <({String name, EffectiveScheduleNotifier Function() build})>[
+          (name: 'LOADING', build: _LoadingSchedule.new),
+          (name: 'ERROR', build: _ErrorSchedule.new),
+        ]) {
+      testWidgets(
+        'on the ${verdict.name} fallback an out-of-window row is passed '
+        'through UNFILTERED and the grid stays bounded anyway',
+        (tester) async {
+          final Booking own = _booking(
+            id: 'cold-own',
+            startAtUtc: _kyivAtUtc(1),
+          );
+          final Booking stray = _booking(
+            id: 'cold-stray',
+            startAtUtc: _kyivAtUtc(1).subtract(const Duration(days: 30)),
+          );
+
+          await pump(
+            tester,
+            useScheduleWindow: true,
+            bookings: <Booking>[stray, own], // ascending by startAt
+            scheduleOverride: effectiveScheduleProvider.overrideWith(
+              verdict.build,
+            ),
+          );
+
+          final AppLocalizations l10n = AppLocalizations.of(
+            tester.element(find.byType(BookingsDiscoveryView)),
+          );
+
+          // (1) UNFILTERED. Both the count and the rendered card set include
+          // the stray — this is the claim the clamp's existence rests on.
+          expect(
+            find.text(l10n.masterBookingsCount(2)),
+            findsOneWidget,
+            reason:
+                'the ${verdict.name} fallback passes `window: null`, so no '
+                'filtering runs — a count of 1 here would mean the stray was '
+                'dropped and the clamp is guarding an unreachable input',
+          );
+          expect(
+            find.byKey(const ValueKey<String>('timeline-card-cold-stray')),
+            findsOneWidget,
+            reason: 'the stray row genuinely reaches the grid',
+          );
+          expect(
+            find.byKey(const ValueKey<String>('timeline-card-cold-own')),
+            findsOneWidget,
+            reason: 'and the day\'s own card is not lost repositioning it',
+          );
+
+          // (2) BOUNDED. The ruler builds one row per hour of its span; the
+          // clamp is what keeps that finite when (1) holds.
+          final TimelineHourRuler ruler = tester.widget<TimelineHourRuler>(
+            find.byType(TimelineHourRuler),
+          );
+          expect(
+            ruler.lastHour - ruler.firstHour,
+            lessThanOrEqualTo(48),
+            reason:
+                'unclamped this span is ~721 hours — one built widget each, '
+                'synchronously, which is the shape that starved the event '
+                'loop on 2026-08-17',
+          );
+          expect(
+            ruler.firstHour,
+            inInclusiveRange(0, 24),
+            reason:
+                'the ruler origin stays on the selected Kyiv day whatever '
+                'the fallback hands through',
+          );
+        },
+      );
+    }
+  });
+
   // ══════════════════════════════════════════════════════════════════════
   // USER-REPORTED BUG REGRESSION — a day with WORKING HOURS but ZERO
   // (visible) bookings rendered no time grid at all.

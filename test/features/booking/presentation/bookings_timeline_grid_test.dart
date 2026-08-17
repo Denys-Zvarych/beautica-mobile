@@ -2714,4 +2714,284 @@ void main() {
       },
     );
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // EXTENT CLAMP — an out-of-window booking must not drive the grid's size
+  // (2026-08-17)
+  // ══════════════════════════════════════════════════════════════════════════
+  // `BookingsTimelineGrid` derives its extent from `bookings` and turns it into
+  // one `TimelineHourRuler` row per hour — a synchronous, allocating loop. So a
+  // booking outside `day` does not merely render in the wrong place: it sets
+  // the ROW COUNT to the distance between itself and the rest of the day.
+  //
+  // `bookingsInsideScheduleWindow` does drop such a row, but it is NOT this
+  // widget's bound: it runs only on `BookingsDiscoveryView`'s `data:` branch,
+  // for an INTERVAL day, once a working-hours window has resolved. That view's
+  // `loading:` and `error:` branches both pass `window: null`, which hands this
+  // widget `state.items` UNFILTERED — and "schedule still loading" is the state
+  // of every cold open of the master's «Мої записи». Hence the clamp inside
+  // `_recomputeLayoutModel`; see `BookingsTimelineGrid._kMaxEndMinute`'s doc.
+  //
+  // FIXTURE NOTE — the out-of-window rows below sit 30 days out, not the six
+  // YEARS of the incident, on purpose. Thirty days is far enough that the
+  // unclamped extent (~721 hours) fails the bounded-height assertion RED; six
+  // years (~56 500 hours) would starve the event loop and HANG the suite
+  // instead, which is a much worse failure to debug and is exactly why the real
+  // backstop for that class is the external `timeout` in CI, not an assertion.
+  group('extent clamp — an out-of-window booking cannot stretch the grid', () {
+    final Booking morning = _booking(
+      id: 'clamp-morning',
+      startAtUtc: _kyivAtUtc(9),
+      durationMinutes: 60,
+    );
+
+    /// Rendered hours of ruler, measured from real geometry — the lane stack's
+    /// height over the ruler's own measured hour band. Never re-derived from
+    /// `_kHourH`, per this file's ground-truth convention.
+    double renderedHours(WidgetTester tester) =>
+        tester
+            .getSize(find.byKey(const ValueKey<String>('timeline-lane-stack')))
+            .height /
+        _renderedHourBand(tester);
+
+    testWidgets('a booking 30 days BEFORE the day clamps the top to the day\'s '
+        'Kyiv midnight instead of dragging the ruler back a month', (
+      WidgetTester tester,
+    ) async {
+      // 01:00, not 09:00: with the top clamped to Kyiv midnight the day's own
+      // card sits 60dp down, inside the viewport. At 09:00 it would land
+      // 1080dp down and be CULLED (this file's "ADDENDUM 4" band), so the
+      // `findsOneWidget` below would fail for a reason that has nothing to do
+      // with the clamp.
+      final Booking earlyStart = _booking(
+        id: 'clamp-own-day',
+        startAtUtc: _kyivAtUtc(1),
+        durationMinutes: 60,
+      );
+      final Booking farPast = _booking(
+        id: 'clamp-far-past',
+        startAtUtc: _kyivAtUtc(1).subtract(const Duration(days: 30)),
+        durationMinutes: 60,
+      );
+
+      await tester.pumpApp(
+        BookingsTimelineGrid(
+          bookings: <Booking>[farPast, earlyStart],
+          day: _day,
+          onBookingTap: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        renderedHours(tester),
+        lessThanOrEqualTo(49),
+        reason:
+            'unclamped this is ~721 hours of ruler (30 days + the day\'s own '
+            'booking), one built widget per hour — the shape that starved the '
+            'event loop outright at the incident\'s six-year distance',
+      );
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-clamp-own-day')),
+        findsOneWidget,
+        reason:
+            'the clamp bounds the EXTENT only — it must not drop the day\'s '
+            'own in-window card along the way',
+      );
+    });
+
+    testWidgets('a booking 30 days AFTER the day clamps the bottom too', (
+      WidgetTester tester,
+    ) async {
+      final Booking farFuture = _booking(
+        id: 'clamp-far-future',
+        startAtUtc: _kyivAtUtc(9).add(const Duration(days: 30)),
+        durationMinutes: 60,
+      );
+
+      await tester.pumpApp(
+        BookingsTimelineGrid(
+          bookings: <Booking>[morning, farFuture],
+          day: _day,
+          onBookingTap: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        renderedHours(tester),
+        lessThanOrEqualTo(49),
+        reason:
+            'the ceiling has to hold on the far side as well — a clamp that '
+            'only floors the top leaves the identical hang reachable from a '
+            'future-dated row',
+      );
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-clamp-morning')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an ordinary in-window day is UNCHANGED by the clamp — its '
+        'extent still comes from its own bookings', (
+      WidgetTester tester,
+    ) async {
+      final Booking evening = _booking(
+        id: 'clamp-evening',
+        startAtUtc: _kyivAtUtc(17),
+        durationMinutes: 60,
+      );
+
+      await tester.pumpApp(
+        BookingsTimelineGrid(
+          bookings: <Booking>[morning, evening],
+          day: _day,
+          onBookingTap: (_) {},
+        ),
+      );
+      await tester.pump();
+
+      // 09:00 -> 18:00 is nine hours, derived from the bookings themselves and
+      // nowhere near either clamp bound. Anti-vacuity for the two cases above:
+      // a clamp that collapsed every day to a fixed extent would satisfy their
+      // `lessThanOrEqualTo` bounds while destroying the widget.
+      expect(renderedHours(tester), closeTo(9, 0.1));
+    });
+
+    // ── INVARIANT, not two point samples (2026-08-18, mobile-qa) ───────────
+    // The three cases above pin the clamp at exactly two bad inputs (−30d and
+    // +30d). That is a sample, and a sample is satisfied by a fix that happens
+    // to cover those two distances — e.g. a `_lastMinute` ceiling with no
+    // `_firstMinute` floor still passes the +30d case on its own. The sweep
+    // below states the actual contract instead: for ANY out-of-window row, in
+    // EITHER direction, at ANY magnitude, `lastHour - firstHour` is bounded.
+    //
+    // TWO measurements per case, deliberately:
+    //   * `TimelineHourRuler.lastHour - firstHour` — the loop that actually
+    //     allocates (`timeline_hour_ruler.dart:118`, one row per hour). This is
+    //     the hazard itself, read straight off the widget, independent of any
+    //     layout arithmetic.
+    //   * `renderedHours` — the rendered lane stack, whose `minHeight` FLOOR is
+    //     `gridStackHeight` (`bookings_timeline_grid.dart:1331`). Keeping both
+    //     means neither clamp can be removed while the other masks it: the
+    //     ruler count pins `_lastMinute`, and the lane stack additionally pins
+    //     `_geometryForLane`'s `maxTopPx` (an unclamped `desiredTop` grows the
+    //     `Column` without moving the ruler at all — that is exactly the
+    //     86 520dp stack the incident's first, ruler-only fix still left).
+    //
+    // MAGNITUDE CEILING IS DELIBERATE — 45 days, not the incident's six years.
+    // Every offset here must produce an ASSERTION FAILURE when the clamp is
+    // removed, not a hang: 45 days unclamped is ~1 081 hour rows (slow, fails
+    // red), six years is ~56 500 (starves the event loop and hangs, which is
+    // unmutable and undebuggable). The hang class has no in-isolate guard by
+    // construction — its backstop is the external `timeout` in
+    // `.github/workflows/pr-validate.yml`, never an `expect`.
+    group('the bound is an INVARIANT over out-of-window distance', () {
+      // Both signs, four magnitudes: adjacent day, a few days, a fortnight,
+      // a month and a half. Anything that clamps only one side, or only past a
+      // threshold, turns red on some member of this set.
+      const List<int> offsetsDays = <int>[-45, -14, -3, -1, 1, 3, 14, 45];
+
+      for (final int offset in offsetsDays) {
+        for (final bool withCompanion in <bool>[false, true]) {
+          final String shape = withCompanion
+              ? 'alongside an in-window booking'
+              : 'alone'; // the whole response is the wrong day
+          testWidgets('a row ${offset}d off the day, $shape, keeps the ruler '
+              '<= 48 hours and the lane stack bounded with it', (
+            WidgetTester tester,
+          ) async {
+            final Booking stray = _booking(
+              id: 'sweep-stray',
+              startAtUtc: _kyivAtUtc(9).add(Duration(days: offset)),
+              durationMinutes: 60,
+            );
+
+            await tester.pumpApp(
+              BookingsTimelineGrid(
+                bookings:
+                    <Booking>[
+                      // Ascending by `startAt` — the class doc's precondition.
+                      if (withCompanion && offset < 0) morning,
+                      stray,
+                      if (withCompanion && offset > 0) morning,
+                    ]..sort(
+                      (Booking a, Booking b) => a.startAt.compareTo(b.startAt),
+                    ),
+                day: _day,
+                onBookingTap: (_) {},
+              ),
+            );
+            await tester.pump();
+
+            expect(tester.takeException(), isNull);
+
+            final TimelineHourRuler ruler = tester.widget<TimelineHourRuler>(
+              find.byType(TimelineHourRuler),
+            );
+            expect(
+              ruler.lastHour - ruler.firstHour,
+              lessThanOrEqualTo(48),
+              reason:
+                  'the ruler builds ONE row per hour of this span — it is '
+                  'the allocating loop the clamp exists to bound, and '
+                  '`_kMaxEndMinute` (2880) over a `_firstMinute` floored at '
+                  '0 is exactly 48',
+            );
+            expect(
+              ruler.firstHour,
+              inInclusiveRange(0, 24),
+              reason:
+                  'the top is floored at the day\'s Kyiv midnight and '
+                  'capped at its end — a stray row must not drag the ruler '
+                  'origin off the selected day in either direction',
+            );
+            expect(
+              renderedHours(tester),
+              lessThanOrEqualTo(49),
+              reason:
+                  'the lane stack has to be bounded TOO — clamping the '
+                  'ruler alone still left an 86 520dp `Column`, which is '
+                  'the same synchronous-layout hazard wearing a different '
+                  'hat',
+            );
+          });
+        }
+      }
+
+      testWidgets(
+        'ANTI-VACUITY for the sweep — the same two measurements track the '
+        'real extent when every booking belongs to the day',
+        (WidgetTester tester) async {
+          // If the clamp were implemented as "always report 48 hours" (or the
+          // ruler collapsed to a constant), every `lessThanOrEqualTo` above
+          // would still pass. These equalities are what make the sweep mean
+          // "bounded", not "pinned to a constant".
+          final Booking evening = _booking(
+            id: 'sweep-control-evening',
+            startAtUtc: _kyivAtUtc(16),
+            durationMinutes: 60,
+          );
+
+          await tester.pumpApp(
+            BookingsTimelineGrid(
+              bookings: <Booking>[morning, evening],
+              day: _day,
+              onBookingTap: (_) {},
+            ),
+          );
+          await tester.pump();
+
+          final TimelineHourRuler ruler = tester.widget<TimelineHourRuler>(
+            find.byType(TimelineHourRuler),
+          );
+          expect(ruler.firstHour, 9);
+          expect(ruler.lastHour, 17);
+          expect(renderedHours(tester), closeTo(8, 0.1));
+        },
+      );
+    });
+  });
 }

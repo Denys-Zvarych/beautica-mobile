@@ -23,6 +23,8 @@
 // Riverpod notifier in the loop, so it cannot catch a UI-wiring regression
 // the way the real flow can.
 
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../integration_test/support/fake_backend.dart';
@@ -252,6 +254,142 @@ void main() {
         expect((data1['page'] as int) + 1, data1['totalPages']);
       },
     );
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DAY WINDOW (`from`/`to`) — 2026-08-17
+    // ══════════════════════════════════════════════════════════════════════
+    // The slice used to filter by `partition`/`status` ONLY and silently
+    // ignore `from`/`to`, so a day-scoped request (what `bookingsDayProvider`
+    // sends for the master's «Мої записи» timeline) got the WHOLE dataset.
+    // That is the same class of fake-dishonesty as Bug A/Bug B above, and it
+    // was not harmless: it made `master_archive_flow_test.dart` scenario 2
+    // hang UNBOUNDEDLY, because a 2020 fixture row reaching a single-day
+    // timeline drove `BookingsTimelineGrid` to build ~56 500 hour rows —
+    // a synchronous loop that starves the event loop, so no timer-based
+    // deadline anywhere in the harness could fire.
+    group('the inclusive [from, to] local-day window', () {
+      // `kyivDayOf` below reads `beauticaZone`, which throws until the IANA
+      // database is loaded — the app boots it in `main`, a pure-Dart suite has
+      // to do it itself (same `setUpAll` as
+      // `test/features/booking/presentation/bookings_timeline_grid_test.dart`).
+      setUpAll(initBeauticaTimeZones);
+
+      Future<Map<String, dynamic>> fetchDays(
+        FakeBackend fb, {
+        String? from,
+        String? to,
+      }) async {
+        final response = await fb.dio.get<Map<String, dynamic>>(
+          '/api/v1/bookings/me',
+          queryParameters: <String, dynamic>{
+            'page': 0,
+            'size': 20,
+            'sort': 'startsAt,asc',
+            'from': ?from,
+            'to': ?to,
+          },
+        );
+        return response.data!;
+      }
+
+      // Kyiv days, derived from the injected clock — never absolute literals
+      // (`scripts/forbid_stale_future_date_fixture.sh` rule (c)).
+      String apiDay(DateTime instant) =>
+          kyivDayOf(instant).toIso8601String().substring(0, 10);
+
+      final DateTime today = kFixedNow;
+      final DateTime tomorrow = kFixedNow.add(const Duration(days: 1));
+      final DateTime longAgo = kFixedNow.subtract(const Duration(days: 2000));
+
+      void seedThreeDays(FakeBackend fb) {
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          fb.datasetBookingRow(
+            id: 'today-1',
+            status: 'CONFIRMED',
+            startsAt: today,
+          ),
+          fb.datasetBookingRow(
+            id: 'tomorrow-1',
+            status: 'CONFIRMED',
+            startsAt: tomorrow,
+          ),
+          fb.datasetBookingRow(
+            id: 'long-ago-1',
+            status: 'COMPLETED',
+            startsAt: longAgo,
+          ),
+        ]);
+      }
+
+      test('a single-day request returns ONLY that Kyiv day — a row years '
+          'outside the window can never come back', () async {
+        seedThreeDays(fb);
+
+        final Map<String, dynamic> envelope = await fetchDays(
+          fb,
+          from: apiDay(today),
+          to: apiDay(today),
+        );
+
+        expect(
+          _ids(envelope),
+          <String>['today-1'],
+          reason:
+              'the day-scoped request asked for ONE Kyiv day; returning the '
+              'far-past row too is the divergence that hung '
+              'master_archive_flow_test scenario 2',
+        );
+        final data = envelope['data'] as Map<String, dynamic>;
+        expect(
+          data['totalElements'],
+          1,
+          reason:
+              'the count must be the WINDOWED count, not the whole table — '
+              'a caller that trusts totalElements would otherwise page into '
+              'rows the window excludes',
+        );
+      });
+
+      test('the window is INCLUSIVE on both ends', () async {
+        seedThreeDays(fb);
+
+        final Map<String, dynamic> envelope = await fetchDays(
+          fb,
+          from: apiDay(today),
+          to: apiDay(tomorrow),
+        );
+
+        expect(_ids(envelope), <String>['today-1', 'tomorrow-1']);
+      });
+
+      test('an ABSENT window still returns the whole table — the pre-existing '
+          'behaviour every non-day-scoped caller depends on', () async {
+        seedThreeDays(fb);
+
+        final Map<String, dynamic> envelope = await fetchDays(fb);
+
+        expect(_ids(envelope), <String>[
+          'long-ago-1',
+          'today-1',
+          'tomorrow-1',
+        ], reason: 'ascending by startsAt, unfiltered');
+      });
+
+      test('`from` alone is an open-ended FORWARD window, `to` alone an '
+          'open-ended BACKWARD one — the two params are independently '
+          'optional on the real endpoint', () async {
+        seedThreeDays(fb);
+
+        expect(await fetchDays(fb, from: apiDay(today)).then(_ids), <String>[
+          'today-1',
+          'tomorrow-1',
+        ]);
+        expect(await fetchDays(fb, to: apiDay(today)).then(_ids), <String>[
+          'long-ago-1',
+          'today-1',
+        ]);
+      });
+    });
   });
 
   group('FakeBackend.lastMyBookingsQuery — recorded unconditionally, not '
