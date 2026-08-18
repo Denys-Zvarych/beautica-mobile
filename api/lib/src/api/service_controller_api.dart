@@ -16,6 +16,7 @@ import 'package:beautica_api/src/model/api_response_service_definition_response.
 import 'package:beautica_api/src/model/assign_service_to_master_request.dart';
 import 'package:beautica_api/src/model/bulk_create_services_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
+import 'package:beautica_api/src/model/duplicate_service_error_response.dart';
 import 'package:beautica_api/src/model/update_service_definition_request.dart';
 import 'package:beautica_api/src/model/update_service_photo_request.dart';
 
@@ -333,8 +334,8 @@ class ServiceControllerApi {
     );
   }
 
-  /// Bulk-create a salon master&#39;s services (first-time setup)
-  /// Creates every selected service for the given master in one transaction. Only valid when the master has no active services yet (409 otherwise).
+  /// Bulk-create a salon master&#39;s services
+  /// Creates every selected service for the given master in one transaction (all-or-nothing). Additive — callable whether or not the master already has services.
   ///
   /// Parameters:
   /// * [salonId]
@@ -443,8 +444,8 @@ class ServiceControllerApi {
     );
   }
 
-  /// Bulk-create my services (first-time setup)
-  /// Creates every selected service in one transaction. Only valid when the master has no active services yet (409 otherwise).
+  /// Bulk-create my services
+  /// Creates every selected service in one transaction (all-or-nothing). Additive — callable whether or not the master already has services.
   ///
   /// Parameters:
   /// * [bulkCreateServicesRequest]

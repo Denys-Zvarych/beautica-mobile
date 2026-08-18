@@ -1,25 +1,23 @@
-// Phase 14.2 — Widget tests for BookingConfirmScreen + BookingSuccessScreen.
+// MO-3 — Widget tests for BookingConfirmScreen + BookingSuccessScreen
+// (single-visit rework).
 //
-// Both screens are covered in ONE file, mirroring the Phase 14.1 precedent
-// (`slot_picker_test.dart` covers SlotDateScreen + SlotTimeScreen together)
-// since these two screens are the two halves of a single "confirm → success"
-// step and share the exact same fixtures.
-//
-// Covers the phase doc's acceptance criteria:
-//   1. The "Записатись" CTA calls `BookingRepository.createBooking` with a
-//      fresh UUID v4 idempotency key.
-//   2. A 409 (ConflictFailure) shows a SnackBar, does NOT navigate away, and
-//      the confirm screen stays fully interactive.
-//   3. A retry after a failure generates a NEW idempotency key (never reused).
+// Both screens are covered in ONE file (the two halves of a single "confirm →
+// success" step share the exact same fixtures). Covers the MO-3 acceptance
+// criteria:
+//   1. The "Записатись" CTA submits ONE `POST /appointments`
+//      (`AppointmentRepository.createAppointment`) with the whole ordered
+//      service selection + a single stable idempotency key.
+//   2. A single 409 failure shows ONE inline error banner, does NOT navigate
+//      away, and the confirm screen stays fully interactive.
+//   3. A retry after a failure REUSES the same stable idempotency key (never a
+//      fresh one — de-dupes an ambiguously-failed create).
 //   4. Success navigates (pushReplacement) to /booking/success.
 //   5. BookingSuccessScreen blocks back navigation (PopScope(canPop: false)).
 //
 // Strategy: mounts a test-local GoRouter with `/booking/confirm` and
-// `/booking/success` (mirroring `slot_picker_test.dart`'s `_router()`
-// pattern), overriding `publicMasterProfileProvider` (hand-fixture, no real
-// Dio call) and `bookingRepositoryProvider` with a hand-written fake — no
-// mocktail, matching the `_FakeSlotRepository` precedent in this same
-// feature's Phase 14.1 test file.
+// `/booking/success`, overriding `publicMasterProfileProvider` (hand-fixture)
+// and `appointmentRepositoryProvider` (create path) / `bookingRepositoryProvider`
+// (reschedule path) with hand-written fakes — no mocktail.
 
 import 'dart:async';
 import 'dart:convert';
@@ -27,20 +25,30 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
+import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
+import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
@@ -49,11 +57,13 @@ import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -89,19 +99,86 @@ const _kService = MasterService(
   category: 'NAILS',
 );
 
+const _kService2 = MasterService(
+  id: 'svc-2',
+  serviceDefId: 'def-2',
+  name: 'Педикюр',
+  durationMinutes: 60,
+  priceMin: 400,
+  priceDisplay: '400 ₴',
+  category: 'NAILS',
+);
+
 // A STABLE idempotency key generated once when the args were built (in
-// production by `BookingTimeScreen._confirm`) — reused verbatim on every retry
-// so an ambiguously-failed booking de-duplicates rather than duplicates.
+// production by `SlotTimeScreen._confirm`) — reused verbatim on every retry so
+// an ambiguously-failed visit create de-duplicates rather than duplicates.
 const String _kIdemKey = '11111111-1111-4111-8111-111111111111';
 
-BookingConfirmArgs _confirmArgs() => BookingConfirmArgs(
+// ---------------------------------------------------------------------------
+// Booking-fixture instants — UTC-anchored, shared, named ONCE
+// ---------------------------------------------------------------------------
+//
+// Every fixture below used to spell its own instant as a bare
+// `DateTime(2026, 7, 20, 14)`. That resolves its underlying instant through
+// the HOST process's own `TZ`, and this file's code under test converts that
+// instant through Europe/Kyiv: `booking_confirm_screen.dart:248` keys its
+// `bookingsDayProvider` invalidation off
+// `dateOnly(toBeauticaTime(widget.args.startAt))`. So the KYIV calendar day
+// those fixtures landed on differed per machine — and on 2026-08-04 one of
+// them was a live defect, not a hypothetical: under `TZ=Pacific/Honolulu`
+// (UTC-10) local 14:00 July 20 is 03:00 July 21 in Kyiv, the invalidation
+// targeted a day nobody subscribed to, and the "REGRESSION GUARD — ...
+// invalidates bookingsDayProvider" test went red while staying green on the
+// dev VM (`TZ=Europe/Kyiv`) and on CI (`TZ=UTC`). Measured across all three
+// zones before and after.
+//
+// `2026-07-20T11:00:00Z` == 14:00 Kyiv (UTC+3, summer DST) — the exact
+// wall-clock these fixtures always meant, now a property of the INSTANT
+// rather than of whichever zone the test process happens to run under.
+//
+// Declared as NAMED tokens reused everywhere rather than repeated inline: it
+// keeps the `// future-date-ok:` justification to one verified place instead
+// of a dozen copies, and it is the style
+// `scripts/forbid_host_local_instant_anchor.sh`'s Rule 2 header explicitly
+// recommends ("pass a date-token IDENTIFIER rather than an inline literal").
+// future-date-ok: fixed booking fixture; the instant it names IS the fixture's identity, never now-relative
+final DateTime _kStartAt = DateTime.utc(2026, 7, 20, 11);
+
+/// [_kStartAt] + 90 minutes — 15:30 Kyiv, matching every fixture's
+/// `totalDurationMinutes: 90`.
+// future-date-ok: fixed twin of _kStartAt, see above
+final DateTime _kEndAt = DateTime.utc(2026, 7, 20, 12, 30);
+
+BookingConfirmArgs _confirmArgs({
+  List<MasterService> services = const <MasterService>[_kService],
+}) => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
-  appointments: <BookingAppointment>[
-    BookingAppointment(
-      serviceId: _kService.id,
-      startAt: DateTime(2026, 7, 20, 14),
-      idempotencyKey: _kIdemKey,
+  services: services,
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
+);
+
+Appointment _appointmentFixture() => Appointment(
+  id: 'appt-1',
+  status: BookingStatus.confirmed,
+  masterId: _kMaster.id,
+  masterFirstName: _kMaster.firstName,
+  masterLastName: _kMaster.lastName,
+  masterType: 'INDEPENDENT_MASTER',
+  startAt: _kStartAt,
+  endAt: _kEndAt,
+  totalDurationMinutes: 90,
+  totalPrice: 500,
+  items: <AppointmentItem>[
+    AppointmentItem(
+      bookingId: 'booking-1',
+      masterServiceId: _kService.id,
+      serviceName: _kService.name,
+      startAt: _kStartAt,
+      endAt: _kEndAt,
+      durationMinutes: 90,
+      price: 500,
     ),
   ],
 );
@@ -116,97 +193,125 @@ Booking _bookingFixture() => Booking(
   serviceName: _kService.name,
   durationMinutes: _kService.durationMinutes,
   price: _kService.priceMin,
-  startAt: DateTime(2026, 7, 20, 14),
-  endAt: DateTime(2026, 7, 20, 15, 30),
+  startAt: _kStartAt,
+  endAt: _kEndAt,
   status: BookingStatus.confirmed,
   canReview: false,
 );
 
 /// Same shape as [_confirmArgs] but on the RESCHEDULE path — carries a non-null
 /// `rescheduleBookingId` (matching [_bookingFixture]'s id) so the confirm
-/// screen's `_submit` takes the `PATCH /reschedule` branch and, on success,
-/// fires the widget-layer detail + upcoming-list invalidation.
+/// screen's `_submit` takes the `PATCH /reschedule` branch.
 BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
-  appointments: <BookingAppointment>[
-    BookingAppointment(
-      serviceId: _kService.id,
-      startAt: DateTime(2026, 7, 20, 14),
-      idempotencyKey: _kIdemKey,
-    ),
-  ],
+  services: const <MasterService>[_kService],
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
   rescheduleBookingId: 'booking-1',
 );
 
-/// Records every [createBooking] call (request + resulting idempotency key)
-/// so the "fresh key per submit" criterion can be asserted directly, and
-/// either returns [bookingToReturn] or throws [errorToThrow] when set —
-/// mirrors `slot_picker_test.dart`'s `_FakeSlotRepository`.
-class _FakeBookingRepository implements BookingRepository {
-  _FakeBookingRepository({this.bookingToReturn, this.errorToThrow});
+/// Same shape again, but for a track 30.x per-item VISIT reschedule — both
+/// `rescheduleBookingId` (the ONE service being moved) AND
+/// `rescheduleAppointmentId` (the visit it belongs to — the routing
+/// discriminator, checked FIRST in `_submit`) are set. [services] STILL
+/// carries exactly the one item being moved, mirroring [_rescheduleArgs]'s
+/// single-service shape — this endpoint never touches the visit's siblings.
+///
+/// [_kStartAt]'s UTC anchoring is load-bearing HERE in particular, not merely
+/// stylistic: `_submit`'s per-item branch scopes its `bookingsDayProvider`
+/// invalidation to the KYIV calendar day of this instant
+/// (`booking_confirm_screen.dart:248`), and the "REGRESSION GUARD — ...
+/// invalidates bookingsDayProvider" test below subscribes to July 20 by name.
+/// See [_kStartAt]'s own comment for the measured Honolulu failure this fixed.
+BookingConfirmArgs _appointmentItemRescheduleArgs() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService],
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
+  rescheduleBookingId: 'booking-1',
+  rescheduleAppointmentId: 'appt-1',
+);
 
-  Booking? bookingToReturn;
+/// Records every [createAppointment] call so the "single call, stable key"
+/// criteria can be asserted directly, and either returns [appointmentToReturn]
+/// or throws [errorToThrow] when set.
+class _FakeAppointmentRepository implements AppointmentRepository {
+  _FakeAppointmentRepository({
+    this.appointmentToReturn,
+    this.errorToThrow,
+    this.rescheduleItemErrorToThrow,
+  });
+
+  Appointment? appointmentToReturn;
   Object? errorToThrow;
-  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+
+  /// Track 30.x — thrown by [rescheduleAppointmentItem] when set, mirroring
+  /// [errorToThrow]'s role for [createAppointment].
+  Object? rescheduleItemErrorToThrow;
+  final List<CreateAppointmentRequest> requests = <CreateAppointmentRequest>[];
+
+  /// Records every per-item reschedule call so the "single call, correct
+  /// appointment id / booking id / time" criteria can be asserted directly —
+  /// mirrors `_RecordingRescheduleRepository.rescheduleCalls` for the
+  /// single-booking path.
+  final List<(String, String, DateTime)> rescheduleItemCalls =
+      <(String, String, DateTime)>[];
 
   @override
-  Future<Booking> createBooking(CreateBookingRequest req) async {
+  Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
     requests.add(req);
     final Object? err = errorToThrow;
     if (err != null) throw err;
-    return bookingToReturn!;
+    return appointmentToReturn!;
   }
 
   @override
-  Future<PageResponse<Booking>> getMyBookings({
-    required Iterable<BookingStatus> statuses,
-    BookingSort? sort,
-    required int page,
-    int size = kBookingsPageSize,
-    Iterable<String>? serviceIds,
-    DateTime? from,
-    DateTime? to,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
   @override
-  Future<List<DateTime>> getMyBookedDays({
-    required DateTime from,
-    required DateTime to,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
+  ) async {
+    rescheduleItemCalls.add((appointmentId, bookingId, newStartAt));
+    final Object? err = rescheduleItemErrorToThrow;
+    if (err != null) throw err;
+    return appointmentToReturn ?? _appointmentFixture();
+  }
 
   @override
-  Future<Booking> getBookingById(String id) => throw UnimplementedError();
+  Future<void> cancelAppointment(String id, {String? note}) =>
+      throw UnimplementedError();
 
   @override
-  Future<void> createReview({
-    required String bookingId,
-    required int rating,
+  Future<void> completeAppointment(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> completeAppointmentService(
+    String appointmentId,
+    String bookingId,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> declineAppointment(String id, {String? comment}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> declineAppointmentService(
+    String appointmentId,
+    String bookingId, {
     String? comment,
   }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancelBooking(String id, {String? reason}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
 }
 
-/// Records reschedule + create calls and COUNTS the detail / my-bookings reads
-/// so the widget-layer invalidation's re-fetch is observable: a still-listened
-/// autoDispose provider only re-fetches when it is invalidated, so a second
-/// `getBookingById` / `getMyBookings` call is direct proof
-/// `BookingConfirmScreen._submit` invalidated it on reschedule success. The
-/// notifier-level analogue lives in
-/// `independent_booking_submit_reschedule_test.dart`; this one drives the REAL
-/// screen so the invalidation's NEW home (the widget layer) is what's exercised.
+/// Records reschedule calls and COUNTS the detail / my-bookings reads so the
+/// widget-layer invalidation's re-fetch is observable (a still-listened
+/// autoDispose provider only re-fetches when invalidated).
 class _RecordingRescheduleRepository implements BookingRepository {
   final List<(String, DateTime)> rescheduleCalls = <(String, DateTime)>[];
-  final List<CreateBookingRequest> createCalls = <CreateBookingRequest>[];
   int getBookingByIdCalls = 0;
   int getMyBookingsCalls = 0;
 
@@ -217,10 +322,8 @@ class _RecordingRescheduleRepository implements BookingRepository {
   }
 
   @override
-  Future<Booking> createBooking(CreateBookingRequest req) async {
-    createCalls.add(req);
-    return _bookingFixture();
-  }
+  Future<Booking> createBooking(CreateBookingRequest req) =>
+      throw UnimplementedError();
 
   @override
   Future<List<DateTime>> getMyBookedDays({
@@ -244,6 +347,7 @@ class _RecordingRescheduleRepository implements BookingRepository {
     Iterable<String>? serviceIds,
     DateTime? from,
     DateTime? to,
+    BookingPartition? partition,
     CancelToken? cancelToken,
   }) async {
     getMyBookingsCalls++;
@@ -260,6 +364,13 @@ class _RecordingRescheduleRepository implements BookingRepository {
       throw UnimplementedError();
 
   @override
+  Future<void> declineBooking(String id, {String? comment}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> completeBooking(String id) => throw UnimplementedError();
+
+  @override
   Future<void> createReview({
     required String bookingId,
     required int rating,
@@ -267,13 +378,25 @@ class _RecordingRescheduleRepository implements BookingRepository {
   }) => throw UnimplementedError();
 }
 
-/// mobile-qa Part 2 — minimal fake [SlotRepository] for the real
-/// Date→Time→Confirm push-chain test below. Always resolves every requested
-/// day as working (mirrors `slot_picker_test.dart`'s `_FakeSlotRepository`
-/// default), and always returns the SAME fixed [slotsToReturn] list
-/// regardless of which date was tapped — this test only cares about the
-/// navigation/Hero chain, not slot-fetch fixture variety, so it deliberately
-/// skips that file's richer gating/error knobs.
+/// Minimal stub auth session — needed by the `bookingsDayProvider` regression
+/// guard below, whose watch (mirroring the real provider footer's day-calendar
+/// invalidation) reads `authProvider` for its session-boundary PII cache-key.
+/// Mirrors `booking_detail_appointment_child_footer_test.dart`'s `_StubAuth`.
+class _StubAuth extends AuthNotifier {
+  _StubAuth();
+
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-1',
+      email: 'master@e.com',
+      role: UserRole.independentMaster,
+    ),
+    accessToken: 't',
+  );
+}
+
+/// Minimal fake [SlotRepository] for the Date→Time→Confirm push-chain test.
 class _FakeChainSlotRepository implements SlotRepository {
   _FakeChainSlotRepository(this.slotsToReturn);
 
@@ -282,7 +405,7 @@ class _FakeChainSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async => slotsToReturn;
@@ -292,7 +415,7 @@ class _FakeChainSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     final List<WorkingDay> days = <WorkingDay>[];
@@ -307,23 +430,10 @@ class _FakeChainSlotRepository implements SlotRepository {
   }
 }
 
-/// mobile-qa Part 2 — router mirroring `app_router.dart`'s REAL nesting for
-/// the full booking flow: `bookingSlots` → nested `time` → (pushed)
-/// `bookingConfirm` → (pushed) `bookingSuccess`, all rendering the REAL
-/// production screens (unlike `slot_picker_test.dart`'s `_router()`, which
-/// stubs `bookingConfirm` as plain text). Closes the gap the build-verifier
-/// flagged: every existing test either drives Date→Time (real push, stub
-/// confirm) or mounts `BookingConfirmScreen` directly at the router's initial
-/// location (no real push from Time) — this router lets a single test drive
-/// the REAL push all the way from Date through to Confirm, exercising the
-/// 3rd leg of the `master-strip-<id>` Hero chain end-to-end.
+/// Router mirroring `app_router.dart`'s REAL nesting for the full booking flow:
+/// `bookingSlots` → nested `time` → (pushed) `bookingConfirm`, rendering the
+/// REAL production screens (exercises the `master-strip-<id>` Hero chain).
 GoRouter _slotToConfirmRouter() => GoRouter(
-  // A dummy `/root` initial location — mirrors `_router()` above (and
-  // production, where `bookingSlots` is always PUSHED with a
-  // `BookingSlotPickerArgs` extra, never used as the router's own initial
-  // location). Building `bookingSlots` as the initial location would
-  // null-check-crash on `state.extra!` before the test ever gets to call
-  // `router.push(...)` with real args.
   initialLocation: '/root',
   routes: <RouteBase>[
     GoRoute(
@@ -357,22 +467,6 @@ GoRouter _slotToConfirmRouter() => GoRouter(
 
 /// Test-local router mirroring `app_router.dart`'s bookingConfirm →
 /// bookingSuccess shape, rendering the REAL production screens.
-///
-/// A dummy `/root` initial location is registered UNDERNEATH both booking
-/// routes (mirroring how, in the real app, `/booking/confirm` is always
-/// PUSHED on top of the slot picker, never the router's own initial
-/// location) so `context.pop()` from the confirm screen's back button has
-/// somewhere to land, and so the initial pump never has to build a booking
-/// route's `state.extra!` before a test has supplied one — both booking
-/// routes are only ever reached via an explicit `router.push(...)` call.
-/// [RouteNames.clientHome] is registered as a bare stub destination so the
-/// success screen's «На головну» `context.go(...)` call resolves to a real
-/// route instead of throwing (go_router has no matching-route fallback).
-/// [RouteNames.clientBookings] is also registered — the success screen no
-/// longer navigates there itself (its «Мої записи» CTA was removed, see
-/// `booking_success_screen.dart`'s file header DEVIATION note), but the
-/// stub is kept anyway since the route mirrors `app_router.dart`'s real
-/// shape and stays harmless dead weight rather than a thing worth pruning.
 GoRouter _router() => GoRouter(
   initialLocation: '/root',
   routes: <RouteBase>[
@@ -401,12 +495,8 @@ GoRouter _router() => GoRouter(
   ],
 );
 
-/// Reads the router's CURRENT top-of-stack location. `GoRouter.push()`
-/// (unlike `.go()`) does not update `currentConfiguration.uri` the same way
-/// (it deliberately preserves the underlying "URL" for a stacked/modal-style
-/// push — confirmed empirically: `matches` correctly grows while `.uri`
-/// stays put), so this reads the LAST entry of `.matches` instead, which
-/// reflects the actual top-of-stack screen for both `.go()` and `.push()`.
+/// Reads the router's CURRENT top-of-stack location (`.matches.last`, which
+/// reflects the actual top-of-stack for both `.go()` and `.push()`).
 String locationOf(GoRouter router) =>
     router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
 
@@ -414,19 +504,22 @@ void main() {
   group('BookingConfirmScreen', () {
     Future<GoRouter> pump(
       WidgetTester tester,
-      _FakeBookingRepository fake,
-    ) async {
+      _FakeAppointmentRepository fake, {
+      BookingConfirmArgs? args,
+    }) async {
       final GoRouter router = _router();
       await tester.pumpRoutedApp(
         router,
         overrides: <Object>[
-          bookingRepositoryProvider.overrideWith((_) => fake),
+          appointmentRepositoryProvider.overrideWith((_) => fake),
           publicMasterProfileProvider(
             _kMaster.id,
           ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
         ],
       );
-      unawaited(router.push(RouteNames.bookingConfirm, extra: _confirmArgs()));
+      unawaited(
+        router.push(RouteNames.bookingConfirm, extra: args ?? _confirmArgs()),
+      );
       await tester.pumpAndSettle();
       return router;
     }
@@ -434,7 +527,9 @@ void main() {
     testWidgets('renders the master + service summary once data resolves', (
       tester,
     ) async {
-      final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+      final fake = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
       await pump(tester, fake);
 
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
@@ -444,134 +539,116 @@ void main() {
       expect(find.text('Манікюр з покриттям'), findsOneWidget);
     });
 
-    // mobile-qa regression — `bookingConfirmScreenTitle`'s Ukrainian ARB
-    // value has flip-flopped between "Підтвердження запису" and
-    // "Підтвердження" (`lib/l10n/app_uk.arb`); either variant looks like a
-    // superficially reasonable Ukrainian title, so a change here would
-    // otherwise slip past review unnoticed. Pins the EXACT locked literal —
-    // a deliberate, narrow exception to the "find by Key, not translated
-    // string" convention (mobile-qa's own M2 guidance), because the whole
-    // point of this test is to catch the ARB value itself silently
-    // reverting: asserting via `l10n.bookingConfirmScreenTitle` would just
-    // re-read whatever the ARB currently says and could never fail.
+    // mobile-qa regression — pins the EXACT locked Ukrainian title so a silent
+    // ARB revert is caught (a deliberate exception to the find-by-Key rule).
     testWidgets(
-      'renders the exact locked Ukrainian title "Підтвердження" in the top '
-      'bar',
+      'renders the exact locked Ukrainian title "Підтвердження" in the top bar',
       (tester) async {
-        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
         await pump(tester, fake);
-
-        // (see the comment above for why this intentionally pins the raw
-        // ARB literal instead of a Key/AppLocalizations lookup)
         // i18n-finder-ok: intentional ARB-lock exception, literal ARB value under test.
         expect(find.text('Підтвердження'), findsOneWidget);
       },
     );
 
-    // mobile-qa Part 1 — `BookingSummaryCards`'s master card was migrated
-    // from a deleted bespoke `_MasterHeader` to the SAME `MasterStrip(
-    // showRole: true, showRating: true)` used by the Step 2a/2b slot-picker
-    // screens (`booking_summary_cards.dart`), but nothing asserted the actual
-    // role/rating CONTENT rendered by this screen's card — only the master's
-    // name (see the test above). Scoped to the `MasterStrip` descendant so a
-    // coincidental match elsewhere on screen can't false-pass this.
     testWidgets(
       'shows the master\'s role label and ★rating(reviewCount) inside the '
       'master card',
       (tester) async {
-        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
         await pump(tester, fake);
 
         final Finder masterStrip = find.byType(MasterStrip);
         expect(masterStrip, findsOneWidget);
+
+        // ── Phase 240 tappability policy (LOCKED) — the TAPPABLE half ──────
+        //
+        // «Підтвердження» is a TERMINAL screen: leaving it costs the client
+        // nothing and a back-swipe restores it exactly, so the strip routes
+        // into the master's reviews here. This is the one TAPPABLE screen of
+        // the three whose branch had no assertion of its own — the other two
+        // («Деталі запису», «Залишити відгук») are pinned in their own
+        // suites. Without this, a refactor that made the whole booking flow
+        // uniformly inert would break the policy silently in the other
+        // direction from the SlotDate/SlotTime assertions.
+        expect(
+          tester.widget<MasterStrip>(masterStrip).onTap,
+          isNotNull,
+          reason:
+              'the confirm step is terminal — the strip must offer the route '
+              'into the master\'s reviews.',
+        );
 
         final l10n = AppLocalizations.of(tester.element(masterStrip));
         final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
         expect(
           find.descendant(of: masterStrip, matching: find.text(roleLabel)),
           findsOneWidget,
-          reason:
-              'showRole:true must render masterRoleLabel(type, l10n) — for '
-              'this fixture (independentMaster) that is '
-              'l10n.masterRoleIndependent',
         );
-
-        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        // `!` is deliberate: the fixture defines a non-null rating, and this
+        // assertion must stay strict — falling back to the `—` placeholder
+        // here would let a regression that drops the rating pass silently.
+        final String ratingLabel = _kMaster.avgRating!.toStringAsFixed(1);
         expect(
           find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
           findsOneWidget,
-          reason: 'showRating:true must render avgRating.toStringAsFixed(1)',
         );
-
         expect(
           find.descendant(
             of: masterStrip,
             matching: find.text('(${_kMaster.reviewCount})'),
           ),
           findsOneWidget,
-          reason:
-              'reviewCount (47) is > 0 for this fixture, so the parenthetical '
-              'review-count suffix must render alongside the rating',
         );
       },
     );
 
-    // mobile-qa regression — the success screen's details card opts into
-    // `NeumorphicCard.showBorder` (its card fill matches the surrounding
-    // background); the confirm screen's own card sits on a different
-    // background and must stay unaffected. Pin the confirm-side default here
-    // so a future shared-default change can't silently opt this screen in
-    // too.
-    //
-    // Also pins `compactText` (a SEPARATE flag from `showBorder`, added
-    // alongside the same fix — see `BookingSummaryCards.compactText`'s doc):
-    // the confirm screen must stay at the roomier default text size too,
-    // confirming the isolation the dev agent verified manually.
     testWidgets(
       "BookingSummaryCards' showBorder and compactText are NOT set on the "
       'confirm screen',
       (tester) async {
-        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
         await pump(tester, fake);
 
         final BookingSummaryCards cards = tester.widget<BookingSummaryCards>(
           find.byType(BookingSummaryCards),
         );
-        expect(
-          cards.showBorder,
-          isFalse,
-          reason:
-              "BookingConfirmScreen's BookingSummaryCards call site must "
-              'leave showBorder at its default (false) — only the success '
-              'screen opts in.',
-        );
-        expect(
-          cards.compactText,
-          isFalse,
-          reason:
-              "BookingConfirmScreen's BookingSummaryCards call site must "
-              'leave compactText at its default (false) — only the success '
-              'screen opts in.',
-        );
+        expect(cards.showBorder, isFalse);
+        expect(cards.compactText, isFalse);
       },
     );
 
     testWidgets(
-      '«Записатись» calls createBooking with the appointment\'s stable '
-      'idempotency key and navigates to /booking/success on success',
+      '«Записатись» calls createAppointment with the ordered service ids + the '
+      'stable idempotency key and navigates to /booking/success on success',
       (tester) async {
-        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
-        final router = await pump(tester, fake);
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        final router = await pump(
+          tester,
+          fake,
+          args: _confirmArgs(
+            services: const <MasterService>[_kService, _kService2],
+          ),
+        );
 
         await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
         await tester.pumpAndSettle();
 
         expect(fake.requests, hasLength(1));
-        final CreateBookingRequest sent = fake.requests.single;
+        final CreateAppointmentRequest sent = fake.requests.single;
         expect(sent.masterId, _kMaster.id);
-        expect(sent.serviceId, _kService.id);
-        // The STABLE key carried on the appointment — generated once upstream
-        // (`BookingTimeScreen`), never re-minted by the confirm screen.
+        // The WHOLE ordered selection is sent as ONE visit, order preserved.
+        expect(sent.masterServiceIds, <String>[_kService.id, _kService2.id]);
+        expect(sent.startAt, _kStartAt);
+        // The STABLE key carried on the args — never re-minted by this screen.
         expect(sent.idempotencyKey, _kIdemKey);
 
         expect(locationOf(router), equals(RouteNames.bookingSuccess));
@@ -580,12 +657,11 @@ void main() {
     );
 
     testWidgets(
-      'a 409 conflict shows a per-appointment error row + a partial-failure '
-      'SnackBar, does not navigate away, and a retry reuses the SAME stable '
-      'idempotency key and succeeds',
+      'a 409 conflict shows ONE inline error banner, does not navigate away, '
+      'and a retry reuses the SAME stable idempotency key and succeeds',
       (tester) async {
-        final fake = _FakeBookingRepository(
-          bookingToReturn: _bookingFixture(),
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
           errorToThrow: const ConflictFailure(),
         );
         final router = await pump(tester, fake);
@@ -596,31 +672,27 @@ void main() {
         // Still on the confirm screen — no crash, no navigation.
         expect(locationOf(router), equals(RouteNames.bookingConfirm));
         expect(find.byType(BookingConfirmScreen), findsOneWidget);
-        // A partial-failure nudge SnackBar (never a success navigation).
-        expect(find.byType(SnackBar), findsOneWidget);
 
+        // ONE inline error banner naming the conflict.
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsOneWidget,
+        );
         final l10n = AppLocalizations.of(
           tester.element(find.byType(BookingConfirmScreen)),
         );
-        // The failed appointment renders its own error row naming the conflict.
-        expect(
-          find.byKey(Key('booking-confirm-appt-error-${_kService.id}')),
-          findsOneWidget,
-        );
         expect(find.text(l10n.errConflict), findsOneWidget);
 
-        // The comment field is still editable — the screen never got stuck
-        // mid-submit.
+        // The comment field is still editable — the screen never got stuck.
         await tester.enterText(
           find.byKey(const Key('booking-confirm-comment-field')),
           'Будь ласка, без запізнень',
         );
         await tester.pump();
-        // i18n-finder-ok: arbitrary test-entered text (round-trip check), not translated UI copy.
+        // i18n-finder-ok: arbitrary test-entered text (round-trip check).
         expect(find.text('Будь ласка, без запізнень'), findsOneWidget);
 
-        // Retry — the still-failed appointment is re-attempted with the SAME
-        // stable idempotency key (de-dupe, never a fresh key).
+        // Retry — re-attempted with the SAME stable idempotency key (de-dupe).
         fake.errorToThrow = null;
         await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
         await tester.pumpAndSettle();
@@ -635,9 +707,107 @@ void main() {
       },
     );
 
+    testWidgets(
+      'a DUPLICATE_SERVICE 409 surfaces its own localized error banner',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+          errorToThrow: const DuplicateServiceFailure(),
+        );
+        final router = await pump(tester, fake);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsOneWidget,
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        expect(find.text(l10n.bookingErrDuplicateService), findsOneWidget);
+      },
+    );
+
+    // mobile-qa (MO-3 req 4) — the inline banner is failure-type-agnostic
+    // (`failure.userMessage(context)`); these pin that the two remaining
+    // create-failure arms decoded by the repository each surface THEIR OWN
+    // localized copy in the single banner (never a wrong/generic message), the
+    // screen stays put, and no per-appointment rows appear.
+    testWidgets(
+      'a 409 BOOKING_ALREADY_ELAPSED surfaces its own localized error banner',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+          errorToThrow: const BookingAlreadyElapsedFailure(),
+        );
+        final router = await pump(tester, fake);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsOneWidget,
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        expect(find.text(l10n.bookingErrorAlreadyElapsed), findsOneWidget);
+      },
+    );
+
+    testWidgets('a 429 rate-limit surfaces its own localized error banner', (
+      tester,
+    ) async {
+      final fake = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+        errorToThrow: const BookingRateLimitedFailure(),
+      );
+      final router = await pump(tester, fake);
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await tester.pumpAndSettle();
+
+      expect(locationOf(router), equals(RouteNames.bookingConfirm));
+      expect(
+        find.byKey(const Key('booking-confirm-submit-error')),
+        findsOneWidget,
+      );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingConfirmScreen)),
+      );
+      expect(find.text(l10n.bookingErrRateLimited), findsOneWidget);
+    });
+
+    // mobile-qa (MO-3 req 2) — the SINGLE-service path still books via ONE
+    // createAppointment carrying a 1-element ordered list (N=1), UX unchanged.
+    testWidgets(
+      'a single-service selection books via ONE createAppointment with a '
+      '1-element masterServiceIds list',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        final router = await pump(tester, fake); // default args = [_kService]
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(fake.requests, hasLength(1));
+        expect(fake.requests.single.masterServiceIds, <String>[_kService.id]);
+        expect(locationOf(router), equals(RouteNames.bookingSuccess));
+      },
+    );
+
     testWidgets('an empty comment is sent as null, a non-empty comment is '
         'trimmed and forwarded', (tester) async {
-      final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+      final fake = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
       await pump(tester, fake);
 
       await tester.enterText(
@@ -654,10 +824,12 @@ void main() {
       );
     });
 
-    testWidgets('the back button pops without submitting a booking', (
+    testWidgets('the back button pops without submitting a visit', (
       tester,
     ) async {
-      final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+      final fake = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
       await pump(tester, fake);
 
       await tester.tap(find.byKey(const Key('booking-confirm-back')));
@@ -666,18 +838,21 @@ void main() {
       expect(fake.requests, isEmpty);
     });
 
-    // Track 24.x follow-up — the post-reschedule refetch was MOVED out of
-    // `IndependentBookingSubmit` (a Notifier can't `ref.invalidate` a
-    // cross-provider without tripping the `forbid_provider_self_invalidation`
-    // cycle gate) into THIS screen's `_submit`, mirroring the cancel flow's
-    // widget-layer invalidation in `booking_detail_screen._confirmCancel`. This
-    // pins the relocated behavior at its NEW home: a successful reschedule
-    // submit invalidates BOTH `bookingDetailProvider(id)` and
-    // `myBookingsProvider(upcoming)` (each re-fetches) and never POSTs a create.
+    // A successful RESCHEDULE invalidates bookingDetail(id) + upcoming My
+    // Bookings from the widget layer (both re-fetch) and never POSTs a create.
     testWidgets(
       'a successful RESCHEDULE invalidates bookingDetail(id) + upcoming My '
-      'Bookings from the widget layer (both re-fetch) and navigates to success',
+      'Bookings + nextAppointmentProvider from the widget layer (all '
+      're-fetch) and navigates to success',
       (tester) async {
+        // mobile-qa (Phase 225 fix pass, mobile-perf MEDIUM #4) —
+        // nextAppointmentProvider is overridden with its OWN fetch counter
+        // (not read off `fake.getMyBookingsCalls`, which the real provider
+        // shares with `myBookingsProvider` via `BookingRepository.getMyBookings`
+        // and so cannot attribute a refetch to one family over the other).
+        // A reschedule may move this booking to/from being the client's
+        // soonest upcoming appointment — see `booking_confirm_screen.dart:205`.
+        int nextApptFetches = 0;
         final fake = _RecordingRescheduleRepository();
         final router = _router();
         await tester.pumpRoutedApp(
@@ -687,6 +862,10 @@ void main() {
             publicMasterProfileProvider(_kMaster.id).overrideWith(
               (ref) => (_kMaster, const <MasterService>[_kService]),
             ),
+            nextAppointmentProvider.overrideWith((ref) async {
+              nextApptFetches++;
+              return null;
+            }),
           ],
         );
         unawaited(
@@ -694,9 +873,6 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Warm + keep alive the two invalidation targets. A still-listened
-        // autoDispose provider only re-fetches when invalidated, so the second
-        // repo call below is the observable proof each one was invalidated.
         final ProviderContainer container = ProviderScope.containerOf(
           tester.element(find.byType(BookingConfirmScreen)),
           listen: false,
@@ -715,56 +891,526 @@ void main() {
               fireImmediately: true,
             );
         addTearDown(subList.close);
+        final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+            .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
+        addTearDown(subNextAppt.close);
         await container.read(bookingDetailProvider('booking-1').future);
         await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        await container.read(nextAppointmentProvider.future);
         expect(fake.getBookingByIdCalls, 1);
         expect(fake.getMyBookingsCalls, 1);
+        expect(nextApptFetches, 1);
 
-        // Tap the reschedule CTA → the screen submits via PATCH /reschedule.
         await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
         await tester.pumpAndSettle();
 
-        // The reschedule endpoint was hit once with the moved booking's id; the
-        // create endpoint was never touched; the flow reached the success screen.
         expect(fake.rescheduleCalls, hasLength(1));
         expect(fake.rescheduleCalls.single.$1, 'booking-1');
-        expect(
-          fake.createCalls,
-          isEmpty,
-          reason: 'a reschedule must never POST a new booking',
-        );
         expect(find.byType(BookingSuccessScreen), findsOneWidget);
 
-        // BOTH targets re-fetched — the widget-layer invalidation fired.
         await container.read(bookingDetailProvider('booking-1').future);
         await container.read(myBookingsProvider(BookingTab.upcoming).future);
+        await container.read(nextAppointmentProvider.future);
+        expect(fake.getBookingByIdCalls, 2);
+        expect(fake.getMyBookingsCalls, 2);
         expect(
-          fake.getBookingByIdCalls,
+          nextApptFetches,
           2,
           reason:
-              'bookingDetailProvider(id) must have been invalidated by '
-              'BookingConfirmScreen._submit on reschedule success',
-        );
-        expect(
-          fake.getMyBookingsCalls,
-          2,
-          reason:
-              'myBookingsProvider(upcoming) must have been invalidated by '
-              'BookingConfirmScreen._submit on reschedule success',
+              'a successful single-booking reschedule must invalidate '
+              'nextAppointmentProvider — the Home Hub card must never show a '
+              'stale booking after this write',
         );
       },
     );
+
+    // Track 30.x — a successful per-item VISIT reschedule calls
+    // AppointmentRepository.rescheduleAppointmentItem (never
+    // BookingRepository.rescheduleBooking), and — because it now shares the
+    // exact same single-item shape as the plain single-booking reschedule —
+    // invalidates the SAME set from the widget layer: bookingDetail(id) +
+    // upcoming My Bookings + nextAppointmentProvider. There is no more a
+    // separate provider-only bookingsDayProvider branch to special-case (the
+    // earlier whole-visit flow's endpoint is untouched on the backend; only
+    // this mobile entry point was retired).
+    testWidgets('a successful per-item VISIT reschedule calls '
+        'rescheduleAppointmentItem, invalidates bookingDetail(id) + upcoming '
+        'My Bookings + nextAppointmentProvider, and navigates to success', (
+      tester,
+    ) async {
+      int nextApptFetches = 0;
+      final appointments = _FakeAppointmentRepository();
+      final bookings = _RecordingRescheduleRepository();
+      final router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith((_) => appointments),
+          bookingRepositoryProvider.overrideWith((_) => bookings),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+          nextAppointmentProvider.overrideWith((ref) async {
+            nextApptFetches++;
+            return null;
+          }),
+        ],
+      );
+      unawaited(
+        router.push(
+          RouteNames.bookingConfirm,
+          extra: _appointmentItemRescheduleArgs(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingConfirmScreen)),
+        listen: false,
+      );
+      final ProviderSubscription<AsyncValue<Booking>> subDetail = container
+          .listen(
+            bookingDetailProvider('booking-1'),
+            (_, _) {},
+            fireImmediately: true,
+          );
+      addTearDown(subDetail.close);
+      final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+          container.listen(
+            myBookingsProvider(BookingTab.upcoming),
+            (_, _) {},
+            fireImmediately: true,
+          );
+      addTearDown(subList.close);
+      final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+          .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
+      addTearDown(subNextAppt.close);
+      await container.read(bookingDetailProvider('booking-1').future);
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      await container.read(nextAppointmentProvider.future);
+      expect(bookings.getBookingByIdCalls, 1);
+      expect(bookings.getMyBookingsCalls, 1);
+      expect(nextApptFetches, 1);
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await tester.pumpAndSettle();
+
+      expect(appointments.rescheduleItemCalls, hasLength(1));
+      expect(appointments.rescheduleItemCalls.single.$1, 'appt-1');
+      expect(appointments.rescheduleItemCalls.single.$2, 'booking-1');
+      // Mirrors `_appointmentItemRescheduleArgs()`'s own anchor — see its doc
+      // for why this is `DateTime.utc(...)` and not a bare local literal.
+      expect(appointments.rescheduleItemCalls.single.$3, _kStartAt);
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+      await container.read(bookingDetailProvider('booking-1').future);
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      await container.read(nextAppointmentProvider.future);
+      expect(bookings.getBookingByIdCalls, 2);
+      expect(bookings.getMyBookingsCalls, 2);
+      expect(
+        nextApptFetches,
+        2,
+        reason:
+            'a successful per-item reschedule must invalidate '
+            'nextAppointmentProvider — the Home Hub card must never show a '
+            'stale booking after this write',
+      );
+    });
+
+    // mobile-qa REGRESSION GUARD (mobile-perf CRITICAL, track 30.x cutover) —
+    // the retired whole-visit branch used to ALSO invalidate
+    // `bookingsDayProvider` (the PROVIDER's own «Мої записи» day timeline)
+    // alongside the detail/list refresh above — see
+    // `booking_calendar_invalidation.dart` and `booking_detail_screen.dart`'s
+    // `_confirmDecline`/`_confirmComplete` for the SAME pattern on the other
+    // two provider-write transitions. When the per-item branch was unified
+    // with the plain single-booking one (which never touched
+    // `bookingsDayProvider`), this invalidation was silently dropped:
+    // `_onReschedule` forwards `appointmentId` for BOTH client and provider
+    // viewers, so a PROVIDER moving ONE service of their own multi-service
+    // visit now leaves their day-calendar screen showing the booking at its
+    // OLD slot until the ≤3-day keepAlive LRU happens to evict. This test
+    // pins the CORRECT behaviour and is EXPECTED TO FAIL until `_submit`'s
+    // per-item branch also invalidates `bookingsDayProvider`, mirroring
+    // `_confirmDecline`/`_confirmComplete`.
+    testWidgets(
+      'REGRESSION GUARD — a successful per-item VISIT reschedule ALSO '
+      'invalidates bookingsDayProvider so the PROVIDER\'s own day-calendar '
+      'screen re-fetches and stops showing the moved item at its OLD slot',
+      (tester) async {
+        final appointments = _FakeAppointmentRepository();
+        final bookings = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+            authProvider.overrideWith(_StubAuth.new),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _appointmentItemRescheduleArgs(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        // Pre-warm auth BEFORE subscribing to bookingsDayProvider — that
+        // family watches `authProvider.select(...)`, and `_StubAuth.build()`
+        // resolves asynchronously (loading → authenticated), which is itself
+        // a VALUE CHANGE the `.select` would otherwise see mid-flight,
+        // rebuilding `BookingsDayNotifier` a second time and inflating
+        // `getMyBookingsCalls` before the reschedule submit ever runs.
+        await container.read(authProvider.future);
+        final BookingsDayQuery dayQuery = BookingsDayQuery.of(
+          day: DateTime(2026, 7, 20),
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> subDay =
+            container.listen(
+              bookingsDayProvider(dayQuery),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDay.close);
+        await container.read(bookingsDayProvider(dayQuery).future);
+        expect(bookings.getMyBookingsCalls, 1);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.rescheduleItemCalls, hasLength(1));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await container.read(bookingsDayProvider(dayQuery).future);
+        expect(
+          bookings.getMyBookingsCalls,
+          2,
+          reason:
+              'a successful per-item VISIT reschedule must invalidate '
+              'bookingsDayProvider so the PROVIDER\'s own day-calendar '
+              'screen re-fetches — the retired whole-visit branch did this; '
+              'the unified per-item branch must too (mobile-perf CRITICAL)',
+        );
+      },
+    );
+
+    // REGRESSION GUARD (mobile-perf HIGH, 2026-08-13) — the sibling guard
+    // above subscribes to `BookingsDayQuery.of(day:)`, the EMPTY-status family
+    // member. That is NOT the member the master's own «Мої записи» watches:
+    // since CANCELLED/DECLINED became hidden by default (locked 2026-08-13),
+    // `BookingsDiscoveryView` watches `BookingsDayQuery.dayList(day:)`
+    // (`{CONFIRMED, COMPLETED, NOT_COMPLETED}` on the wire). Different family
+    // key — so the invalidation loop could stay green here while invalidating
+    // nothing the screen actually reads, and `bookings_day_notifier.dart`'s
+    // ≤3-day keepAlive LRU pins that stale member ACROSS screen disposal, so
+    // the moved item keeps rendering at its OLD slot until a manual
+    // pull-to-refresh. This test pins the member the SCREEN uses; keep both.
+    testWidgets(
+      'REGRESSION GUARD — a successful per-item VISIT reschedule invalidates '
+      'the DEFAULT day-list member (BookingsDayQuery.dayList) the master\'s '
+      'own «Мої записи» actually watches, not just the empty-status one',
+      (tester) async {
+        final appointments = _FakeAppointmentRepository();
+        final bookings = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+            authProvider.overrideWith(_StubAuth.new),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _appointmentItemRescheduleArgs(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        // Pre-warm auth BEFORE subscribing — see the sibling guard above.
+        await container.read(authProvider.future);
+        // Built exactly as `BookingsDiscoveryView._rebuildQuery` builds it: the
+        // shared factory with the master's RAW (empty) selection, NOT a
+        // hand-written `{confirmed, completed, notCompleted}` literal — a
+        // literal here would re-create the drift this guard exists to catch.
+        final BookingsDayQuery dayListQuery = BookingsDayQuery.dayList(
+          day: DateTime(2026, 7, 20),
+        );
+        expect(
+          dayListQuery,
+          isNot(BookingsDayQuery.of(day: DateTime(2026, 7, 20))),
+          reason:
+              'the default day-list member must be a DIFFERENT family key '
+              'from the plain empty-status one — if these ever collapse to '
+              'one key this guard silently stops testing anything',
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> subDay =
+            container.listen(
+              bookingsDayProvider(dayListQuery),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDay.close);
+        await container.read(bookingsDayProvider(dayListQuery).future);
+        expect(bookings.getMyBookingsCalls, 1);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.rescheduleItemCalls, hasLength(1));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await container.read(bookingsDayProvider(dayListQuery).future);
+        expect(
+          bookings.getMyBookingsCalls,
+          2,
+          reason:
+              'a successful per-item VISIT reschedule must invalidate the '
+              'day-list member the master\'s own screen watches — '
+              'invalidating only BookingsDayQuery.of(day:) leaves the '
+              'kept-alive default member serving the item at its OLD slot',
+        );
+      },
+    );
+
+    // mobile-qa REGRESSION GUARD (UTC/Kyiv date-boundary anchor) — the
+    // invalidation loop above used to key `bookingsDayProvider` off
+    // `dateOnly(widget.args.startAt)` DIRECTLY. `startAt` is a canonical UTC
+    // instant on the wire (the generated built_value client normalises every
+    // `DateTime` to UTC), so reading `.year`/`.month`/`.day` straight off it
+    // yields the UTC calendar day, not the Kyiv one `BookingsDayQuery` is
+    // keyed on. For a visit whose Kyiv wall-clock time falls shortly after
+    // Kyiv midnight, the UTC day is the PREVIOUS day — so the invalidation
+    // silently targets a family member nobody subscribes to, and the
+    // day-calendar screen keeps showing the item at its OLD slot until the
+    // ≤3-day keepAlive LRU evicts.
+    //
+    // Deliberately built on a `DateTime.utc(...)` instant (never a bare
+    // `DateTime(...)` literal, which resolves through the HOST process's own
+    // zone) so the UTC-vs-Kyiv day split is a REAL, host-timezone-independent
+    // property of the instant itself — this must fail identically whichever
+    // zone the test happens to run under, not just on the dev VM's zone.
+    testWidgets(
+      'REGRESSION GUARD — a per-item VISIT reschedule whose new startAt '
+      'crosses the UTC/Kyiv date boundary invalidates the KYIV calendar day, '
+      'not the UTC one',
+      (tester) async {
+        // 2026-07-20T22:00:00Z == 2026-07-21 01:00 in Kyiv (UTC+3, summer
+        // DST) — the Kyiv calendar day is the 21st, one day AHEAD of the raw
+        // UTC calendar day (the 20th). Fixed rather than now-relative because
+        // the exact boundary crossing IS the assertion; this screen never
+        // reads the value through isPast, so it can never become a
+        // stale-fixture time bomb.
+        // future-date-ok: fixed instant pins the exact UTC/Kyiv day-boundary split under test
+        final DateTime boundaryStartAt = DateTime.utc(2026, 7, 20, 22);
+        final BookingConfirmArgs args = BookingConfirmArgs(
+          masterId: _kMaster.id,
+          master: _kMaster,
+          services: const <MasterService>[_kService],
+          startAt: boundaryStartAt,
+          idempotencyKey: _kIdemKey,
+          rescheduleBookingId: 'booking-1',
+          rescheduleAppointmentId: 'appt-1',
+        );
+        final appointments = _FakeAppointmentRepository();
+        final bookings = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+            authProvider.overrideWith(_StubAuth.new),
+          ],
+        );
+        unawaited(router.push(RouteNames.bookingConfirm, extra: args));
+        await tester.pumpAndSettle();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        // Pre-warm auth BEFORE subscribing to bookingsDayProvider — see the
+        // sibling REGRESSION GUARD test above for why.
+        await container.read(authProvider.future);
+
+        // Subscribes to the CORRECT (Kyiv) day, July 21st — NOT July 20th,
+        // the UTC day the bug used to compute.
+        final BookingsDayQuery kyivDayQuery = BookingsDayQuery.of(
+          day: DateTime(2026, 7, 21),
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> subDay =
+            container.listen(
+              bookingsDayProvider(kyivDayQuery),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(subDay.close);
+        await container.read(bookingsDayProvider(kyivDayQuery).future);
+        expect(bookings.getMyBookingsCalls, 1);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.rescheduleItemCalls, hasLength(1));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await container.read(bookingsDayProvider(kyivDayQuery).future);
+        expect(
+          bookings.getMyBookingsCalls,
+          2,
+          reason:
+              'a per-item VISIT reschedule whose new startAt lands just '
+              'after Kyiv midnight must invalidate the KYIV calendar day '
+              '(the 21st), not the UTC one (the 20th) — otherwise the '
+              'day-calendar screen keeps showing the item at its OLD slot',
+        );
+      },
+    );
+
+    // Track 30.x — a failed per-item VISIT reschedule (the requested slot
+    // overlaps a sibling, or the master is otherwise busy) shows ONE inline
+    // error banner and stays on the confirm screen, mirroring the single-visit
+    // CREATE 409 test above — never a raw crash, never a silent navigation.
+    // The backend cannot distinguish this from the "changed concurrently"
+    // guard on the wire (both are a bare `data: null` 409 — see
+    // `HttpAppointmentRepository._mapAppointmentItemRescheduleException`), so
+    // both surface as this SAME generic errConflict copy.
+    testWidgets(
+      'a 409 on a per-item VISIT reschedule shows ONE inline error banner '
+      'and does not navigate away',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          rescheduleItemErrorToThrow: const ConflictFailure(),
+        );
+        final router = await pump(
+          tester,
+          fake,
+          args: _appointmentItemRescheduleArgs(),
+        );
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsOneWidget,
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        expect(find.text(l10n.errConflict), findsOneWidget);
+        expect(fake.rescheduleItemCalls, hasLength(1));
+      },
+    );
+
+    // A successful CREATE (a newly-booked, auto-CONFIRMED visit) invalidates
+    // the upcoming My Bookings list from the widget layer — the client shell
+    // keeps that branch mounted, so its autoDispose notifier only re-fetches
+    // when invalidated. Mirrors the reschedule assertion above.
+    testWidgets('a successful CREATE invalidates upcoming My Bookings + '
+        'nextAppointmentProvider from the widget layer (both re-fetch) and '
+        'navigates to success', (tester) async {
+      // mobile-qa (Phase 225 fix pass, mobile-perf MEDIUM #4) —
+      // nextAppointmentProvider gets its OWN counter, same rationale as the
+      // RESCHEDULE test above: it shares `BookingRepository.getMyBookings`
+      // with `myBookingsProvider`, so `bookings.getMyBookingsCalls` alone
+      // cannot attribute a refetch to one family over the other. A newly
+      // created booking may now BE the client's soonest upcoming
+      // appointment — see `booking_confirm_screen.dart:235`.
+      int nextApptFetches = 0;
+      final appointments = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
+      final bookings = _RecordingRescheduleRepository();
+      final router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith((_) => appointments),
+          bookingRepositoryProvider.overrideWith((_) => bookings),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+          nextAppointmentProvider.overrideWith((ref) async {
+            nextApptFetches++;
+            return null;
+          }),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingConfirm, extra: _confirmArgs()));
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingConfirmScreen)),
+        listen: false,
+      );
+      final ProviderSubscription<AsyncValue<MyBookingsState>> subList =
+          container.listen(
+            myBookingsProvider(BookingTab.upcoming),
+            (_, _) {},
+            fireImmediately: true,
+          );
+      addTearDown(subList.close);
+      final ProviderSubscription<AsyncValue<Booking?>> subNextAppt = container
+          .listen(nextAppointmentProvider, (_, _) {}, fireImmediately: true);
+      addTearDown(subNextAppt.close);
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      await container.read(nextAppointmentProvider.future);
+      expect(bookings.getMyBookingsCalls, 1);
+      expect(nextApptFetches, 1);
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await tester.pumpAndSettle();
+
+      expect(appointments.requests, hasLength(1));
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+      // The widget-layer invalidate forced a background re-fetch of the still
+      // -listened (mounted) upcoming tab (+ the next-appointment card).
+      await container.read(myBookingsProvider(BookingTab.upcoming).future);
+      await container.read(nextAppointmentProvider.future);
+      expect(bookings.getMyBookingsCalls, 2);
+      expect(
+        nextApptFetches,
+        2,
+        reason:
+            'a successful CREATE must invalidate nextAppointmentProvider — '
+            'the Home Hub card must never show a stale booking after this '
+            'write',
+      );
+    });
   });
 
   group('BookingSuccessScreen', () {
     BookingSuccessArgs successArgs() => BookingSuccessArgs(
       master: _kMaster,
-      appointments: <BookingSuccessAppointment>[
-        BookingSuccessAppointment(
-          service: _kService,
-          start: DateTime(2026, 7, 20, 14),
-        ),
-      ],
+      services: const <MasterService>[_kService],
+      startAt: _kStartAt,
     );
 
     Future<GoRouter> pump(WidgetTester tester) async {
@@ -782,40 +1428,14 @@ void main() {
         tester.element(find.byType(BookingSuccessScreen)),
       );
       expect(find.text(l10n.bookingSuccessTitle), findsOneWidget);
-      // i18n-finder-ok: service name is fixture data (_kService), not translated UI copy.
+      // i18n-finder-ok: service name is fixture data (_kService).
       expect(find.text('Манікюр з покриттям'), findsOneWidget);
-      // The master's NAME (only shown on the master card) must be absent —
-      // `showMasterCard: false` per the design.
-      // i18n-finder-ok: master name is fixture data (_kMaster), not translated UI copy.
+      // No master identity card on the success recap.
+      // i18n-finder-ok: master name is fixture data (_kMaster).
       expect(find.text('Олена Ковальчук'), findsNothing);
-
-      // mobile-qa Part 3 — explicit widget-type assertion (not just the
-      // absent-name proxy above): `BookingSummaryCards(showMasterCard:
-      // false)` must render NO `MasterStrip` at all on this screen, unaffected
-      // by the confirm screen's card now sharing the exact same widget.
       expect(find.byType(MasterStrip), findsNothing);
     });
 
-    // mobile-qa Part 4 — the 112dp gradient-circle `_SuccessCheckBadge` was
-    // replaced by a real 80dp `Lottie.asset('assets/lottie/success.json')`
-    // animation (`_SuccessLottieBadge`), with a `frameBuilder` placeholder
-    // shown while the composition decodes asynchronously
-    // (`_SuccessBadgePlaceholder`). Both new private classes are
-    // library-private (can't be `find.byType`'d directly from this test
-    // file), so this asserts via the PUBLIC `Lottie` widget type instead —
-    // proving the real animation is mounted, not merely "something renders
-    // where the old badge used to be".
-    //
-    // The existing tests in this group already pump this screen via
-    // `pumpAndSettle()` only, which would already fail on an uncaught
-    // exception from a broken `frameBuilder` — but none of them ever
-    // advances by a SINGLE frame first, so the `frameBuilder(composition:
-    // null)` branch (the actual placeholder path, before the async decode
-    // resolves) was never explicitly exercised or asserted on. This closes
-    // that gap: pump exactly once (guaranteed to land before the
-    // asset-decode microtask can possibly resolve), assert nothing throws,
-    // then let `pumpAndSettle` finish the load and assert the real `Lottie`
-    // widget is what's mounted at rest.
     testWidgets('renders the real Lottie success badge, and the frameBuilder '
         'placeholder path does not crash before the composition loads', (
       tester,
@@ -823,73 +1443,17 @@ void main() {
       final GoRouter router = _router();
       await tester.pumpRoutedApp(router);
       router.go(RouteNames.bookingSuccess, extra: successArgs());
-      // One frame to let go_router's redirect/rebuild actually mount
-      // BookingSuccessScreen (mirrors this file's other tests, which all
-      // use pumpAndSettle for the same `.go()` call).
       await tester.pump();
-
-      // A SECOND, immediate frame — still before the asset's async JSON
-      // decode has any real chance to resolve — is the earliest point the
-      // `frameBuilder(composition: null)` placeholder branch is guaranteed
-      // to have rendered at least once.
       await tester.pump();
-      expect(
-        tester.takeException(),
-        isNull,
-        reason:
-            'the frameBuilder placeholder path (composition still null) '
-            'must not throw or crash the widget tree',
-      );
+      expect(tester.takeException(), isNull);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
 
-      // Let the composition finish loading and every staggered reveal
-      // animation settle.
       await tester.pumpAndSettle();
-      expect(
-        tester.takeException(),
-        isNull,
-        reason:
-            'the swap from placeholder to the real animation must not '
-            'hang or throw once the composition resolves',
-      );
-
-      expect(
-        find.byType(Lottie),
-        findsOneWidget,
-        reason:
-            'BookingSuccessScreen must mount a real Lottie widget for its '
-            'success badge — not the old gradient-circle '
-            '`_SuccessCheckBadge` shape it replaced',
-      );
-
-      // The 80dp badge size is a locked, deliberate deviation from the
-      // approved preview's 112dp slot (see the screen's file header) — not
-      // an arbitrary implementation detail. Pin the rendered size so a
-      // future accidental edit to `_SuccessLottieBadge._size` (which is
-      // library-private and can't be asserted on directly) doesn't silently
-      // drift this product decision without any test noticing.
-      expect(
-        tester.getSize(find.byType(Lottie)),
-        const Size(80, 80),
-        reason:
-            'the success badge must render at the locked 80dp size, not '
-            'the approved preview\'s 112dp slot',
-      );
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Lottie), findsOneWidget);
+      expect(tester.getSize(find.byType(Lottie)), const Size(80, 80));
     });
 
-    // mobile-qa regression — Part 3: the success screen's details card is
-    // the ONE call site that opts into `NeumorphicCard.showBorder` (its card
-    // fill exactly matches `Scaffold.backgroundColor`, so the extruded
-    // shadow alone doesn't read as a distinct shape — see
-    // `booking_success_screen.dart`'s comment at the `BookingSummaryCards`
-    // call site). Distinguishes this screen's wiring from the confirm
-    // screen's (asserted separately, above, as `isFalse`).
-    //
-    // Also pins `compactText: true` — the success screen's second, DELIBERATELY
-    // SEPARATE opt-in (shrinks the recap's text a further notch on top of
-    // `dense`'s spacing tightening — see `BookingSummaryCards.compactText`'s
-    // doc for why it's not folded into `dense`), confirming the confirm
-    // screen stays isolated from BOTH new flags, not just `showBorder`.
     testWidgets(
       "BookingSummaryCards' showBorder and compactText are wired to true on "
       'the success screen',
@@ -899,29 +1463,11 @@ void main() {
         final BookingSummaryCards cards = tester.widget<BookingSummaryCards>(
           find.byType(BookingSummaryCards),
         );
-        expect(
-          cards.showBorder,
-          isTrue,
-          reason:
-              "BookingSuccessScreen's BookingSummaryCards call site must "
-              'pass showBorder: true — its card sits on the same '
-              'BrandColors.base as the Scaffold background.',
-        );
-        expect(
-          cards.compactText,
-          isTrue,
-          reason:
-              "BookingSuccessScreen's BookingSummaryCards call site must "
-              'pass compactText: true alongside showBorder: true and '
-              'dense: true.',
-        );
+        expect(cards.showBorder, isTrue);
+        expect(cards.compactText, isTrue);
       },
     );
 
-    // mobile-qa regression — Part 3 (subline): `bookingSuccessSubline`
-    // dropped from the shared VelvetText.body() default size down to an
-    // explicit `fontSize: 13`. Pin the rendered TextStyle so a future revert
-    // (or an accidental copy-paste of a different body style) is caught.
     testWidgets('subline text renders at fontSize: 11', (tester) async {
       await pump(tester);
 
@@ -931,23 +1477,9 @@ void main() {
       final Text subline = tester.widget<Text>(
         find.text(l10n.bookingSuccessSubline),
       );
-      expect(
-        subline.style?.fontSize,
-        11.0,
-        reason:
-            'bookingSuccessSubline must render at fontSize: 11, not the '
-            'shared VelvetText.body() default.',
-      );
+      expect(subline.style?.fontSize, 11.0);
     });
 
-    // mobile-qa regression — Part 4: the Lottie badge's controller duration
-    // is deliberately stretched to 1.4x the raw composition duration once
-    // `onLoaded` fires (see `_SuccessLottieBadge.onLoaded`'s comment — "do
-    // not fix this back to 1x"). The raw duration is computed independently
-    // here straight from the asset's frame-rate / in-point / out-point (NOT
-    // by re-deriving it through the same `LottieComposition` the widget
-    // itself loads), so this doesn't just re-assert the source file's own
-    // arithmetic against itself.
     testWidgets(
       'lottie controller duration is stretched to 1.4x the raw composition '
       'duration',
@@ -955,20 +1487,11 @@ void main() {
         await pump(tester);
 
         final Lottie lottie = tester.widget<Lottie>(find.byType(Lottie));
-        // `Lottie.controller` is typed `Animation<double>?`, but the screen
-        // always passes its own `AnimationController` (`_lottieController`,
-        // whose `.duration` is what `onLoaded` stretches) — cast to reach it.
         final AnimationController? actualController =
             lottie.controller as AnimationController?;
         final Duration? actualDuration = actualController?.duration;
         expect(actualDuration, isNotNull);
 
-        // `File.readAsString()` performs REAL disk I/O — `testWidgets` runs
-        // the test body in flutter_test's fake-async zone, which never drains
-        // the real event loop, so a bare `await` here hangs until the
-        // per-test timeout (confirmed empirically: this previously hung for
-        // the full 10 minutes). `runAsync` briefly switches to the real zone
-        // so the I/O future actually resolves.
         final String? raw = await tester.runAsync(
           () => File('assets/lottie/success.json').readAsString(),
         );
@@ -984,21 +1507,10 @@ void main() {
         expect(
           actualDuration!.inMicroseconds / 1000,
           closeTo(expectedStretchedMs, 5),
-          reason:
-              'onLoaded must set controller.duration = composition.duration '
-              '* 1.4 — expected ~${expectedStretchedMs.toStringAsFixed(1)}ms '
-              '(raw ~${rawDurationMs.toStringAsFixed(1)}ms x1.4), got '
-              '${(actualDuration.inMicroseconds / 1000).toStringAsFixed(1)}ms.',
         );
-        // Sanity: definitely NOT left at the raw (1x) duration — a regression
-        // that dropped the `* 1.4` stretch would still pass a loose
-        // "duration is set" check but must fail this one.
         expect(
           (actualDuration.inMicroseconds / 1000 - rawDurationMs).abs(),
           greaterThan(100),
-          reason:
-              'controller.duration must be measurably slower than the raw '
-              'composition duration, not left at 1x.',
         );
       },
     );
@@ -1012,15 +1524,6 @@ void main() {
       expect(popScope.canPop, isFalse);
     });
 
-    // mobile-qa regression (widget removal) — the preview shipped a second
-    // pinned action («Мої записи» → RouteNames.clientBookings) alongside «На
-    // головну»; it was removed at explicit user request (see
-    // `booking_success_screen.dart`'s file header DEVIATION note).
-    // `RouteNames.clientBookings` itself stays reachable from other entry
-    // points (bottom nav / QuickLinksCard), so this only pins THIS screen's
-    // surface: the old key is gone for good, and «На головну» is now the
-    // screen's sole CTA — not just "no test happens to tap the old button
-    // anymore."
     testWidgets(
       '«Мої записи» CTA was removed — «На головну» is the sole pinned CTA',
       (tester) async {
@@ -1047,136 +1550,104 @@ void main() {
     });
   });
 
-  // mobile-qa Part 2 — build-verifier gap-fix: no existing test drove a REAL
-  // Navigator push all the way from `SlotTimeScreen` into
-  // `BookingConfirmScreen` (`slot_picker_test.dart`'s Date→Time push always
-  // lands on a plain-text confirm STUB; this file's own confirm-screen tests
-  // above mount `BookingConfirmScreen` directly at the router's initial
-  // location, never via a push from Time). That gap matters here because
-  // `BookingSummaryCards`'s master card is now wrapped in
-  // `Hero(tag: 'master-strip-${master.id}')` on all THREE screens
-  // (`SlotDateScreen`/`SlotTimeScreen` already were; `BookingConfirmScreen` is
-  // the new 3rd leg) — safe by tag-adjacency reasoning (each push transition
-  // only involves the two ROUTES actually participating in that flight, so a
-  // 3-screen chain is no different from the already-covered 2-screen one),
-  // but never exercised end-to-end. This test drives the real push chain and
-  // pins BOTH halves of the acceptance bar: no Hero-tag-collision error
-  // surfaces, and `MasterStrip` lands at the identical vertical offset on
-  // all three screens (extending `slot_picker_test.dart`'s existing 2-screen
-  // offset-parity test to the 3rd leg).
-  group('Date → Time → Confirm real push chain (mobile-qa Part 2)', () {
-    testWidgets(
-      'pushing all the way from SlotDateScreen through SlotTimeScreen to a '
-      'REAL BookingConfirmScreen renders the 3rd Hero leg with no '
-      'tag-collision error, and MasterStrip stays at the same vertical '
-      'offset on all three screens',
-      (tester) async {
-        final BookingSlot slot = BookingSlot(
-          startAt: DateTime(2026, 7, 20, 10),
-          endAt: DateTime(2026, 7, 20, 11),
-          available: true,
-        );
-        final fakeSlots = _FakeChainSlotRepository(<BookingSlot>[slot]);
-        const fakeProfile = (_kMaster, <MasterService>[_kService]);
-        final router = _slotToConfirmRouter();
-        final args = BookingSlotPickerArgs(
-          masterId: _kMaster.id,
-          master: _kMaster,
-          services: const <MasterService>[_kService],
-        );
+  // MO-3 — the real Date → Time → Confirm push chain (single-visit): pushing
+  // all the way from SlotDateScreen through SlotTimeScreen to the REAL
+  // BookingConfirmScreen renders the 3rd Hero leg with no tag-collision error,
+  // and MasterStrip lands at the same vertical offset on all three screens.
+  group('Date → Time → Confirm real push chain', () {
+    testWidgets('pushing from SlotDateScreen through SlotTimeScreen to a REAL '
+        'BookingConfirmScreen renders the 3rd Hero leg with no tag-collision '
+        'error, and MasterStrip stays at the same vertical offset', (
+      tester,
+    ) async {
+      // 07:00Z / 08:00Z == 10:00 / 11:00 Kyiv (UTC+3, summer DST). UTC-anchored
+      // for the same reason as `_kStartAt` above — `SlotTimeScreen` renders
+      // these through the Kyiv zone, so a bare local literal would render a
+      // different wall-clock on every host.
+      final BookingSlot slot = BookingSlot(
+        // future-date-ok: fixed slot fixture; twin of _kStartAt's rationale
+        startAt: DateTime.utc(2026, 7, 20, 7),
+        // future-date-ok: fixed slot fixture; twin of _kStartAt's rationale
+        endAt: DateTime.utc(2026, 7, 20, 8),
+        available: true,
+      );
+      final fakeSlots = _FakeChainSlotRepository(<BookingSlot>[slot]);
+      const fakeProfile = (_kMaster, <MasterService>[_kService]);
+      final router = _slotToConfirmRouter();
+      final args = BookingSlotPickerArgs(
+        masterId: _kMaster.id,
+        master: _kMaster,
+        services: const <MasterService>[_kService],
+      );
 
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            slotRepositoryProvider.overrideWith((_) => fakeSlots),
-            publicMasterProfileProvider(
-              _kMaster.id,
-            ).overrideWith((ref) => fakeProfile),
-          ],
-        );
-        unawaited(router.push(RouteNames.bookingSlots, extra: args));
-        await tester.pumpAndSettle();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          slotRepositoryProvider.overrideWith((_) => fakeSlots),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => fakeProfile),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingSlots, extra: args));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(SlotDateScreen), findsOneWidget);
-        final double dateOffset = tester
-            .getTopLeft(
-              find.descendant(
-                of: find.byType(SlotDateScreen),
-                matching: find.byType(MasterStrip),
-              ),
-            )
-            .dy;
+      expect(find.byType(SlotDateScreen), findsOneWidget);
+      final double dateOffset = tester
+          .getTopLeft(
+            find.descendant(
+              of: find.byType(SlotDateScreen),
+              matching: find.byType(MasterStrip),
+            ),
+          )
+          .dy;
 
-        // Leg 1: Date → Time (real push, mirrors `pumpTimeScreen` in
-        // `slot_picker_test.dart`).
-        final DateTime today = DateTime.now();
-        await tester.tapCalendarDay(today.day);
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('booking-summary-cta')));
-        await tester.pumpAndSettle();
+      // mobile-qa (F2 timezone fix) — `SlotDateScreen`'s calendar gates
+      // "today" via `kyivToday`, fed from the app's injected clock seam (see
+      // `lib/core/time/clock_provider.dart`), not the raw device clock; a
+      // bare `DateTime.now()` here disagrees with it for roughly a third of
+      // every 24h window (UTC ~21:00-24:00, once Kyiv has already rolled to
+      // the next calendar day), taps an already-PAST disabled cell, and
+      // fails deterministically. Mirrors the same fix in
+      // `slot_picker_test.dart` / `salon_time_screen_test.dart`.
+      final DateTime today = kyivToday(DateTime.now);
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
 
-        expect(tester.takeException(), isNull);
-        expect(find.byType(SlotTimeScreen), findsOneWidget);
-        final double timeOffset = tester
-            .getTopLeft(
-              find.descendant(
-                of: find.byType(SlotTimeScreen),
-                matching: find.byType(MasterStrip),
-              ),
-            )
-            .dy;
+      expect(tester.takeException(), isNull);
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+      final double timeOffset = tester
+          .getTopLeft(
+            find.descendant(
+              of: find.byType(SlotTimeScreen),
+              matching: find.byType(MasterStrip),
+            ),
+          )
+          .dy;
 
-        // Leg 2: Time → Confirm — the NEW 3rd leg under test. Real push (via
-        // the time screen's «Підтвердити» CTA), landing on the REAL
-        // `BookingConfirmScreen` (not a stub).
-        final Finder availableChip = find.byWidgetPredicate(
-          (Widget w) => w is SlotChip && w.available,
-        );
-        expect(availableChip, findsOneWidget);
-        await tester.tap(availableChip);
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('booking-summary-cta')));
-        await tester.pumpAndSettle();
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      expect(availableChip, findsOneWidget);
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
 
-        // No Hero-tag-collision (or any other) exception was thrown by the
-        // push/flight — `pumpAndSettle` alone would already fail the test on
-        // an unhandled `FlutterError`, but asserting `takeException()`
-        // directly makes the "no collision" acceptance criterion explicit
-        // rather than incidental.
-        expect(tester.takeException(), isNull);
+      expect(tester.takeException(), isNull);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
 
-        expect(
-          find.byType(BookingConfirmScreen),
-          findsOneWidget,
-          reason:
-              'the CTA must have performed a REAL push to the real '
-              'BookingConfirmScreen, not a stub',
-        );
-        final Finder confirmMasterStrip = find.descendant(
-          of: find.byType(BookingConfirmScreen),
-          matching: find.byType(MasterStrip),
-        );
-        expect(
-          confirmMasterStrip,
-          findsOneWidget,
-          reason:
-              'BookingConfirmScreen must render its own Hero-wrapped '
-              'MasterStrip — the 3rd leg of the master-strip-<id> chain',
-        );
-        final double confirmOffset = tester.getTopLeft(confirmMasterStrip).dy;
+      final Finder confirmMasterStrip = find.descendant(
+        of: find.byType(BookingConfirmScreen),
+        matching: find.byType(MasterStrip),
+      );
+      expect(confirmMasterStrip, findsOneWidget);
+      final double confirmOffset = tester.getTopLeft(confirmMasterStrip).dy;
 
-        expect(
-          confirmOffset,
-          closeTo(timeOffset, 0.5),
-          reason:
-              'MasterStrip must land at the identical vertical offset on '
-              'SlotTimeScreen and BookingConfirmScreen so the shared Hero '
-              'never visibly jumps once the 2nd push transition settles — '
-              'mirrors slot_picker_test.dart\'s Date/Time offset-parity '
-              'assertion, extended to the 3rd screen.',
-        );
-        expect(confirmOffset, closeTo(dateOffset, 0.5));
-      },
-    );
+      expect(confirmOffset, closeTo(timeOffset, 0.5));
+      expect(confirmOffset, closeTo(dateOffset, 0.5));
+    });
   });
 }

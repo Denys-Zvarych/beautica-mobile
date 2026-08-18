@@ -12,7 +12,7 @@
 //     dozens), and sends `from == to`;
 //   • the initial day is KYIV "today", not host "today" — asserted against
 //     the exact same derivation the production code uses
-//     (`dateOnly(toBeauticaTime(DateTime.now()))`);
+//     (`kyivToday(DateTime.now)`);
 //   • filter-empty and true-empty are different screens, and only one offers
 //     an escape hatch. `BookingsDayQuery.hasFilters` excludes the DAY (it is
 //     navigation, not a filter) — so narrowing to an empty DAY with no
@@ -46,18 +46,25 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_d
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // Fixture identities injected BY these tests — NOT app copy, and
 // locale-invariant by construction (a person's name is not translated). This
@@ -68,7 +75,48 @@ const String _otherClientLast = 'Мороз';
 
 /// Kyiv "today", derived through the EXACT SAME production function the
 /// screen uses — never a literal. See the file header (LOW #334).
-DateTime get _kyivToday => dateOnly(toBeauticaTime(DateTime.now()));
+DateTime get _kyivToday => kyivToday(DateTime.now);
+
+/// The days of [_kyivToday]'s own Mon→Sun week, EXCLUDING today itself.
+///
+/// The rail is a week pager now: it renders exactly the seven days of one
+/// week, so a test day has to come from THIS week or it is simply not on
+/// screen to tap. `railDayAt(_kyivToday, +n)` — how these tests used to pick
+/// their days — silently walks off the visible page whenever the suite runs
+/// late in the week, which would have made the rail tests pass or fail by
+/// weekday. Excluding today keeps a tap on any of these a REAL selection
+/// change (and therefore a real new fetch), which the debounce test's call
+/// count depends on.
+///
+/// Always exactly six entries, on every weekday.
+List<DateTime> get _otherDaysThisWeek {
+  final DateTime monday = mondayOf(_kyivToday);
+  return <DateTime>[for (int i = 0; i < 7; i++) railDayAt(monday, i)]
+    ..removeWhere((DateTime d) => d == _kyivToday);
+}
+
+/// A genuine INSTANT at [hourUtc] on the SAME Kyiv calendar day [_kyivToday]
+/// names.
+///
+/// [_kyivToday] is a DATE TOKEN — a host-local midnight `DateTime` whose
+/// `.year`/`.month`/`.day` carry the Kyiv day (see
+/// `lib/shared/time/kyiv_day.dart`'s header). `.toUtc()` on such a token is on
+/// that header's ILLEGAL list: it reinterprets host-local midnight as if it
+/// were already an instant, so `_kyivToday.toUtc().add(...)` — what these
+/// fixtures used to do — yields a different Kyiv day depending on the host's
+/// own `TZ`. From a WESTERN host (e.g. UTC-10) midnight local is 10:00Z, so
+/// `+12h` lands at 22:00Z, already the NEXT Kyiv day, and every "today"
+/// assertion below would then be asserting against a day the screen never
+/// renders.
+///
+/// Reading only the token's calendar fields and rebuilding with `DateTime.utc`
+/// is host-independent. Kyiv is UTC+2/+3, so any [hourUtc] in roughly 0..20
+/// stays inside the same Kyiv civil day; the call sites use 8..13, which is
+/// exactly the band CI (`TZ=UTC`) already exercised before this fix.
+DateTime _kyivTodayAtUtc(int hourUtc) {
+  final DateTime day = _kyivToday;
+  return DateTime.utc(day.year, day.month, day.day, hourUtc);
+}
 
 /// A LATE-EVENING UTC instant whose Kyiv calendar day is the NEXT day — the
 /// pinned "now" the Kyiv-vs-naive landing-query guard runs against.
@@ -102,8 +150,7 @@ Booking _booking({
   BookingStatus status = BookingStatus.confirmed,
   DateTime? startAt,
 }) {
-  final DateTime start =
-      startAt ?? _kyivToday.toUtc().add(const Duration(hours: 12));
+  final DateTime start = startAt ?? _kyivTodayAtUtc(12);
   return Booking(
     id: id,
     masterId: 'm1',
@@ -152,9 +199,12 @@ Future<void> _pump(
   // (`bookings_discovery_view.dart`'s `initState`). `null` leaves the real
   // wall clock in place, which is what every pre-existing test here wants.
   DateTime Function()? clock,
-  // Pass `(_, _) => null` to DISABLE Riverpod's exponential-backoff retry, so
-  // an AsyncError settles and a fetch count stays exact.
-  Duration? Function(int retryCount, Object error)? retry,
+  // Defaults to the PRODUCTION predicate [beauticaProviderRetry] so error
+  // paths resolve as they do in the shipped app. Pass `(_, _) => null` to
+  // DISABLE retry entirely, so an AsyncError settles and a fetch count stays
+  // exact.
+  Duration? Function(int retryCount, Object error)? retry =
+      beauticaProviderRetry,
 }) async {
   await tester.pumpRoutedApp(
     GoRouter(
@@ -390,7 +440,10 @@ void main() {
         expect(froms, <DateTime?>[_kyivToday]);
 
         // Move the rail to a DIFFERENT day; that day fails too.
-        final DateTime otherDay = railDayAt(_kyivToday, 1);
+        // NOT `railDayAt(_kyivToday, 1)` — that walks off the visible
+        // week-page whenever `_kyivToday` is late in the week (e.g. Sunday),
+        // leaving no matching chip to tap. See `_otherDaysThisWeek`'s doc.
+        final DateTime otherDay = _otherDaysThisWeek.first;
         await tester.tap(find.byKey(dayChipKey(otherDay)));
         // fixed-wait-ok: advancing past the 220 ms day-select debounce.
         await tester.pump(const Duration(milliseconds: 300));
@@ -546,11 +599,26 @@ void main() {
       'фільтри» — the master is never stranded',
       (tester) async {
         final repo = _MockBookingRepository();
-        // Unfiltered (the landing day): one booking. Any status filter:
+        // The DEFAULT view: one booking. A master-CHOSEN status filter:
         // nothing matches it.
+        //
+        // The discriminator was `isEmpty` vs `isNotEmpty` until 2026-08-13.
+        // It cannot be any more: the default view now carries
+        // `BookingStatus.visibleInDayListByDefault` on the wire (CANCELLED and
+        // DECLINED are hidden without the master filtering, and
+        // `GET /bookings/me` has no exclude parameter), so an empty status
+        // list never reaches the repository from this screen and the landing
+        // fetch matched the "filtered" stub instead — the empty page it
+        // returned made the pre-filter `findsOne` below fail. Splitting on the
+        // default SET keeps the test asserting the same thing it always did:
+        // unfiltered shows work, a chosen filter that matches nothing offers
+        // the escape hatch.
         when(
           () => repo.getMyBookings(
-            statuses: any(named: 'statuses', that: isEmpty),
+            statuses: any(
+              named: 'statuses',
+              that: unorderedEquals(BookingStatus.visibleInDayListByDefault),
+            ),
             page: any(named: 'page'),
             size: any(named: 'size'),
             cancelToken: any(named: 'cancelToken'),
@@ -562,7 +630,12 @@ void main() {
         ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
         when(
           () => repo.getMyBookings(
-            statuses: any(named: 'statuses', that: isNotEmpty),
+            statuses: any(
+              named: 'statuses',
+              that: isNot(
+                unorderedEquals(BookingStatus.visibleInDayListByDefault),
+              ),
+            ),
             page: any(named: 'page'),
             size: any(named: 'size'),
             cancelToken: any(named: 'cancelToken'),
@@ -614,35 +687,33 @@ void main() {
   group('day rail', () {
     // MUTATION-COVERAGE NOTE — why this test exists
     // ------------------------------------------------------------------
-    // `bookings_day_rail_test.dart` pins `BookingsDiscoveryView`'s offset
-    // ARITHMETIC in isolation (unit-level), but never calls
-    // `_alignRailTodayFirst` itself — the ACTUAL production call site. A pure
-    // arithmetic pin can pass while the real, rendered outcome is wrong (or
-    // vice versa), because nothing anywhere else observes the rail's
-    // post-open SCROLL POSITION.
+    // `bookings_day_rail_test.dart` pins the rail's week ARITHMETIC in
+    // isolation (unit-level: `mondayOf`, `railWeekIndex`), but never resolves
+    // `_railController`'s `initialPage` — the ACTUAL production call site. A
+    // pure arithmetic pin can pass while the real, rendered outcome is wrong
+    // (or vice versa), because nothing anywhere else observes which week the
+    // rail actually OPENS on.
     //
-    // This test closes that gap by asserting the real, rendered outcome: the
-    // initially selected day's chip must land as the LEFTMOST day slot in
-    // the rail's visible viewport after the first frame — the design
-    // decision behind [_alignRailTodayFirst] (today-first, not
-    // today-centred). A regression here shifts it by a full `kRailItemExtent`
-    // (62dp) — comfortably outside the tolerance below.
+    // ⚠ CONTRACT CHANGED (week-pager rework, this session). This test used to
+    // assert "today is the LEFTMOST chip", which was the retired
+    // `_alignRailTodayFirst`'s design decision and is not expressible any
+    // more: the rail now shows exactly one Mon→Sun week, so the leftmost chip
+    // is that week's MONDAY, by construction, for every possible selection.
+    // What survives — and is what that assertion was really protecting — is
+    // that the rail opens on the week the master is actually working, with
+    // today visibly on it, rather than parked at the start of its multi-year
+    // span. An off-by-one in `railWeekIndex` lands the rail a full seven days
+    // away, which this catches loudly.
     //
     // Geometry note (post-calendar-button-retirement, Phase 7.16):
-    // `master-bookings-day-rail`'s key sits on the day-chip `ListView`
-    // itself, which is once again the ENTIRE rail — the calendar button that
-    // used to live beside it as a `Row` sibling (`bookings_day_rail.dart`'s
-    // `BookingsDayRail.build`) is gone outright, not merely un-pinned. With
-    // the button gone, the `ListView` regained its own SYMMETRIC horizontal
-    // `VelvetSpacing.lg` inset (both leading and trailing), so today's chip —
-    // the list's own item 0 at scroll offset zero — lands at `railRect.left +
-    // VelvetSpacing.lg`, not flush with `railRect.left` as it did for the
-    // brief period (`eddbcb2`..`6658c8c`) when the leading inset lived on the
-    // pinned button's own `Padding` instead.
+    // `master-bookings-day-rail`'s key sits on the pager itself, which is the
+    // ENTIRE rail — the calendar button that used to live beside it as a
+    // `Row` sibling is gone outright, not merely un-pinned. Each week page
+    // carries a SYMMETRIC horizontal `VelvetSpacing.lg` inset, so the week's
+    // Monday lands at `railRect.left + VelvetSpacing.lg`.
     testWidgets(
-      'the rail opens with today as the LEFTMOST day chip, not centred and '
-      'not at list index 0 — an off-by-one lead-item offset would land it a '
-      'full cell off',
+      'the rail opens on the week CONTAINING today, Monday leftmost — not '
+      'parked at the start of its span',
       (tester) async {
         final repo = _MockBookingRepository();
         when(
@@ -664,48 +735,43 @@ void main() {
         final Rect railRect = tester.getRect(
           find.byKey(const Key('master-bookings-day-rail')),
         );
-        final Rect todayRect = tester.getRect(
+
+        // Real rendered geometry, not the controller's `page` — an index bug
+        // could move the controller while leaving the ON-SCREEN result wrong
+        // (or vice versa), so this asserts what the master actually sees.
+        expect(
           find.byKey(dayChipKey(_kyivToday)),
+          findsOne,
+          reason:
+              'today is not on the rail\'s opening page — the rail opened on '
+              'the wrong week (or parked at the start of its span).',
         );
 
-        // Real rendered geometry, not the controller's `offset` — a formula
-        // bug could move the controller while leaving the ON-SCREEN result
-        // wrong (or vice versa), so this asserts what the master actually
-        // sees: today's chip sits at the `ListView`'s own restored leading
-        // inset, the exact position item 0 occupies at scroll offset zero
-        // now that the list carries a symmetric `VelvetSpacing.lg` inset
-        // again — see the group's geometry note above. This assertion was
-        // DELIBERATELY changed from `closeTo(railRect.left, 1.5)` (the
-        // flush-left value that held only while the calendar button owned
-        // the leading inset on its own Padding) back to this inset value now
-        // that the button — and its Padding — are gone.
+        final DateTime monday = mondayOf(_kyivToday);
         expect(
-          todayRect.left,
+          tester.getRect(find.byKey(dayChipKey(monday))).left,
           closeTo(railRect.left + VelvetSpacing.lg, 1.5),
           reason:
-              'today\'s chip is not at the rail\'s restored leading inset — '
-              'the rail opened centred (or otherwise off) instead of '
-              'today-first.',
+              'the opening page\'s leftmost chip is not this week\'s Monday '
+              'at the rail\'s leading inset — the rail came to rest between '
+              'two weeks.',
         );
-
-        // "Not centred" as a second, independent signal: under the retired
-        // centring behaviour today's chip sat at the rail's MIDPOINT. Pin
-        // that it has moved decisively away from there too, so a partial
-        // regression (today-first math right, but still averaging toward
-        // centre for some reason) cannot hide behind the edge check alone.
+        // The whole week is there, both ends — a page that rendered a
+        // partial week would still satisfy the two checks above.
+        expect(find.byKey(dayChipKey(railDayAt(monday, 6))), findsOne);
         expect(
-          (todayRect.center.dx - railRect.center.dx).abs(),
-          greaterThan(kRailItemExtent),
+          find.byKey(dayChipKey(railDayAt(monday, -1))),
+          findsNothing,
           reason:
-              'today\'s chip is still near the rail\'s centre — the initial '
-              'position has not actually moved off the old centred layout.',
+              'the PREVIOUS week\'s Sunday is on screen — the rail is showing '
+              'a mid-week span, which the week pager must make unreachable.',
         );
       },
     );
 
     testWidgets(
-      'past days remain reachable by scrolling left — the today-first '
-      'initial jump does not clamp the rail\'s past-day range',
+      'past weeks remain reachable by paging left — the opening page does '
+      'not clamp the rail\'s past range',
       (tester) async {
         final repo = _MockBookingRepository();
         final List<(DateTime?, DateTime?)> calls = <(DateTime?, DateTime?)>[];
@@ -732,23 +798,16 @@ void main() {
         await tester.pumpAndSettle();
         calls.clear(); // drop the initial (today) fetch
 
-        // Well outside `ListView`'s default 250-logical-pixel cache extent
-        // (8 * kRailItemExtent == 496dp) — a near neighbour of today's chip
-        // could already be built-but-clipped by the cache window even
-        // before any scroll, which would make a `findsOne`/`findsNothing`
-        // precondition here meaningless. This day is far enough that it is
-        // reachable ONLY by an actual scroll.
-        final DateTime pastDay = railDayAt(_kyivToday, -8);
+        // The Monday of the week BEFORE this one — one page turn back, and
+        // outside the opening page by construction (not merely "far away",
+        // which is what the retired continuous strip needed to defeat its
+        // cache extent).
+        final DateTime pastDay = railDayAt(mondayOf(_kyivToday), -7);
 
-        await tester.scrollUntilVisible(
-          find.byKey(dayChipKey(pastDay)),
-          -400,
-          scrollable: find
-              .descendant(
-                of: find.byKey(const Key('master-bookings-day-rail')),
-                matching: find.byType(Scrollable),
-              )
-              .first,
+        await tester.fling(
+          find.byKey(const Key('master-bookings-day-rail')),
+          const Offset(400, 0),
+          800,
         );
         await tester.pumpAndSettle();
 
@@ -756,10 +815,9 @@ void main() {
           find.byKey(dayChipKey(pastDay)),
           findsOne,
           reason:
-              'a day 8 days before today did not become reachable by '
-              'scrolling left — the today-first jump may have clamped the '
-              'rail\'s scroll range instead of only moving its resting '
-              'position.',
+              'the previous week did not become reachable by paging left — '
+              'the opening page may have clamped the rail\'s range instead '
+              'of only setting its resting position.',
         );
 
         // And genuinely tappable — not just present in the tree.
@@ -775,6 +833,130 @@ void main() {
         );
         expect(calls.single.$1, pastDay);
         expect(calls.single.$2, pastDay);
+      },
+    );
+
+    // ── The two pagers must not desync ────────────────────────────────────
+    //
+    // The panel now stacks TWO horizontal pagers: the rail's week pager and
+    // the expanded grid's month pager. `bookings_discovery_view.dart`'s
+    // `_selectDay` doc states the contract they hold between them — every
+    // move that changes the month SELECTS, and `_selectImmediate` pages the
+    // rail to the selected day's own week, so the label, the rail and the
+    // query all stay derived from the one `_day`.
+    //
+    // The dangerous state is the one this test drives: page the MONTH, then
+    // COLLAPSE. Nothing else in the suite exercises the handoff — the
+    // rebuild-isolation suite pins the month step's own query/label effects
+    // with the calendar left open, and never looks at the rail underneath it.
+    // A regression that (say) relabelled without paging the rail would leave
+    // the master looking at August over July's week with no chip selected,
+    // and every other test would stay green.
+    testWidgets(
+      'paging the month and collapsing leaves the label AND the rail on the '
+      'new month — the two pagers stay derived from one selected day',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+
+        String label() => tester
+            .widget<Text>(
+              find.byKey(const Key('bookings-month-calendar-label')),
+            )
+            .data!;
+
+        // The label is present while COLLAPSED — it always was — and must
+        // still be present while OPEN, which is the whole user-facing
+        // complaint this rework answers ("it disappears").
+        final String labelCollapsed = label();
+
+        await tester.tap(
+          find.byKey(const Key('bookings-month-calendar-toggle')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('bookings-month-calendar-label')),
+          findsOneWidget,
+          reason:
+              'the month+year label vanished when the calendar opened — the '
+              'exact regression this rework exists to fix',
+        );
+        expect(label(), labelCollapsed);
+
+        // A horizontal page turn on the grid — the only month-navigation
+        // mechanism left. `fling`, not `drag`: PageScrollPhysics resolves the
+        // turn from velocity.
+        await tester.fling(
+          find.byKey(const Key('bookings-month-calendar-grid')),
+          const Offset(-300, 0),
+          800,
+        );
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        final String labelStepped = label();
+        expect(
+          labelStepped,
+          isNot(labelCollapsed),
+          reason:
+              'fixture guard: the fling did not turn the month page at all, '
+              'so nothing below is proven',
+        );
+
+        // Collapse back down. The rail is what the master now sees.
+        await tester.tap(
+          find.byKey(const Key('bookings-month-calendar-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          label(),
+          labelStepped,
+          reason:
+              'collapsing reverted the label to the pre-step month — the '
+              'label is being derived from something other than the '
+              'selection',
+        );
+
+        final DateTime stepped = tester
+            .widget<BookingsDayRail>(find.byType(BookingsDayRail))
+            .selectedDay;
+        expect(
+          find.byKey(dayChipKey(stepped)),
+          findsOneWidget,
+          reason:
+              'the rail is not showing the week containing the stepped-to '
+              'day — the two pagers desynced, so the collapsed strip shows '
+              'one month under another month\'s label',
+        );
+        expect(
+          tester.getRect(find.byKey(dayChipKey(mondayOf(stepped)))).left,
+          closeTo(
+            tester
+                    .getRect(find.byKey(const Key('master-bookings-day-rail')))
+                    .left +
+                VelvetSpacing.lg,
+            1.5,
+          ),
+          reason:
+              'the rail landed mid-week after the month step — animateToPage '
+              'must settle on a whole week',
+        );
       },
     );
 
@@ -796,8 +978,11 @@ void main() {
           ),
         ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
 
-        final DateTime dayA = railDayAt(_kyivToday, 2);
-        final DateTime dayB = railDayAt(_kyivToday, 3);
+        // From THIS week — the rail pages by week now, so a day outside it
+        // is not on screen at all. See [_otherDaysThisWeek].
+        final List<DateTime> week = _otherDaysThisWeek;
+        final DateTime dayA = week[0];
+        final DateTime dayB = week[1];
 
         // Two booked days, neither of which is the day we will narrow TO.
         await _pump(tester, repo, bookedDays: <DateTime>{dayA, dayB});
@@ -855,9 +1040,15 @@ void main() {
         await tester.pumpAndSettle();
         calls.clear(); // drop the initial (landing-day) fetch
 
-        final DateTime day1 = railDayAt(_kyivToday, 1);
-        final DateTime day2 = railDayAt(_kyivToday, 2);
-        final DateTime day3 = railDayAt(_kyivToday, 3);
+        // Three days of THIS week, none of them today — see
+        // [_otherDaysThisWeek]. `day3` must be a genuine selection CHANGE or
+        // the surviving tap would resolve to the family member already
+        // resolved and fire no request at all, silently turning the call
+        // count below into an assertion about nothing.
+        final List<DateTime> week = _otherDaysThisWeek;
+        final DateTime day1 = week[0];
+        final DateTime day2 = week[1];
+        final DateTime day3 = week[2];
 
         // A fling across the rail lands several taps in quick succession.
         // Without the debounce each is a new family member and a new
@@ -1376,10 +1567,7 @@ void main() {
         ).thenAnswer(
           (_) async => _page(<Booking>[
             for (int i = 0; i < 6; i++)
-              _booking(
-                id: 'b$i',
-                startAt: _kyivToday.toUtc().add(Duration(hours: 8 + i)),
-              ),
+              _booking(id: 'b$i', startAt: _kyivTodayAtUtc(8 + i)),
           ]),
         );
 
@@ -1390,6 +1578,59 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(find.byType(VelvetBottomNavBar), findsOne);
+
+        // ADDENDUM 9 (`bookings_timeline_grid.dart`): the timeline culls cards
+        // planned more than 1.5 viewports below the scroll offset, replacing
+        // them with an identically-sized placeholder. At this deliberately
+        // tiny 375x667 viewport — shrunk further by the app bar and the nav
+        // bar this test exists to stress — the day's last card falls past that
+        // edge, which is the optimisation working as intended and not what
+        // this case is about. Scroll the timeline to the bottom first, so the
+        // assertion below stays about the card being REACHABLE rather than
+        // about where the culling window happens to land on one device size.
+        final ScrollableState timelineScroll = tester.state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(BookingsTimelineGrid),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+
+        // PIN THE REASON b5 IS ABSENT, NOT JUST THAT SCROLLING BRINGS IT BACK.
+        // Scrolling first would otherwise let this case keep passing for the
+        // WRONG reason — a card that stopped being built at all, or one lost
+        // to a clip, also "appears" once you scroll to it. Asserting the
+        // placeholder is present, and that it sits BELOW the fold, says
+        // exactly what the ADDENDUM 9 window is supposed to have done: the
+        // card is off-screen and deliberately deferred, not missing.
+        final Finder culledB5 = find.byKey(
+          const ValueKey<String>('timeline-card-culled-b5'),
+        );
+        expect(
+          culledB5,
+          findsOneWidget,
+          reason:
+              'b5 should be absent at rest ONLY because the culling window '
+              'deferred it. If this fails, the card is missing for some other '
+              'reason and the scroll below would mask it — do not "fix" this '
+              'by deleting the assertion.',
+        );
+        expect(
+          tester.getRect(culledB5).top,
+          greaterThanOrEqualTo(
+            tester.getRect(find.byType(BookingsTimelineGrid)).bottom - 0.5,
+          ),
+          reason:
+              'b5 was culled while still inside the timeline viewport — a '
+              'blank box on screen at 375x667. Culling must only ever defer '
+              'what is already below the fold.',
+        );
+
+        timelineScroll.position.jumpTo(timelineScroll.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
         expect(
           find.byKey(const Key('master-booking-card-b5')),
           findsOneWidget,
@@ -1448,6 +1689,296 @@ void main() {
       expect(protection.releases, 1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 244 — working-hours window: the "no working hours" gray-state CTA
+  // -------------------------------------------------------------------------
+
+  group('working-hours window CTA (Phase 244)', () {
+    testWidgets(
+      'the no-working-hours CTA navigates to /schedule?date=<the day it was '
+      'showing>, and MasterScheduleScreen pre-selects that date',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        String? capturedDateQueryParam;
+        final GoRouter router = GoRouter(
+          initialLocation: '/',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/',
+              builder: (BuildContext context, GoRouterState state) =>
+                  const MasterBookingsScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.masterSchedule,
+              builder: (BuildContext context, GoRouterState state) {
+                capturedDateQueryParam = state.uri.queryParameters['date'];
+                return const Scaffold(
+                  body: SizedBox.shrink(key: _scheduleMarker),
+                );
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            bookingRepositoryProvider.overrideWithValue(repo),
+            bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+            effectiveScheduleProvider.overrideWith(
+              () => _NoScheduleFake(_kyivToday),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-no-schedule')),
+          findsOneWidget,
+          reason:
+              'fixture guard: the gray state must be showing before the '
+              'CTA is tapped',
+        );
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-no-schedule-cta')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(_scheduleMarker), findsOneWidget);
+        expect(
+          capturedDateQueryParam,
+          toApiDate(_kyivToday),
+          reason:
+              'the CTA must route to /schedule?date=<the day the gray state '
+              'was showing>, formatted through toApiDate',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Haptic cue contract — month grid (mobile-qa, 2026-08-14)
+  // ---------------------------------------------------------------------
+  //
+  // `_BookingsDiscoveryViewState._stepMonth` fires
+  // `HapticFeedback.selectionClick()` unconditionally whenever it runs — the
+  // guard against a spring-back / a programmatic resync lives one layer
+  // down, in `BookingsMonthCalendarPanel._resolveMonthPage`'s `delta == 0`
+  // early return (that method only calls `widget.onStepMonth` — which
+  // reaches `_stepMonth` — on a genuine COMMITTED page turn; see that
+  // method's own doc). So this group mounts the REAL `MasterBookingsScreen`
+  // — not a recording stand-in the way
+  // `bookings_pager_commit_threshold_test.dart`'s `_PanelHost.onStepMonth`
+  // is — because only the real widget tree actually reaches the real
+  // `HapticFeedback.selectionClick()` call.
+  group('haptic cue contract — month grid', () {
+    late List<MethodCall> platformCalls;
+
+    setUp(() {
+      platformCalls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (
+            MethodCall call,
+          ) async {
+            platformCalls.add(call);
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    int selectionClicks() => platformCalls
+        .where(
+          (MethodCall c) =>
+              c.method == 'HapticFeedback.vibrate' &&
+              c.arguments == 'HapticFeedbackType.selectionClick',
+        )
+        .length;
+
+    const Key gridKey = Key('bookings-month-calendar-grid');
+    const Key toggleKey = Key('bookings-month-calendar-toggle');
+
+    /// The same paused-before-lift technique as
+    /// `bookings_pager_commit_threshold_test.dart`'s `_pausedForwardDrag` —
+    /// not re-derived here, see that file's header for why the exact timing
+    /// (8 real 40ms-spaced samples, then a pump PAST `VelocityTracker`'s own
+    /// 40ms "assume stopped" cutoff with no further sample before `up()`)
+    /// matters and why a trailing run of zero-delta samples is NOT a
+    /// substitute.
+    Future<void> pausedForwardDrag(
+      WidgetTester tester,
+      Finder finder, {
+      required double fraction,
+    }) async {
+      final double width = tester.getRect(finder).width;
+      const int steps = 8;
+      final double dx = -(width * fraction) / steps;
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(finder),
+      );
+      Duration stamp = Duration.zero;
+      for (int i = 0; i < steps; i++) {
+        stamp += const Duration(milliseconds: 40);
+        await gesture.moveBy(Offset(dx, 0), timeStamp: stamp);
+        // fixed-wait-ok: advancing the pointer-sample clock in lockstep with
+        // the synthetic move timestamps, not waiting on a condition.
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      // fixed-wait-ok: advancing past VelocityTracker's own 40ms "assume
+      // stopped" cutoff, not waiting on a condition.
+      await tester.pump(const Duration(milliseconds: 60));
+      await gesture.up();
+    }
+
+    _MockBookingRepository emptyRepo() {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).thenAnswer((_) async => _page(<Booking>[]));
+      return repo;
+    }
+
+    testWidgets(
+      'CASE 1 (positive control): a committed month page turn fires exactly '
+      'one haptic — proves the mock is wired and the cue is genuinely '
+      'reachable, so the negative-only cases below mean something',
+      (tester) async {
+        await _pump(tester, emptyRepo());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+
+        // Same fling this file's own "paging the month and collapsing" test
+        // above already proves lands a genuine month step.
+        await tester.fling(find.byKey(gridKey), const Offset(-300, 0), 800);
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          1,
+          reason:
+              'a committed month page turn must fire the haptic cue exactly '
+              'once — 0 would mean either the cue regressed or the mock is '
+              'not wired, either of which would make every negative test '
+              'below pass for the wrong reason.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CASE 2: a spring-back (under-threshold paused release) on the month '
+      'grid fires no haptic',
+      (tester) async {
+        await _pump(tester, emptyRepo());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(toggleKey));
+        await tester.pumpAndSettle();
+
+        // Establish a real committed turn first — see the day-rail sibling
+        // group's header (`bookings_day_rail_test.dart`) for why: it keeps
+        // this test meaningful rather than accidentally exercising a
+        // first-interaction edge case this test isn't about.
+        await pausedForwardDrag(tester, find.byKey(gridKey), fraction: 0.30);
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+        final int afterCommit = selectionClicks();
+
+        await pausedForwardDrag(tester, find.byKey(gridKey), fraction: 0.20);
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          afterCommit,
+          reason:
+              'a spring-back on the month grid must never fire the haptic '
+              'cue.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CASE 3: a programmatic resync (didUpdateWidget jumping the grid to '
+      'follow a rail tap that crossed a month boundary) fires no haptic',
+      (tester) async {
+        // Kyiv "today" pinned to a Thursday whose Mon->Sun rail week crosses
+        // into the next month (2026-07-30, week 07-27..08-02), so a plain
+        // rail-chip tap for a day in that same week selects a day in a
+        // DIFFERENT month with no grid gesture at all — exactly the
+        // `BookingsMonthCalendarPanel.didUpdateWidget` resync path, and the
+        // whole reason `_resolveMonthPage`'s `delta == 0` guard exists.
+        // future-date-ok: the month-boundary-crossing week is a STRUCTURAL calendar property (a fixed Mon-Sun span landing across 07-31/08-01) that no now-relative helper can guarantee, and the instant only ever reaches the widget through the injected `clock: () => fixedNow` seam (never a wall-clock read), so this fixture stays deterministic on every run and carries none of the `isPast`-time-bomb risk this gate exists to catch.
+        final DateTime fixedNow = DateTime.utc(2026, 7, 30, 10);
+        await _pump(tester, emptyRepo(), clock: () => fixedNow);
+        await tester.pumpAndSettle();
+        final int beforeTap = selectionClicks();
+
+        final DateTime augustDay = DateTime(2026, 8, 1);
+        await tester.tap(find.byKey(dayChipKey(augustDay)));
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          selectionClicks(),
+          beforeTap,
+          reason:
+              'a rail tap that crosses a month boundary resyncs the grid '
+              'via didUpdateWidget/jumpToPage — that is pure navigation '
+              'echo, never a haptic-worthy commit.',
+        );
+      },
+    );
+  });
+}
+
+/// A fake `effectiveScheduleProvider` resolving [date] to NO_SCHEDULE for
+/// every requested range — drives the master booking timeline's gray
+/// "no working hours" empty state (Phase 244).
+class _NoScheduleFake extends EffectiveScheduleNotifier {
+  _NoScheduleFake(this._date);
+  final DateTime _date;
+
+  @override
+  Future<List<EffectiveDay>> build(ScheduleRange range) async => <EffectiveDay>[
+    EffectiveDay(
+      date: _date,
+      source: EffectiveSource.noSchedule,
+      intervals: const <WorkInterval>[],
+    ),
+  ];
 }
 
 class _CountingScreenProtection extends ScreenProtectionManager {

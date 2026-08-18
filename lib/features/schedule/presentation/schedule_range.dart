@@ -59,4 +59,18 @@ abstract class ScheduleRange with _$ScheduleRange {
   /// No-op alias kept for call-site compatibility: every [ScheduleRange] is
   /// already date-only at construction, so this returns the same logical value.
   ScheduleRange get normalised => this;
+
+  /// Whether this INCLUSIVE `[from, to]` window shares at least one calendar
+  /// date with [other]'s. Both bounds are date-only by construction (see the
+  /// class doc), so this is a plain inclusive-interval overlap test — no
+  /// timezone or wall-clock concern applies.
+  ///
+  /// Used by `EffectiveScheduleNotifier.build` to distinguish an
+  /// [overrides_revision_provider.dart]'s `OverridesRevision` bump that
+  /// touches THIS range's dates (must recompute) from one that provably does
+  /// not (safe to skip the network refetch) — see that file's header for why
+  /// this must be an overlap test, not an equality test: a MONTH-range write
+  /// must still reach a SINGLE-DAY watcher nested inside that month.
+  bool overlaps(ScheduleRange other) =>
+      !to.isBefore(other.from) && !from.isAfter(other.to);
 }

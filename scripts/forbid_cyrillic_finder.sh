@@ -19,7 +19,12 @@
 # (U+0400–U+04FF) is forbidden in `test/**` and `integration_test/**`. A
 # legitimate exception (e.g. asserting a value that is data, not UI copy, and
 # is identical in every locale) is unblocked with a `// i18n-finder-ok: <reason>`
-# comment on the same line or the line directly above.
+# comment on the same line, or anywhere in the unbroken run of `//` comment
+# lines immediately above it (a long reason may wrap across several comment
+# lines — the annotation can be on any of them). The walk upward stops at the
+# first line that is not a bare `//` comment line, so an annotation separated
+# from the hit by real code does NOT count — it would otherwise become a
+# blanket file-level opt-out.
 #
 # LEGACY BASELINE (ratchet, not a big-bang rewrite)
 # -------------------------------------------------
@@ -53,14 +58,20 @@ annotation='//[[:space:]]*i18n-finder-ok:'
 # scan_file <path>
 #   Emits "<path>:<line>:<text>" for each un-annotated Cyrillic find.text.
 #   A line is skipped when it is a genuine `//` comment line (first non-space
-#   token is `//`) or carries the `// i18n-finder-ok:` annotation on itself or
-#   the line directly above.
+#   token is `//`) or carries the `// i18n-finder-ok:` annotation on itself,
+#   or anywhere in the unbroken run of `//` comment lines immediately above it.
 #
 #   Two-pass design: `grep -nP` (PCRE, for the \x{…} code-point class) yields
 #   the set of OFFENDING line numbers; a single awk pass over the WHOLE file
 #   then applies the comment/annotation filter — awk sees every line so the
-#   "annotation on the line directly above" check has the real previous line
-#   (a grep-prefiltered stream would skip the annotation line and break it).
+#   "annotation anywhere in the comment run above" check can walk back through
+#   the real preceding lines (a grep-prefiltered stream would skip the
+#   annotation lines and break it). `comment_run_annotated` tracks whether the
+#   contiguous block of comment lines seen so far contains the annotation; it
+#   is set on an annotated comment line, left untouched on any other comment
+#   line (so a wrapped, multi-line reason still counts), and cleared the
+#   moment a non-comment (real code) line is seen — so the walk never crosses
+#   into code above the block.
 # ---------------------------------------------------------------------------
 scan_file() {
   local f="$1"
@@ -69,18 +80,37 @@ scan_file() {
   [ -z "$hits" ] && return 0
   awk -v file="$f" -v ann="$annotation" -v hits=" $hits " '
     {
+      trimmed = $0
+      sub(/^[[:space:]]+/, "", trimmed)
+      is_comment_line = (trimmed ~ /^[/][/]/)
       key = " " NR " "
+
       if (index(hits, key) > 0) {           # this line is a Cyrillic-finder hit
-        # Genuine comment line? First non-space token is `//`.
-        firsttok = $0
-        sub(/^[[:space:]]+/, "", firsttok)
-        if (firsttok ~ /^[/][/]/) { prev = $0; next }
-        # Annotated on this line or the line directly above.
-        if ($0 ~ ann)   { prev = $0; next }
-        if (prev ~ ann) { prev = $0; next }
+        # (1) Genuine comment line (commented-out code)? Not a real hit —
+        # still track it as part of the comment run, then move on.
+        if (is_comment_line) {
+          if (trimmed ~ ann) comment_run_annotated = 1
+          next
+        }
+        # (2) Annotated on this line, or anywhere in the contiguous `//`
+        # comment block immediately above.
+        if ($0 ~ ann || comment_run_annotated) {
+          comment_run_annotated = 0
+          next
+        }
         printf "%s:%d:%s\n", file, NR, $0
+        comment_run_annotated = 0
+        next
       }
-      prev = $0
+
+      # Not a hit line: track the contiguous comment run for lines that
+      # follow. A comment line extends the run (and sets the flag if it
+      # carries the annotation); any other line breaks it.
+      if (is_comment_line) {
+        if (trimmed ~ ann) comment_run_annotated = 1
+      } else {
+        comment_run_annotated = 0
+      }
     }
   ' "$f"
 }
@@ -97,15 +127,42 @@ if [ "${1:-}" = "--self-test" ]; then
     "    expect(find.text('Манікюр'), findsOneWidget);" \
     "    expect(find.text('Home'), findsOneWidget);" \
     "    // expect(find.text('Профіль'), findsOneWidget);" \
+    "    // i18n-finder-ok: this label is a fixed brand mark rendered" \
+    "    // identically in every locale, not translated UI copy" \
+    "    expect(find.text('Позначка'), findsOneWidget);" \
+    "    // i18n-finder-ok: annotation orphaned by real code below" \
+    "    someRealCodeLine();" \
+    "    expect(find.text('Кошик'), findsOneWidget);" \
+    "    // i18n-finder-ok: covers only the FIRST of this group" \
+    "    expect(find.text('Перший'), findsOneWidget);" \
+    "    expect(find.text('Другий'), findsOneWidget);" \
     > "$tmp"
   out="$(scan_file "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  if [ "$flagged" -ne 1 ]; then
-    echo "SELF-TEST FAIL: expected 1 offender, got $flagged"
+  if [ "$flagged" -ne 3 ]; then
+    echo "SELF-TEST FAIL: expected 3 offenders, got $flagged"
     printf '%s\n' "$out"
     exit 1
   fi
-  echo "SELF-TEST PASS: 1 raw Cyrillic finder flagged; annotated / ASCII / commented lines clean"
+  if ! printf '%s\n' "$out" | grep -q ':1:'; then
+    echo "SELF-TEST FAIL: expected the raw unannotated finder (line 1) to be flagged"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  if ! printf '%s\n' "$out" | grep -q ':11:'; then
+    echo "SELF-TEST FAIL: expected the finder separated from its annotation by real code (line 11) to be flagged"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  if ! printf '%s\n' "$out" | grep -q ':14:'; then
+    echo "SELF-TEST FAIL: expected the SECOND finder in an annotated group (line 14), not covered by the annotation above the first, to be flagged"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  echo "SELF-TEST PASS: 3 offenders flagged (raw finder; annotation orphaned by real code;"
+  echo "second hit in a group not itself annotated)."
+  echo "Clean: same-line-above annotation, 2-line wrapped annotation, ASCII, commented-out line."
+  echo "SELF-TEST OK: forbid_cyrillic_finder.sh"
   exit 0
 fi
 

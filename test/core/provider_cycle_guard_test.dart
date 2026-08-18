@@ -64,6 +64,7 @@
 // the entrypoint inside `expectLater(..., completes)` to fail on a
 // CircularDependencyError, then runs `settle`.
 
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -76,15 +77,77 @@ import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
+import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
 
+import '../helpers/fakes/fake_favorite_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/fakes/fake_wishlist_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockAuthRepository extends Mock implements AuthRepository {}
+
+/// The two overlapping-but-distinct family members the cycle-guard row below
+/// subscribes — mirrors the schedule editor (MONTH) vs «Мої записи» (a
+/// SINGLE DAY inside that month) watching `effectiveScheduleProvider` under
+/// different [ScheduleRange] keys.
+final ScheduleRange _cycleGuardMonthRange = ScheduleRange.month(
+  DateTime(2026, 6, 15),
+);
+final ScheduleRange _cycleGuardDayRange = ScheduleRange(
+  from: DateTime(2026, 6, 20),
+  to: DateTime(2026, 6, 20),
+);
+
+/// A [ScheduleRepository] leaf stub for the cycle-guard row — no
+/// intermediate provider is overridden (see [_TeardownEntrypoint
+/// .extraOverrides]'s doc), only this leaf data dependency. The exact
+/// resolved values are irrelevant to the guard (which asserts absence of
+/// `CircularDependencyError`, not a particular schedule shape); every method
+/// resolves to an inert, well-typed default.
+///
+/// A hand-written [Fake] rather than a mocktail [Mock]: the `_entrypoints`
+/// list (and therefore this constructor call) runs at top-level `final`
+/// initialisation time, BEFORE `setUpAll` — too early for
+/// `registerFallbackValue` to have run for a mocktail `any()` matcher on a
+/// custom type like [ScheduleOverride]. A plain [Fake] needs no matcher
+/// registration at all.
+class _CycleGuardScheduleRepository extends Fake implements ScheduleRepository {
+  @override
+  Future<List<ScheduleOverride>> listOverrides(
+    DateTime from,
+    DateTime to,
+  ) async => const <ScheduleOverride>[];
+
+  @override
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
+
+  @override
+  Future<List<EffectiveDay>> effectiveSchedule(
+    DateTime from,
+    DateTime to,
+  ) async => const <EffectiveDay>[];
+}
+
+ScheduleRepository _buildCycleGuardScheduleRepo() =>
+    _CycleGuardScheduleRepository();
 
 const _testUser = User(
   id: 'u1',
@@ -113,14 +176,21 @@ const _testTokens = AuthTokens(
 ProviderContainer _buildRealGraph({
   required AuthRepository authRepo,
   required FakeSecureStorage storage,
+  // Additional LEAF overrides a specific entrypoint needs (e.g. a favorite/
+  // wishlist repository fake) — never an intermediate provider that carries a
+  // watch edge, or the cyclic edge under test would be engineered away (see
+  // the file header's "WHY THE OLD TESTS MISSED IT").
+  List<Object> extraOverrides = const <Object>[],
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       // Leaf data deps only — break NO intermediate watch edge.
       authRepositoryProvider.overrideWith((_) => authRepo),
       secureStorageProvider.overrideWith((_) => storage),
       masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
-    ],
+      ...extraOverrides,
+    ].cast(),
   );
   addTearDown(container.dispose);
   return container;
@@ -134,10 +204,17 @@ class _TeardownEntrypoint {
     required this.subscribeCycleClosers,
     required this.run,
     required this.settle,
+    this.extraOverrides = const <Object>[],
   });
 
   /// Human label for the test name.
   final String description;
+
+  /// Extra LEAF overrides this entrypoint's graph needs (e.g. a repository
+  /// fake) beyond the shared auth/master leaves `_buildRealGraph` always
+  /// applies. Must never override an INTERMEDIATE provider that carries the
+  /// watch edge under test.
+  final List<Object> extraOverrides;
 
   /// Subscribes (via `container.listen`) to every provider whose live
   /// subscription closes the watch cycle through the entrypoint's provider, so
@@ -210,6 +287,129 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       );
     },
   ),
+
+  // -------------------------------------------------------------------------
+  // favoriteToggleProvider.notifier.toggle() — Phase 240 fix.
+  //
+  // A successful SERVICE *add* now `ref.invalidate(wishlistProvider)`s (see
+  // `favorite_toggle_notifier.dart`'s file header). `wishlistProvider` never
+  // watches `favoriteToggleProvider` back (its `build()` only watches
+  // `wishlistRepositoryProvider`; `removeService()` only `ref.read`s the
+  // toggle notifier, which records no watch edge) — so there is no back-edge
+  // and no cycle. This entrypoint proves that on the REAL graph rather than
+  // by code-reading alone: subscribing to `wishlistProvider` registers it as
+  // a live listener, then `toggle()` must complete without
+  // `CircularDependencyError`.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'favoriteToggleProvider.notifier.toggle() (SERVICE add → '
+        'wishlistProvider invalidate)',
+    extraOverrides: <Object>[
+      favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
+      wishlistRepositoryProvider.overrideWithValue(FakeWishlistRepository()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        wishlistProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container
+          .read(favoriteToggleProvider.notifier)
+          .toggle(
+            const FavoriteTarget(type: FavoriteTargetType.service, id: 'svc-1'),
+          );
+    },
+    settle: (container) {
+      final FavoriteEntry? entry = container.read(
+        favoriteToggleProvider,
+      )[const FavoriteTarget(type: FavoriteTargetType.service, id: 'svc-1')];
+      expect(
+        entry?.isFavorite,
+        isTrue,
+        reason:
+            'toggle() must settle the target favorited via the normal '
+            'optimistic-success path — no manual invalidation of ITSELF, no '
+            'cycle.',
+      );
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // overridesProvider(monthRange).notifier.putOverride() — Phase 244
+  // follow-up (`overrides_revision_provider.dart`).
+  //
+  // `EffectiveScheduleNotifier.build` watches BOTH `overridesProvider(range)`
+  // (same-range reactive link) AND `overridesRevisionProvider` (the
+  // cross-range trigger `OverridesNotifier._mutate` bumps after every write).
+  // A reverted fix — `OverridesNotifier` calling
+  // `ref.invalidate(effectiveScheduleProvider)` directly instead of bumping
+  // the revision counter — closes a REAL cycle for any range whose
+  // `effectiveScheduleProvider(range)` is live: that instance watches
+  // `overridesProvider(range)`, so a write on THAT SAME range invalidating it
+  // from inside `OverridesNotifier` is a back-edge. Subscribing to BOTH a
+  // MONTH-range and a DAY-range `effectiveScheduleProvider` instance here
+  // (mirroring the schedule editor + «Мої записи» watching two different
+  // family members for an overlapping date) registers that edge for the
+  // range under write; `putOverride` must complete without
+  // `CircularDependencyError` on the real graph.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'overridesProvider(monthRange).notifier.putOverride() while '
+        'effectiveScheduleProvider(monthRange) AND '
+        'effectiveScheduleProvider(dayRange) are both subscribed',
+    extraOverrides: <Object>[
+      scheduleRepositoryProvider.overrideWithValue(
+        _buildCycleGuardScheduleRepo(),
+      ),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        effectiveScheduleProvider(_cycleGuardMonthRange),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+      container.listen<Object?>(
+        effectiveScheduleProvider(_cycleGuardDayRange),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container
+          .read(overridesProvider(_cycleGuardMonthRange).notifier)
+          .putOverride(
+            ScheduleOverride.explicitTimes(
+              start: _cycleGuardDayRange.from,
+              end: _cycleGuardDayRange.from,
+              times: const <TimeOfDay>[TimeOfDay(hour: 11, minute: 0)],
+            ),
+          );
+    },
+    settle: (container) {
+      expect(
+        container.read(overridesProvider(_cycleGuardMonthRange)).hasError,
+        isFalse,
+        reason: 'the write itself must succeed against the fake repo',
+      );
+      expect(
+        container
+            .read(effectiveScheduleProvider(_cycleGuardMonthRange))
+            .hasError,
+        isFalse,
+      );
+      expect(
+        container.read(effectiveScheduleProvider(_cycleGuardDayRange)).hasError,
+        isFalse,
+      );
+    },
+  ),
 ];
 
 void main() {
@@ -241,6 +441,7 @@ void main() {
           final container = _buildRealGraph(
             authRepo: deps.repo,
             storage: deps.storage,
+            extraOverrides: entry.extraOverrides,
           );
 
           // Subscribe to every cycle-closing provider so its real

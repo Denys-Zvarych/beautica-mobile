@@ -63,6 +63,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -100,6 +101,7 @@ Future<void> _pumpServiceTypeSuggestionDialog(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
       child: const MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -128,6 +130,7 @@ Future<void> _pumpCategoryRequestDialog(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
       child: const MaterialApp(
         debugShowCheckedModeBanner: false,

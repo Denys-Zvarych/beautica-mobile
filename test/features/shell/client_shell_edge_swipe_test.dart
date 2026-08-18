@@ -31,6 +31,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 GoRouter _buildClientShellRouter() => GoRouter(
   initialLocation: RouteNames.clientHome,
@@ -91,6 +92,7 @@ GoRouter _buildClientShellRouter() => GoRouter(
 Future<void> _pumpShell(WidgetTester tester, GoRouter router) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       child: MaterialApp.router(
         routerConfig: router,
         localizationsDelegates: AppLocalizations.localizationsDelegates,

@@ -42,18 +42,19 @@ import '../features/auth/domain/auth_session.dart';
 import '../features/auth/domain/reset_password_args.dart';
 import '../features/auth/domain/user_role.dart';
 import '../features/booking/domain/booking_confirm_args.dart';
+import '../features/booking/domain/booking_entry_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
-import '../features/booking/presentation/booking_time_screen.dart';
+import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
+import '../features/booking/presentation/master_archive_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
-import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
@@ -72,7 +73,6 @@ import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
-import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
@@ -83,6 +83,7 @@ import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
+import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
@@ -92,6 +93,7 @@ import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
 import '../features/services/domain/category_slug.dart';
+import '../shared/formatters/api_date.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'role_home.dart';
@@ -458,6 +460,19 @@ GoRouter appRouter(Ref ref) {
                 pageBuilder: (context, state) =>
                     _instantPage(state, const MyBookingsScreen()),
                 routes: [
+                  // MO-8 [mobile-security MEDIUM, fixed] — the
+                  // `visit/:appointmentId` GoRoute (and its nested `review`
+                  // child) was REMOVED here; it backed the whole-visit detail
+                  // screen's cancel, which had no UI entry point since MO-7
+                  // deleted `VisitCard` but stayed reachable via an explicit
+                  // component-targeted intent. Its backing screens
+                  // (`VisitDetailScreen`/`AppointmentReviewScreen`) were
+                  // themselves deleted once the "1 booking = 1 feedback"
+                  // product decision closed off any whole-visit review
+                  // journey — see the mobile-dev deletion-sweep commit that
+                  // removed `visit_detail_screen.dart` /
+                  // `appointment_review_screen.dart`. Re-adding a whole-visit
+                  // entry point starts from scratch, not from those files.
                   // /bookings/:bookingId — «Деталі запису» (14.3/14.4),
                   // pushed onto this branch's own navigator (swipe-back
                   // returns to the still-scrolled list) from a BookingCard
@@ -499,6 +514,23 @@ GoRouter appRouter(Ref ref) {
                 path: RouteNames.clientPassport,
                 pageBuilder: (context, state) =>
                     _instantPage(state, const PassportScreen()),
+                routes: [
+                  // Phase 239 — /passport/wishlist, «Усі збережені». Pushed
+                  // from the section's «Показати всі (N)» outline button.
+                  // Nested under the passport branch so it lands on that
+                  // branch's own navigator and swipe-back returns to the
+                  // still-scrolled passport page.
+                  //
+                  // `builder:`, NOT `pageBuilder: _instantPage` — the default
+                  // Material transition and the swipe-back gesture apply, which
+                  // is what every other pushed-detail route in this file does.
+                  // `_instantPage` is for branch ROOTS, where a transition
+                  // would animate a tab switch.
+                  GoRoute(
+                    path: 'wishlist',
+                    builder: (context, state) => const WishlistScreen(),
+                  ),
+                ],
               ),
             ],
           ),
@@ -603,34 +635,51 @@ GoRouter appRouter(Ref ref) {
       // redirects to the CLIENT home shell instead of rendering the screen
       // with an empty masterId, matching the fail-safe shape already used by
       // the nested `bookingSlots`/`bookingSlots/time` routes below.
+      //
+      // Phase 241 — ADDITIVE second `extra` shape: a [BookingEntryArgs] for a
+      // caller that already knows exactly which service to book (the
+      // wish-list rebook CTA). The bare-`String` shape above is UNCHANGED and
+      // every existing call site keeps working verbatim — this is the "add a
+      // pre-selection argument rather than forking the flow" seam, not a
+      // second route.
       GoRoute(
         path: RouteNames.bookingNew,
         redirect: (context, state) {
           final roleRedirect = clientOnlyGuard(context, state);
           if (roleRedirect != null) return roleRedirect;
           final Object? extra = state.extra;
-          if (extra is! String || extra.isEmpty) {
-            return RouteNames.clientHome;
-          }
+          final bool validExtra = switch (extra) {
+            String s => s.isNotEmpty,
+            BookingEntryArgs args => args.masterId.isNotEmpty,
+            _ => false,
+          };
+          if (!validExtra) return RouteNames.clientHome;
           return null;
         },
-        builder: (context, state) =>
-            ServiceSelectorSheet(masterId: state.extra! as String),
+        builder: (context, state) {
+          final Object? extra = state.extra;
+          if (extra is BookingEntryArgs) {
+            return ServiceSelectorSheet(
+              masterId: extra.masterId,
+              initialServiceId: extra.preselectedServiceId,
+              autoAdvance: true,
+            );
+          }
+          return ServiceSelectorSheet(masterId: extra! as String);
+        },
       ),
-      // Booking flow Step 2 — the per-service TIME picker
-      // (`BookingTimeScreen`): a horizontal PageView, one slide per service
-      // selected in Step 1, each picking its OWN date + time (the confirmed
-      // salon-parity multi-service UX). Reached from `ServiceSelectorSheet`'s
-      // «Далі» CTA with a `BookingSlotPickerArgs` in `extra`.
+      // Booking flow Step 2 — the single date→time picker for the WHOLE visit
+      // (MO-3). The client picks ONE date then ONE start time; availability is
+      // fetched for the full ordered service selection (summed-duration block)
+      // and the whole visit is submitted as ONE `POST /appointments`.
       //
-      //   • bookingSlots      → BookingTimeScreen (primary multi-service flow)
-      //   • bookingSlots/time → SlotTimeScreen — the RETAINED single-service /
-      //     Phase 14.8 reschedule picker (a two-phase date→time screen sharing
-      //     `slotPickerProvider`). Not reached from the sheet today; kept
-      //     registered for the reschedule surface and its direct-pump tests.
-      // Both require a `BookingSlotPickerArgs` in `extra`; a missing/invalid
-      // extra redirects back to [RouteNames.bookingNew] rather than crashing on
-      // a bad cast.
+      //   • bookingSlots      → SlotDateScreen — «Оберіть дату»
+      //   • bookingSlots/time → SlotTimeScreen — «Оберіть час»
+      // Both share `slotPickerProvider` and require a `BookingSlotPickerArgs` in
+      // `extra` (reached from `ServiceSelectorSheet`'s «Далі», and from the
+      // reschedule surface with a non-null `rescheduleBookingId`); a missing/
+      // invalid extra redirects back to [RouteNames.bookingNew] rather than
+      // crashing on a bad cast.
       GoRoute(
         path: RouteNames.bookingSlots,
         redirect: (context, state) {
@@ -642,7 +691,7 @@ GoRouter appRouter(Ref ref) {
           return null;
         },
         builder: (context, state) =>
-            BookingTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+            SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
         routes: [
           GoRoute(
             path: 'time',
@@ -749,12 +798,12 @@ GoRouter appRouter(Ref ref) {
           args: state.extra! as SalonBookingMasterSelectionArgs,
         ),
       ),
-      // Phase 14.16/14.17 — Salon booking flow step 3 (per-master date/time
-      // picker). `SalonMasterSelectionScreen`'s «Підтвердити» CTA now pushes
-      // here (with a `SalonBookingTimeArgs` in `extra`) instead of directly
-      // hopping to [salonBookingComingSoon] — same "no natural upstream
-      // extra" fallback shape as [salonBookingMasters] above, since a
-      // missing/wrong-typed extra has nothing to chain-redirect through.
+      // MO-4 — Salon booking flow step 3 (single date/time picker).
+      // `SalonMasterSelectionScreen`'s «Далі» CTA pushes here with a
+      // `SalonBookingTimeArgs` (the resolved single-master visit) in `extra` —
+      // same "no natural upstream extra" fallback shape as [salonBookingMasters]
+      // above, since a missing/wrong-typed extra has nothing to chain-redirect
+      // through.
       GoRoute(
         path: RouteNames.salonBookingTime,
         redirect: (context, state) {
@@ -768,33 +817,13 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             SalonTimeScreen(args: state.extra! as SalonBookingTimeArgs),
       ),
-      // Phase 14.13 — Salon booking flow step 4 PLACEHOLDER. Step 4
-      // (confirmation/submit) is unscoped; `SalonTimeScreen`'s «Підтвердити»
-      // CTA (Phase 14.17) routes here instead — carrying the salon id (a
-      // bare String) in `extra` for the "back to profile" action — never
-      // into the independent-master `SlotPickerScreen` (single-master flow,
-      // wrong model for a salon booking), and never a `POST /bookings` call.
-      GoRoute(
-        path: RouteNames.salonBookingComingSoon,
-        redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
-          final Object? extra = state.extra;
-          if (extra is! String || extra.isEmpty) {
-            return RouteNames.clientHome;
-          }
-          return null;
-        },
-        builder: (context, state) =>
-            SalonBookingComingSoonScreen(salonId: state.extra! as String),
-      ),
-      // Phase 14.18 — Salon booking flow step 4 (confirmation + submit).
+      // MO-4 — Salon booking flow step 4 (confirmation + submit).
       // `SalonTimeScreen`'s «Підтвердити» CTA pushes here with a
-      // `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
-      // `extra`; this screen submits one `POST /bookings` per master. A
-      // missing/wrong-typed extra has no natural upstream to chain through, so
-      // it bounces to the CLIENT home shell — same fallback shape as
-      // [salonBookingMasters]/[salonBookingTime] above.
+      // `SalonBookingConfirmArgs` (the single resolved visit) in `extra`; this
+      // screen submits ONE `POST /appointments` via the shared
+      // `AppointmentSubmit`. A missing/wrong-typed extra has no natural upstream
+      // to chain through, so it bounces to the CLIENT home shell — same
+      // fallback shape as [salonBookingMasters]/[salonBookingTime] above.
       GoRoute(
         path: RouteNames.salonBookingConfirm,
         redirect: (context, state) {
@@ -872,6 +901,17 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterBookings,
         builder: (context, state) => const MasterBookingsScreen(),
         routes: [
+          // Phase 231 — /master/bookings/archive, the master «Архів» page.
+          // Registered BEFORE the `:bookingId` sibling below so the literal
+          // segment is never shadowed by the dynamic one (go_router matches
+          // in declaration order among siblings). `builder:` (MaterialPage)
+          // so the theme's CupertinoPageTransitionsBuilder installs the
+          // left-edge swipe-back gesture, matching every other pushed
+          // /master/* sub-route.
+          GoRoute(
+            path: 'archive',
+            builder: (context, state) => const MasterArchiveScreen(),
+          ),
           // /master/bookings/:bookingId — the PROVIDER view of «Деталі
           // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client
           // route renders: one screen, role-branched off the session (locked
@@ -887,6 +927,69 @@ GoRouter appRouter(Ref ref) {
             ),
           ),
         ],
+      ),
+      // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
+      // Registered as a STANDALONE top-level route carrying the SAME full
+      // path [RouteNames.clientReview] resolves to
+      // (`/master/bookings/:bookingId/review`), rather than nested under
+      // `masterBookingDetail` above — mirrors the `/masters/:masterId` +
+      // `/masters/:masterId/reviews` sibling pair further up this file.
+      //
+      // WHY: go_router's matcher inserts every ANCESTOR route's own
+      // `RouteMatch` into a pushed match list for a nested `GoRoute`
+      // (`match.dart`) so it can build the full page stack in one shot. That
+      // is correct when the ancestor is a shell wrapping shared chrome, but
+      // `masterBookingDetail` is a plain content screen, not chrome — nesting
+      // `review` under it meant EVERY push, including the one from the
+      // archive list (`master_archive_screen.dart`), silently built and
+      // mounted a full, invisible `BookingDetailScreen` underneath the
+      // review screen. Popping then landed the user on that shadow detail
+      // screen instead of back on whatever they actually came from (the
+      // archive list, in that case) — a real navigation bug, not just
+      // wasted work.
+      //
+      // As a standalone route this path produces exactly ONE match, so a
+      // push here only ever adds ONE page on top of whatever is already on
+      // the (shared, non-shell) master Navigator stack:
+      //   • from the archive (`/master/bookings/archive` pushed) → pop
+      //     returns to the archive list.
+      //   • from the detail (`/master/bookings/:bookingId` pushed) → pop
+      //     returns to the detail screen, which is legitimately on the
+      //     stack there via the user's own navigation.
+      //
+      // SHELL CHECK: the master surface (`masterBookings` and everything
+      // under it) is NOT a `StatefulShellRoute` — see the doc above
+      // `RouteNames.masterBookings` and this file's own `masterBookings`
+      // registration comment ("the master's four 'tabs' are four flat
+      // routes"). So there is no shell chrome to preserve or lose here: both
+      // before and after this change, `LeaveClientFeedbackScreen` renders as
+      // a plain full-screen page on the root Navigator, with the master
+      // bottom nav supplied by the tab-root screen itself, not by any shell.
+      // Moving this route out of the nested position changes nothing about
+      // that.
+      //
+      // `builder:` (not `pageBuilder: _instantPage`) so the default Material
+      // transition + left-edge swipe-back apply, matching the detail route
+      // and its CLIENT-side `review` twin ([RouteNames.bookingReview]).
+      //
+      // `extra` carries the ENTRY POINT ([ClientReviewEntry]) — never a path
+      // or query segment, because it is not part of the resource's identity
+      // and must not survive into a deep link or a shared URL. It decides one
+      // thing on the destination: whether a successful submit invalidates
+      // `bookingDetailProvider` before popping (required for the detail entry,
+      // pure waste for the archive entry — see that enum's own doc). An absent
+      // or unexpected `extra` falls back to [ClientReviewEntry.bookingDetail],
+      // the direction whose failure mode is one wasted fetch rather than a
+      // resurrected stale CTA.
+      GoRoute(
+        path: '/master/bookings/:bookingId/review',
+        builder: (context, state) => LeaveClientFeedbackScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          entry: switch (state.extra) {
+            final ClientReviewEntry entry => entry,
+            _ => ClientReviewEntry.bookingDetail,
+          },
+        ),
       ),
       // Master profile settings hub + per-section edit pages. These replace the
       // retired monolithic /master/edit form. All auth-guarded (Phase 2.9
@@ -957,14 +1060,10 @@ GoRouter appRouter(Ref ref) {
           return ServicesListScreen(initialExpandCategory: expandCategory);
         },
       ),
-      // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
-      // Uses MaterialPage so swipe-back works on the push stack.
-      GoRoute(
-        path: RouteNames.serviceCreate,
-        builder: (context, state) => const ServiceCreateScreen(),
-      ),
-      // First-time service setup (INDEPENDENT_MASTER) — the one-pass empty-state
-      // menu builder reached from the services-list empty state.
+      // Service setup (INDEPENDENT_MASTER) — the ONE "add services" surface,
+      // reached from both the services-list empty state and the «Додати
+      // послугу» FAB. (The Phase 5.3 single-create form at /services/create was
+      // removed when the two flows collapsed onto this screen.)
       // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: RouteNames.serviceSetup,
@@ -1008,9 +1107,33 @@ GoRouter appRouter(Ref ref) {
       // suppressed it. `context.go(RouteNames.masterSchedule)` elsewhere (the
       // weekly editor's save/cancel returns) is unaffected — `.go` replaces the
       // stack regardless of page type.
+      // `?date=yyyy-MM-dd` — pre-selects a date instead of today (see
+      // `RouteNames.masterSchedule`'s doc). Malformed/absent → `null` →
+      // [MasterScheduleScreen] opens on today, unchanged.
       GoRoute(
         path: RouteNames.masterSchedule,
-        builder: (context, state) => const MasterScheduleScreen(),
+        builder: (context, state) {
+          final String? raw = state.uri.queryParameters['date'];
+          DateTime? initialDate;
+          if (raw != null) {
+            try {
+              initialDate = parseApiDate(raw);
+            } on FormatException {
+              initialDate = null;
+            } on ArgumentError {
+              // Defence in depth (mobile-security HIGH). `parseApiDate`
+              // itself now bound-checks before ever constructing a
+              // `DateTime`, so this branch should be unreachable — but this
+              // route is reachable from an explicit, component-targeted deep
+              // link an attacker fully controls (`MainActivity` is
+              // `exported="true"`; see this route's doc), so a second net
+              // against `DateTime`'s own `ArgumentError` costs nothing and
+              // survives a future regression in that bound check.
+              initialDate = null;
+            }
+          }
+          return MasterScheduleScreen(initialDate: initialDate);
+        },
       ),
       // Phase 15.5 — the REAL weekly-template editor («Робочі дні та години»),
       // graduating the Phase 15.2 [WeeklyTemplateEditorStubScreen] at the same

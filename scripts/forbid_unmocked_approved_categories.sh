@@ -125,6 +125,7 @@ EOF
   fi
   echo "SELF-TEST PASS: only the un-overridden ServiceForm mount is flagged;"
   echo "                overridden / annotated / mention-only files are clean."
+  echo "SELF-TEST OK: forbid_unmocked_approved_categories.sh"
   exit 0
 fi
 

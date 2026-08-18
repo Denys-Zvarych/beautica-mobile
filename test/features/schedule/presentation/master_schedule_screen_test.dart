@@ -50,6 +50,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+
+import '../../../helpers/clock_instant.dart';
+import '../../../helpers/pump_app.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
@@ -64,6 +68,11 @@ DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 /// flip every calendar day (the highlighted day + the date label moved), so the
 /// suite passed its logic assertions but its goldens failed on any day other
 /// than the one they were captured on. All fakes anchor on this date.
+///
+/// [_today] itself is a DATE TOKEN (see `lib/shared/time/kyiv_day.dart`), used
+/// throughout this file for comparisons/labels/`validFrom` — never pass it
+/// directly to a `clock:` param; use [asClockInstant] (test/helpers/
+/// clock_instant.dart) for that instead.
 final DateTime _today = _dateOnly(DateTime(2026, 6, 13));
 DateTime _mondayOf(DateTime d) =>
     _dateOnly(d).subtract(Duration(days: d.weekday - 1));
@@ -398,7 +407,10 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
   ) async => const <ScheduleOverride>[];
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async {
     putCount++;
     final DateTime key = _dateOnly(override.start);
     // Reflect the saved override in the effective data so the next
@@ -417,6 +429,15 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
   Future<void> clearOverride(DateTime date) async {
     _effective.remove(_dateOnly(date));
   }
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   // ── Unused by these tests (weekly template path) ──────────────────────────
   @override
@@ -490,11 +511,22 @@ class _CountingRangeScheduleRepository implements ScheduleRepository {
 
   // ── Unused by the cache revisit test ───────────────────────────────────────
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
-      override;
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
 
   @override
   Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
@@ -622,7 +654,10 @@ class _CompleterScheduleRepository implements ScheduleRepository {
   }
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async {
     putCount++;
     _saved = true;
     return override;
@@ -632,6 +667,15 @@ class _CompleterScheduleRepository implements ScheduleRepository {
   Future<void> clearOverride(DateTime date) async {
     _saved = false;
   }
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
@@ -759,7 +803,8 @@ class _ContainerListenable extends ChangeNotifier {
 List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.masterSchedule,
-    builder: (context, state) => MasterScheduleScreen(clock: () => _today),
+    builder: (context, state) =>
+        MasterScheduleScreen(clock: () => asClockInstant(_today)),
   ),
   // The REAL weekly-template editor the CTA now routes to (Phase 15.5).
   // It reads `weeklyScheduleProvider` (overridden per-test) and saves via
@@ -767,7 +812,7 @@ List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.scheduleWeeklyEditor,
     builder: (context, state) =>
-        WeeklyTemplateEditorScreen(clock: () => _today),
+        WeeklyTemplateEditorScreen(clock: () => asClockInstant(_today)),
   ),
   // Deprecated legacy editor — kept routable so the auth guard stays exercised,
   // but it is no longer a CTA destination.
@@ -785,7 +830,7 @@ List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.schedulePropagate,
     builder: (context, state) =>
-        WeeklyTemplateEditorScreen(clock: () => _today),
+        WeeklyTemplateEditorScreen(clock: () => asClockInstant(_today)),
   ),
   GoRoute(
     path: RouteNames.masterProfile,
@@ -825,6 +870,7 @@ Future<void> _pump(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
       child: MaterialApp.router(
         routerConfig: _router(),
@@ -855,6 +901,7 @@ Future<ProviderContainer> _pumpGuarded(
   required List<Object> overrides,
 }) async {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
   );
   await tester.pumpWidget(
@@ -905,6 +952,7 @@ AppLocalizations _l10n(WidgetTester tester) =>
 /// strip row.
 Future<void> _selectStripDay(WidgetTester tester, int dayNumber) async {
   // The strip shows the day-of-month number; tap it to select that date.
+  // i18n-finder-ok: Arabic-numeral day-of-month digits, locale-invariant.
   final Finder dayText = find.text('$dayNumber');
   await tester.tap(dayText.first);
   await tester.pumpAndSettle();
@@ -1005,11 +1053,22 @@ class _MutableDiscreteRepository implements ScheduleRepository {
   ) async => const <ScheduleOverride>[];
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
-      override;
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
 
   @override
   Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
@@ -1447,6 +1506,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               ..._editableData(days),
               _fakeWorkingHours(),
@@ -1544,6 +1604,7 @@ void main() {
         ];
         final repo = _MutableDiscreteRepository(_today, savedTimes);
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -2089,6 +2150,7 @@ void main() {
         final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               authProvider.overrideWith(
                 () => _FixedAuth(UserRole.independentMaster),
@@ -2147,6 +2209,7 @@ void main() {
     testWidgets('loading shows a spinner', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -2585,20 +2648,43 @@ void main() {
         // ── Assertion 1: month and year are TWO SEPARATE Text widgets ─────────
         // (NOT a single combined "<month> <year>" Text). The pre-change code had
         // one Text — so the combined finder matched and these two did not.
-        final Finder monthText = find.text(monthName);
-        final Finder yearText = find.text(yearLabel);
+        // Found by Key (not `find.text(monthName)`) so the finder itself stays
+        // locale-proof; the content check right below still pins the RENDERED
+        // value against `monthNominative` — the assertion this test exists for.
+        final Finder monthText = find.byKey(
+          const Key('schedule-month-nav-month-text'),
+        );
+        final Finder yearText = find.byKey(
+          const Key('schedule-month-nav-year-text'),
+        );
         expect(
           monthText,
           findsOneWidget,
           reason: 'the month name renders as its own Text node',
         );
         expect(
+          tester.widget<Text>(monthText).data,
+          monthName,
+          reason: 'the month Text node must render the current month name',
+        );
+        expect(
           yearText,
           findsOneWidget,
           reason: 'the year renders as its own Text node',
         );
+        expect(
+          tester.widget<Text>(yearText).data,
+          yearLabel,
+          reason: 'the year Text node must render the current year',
+        );
         // The combined single-line label must NOT exist (regression guard
-        // against collapsing the two rows back into one Text).
+        // against collapsing the two rows back into one Text). This asserts
+        // ABSENCE, so there is no single widget to key on; `monthName` /
+        // `yearLabel` are computed via the same `monthNominative` derivation
+        // production uses, not a hardcoded copy string, so the finder tracks
+        // whatever the app actually renders in either locale.
+        // i18n-finder-ok: computed from monthNominative(), same source as
+        // production — not a hardcoded literal.
         expect(
           find.text('$monthName $yearLabel'),
           findsNothing,
@@ -2887,6 +2973,7 @@ void main() {
         );
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3013,6 +3100,7 @@ void main() {
         );
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3641,6 +3729,7 @@ void main() {
       (tester) async {
         final repo = _CountingRangeScheduleRepository();
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
@@ -3763,18 +3852,19 @@ void main() {
             GoRoute(
               path: RouteNames.masterSchedule,
               builder: (context, state) =>
-                  MasterScheduleScreen(clock: () => now),
+                  MasterScheduleScreen(clock: () => asClockInstant(now)),
             ),
             // Kept routable so the day pencil / CTA have a destination.
             GoRoute(
               path: RouteNames.scheduleWeeklyEditor,
               builder: (context, state) =>
-                  WeeklyTemplateEditorScreen(clock: () => now),
+                  WeeklyTemplateEditorScreen(clock: () => asClockInstant(now)),
             ),
           ],
         );
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: <Object>[
               ..._editableData(days),
               _fakeWorkingHours(),
@@ -3824,6 +3914,336 @@ void main() {
       },
     );
   });
+
+  // ── mobile-qa (2026-08-03, backlog :226) — Kyiv-anchored `_today` ──────────
+  //
+  // `_MasterScheduleScreenState._today` derives via `kyivDayOf(widget._clock
+  // ?.call() ?? DateTime.now())` (`master_schedule_screen.dart:104`). Every
+  // OTHER test in this file anchors its clock with [asClockInstant] on the
+  // module-level `_today` (2026-06-13, noon UTC — nowhere near a Kyiv day
+  // boundary), including the M6 rollover group directly above, whose two
+  // instants (`_today` then `_today + 1 day`, both fed through
+  // [asClockInstant]) are ALSO both noon-UTC-safe — so NONE of them can
+  // disagree with a reverted `dateOnly(clock())` (a bare device/UTC-day
+  // read, skipping the `kyivDayOf`/`toBeauticaTime` conversion): this is the
+  // one fixture that pins the Kyiv-vs-UTC derivation itself, at the identical
+  // boundary instant `slot_picker_test.dart`'s "Kyiv-anchored today" group
+  // and `master_schedule_page_test.dart` use.
+  //
+  // Deliberately does NOT reuse the module-level `_today`/`_weekStart`
+  // (2026-06-13, a non-boundary Saturday) — a boundary case needs its own
+  // week fixture, built directly against a LOCAL boundary date so it stays
+  // independent of every other test's fixture machinery.
+  group('MasterScheduleScreen — Kyiv-anchored "today" (mobile-qa, '
+      '2026-08-03, backlog :226)', () {
+    testWidgets(
+      'the day before Kyiv "today" renders as the PAST strip cell (and is '
+      'NOT the initially-selected cell) even though it is still the SAME '
+      'calendar day in UTC — a UTC/device-day _today would wrongly swap '
+      'which of the two is "today"',
+      (tester) async {
+        // 2026-08-01T22:30Z: UTC calendar day = Aug 1; Kyiv calendar day
+        // (EEST, +3) = Aug 2 (01:30 local, already rolled over) — the exact
+        // fixture `kyiv_day_test.dart`, `slot_picker_test.dart`, and
+        // `master_schedule_page_test.dart` all anchor on.
+        final DateTime clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
+        // Monday of the week containing both Aug 1 (Sat) and Aug 2 (Sun) —
+        // the visible week is IDENTICAL under either derivation (both
+        // candidate "today"s fall in the same Mon-Sun week), so this fixture
+        // isolates the past/selected verdict from any week-navigation
+        // side effect.
+        final DateTime boundaryWeekStart = DateTime(2026, 7, 27);
+        final List<EffectiveDay> boundaryDays = <EffectiveDay>[
+          for (int i = 0; i < 7; i++)
+            _working(boundaryWeekStart.add(Duration(days: i))),
+        ];
+
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.masterSchedule,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterSchedule,
+              builder: (context, state) =>
+                  MasterScheduleScreen(clock: () => clockInstant),
+            ),
+            GoRoute(
+              path: RouteNames.scheduleWeeklyEditor,
+              builder: (context, state) =>
+                  WeeklyTemplateEditorScreen(clock: () => clockInstant),
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: <Object>[
+              ..._editableData(boundaryDays),
+              _fakeWorkingHours(),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Aug 1 is already YESTERDAY once "today" correctly resolves to
+        // Aug 2 in Kyiv — its strip cell reports past, and it is NOT the
+        // cell the screen selected on mount.
+        expect(
+          _stripCellForDay(tester, 1).past,
+          isTrue,
+          reason:
+              'Aug 1 is already YESTERDAY in Kyiv (today=Aug 2) even though '
+              'it is still the SAME calendar day in UTC — a device/UTC-day '
+              '_today would wrongly report this cell as not-past',
+        );
+        expect(
+          _stripCellForDay(tester, 1).selected,
+          isFalse,
+          reason:
+              'a device/UTC-day _today would wrongly select Aug 1 (its own '
+              'UTC-day reading of the boundary instant) as "today" on mount',
+        );
+
+        // Aug 2 — the correct Kyiv "today" — is NOT past and IS the
+        // initially-selected cell.
+        expect(
+          _stripCellForDay(tester, 2).past,
+          isFalse,
+          reason: 'the correct Kyiv "today" (Aug 2) must not report past',
+        );
+        expect(
+          _stripCellForDay(tester, 2).selected,
+          isTrue,
+          reason:
+              'the screen must select the Kyiv "today" (Aug 2) on mount, '
+              'not its UTC/device-day sibling (Aug 1)',
+        );
+      },
+    );
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — the SCREEN forwards `EffectiveDay.window` into the sheet.
+  //
+  // `master_schedule_screen.dart` passes `initialWindow: day.window` next to
+  // `initialIntervals: day.intervals`. That single line is the only thing that
+  // carries the backend's stored window from the resolved effective day to the
+  // per-date editor — drop it and the sheet silently falls back to the legacy
+  // gap reconstruction, so a break flush against a window edge disappears the
+  // moment the master opens the pencil. `day_hours_sheet_test.dart` covers the
+  // sheet's own behaviour given a window; this covers the WIRING that supplies
+  // it.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('MasterScheduleScreen — stored window reaches the override sheet', () {
+    testWidgets(
+      'a day whose effective window is 09:00–18:00 with intervals '
+      '[10:00–18:00] opens the sheet від 09:00 WITH a 09:00–10:00 break row',
+      (tester) async {
+        // The effective day the backend now projects for the reported bug's
+        // template: the break was carved off the window START.
+        final Map<DateTime, EffectiveDay> effective = <DateTime, EffectiveDay>{
+          for (int i = 0; i < 7; i++)
+            _dateOnly(_weekStart.add(Duration(days: i))): EffectiveDay(
+              date: _dateOnly(_weekStart.add(Duration(days: i))),
+              source: EffectiveSource.template,
+              intervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+              window: _interval(9, 0, 18, 0),
+            ),
+        };
+        final repo = _StatefulFakeScheduleRepository(effective);
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+        await tester.pumpAndSettle();
+
+        expect(
+          _overrideWellText(tester, 'override-work-start'),
+          '09:00',
+          reason:
+              'THE BUG: 10:00 here means the screen never forwarded '
+              'EffectiveDay.window, so the sheet fell back to gap '
+              'reconstruction and swallowed the break',
+        );
+        expect(_overrideWellText(tester, 'override-work-end'), '18:00');
+        expect(
+          find.byKey(const Key('override-break-0-start')),
+          findsOneWidget,
+          reason: 'the edge-flush break must render as a break row',
+        );
+        expect(_overrideWellText(tester, 'override-break-0-start'), '09:00');
+        expect(_overrideWellText(tester, 'override-break-0-end'), '10:00');
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+
+    testWidgets(
+      'a LEGACY effective day (window == null) opens the sheet unchanged — '
+      'від 10:00 with no break row',
+      (tester) async {
+        final Map<DateTime, EffectiveDay> effective = <DateTime, EffectiveDay>{
+          for (int i = 0; i < 7; i++)
+            _dateOnly(_weekStart.add(Duration(days: i))): EffectiveDay(
+              date: _dateOnly(_weekStart.add(Duration(days: i))),
+              source: EffectiveSource.template,
+              intervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+            ),
+        };
+        final repo = _StatefulFakeScheduleRepository(effective);
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+        await tester.pumpAndSettle();
+
+        expect(_overrideWellText(tester, 'override-work-start'), '10:00');
+        expect(
+          find.byKey(const Key('override-break-0-start')),
+          findsNothing,
+          reason: 'the legacy regime must stay byte-identical',
+        );
+
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Phase 244 — MasterScheduleScreen.initialDate: the master booking
+  // timeline's "no working hours" CTA routes here with the day it was
+  // showing pre-selected, instead of opening on today.
+  // ───────────────────────────────────────────────────────────────────────
+  group('MasterScheduleScreen — initialDate pre-selection (Phase 244)', () {
+    testWidgets(
+      'initialDate pre-selects that day\'s week-strip cell instead of today',
+      (tester) async {
+        final DateTime target = _dateOnly(
+          _weekStart.add(const Duration(days: 2)),
+        );
+        expect(
+          target,
+          isNot(_today),
+          reason:
+              'fixture guard: the target must differ from "today" or '
+              'the pre-selection cannot be distinguished from the default',
+        );
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+
+        await tester.pumpApp(
+          MasterScheduleScreen(
+            initialDate: target,
+            clock: () => asClockInstant(_today),
+          ),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            _fakeWorkingHours(),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _selectedStripDayNumber(tester),
+          target.day,
+          reason: 'initialDate must pre-select that day, not today',
+        );
+      },
+    );
+
+    testWidgets(
+      'initialDate: null (every pre-existing call site) opens on today, unchanged',
+      (tester) async {
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+
+        await tester.pumpApp(
+          MasterScheduleScreen(clock: () => asClockInstant(_today)),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            _fakeWorkingHours(),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(_selectedStripDayNumber(tester), _today.day);
+      },
+    );
+  });
+}
+
+/// Reads the `HH:MM` rendered inside a keyed [TimeWell] in the override sheet.
+String _overrideWellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -3864,6 +4284,7 @@ Future<ProviderContainer> _pumpOverrideFlow(
   final repo = _StatefulFakeScheduleRepository(effective);
 
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
       scheduleRepositoryProvider.overrideWithValue(repo),

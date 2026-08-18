@@ -45,6 +45,7 @@ import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSalonRepository extends Mock implements SalonRepository {}
 
@@ -87,6 +88,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -119,6 +121,7 @@ void main() {
       });
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [salonRepositoryProvider.overrideWithValue(repo)],
       );
       addTearDown(container.dispose);
@@ -157,6 +160,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -204,6 +208,7 @@ void main() {
       });
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [salonRepositoryProvider.overrideWithValue(repo)],
       );
       addTearDown(container.dispose);
@@ -247,6 +252,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -284,6 +290,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -338,6 +345,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -450,6 +458,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -490,6 +499,7 @@ void main() {
         });
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         addTearDown(container.dispose);
@@ -537,6 +547,7 @@ void main() {
       });
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [salonRepositoryProvider.overrideWithValue(repo)],
       );
       addTearDown(container.dispose);
@@ -578,6 +589,7 @@ void main() {
         ).thenAnswer((_) async => const <BookableMasterAssignment>[]);
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [salonRepositoryProvider.overrideWithValue(repo)],
         );
         // M1 pairing. This container is disposed EXPLICITLY mid-test (that

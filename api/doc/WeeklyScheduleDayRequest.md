@@ -12,7 +12,10 @@ Name | Type | Description | Notes
 **mode** | **String** |  | [optional] 
 **intervals** | [**BuiltList&lt;WorkIntervalDto&gt;**](WorkIntervalDto.md) |  | [optional] 
 **times** | **BuiltList&lt;String&gt;** |  | [optional] 
+**windowStart** | **String** |  | [optional] 
+**windowEnd** | **String** |  | [optional] 
 **modeConsistent** | **bool** |  | [optional] 
+**windowConsistent** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

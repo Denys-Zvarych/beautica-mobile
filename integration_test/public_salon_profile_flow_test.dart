@@ -57,6 +57,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -92,10 +93,22 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
+      // NOT `pumpAndSettle()`: FakeBackend's `/search/masters` fixture always
+      // seeds `totalPages: 2`, so the results screen mounts a trailing
+      // INDETERMINATE `_LoadMoreSpinner` the instant page 0 loads (its
+      // `CircularProgressIndicator`'s repeating `AnimationController` keeps a
+      // frame perpetually scheduled). `pumpAndSettle` can never observe
+      // quiescence in that state and hangs until the test's own [Timeout]
+      // kills it — pump-until-found instead (see [AppHarness.pumpUntilFound]).
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      AppHarness.expectLocation(router, RouteNames.clientSearchResults);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
 
       expect(find.byKey(const Key('results_list')), findsOneWidget);
       expect(
@@ -109,6 +122,16 @@ void main() {
       expect(salonCard, findsOneWidget);
 
       // ── Tap the salon card → push /salons/salon-xyz ────────────────────────
+      // `pumpUntilFound(results_list)` above returns when the DATA lands, which
+      // is unrelated to the route transition: /search/results is a plain
+      // MaterialPage (app_router.dart:441) and the app pins
+      // CupertinoPageTransitionsBuilder for every platform (app_theme.dart:37),
+      // so the page slides in from the right over 500 ms. Mid-slide the card is
+      // in the TREE (the findsOneWidget above passes) but its global centre can
+      // sit past the right edge of the 800x600 flutter-tester view, so tap()
+      // hits NOTHING and the push never happens. Gate on the card being
+      // genuinely hit-testable — a no-op once the page is home.
+      await AppHarness.pumpUntilFound(tester, salonCard.hitTestable());
       await tester.tap(salonCard);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
@@ -145,20 +168,54 @@ void main() {
       // (no legacy city/address) — the real shape of every salon
       // created/edited since Phase 10.6. This proves the taxonomy fields
       // survive the REAL wire round trip (JSON → generated PublicSalonResponse
-      // → SalonMapper.fromDto → Salon → _buildLocationLine), which the widget
+      // → SalonMapper.fromDto → Salon → buildStreetLine), which the widget
       // tier's hand-built Salon fixtures cannot: a mapper that silently
       // dropped these fields (the actual pre-fix bug) would leave this text
       // absent/empty here even though the widget tests already passed.
+      //
+      // `locationNote` is NEVER folded onto this SAME string (the pre-223
+      // bug this line used to pin the regression for) — it renders as its
+      // own `ExpandableNote` on the hero card instead (Phase 223 (b) moved
+      // it to the About tab; Phase 224 moved it back onto the hero card —
+      // asserted right below); this line must carry ONLY the street +
+      // building number.
       final Text addressText = tester.widget<Text>(
         find.byKey(const Key('salon-profile-address-text')),
       );
       expect(
         addressText.data,
-        'вул. Хрещатик, 12, 2 поверх',
+        'вул. Хрещатик, 12',
         reason:
-            'the taxonomy street/buildingNo/locationNote must reach the '
-            'rendered address line through the real mapper, not just a '
-            'widget-level Salon fixture',
+            'the taxonomy street/buildingNo must reach the rendered address '
+            'line through the real mapper, not just a widget-level Salon '
+            'fixture — and locationNote must NOT be folded onto it anymore',
+      );
+
+      // ── Hero card: locationNote (Phase 223 (b) / 224) ──────────────────────
+      // Renders as its own `ExpandableNote` directly under the address lines
+      // on the hero card — proves the REAL wire's `locationNote` field
+      // (`'2 поверх'`, short — no overflow) survives `SalonMapper.fromDto`
+      // all the way to THIS widget, a boundary the widget tier's fake
+      // repository bypasses entirely (mobile-security LOW follow-up: the
+      // widget tier had zero coverage of this render site before Phase 223;
+      // see `public_salon_profile_screen_test.dart`'s "hero card — location
+      // note" group for the isolated widget-level coverage of every case).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon-profile-hero-card')),
+          matching: find.byKey(const Key('salon-profile-location-note')),
+        ),
+        findsOneWidget,
+        reason: 'a non-empty locationNote must render on the hero card',
+      );
+      // i18n-finder-ok: salon-xyz's real GET /salons/{id} locationNote fixture value, not UI copy.
+      expect(find.text('2 поверх'), findsOneWidget);
+      expect(
+        find.byKey(const Key('expandable-note-toggle')),
+        findsNothing,
+        reason:
+            'this short note fits within the 3-line clamp — no expand '
+            'affordance should render for it',
       );
 
       // ── Tab 0 «Про салон» — default tab, description + Instagram contact ──
@@ -177,6 +234,25 @@ void main() {
         findsOneWidget,
         reason: 'a non-empty instagramUrl must render the contact tile',
       );
+
+      // ── Explicit relocation guard: the About tab is confirmed on-screen
+      // above (this is the default tab, rendered simultaneously with the
+      // hero card), so re-checking the note's key/text count here — after
+      // the About tab body has fully rendered — makes the "not duplicated
+      // onto the About tab" invariant an explicit, permanent assertion
+      // rather than an accidental side effect of the unscoped `find.text`
+      // check above (see the equivalent widget-tier guard in
+      // `public_salon_profile_screen_test.dart`'s "hero card — location
+      // note" group for the full rationale).
+      expect(
+        find.byKey(const Key('salon-profile-location-note')),
+        findsOneWidget,
+        reason:
+            'the locationNote key must appear exactly once in the whole '
+            'tree — once on the hero card, never again on the About tab',
+      );
+      // i18n-finder-ok: salon-xyz's real GET /salons/{id} locationNote fixture value, not UI copy.
+      expect(find.text('2 поверх'), findsOneWidget);
 
       // ── About tab: real portfolio photo rail (previously an unwired
       // backend endpoint, `GET /salons/{salonId}/portfolio`) — proves the
@@ -228,9 +304,9 @@ void main() {
       // Master display names below are real-wire fixture data from
       // FakeBackend (proving the actual roster decode), not translated copy.
       // i18n-finder-ok: master display name is fixture data, not UI copy.
-      expect(find.text('Софія Бондар'), findsOneWidget);
+      expect(find.text('Софія'), findsOneWidget);
       // i18n-finder-ok: master display name is fixture data, not UI copy.
-      expect(find.text('Марія Гриценко'), findsOneWidget);
+      expect(find.text('Марія'), findsOneWidget);
 
       // The 7th/8th masters (beyond the initial-6 cap) must stay unbuilt —
       // even though all 8 arrived in a single real response.
@@ -255,6 +331,18 @@ void main() {
         reason: 'a real 8-master roster must render the reveal affordance',
       );
 
+      // `-d flutter-tester`'s window is `Size(800, 600)` — short and wide,
+      // unlike any phone. The masters grid (2-column, `shrinkWrap: true` +
+      // `NeverScrollableScrollPhysics` inside the screen's single outer
+      // `SingleChildScrollView` — see `_MastersTab._buildGrid`) is fully
+      // BUILT regardless of scroll offset (shrink-wrapping forces eager
+      // realization, unlike a lazy `ListView.builder`), so `find.byKey`
+      // above already resolved it — but `tester.tap()` still hit-tests
+      // against the real viewport, and this affordance sits well below the
+      // 600px fold. `tester.ensureVisible` (not `scrollUntilVisible`) is the
+      // right idiom here because the target Element already exists; it just
+      // needs to be scrolled into the visible window, not built.
+      await tester.ensureVisible(showAllMasters);
       await tester.tap(showAllMasters);
       await tester.pumpAndSettle();
 
@@ -266,7 +354,7 @@ void main() {
             'just a widget-level fixture',
       );
       // i18n-finder-ok: master display name is real-wire fixture data.
-      expect(find.text('Вікторія Пономаренко'), findsOneWidget);
+      expect(find.text('Вікторія'), findsOneWidget);
       expect(
         showAllMasters,
         findsNothing,
@@ -274,7 +362,15 @@ void main() {
       );
 
       // ── Tab 2 «Послуги» — the real service catalogue (2 categories) ───────
-      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      // The masters grid we just expanded ("show all", 8 cards over 4 rows)
+      // left the outer `SingleChildScrollView` scrolled well down; the fixed
+      // `SalonTabBar` sits ABOVE that content, so it can now be off-screen
+      // too. `ensureVisible` — same idiom as above — brings it back into the
+      // 800x600 viewport before the tap (the tab bar itself is always built,
+      // never lazy).
+      final Finder tab2 = find.byKey(const Key('salon-tab-2'));
+      await tester.ensureVisible(tab2);
+      await tester.tap(tab2);
       await tester.pumpAndSettle();
 
       expect(
@@ -303,7 +399,16 @@ void main() {
       );
       // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsNothing);
-      await tester.tap(find.byKey(const Key('salon-service-category-BROWS')));
+      // Same fold issue as above — BROWS is the second (collapsed) category,
+      // rendered below NAILS's already-expanded service row, and may sit
+      // past the 600px viewport depending on the carried-over scroll offset
+      // from the previous tab. Content is eagerly built (plain Column, not a
+      // lazy list), so `ensureVisible` is enough.
+      final Finder browsCategory = find.byKey(
+        const Key('salon-service-category-BROWS'),
+      );
+      await tester.ensureVisible(browsCategory);
+      await tester.tap(browsCategory);
       await tester.pumpAndSettle();
       // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsOneWidget);
@@ -311,7 +416,11 @@ void main() {
       expect(find.text('300 ₴'), findsOneWidget);
 
       // ── Tab 3 «Відгуки» — summary + 4 reviews (3 serviceName wire shapes) ──
-      await tester.tap(find.byKey(const Key('salon-tab-3')));
+      // Same reasoning as the tab-2 switch above — the tab bar can be
+      // scrolled out of the 800x600 window by the previous tab's content.
+      final Finder tab3 = find.byKey(const Key('salon-tab-3'));
+      await tester.ensureVisible(tab3);
+      await tester.tap(tab3);
       await tester.pumpAndSettle();
 
       expect(fb.getSalonReviewSummaryCalls, greaterThanOrEqualTo(1));
@@ -401,7 +510,14 @@ void main() {
       );
 
       // ── Changing the sort re-fetches a server-sorted page ──────────────────
-      await tester.tap(find.byKey(const Key('salon-reviews-sort-button')));
+      // The sort button sits right under the rating-summary card, near the
+      // top of the Відгуки tab's content — but the carried-over scroll
+      // offset from switching tabs can still leave it below the fold.
+      final Finder sortButton = find.byKey(
+        const Key('salon-reviews-sort-button'),
+      );
+      await tester.ensureVisible(sortButton);
+      await tester.tap(sortButton);
       await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const Key('salon-review-sort-option-oldest')),
@@ -415,10 +531,16 @@ void main() {
       );
 
       // ── Tab 1 again → tap a master card → navigate to its public profile ──
-      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      final Finder tab1Again = find.byKey(const Key('salon-tab-1'));
+      await tester.ensureVisible(tab1Again);
+      await tester.tap(tab1Again);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('salon-master-card-master-aaa')));
+      final Finder masterAaaCardAgain = find.byKey(
+        const Key('salon-master-card-master-aaa'),
+      );
+      await tester.ensureVisible(masterAaaCardAgain);
+      await tester.tap(masterAaaCardAgain);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
@@ -450,8 +572,15 @@ void main() {
       expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
 
       // ── Toggle the salon favourite heart → optimistic flip → POST ─────────
+      // Lives in `_CoverAndHero`, at the very TOP of the same outer
+      // scrollable — defensively brought into view in case the master-profile
+      // round trip left the screen scrolled anywhere else.
       expect(fb.addFavoriteCalls, 0);
-      await tester.tap(find.byKey(const Key('salon-favorite-toggle')));
+      final Finder favoriteToggle = find.byKey(
+        const Key('salon-favorite-toggle'),
+      );
+      await tester.ensureVisible(favoriteToggle);
+      await tester.tap(favoriteToggle);
       await tester.pumpAndSettle();
 
       expect(
@@ -533,5 +662,230 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 223 (b) / 224 — locationNote address-eviction regression pin +
+  // sanitize, and the hero card's fixed-overlap growth-goes-downward
+  // contract.
+  //
+  // WHY THESE TESTS NAVIGATE VIA A DIRECT `router.push` (not through the real
+  // search-results screen the main journey test above uses)
+  // -------------------------------------------------------------------------
+  // The two tests below deliberately reuse the CLIENT-only route guard test's
+  // navigation shape (`router.push(RouteNames.salonPublicProfile(...))`
+  // straight after login) instead of the main journey test's
+  // search-screen-first path. Both reach the exact same destination
+  // (`PublicSalonProfileScreen` backed by a real `GET /salons/salon-xyz`), so
+  // nothing about THIS regression's coverage is weaker for skipping the
+  // search leg — that leg is already proven once by the main journey test.
+  //
+  // Step 2.7 Rule 3b — this is a real user journey (salon profile screen +
+  // locationNote wiring), so E2E coverage is mandatory; it just does not need
+  // to be re-derived through search every time.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// A ~1000-char note (the backend's `@Size(max = 1000)` ceiling) — long
+  /// enough that, under the OLD pre-Phase-223(b) hero layout (locationNote
+  /// appended onto the SAME `maxLines: 2` line as the street address), it
+  /// would have evicted the address text off the hero card entirely. Since
+  /// Phase 224 it also doubles as the case that would have pushed the hero
+  /// card's top edge over the back/favourite buttons under the OLD
+  /// content-driven overlap formula (see `_CoverAndHero`'s class doc) — the
+  /// EXPANDED note adds several hundred px of card height. Built by
+  /// repeating a realistic entrance-instructions sentence and trimming to
+  /// exactly 1000 chars.
+  String buildRegressionNote() {
+    const String sentence =
+        "Вхід у двір з боку вулиці Хрещатик, повз кав'ярню на розі, минаєте "
+        'дитячий майданчик, підіймаєтесь трьома сходинками до скляних дверей. ';
+    final StringBuffer buffer = StringBuffer();
+    while (buffer.length < 1000) {
+      buffer.write(sentence);
+    }
+    return buffer.toString().substring(0, 1000);
+  }
+
+  testWidgets(
+    'Phase 223 (b) / 224 regression pin: a 1000-char locationNote never '
+    'evicts the hero address, and renders — collapsed, then expanded — as '
+    'its own ExpandableNote on the hero card, through a REAL GET '
+    '/salons/{id} response',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final String longNote = buildRegressionNote();
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          ..salonLocationNote = longNote;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        AppHarness.expectLocation(router, '/salons/salon-xyz');
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+
+        // ── The regression itself: the hero address must survive ────────────
+        // Pre-Phase-223(b), this SAME 1000-char note appended onto the SAME
+        // clamped hero line pushed the street address clean off the visible
+        // `maxLines: 2` budget — losing the address, not just the note.
+        final Finder addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(
+          addressFinder,
+          findsOneWidget,
+          reason:
+              'the street address must survive on the hero card no matter '
+              'how long the locationNote is — the note renders as its OWN '
+              'ExpandableNote below the address lines, never concatenated '
+              "onto them, so it can no longer compete for the address's "
+              'fixed line budget',
+        );
+        final Text addressText = tester.widget<Text>(addressFinder);
+        expect(addressText.data, 'вул. Хрещатик, 12');
+
+        // ── The note itself lives on the hero card, clamped with a toggle ───
+        final Finder heroCard = find.byKey(
+          const Key('salon-profile-hero-card'),
+        );
+        expect(
+          find.descendant(
+            of: heroCard,
+            matching: find.byKey(const Key('salon-profile-location-note')),
+          ),
+          findsOneWidget,
+          reason: 'a non-empty locationNote must render on the hero card',
+        );
+        final Finder toggle = find.byKey(const Key('expandable-note-toggle'));
+        await tester.ensureVisible(toggle);
+        expect(
+          toggle,
+          findsOneWidget,
+          reason:
+              'a 1000-char note must overflow the 3-line clamp and show the '
+              'expand affordance',
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(PublicSalonProfileScreen)),
+        );
+        expect(find.text(l10n.expandableNoteShowMore), findsOneWidget);
+
+        // ── Back button is never obscured by the hero card, BOTH collapsed
+        // and expanded (Phase 224's hard layout constraint) ────────────────
+        //
+        // The pre-224 bug: the hero card was `Positioned(bottom: 0)` inside
+        // a Stack sized to a FIXED `coverHeight + heroProtrusion`, painted
+        // AFTER (i.e. visually on top of) the back/favourite buttons. A
+        // card taller than the `heroProtrusion` budget pushed its own top
+        // edge higher — past the buttons' fixed `Positioned(top: ...)`
+        // coordinates — and, being painted last, silently painted OVER
+        // them; Stack also hit-tests children in reverse paint order, so
+        // the card (not the button) would have caught the tap too. The
+        // invariant to pin is therefore "the button's Rect and the card's
+        // Rect never overlap", not "the button hasn't moved" (Phase 224's
+        // fix makes the button's OWN position fixed by construction — see
+        // `_CoverAndHero` — so a bare position check would hold trivially
+        // even under a partial regression that reintroduced overlap without
+        // moving the button itself, e.g. a card painted on top without
+        // affecting layout order elsewhere). Mirrors the widget tier's
+        // "cover edit pill layout" / "hero card overlap band hit-testing"
+        // groups, which pin the identical invariant for the edit pill and
+        // via a real hit-test respectively.
+        final Finder backButton = find.byKey(const Key('salon-profile-back'));
+        expect(backButton, findsOneWidget);
+        expect(
+          tester.getRect(backButton).overlaps(tester.getRect(heroCard)),
+          isFalse,
+          reason:
+              'the back button must not be overlapped by the hero card '
+              'while the note is collapsed',
+        );
+
+        final Size collapsedSize = tester.getSize(find.text(longNote));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.expandableNoteShowLess), findsOneWidget);
+        final Size expandedSize = tester.getSize(find.text(longNote));
+        expect(
+          expandedSize.height,
+          greaterThan(collapsedSize.height),
+          reason: 'tapping the toggle must reveal the FULL 1000-char note',
+        );
+
+        // Expanding the note grows the card by several hundred px — the
+        // back button must still not be overlapped by it.
+        expect(backButton, findsOneWidget);
+        expect(
+          tester.getRect(backButton).overlaps(tester.getRect(heroCard)),
+          isFalse,
+          reason:
+              'expanding a 1000-char locationNote must not grow the hero '
+              'card into the back button — the cover (and everything '
+              "positioned on it) is laid out independently of the card's "
+              'content height',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'a locationNote containing an RLO (U+202E) override renders SANITIZED '
+    'on the hero card through a REAL GET /salons/{id} response',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        // U+202E = Right-to-Left Override. Backend validation on
+        // `locationNote` is `@Size(max = 1000)` only — no character-class
+        // check — so a hostile salon owner could push this into a
+        // client-facing note. Built via `String.fromCharCode` (never a
+        // literal control byte in this source file).
+        final String rlo = String.fromCharCode(0x202E);
+        final String rawNote = 'кв. 3$rlo, 2 поверх';
+        const String sanitizedNote = 'кв. 3, 2 поверх';
+
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          ..salonLocationNote = rawNote;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon-profile-hero-card')),
+            matching: find.byKey(const Key('salon-profile-location-note')),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text(sanitizedNote),
+          findsOneWidget,
+          reason:
+              'the rendered note must carry the SANITIZED string, proven '
+              'through a REAL wire round trip (SalonMapper.fromDto → Salon '
+              '→ ExpandableNote), not just a widget-tier fixture',
+        );
+        expect(
+          find.text(rawNote),
+          findsNothing,
+          reason: 'the raw control character must never reach a real render',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }

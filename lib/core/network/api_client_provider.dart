@@ -1,5 +1,7 @@
 // Phase 3.2 — Riverpod providers for generated API classes.
 // Phase 4.1 — Added [masterApiProvider] for [MasterControllerApi].
+// Phase 13.8 wire-up — Added [clientApiProvider] for [ClientControllerApi]
+// (`GET /clients/me/passport`).
 //
 // Wires the generated API classes with the singleton [dioProvider] Dio
 // instance and [standardSerializers] from the generated package. Kept alive
@@ -38,3 +40,12 @@ UserControllerApi userApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 MasterControllerApi masterApi(Ref ref) =>
     MasterControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [ClientControllerApi] singleton.
+///
+/// Used by `HttpPassportRepository.getMyPassport` to fetch the CLIENT's derived
+/// beauty passport via `GET /clients/me/passport`. Same Dio instance and
+/// serializers as the other API providers in this file.
+@Riverpod(keepAlive: true)
+ClientControllerApi clientApi(Ref ref) =>
+    ClientControllerApi(ref.watch(dioProvider), standardSerializers);

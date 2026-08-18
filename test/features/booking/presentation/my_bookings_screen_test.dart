@@ -39,6 +39,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
@@ -55,6 +56,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -123,9 +125,14 @@ void _stubAllTabs(
   List<Booking> past = const <Booking>[],
   List<Booking> cancelled = const <Booking>[],
 }) {
+  // Phase 227: the notifier now sends `partition: tab.partition` alongside
+  // `statuses` on every request — every stub below pins BOTH, otherwise the
+  // real call (which always carries `partition`) would never match and every
+  // widget test in this file would throw `MissingStubError`.
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.upcoming.statuses,
+      partition: BookingPartition.upcoming,
       sort: BookingSort.oldest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -134,6 +141,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.past.statuses,
+      partition: BookingPartition.past,
       sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -142,6 +150,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.cancelled.statuses,
+      partition: BookingPartition.cancelled,
       sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -161,6 +170,7 @@ const List<Locale> _locales = <Locale>[Locale('uk'), Locale('en')];
 
 Widget _host(_MockBookingRepository repo) {
   return ProviderScope(
+    retry: beauticaProviderRetry,
     // ignore: avoid_dynamic_calls
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
@@ -193,6 +203,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -201,6 +212,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.past.statuses,
+          partition: BookingPartition.past,
           sort: BookingSort.newest,
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -209,6 +221,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
+          partition: BookingPartition.cancelled,
           sort: BookingSort.newest,
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -301,6 +314,239 @@ void main() {
             'both the client-cancelled and the salon-declined card must show '
             'the neutral «Скасовано» label',
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 227 — «Мої записи» cutover to the backend's server-side `partition`
+  //
+  // These two groups are widget-level proof of the phase's headline
+  // behaviour fix. Scoping every assertion to the OWNING tab's list via
+  // `find.descendant(of: find.byKey('my-bookings-list-<tab>'), ...)` (rather
+  // than a bare `find.byKey`/`find.byType(BookingCard)` count) sidesteps a
+  // real hazard specific to this screen: `TabBarView` may build more than the
+  // initially-visible tab's subtree (see `_stubAllTabs`'s doc comment above,
+  // and every test in this file defensively stubbing all three tabs even
+  // when it only cares about one) — so an UNSCOPED `find.byType(BookingCard)`
+  // count could silently include cards belonging to a DIFFERENT, already-
+  // built-but-offstage tab and produce a false pass. Scoping to the specific
+  // tab's `ListView.separated` key (`my-bookings-list-${widget.tab.name}`,
+  // `my_bookings_screen.dart:252`) makes every assertion correct regardless
+  // of what else `TabBarView` has materialized.
+  // -------------------------------------------------------------------------
+
+  group('Phase 227 — elapsed CONFIRMED cutover (headline behaviour fix)', () {
+    testWidgets(
+      'an elapsed CONFIRMED booking renders under Минулі and is ABSENT from '
+      'Майбутні — before this phase it sat in Майбутні forever and never '
+      'reached Минулі (the defect this whole track exists to close). A '
+      'genuinely-future CONFIRMED sibling is also in the fixture and '
+      'asserted VISIBLE in Майбутні first — anti-vacuity: without it, the '
+      '"absent from Майбутні" assertion below could pass off a screen that '
+      'renders nothing at all',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        final futureConfirmed = _booking(
+          id: 'future1',
+          status: BookingStatus.confirmed,
+          startAt: DateTime.utc(2027, 1, 1, 10),
+        );
+        final elapsedConfirmed = _booking(
+          id: 'elapsed1',
+          status: BookingStatus.confirmed,
+          startAt: DateTime.utc(2000, 1, 1, 10),
+        );
+        // Stands in for the backend's Phase 28.2 `partition` classification:
+        // an elapsed CONFIRMED booking is now served under `partition=PAST`,
+        // never `partition=UPCOMING`. This suite is mocked at the repository
+        // boundary, so it cannot itself prove the BACKEND classifies this
+        // way (that is `client_my_bookings_partition_flow_test.dart`'s job,
+        // against a `FakeBackend`) — it proves the CLIENT renders whatever
+        // the active tab's request returns, with NO client-side re-filtering
+        // that would put an elapsed booking back under Майбутні (the bug
+        // this phase closes was purely about which REQUEST the client sent,
+        // never about the render layer misplacing a correctly-fetched row).
+        _stubAllTabs(
+          repo,
+          upcoming: <Booking>[futureConfirmed],
+          past: <Booking>[elapsedConfirmed],
+        );
+
+        await tester.pumpWidget(_host(repo));
+        await tester.pumpAndSettle();
+
+        final Finder upcomingList = find.byKey(
+          const ValueKey<String>('my-bookings-list-upcoming'),
+        );
+
+        expect(
+          find.descendant(
+            of: upcomingList,
+            matching: find.byKey(const ValueKey<String>('service-future1')),
+          ),
+          findsOneWidget,
+          reason:
+              'anti-vacuity: Майбутні must genuinely render something, or '
+              'the absence assertion below is meaningless',
+        );
+        expect(
+          find.descendant(
+            of: upcomingList,
+            matching: find.byKey(const ValueKey<String>('service-elapsed1')),
+          ),
+          findsNothing,
+          reason:
+              'the headline regression: an elapsed CONFIRMED booking must '
+              'no longer render under Майбутні',
+        );
+
+        final l10n = _l10n(tester);
+        await tester.tap(find.text(l10n.myBookingsTabPast));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('my-bookings-list-past')),
+            matching: find.byKey(const ValueKey<String>('service-elapsed1')),
+          ),
+          findsOneWidget,
+          reason: 'and it must now render under Минулі',
+        );
+      },
+    );
+  });
+
+  group('Phase 227 — three-tab total cover (9-row fixture)', () {
+    testWidgets('a 9-row fixture (one per status, both sides of "now" where '
+        'meaningful) distributes across the three tabs with every row '
+        'rendering EXACTLY once — no duplicates, no drops', (tester) async {
+      final DateTime future = DateTime.utc(2027, 1, 1, 10);
+      final DateTime past = DateTime.utc(2000, 1, 1, 10);
+
+      // Майбутні (1 row) — only a genuinely-future CONFIRMED belongs here
+      // post-227; an elapsed CONFIRMED does not (see the group above).
+      final List<Booking> upcoming = <Booking>[
+        _booking(
+          id: 'u-confirmed',
+          status: BookingStatus.confirmed,
+          startAt: future,
+        ),
+      ];
+      // Минулі (4 rows) — the elapsed CONFIRMED (the headline fix) plus
+      // both terminal "history" statuses, which are inherently past-only.
+      final List<Booking> pastTab = <Booking>[
+        _booking(
+          id: 'p-elapsed-confirmed',
+          status: BookingStatus.confirmed,
+          startAt: past,
+        ),
+        _booking(
+          id: 'p-completed-1',
+          status: BookingStatus.completed,
+          startAt: past,
+        ),
+        _booking(
+          id: 'p-completed-2',
+          status: BookingStatus.completed,
+          startAt: past,
+        ),
+        _booking(
+          id: 'p-not-completed',
+          status: BookingStatus.notCompleted,
+          startAt: past,
+        ),
+      ];
+      // Скасовані (4 rows) — CANCELLED/DECLINED can legitimately occur on
+      // either side of "now" (an appointment cancelled ahead of time vs.
+      // one cancelled/declined after its slot had already elapsed).
+      final List<Booking> cancelledTab = <Booking>[
+        _booking(
+          id: 'c-cancelled-future',
+          status: BookingStatus.cancelled,
+          startAt: future,
+        ),
+        _booking(
+          id: 'c-cancelled-past',
+          status: BookingStatus.cancelled,
+          startAt: past,
+        ),
+        _booking(
+          id: 'c-declined-future',
+          status: BookingStatus.declined,
+          startAt: future,
+        ),
+        _booking(
+          id: 'c-declined-past',
+          status: BookingStatus.declined,
+          startAt: past,
+        ),
+      ];
+
+      final List<Booking> all = <Booking>[
+        ...upcoming,
+        ...pastTab,
+        ...cancelledTab,
+      ];
+      expect(all, hasLength(9), reason: 'fixture sanity check');
+      expect(
+        all.map((Booking b) => b.id).toSet(),
+        hasLength(9),
+        reason:
+            'fixture ids must be unique, or the exactly-once checks below '
+            'would not mean anything',
+      );
+
+      final repo = _MockBookingRepository();
+      _stubAllTabs(
+        repo,
+        upcoming: upcoming,
+        past: pastTab,
+        cancelled: cancelledTab,
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = _l10n(tester);
+      final Map<BookingTab, List<Booking>> byTab = <BookingTab, List<Booking>>{
+        BookingTab.upcoming: upcoming,
+        BookingTab.past: pastTab,
+        BookingTab.cancelled: cancelledTab,
+      };
+
+      for (final BookingTab tab in BookingTab.values) {
+        if (tab != BookingTab.upcoming) {
+          final String tabLabel = switch (tab) {
+            BookingTab.past => l10n.myBookingsTabPast,
+            BookingTab.cancelled => l10n.myBookingsTabCancelled,
+            BookingTab.upcoming => l10n.myBookingsTabUpcoming,
+          };
+          await tester.tap(find.text(tabLabel));
+          await tester.pumpAndSettle();
+        }
+
+        final Finder ownList = find.byKey(
+          ValueKey<String>('my-bookings-list-${tab.name}'),
+        );
+        // Anti-vacuity: this tab genuinely renders its own rows (not just
+        // "the count elsewhere adds up") — each id below is asserted
+        // present EXACTLY once, scoped to its OWN tab's list.
+        for (final Booking booking in byTab[tab]!) {
+          expect(
+            find.descendant(
+              of: ownList,
+              matching: find.byKey(ValueKey<String>('service-${booking.id}')),
+            ),
+            findsOneWidget,
+            reason: '${booking.id} must render exactly once, under ${tab.name}',
+          );
+        }
+      }
+
+      // Total cover, restated numerically: the three per-tab counts sum to
+      // the whole fixture — no row silently vanished between the fixture
+      // and the three loops above.
+      expect(upcoming.length + pastTab.length + cancelledTab.length, 9);
     });
   });
 
@@ -407,6 +653,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -423,6 +670,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -465,6 +713,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           // ignore: avoid_dynamic_calls
           overrides: <Object>[
             bookingRepositoryProvider.overrideWithValue(repo),

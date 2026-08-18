@@ -7,7 +7,17 @@
 // reference-counting acquirers:
 //   • count 0 → 1: enable screenshot protection (Android FLAG_SECURE / iOS)
 //                   AND blur the iOS app-switcher snapshot (SEC MEDIUM-2).
-//   • count 1 → 0: disable both.
+//   • count 1 → 0: disable the iOS-side protection. Android FLAG_SECURE is
+//                   NOT cleared — see [_disable].
+//
+// ASYMMETRY IS INTENTIONAL (SEC MEDIUM-2, 2026-07-29). `MainActivity.onCreate`
+// already sets FLAG_SECURE app-wide on every non-debug Android build, so this
+// manager's Android "enable" is a redundant re-assert of a flag that is always
+// on, while its Android "disable" was actively destructive: the first release
+// tore down the app-wide baseline for the rest of the process. Android now only
+// ever turns protection ON, never off; iOS (which has no such baseline) keeps
+// the full symmetric acquire/release cycle. The reference count itself is
+// platform-independent and unchanged.
 //
 // SEC MEDIUM-2: [ScreenProtector.preventScreenshotOn] does NOT obscure the iOS
 // app-switcher snapshot, so [protectDataLeakageWithBlur] is enabled alongside
@@ -89,15 +99,31 @@ class ScreenProtectionManager {
     // throw (PlatformException / MissingPluginException) on real devices, and a
     // failure in the first teardown must not abort the second — nor escape into
     // a logout-time reset() caller and surface a false logout failure.
-    try {
-      ScreenProtector.preventScreenshotOff();
-    } catch (e) {
-      log(
-        'preventScreenshotOff failed (tolerated): ${e.runtimeType}',
-        name: 'core.security.screen_protection',
-        level: 900,
-      );
+    //
+    // SEC MEDIUM-2 — ANDROID IS DELIBERATELY EXEMPT FROM THIS TEARDOWN.
+    // `MainActivity.onCreate` sets FLAG_SECURE app-wide for every non-debug
+    // build, so this manager never SET the Android flag — and must therefore
+    // never CLEAR it. It used to: the first 1→0 release (open Settings, pop
+    // back) called `preventScreenshotOff()`, which cleared the Activity-level
+    // flag and left the process unprotected for its entire remaining lifetime.
+    // Everything typed afterwards — a searched client name, a booking — became
+    // capturable by any screen-recording app and was baked into the Recent Apps
+    // thumbnail. iOS has no such baseline, so it still gets the full teardown.
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      try {
+        ScreenProtector.preventScreenshotOff();
+      } catch (e) {
+        log(
+          'preventScreenshotOff failed (tolerated): ${e.runtimeType}',
+          name: 'core.security.screen_protection',
+          level: 900,
+        );
+      }
     }
+    // iOS app-switcher blur teardown — unconditional, and the ONLY teardown
+    // that runs on Android (a no-op there, since the plugin's blur overlay is
+    // iOS-only). Keeping it outside the platform branch preserves the exact
+    // acquire/release semantics iOS relies on.
     try {
       ScreenProtector.protectDataLeakageWithBlurOff();
     } catch (e) {

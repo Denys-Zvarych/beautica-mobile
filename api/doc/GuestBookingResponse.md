@@ -9,6 +9,7 @@ import 'package:beautica_api/api.dart';
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **bookingId** | **String** |  | [optional] 
+**appointmentId** | **String** |  | [optional] 
 **startsAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **masterName** | **String** |  | [optional] 
 **serviceName** | **String** |  | [optional] 

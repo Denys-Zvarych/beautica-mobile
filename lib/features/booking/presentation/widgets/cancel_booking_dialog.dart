@@ -45,8 +45,22 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../../domain/booking.dart';
+import '../../domain/booking_display_x.dart';
 import 'labelled_row.dart';
 import 'section_rule.dart';
+
+// MO-5 — the multi-service VISIT cancel confirmation, kept in this library (a
+// `part`) so it reuses this dialog's private destructive chrome
+// (`_DestructiveBadge`, `_NoteField`, `_DestructiveButton`) verbatim while the
+// single-booking dialog's own render stays byte-for-byte unchanged.
+part 'cancel_visit_dialog.dart';
+
+// Track 27.x Wave A — the PROVIDER's decline confirmation, kept in this
+// library for the exact same reason as `cancel_visit_dialog.dart`: it reuses
+// this dialog's private destructive chrome verbatim (relabelled copy only),
+// so the client-cancel and provider-decline confirmations read as one visual
+// language.
+part 'decline_booking_dialog.dart';
 
 /// Opens the cancellation confirmation for [booking].
 ///
@@ -154,6 +168,7 @@ class _CancelBookingDialogState extends State<CancelBookingDialog> {
                 // ── The destructive action — the ONLY way anything is
                 //    cancelled.
                 _DestructiveButton(
+                  buttonKey: const Key('cancel-booking-confirm'),
                   label: l10n.cancelBookingConfirmCta,
                   icon: Icons.close_rounded,
                   onPressed: () => dismissOverlay(context, _note.text.trim()),
@@ -213,10 +228,24 @@ class _DestructiveBadge extends StatelessWidget {
 /// dialog's own copy, which `BookingCommentField` does not expose overrides
 /// for.
 class _NoteField extends StatelessWidget {
-  const _NoteField({required this.controller, required this.maxLength});
+  const _NoteField({
+    required this.controller,
+    required this.maxLength,
+    this.label,
+    this.hint,
+  });
 
   final TextEditingController controller;
   final int maxLength;
+
+  /// Overrides the field's caption. Defaults to [AppLocalizations
+  /// .cancelBookingNoteLabel] (the CLIENT copy) when null — [
+  /// DeclineBookingDialog] (track 27.x Wave A) passes the PROVIDER-facing
+  /// copy instead; `CancelBookingDialog`/`CancelVisitDialog` are unaffected.
+  final String? label;
+
+  /// Overrides the field's hint text. Same default rule as [label].
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +253,7 @@ class _NoteField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(l10n.cancelBookingNoteLabel, style: VelvetText.label()),
+        Text(label ?? l10n.cancelBookingNoteLabel, style: VelvetText.label()),
         const SizedBox(height: VelvetSpacing.xs),
         NeumorphicInset(
           child: Padding(
@@ -251,7 +280,7 @@ class _NoteField extends StatelessWidget {
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
-                hintText: l10n.cancelBookingNoteHint,
+                hintText: hint ?? l10n.cancelBookingNoteHint,
                 hintStyle: VelvetText.body().copyWith(
                   color: BrandColors.placeholder,
                 ),
@@ -291,10 +320,17 @@ class _NoteField extends StatelessWidget {
 /// confirm button is allowed to be as loud as the act.
 class _DestructiveButton extends StatefulWidget {
   const _DestructiveButton({
+    required this.buttonKey,
     required this.label,
     required this.icon,
     required this.onPressed,
   });
+
+  /// Applied to the tappable [GestureDetector], NOT via `super.key` — the two
+  /// call sites ([CancelBookingDialog] and [DeclineBookingDialog]) share this
+  /// private widget and must answer to distinct keys so widget tests can tell
+  /// their confirm buttons apart.
+  final Key buttonKey;
 
   final String label;
   final IconData icon;
@@ -313,7 +349,7 @@ class _DestructiveButtonState extends State<_DestructiveButton> {
       button: true,
       label: widget.label,
       child: GestureDetector(
-        key: const Key('cancel-booking-confirm'),
+        key: widget.buttonKey,
         onTapDown: (_) => setState(() => _pressed = true),
         onTapCancel: () => setState(() => _pressed = false),
         onTapUp: (_) {

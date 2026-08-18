@@ -26,6 +26,7 @@ import 'package:add_2_calendar/add_2_calendar.dart';
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 /// Which provider label prefixes the «Виконавець» line in the calendar-note
@@ -88,9 +89,9 @@ String? buildCalendarDescription({
 /// [description] is a pre-built notes block from [buildCalendarDescription] —
 /// each call site owns which structured facts it has to contribute, and it
 /// carries STRUCTURED FACTS ONLY (never free-text notes/comments — see that
-/// builder's privacy note). Shows a localized SnackBar when no calendar app is
-/// available or the platform call throws — the ONLY user-feedback path this
-/// action has.
+/// builder's privacy note). Shows a localized error snack when no calendar
+/// app is available or the platform call throws — the ONLY user-feedback path
+/// this action has.
 Future<void> addBookingToCalendar({
   required BuildContext context,
   required String title,
@@ -99,10 +100,9 @@ Future<void> addBookingToCalendar({
   String? location,
   String? description,
 }) async {
-  // Resolve the messenger + copy BEFORE the first await so nothing reads
-  // `context` across the async gap except the `mounted` guard below.
+  // Resolve copy BEFORE the first await so nothing reads `context` across the
+  // async gap except the `mounted` guard below.
   final AppLocalizations l10n = AppLocalizations.of(context);
-  final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
   final Event event = Event(
     title: title,
@@ -132,7 +132,5 @@ Future<void> addBookingToCalendar({
   if (added) return;
   if (!context.mounted) return;
 
-  messenger
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(l10n.bookingAddToCalendarError)));
+  showErrorSnack(context, l10n.bookingAddToCalendarError);
 }

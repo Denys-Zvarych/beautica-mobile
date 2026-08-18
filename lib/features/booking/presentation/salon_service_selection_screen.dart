@@ -63,9 +63,13 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -223,6 +227,33 @@ class _SalonServiceSelectionScreenState
     });
   }
 
+  /// Toggles [id] in/out of the visit selection, capped at
+  /// [maxServicesPerVisit] (the backend `MAX_SERVICES_PER_VISIT`). An ADD that
+  /// would exceed the cap is refused with a friendly VelvetSnack rather than
+  /// silently dropped — a removal is never blocked. The selection is a `Set`
+  /// keyed by service id, so a service can be chosen at most once (dedupe).
+  /// Mirrors `ServiceSelectorSheet._onToggleService` (the independent flow) 1:1.
+  void _onToggleService(String id) {
+    final bool willAdd = !_selectionController.isSelected(id);
+    if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
+      final l10n = AppLocalizations.of(context);
+      showWarningSnack(
+        context,
+        l10n.bookingMaxServicesReached(maxServicesPerVisit),
+      );
+      return;
+    }
+    _selectionController.toggleService(id);
+  }
+
+  /// Surfaces a failed favourite toggle (from any row's heart) as an error
+  /// snack. Mirrors `ServiceSelectorSheet._showFavoriteError` (the
+  /// independent-master flow's identical handler).
+  void _showFavoriteError(Failure failure) {
+    if (!mounted) return;
+    showErrorSnack(context, failure.userMessage(context));
+  }
+
   void _goNext(List<SalonCatalogService> selected) {
     context.push(
       RouteNames.salonBookingMasters,
@@ -269,8 +300,7 @@ class _SalonServiceSelectionScreenState
                 // comment), so this is the same toggle the catalogue
                 // checkbox uses — both removal paths converge on identical
                 // end-state.
-                onRemove: (MasterService s) =>
-                    _selectionController.toggleService(s.id),
+                onRemove: (MasterService s) => _onToggleService(s.id),
               );
             },
           );
@@ -312,8 +342,9 @@ class _SalonServiceSelectionScreenState
                     hoistedKeys: _hoistedKeys,
                     expandedKeys: _expandedKeys,
                     selectedIdsListenable: _selectionController,
-                    onToggleService: _selectionController.toggleService,
+                    onToggleService: _onToggleService,
                     onToggleExpand: _toggleExpand,
+                    onFavoriteError: _showFavoriteError,
                   );
                 },
               ),
@@ -552,6 +583,7 @@ class _CatalogueBody extends StatefulWidget {
     required this.selectedIdsListenable,
     required this.onToggleService,
     required this.onToggleExpand,
+    required this.onFavoriteError,
   });
 
   final List<SalonServiceCategoryEntry> categories;
@@ -563,6 +595,9 @@ class _CatalogueBody extends StatefulWidget {
   final ValueListenable<Set<String>> selectedIdsListenable;
   final ValueChanged<String> onToggleService;
   final ValueChanged<String> onToggleExpand;
+
+  /// Forwarded to every row's [FavoriteHeartButton.onError].
+  final void Function(Failure failure) onFavoriteError;
 
   @override
   State<_CatalogueBody> createState() => _CatalogueBodyState();
@@ -582,6 +617,13 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
   // mirrors `ServiceSelectorSheet`'s `_CatalogueBodyState._groupsFor`.
   List<CatalogueCategoryGroup>? _cachedGroups;
   List<SalonServiceCategoryEntry>? _cachedCategories;
+
+  // Every row's heart is primed from `SalonCatalogService.isFavorite`, a flag
+  // already riding on this screen's own catalogue payload (Phase E) — same
+  // pattern as `ServiceSelectorSheet._cachedFavoriteServiceIds` (the
+  // independent-master flow). Folded into this SAME memo since its only
+  // input is `widget.categories`, already this memo's cache key.
+  Set<String> _cachedFavoriteServiceIds = const <String>{};
 
   List<CatalogueCategoryGroup> _groupsFor(
     List<SalonServiceCategoryEntry> categories,
@@ -616,12 +658,18 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
     }
     _cachedGroups = <CatalogueCategoryGroup>[...matched, ...rest];
     _cachedCategories = categories;
+    _cachedFavoriteServiceIds = <String>{
+      for (final SalonServiceCategoryEntry c in categories)
+        for (final SalonCatalogService s in c.services)
+          if (s.isFavorite) s.id,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final List<CatalogueCategoryGroup> groups = _groupsFor(widget.categories);
+    final Set<String> favoriteServiceIds = _cachedFavoriteServiceIds;
     String headerSemantics({
       required String label,
       required int count,
@@ -677,6 +725,10 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
                   headerVerticalPadding: VelvetSpacing.sm + 4,
                   headerKey: Key('salon-booking-category-${groups[i].label}'),
                   showCountBadges: false,
+                  showFavoriteHeart: true,
+                  favoriteTargetType: FavoriteTargetType.salonService,
+                  favoriteServiceIds: favoriteServiceIds,
+                  onFavoriteError: widget.onFavoriteError,
                 ),
           ),
         ),

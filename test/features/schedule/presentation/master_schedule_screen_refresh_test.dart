@@ -55,6 +55,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stub auth / profile
@@ -148,11 +149,22 @@ class _CountingFakeScheduleRepository implements ScheduleRepository {
   ) async => const <ScheduleOverride>[];
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
-      override;
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async => override;
 
   @override
   Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async =>
+      const OverrideConflictCheck(
+        conflicts: <OverrideConflict>[],
+        totalCount: 0,
+        truncated: false,
+        scanTruncated: false,
+      );
 
   @override
   Future<List<WeeklySchedule>> listWeeklySchedules() async =>
@@ -180,6 +192,7 @@ Future<_CountingFakeScheduleRepository> _pumpScreen(WidgetTester tester) async {
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: <Object>[
         authProvider.overrideWith(_StubAuthNotifier.new),
         masterProfileProvider.overrideWith(_StubMasterProfile.new),

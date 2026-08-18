@@ -48,6 +48,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -75,6 +76,7 @@ ProviderContainer _makeContainer({
   required FakeAuthRepository repo,
 }) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       secureStorageProvider.overrideWith((_) => storage),
       authRepositoryProvider.overrideWith((_) => repo),
@@ -225,6 +227,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               secureStorageProvider.overrideWith((_) => storage),
               authRepositoryProvider.overrideWith((_) => repo),
@@ -313,6 +316,7 @@ void main() {
         final repo = FakeAuthRepository();
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             secureStorageProvider.overrideWith((_) => storage),
             authRepositoryProvider.overrideWith((_) => repo),
@@ -390,6 +394,7 @@ void main() {
         final repo = FakeAuthRepository();
 
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             secureStorageProvider.overrideWith((_) => storage),
             authRepositoryProvider.overrideWith((_) => repo),
@@ -470,6 +475,7 @@ void main() {
       final repo = FakeAuthRepository();
 
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -575,6 +581,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               secureStorageProvider.overrideWith((_) => storage),
               authRepositoryProvider.overrideWith((_) => repo),
@@ -648,6 +655,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               secureStorageProvider.overrideWith((_) => storage),
               authRepositoryProvider.overrideWith((_) => repo),

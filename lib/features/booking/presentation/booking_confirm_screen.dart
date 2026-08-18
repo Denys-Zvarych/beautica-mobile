@@ -1,33 +1,67 @@
 // BookingConfirmScreen: the independent-master booking flow's final
 // review-and-submit step (the `/booking/confirm` route).
 //
-// MULTI-SERVICE (the multi-service booking rework): the client picks a
-// SEPARATE time for each selected service on `BookingTimeScreen`, so this
-// screen now reviews N appointments (one per service) and submits ONE `POST
-// /bookings` per appointment (all against the same master, auto-confirmed to
-// CONFIRMED). It mirrors `salon_booking_confirm_screen.dart`'s structure — a
-// shared master + address header, one card per appointment, a grand total when
-// N > 1, an optional «Коментар для майстра» note, a pinned CTA — keyed by
-// SERVICE instead of MASTER, and driven by `IndependentBookingSubmit`.
+// MO-3 (single-visit rework): the client multi-selects services in Step 1 and
+// picks ONE date + ONE start time for the whole visit on the time step. This
+// screen reviews the WHOLE visit — the ordered service list, a single visit
+// window (`startAt` → `startAt + summed duration`), the summed total (or a
+// min–max band when any service is range-priced), and an optional visit-level
+// «Коментар для майстра» — then submits it as ONE `POST /appointments`
+// (`AppointmentSubmit.submitVisit`), auto-confirmed to CONFIRMED. This REPLACES
+// the pre-MO-3 "N `POST /bookings`, one per service" fan-out and its
+// per-appointment partial-failure UI.
 //
-// PARTIAL FAILURE (the reason this screen can't just reuse the single-service
-// `BookingConfirm` notifier): each service's booking succeeds/fails
-// independently. On «Записатись» every appointment is attempted; if ALL
-// succeed the screen `pushReplacement`s to the success screen; if SOME fail the
-// screen STAYS, each failed card shows its own error, a SnackBar nudges retry,
-// and the CTA becomes «Повторити» — re-submitting ONLY the still-failed
-// appointments (already-created bookings are never re-sent, and each reuses its
-// stable idempotency key so an ambiguously-failed one de-duplicates). Success
-// is never claimed while any appointment failed. A 409 (slot taken between pick
-// and submit, or the client's own overlapping booking) fails only THAT
-// appointment.
+// ERROR HANDLING: one call now, so one clear error state. A failed submit maps
+// the typed [Failure] (a 409 `CLIENT_BOOKING_CONFLICT` / `BOOKING_ALREADY_ELAPSED`
+// / `DUPLICATE_SERVICE`, a 429 rate-limit, or a generic failure) to ONE inline
+// error banner pinned directly above the CTA — the screen stays fully
+// interactive so the client can re-tap «Записатись» (reusing the SAME
+// idempotency key, so a retry de-duplicates) or back out and re-pick a time.
 //
-// DATA SOURCE: `BookingConfirmArgs` carries the fully-resolved appointments
-// (service id + chosen start + stable idempotency key) + the master. The
-// service DISPLAY objects are resolved by id out of
+// RESCHEDULE: when `rescheduleBookingId` is non-null the flow moves a single
+// EXISTING booking — [services] holds one element and the submit swaps to
+// `PATCH /bookings/{id}/reschedule` (`AppointmentSubmit.reschedule`); the
+// comment field is hidden (that endpoint has no comment channel).
+//
+// PER-ITEM VISIT RESCHEDULE (track 30.x, superseding track 27.x/MO-6's
+// whole-visit flow): when `rescheduleAppointmentId` is ALSO non-null (checked
+// FIRST — see `_submit`), [rescheduleBookingId] identifies ONE service of a
+// multi-service visit, and the submit swaps to
+// `PATCH /appointments/{id}/services/{bookingId}/reschedule`
+// (`AppointmentSubmit.rescheduleAppointmentItem`) instead of the per-booking
+// `AppointmentSubmit.reschedule`. [services] STILL holds exactly the one item
+// being moved (mirroring the plain single-booking reschedule path above) —
+// this endpoint moves ONLY that service, never its siblings (no re-layout, no
+// cascade, no gap-closing; the visit may legally become non-contiguous
+// afterwards). The endpoint itself is dual-actor (the visit's own CLIENT or
+// an assigned PROVIDER); either footer of `booking_detail_screen.dart`'s
+// `_onReschedule` may set it. Because this now shares the exact same
+// single-item shape as the plain reschedule branch, the post-write
+// invalidation is UNIFIED with the plain-reschedule set too
+// (`bookingDetailProvider(id)` + `myBookingsProvider(BookingTab.upcoming)` +
+// `nextAppointmentProvider`) — PLUS `bookingsDayProvider`, scoped to the
+// affected date(s) (the NEW day from `widget.args.startAt` and, when still
+// resolvable, the OLD day the moved booking's PRE-reschedule
+// `bookingDetailProvider(rescheduleId)` cache reports) — mirroring
+// `booking_calendar_invalidation.dart`'s per-date-scoped precedent, NOT the
+// bare-family invalidation `booking_detail_screen.dart`'s
+// `_confirmDecline`/`_confirmComplete` still use (that whole-family shape is
+// the EXACT mobile-perf MEDIUM pattern `booking_calendar_invalidation.dart`
+// was written to replace — evicting the bounded 3-day keepAlive LRU for every
+// kept day, not just the one this write touched). `_onReschedule` forwards
+// `appointmentId` for BOTH client and provider viewers: a PROVIDER moving one
+// service of their own visit must also refresh their own day-calendar
+// screen, or it keeps showing the item at its OLD slot until the ≤3-day
+// keepAlive LRU evicts (mobile-perf CRITICAL fix). The earlier whole-visit
+// flow's endpoint is untouched on the backend; only this mobile entry point
+// to it was retired.
+//
+// DATA SOURCE: `BookingConfirmArgs` carries the fully-resolved ordered
+// [services] + the single [startAt] + the stable visit idempotency key + the
+// master. The master identity + address are re-read from
 // `publicMasterProfileProvider(masterId)` — the SAME 5-minute-keepAlive family
-// `ServiceSelectorSheet` / `BookingTimeScreen` already warmed earlier in this
-// exact flow, so reaching this screen normally costs zero extra round trips.
+// the earlier flow screens already warmed — so reaching this screen normally
+// costs zero extra round trips.
 //
 // SEC: renders the INDEPENDENT master's address (street/buildingNo/city/
 // locationNote — for a solo master that may be a HOME address) — acquires the
@@ -43,34 +77,38 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_notifier.dart';
+import '../application/bookings_day_notifier.dart';
 import '../application/my_bookings_notifier.dart';
-import '../domain/booking_appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
 import '../domain/booking_tab.dart';
+import '../domain/bookings_day_query.dart';
+import '../domain/create_appointment_request.dart';
 import 'widgets/booking_comment_field.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
-import 'widgets/labelled_row.dart';
 import 'widgets/master_strip.dart';
 
-/// Booking flow final review — the multi-appointment confirm-and-submit screen.
+/// Booking flow final review — the single-visit confirm-and-submit screen.
 class BookingConfirmScreen extends ConsumerStatefulWidget {
   const BookingConfirmScreen({super.key, required this.args});
 
@@ -85,6 +123,11 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
   static const int _maxComment = 500;
 
   final TextEditingController _comment = TextEditingController();
+
+  /// The last submit's failure, or `null` before/after a successful submit —
+  /// drives the single inline error banner. Cleared at the start of each
+  /// submit.
+  Failure? _failure;
 
   late final ScreenProtectionManager _screenProtection;
 
@@ -101,79 +144,176 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     super.dispose();
   }
 
-  /// Blocks leaving once at least one appointment has succeeded — the only
-  /// safe way forward after a partial success is the «Повторити» retry (which
-  /// reuses each still-failed appointment's stable idempotency key). Mirrors
-  /// `salon_booking_confirm_screen.dart`.
-  void _onBack(bool hasSucceeded) {
-    if (hasSucceeded) {
-      _showBackBlockedMessage();
-      return;
-    }
-    context.pop();
-  }
+  bool get _isReschedule => widget.args.rescheduleBookingId != null;
 
-  void _showBackBlockedMessage() {
-    final l10n = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.salonBookingBackBlockedMessage),
-        behavior: SnackBarBehavior.floating,
+  /// The visit's summed duration in minutes — drives the single window's end
+  /// time everywhere (confirm window, success window, calendar event).
+  /// `widget.args.services` never changes for this screen's life, so it is
+  /// summed once (mirrors `BookingSuccessScreen`'s `late final`) rather than
+  /// re-folded on each submit-spinner-toggle / failure `setState` rebuild.
+  late final int _totalDurationMinutes = widget.args.services.fold<int>(
+    0,
+    (int sum, MasterService s) => sum + s.durationMinutes,
+  );
+
+  /// The visit's ordered service selections, mapped for the summary card once —
+  /// `widget.args.services` is immutable for this screen's life, so this is not
+  /// re-derived on the submit-spinner-toggle / failure `setState` rebuilds
+  /// (mirrors `BookingSuccessScreen`'s `late final _selections`).
+  late final List<BookingSelection> _selections = <BookingSelection>[
+    for (final MasterService s in widget.args.services)
+      BookingSelection(
+        name: s.name,
+        price: ServicePriceDisplay.format(s),
+        duration: DurationMinutes.format(s.durationMinutes),
+        durationMinutes: s.durationMinutes,
+        priceMin: s.priceMin,
+        priceMax: s.priceMax,
       ),
-    );
-  }
+  ];
 
-  Future<void> _submit(
-    Master master,
-    List<_ResolvedAppointment> resolved,
-  ) async {
+  Future<void> _submit(Master master, List<MasterService> services) async {
     FocusScope.of(context).unfocus();
+    if (_failure != null) setState(() => _failure = null);
+
     final String? rescheduleId = widget.args.rescheduleBookingId;
-    final IndependentBookingSubmitState result = await ref
-        .read(independentBookingSubmitProvider.notifier)
-        .submit(
-          widget.args.masterId,
-          widget.args.appointments,
-          comment: _comment.text,
-          rescheduleBookingId: rescheduleId,
-        );
-    if (!mounted) return;
-    if (result.allSucceeded(widget.args.appointments)) {
+    final String? rescheduleAppointmentId = widget.args.rescheduleAppointmentId;
+    try {
       if (rescheduleId != null) {
-        // A successful RESCHEDULE moved an EXISTING booking — its detail page
-        // and the upcoming My Bookings list must re-fetch to show the new
-        // time. Fired HERE in the widget layer (a `ref` outside a Notifier),
-        // mirroring the cancel flow's post-write invalidation in
-        // `booking_detail_screen._confirmCancel`, so a cross-provider
-        // invalidate never runs from inside a Notifier (the
-        // `forbid_provider_self_invalidation` cycle footgun). On the create
-        // path there is no pre-existing booking to refresh.
+        // Captured BEFORE the write, from whatever `bookingDetailProvider
+        // (rescheduleId)` already has cached — `startBookingReschedule`
+        // (`reschedule_navigation.dart`) is this flow's ONLY entry point and
+        // always awaits that exact provider to seed the picker, so by the
+        // time this screen's CTA is reachable it is already resolved with
+        // the booking's PRE-move `startAt`. `.value` (never the removed
+        // Riverpod 2.x `valueOrNull` — see `auth_selectors.dart`) degrades to
+        // `null` (never a stale/failed guess) if that assumption ever
+        // breaks — see the invalidation block below for how a `null` old day
+        // is handled.
+        final DateTime? oldStartAt = ref
+            .read(bookingDetailProvider(rescheduleId))
+            .value
+            ?.startAt;
+        if (rescheduleAppointmentId != null) {
+          // Track 30.x — per-item VISIT reschedule, checked FIRST (both
+          // fields are set together on this path — see the file header).
+          // Moves ONLY this one service via the appointment-scoped endpoint;
+          // siblings are untouched.
+          await ref
+              .read(appointmentSubmitProvider.notifier)
+              .rescheduleAppointmentItem(
+                rescheduleAppointmentId,
+                rescheduleId,
+                widget.args.startAt,
+              );
+        } else {
+          await ref
+              .read(appointmentSubmitProvider.notifier)
+              .reschedule(rescheduleId, widget.args.startAt);
+        }
+        if (!mounted) return;
+        // A successful RESCHEDULE moved an EXISTING booking (a plain one, or
+        // ONE service of a visit — both share this exact invalidation set) —
+        // refresh its detail page + the upcoming My Bookings list from the
+        // widget layer (a `ref` outside a Notifier), mirroring the cancel
+        // flow's post-write invalidation, so a cross-provider invalidate
+        // never runs from inside a Notifier (the
+        // `forbid_provider_self_invalidation` cycle footgun). Also refreshes
+        // the Home Hub's own «Найближчий запис» card — a reschedule may move
+        // this booking to/from being the client's soonest upcoming
+        // appointment (Phase 225).
         ref.invalidate(bookingDetailProvider(rescheduleId));
         ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+        ref.invalidate(nextAppointmentProvider);
+        if (rescheduleAppointmentId != null) {
+          // Track 30.x per-item VISIT reschedule only — `_onReschedule`
+          // forwards `appointmentId` for BOTH the client and provider
+          // viewers, so a PROVIDER moving one service of their own visit
+          // must also drop the master's own «Мої записи» day-calendar cache
+          // for the affected date(s), or it keeps showing the item at its
+          // OLD slot until the ≤3-day keepAlive LRU evicts (mobile-perf
+          // CRITICAL). Scoped to the NEW day (`widget.args.startAt`) and, if
+          // resolvable, the OLD day (`oldStartAt`, captured above BEFORE the
+          // write) — a move across midnight changes both. Mirrors
+          // `booking_calendar_invalidation.dart`'s per-date-scoped precedent,
+          // NEVER the bare-family `ref.invalidate(bookingsDayProvider)` that
+          // file's own header documents as a mobile-perf MEDIUM fix (2026-07-
+          // 26): the whole family refetches every day currently cached —
+          // including days this write never touched — defeating the bounded
+          // 3-day keepAlive LRU's "settled revisit costs nothing" guarantee.
+          // Invalidating a family MEMBER with no live listener is still a
+          // documented no-op, so this is safe to run unconditionally even for
+          // a CLIENT viewer who has no day-calendar screen at all.
+          final Set<DateTime> affectedDays = <DateTime>{
+            dateOnly(toBeauticaTime(widget.args.startAt)),
+            if (oldStartAt != null) dateOnly(toBeauticaTime(oldStartAt)),
+          };
+          // BOTH day-list family members per affected date, mirroring
+          // `booking_calendar_invalidation.dart` (mobile-perf HIGH,
+          // 2026-08-13): `.dayList` is the member `BookingsDiscoveryView`
+          // watches on an untouched «Мої записи» (CANCELLED/DECLINED hidden by
+          // default, locked 2026-08-13), `.of` the plain empty-status one the
+          // SAME list resolves to once the master ticks EVERY filter group —
+          // `BookingStatus.dayListWireStatuses` maps the maximal selection to
+          // `const {}`, i.e. no `status` param, which IS that key. No other
+          // `lib/` host reads `.of` today, so the select-all path is the whole
+          // justification for the second call. Invalidating only the latter —
+          // which this loop did until the day list gained its default — left
+          // the master's own screen showing the moved item at its OLD slot,
+          // pinned across disposal by the ≤3-day keepAlive LRU. Built through
+          // `BookingsDayQuery.dayList`, never a hand-written status literal,
+          // so the two can never drift.
+          for (final DateTime day in affectedDays) {
+            ref.invalidate(
+              bookingsDayProvider(BookingsDayQuery.dayList(day: day)),
+            );
+            ref.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: day)));
+          }
+        }
+      } else {
+        final String? comment = _comment.text.trim().isEmpty
+            ? null
+            : _comment.text.trim();
+        await ref
+            .read(appointmentSubmitProvider.notifier)
+            .submitVisit(
+              CreateAppointmentRequest(
+                masterId: widget.args.masterId,
+                masterServiceIds: <String>[
+                  for (final MasterService s in services) s.id,
+                ],
+                startAt: widget.args.startAt,
+                idempotencyKey: widget.args.idempotencyKey,
+                clientComment: comment,
+              ),
+            );
+        if (!mounted) return;
+        // A newly-created booking is auto-CONFIRMED → lands in the upcoming
+        // tab. The client shell keeps the My Bookings branch mounted
+        // (`StatefulShellRoute.indexedStack`), so its autoDispose notifier never
+        // re-fetches on tab re-select — invalidate it here from the widget layer
+        // (mirroring the reschedule branch above) so the new booking shows
+        // without a manual pull-to-refresh. A cross-provider invalidate from a
+        // Notifier would trip `forbid_provider_self_invalidation`; this is a
+        // widget-layer `ref`, so it is compliant. Also refreshes the Home
+        // Hub's own «Найближчий запис» card, which this new booking may now
+        // be (Phase 225).
+        ref.invalidate(myBookingsProvider(BookingTab.upcoming));
+        ref.invalidate(nextAppointmentProvider);
       }
       context.pushReplacement(
         RouteNames.bookingSuccess,
         extra: BookingSuccessArgs(
           master: master,
-          appointments: <BookingSuccessAppointment>[
-            for (final _ResolvedAppointment r in resolved)
-              BookingSuccessAppointment(
-                service: r.service,
-                start: r.appointment.startAt,
-              ),
-          ],
-          isReschedule: widget.args.rescheduleBookingId != null,
+          services: services,
+          startAt: widget.args.startAt,
+          isReschedule: rescheduleId != null,
         ),
       );
-      return;
+    } on Failure catch (failure) {
+      if (!mounted) return;
+      setState(() => _failure = failure);
     }
-    final l10n = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.salonBookingPartialFailureMessage),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   @override
@@ -182,143 +322,95 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     final AsyncValue<PublicMasterProfileData> asyncData = ref.watch(
       publicMasterProfileProvider(widget.args.masterId),
     );
-    final (bool inFlight, bool hasFailures, bool hasSucceeded) = ref.watch(
-      independentBookingSubmitProvider.select(
-        (IndependentBookingSubmitState s) =>
-            (s.inFlight, s.hasFailures, s.hasSucceeded),
-      ),
+    final bool inFlight = ref.watch(
+      appointmentSubmitProvider.select((AsyncValue<void> s) => s.isLoading),
     );
 
-    // Resolve each appointment's service display object out of the cached
-    // profile. Null while loading; a missing service is a defensive
-    // broken-flow guard below.
-    Master? master;
-    List<_ResolvedAppointment>? resolved;
-    final PublicMasterProfileData? data = asyncData.value;
-    if (data != null) {
-      final (Master m, List<MasterService> services) = data;
-      master = m;
-      final List<_ResolvedAppointment> acc = <_ResolvedAppointment>[];
-      for (final BookingAppointment a in widget.args.appointments) {
-        final MasterService? service = services
-            .where((MasterService s) => s.id == a.serviceId)
-            .firstOrNull;
-        if (service == null) {
-          // A selected service is no longer in the master's catalogue —
-          // bail back rather than render a confirmation for a service that
-          // no longer exists (mirrors the old single-service guard).
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted) context.pop();
-          });
-          resolved = null;
-          break;
-        }
-        acc.add(_ResolvedAppointment(appointment: a, service: service));
-      }
-      resolved ??= acc.length == widget.args.appointments.length ? acc : null;
-    }
+    // Resolve the master out of the cached profile. The ordered services come
+    // straight from the args (already resolved during the selection step); the
+    // catalogue read only supplies the master identity + address.
+    final Master? master = asyncData.value?.$1;
+    final bool ready = master != null;
 
-    final bool ready = master != null && resolved != null;
-    final bool isReschedule = widget.args.rescheduleBookingId != null;
     final String ctaLabel = inFlight
         ? l10n.bookingSubmitCtaLoading
-        : hasFailures
-        ? l10n.salonBookingRetryCta
-        : isReschedule
+        : _isReschedule
         ? l10n.bookingRescheduleSubmitCta
         : l10n.bookingSubmitCta;
 
-    return PopScope(
-      canPop: !hasSucceeded,
-      onPopInvokedWithResult: (bool didPop, Object? result) {
-        if (!didPop) _showBackBlockedMessage();
-      },
-      child: Scaffold(
-        backgroundColor: BrandColors.base,
-        bottomNavigationBar: ready
-            ? BookingCtaFooter(
-                key: const Key('booking-confirm-cta-footer'),
-                buttonKey: const Key('booking-confirm-submit-cta'),
-                label: ctaLabel,
-                enabled: true,
-                loading: inFlight,
-                onPressed: () => _submit(master!, resolved!),
-              )
-            : null,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: <Widget>[
-              BookingTopBar(
-                title: l10n.bookingConfirmScreenTitle,
-                backSemantics: l10n.bookingConfirmBackSemantics,
-                onBack: () => _onBack(hasSucceeded),
-                backKey: const Key('booking-confirm-back'),
-              ),
-              Expanded(
-                child: asyncData.when(
-                  loading: () => const _LoadingBody(),
-                  error: (Object e, StackTrace _) => ErrorState(
-                    key: const Key('booking-confirm-error-state'),
-                    failure: e is Failure ? e : UnknownFailure(cause: e),
-                    onRetry: () => ref.invalidate(
-                      publicMasterProfileProvider(widget.args.masterId),
-                    ),
+    return Scaffold(
+      backgroundColor: BrandColors.base,
+      bottomNavigationBar: ready
+          ? BookingCtaFooter(
+              key: const Key('booking-confirm-cta-footer'),
+              buttonKey: const Key('booking-confirm-submit-cta'),
+              label: ctaLabel,
+              enabled: true,
+              loading: inFlight,
+              onPressed: () => _submit(master, widget.args.services),
+            )
+          : null,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: <Widget>[
+            BookingTopBar(
+              title: l10n.bookingConfirmScreenTitle,
+              backSemantics: l10n.bookingConfirmBackSemantics,
+              onBack: () => context.pop(),
+              backKey: const Key('booking-confirm-back'),
+            ),
+            Expanded(
+              child: asyncData.when(
+                loading: () => const _LoadingBody(),
+                error: (Object e, StackTrace _) => ErrorState(
+                  key: const Key('booking-confirm-error-state'),
+                  failure: e is Failure ? e : UnknownFailure(cause: e),
+                  onRetry: () => ref.invalidate(
+                    publicMasterProfileProvider(widget.args.masterId),
                   ),
-                  data: (PublicMasterProfileData _) {
-                    if (!ready) return const SizedBox.shrink();
-                    return _ConfirmBody(
-                      master: master!,
-                      resolved: resolved!,
-                      comment: _comment,
-                      maxComment: _maxComment,
-                      // The reschedule endpoint takes only the new start —
-                      // a note-to-master input would be silently ignored, so
-                      // it is hidden on the reschedule path.
-                      showComment: !isReschedule,
-                    );
-                  },
                 ),
+                data: (PublicMasterProfileData _) {
+                  if (!ready) return const SizedBox.shrink();
+                  return _ConfirmBody(
+                    master: master,
+                    selections: _selections,
+                    startAt: widget.args.startAt,
+                    totalDurationMinutes: _totalDurationMinutes,
+                    comment: _comment,
+                    maxComment: _maxComment,
+                    // The reschedule endpoint takes only the new start — a
+                    // note-to-master input would be silently ignored, so it is
+                    // hidden on the reschedule path.
+                    showComment: !_isReschedule,
+                    failure: _failure,
+                  );
+                },
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// One appointment paired with its resolved service display object.
-class _ResolvedAppointment {
-  const _ResolvedAppointment({
-    required this.appointment,
-    required this.service,
-  });
-
-  final BookingAppointment appointment;
-  final MasterService service;
-
-  BookingSelection get selection => BookingSelection(
-    name: service.name,
-    price: ServicePriceDisplay.format(service),
-    duration: DurationMinutes.format(service.durationMinutes),
-    durationMinutes: service.durationMinutes,
-    priceMin: service.priceMin,
-    priceMax: service.priceMax,
-  );
-}
-
 class _ConfirmBody extends StatelessWidget {
   const _ConfirmBody({
     required this.master,
-    required this.resolved,
+    required this.selections,
+    required this.startAt,
+    required this.totalDurationMinutes,
     required this.comment,
     required this.maxComment,
     required this.showComment,
+    required this.failure,
   });
 
   final Master master;
-  final List<_ResolvedAppointment> resolved;
+  final List<BookingSelection> selections;
+  final DateTime startAt;
+  final int totalDurationMinutes;
   final TextEditingController comment;
   final int maxComment;
 
@@ -326,9 +418,12 @@ class _ConfirmBody extends StatelessWidget {
   /// reschedule path (the reschedule endpoint has no comment channel).
   final bool showComment;
 
+  /// The last submit failure, or `null` — drives the single inline error
+  /// banner pinned at the end of the scroll body (directly above the CTA).
+  final Failure? failure;
+
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
     final String? addressLine = formatStreetCityLine(
       street: master.street,
       buildingNo: master.buildingNo,
@@ -338,9 +433,6 @@ class _ConfirmBody extends StatelessWidget {
         (master.locationNote?.trim().isNotEmpty ?? false)
         ? master.locationNote!.trim()
         : null;
-    final List<BookingSelection> allSelections = <BookingSelection>[
-      for (final _ResolvedAppointment r in resolved) r.selection,
-    ];
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -353,102 +445,84 @@ class _ConfirmBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          MasterStrip.fromMaster(master, showRole: true, showRating: true),
-          const SizedBox(height: VelvetSpacing.md),
-          NeumorphicCard(
-            key: const Key('booking-confirm-address-card'),
-            padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-            child: LabelledRow(
-              label: l10n.bookingAddressLabel,
-              value: addressLine ?? l10n.bookingAddressUnknown,
-              detail: addressDetail,
+          // ONE visit recap: the master identity card, the shared address, the
+          // single visit window (start → start + summed duration), the ordered
+          // service list and the «Разом» total — all in one card stack.
+          BookingSummaryCards(
+            key: const Key('booking-confirm-visit-card'),
+            masterCard: Hero(
+              tag: 'master-strip-${master.id}',
+              child: MasterStrip.fromMaster(
+                master,
+                showRole: true,
+                showRating: true,
+                // TAPPABLE per the policy on `MasterStrip.onTap`: this is the
+                // last step, everything is already chosen, and checking the
+                // master's reviews before committing is exactly the doubt a
+                // client has here. `push` returns to this screen with the
+                // selections and the typed comment intact.
+                onTap: () =>
+                    context.push(RouteNames.masterPublicReviews(master.id)),
+              ),
             ),
+            addressLine: addressLine,
+            addressDetail: addressDetail,
+            dateLabel: formatFullDate(startAt),
+            timeLabel: formatTimeRange(startAt, totalDurationMinutes),
+            selections: selections,
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          for (final _ResolvedAppointment r in resolved) ...<Widget>[
-            _AppointmentCard(resolved: r),
+          if (showComment) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),
-          ],
-          if (resolved.length > 1) ...<Widget>[
-            NeumorphicCard(
-              key: const Key('booking-confirm-grand-total-card'),
-              showBorder: true,
-              padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-              child: BookingRecap(selections: allSelections, totalOnly: true),
-            ),
-            const SizedBox(height: VelvetSpacing.md),
-          ],
-          if (showComment)
             BookingCommentField(
               controller: comment,
               fieldKey: const Key('booking-confirm-comment-field'),
               maxLength: maxComment,
             ),
+          ],
+          if (failure != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _SubmitErrorBanner(failure: failure!),
+          ],
         ],
       ),
     );
   }
 }
 
-/// One appointment card (date/time + service + price) wired to ITS OWN slice
-/// of [IndependentBookingSubmitState], rendering an error line when this
-/// appointment's own submit failed.
-class _AppointmentCard extends StatelessWidget {
-  const _AppointmentCard({required this.resolved});
+/// The single inline error banner shown when a submit fails — an error-tone
+/// icon + the failure's localized message in a bordered neumorphic card, pinned
+/// at the end of the scroll body so it reads directly above the pinned CTA.
+class _SubmitErrorBanner extends StatelessWidget {
+  const _SubmitErrorBanner({required this.failure});
 
-  final _ResolvedAppointment resolved;
+  final Failure failure;
 
   @override
   Widget build(BuildContext context) {
-    final String serviceId = resolved.appointment.serviceId;
-    return Consumer(
-      builder: (BuildContext context, WidgetRef ref, Widget? child) {
-        final Failure? failure = ref.watch(
-          independentBookingSubmitProvider.select(
-            (IndependentBookingSubmitState s) => s.failureFor(serviceId),
-          ),
-        );
-        return Column(
-          key: ValueKey<String>('booking-confirm-appt-$serviceId'),
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            BookingSummaryCards(
-              showAddress: false,
-              dateLabel: formatFullDate(resolved.appointment.startAt),
-              timeLabel: formatTimeRange(
-                resolved.appointment.startAt,
-                resolved.service.durationMinutes,
-              ),
-              singleSelection: resolved.selection,
-              dense: true,
+    return NeumorphicCard(
+      key: const Key('booking-confirm-submit-error'),
+      showBorder: true,
+      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(
+              Icons.error_outline_rounded,
+              size: 18,
+              color: BrandColors.error,
             ),
-            if (failure != null) ...<Widget>[
-              const SizedBox(height: VelvetSpacing.sm),
-              Row(
-                key: Key('booking-confirm-appt-error-$serviceId'),
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const Padding(
-                    padding: EdgeInsets.only(top: 1),
-                    child: Icon(
-                      Icons.error_outline_rounded,
-                      size: 15,
-                      color: BrandColors.error,
-                    ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.xs),
-                  Expanded(
-                    child: Text(
-                      failure.userMessage(context),
-                      style: VelvetText.feedback(BrandColors.error),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        );
-      },
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          Expanded(
+            child: Text(
+              failure.userMessage(context),
+              style: VelvetText.feedback(BrandColors.error),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

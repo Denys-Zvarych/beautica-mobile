@@ -6,17 +6,17 @@
 // `add_2_calendar` [Event] and fires the platform INSERT via
 // `Add2Calendar.addEvent2Cal`, whose sole side-effect surface is:
 //   • the native `add2Cal` platform method (channel `add_2_calendar`), and
-//   • a localised error SnackBar when that call returns `false` (no calendar
-//     app) OR throws (PlatformException / MissingPluginException).
+//   • a localised error VelvetSnack when that call returns `false` (no
+//     calendar app) OR throws (PlatformException / MissingPluginException).
 //
 // We mock the plugin at the CHANNEL boundary
 // (`setMockMethodCallHandler('add_2_calendar', …)`) — no real OS sheet ever
 // opens — and assert:
 //   1. the exact payload transmitted (title / location / absolute-UTC-instant
 //      start+end in ms / pinned Europe/Kyiv timeZone),
-//   2. the `false`-return failure path shows the localised SnackBar,
-//   3. the throwing failure path shows the localised SnackBar and NO exception
-//      escapes,
+//   2. the `false`-return failure path shows the localised VelvetSnack,
+//   3. the throwing failure path shows the localised VelvetSnack and NO
+//      exception escapes,
 //   4. STRUCTURED DESCRIPTION (change #3) — `buildCalendarDescription` builds a
 //      `desc` block of STRUCTURED FACTS ONLY (service / provider / date-time /
 //      address / price / status), one labelled line per supplied fact, and the
@@ -26,20 +26,22 @@
 //      calendar entry even when a full structured description is populated.
 //
 // Copy is asserted through l10n keys, never a raw Cyrillic literal (CI
-// no-raw-string gate). No fixed `pump(Duration)` waits — the SnackBar
-// assertions use the bounded [PumpUntil.pumpUntilFound] helper.
+// no-raw-string gate). VelvetSnack assertions use the shared
+// `test/helpers/velvet_snack_matchers.dart` helper (entrance pump + drain the
+// dwell Timer), not a fixed `pump(Duration)` wait.
 
 import 'dart:convert';
 
 import 'package:add_2_calendar/add_2_calendar.dart' show Add2Calendar;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../helpers/pump_app.dart';
+import '../../helpers/velvet_snack_matchers.dart';
 
 // The plugin's channel + method names (add_2_calendar 3.1.1) — the exact
 // boundary we intercept.
@@ -74,8 +76,9 @@ void main() {
   });
 
   // Pumps a minimal l10n-configured MaterialApp + Scaffold and returns the
-  // Scaffold-body context (has both AppLocalizations and a ScaffoldMessenger
-  // ancestor, so the helper can resolve copy AND show a SnackBar).
+  // Scaffold-body context (has both AppLocalizations and the root Overlay
+  // MaterialApp.router's Navigator always provides, so the helper can resolve
+  // copy AND show a VelvetSnack via Overlay.of(context, rootOverlay: true)).
   Future<BuildContext> pumpHost(WidgetTester tester) async {
     late BuildContext ctx;
     await tester.pumpWidget(
@@ -134,7 +137,7 @@ void main() {
         expect(onlyArgs()['timeZone'], kBeauticaTimeZoneName);
         expect(kBeauticaTimeZoneName, 'Europe/Kyiv');
 
-        // Success: the OS sheet is "open" — no error SnackBar.
+        // Success: the OS sheet is "open" — no error VelvetSnack.
         expect(find.text(l10n.bookingAddToCalendarError), findsNothing);
       },
     );
@@ -191,28 +194,35 @@ void main() {
   });
 
   group('addBookingToCalendar — failure feedback', () {
-    testWidgets('shows the localised SnackBar when the plugin returns false', (
-      tester,
-    ) async {
-      responder = (_) async => false; // no calendar app available
-      final BuildContext ctx = await pumpHost(tester);
-      final AppLocalizations l10n = AppLocalizations.of(ctx);
+    testWidgets(
+      'shows the localised error VelvetSnack when the plugin returns false',
+      (tester) async {
+        responder = (_) async => false; // no calendar app available
+        final BuildContext ctx = await pumpHost(tester);
+        final AppLocalizations l10n = AppLocalizations.of(ctx);
 
-      await addBookingToCalendar(
-        context: ctx,
-        title: 'Подія',
-        location: 'вул. Городоцька 12, Львів',
-        start: _kStart,
-        end: _kEnd,
-      );
-      await tester.pumpUntilFound(find.text(l10n.bookingAddToCalendarError));
+        await addBookingToCalendar(
+          context: ctx,
+          title: 'Подія',
+          location: 'вул. Городоцька 12, Львів',
+          start: _kStart,
+          end: _kEnd,
+        );
+        await pumpVelvetSnackIn(tester);
 
-      expect(find.text(l10n.bookingAddToCalendarError), findsOneWidget);
-    });
+        expectVelvetSnack(
+          l10n.bookingAddToCalendarError,
+          variant: VelvetSnackVariant.error,
+        );
+
+        // Drain the dwell Timer so it does not leak past the test.
+        await pumpPastVelvetSnack(tester);
+      },
+    );
 
     testWidgets(
-      'shows the localised SnackBar when the plugin throws a PlatformException '
-      'and no exception escapes',
+      'shows the localised error VelvetSnack when the plugin throws a '
+      'PlatformException and no exception escapes',
       (tester) async {
         responder = (_) async => throw PlatformException(code: 'no_activity');
         final BuildContext ctx = await pumpHost(tester);
@@ -226,34 +236,43 @@ void main() {
           start: _kStart,
           end: _kEnd,
         );
-        await tester.pumpUntilFound(find.text(l10n.bookingAddToCalendarError));
+        await pumpVelvetSnackIn(tester);
 
-        expect(find.text(l10n.bookingAddToCalendarError), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'shows the localised SnackBar when no calendar app is registered '
-      '(MissingPluginException)',
-      (tester) async {
-        // A device with no calendar-app implementation surfaces this on the
-        // channel; the helper must treat it exactly like any other failure.
-        responder = (_) async =>
-            throw MissingPluginException('No implementation for add2Cal');
-        final BuildContext ctx = await pumpHost(tester);
-        final AppLocalizations l10n = AppLocalizations.of(ctx);
-
-        await addBookingToCalendar(
-          context: ctx,
-          title: 'Подія',
-          start: _kStart,
-          end: _kEnd,
+        expectVelvetSnack(
+          l10n.bookingAddToCalendarError,
+          variant: VelvetSnackVariant.error,
         );
-        await tester.pumpUntilFound(find.text(l10n.bookingAddToCalendarError));
 
-        expect(find.text(l10n.bookingAddToCalendarError), findsOneWidget);
+        // Drain the dwell Timer so it does not leak past the test.
+        await pumpPastVelvetSnack(tester);
       },
     );
+
+    testWidgets('shows the localised error VelvetSnack when no calendar app is '
+        'registered (MissingPluginException)', (tester) async {
+      // A device with no calendar-app implementation surfaces this on the
+      // channel; the helper must treat it exactly like any other failure.
+      responder = (_) async =>
+          throw MissingPluginException('No implementation for add2Cal');
+      final BuildContext ctx = await pumpHost(tester);
+      final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+      await addBookingToCalendar(
+        context: ctx,
+        title: 'Подія',
+        start: _kStart,
+        end: _kEnd,
+      );
+      await pumpVelvetSnackIn(tester);
+
+      expectVelvetSnack(
+        l10n.bookingAddToCalendarError,
+        variant: VelvetSnackVariant.error,
+      );
+
+      // Drain the dwell Timer so it does not leak past the test.
+      await pumpPastVelvetSnack(tester);
+    });
   });
 
   group('buildCalendarDescription — structured facts (change #3)', () {

@@ -8,8 +8,17 @@
 // Layout (scrollable body + sticky CTA):
 //   1. Top bar — shared [ClientTopBar] (wordmark · bell · burger). Branch root,
 //      so no back button.
-//   2. Pill search field — «Пошук майстра або послуги» (free-text; INERT
-//      backend-side in v1 but wired forward via the controller).
+//   2. Pill search field — «Пошук майстра або послуги». LIVE end-to-end: the
+//      text is written onto [SearchFilters.query] and forwarded to the backend
+//      `q` param by the repository on BOTH `/search/masters` and
+//      `/search/salons`. (An older comment here claimed the field was "inert
+//      backend-side in v1" — that was never true of the shipped backend and is
+//      corrected.) A term of 1–2 characters is below the backend minimum: it is
+//      never applied, it CLEARS any previously applied query, the field goes
+//      into its red error state, and «Показати майстрів» is disabled until the
+//      term is completed or the box is emptied.
+//      Salon-employed masters are deliberately NOT name-searchable — search
+//      covers independent masters + salons — so the field never promises them.
 //   3. «Місто» — recessed select row → opens the existing locality picker
 //      (oblast → city cascade) and writes the chosen city onto SearchFilters.
 //   4. «Категорія» — a horizontal rail of ALL approved categories
@@ -51,6 +60,7 @@ import '../domain/category_service_option.dart';
 import '../domain/search_filters.dart';
 import 'state/search_filters_controller.dart';
 import 'widgets/category_rail.dart';
+import 'widgets/search_query_field.dart';
 import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';
 import 'widgets/staggered_reveal.dart';
@@ -69,11 +79,15 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
   @override
   void initState() {
     super.initState();
-    // Re-hydrate the field from any surviving (keepAlive) query so a back-nav
-    // from results shows what was typed.
+    // Re-hydrate the field from the surviving (keepAlive) DRAFT — what the user
+    // last typed — falling back to the applied query. The two agree except when
+    // the draft is below the minimum, and in exactly that case seeding from the
+    // applied query would restore the old term over the user's own characters.
+    final String draft = ref.read(searchQueryDraftControllerProvider);
     final String? query = ref.read(searchFiltersControllerProvider).query;
-    if (query != null) {
-      _searchController.text = query;
+    final String seed = draft.isNotEmpty ? draft : (query ?? '');
+    if (seed.isNotEmpty) {
+      _searchController.text = seed;
     }
     // One-time, per-session prefill of the locality filter from the signed-in
     // CLIENT's saved profile location. The controller owns the one-shot +
@@ -243,9 +257,33 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     context.push(RouteNames.clientSearchResults, extra: filters);
   }
 
+  /// Mirrors a draft change made while this screen is covered back into its
+  /// text box.
+  ///
+  /// `context.push` leaves this screen MOUNTED under the results screen, so its
+  /// `initState` re-hydration never runs on a pop back. The live case is the
+  /// results screen's applied-query chip: tapping it routes through
+  /// `setQuery('')`, which empties the draft — and this box must come back
+  /// empty to match, not still showing the term the user just cleared.
+  ///
+  /// Driven by the DRAFT, not by [SearchFilters.query], so a below-minimum term
+  /// the user typed here (which clears the applied query by contract) is never
+  /// overwritten with the previously applied one. The write is a no-op whenever
+  /// the box already shows the same term, so typing here never fights its own
+  /// caret (a trailing-space edit trims to the same term and is left alone).
+  void _syncQueryField(String draft) {
+    if (_searchController.text.trim() == draft) return;
+    _searchController.text = draft;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+
+    ref.listen<String>(
+      searchQueryDraftControllerProvider,
+      (String? _, String next) => _syncQueryField(next),
+    );
 
     return Scaffold(
       // Stable branch key carried over from the placeholder this screen
@@ -316,9 +354,9 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
 // Sticky «Показати майстрів» CTA.
 //
 // Self-watches ONLY the locality-id slice (oblastId, cityId) of the filter
-// state, so an oblast/city change rebuilds just this button — never the body's
-// staggered reveal + ListView. A price drag / category tap touches neither slice
-// and so never rebuilds the CTA either.
+// state plus the query draft, so an oblast/city change or a keystroke rebuilds
+// just this button — never the body's staggered reveal + ListView. A price drag
+// / category tap touches neither and so never rebuilds the CTA either.
 // ---------------------------------------------------------------------------
 
 class _ShowMastersCta extends ConsumerWidget {
@@ -342,13 +380,25 @@ class _ShowMastersCta extends ConsumerWidget {
     );
     final bool regionWithoutCity = loc.oblastId != null && loc.cityId == null;
 
+    // "Finish the word" guard: a 1–2 character term is below what the backend
+    // honours, so it is never promoted onto SearchFilters.query. Letting the CTA
+    // fire anyway pushed a search for whatever was applied BEFORE — the user
+    // reached results for a term they had already edited away. Watching the
+    // draft (not the applied query) is the whole point: the below-minimum term
+    // exists nowhere else. An EMPTY box is not blocked — a filters-only search
+    // is legitimate.
+    final bool queryTooShort = ref.watch(
+      searchQueryDraftControllerProvider.select(isBelowSearchMinimum),
+    );
+
     return NeumorphicButton(
       key: const Key('search_show_masters_cta'),
       label: label,
       icon: Icons.search_rounded,
-      // Disabled while a region is chosen but no city — the NeumorphicButton
-      // renders its built-in disabled chrome when onPressed is null.
-      onPressed: regionWithoutCity ? null : onShowMasters,
+      // Disabled while a region is chosen but no city, or while the search box
+      // holds a below-minimum term — the NeumorphicButton renders its built-in
+      // disabled chrome when onPressed is null.
+      onPressed: (regionWithoutCity || queryTooShort) ? null : onShowMasters,
     );
   }
 }
@@ -385,14 +435,19 @@ class _ClearFiltersButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ({bool hasQuery, bool hasCategory, bool hasPrice}) f = ref.watch(
+    final ({bool hasCategory, bool hasPrice}) f = ref.watch(
       searchFiltersControllerProvider.select(
         (SearchFilters s) => (
-          hasQuery: s.query != null,
           hasCategory: s.categoryKey != null,
           hasPrice: s.minPrice != null || s.maxPrice != null,
         ),
       ),
+    );
+    // Keyed off the DRAFT rather than `SearchFilters.query`: a below-minimum
+    // term clears the applied query, so watching the applied one would hide the
+    // reset link at exactly the moment the box has text the user may want gone.
+    final bool hasQuery = ref.watch(
+      searchQueryDraftControllerProvider.select((String d) => d.isNotEmpty),
     );
     final bool hasServices = ref.watch(
       searchServiceSelectionControllerProvider.select(
@@ -400,7 +455,7 @@ class _ClearFiltersButton extends ConsumerWidget {
       ),
     );
     final bool anyActive =
-        f.hasQuery || f.hasCategory || f.hasPrice || hasServices;
+        hasQuery || f.hasCategory || f.hasPrice || hasServices;
     if (!anyActive) return const SizedBox.shrink();
 
     return Align(
@@ -468,9 +523,15 @@ class _SearchFiltersBody extends ConsumerWidget {
             reveal(
               start: 0.0,
               end: 0.4,
-              child: _SearchField(
+              // No debounce: this screen never fetches — it only writes the
+              // applied query onto the keepAlive controller, and nothing reads
+              // it until «Показати майстрів» is tapped. This is the app's ONLY
+              // free-text search input; the results screen has no field, so a
+              // keystroke can never cost a request.
+              child: SearchQueryField(
                 controller: searchController,
                 hintText: l10n.searchFieldHint,
+                minLengthError: l10n.searchQueryMinLengthError,
                 onChanged: (String value) => ref
                     .read(searchFiltersControllerProvider.notifier)
                     .setQuery(value),
@@ -502,65 +563,6 @@ class _SearchFiltersBody extends ConsumerWidget {
           ],
         );
       },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Pill search field (recessed inset, leading magnifier).
-// ---------------------------------------------------------------------------
-
-class _SearchField extends StatelessWidget {
-  const _SearchField({
-    required this.controller,
-    required this.hintText,
-    required this.onChanged,
-  });
-
-  final TextEditingController controller;
-  final String hintText;
-  final ValueChanged<String> onChanged;
-
-  static final TextStyle _hintStyle = VelvetText.input().copyWith(
-    color: BrandColors.placeholder,
-    fontWeight: FontWeight.w600,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return NeumorphicInset(
-      radius: 28,
-      child: SizedBox(
-        height: VelvetSizes.field,
-        child: Row(
-          children: <Widget>[
-            const SizedBox(width: VelvetSpacing.md + 2),
-            const Icon(
-              Icons.search_rounded,
-              color: BrandColors.muted,
-              size: 21,
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            Expanded(
-              child: TextField(
-                key: const Key('search_query_field'),
-                controller: controller,
-                onChanged: onChanged,
-                textInputAction: TextInputAction.search,
-                style: VelvetText.input(),
-                cursorColor: BrandColors.accent,
-                decoration: InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  hintText: hintText,
-                  hintStyle: _hintStyle,
-                ),
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.md),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -36,6 +36,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('appRouter smoke tests', () {
@@ -142,6 +143,7 @@ void main() {
 
     ProviderContainer makeContainer(AsyncValue<AuthSession> session) {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -259,6 +261,7 @@ void main() {
         'requestChangePasswordOtp', (tester) async {
       final fakeAuthRepo = FakeAuthRepository();
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_unauthenticatedSession),
@@ -310,6 +313,7 @@ void main() {
     ) async {
       final fakeAuthRepo = FakeAuthRepository();
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),

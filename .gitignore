@@ -62,6 +62,14 @@ build/symbols/
 .env
 .env.*
 
+# Gradle daemon heap dumps (-XX:+HeapDumpOnOutOfMemoryError, no HeapDumpPath set
+# in android/gradle.properties) can contain plaintext keystore passwords and
+# land in whatever the JVM's CWD happens to be. android/.gitignore covers the
+# expected `flutter build apk` case (CWD = android/); this covers a dump
+# landing at the Flutter project root instead (e.g. gradlew invoked with -p
+# android from here, or the Kotlin compile daemon).
+*.hprof
+
 # Generated Dart sources — Phase 1+ codegen, regenerate via build_runner.
 **/*.g.dart
 **/*.freezed.dart

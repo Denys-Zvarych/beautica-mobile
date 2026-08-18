@@ -199,22 +199,27 @@ void main() {
       },
     );
 
-    test(
-      'POSITIVE: 200 with null data array → empty list (not a throw)',
-      () async {
-        final h = _wire();
-        h.adapter.onGet(
-          _listPath,
-          (s) => s.reply(200, <String, dynamic>{
-            'success': true,
-            'message': 'ok',
-            'data': null,
-          }),
-        );
+    // Was `POSITIVE: 200 with null data array → empty list (not a throw)`.
+    // Inverted deliberately (security audit, null-envelope conflation): a 200
+    // whose envelope carries no `data` array is a MALFORMED success, and
+    // mapping it onto `const []` made it indistinguishable from a master with
+    // genuinely zero services — the UI rendered the "no services" em-dash for
+    // a response that never delivered a payload. It now throws so the caller's
+    // error branch runs (and `ServicesStatTile` shows its distinct '?' glyph).
+    test('NEGATIVE: 200 with null data array → ServerFailure '
+        '(malformed success is never an empty catalogue)', () async {
+      final h = _wire();
+      h.adapter.onGet(
+        _listPath,
+        (s) => s.reply(200, <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': null,
+        }),
+      );
 
-        expect(await h.repo.listMyServices(), isEmpty);
-      },
-    );
+      await expectLater(h.repo.listMyServices(), throwsA(isA<ServerFailure>()));
+    });
 
     test(
       'NEGATIVE: 401 → UnauthorizedFailure (never raw DioException)',
@@ -256,6 +261,135 @@ void main() {
 
       await expectLater(
         h.repo.listMyServices(),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // =========================================================================
+  // getMasterServices
+  //
+  // The PUBLIC sibling of listMyServices (GET /masters/{masterId}/services,
+  // keyed on the path param rather than the JWT principal). It carried NO
+  // transport-tier coverage at all until the null-data envelope stopped
+  // mapping to `const []` and started throwing — the same inversion
+  // listMyServices got, on the code path where it matters MORE, not less: a
+  // silently-empty public profile shows a CLIENT a services-less master built
+  // from a response that never delivered a payload.
+  //
+  // TIER: contract, not integration. What changed is a repository-internal
+  // envelope→Failure decision on an existing route; it adds no screen, route,
+  // navigation step or form submit. The CONSUMER side of the throw is already
+  // pinned one tier up — `public_master_profile_notifier_test.dart`'s
+  // "a failing services read propagates the typed ServerFailure" asserts the
+  // provider unwraps it from `ParallelWaitError` so the screen's error branch
+  // renders server-specific copy. What no tier covered is that a 200 whose
+  // envelope has `data: null` PRODUCES that Failure in the first place, and
+  // that is a wire-shape question: it needs the real ErrorMapperInterceptor,
+  // the real generated client and the real deserializer over a faked socket,
+  // which is precisely this file. An E2E would exercise the same one-line
+  // branch through a whole app boot, run emulator-only (excluded from the CI
+  // gate), and assert it indirectly through rendered copy — strictly slower
+  // and weaker coverage of the thing that actually changed.
+  // =========================================================================
+  group('getMasterServices — full transport contract', () {
+    const String publicPath = '/api/v1/masters/$_masterId/services';
+
+    test(
+      'POSITIVE: 200 list envelope parses into MasterService list',
+      () async {
+        final h = _wire();
+        h.adapter.onGet(publicPath, (s) => s.reply(200, _listEnvelope()));
+
+        final list = await h.repo.getMasterServices(_masterId);
+
+        expect(list, hasLength(1));
+        expect(list.first.id, _assignmentId);
+        expect(list.first.serviceDefId, _serviceDefId);
+        expect(list.first.name, 'Манікюр');
+        expect(list.first.priceMin, 500.0);
+        expect(list.first.priceType, ServicePriceType.fixed);
+      },
+    );
+
+    test('POSITIVE: 200 with an EMPTY data array → empty list (a master who '
+        'genuinely offers nothing is NOT an error)', () async {
+      final h = _wire();
+      h.adapter.onGet(
+        publicPath,
+        (s) => s.reply(200, <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <Map<String, dynamic>>[],
+        }),
+      );
+
+      expect(await h.repo.getMasterServices(_masterId), isEmpty);
+    });
+
+    // The inversion itself. Deliberately paired with the empty-array case
+    // directly above: together they pin that `[]` and `null` are now DIFFERENT
+    // outcomes. A regression that restored `?? const []` would keep the
+    // empty-array test green and only this one would go red, which is the
+    // whole point — the old behaviour made the two indistinguishable.
+    test('NEGATIVE: 200 with null data array → ServerFailure '
+        '(malformed success is never an empty catalogue)', () async {
+      final h = _wire();
+      h.adapter.onGet(
+        publicPath,
+        (s) => s.reply(200, <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': null,
+        }),
+      );
+
+      await expectLater(
+        h.repo.getMasterServices(_masterId),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('NEGATIVE: 404 (unknown masterId) → NotFoundFailure', () async {
+      final h = _wire();
+      h.adapter.onGet(
+        publicPath,
+        (s) => s.reply(404, {'message': 'no master'}),
+      );
+
+      await expectLater(
+        h.repo.getMasterServices(_masterId),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test('NEGATIVE: 500 → ServerFailure(statusCode: 500)', () async {
+      final h = _wire();
+      h.adapter.onGet(publicPath, (s) => s.reply(500, {'message': 'boom'}));
+
+      await expectLater(
+        h.repo.getMasterServices(_masterId),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
+        ),
+      );
+    });
+
+    test('NEGATIVE: connection timeout → NetworkFailure', () async {
+      final h = _wire();
+      h.adapter.onGet(
+        publicPath,
+        (s) => s.throws(
+          408,
+          DioException.connectionTimeout(
+            timeout: const Duration(seconds: 1),
+            requestOptions: RequestOptions(path: publicPath),
+          ),
+        ),
+      );
+
+      await expectLater(
+        h.repo.getMasterServices(_masterId),
         throwsA(isA<NetworkFailure>()),
       );
     });
@@ -635,5 +769,35 @@ void main() {
         );
       },
     );
+
+    // The deliberate EXCEPTION to the guard, and the reason it is asserted
+    // rather than assumed: getMasterServices hits the PUBLIC endpoint keyed on
+    // its own masterId PATH PARAM, so it must keep working when the OWNER id
+    // is empty — the CLIENT-safe provider passes '' (see
+    // `service_repository.dart`'s comment on the missing `_assertAuthenticated`
+    // call). Adding the guard "for consistency" would break every client-side
+    // public master profile, and nothing before this test would have caught it.
+    test('getMasterServices with empty masterId still reaches the socket '
+        '(PUBLIC endpoint — path param, not the JWT principal)', () async {
+      final dio = Dio(BaseOptions(baseUrl: _baseUrl));
+      dio.interceptors.add(ErrorMapperInterceptor());
+      final adapter = DioAdapter(dio: dio);
+      final repo = HttpServiceRepository(
+        serviceApi: ServiceControllerApi(dio, standardSerializers),
+        categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+        catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+        dio: dio,
+        masterId: '',
+      );
+      adapter.onGet(
+        '/api/v1/masters/$_masterId/services',
+        (s) => s.reply(200, _listEnvelope()),
+      );
+
+      final list = await repo.getMasterServices(_masterId);
+
+      expect(list, hasLength(1));
+      expect(list.first.id, _assignmentId);
+    });
   });
 }

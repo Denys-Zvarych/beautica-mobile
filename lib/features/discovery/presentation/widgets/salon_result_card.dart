@@ -29,7 +29,7 @@ import '../../../booking/application/pending_service_preselection_provider.dart'
 import '../../../favorites/domain/favorite_target.dart';
 import '../../domain/salon_search_item.dart';
 import '../../domain/search_filters.dart';
-import 'favorite_heart_button.dart';
+import 'favorite_heart_overlay.dart';
 import 'result_address_block.dart';
 import 'result_card_text.dart';
 import 'result_thumbnail.dart';
@@ -93,13 +93,42 @@ class SalonResultCard extends ConsumerWidget {
     final String? price = _priceLabel(l10n, salon.priceMin, salon.priceMax);
 
     // Phase 13.6: /salons/:id is now registered — the card navigates to the
-    // public salon profile. The favourite heart (FavoriteHeartButton below)
-    // has its own independent tap target, so the outer GestureDetector must
-    // not swallow it — HitTestBehavior.opaque on the outer Semantics/tap
-    // target is unnecessary here since NeumorphicCard already fills the row.
-    return Semantics(
+    // public salon profile. The favourite heart is rendered by
+    // [FavoriteHeartOverlay] (below) rather than inline in the `Row` — a
+    // genuine 48×48 tap target inline would eat into the `Expanded` name/
+    // meta column dp-for-dp, since the heart is the Row's last child. The
+    // `Row` keeps only an inert placeholder sized to the heart's OLD inline
+    // footprint (`FavoriteHeartOverlay.slotWidth`) so that column's width is
+    // unaffected; the overlay renders the real, tappable heart on top,
+    // spilling into the card's own padding instead. See
+    // `favorite_heart_overlay.dart`'s file header for the full contract —
+    // same fix `CatalogueServiceTile` (`service_catalogue_accordion.dart`)
+    // uses.
+    //
+    // The `Semantics` annotation lives HERE, wrapping the card's own
+    // `GestureDetector`, and NOT around the `FavoriteHeartOverlay` below.
+    // Above the overlay it would take this gesture and the heart's into one
+    // merge group, which Flutter resolves by refusing to merge either —
+    // leaving this annotation with `isButton` but no `tap` action, and the
+    // node that IS tappable with no role. See
+    // `favorite_heart_overlay.dart`'s "SEMANTICS CONTRACT" header section.
+    //
+    // It carries `button: true` and NOTHING ELSE — deliberately no
+    // `label: name`. The merged descendants already announce the name once
+    // (the name `Text` is the first child of the column below), so an
+    // explicit label here is announced a SECOND time: «Beauty Studio, Beauty
+    // Studio, Галицький, Львів, …». That stutter is PRE-EXISTING, not
+    // something this change armed: re-dumping the semantics tree from this
+    // file at `HEAD` shows the committed tree ALREADY merged and ALREADY
+    // stuttered on a node that ALREADY carried `actions: tap` + `isButton`.
+    // (An earlier revision of this note claimed the heart's gesture had
+    // suppressed the merge on `main`, leaving the duplicate dormant — that
+    // was measured on this change's intermediate draft, where the annotation
+    // sat ABOVE the overlay, and is false of `main`.) Let the content supply
+    // the label — the standard Flutter pattern. Guarded by
+    // `salon_result_card_test.dart`'s single-occurrence assertion.
+    final Widget cardBody = Semantics(
       button: true,
-      label: name,
       child: GestureDetector(
         key: Key('salon_card_${salon.salonId}'),
         onTap: () {
@@ -119,6 +148,13 @@ class SalonResultCard extends ConsumerWidget {
                   children: <Widget>[
                     Text(
                       name,
+                      // Keyed so a test can measure the name column's
+                      // laid-out width without locating it by its (fixture)
+                      // text — see `salon_result_card_favorite_heart_
+                      // tap_target_test.dart`'s "name column is unchanged"
+                      // group, which pins that width against the heart
+                      // overlay's reserved slot.
+                      key: const Key('salon_card_name'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: VelvetText.subheading(),
@@ -144,20 +180,26 @@ class SalonResultCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              FavoriteHeartButton(
-                key: Key('favorite_salon_${salon.salonId}'),
-                target: FavoriteTarget(
-                  type: FavoriteTargetType.salon,
-                  id: salon.salonId,
-                ),
-                semanticAddLabel: l10n.favoriteAddLabel,
-                semanticRemoveLabel: l10n.favoriteRemoveLabel,
-                onError: onFavoriteError,
-              ),
+              // Inert placeholder — reserves the heart's OLD inline footprint
+              // so the `Expanded` column above is unaffected. The real,
+              // tappable heart is the `FavoriteHeartOverlay` below, NOT this
+              // box (it paints nothing and has no gesture).
+              const SizedBox(width: FavoriteHeartOverlay.slotWidth),
             ],
           ),
         ),
       ),
+    );
+
+    // BARE — no outer `Semantics`. `cardBody` already carries it (above).
+    return FavoriteHeartOverlay(
+      body: cardBody,
+      containerPad: VelvetSpacing.md,
+      heartKey: Key('favorite_salon_${salon.salonId}'),
+      target: FavoriteTarget(type: FavoriteTargetType.salon, id: salon.salonId),
+      semanticAddLabel: l10n.favoriteAddLabel,
+      semanticRemoveLabel: l10n.favoriteRemoveLabel,
+      onError: onFavoriteError,
     );
   }
 

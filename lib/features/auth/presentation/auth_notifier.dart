@@ -36,6 +36,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/media/beautica_image.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
@@ -733,13 +734,60 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// Called by [RefreshInterceptor] after a silent token refresh so that
   /// subsequent requests carry the new access token without requiring a full
-  /// session reload. Only has effect when the current state is [Authenticated].
+  /// session reload.
+  ///
+  /// The write is DURABLE ACROSS THE COLD-START WINDOW (mobile-qa MEDIUM,
+  /// 2026-08-07). This used to no-op unless the settled state was already
+  /// [Authenticated], which silently DISCARDED the freshly-refreshed token
+  /// whenever the refresh completed while [build] / [login] / [verifyEmail]
+  /// still held the provider in [AsyncLoading]. [RefreshInterceptor] then
+  /// replayed the failed request through `_dio.fetch`, which re-enters
+  /// [AuthInterceptor] — and that re-derives the Bearer header from
+  /// [lastKnownAccessToken], i.e. from the STALE cold-start sentinel. So the
+  /// replay re-sent the exact token that had just 401'd, `X-No-Retry` stopped
+  /// the second round, cold-start [build] read that as a dead session and wiped
+  /// storage: a false "session expired" bounce to /login for a user holding
+  /// valid credentials. Measured before the fix (throwaway probe):
+  ///   `state.value=null lastKnown=stale-access`
+  ///   `authHeaders=[Bearer stale-access, Bearer stale-access]`
+  /// and after: `authHeaders=[Bearer stale-access, Bearer new-access]`.
+  ///
+  /// The path was dormant until 2026-08-07: `ErrorMapperInterceptor` ran ahead
+  /// of [RefreshInterceptor] and ended the error flow with `handler.reject`, so
+  /// no silent refresh ever reached this method. Reordering the chain (see
+  /// `dio_provider.dart`'s ORDER IS LOAD-BEARING block) armed it.
+  ///
+  /// The fix is at the token WRITE, not at the replay: the replay is only one
+  /// of the requests that re-derive their Bearer from [lastKnownAccessToken]
+  /// during that window, so making `_dio.fetch` carry the token out-of-band
+  /// would leave every other in-flight cold-start request on the stale one.
+  /// Both slots [lastKnownAccessToken] resolves through are therefore updated,
+  /// so the fresh token cannot be shadowed by the stale sentinel:
+  ///   - [_lastKnownAccessToken] always;
+  ///   - [coldStartAccessToken] only when it is currently non-null. It is a
+  ///     transient sentinel owned by whichever flow set it (each clears it in a
+  ///     `finally`); planting one here when none is live would leave a token
+  ///     nobody is responsible for clearing.
+  /// The Riverpod state itself is still rewritten ONLY when settled
+  /// [Authenticated] — a mid-[build] `state =` assignment would hijack
+  /// `provider.future` (see the [coldStartAccessToken] header).
+  ///
+  /// No-ops entirely when the settled state is [Unauthenticated]: [logout]
+  /// wipes both slots and flips the state, so a refresh landing after that must
+  /// not resurrect a Bearer token for a signed-out session.
   void setAccessToken(String token) {
     final s = state.value;
+    if (s is Unauthenticated) return;
+    // Keep the interceptor's session-lifetime fallback in lock-step with the
+    // freshly-refreshed token so a mid-rebuild window never replays a stale one.
+    _lastKnownAccessToken = token;
+    if (coldStartAccessToken != null) {
+      // A cold-start/login flow is mid-flight and its sentinel takes precedence
+      // in [lastKnownAccessToken]; refresh it in place rather than let it
+      // shadow the token that just replaced it server-side.
+      coldStartAccessToken = token;
+    }
     if (s is Authenticated) {
-      // Keep the interceptor's session-lifetime fallback in lock-step with the
-      // freshly-refreshed token so a mid-rebuild window never replays a stale one.
-      _lastKnownAccessToken = token;
       state = AsyncData(
         AuthSession.authenticated(user: s.user, accessToken: token),
       );
@@ -836,6 +884,26 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
     await ref.read(secureStorageProvider).deleteAll();
+    // Security (mobile-security MEDIUM-1, 2026-07-24) — purge the shared media
+    // disk cache. The loader (core/media/beautica_image.dart) disk-caches
+    // remote avatars/photos for 7 days; the client faces this account viewed
+    // are PII and must not survive an explicit or forced sign-out onto a
+    // shared/reassigned device. Best-effort like the rest of the wipe: any
+    // error (e.g. a wedged sqflite store) is tolerated so it can never abort
+    // the unconditional local wipe below. Routed through the top-level
+    // `purgeBeauticaMediaCache()` so it hits the override-aware ACTIVE cache
+    // manager (never the raw handle) and stays testable.
+    try {
+      await purgeBeauticaMediaCache();
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Media cache purge on logout failed (tolerated): ${e.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
     // Security (mobile-security MEDIUM) — force-clear the screen-protection
     // reference count and tear down FLAG_SECURE / the iOS app-switcher blur.
     // Without this, a logout triggered while a PII screen's dialog is still
@@ -866,6 +934,19 @@ class AuthNotifier extends _$AuthNotifier {
     // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
     // the full reasoning, including the Riverpod internals this depends on.
     ref.read(dayKeepAliveLruProvider).clear();
+    // NOTE — this belt-and-braces list is NOT the app's full inventory of
+    // keepAlive, user-scoped state, and must not be read as one (mobile-security
+    // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of
+    // BOOKING IDS this provider has left client feedback about) is deliberately
+    // ABSENT: like `BookingsDayNotifier`, its `build()` watches the
+    // authenticated identity itself (`authProvider.select(… user.id …)`), so
+    // the state assignment below already rebuilds it to a fresh empty set
+    // through the ordinary cascade. Unlike the day cache it holds no external
+    // bookkeeping (no LRU, no links map) for that rebuild to miss, so there is
+    // nothing left for an explicit sweep to do — adding one would be redundant
+    // work on every logout. Pinned by `client_review_signal_provider_test.dart`
+    // and by `master_archive_review_flow_test.dart`'s session-boundary scenario,
+    // which drives a real logout → login round trip.
     // Wipe the interceptor's session-lifetime token fallback so no request can
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;

@@ -31,6 +31,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -60,6 +61,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 
 ProviderContainer _make() {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(_FixedAuthNotifier.new),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),

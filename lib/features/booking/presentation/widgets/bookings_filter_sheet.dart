@@ -34,10 +34,12 @@
 // ## The caps are enforced here, not discovered at the server
 //
 // The backend rejects >5 statuses and >50 serviceIds with a **400** (Phase
-// 26.1/26.4). Neither is reachable from this sheet: the status universe is
-// exactly 5 by construction, and the service rows stop toggling on at
-// [kMaxServiceFilterIds]. There is deliberately no error copy for either — an
-// unreachable state needs no message.
+// 26.1/26.4). Neither is reachable from this sheet: the status universe is at
+// most 4 by construction (2026-08-15 — the NOT_COMPLETED row was retired,
+// see [BookingStatusFilterGroup]'s header), comfortably under the cap of 5,
+// and the service rows stop toggling on at [kMaxServiceFilterIds]. There is
+// deliberately no error copy for either — an unreachable state needs no
+// message.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -57,25 +59,43 @@ const int kMaxServiceFilterIds = 50;
 
 /// The user-facing status groups offered by the filter.
 ///
-/// ## Four rows, not five — and NOT because PENDING was dropped
+/// ## Three rows, not five — two different reasons, one per absence
 ///
-/// `BookingStatus.filterable` has five members and all five are offered; two of
-/// them share one row. `DECLINED` (provider-initiated cancellation) and
-/// `CANCELLED` (client-initiated) both render as «Скасовано» app-wide — the
-/// who-cancelled distinction was deliberately collapsed on the booking detail
-/// and on the client «Мої записи» list. Two rows reading «Скасовано» would be a
-/// filter the master cannot tell apart, so the row selects BOTH wire statuses.
-/// Selecting every row therefore sends exactly 5 `?status=` values, which is
-/// the cap precisely — and is why the cap can never be exceeded from here.
+/// `DECLINED` (provider-initiated cancellation) and `CANCELLED`
+/// (client-initiated) both render as «Скасовано» app-wide — the who-cancelled
+/// distinction was deliberately collapsed on the booking detail and on the
+/// client «Мої записи» list. Two rows reading «Скасовано» would be a filter
+/// the master cannot tell apart, so the row selects BOTH wire statuses.
+/// Selecting every row therefore sends at most 4 `?status=` values, one row
+/// short of `BookingStatus.filterable`'s five — comfortably under the
+/// backend's cap of 5.
 ///
-/// PENDING is absent for a different reason entirely: it no longer exists.
-/// Track 24.x made booking creation auto-confirm, the backend enum has no such
-/// member, and the design preview that still shows «Очікує» is stale on this
-/// point (see `booking_status.dart`'s header). Do not re-add it.
+/// PENDING is absent because it no longer exists. Track 24.x made booking
+/// creation auto-confirm, the backend enum has no such member, and the design
+/// preview that still shows «Очікує» is stale on this point (see
+/// `booking_status.dart`'s header). Do not re-add it.
+///
+/// NOT_COMPLETED (no-show) is absent for a THIRD reason, and it is NOT that
+/// the status was retired: `BookingStatus.notCompleted` still exists, the
+/// backend still emits it, and an already-`NOT_COMPLETED` booking still
+/// renders correctly everywhere (badge, detail subline, card, day list). What
+/// changed 2026-08-15 is that this row was a filter for a state **nothing in
+/// the app can produce** — no button, dialog, or menu ever calls
+/// `/not-complete` (`booking_detail_screen.dart:683` deliberately returns no
+/// actions for it; a no-show is recorded as a DECLINE with a free-text reason
+/// instead). A filter row for a state the master can never set from here was
+/// dead control surface, so it was removed. The row's removal must NOT hide
+/// existing NOT_COMPLETED bookings — see
+/// [BookingStatus.dayListWireStatuses]'s `maximal` parameter, which is what
+/// keeps "the master ticks every row this sheet still offers" resolving to
+/// the same "no `status` param at all" outcome it always has, so a no-show
+/// stays reachable through the unfiltered default even though it can no
+/// longer be filtered FOR independently. Full removal of the enum member
+/// itself (repository/UI render paths/migrations) is deferred — see
+/// `docs/mobile-phases/mobile-backlog.md`.
 enum BookingStatusFilterGroup {
   confirmed(<BookingStatus>{BookingStatus.confirmed}),
   completed(<BookingStatus>{BookingStatus.completed}),
-  notCompleted(<BookingStatus>{BookingStatus.notCompleted}),
   cancelled(<BookingStatus>{BookingStatus.cancelled, BookingStatus.declined});
 
   const BookingStatusFilterGroup(this.statuses);
@@ -96,8 +116,6 @@ String bookingStatusFilterLabel(
       return l10n.bookingStatusConfirmed;
     case BookingStatusFilterGroup.completed:
       return l10n.bookingStatusCompleted;
-    case BookingStatusFilterGroup.notCompleted:
-      return l10n.bookingStatusNotCompleted;
     case BookingStatusFilterGroup.cancelled:
       return l10n.bookingStatusCancelled;
   }

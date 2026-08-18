@@ -72,10 +72,31 @@ abstract interface class ScheduleRepository {
   /// Upserts a single-date override (PUT /overrides/{date}). The override's
   /// [ScheduleOverride.start] is used as the target date; a multi-day span must
   /// be expanded to one call per date by the caller.
-  Future<ScheduleOverride> putOverride(ScheduleOverride override);
+  ///
+  /// [cancelOverlapping] is the 2026-07-26 booking-conflict design's write-time
+  /// consent flag (default `false`, preserving the pre-existing "always
+  /// allowed" behaviour when there are no conflicts):
+  ///   • conflicts + `false` → the server rejects with 409, nothing written.
+  ///   • conflicts + `true`  → the override is written AND every conflicting
+  ///     CONFIRMED booking is declined, atomically.
+  /// Callers should call [previewConflicts] FIRST and only pass `true` after
+  /// the master confirms [DayOffConflictDialog] (or the ported equivalent) —
+  /// never pass `true` unconditionally, or a conflict the master never saw
+  /// would be silently cancelled.
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  });
 
   /// Clears (deletes) the override on [date], reverting it to the template.
   Future<void> clearOverride(DateTime date);
+
+  /// Read-only preview (`POST /overrides/conflicts`) of every CONFIRMED
+  /// booking that applying [span] (constant kind/mode/intervals/times across
+  /// `[span.start, span.end]`) would leave without availability — ONE request
+  /// for the whole range, never one per expanded date. No writes, no side
+  /// effects. Range MUST be bounded (≤ [kMaxScheduleRangeDays]).
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span);
 
   /// Resolves the effective schedule for each date in `[from, to]` (inclusive)
   /// — the calendar's data source. Range MUST be bounded
@@ -215,7 +236,10 @@ final class HttpScheduleRepository implements ScheduleRepository {
   }
 
   @override
-  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+  Future<ScheduleOverride> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) async {
     _assertAuthenticated();
     final date = override.start;
     try {
@@ -225,6 +249,7 @@ final class HttpScheduleRepository implements ScheduleRepository {
         scheduleOverrideRequest: ScheduleMapper.overrideToRequestForDate(
           override,
           date,
+          cancelOverlapping: cancelOverlapping,
         ),
       );
       final data = res.data?.data;
@@ -235,7 +260,29 @@ final class HttpScheduleRepository implements ScheduleRepository {
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
-      throw _logAndMap('putOverride', e, st);
+      throw _logAndMapOverrideWrite('putOverride', e, st);
+    }
+  }
+
+  @override
+  Future<OverrideConflictCheck> previewConflicts(ScheduleOverride span) async {
+    _assertAuthenticated();
+    _assertBoundedRange(span.start, span.end);
+    try {
+      final res = await _masterApi.previewOverrideConflicts(
+        masterId: _masterId,
+        overrideConflictQueryRequest:
+            ScheduleMapper.conflictQueryRequestForSpan(span),
+      );
+      final data = res.data?.data;
+      if (data == null) {
+        throw const ServerFailure();
+      }
+      return ScheduleMapper.overrideConflictCheckFromResponse(data);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      throw _logAndMap('previewConflicts', e, st);
     }
   }
 
@@ -304,6 +351,53 @@ final class HttpScheduleRepository implements ScheduleRepository {
     return _mapDioException(e);
   }
 
+  /// Logs (debug only) and maps a `putOverride` [DioException] to a typed
+  /// [Failure], checking the 2026-07-26 booking-conflict design's two special
+  /// statuses BEFORE falling back to [_mapDioException] — mirroring the
+  /// `HttpBookingRepository._mapBookingWriteException` precedent (status
+  /// checks run before deferring to any [Failure] the [ErrorMapperInterceptor]
+  /// may already have attached, since that interceptor has no
+  /// schedule-override-specific case for either status).
+  ///
+  ///   - **409** — the conflict set changed between the caller's
+  ///     [previewConflicts] call and this write (a booking was created, or an
+  ///     existing one already changed status) — [ConflictFailure]. The caller
+  ///     ([OverridesNotifier]) re-runs the preview rather than surfacing this
+  ///     as a raw error.
+  ///   - **429** — either the flat per-minute write-rate limit (50/60s) or the
+  ///     aggregate per-hour decline budget (1500 bookings/hour) —
+  ///     [ScheduleOverrideRateLimitedFailure], carrying the `Retry-After`
+  ///     header when the server sent one.
+  Failure _logAndMapOverrideWrite(String op, DioException e, StackTrace st) {
+    if (kDebugMode) {
+      log(
+        '$op failed: ${e.type} ${e.response?.statusCode}',
+        name: _tag,
+        level: 900,
+        stackTrace: st,
+      );
+    }
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) return ConflictFailure(cause: e);
+    if (statusCode == 429) {
+      return ScheduleOverrideRateLimitedFailure(
+        retryAfterSeconds: _extractRetryAfterSeconds(e),
+        cause: e,
+      );
+    }
+    return _mapDioException(e);
+  }
+
+  /// Parses the `Retry-After` response header (RFC 7231 §7.1.3, integer-seconds
+  /// form only — the backend always emits an integer, never an HTTP-date).
+  /// `null` when the header is absent or unparsable; the UI then shows a
+  /// static "try later" message instead of a countdown.
+  int? _extractRetryAfterSeconds(DioException e) {
+    final raw = e.response?.headers.value('retry-after');
+    if (raw == null) return null;
+    return int.tryParse(raw.trim());
+  }
+
   /// Maps a [DioException] to a typed [Failure].
   ///
   /// If [ErrorMapperInterceptor] already attached a [Failure] as `e.error`
@@ -319,9 +413,35 @@ final class HttpScheduleRepository implements ScheduleRepository {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return NetworkFailure(cause: e);
+      case DioExceptionType.badCertificate:
+        // Own arm (mobile-security LOW, mirrors `HttpBookingRepository` /
+        // `HttpSalonRepository`) rather than sharing the
+        // `badResponse`/`cancel`/`unknown` catch-all below: a possible MITM on
+        // schedule-override traffic (which now carries client names/phone-
+        // adjacent identifiers via the conflict preview) gets its own log
+        // signal, distinguishable from routine cancellation/server-error
+        // noise, instead of blending into the catch-all. The [Failure] handed
+        // back is deliberately UNCHANGED ([ServerFailure], still fails
+        // closed) — only the log call is split out.
+        //
+        // NOTE what this actually is: `log(...)` below, gated the same as
+        // every other diagnostic in this file — a LOCAL, debug-build-only
+        // console line. This app ships no Sentry/Crashlytics/remote-log sink
+        // anywhere, so there is no release-build telemetry trail and no
+        // alerting on this signal; a real MITM in production leaves no
+        // record beyond the fail-closed `ServerFailure` the caller already
+        // sees. Do not assume this is monitored.
+        if (kDebugMode) {
+          log(
+            'TLS/certificate validation failed for schedule traffic — '
+            'possible MITM',
+            name: 'feature.schedule.repository.security',
+            level: 1000,
+          );
+        }
+        return ServerFailure(statusCode: e.response?.statusCode, cause: e);
       case DioExceptionType.badResponse:
       case DioExceptionType.cancel:
-      case DioExceptionType.badCertificate:
       case DioExceptionType.unknown:
         return ServerFailure(statusCode: e.response?.statusCode, cause: e);
     }

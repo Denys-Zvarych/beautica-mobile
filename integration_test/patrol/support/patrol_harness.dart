@@ -2,20 +2,37 @@
 //
 // WHAT
 // ----
-// Mirrors integration_test/support/app_harness.dart, but adapted for patrol's
-// `PatrolIntegrationTester` ($) instead of the bare flutter_test
-// `WidgetTester`. Patrol wraps the standard tester, so the boot path is
-// identical — fake Dio transport, fixed clock, fake SecureStorage, primed
-// splash gate — only the pump call goes through `$` so patrol's finders and
-// `$.platform.*` automation share the same tree.
+// The patrol-tier boot path. Adapts `PatrolIntegrationTester` ($) to the SAME
+// shared boot policy the flutter_test tier uses — fake Dio transport, fixed
+// clock, fake SecureStorage, primed splash gate, overflow guard, off-screen-tap
+// guard, text-input mock — with only patrol's own pump/native surface differing.
 //
-// WHY A SEPARATE HARNESS
-// ----------------------
-// AppHarness.boot(tester, ...) takes a WidgetTester and is used by the fast
-// pure-Flutter integration_test flows on the headless job. We deliberately do
-// NOT import or mutate it here so the fast path stays byte-for-byte unchanged
-// (Phase 17.4 aggregator depends on it). This file re-implements the same boot
-// for patrol's binding and is compiled ONLY into the patrol native target.
+// THIS FILE NO LONGER MIRRORS app_harness.dart — IT DELEGATES (2026-07-31)
+// -----------------------------------------------------------------------
+// It used to say "Mirrors integration_test/support/app_harness.dart" and then
+// hand-copy that boot sequence. That mirror drifted exactly as a mirror always
+// does: `WidgetController.hitTestWarningShouldBeFatal` was added to
+// `AppHarness.boot` and never here, so the ENTIRE patrol tier kept booting with
+// the off-screen-tap guard off — silently swallowing mis-aimed taps and failing
+// later, elsewhere, with the wrong diagnosis. Nothing flagged it: not
+// `flutter analyze`, not a lint, not a green run.
+//
+// The shared rules now live in ONE place —
+// `integration_test/support/e2e_boot_policy.dart` — and both harnesses call
+// [applyE2eBootPolicy]. Anything added there is inherited by BOTH tiers
+// automatically. Do NOT re-inline a rule here "just for patrol", and do NOT
+// special-case one off (in particular the tap guard, whose patrol-tier
+// interaction is documented at its definition): that is how the mirror comes
+// back, with a rationale attached.
+//
+// WHY A SEPARATE HARNESS AT ALL
+// -----------------------------
+// `AppHarness.boot(tester, ...)` takes a `WidgetTester` and pumps via
+// `tester.pumpWidget` + a bounded `pumpAndSettle`; patrol needs
+// `$.pumpWidgetAndSettle` so patrol's finders, settle policy and
+// `$.platform.*` automation share the tree. That pump call — and patrol's
+// native-only concerns — is genuinely tier-specific and is ALL that remains
+// tier-specific here.
 //
 // SCOPE
 // -----
@@ -23,15 +40,39 @@
 // the deterministic fake-backend tree under patrol to demonstrate the
 // patrolTest(...) binding. The native-only DEEP-LINK flow
 // (deep_link_patrol_test.dart) does NOT use this harness — it drives the REAL
-// launched app via `$.platform.mobile.openUrl(...)` and a deep-link intent.
+// launched app via `$.platform.mobile.openUrl(...)` and a deep-link intent — but
+// it DOES apply the same [applyE2eBootPolicy], so no patrol entry point boots
+// without the shared GUARDS.
+//
+// THAT SENTENCE COVERS GUARDS, NOT PROVIDERS — READ IT NARROWLY (2026-08-04)
+// -------------------------------------------------------------------------
+// [applyE2eBootPolicy] installs the overflow guard, the off-screen-tap guard,
+// the text-input mock, the timezone database and the splash-gate priming. It
+// does NOT install any provider override. Those come from
+// `e2eProviderOverrides(...)`, which [boot] below passes and which
+// `deep_link_patrol_test.dart` deliberately does not — it pumps
+// `ProviderScope(child: BeauticaApp())` bare, so that ONE flow runs on the REAL
+// device clock, the REAL Dio and the REAL SecureStorage, while every other E2E
+// entry point (both tiers) runs on `kFixedNow`.
+//
+// That is correct for what it tests (an OS-level App Link intent reaching the
+// real app) and there is no defect there today: a mobile-qa audit on
+// 2026-08-04 found the whole patrol tier contains ZERO `DateTime` references of
+// any kind, and neither live flow asserts on a date, a slot, a calendar cell or
+// any other clock-derived value. But the asymmetry is REAL and it is invisible
+// to every gate: `scripts/forbid_host_local_instant_anchor.sh` RULE 3 flags a
+// `DateTime.now` READ in an integration test, and RULE 4 flags a fixture/pin
+// mismatch inside one test body — neither can see "this flow's APP is on the
+// live clock while the tier's shared fixtures are pinned to kFixedNow".
+//
+// SO: anything added to `deep_link_patrol_test.dart` that touches a date must
+// either derive it from the REAL clock (`kyivToday(DateTime.now)` — correct
+// there, wrong everywhere else in this tier) or that flow must start passing
+// `e2eProviderOverrides(...)` like every other entry point. Do not copy a
+// `kFixedNow`-anchored fixture into it from a sibling E2E file; it will be
+// comparing against a clock that flow does not share.
 
-import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/network/dio_provider.dart';
-import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
-import 'package:beautica_mobile/core/theme/app_theme.dart';
-import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,9 +81,11 @@ import 'package:go_router/go_router.dart';
 import 'package:patrol/patrol.dart';
 
 import '../../../test/helpers/fakes/fake_secure_storage.dart';
+import '../../support/e2e_boot_policy.dart';
 import '../../support/fake_backend.dart';
 
 export '../../support/fake_backend.dart' show FakeBackend, kFixedNow;
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Shared boot path for patrol-bound flows that run against the fake backend.
 abstract final class PatrolHarness {
@@ -52,73 +95,60 @@ abstract final class PatrolHarness {
   /// fake Dio transport + fixed clock + fake SecureStorage, through patrol's
   /// tester. Returns the live [GoRouter] so tests can assert the current route.
   ///
-  /// Mirrors [AppHarness.boot]: primes [AppStartTime] 5 s in the past so the
-  /// splash-duration gate is already satisfied and the auth redirect settles to
-  /// /login on the first settle.
+  /// Applies the SAME [applyE2eBootPolicy] as `AppHarness.boot` — including the
+  /// splash-gate priming that lets the auth redirect settle to /login on the
+  /// first settle — then pumps through patrol's tester.
   static Future<GoRouter> boot(
     PatrolIntegrationTester $,
     FakeBackend fakeBackend,
   ) async {
-    // ── TEXT-INPUT MOCK REGISTRATION — DO NOT DELETE ────────────────────────
+    // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
-    // Mirrors the same call in `integration_test/support/app_harness.dart`
-    // (see that file's comment for the full mechanism). Short version:
-    // `enterText` posts its editing state with the connection id
-    // `TestTextInput._client ?? -1`; `PatrolBinding` overrides
-    // `registerTestTextInput => false` (patrol 4.6.1, `lib/src/binding.dart`
-    // line 136 — byte-identical to
-    // `IntegrationTestWidgetsFlutterBinding`'s), so `_client` is never
-    // assigned and the id is always `-1`; the `-1` escape hatch in
-    // `TextInput._handleTextInputInvocation` lives inside an
-    // `assert(() {...}())` block that non-debug builds STRIP. Result: every
-    // `enterText` is a SILENT no-op and every form field stays empty.
+    // Overflow guard, off-screen-tap guard
+    // (`WidgetController.hitTestWarningShouldBeFatal`), text-input mock
+    // registration (`tester.binding.testTextInput.register()` — without it
+    // `enterText` is a SILENT no-op in the `--profile` / `--release` modes
+    // patrol_cli 4.4.0 exposes), timezone database, and the splash-gate
+    // priming. Every one of those is defined ONCE, in
+    // `integration_test/support/e2e_boot_policy.dart`, and applied here by this
+    // single call. Patrol wraps the standard `WidgetTester`, so the policy
+    // applies verbatim — `$.tester` IS a `WidgetTester`.
     //
-    // THIS HARNESS CAN RUN NON-DEBUG. `patrol_cli` 4.4.0 exposes `--profile`
-    // and `--release` build-mode flags on `patrol test` / `patrol build`
-    // (`lib/src/runner/patrol_command.dart` lines 82-89, 428-430). The
-    // `patrol` CI job passes neither today, so it runs debug and is not
-    // currently broken — but the defect is one CLI flag away, so register
-    // unconditionally rather than relying on the job's argv staying put.
-    // `register()` is idempotent.
-    $.tester.binding.testTextInput.register();
-
-    AppStartTime.setStartForTest(
-      DateTime.now().subtract(const Duration(seconds: 5)),
-    );
+    // Do not re-inline any of it here. This file's header explains what the
+    // hand-mirrored version cost.
+    applyE2eBootPolicy($.tester);
 
     final storage = FakeSecureStorage();
 
     await $.pumpWidgetAndSettle(
       ProviderScope(
-        // Cast a plain Object list so this file need not import the internal
-        // Override type — mirrors integration_test/support/app_harness.dart.
+        retry: beauticaProviderRetry,
+        // Cast a plain Object list so this file need not import Riverpod's
+        // Override type — same shape as AppHarness.boot.
         // ignore: avoid_dynamic_calls
-        overrides: <Object>[
-          dioProvider.overrideWithValue(fakeBackend.dio),
-          secureStorageProvider.overrideWithValue(storage),
-          clockProvider.overrideWithValue(() => kFixedNow),
-        ].cast(),
-        child: const _PatrolHarnessApp(),
+        overrides: e2eProviderOverrides(
+          fakeBackend: fakeBackend,
+          storage: storage,
+        ).cast(),
+        child: const E2eHarnessApp(),
       ),
     );
 
     final container = ProviderScope.containerOf(
-      $.tester.element(find.byType(_PatrolHarnessApp)),
+      $.tester.element(find.byType(E2eHarnessApp)),
     );
     return container.read(appRouterProvider);
   }
 
-  /// Resets [AppStartTime] to its pre-boot null state. Call in tearDown.
+  /// Undoes the per-test half of the shared boot policy. Call in tearDown.
   ///
-  /// Mirrors the same settle delay as `AppHarness.tearDownHarness` (see
-  /// docs/ci_investigation_notes.md in the Beautifier monorepo) — the
-  /// patrol job relaunches the app across native tests on the same
-  /// headless goldfish-opengl emulator, so it is exposed to the identical
-  /// `Failed to find ColorBuffer` -> `adb: device offline` crash class.
-  static Future<void> tearDownHarness() async {
-    AppStartTime.resetForTest();
-    await Future<void>.delayed(const Duration(seconds: 2));
-  }
+  /// Delegates to [resetE2eBootPolicy], the SAME function
+  /// `AppHarness.tearDownHarness` calls — splash-gate reset plus the host-side
+  /// GL settle delay. The patrol job relaunches the app across native tests on
+  /// the same headless goldfish-opengl emulator, so it is exposed to the
+  /// identical `Failed to find ColorBuffer` -> `adb: device offline` crash class
+  /// that delay exists for (see [resetE2eBootPolicy]).
+  static Future<void> tearDownHarness() => resetE2eBootPolicy();
 
   /// Drives the real login form for [role] and taps Submit (key-based).
   static Future<void> loginAs(
@@ -145,22 +175,7 @@ abstract final class PatrolHarness {
   }
 }
 
-/// The real MaterialApp.router without main()'s platform-channel side-effects.
-/// Identical to integration_test/support/app_harness.dart's _HarnessApp.
-class _PatrolHarnessApp extends ConsumerWidget {
-  const _PatrolHarnessApp();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
-    return MaterialApp.router(
-      debugShowCheckedModeBanner: false,
-      theme: velvetTheme(),
-      themeMode: ThemeMode.light,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      locale: const Locale('uk', 'UA'),
-      routerConfig: router,
-    );
-  }
-}
+// The real MaterialApp.router this harness pumps is [E2eHarnessApp], in
+// `../../support/e2e_boot_policy.dart`. It used to be a private
+// `_PatrolHarnessApp` here, byte-identical to app_harness.dart's private
+// `_HarnessApp` — one more strand of the mirror this file no longer maintains.

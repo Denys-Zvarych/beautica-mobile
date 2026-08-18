@@ -1,105 +1,61 @@
-// mobile-qa — Step 2.7 Rule 3b E2E coverage for the INDEPENDENT-master
-// MULTI-SERVICE booking flow (the multi-service booking rework).
+// mobile-qa — MO-3 E2E coverage for the INDEPENDENT-master MULTI-SERVICE
+// SINGLE-VISIT booking flow.
 //
 // WHY THIS FILE EXISTS
 // --------------------
-// The independent-master flow now carries all N selected services through to
-// the confirm screen, submitting ONE `POST /bookings` per service (same
-// master, distinct service + start + stable idempotency key each), with
-// EXPLICIT per-appointment partial-failure handling. The widget tier proves
-// the pieces in isolation:
-//   • `test/.../booking_time_screen_test.dart` — the PageView schedules two
-//     services into two appointments with distinct stable keys + the
-//     self-overlap guard;
-//   • `test/.../booking_confirm_test.dart` — the confirm screen's submit,
-//     per-appointment error row, partial-failure SnackBar, and same-key retry
-//     (single appointment, hand-stubbed providers).
-// Neither proves the REAL multi-appointment journey end to end: a CLIENT
-// logged in against the fake backend, landing on the REAL
-// `BookingConfirmScreen` (its `publicMasterProfileProvider(master-aaa)`
-// resolved through the REAL fake-backed public master repository — both
-// selected services resolved out of the genuine
-// `GET /masters/master-aaa/services` response, not a stubbed fixture tuple),
-// submitting TWO appointments, and reaching the success screen with two
-// confirmed cards — plus the partial-failure variant where one service's 409
-// keeps the client on the confirm screen and a retry re-sends ONLY the failed
-// service with its SAME stable key.
+// MO-3 reworked the independent-master flow: the client multi-selects services,
+// picks ONE date + ONE start time for the whole visit, and the visit is
+// submitted as ONE `POST /appointments` (ordered `masterServiceIds` + one
+// `startsAt` + one idempotency key) — replacing the pre-MO-3 "N `POST /bookings`,
+// one per service" fan-out. The widget tier proves the pieces in isolation
+// (`booking_confirm_test.dart`); this file proves the REAL journey end to end:
+//   • Test 1 — a logged-in CLIENT lands on the REAL `BookingConfirmScreen` (its
+//     `publicMasterProfileProvider(master-aaa)` resolved through the REAL
+//     fake-backed public master repository), submits the visit, and reaches the
+//     success screen — with ONE `createAppointment` carrying BOTH ordered
+//     service ids + ONE calendar export spanning the whole visit.
+//   • Test 2 — the single submit 409s with CLIENT_BOOKING_CONFLICT → the confirm
+//     screen STAYS with ONE inline error banner (never the retired conflict
+//     DIALOG), and a retry REUSES the same idempotency key and reaches success.
+//   • Test 3 — enters the real date→time picker (`SlotDateScreen` →
+//     `SlotTimeScreen`) with a two-service selection and proves the pinned
+//     "Послуги та ціни" shelf lists both services and the single chosen-window
+//     line appears once a slot is picked.
 //
-// SUPERSEDES `client_booking_conflict_flow_test.dart` (removed): that file
-// still asserted the OLD single-appointment `ClientBookingConflictDialog`
-// (keys `client-booking-conflict-dialog/-stay/-pick-another-time`), which the
-// reworked confirm screen NO LONGER shows — a 409 now surfaces as a
-// per-appointment error row + a partial-failure SnackBar (never a modal). Its
-// CLIENT_BOOKING_CONFLICT scenario is re-authored here against the new
-// contract (Test 2).
+// `appointmentRepositoryProvider` is overridden with a hand-written fake (never a
+// real `POST /appointments` route on `FakeBackend`'s `DioAdapter`) — mirrors
+// `salon_booking_flow_test.dart`'s precedent (avoids the generated client's
+// real-Dio timer leak while exercising the REAL `AppointmentSubmit` notifier +
+// confirm/success screens + router end to end).
 //
-// `bookingRepositoryProvider` is overridden with a hand-written fake (never a
-// `POST /bookings` route on `FakeBackend`'s `DioAdapter`) — mirrors the
-// established precedent in `salon_booking_flow_test.dart`'s
-// `_FakeBookingRepository` (its file header explains why: it avoids the
-// generated booking client's real-Dio timer leak while still exercising the
-// REAL `IndependentBookingSubmit` notifier + confirm/success screens + router
-// end to end).
-//
-// Test 3 (added with the "selected services" shelf) enters AT the time step
-// (`/booking/slots/time`, real `BookingTimeScreen` + real
-// `slotRepositoryProvider` over the fake backend's working-days/slots routes)
-// and proves the pinned shelf lists both selected services and that a
-// service's per-service chosen-window line appears in the shelf only after its
-// slot is picked — the one end-to-end place the time-step shelf is exercised
-// (Tests 1–2 deliberately push past this screen).
-//
-// Test 1 additionally covers the PER-APPOINTMENT «Додати в календар» export
-// (the calendar rework: one page-level pill → N card-scoped buttons). The
-// widget suite `test/.../booking_success_calendar_test.dart` pumps
-// `BookingSuccessScreen` with HAND-BUILT `BookingSuccessArgs`, so the one
-// thing it cannot prove is the wiring that produces those args: which
-// `MasterService` the confirm screen resolved for appointment i, and which
-// `startAt` it carried over. Here card i's exported Event window is checked
-// against the REAL `GET /masters/master-aaa/services` catalogue — `pub-assign-1`
-// is 90 min, `pub-assign-2` is 60 min — so an off-by-one in the
-// resolved→success mapping (the exact defect the rework fixed) shows up as the
-// wrong duration, not merely the wrong label.
-//
-// PATROL — REASONED EXEMPTION, not a deferral. The export is a platform-channel
-// call, but the app-side contract ENDS at the `Event` payload handed to
-// `add_2_calendar`: on Android it is an implicit ACTION_INSERT intent, which
-// needs no runtime permission (nothing for `$.native.*` to grant or dismiss)
-// and hands off to whatever calendar app the device happens to have. A CI
-// emulator image may have none at all — the honest outcome there is
-// ActivityNotFoundException, which is already pinned at the helper tier
-// (`add_to_calendar_test.dart`) and at the screen tier (the failure/guard-release
-// cases). A Patrol test could therefore only assert "some third-party activity
-// appeared", which is neither deterministic nor a statement about this app. The
-// payload — the only part we own and the only part that can regress — is pinned
-// exactly by the channel interception below. No other native surface is
-// involved in this flow (no permission dialog, deep link, FCM/local
-// notification, WebView, or biometric).
+// PATROL — REASONED EXEMPTION: the calendar export ends at the `Event` payload
+// handed to `add_2_calendar` (an implicit ACTION_INSERT intent needing no
+// runtime permission). The payload — the only part we own — is pinned exactly by
+// the channel interception below. No other native surface is involved.
 
 import 'dart:async';
 
-import 'package:dio/dio.dart';
-
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
-import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
-import 'package:beautica_mobile/features/booking/domain/booking.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -107,95 +63,97 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
-/// The `add_2_calendar` plugin's platform boundary — intercepted so the
-/// per-appointment export never launches a real OS calendar activity on the
-/// emulator (same seam `client_my_bookings_cancel_flow_test.dart` and
-/// `booking_price_band_flow_test.dart` already use).
+/// The `add_2_calendar` plugin's platform boundary — intercepted so the visit
+/// export never launches a real OS calendar activity on the emulator.
 const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 
-/// Records every `createBooking` call and, for each serviceId in
-/// [failOnceWith], throws its mapped [Failure] on THAT service's FIRST call
-/// only (then clears it, so a retry of the same service succeeds). Mirrors
-/// `salon_booking_flow_test.dart`'s `_FakeBookingRepository` "fail once, then
-/// succeed on retry" shape, keyed by SERVICE instead of MASTER (the
-/// independent flow's `IndependentBookingSubmit` makes one `createBooking`
-/// call per SERVICE per submit pass).
-class _FakeBookingRepository implements BookingRepository {
-  _FakeBookingRepository({
-    Map<String, Failure> failOnceWith = const <String, Failure>{},
-  }) : _failOnceWith = <String, Failure>{...failOnceWith};
+/// Records every `createAppointment` call and, on the FIRST call only, throws
+/// [failOnceWith] if set (then clears it, so a retry succeeds) — mirrors the
+/// "fail once, then succeed on retry" shape, keyed by the single visit call.
+class _FakeAppointmentRepository implements AppointmentRepository {
+  _FakeAppointmentRepository({this.failOnceWith, this.onCreated});
 
-  final Map<String, Failure> _failOnceWith;
-  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+  Failure? failOnceWith;
 
-  int callsFor(String serviceId) => requests
-      .where((CreateBookingRequest r) => r.serviceId == serviceId)
-      .length;
+  /// Invoked synchronously on a SUCCESSFUL create, BEFORE the request resolves —
+  /// lets a flow mutate `FakeBackend` state (e.g. append the just-booked visit
+  /// to `/bookings/me`) so the confirm screen's post-create
+  /// `ref.invalidate(myBookingsProvider(upcoming))` re-fetches the NEW row.
+  final void Function(CreateAppointmentRequest req)? onCreated;
 
-  List<CreateBookingRequest> requestsFor(String serviceId) => requests
-      .where((CreateBookingRequest r) => r.serviceId == serviceId)
-      .toList(growable: false);
+  final List<CreateAppointmentRequest> requests = <CreateAppointmentRequest>[];
 
   @override
-  Future<Booking> createBooking(CreateBookingRequest req) async {
+  Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
     requests.add(req);
-    final Failure? typed = _failOnceWith.remove(req.serviceId);
-    if (typed != null) throw typed;
-    return Booking(
-      id: 'booking-${req.serviceId}',
+    final Failure? typed = failOnceWith;
+    if (typed != null) {
+      failOnceWith = null;
+      throw typed;
+    }
+    onCreated?.call(req);
+    final DateTime end = req.startAt.add(const Duration(minutes: 150));
+    return Appointment(
+      id: 'appt-1',
+      status: BookingStatus.confirmed,
       masterId: req.masterId,
       masterFirstName: 'Софія',
       masterLastName: 'Бондар',
       masterType: 'INDEPENDENT_MASTER',
-      serviceId: req.serviceId,
-      serviceName: 'Послуга',
-      durationMinutes: 60,
-      price: 500,
       startAt: req.startAt,
-      endAt: req.startAt.add(const Duration(minutes: 60)),
-      status: BookingStatus.confirmed,
-      canReview: false,
+      endAt: end,
+      totalDurationMinutes: 150,
+      totalPrice: 900,
+      items: <AppointmentItem>[
+        for (final String id in req.masterServiceIds)
+          AppointmentItem(
+            bookingId: 'booking-$id',
+            masterServiceId: id,
+            serviceName: 'Послуга',
+            startAt: req.startAt,
+            endAt: end,
+            durationMinutes: 75,
+            price: 450,
+          ),
+      ],
     );
   }
 
   @override
-  Future<PageResponse<Booking>> getMyBookings({
-    required Iterable<BookingStatus> statuses,
-    BookingSort? sort,
-    required int page,
-    int size = kBookingsPageSize,
-    Iterable<String>? serviceIds,
-    DateTime? from,
-    DateTime? to,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
   @override
-  Future<List<DateTime>> getMyBookedDays({
-    required DateTime from,
-    required DateTime to,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
+  ) => throw UnimplementedError();
 
   @override
-  Future<Booking> getBookingById(String id) => throw UnimplementedError();
+  Future<void> cancelAppointment(String id, {String? note}) =>
+      throw UnimplementedError();
 
   @override
-  Future<void> createReview({
-    required String bookingId,
-    required int rating,
+  Future<void> completeAppointment(String id) => throw UnimplementedError();
+  @override
+  Future<void> completeAppointmentService(
+    String appointmentId,
+    String bookingId,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> declineAppointment(String id, {String? comment}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> declineAppointmentService(
+    String appointmentId,
+    String bookingId, {
     String? comment,
   }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancelBooking(String id, {String? reason}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
 }
 
 void main() {
@@ -204,38 +162,50 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // The seeded `master-aaa` fixture's own two PUBLIC service ids
-  // (`FakeBackend._publicMasterServices` — the SAME `GET
-  // /masters/master-aaa/services` response `public_master_profile_flow_test.dart`
-  // reads). The confirm screen resolves each appointment's service DISPLAY
-  // object out of that real response, so these ids MUST match it.
+  // The seeded `master-aaa` fixture's two PUBLIC service ids.
   const String masterId = 'master-aaa';
   const String serviceA = 'pub-assign-1';
   const String serviceB = 'pub-assign-2';
 
-  // Two distinct, non-overlapping starts — one per service (what
-  // `BookingTimeScreen` would have snapshotted from two separate slide picks).
-  final DateTime startA = DateTime.now().add(
-    const Duration(days: 1, hours: 10),
-  );
-  final DateTime startB = DateTime.now().add(
-    const Duration(days: 1, hours: 14),
-  );
+  // ONE start time for the whole visit — anchored to the harness's INJECTED
+  // clock, not the host's.
+  //
+  // This is a DISPLAY fixture (it feeds `BookingConfirmArgs.startAt`, which
+  // the confirm screen renders and which the POST assertion at
+  // `expect(sent.startAt, visitStart)` round-trips) — it never selects a
+  // calendar cell, so it is not the shape that broke this file on 2026-08-04.
+  // It is still converted rather than annotated, for three reasons:
+  //   1. The `// instant-ok:` escape hatch asserts "this read is a genuine
+  //      absolute-instant use that clock injection would not change". That
+  //      would be FALSE here: the confirm screen formats this instant as a
+  //      calendar date through the app's own (injected) clock, so a
+  //      host-anchored "+1 day" renders as a date ~7 weeks out rather than
+  //      tomorrow. Writing a false reason into the source is precisely the
+  //      unverified-assertion failure mode `forbid_host_local_instant_anchor
+  //      .sh`'s own header post-mortem is about.
+  //   2. "Relative, therefore stable" is stability, not correctness — it
+  //      pins nothing, and the rendered date still differs on every run.
+  //   3. Leaving ONE host-clock read in the very file whose other host-clock
+  //      read was the bug is how this pattern propagates: the three prior
+  //      recurrences of this defect class all came from copying a nearby
+  //      example.
+  // `kFixedNow` is re-exported by `AppHarness`; `+1 day` keeps the original
+  // "tomorrow" intent, now relative to the clock the app is actually on.
+  final DateTime visitStart = kFixedNow.add(const Duration(days: 1, hours: 10));
 
-  // Display fixtures for the TIME-STEP variant (Test 3). The shelf itemises
-  // these `MasterService`s; the slot fetch itself is path-only on
-  // `master-aaa/slots` (query ignored), so the ids only need to match
-  // `master-aaa`'s two public catalogue ids for realism.
-  const MasterService svcADisplay = MasterService(
+  // Display fixtures — the confirm screen renders the visit from
+  // `BookingConfirmArgs.services` directly (the ordered selection), so the
+  // durations here drive the calendar export window (90 + 60 = 150 min).
+  const MasterService svcA = MasterService(
     id: serviceA,
     serviceDefId: 'def-$serviceA',
     name: 'Манікюр з покриттям',
-    durationMinutes: 60,
+    durationMinutes: 90,
     priceMin: 500,
     priceDisplay: '500 ₴',
     category: 'NAILS',
   );
-  const MasterService svcBDisplay = MasterService(
+  const MasterService svcB = MasterService(
     id: serviceB,
     serviceDefId: 'def-$serviceB',
     name: 'Педикюр апаратний',
@@ -256,60 +226,42 @@ void main() {
     type: MasterType.independentMaster,
   );
 
-  BookingConfirmArgs twoServiceArgs({
-    required String keyA,
-    required String keyB,
-  }) => BookingConfirmArgs(
-    masterId: masterId,
-    appointments: <BookingAppointment>[
-      BookingAppointment(
-        serviceId: serviceA,
-        startAt: startA,
-        idempotencyKey: keyA,
-      ),
-      BookingAppointment(
-        serviceId: serviceB,
-        startAt: startB,
-        idempotencyKey: keyB,
-      ),
-    ],
-  );
+  BookingConfirmArgs visitArgs({required String idempotencyKey}) =>
+      BookingConfirmArgs(
+        masterId: masterId,
+        master: masterDisplay,
+        services: const <MasterService>[svcA, svcB],
+        startAt: visitStart,
+        idempotencyKey: idempotencyKey,
+      );
 
   // =========================================================================
-  // Test 1 — ACCEPTANCE: two services, two non-overlapping slots, submit →
-  // exactly two `POST /bookings` (same master, distinct service + start +
-  // stable key) → success screen shows two confirmed bookings.
+  // Test 1 — ACCEPTANCE: two services → ONE POST /appointments (ordered
+  // masterServiceIds, one startsAt, one idempotency key) → success recaps the
+  // whole visit + exports it as ONE calendar event.
   // =========================================================================
   testWidgets(
-    'CLIENT confirms two services and submits → exactly two POST /bookings '
-    '(same masterId, distinct serviceId + startsAt + idempotencyKey) → the '
-    'success screen recaps two confirmed appointments',
+    'CLIENT confirms a two-service visit and submits → exactly ONE POST '
+    '/appointments (ordered masterServiceIds, one startsAt + idempotencyKey) → '
+    'the success screen recaps the visit and exports it as one calendar event',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
-      final repo = _FakeBookingRepository();
+      final repo = _FakeAppointmentRepository();
       final GoRouter router = await AppHarness.boot(
         tester,
         fb,
         extraOverrides: <Object>[
-          bookingRepositoryProvider.overrideWithValue(repo),
+          appointmentRepositoryProvider.overrideWithValue(repo),
         ],
       );
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await AppHarness.settle(tester);
 
-      // Land on the REAL confirm screen with two fully-resolved appointments
-      // (mirrors `BookingTimeScreen._confirm`'s push), through the real
-      // clientOnlyGuard. `publicMasterProfileProvider(master-aaa)` resolves
-      // BOTH services out of the genuine `GET /masters/master-aaa/services`
-      // response, not a stubbed fixture tuple.
       unawaited(
         router.push(
           RouteNames.bookingConfirm,
-          extra: twoServiceArgs(
-            keyA: 'itest-multi-key-A',
-            keyB: 'itest-multi-key-B',
-          ),
+          extra: visitArgs(idempotencyKey: 'itest-visit-key'),
         ),
       );
       await AppHarness.settle(tester);
@@ -321,19 +273,15 @@ void main() {
         greaterThanOrEqualTo(1),
         reason:
             'the confirm screen must resolve master-aaa through the real '
-            'public GET /masters/{id} fetch, not a stubbed fixture',
+            'public GET /masters/{id} fetch',
       );
-      // Both appointment cards render (one per selected service).
-      expect(
-        find.byKey(const ValueKey<String>('booking-confirm-appt-$serviceA')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('booking-confirm-appt-$serviceB')),
-        findsOneWidget,
-      );
+      // The visit recap lists both selected services.
+      // i18n-finder-ok: service names are catalogue fixture data.
+      expect(find.text('Манікюр з покриттям'), findsOneWidget);
+      // i18n-finder-ok: service name is backend fixture data, not localized UI copy
+      expect(find.text('Педикюр апаратний'), findsOneWidget);
 
-      // Submit → both `POST /bookings` succeed → success screen.
+      // Submit → ONE createAppointment → success.
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
@@ -341,50 +289,15 @@ void main() {
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
-      // Exactly TWO requests — one per service.
-      expect(repo.requests, hasLength(2));
-      expect(repo.callsFor(serviceA), 1);
-      expect(repo.callsFor(serviceB), 1);
+      // Exactly ONE request carrying BOTH ordered service ids + the single key.
+      expect(repo.requests, hasLength(1));
+      final CreateAppointmentRequest sent = repo.requests.single;
+      expect(sent.masterId, masterId);
+      expect(sent.masterServiceIds, <String>[serviceA, serviceB]);
+      expect(sent.startAt, visitStart);
+      expect(sent.idempotencyKey, 'itest-visit-key');
 
-      final CreateBookingRequest reqA = repo.requestsFor(serviceA).single;
-      final CreateBookingRequest reqB = repo.requestsFor(serviceB).single;
-
-      // SAME master.
-      expect(reqA.masterId, masterId);
-      expect(reqB.masterId, masterId);
-
-      // DISTINCT serviceId + startsAt.
-      expect(reqA.serviceId, isNot(reqB.serviceId));
-      expect(reqA.startAt, startA);
-      expect(reqB.startAt, startB);
-      expect(reqA.startAt, isNot(reqB.startAt));
-
-      // DISTINCT stable idempotency keys (one per appointment — never shared).
-      expect(reqA.idempotencyKey, 'itest-multi-key-A');
-      expect(reqB.idempotencyKey, 'itest-multi-key-B');
-      expect(reqA.idempotencyKey, isNot(reqB.idempotencyKey));
-
-      // The success recap lists one card per confirmed appointment (key
-      // `booking-success-appt-<serviceId>-<index>`).
-      expect(
-        find.byKey(const ValueKey<String>('booking-success-appt-$serviceA-0')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('booking-success-appt-$serviceB-1')),
-        findsOneWidget,
-      );
-
-      // ── 4. PER-APPOINTMENT CALENDAR EXPORT (Step 2.7 Rule 3b) ────────────
-      // The OS INSERT sheet takes ONE event per invocation, so the retired
-      // page-level pill could only ever seed the first of N. Every card now
-      // carries its own button — and the fact under test HERE (unreachable
-      // from the widget suite, which hand-builds `BookingSuccessArgs`) is that
-      // the confirm screen carried the RIGHT resolved service and start into
-      // card i. `pub-assign-1` is 90 min and `pub-assign-2` is 60 min in the
-      // real `GET /masters/master-aaa/services` response, so a mapping that
-      // slipped by one card would export the wrong WINDOW, not just the wrong
-      // label.
+      // ── ONE visit-level calendar export ────────────────────────────────
       final List<MethodCall> calendarCalls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
@@ -396,119 +309,70 @@ void main() {
             .setMockMethodCallHandler(_kCalendarChannel, null),
       );
 
-      expect(
-        find.byType(CalendarButton),
-        findsNWidgets(2),
-        reason: 'one export per confirmed appointment, never one for the page',
+      expect(find.byType(CalendarButton), findsOneWidget);
+      final Finder button = find.byKey(
+        const Key('booking-success-add-calendar'),
       );
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await AppHarness.settle(tester);
+      await tester.tap(button);
+      await AppHarness.settle(tester);
 
-      Future<Map<Object?, Object?>> exportCard(String serviceId, int i) async {
-        calendarCalls.clear();
-        final Finder button = find.byKey(
-          ValueKey<String>('booking-success-add-calendar-$serviceId-$i'),
-        );
-        expect(button, findsOneWidget);
-        await tester.ensureVisible(button);
-        await AppHarness.settle(tester);
-        await tester.tap(button);
-        await AppHarness.settle(tester);
-        expect(calendarCalls, hasLength(1));
-        expect(calendarCalls.single.method, 'add2Cal');
-        return calendarCalls.single.arguments as Map<Object?, Object?>;
-      }
-
-      final Map<Object?, Object?> exportA = await exportCard(serviceA, 0);
-      final Map<Object?, Object?> exportB = await exportCard(serviceB, 1);
-
-      // Each card exports ITS OWN start — the very instants submitted above.
-      expect(exportA['startDate'], startA.millisecondsSinceEpoch);
-      expect(exportB['startDate'], startB.millisecondsSinceEpoch);
-
-      // …and ITS OWN duration, resolved out of the real catalogue response
-      // (90 min vs 60 min). Asserted as a delta so the check reads as
-      // "this card's service", not "this hard-coded instant".
+      expect(calendarCalls, hasLength(1));
+      expect(calendarCalls.single.method, 'add2Cal');
+      final Map<Object?, Object?> args =
+          calendarCalls.single.arguments as Map<Object?, Object?>;
+      // ONE event spanning the whole visit: start = visitStart, end = start +
+      // summed duration (90 + 60 = 150 min).
+      expect(args['startDate'], visitStart.millisecondsSinceEpoch);
       const int msPerMinute = 60 * 1000;
       expect(
-        (exportA['endDate']! as int) - (exportA['startDate']! as int),
-        90 * msPerMinute,
-        reason: 'pub-assign-1 is 90 min in GET /masters/master-aaa/services',
-      );
-      expect(
-        (exportB['endDate']! as int) - (exportB['startDate']! as int),
-        60 * msPerMinute,
+        (args['endDate']! as int) - (args['startDate']! as int),
+        150 * msPerMinute,
         reason:
-            'pub-assign-2 is 60 min — a first-card fallback would export 90',
+            'the visit event must span the summed duration of both services',
       );
-
-      // Distinct services, one shared master address (the recap's address card
-      // is page-level; only the appointment differs card to card).
-      expect(exportA['title'], isNot(exportB['title']));
-      expect(exportA['location'], isNotNull);
-      expect(exportB['location'], exportA['location']);
-
-      // The structured description follows the same appointment as the window.
-      final AppLocalizations successL10n = AppLocalizations.of(
-        tester.element(find.byType(BookingSuccessScreen)),
-      );
-      String serviceLine(Map<Object?, Object?> args) =>
-          (args['desc']! as String)
-              .split('\n')
-              .firstWhere(
-                (String line) =>
-                    line.startsWith(successL10n.bookingCalendarNoteService),
-                orElse: () => '',
-              );
-      expect(serviceLine(exportA), isNotEmpty);
-      expect(
-        serviceLine(exportB),
-        isNot(serviceLine(exportA)),
-        reason: 'card B must describe card B\'s service',
-      );
+      // The title names both services in the visit.
+      final String title = args['title']! as String;
+      expect(title.contains('Манікюр з покриттям'), isTrue);
+      expect(title.contains('Педикюр апаратний'), isTrue);
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
 
   // =========================================================================
-  // Test 2 — PARTIAL FAILURE (re-authors the removed
-  // client_booking_conflict_flow_test.dart against the NEW contract): the 2nd
-  // service's first `POST /bookings` 409s with CLIENT_BOOKING_CONFLICT → the
-  // confirm screen STAYS, that appointment shows a per-appointment error row +
-  // a partial-failure SnackBar (never the retired conflict DIALOG), and a
-  // retry re-sends ONLY the failed service with its SAME stable key (the
-  // already-succeeded service is never re-POSTed).
+  // Test 2 — the single submit 409s with CLIENT_BOOKING_CONFLICT → ONE inline
+  // error banner (never the retired conflict DIALOG), confirm screen STAYS,
+  // retry REUSES the same idempotency key and reaches success.
   // =========================================================================
   testWidgets(
-    'CLIENT submits two services, the second 409s with CLIENT_BOOKING_CONFLICT '
-    '→ the confirm screen stays with a per-appointment error row + '
-    'partial-failure SnackBar → retry re-sends ONLY the failed service (same '
-    'stable key) and reaches success',
+    'CLIENT submits a visit, the create 409s with CLIENT_BOOKING_CONFLICT → the '
+    'confirm screen stays with ONE inline error banner → retry reuses the same '
+    'idempotency key and reaches success',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
-      // These are the ALREADY-EXISTING clashing booking's instants inside a 409
-      // payload, not a fixture that must read as "upcoming". They reach only
-      // `ClientBookingConflictFailure.userMessage` → `formatBookingWindow`,
-      // which is a pure absolute formatter with no `now()` in it, and no
-      // assertion in this flow reads the rendered date. A fixed instant is
-      // therefore strictly more deterministic here.
       final ClientBookingConflictFailure conflict =
           ClientBookingConflictFailure(
             conflictingBookingId: 'other-booking-1',
             serviceName: 'Педикюр апаратний',
             masterName: 'Ірина Шевченко',
-            // future-date-ok: clashing booking's own window, see note above.
+            // The CLASHING booking's own window, not this visit's. It is only
+            // ever fed to a pure absolute formatter inside the inline error
+            // banner (asserted by key alone below), never compared against the
+            // wall clock — and `startsAt`/`endsAt` must stay a matched pair, so
+            // anchoring one of them to now would invert the window.
+            // future-date-ok: pinned conflict window, no wall-clock read.
             startsAt: DateTime.utc(2026, 7, 16, 14),
-            // future-date-ok: clashing booking's own window, see note above.
+            // future-date-ok: pinned conflict window, no wall-clock read.
             endsAt: DateTime.utc(2026, 7, 16, 15, 30),
           );
-      // Only service B's FIRST call fails; service A always succeeds.
-      final repo = _FakeBookingRepository(
-        failOnceWith: <String, Failure>{serviceB: conflict},
-      );
+      final repo = _FakeAppointmentRepository(failOnceWith: conflict);
       final GoRouter router = await AppHarness.boot(
         tester,
         fb,
         extraOverrides: <Object>[
-          bookingRepositoryProvider.overrideWithValue(repo),
+          appointmentRepositoryProvider.overrideWithValue(repo),
         ],
       );
 
@@ -518,7 +382,7 @@ void main() {
       unawaited(
         router.push(
           RouteNames.bookingConfirm,
-          extra: twoServiceArgs(keyA: 'itest-pf-key-A', keyB: 'itest-pf-key-B'),
+          extra: visitArgs(idempotencyKey: 'itest-pf-key'),
         ),
       );
       await AppHarness.settle(tester);
@@ -526,7 +390,7 @@ void main() {
       AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
 
-      // ── First submit → service A succeeds, service B 409s ────────────────
+      // ── First submit → 409 ──────────────────────────────────────────────
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
@@ -534,38 +398,20 @@ void main() {
       AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       expect(find.byType(BookingSuccessScreen), findsNothing);
-      // The retired conflict dialog must NEVER appear (this is the exact
-      // regression the removed stale test would have kept asserting).
+      // The retired conflict dialog must NEVER appear.
       expect(
         find.byKey(const Key('client-booking-conflict-dialog')),
         findsNothing,
       );
-
-      // The FAILED service (B) shows its own per-appointment error row; the
-      // succeeded service (A) does not.
+      // ONE inline error banner, naming the conflict.
       expect(
-        find.byKey(const Key('booking-confirm-appt-error-$serviceB')),
+        find.byKey(const Key('booking-confirm-submit-error')),
         findsOneWidget,
       );
-      expect(
-        find.byKey(const Key('booking-confirm-appt-error-$serviceA')),
-        findsNothing,
-      );
 
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(BookingConfirmScreen)),
-      );
-      // The partial-failure nudge SnackBar (asserted via l10n key, not a raw
-      // literal — locale-invariant).
-      expect(find.text(l10n.salonBookingPartialFailureMessage), findsOneWidget);
-      // The CTA flipped «Записатись» → «Повторити».
-      expect(find.text(l10n.salonBookingRetryCta), findsOneWidget);
+      expect(repo.requests, hasLength(1));
 
-      // Each service was attempted exactly once so far.
-      expect(repo.callsFor(serviceA), 1);
-      expect(repo.callsFor(serviceB), 1);
-
-      // ── Retry → service B now succeeds (fail-once consumed) → success ─────
+      // ── Retry → now succeeds (fail-once consumed) → success ─────────────
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
@@ -573,89 +419,98 @@ void main() {
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
-      // Service A booked ONCE (never re-sent); service B booked twice (fail +
-      // retry), BOTH reusing its SAME stable idempotency key so the
+      // Two submits, both reusing the SAME stable idempotency key so the
       // ambiguously-failed first attempt de-duplicates server-side.
+      expect(repo.requests, hasLength(2));
+      expect(repo.requests[0].idempotencyKey, 'itest-pf-key');
       expect(
-        repo.callsFor(serviceA),
-        1,
-        reason:
-            'the already-succeeded service must never be re-POSTed on retry',
-      );
-      expect(repo.callsFor(serviceB), 2);
-      final List<CreateBookingRequest> bReqs = repo.requestsFor(serviceB);
-      expect(bReqs[0].idempotencyKey, 'itest-pf-key-B');
-      expect(
-        bReqs[1].idempotencyKey,
-        equals(bReqs[0].idempotencyKey),
-        reason:
-            'the retried submit must REUSE the failed appointment\'s stable '
-            'key, never mint a fresh one',
+        repo.requests[1].idempotencyKey,
+        equals(repo.requests[0].idempotencyKey),
+        reason: 'the retry must REUSE the same key, never mint a fresh one',
       );
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
 
   // =========================================================================
-  // Test 3 — TIME-STEP SHELF (mobile-qa Rule 3b, "selected services" shelf
-  // addition): the independent `BookingTimeScreen` now pins the SAME
-  // expandable "Послуги та ціни" shelf the salon flow carries, PLUS a
-  // per-service chosen-window line. Tests 1–2 deliberately enter PAST this
-  // screen (at `/booking/confirm`), so the shelf on the time step was
-  // otherwise unexercised end to end. This variant enters AT the time step
-  // (real `BookingTimeScreen`, real `slotRepositoryProvider` over the fake
-  // backend's `GET /masters/master-aaa/working-days` + `/slots` routes) and
-  // proves: (a) the shelf is present and lists both selected services before
-  // any pick with NO chosen-window line; (b) after picking service A's slot,
-  // that service's chosen-window line (the camel `event_available_rounded`
-  // beat) appears in the shelf while the still-unscheduled sibling shows none.
+  // Test 3 — the real date→time picker (`SlotDateScreen` → `SlotTimeScreen`)
+  // with a two-service selection: the pinned "Послуги та ціни" shelf lists both
+  // services, and the single chosen-window line appears once a slot is picked.
   // =========================================================================
   testWidgets(
-    'CLIENT on the time step sees the pinned selected-services shelf; a '
-    'service\'s chosen-window line appears in the shelf only after its slot '
-    'is picked',
+    'CLIENT drives date→time for a two-service visit: the shelf lists both '
+    'services, and the single chosen-window line appears after a slot is picked',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
+
+      // AN AWKWARD WORKING WINDOW — 13:00-15:00 Kyiv, i.e. 10:00Z / 10:30Z /
+      // 11:00Z on the June (EEST, +3) day `kFixedNow` sits on.
+      //
+      // This is the exact shape of the HIGH bug that shipped: the group
+      // headings (Ранок / День / Вечір) were bucketed on `startAt.hour` — the
+      // RAW UTC hour — while the chip beside them rendered `formatSlotTime`,
+      // the Kyiv wall-clock. Every one of these three slots therefore rendered
+      // a correct `13:00` / `13:30` / `14:00` label filed under «Ранок».
+      //
+      // The default fixture (07:00Z / 11:00Z → 10:00 and 14:00 Kyiv) cannot
+      // see it: its raw UTC hours (7, 11) land in the same buckets the Kyiv
+      // hours do, near enough that the flow still looks sane. A window whose
+      // UTC hour and Kyiv hour fall on OPPOSITE sides of the 12:00 cut point is
+      // what makes the incoherence observable end-to-end.
+      //
+      // The widget tier pins the same contract exhaustively (both boundaries,
+      // both seasons, both pickers) in
+      // `test/features/booking/presentation/slot_bucket_heading_tz_test.dart`;
+      // this flow proves it survives the REAL provider→repository→Dio wiring
+      // and the real `Iso8601DateTimeSerializer` `.toUtc()` normalisation,
+      // which no widget test exercises.
+      fb.availableSlotUtcStarts = const <(int, int)>[
+        (10, 0),
+        (10, 30),
+        (11, 0),
+      ];
+
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await AppHarness.settle(tester);
 
-      // Enter AT the time step with the two-service selection (mirrors the
-      // push `ServiceSelectorSheet` makes into `/booking/slots/time`).
+      // Enter AT the date step with the two-service selection (mirrors the push
+      // `ServiceSelectorSheet` makes into `/booking/slots`).
       unawaited(
         router.push(
-          RouteNames.bookingSlotsTime,
+          RouteNames.bookingSlots,
           extra: const BookingSlotPickerArgs(
             masterId: masterId,
             master: masterDisplay,
-            services: <MasterService>[svcADisplay, svcBDisplay],
+            services: <MasterService>[svcA, svcB],
           ),
         ),
       );
       await AppHarness.settle(tester);
 
-      AppHarness.expectShellLocation(router, RouteNames.bookingSlotsTime);
-      expect(find.byType(BookingTimeScreen), findsOneWidget);
+      AppHarness.expectShellLocation(router, RouteNames.bookingSlots);
+      expect(find.byType(SlotDateScreen), findsOneWidget);
 
-      // Scopes a finder to ONE service's slide (both are kept-alive-mounted by
-      // the pager's current±1 bound, so the shared calendar/slot keys would
-      // otherwise be ambiguous). Mirrors `booking_time_screen_test.dart`.
-      Finder inSlide(String serviceId, Finder matching) => find.descendant(
-        of: find.byKey(
-          Key('service-schedule-page-$serviceId'),
-          skipOffstage: false,
-        ),
-        matching: matching,
-        skipOffstage: false,
+      // The calendar's availability query must carry BOTH chosen services, in
+      // order — the generated client sends `serviceId` as a REPEATED param
+      // (Dio `ListParam`/`ListFormat.multi`), so a regression that collapses it
+      // to a single scalar would silently price the visit as one service. The
+      // scalar `lastMasterAaaWorkingDaysServiceId` telemetry cannot see this;
+      // it keeps only the first id.
+      expect(
+        fb.lastMasterAaaWorkingDaysServiceIds,
+        <String>[serviceA, serviceB],
+        reason:
+            'a two-service visit must thread both masterServiceIds into '
+            'GET /working-days, in the order the client picked them',
       );
 
       final Finder shelfList = find.byKey(
         const Key('booking-summary-expanded-list'),
       );
 
-      // ── Before any pick: expand the shelf → both services listed, NO
-      // chosen-window line yet ─────────────────────────────────────────────
+      // Expand the shelf → both services listed.
       await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
       await AppHarness.settle(tester);
       expect(shelfList, findsOneWidget);
@@ -673,72 +528,233 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(
-        find.descendant(
-          of: shelfList,
-          matching: find.byIcon(Icons.event_available_rounded),
-        ),
-        findsNothing,
-        reason:
-            'no service is scheduled yet, so no chosen-window line may render',
-      );
-
-      // Collapse before driving the calendar/slot taps (the shelf toggle and
-      // the slide keys are independent, but there is no reason to leave the
-      // itemized list mounted over the taps).
+      // No chosen window yet (still on the date step).
+      expect(find.byIcon(Icons.event_available_rounded), findsNothing);
+      // Collapse before driving the calendar.
       await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
       await AppHarness.settle(tester);
 
-      // ── Pick service A's date + its 10:00 slot over the REAL working-days /
-      // slots endpoints. The slot chip key mirrors the salon flow's own
-      // local-iso convention (`booking_time_screen_test.dart`). ────────────
-      final DateTime today = DateTime.now();
-      final String morningIso = DateTime(
-        today.year,
-        today.month,
-        today.day,
-        10,
-      ).toIso8601String();
+      // Pick today (a working day over the real working-days endpoint) → «Далі»
+      // to reach the time step.
+      //
+      // Kyiv "today" AS THE APP UNDER TEST COMPUTES IT, derived from the
+      // harness's INJECTED clock (`kFixedNow`, 2026-06-14 12:00 UTC), never
+      // the host device clock. `SlotDateScreen._today` reads `clockProvider`,
+      // which `AppHarness.boot` overrides to `kFixedNow`, so the visible month
+      // + "today" cell are always June 2026 no matter what day the suite runs
+      // on. The bare `DateTime.now()` this used to read instead passed only by
+      // ACCIDENT, whenever the real run date's day-of-month happened to land
+      // on/after the 14th — any run on the 1st–13th tapped an ALREADY-PAST
+      // June cell, which `MonthCalendar` renders with `onTap: null` and no
+      // `GestureDetector` at all, so the tap is a silent no-op and the flow
+      // dies at the time step. Mirrors `client_reschedule_flow_test.dart` and
+      // `master_bookings_flow_test.dart`'s `_kyivToday`. DO NOT regress this
+      // back to a host-clock read.
+      final DateTime today = kyivToday(() => kFixedNow);
+      // Via `tapCalendarDay` (NOT a blind `tester.tap`): at the harness's
+      // 800×600 surface the last grid rows sit below the scroll fold, so a
+      // blind tap silently lands on the summary bar. See the extension's doc
+      // comment in test/helpers/pump_app.dart.
+      await tester.tapCalendarDay(today.day);
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
 
-      await tester.tap(
-        inSlide(serviceA, find.byKey(Key('booking-calendar-day-${today.day}'))),
+      AppHarness.expectShellLocation(router, RouteNames.bookingSlotsTime);
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+
+      // ── THE HEADING/LABEL COHERENCE PIN (Step 2.7 Rule 3b) ──────────────
+      //
+      // Round-trip check across the REAL wire: the fixture put 10:00Z /
+      // 10:30Z / 11:00Z on the adapter, the generated client normalised them
+      // to UTC, and the picker must render them at the KYIV wall-clock AND
+      // file them under the heading that matches that same wall-clock.
+      final AppLocalizations timeL10n = AppLocalizations.of(
+        tester.element(find.byType(SlotTimeScreen)),
       );
-      await AppHarness.settle(tester);
 
-      final Finder morningSlotA = inSlide(
-        serviceA,
-        find.byKey(Key('independent-slot-chip-$morningIso')),
-      );
-      expect(morningSlotA, findsOneWidget);
-      await tester.tap(morningSlotA);
-      // Drains service A's post-slot auto-advance onto service B's slide.
-      await AppHarness.settle(tester);
-
-      // ── After the pick: expand the shelf → service A now carries its
-      // chosen-window line; the still-unscheduled service B does not ────────
-      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
-      await AppHarness.settle(tester);
-      expect(shelfList, findsOneWidget);
+      final List<String> chipLabels = tester
+          .widgetList<SlotChip>(find.byType(SlotChip))
+          .map((SlotChip c) => c.time)
+          .toList(growable: false);
       expect(
-        find.descendant(
-          of: shelfList,
-          matching: find.byIcon(Icons.event_available_rounded),
-        ),
+        chipLabels,
+        <String>['13:00', '13:30', '14:00'],
+        reason:
+            'the seeded 10:00Z/10:30Z/11:00Z window must render at the Kyiv '
+            'wall-clock. If this reads 10:00/10:30/11:00 the display zone '
+            'regressed to raw UTC; if it shifted by an hour, kFixedNow moved '
+            'out of EEST and this fixture needs re-deriving.',
+      );
+
+      final List<String> groupLabels = tester
+          .widgetList<SlotGroup>(find.byType(SlotGroup))
+          .map((SlotGroup g) => g.label)
+          .toList(growable: false);
+      expect(
+        groupLabels,
+        <String>[timeL10n.bookingAfternoonLabel],
+        reason:
+            'a 13:00-15:00 KYIV window is entirely afternoon. Bucketing on the '
+            'raw UTC hour (10, 10, 11) files the whole day under «Ранок» — the '
+            'shipped bug — and renders the MORNING heading above chips '
+            'labelled 13:00.',
+      );
+
+      // Pick the first available slot → the single chosen-window line appears.
+      final Finder availableChip = find
+          .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
+          .first;
+      await tester.ensureVisible(availableChip);
+      await AppHarness.settle(tester);
+      await tester.tap(availableChip);
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byIcon(Icons.event_available_rounded),
         findsOneWidget,
         reason:
-            'exactly one service (A) is scheduled → exactly one chosen-window '
-            'line updates into the shelf',
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>(serviceA)),
-          matching: find.byIcon(Icons.event_available_rounded),
-        ),
-        findsOneWidget,
-        reason: 'the chosen-window line sits inside service A\'s own row',
+            'the single visit chosen-window line renders once a slot is picked',
       );
       expect(tester.takeException(), isNull);
+
+      // The l10n handle is resolvable (locale wired) — a light sanity touch so
+      // the import stays load-bearing and the screen is truly mounted.
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SlotTimeScreen)),
+      );
+      expect(l10n.bookingConfirmCta, isNotEmpty);
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
+
+  // =========================================================================
+  // Test 4 — STALE-MY-BOOKINGS regression (Step 2.7 Rule 3b). THE gap the
+  // debugger named: the client shell is a `StatefulShellRoute.indexedStack`, so
+  // once the CLIENT opens the Записи tab its `MyBookingsScreen` branch stays
+  // MOUNTED (offstage) while the booking flow is pushed on top of it — its
+  // autoDispose `myBookingsProvider(upcoming)` therefore never re-fetches on a
+  // plain tab re-select. A newly-created booking is auto-CONFIRMED → belongs in
+  // upcoming, but the mounted-and-cached list did NOT show it until a manual
+  // pull-to-refresh. The fix: `BookingConfirmScreen._submit` invalidates
+  // `myBookingsProvider(BookingTab.upcoming)` from the widget layer on the
+  // CREATE success path (mirroring the reschedule path).
+  //
+  // The widget tier proves the invalidate fires (booking_confirm_test.dart's
+  // "a successful CREATE invalidates upcoming My Bookings" + the salon twin).
+  // NO widget test proves the REAL indexedStack scenario end-to-end: open the
+  // tab ONCE (branch mounts + caches an EMPTY upcoming list) → book a visit
+  // through the real confirm→success flow → return to the ALREADY-MOUNTED tab →
+  // the new card is visible WITHOUT any pull-to-refresh gesture. This is that
+  // flow. `/bookings/me` starts EMPTY and the fake create appends the booked row
+  // to the FakeBackend dataset, so the ONLY way the card appears on return is
+  // the confirm screen's invalidate re-fetching the mounted branch. Removing the
+  // invalidate makes the final assertion fail (verified by mutation).
+  testWidgets('CLIENT opens the (empty) Записи tab, books a visit, returns to the '
+      'already-mounted tab and sees the new booking WITHOUT a pull-to-refresh '
+      '(indexedStack keeps the branch mounted)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    // The upcoming list starts EMPTY — the mounted branch caches "no bookings".
+    fb.seedManyBookingsDataset(const <Map<String, dynamic>>[]);
+
+    const String newBookingId = 'booking-created-1';
+    // On a successful create the fake backend gains ONE upcoming (CONFIRMED,
+    // future) booking — exactly what a real auto-confirmed POST /appointments
+    // would make visible on the next GET /bookings/me.
+    final repo = _FakeAppointmentRepository(
+      onCreated: (CreateAppointmentRequest req) {
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          fb.datasetBookingRow(
+            id: newBookingId,
+            status: 'CONFIRMED',
+            startsAt: req.startAt,
+            duration: const Duration(minutes: 150),
+          ),
+        ]);
+      },
+    );
+
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      extraOverrides: <Object>[
+        appointmentRepositoryProvider.overrideWithValue(repo),
+      ],
+    );
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await AppHarness.settle(tester);
+
+    // ── 1. Open the Записи branch ONCE — the indexedStack mounts it and its
+    //       myBookingsProvider(upcoming) caches the EMPTY list. ─────────────
+    await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientBookings);
+    expect(find.byType(MyBookingsScreen), findsOneWidget);
+    expect(
+      find.byType(BookingCard),
+      findsNothing,
+      reason: 'the upcoming tab starts empty — nothing booked yet',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('service-$newBookingId')),
+      findsNothing,
+    );
+
+    // ── 2. Book a visit: push the REAL confirm screen ON TOP of the shell
+    //       (the Записи branch stays mounted offstage), then submit. ────────
+    unawaited(
+      router.push(
+        RouteNames.bookingConfirm,
+        extra: visitArgs(idempotencyKey: 'itest-stale-list-key'),
+      ),
+    );
+    await AppHarness.settle(tester);
+    AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
+    expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+    await AppHarness.settle(tester);
+
+    AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
+    expect(find.byType(BookingSuccessScreen), findsOneWidget);
+    expect(repo.requests, hasLength(1));
+
+    // ── 3. Leave the success screen for /home, then re-select the Записи tab.
+    //       NO pull-to-refresh is performed anywhere in this flow. ──────────
+    await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
+
+    await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientBookings);
+    expect(find.byType(MyBookingsScreen), findsOneWidget);
+
+    // ── 4. THE ASSERTION: the just-booked visit is visible on the mounted
+    //       upcoming tab with NO manual refresh — only the confirm screen's
+    //       widget-layer invalidate could have re-fetched the branch. ───────
+    expect(
+      find.byType(BookingCard),
+      findsOneWidget,
+      reason:
+          'the auto-CONFIRMED booking must appear on the already-mounted '
+          'Записи tab after the create — the confirm screen invalidated '
+          'myBookingsProvider(upcoming), so the indexedStack-cached branch '
+          're-fetched WITHOUT a pull-to-refresh',
+    );
+    expect(
+      find.byKey(const ValueKey<String>('service-$newBookingId')),
+      findsOneWidget,
+    );
+    final AppLocalizations listL10n = AppLocalizations.of(
+      tester.element(find.byType(MyBookingsScreen)),
+    );
+    expect(
+      find.text(listL10n.bookingStatusConfirmed),
+      findsOneWidget,
+      reason: 'the new card carries the «Підтверджено» badge',
+    );
+    expect(tester.takeException(), isNull);
+  }, timeout: const Timeout(Duration(seconds: 120)));
 }

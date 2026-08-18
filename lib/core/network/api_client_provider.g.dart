@@ -196,3 +196,67 @@ final class MasterApiProvider
 }
 
 String _$masterApiHash() => r'a65eae8f063767751d1fc49a0c9dbc1d679f3fc7';
+
+/// Provides the generated [ClientControllerApi] singleton.
+///
+/// Used by `HttpPassportRepository.getMyPassport` to fetch the CLIENT's derived
+/// beauty passport via `GET /clients/me/passport`. Same Dio instance and
+/// serializers as the other API providers in this file.
+
+@ProviderFor(clientApi)
+final clientApiProvider = ClientApiProvider._();
+
+/// Provides the generated [ClientControllerApi] singleton.
+///
+/// Used by `HttpPassportRepository.getMyPassport` to fetch the CLIENT's derived
+/// beauty passport via `GET /clients/me/passport`. Same Dio instance and
+/// serializers as the other API providers in this file.
+
+final class ClientApiProvider
+    extends
+        $FunctionalProvider<
+          ClientControllerApi,
+          ClientControllerApi,
+          ClientControllerApi
+        >
+    with $Provider<ClientControllerApi> {
+  /// Provides the generated [ClientControllerApi] singleton.
+  ///
+  /// Used by `HttpPassportRepository.getMyPassport` to fetch the CLIENT's derived
+  /// beauty passport via `GET /clients/me/passport`. Same Dio instance and
+  /// serializers as the other API providers in this file.
+  ClientApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'clientApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$clientApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<ClientControllerApi> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  ClientControllerApi create(Ref ref) {
+    return clientApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(ClientControllerApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<ClientControllerApi>(value),
+    );
+  }
+}
+
+String _$clientApiHash() => r'6fdea0c0085efe957619439b4a991d045a41bc24';

@@ -40,13 +40,16 @@
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
 //  14.  kAuthPaths has exactly 12 entries — no undocumented extras.
 //  14b. kPiiPaths is a strict superset of kAuthPaths.
-//  15.  kPiiPaths has exactly 18 entries = kAuthPaths (12) + 6 authenticated
+//  15.  kPiiPaths has exactly 21 entries = kAuthPaths (12) + 9 authenticated
 //       PII paths: /api/v1/independent-masters/me,
 //       /api/v1/independent-masters/me/profile, /api/v1/masters/me, the two
 //       auth-gated discovery search paths /api/v1/search/masters +
 //       /api/v1/search/salons (added by commit b550428 — auth-gated address
-//       redaction), and the Phase 14.0 CLIENT booking create endpoint
-//       /api/v1/bookings.
+//       redaction), the Phase 14.0 CLIENT booking create endpoint
+//       /api/v1/bookings, the MO-1 CLIENT appointment create endpoint
+//       /api/v1/appointments, the track 7.x Wave B PROVIDER→CLIENT
+//       feedback create endpoint /api/v1/client-reviews, and the Phase 13.x
+//       CLIENT wish-list toggle endpoint /api/v1/favorites.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -216,6 +219,150 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Tests 13b–13f: membership pins for the authenticated PII-only paths.
+    //
+    // Without these, the `length == 19` count (test 15) is the ONLY guard on
+    // the newer PII entries — a one-for-one path swap (drop one, add another)
+    // would keep the count at 19 and pass silently. Pinning each by identity
+    // makes the suite fail the moment a specific PII path is removed or renamed.
+    // -----------------------------------------------------------------------
+
+    test('13b. /api/v1/independent-masters/me/profile is in kPiiPaths (phone + PII '
+        'body redaction) but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/independent-masters/me/profile'),
+        reason:
+            'Phase 4.3 profile edit endpoint carries phone number + PII; '
+            'LoggingInterceptor must redact its body in debug builds.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/independent-masters/me/profile')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    test(
+      '13c. /api/v1/search/masters is in kPiiPaths (auth-gated address redaction) '
+      'but NOT kAuthPaths',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/api/v1/search/masters'),
+          reason:
+              'Security fix 2026-06-25 — discovery search responses carry '
+              'auth-gated street/buildingNo for authenticated callers; the '
+              'error-path logger would otherwise log err.response?.data.',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/api/v1/search/masters')),
+          reason:
+              'Search is permitAll but the token is attached WHEN PRESENT to '
+              'unlock addresses; it must NOT be in kAuthPaths (would strip it).',
+        );
+      },
+    );
+
+    test(
+      '13d. /api/v1/search/salons is in kPiiPaths (auth-gated address redaction) '
+      'but NOT kAuthPaths',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/api/v1/search/salons'),
+          reason:
+              'Security fix 2026-06-25 — discovery search responses carry '
+              'auth-gated street/buildingNo for authenticated callers.',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/api/v1/search/salons')),
+          reason:
+              'Search is permitAll but the token is attached WHEN PRESENT to '
+              'unlock addresses; it must NOT be in kAuthPaths (would strip it).',
+        );
+      },
+    );
+
+    test('13e. /api/v1/bookings is in kPiiPaths (free-text clientComment redaction) '
+        'but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/bookings'),
+        reason:
+            'Phase 14.0 — POST /bookings carries the free-text clientComment '
+            'field; its body must be redacted in debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/bookings')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    test('13f. /api/v1/appointments is in kPiiPaths (free-text clientComment '
+        'redaction) but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/appointments'),
+        reason:
+            'MO-1 — POST /appointments carries the free-text clientComment '
+            'field; its body must be redacted in debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/appointments')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    test('13g. /api/v1/client-reviews is in kPiiPaths (free-text comment '
+        'redaction) but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/client-reviews'),
+        reason:
+            'Track 7.x Wave B — POST /client-reviews carries the provider\'s '
+            'free-text comment about the client; its body must be redacted in '
+            'debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/client-reviews')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    test('13h. /api/v1/favorites is in kPiiPaths (wish-list redaction) but NOT '
+        'kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/favorites'),
+        reason:
+            'Phase 13.x — POST/DELETE /favorites echoes the saved service / '
+            'master identifiers (booking-intent PII); its body must be '
+            'redacted in debug logs.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/favorites')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
+    // -----------------------------------------------------------------------
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
@@ -248,34 +395,48 @@ void main() {
         );
       }
       // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 + the
-      // 2026-06-25 address-redaction fix + Phase 14.0 added 6 authenticated
-      // PII paths that are NOT in kAuthPaths).
+      // 2026-06-25 address-redaction fix + Phase 14.0 + the MO-1 appointment
+      // create endpoint + the track 7.x Wave B client-review create endpoint +
+      // the Phase 13.x wish-list toggle endpoint added 9 authenticated PII
+      // paths that are NOT in kAuthPaths).
       expect(
         kPiiPaths.length,
         greaterThan(kAuthPaths.length),
         reason:
             'kPiiPaths must contain additional entries beyond kAuthPaths '
             '(/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-            '/api/v1/masters/me, /api/v1/search/masters, and /api/v1/search/salons).',
+            '/api/v1/masters/me, /api/v1/search/masters, /api/v1/search/salons, '
+            '/api/v1/bookings, /api/v1/appointments, /api/v1/client-reviews, '
+            'and /api/v1/favorites).',
       );
     });
 
     test(
-      '15. kPiiPaths has exactly 18 entries (kAuthPaths union + 6 authenticated PII paths)',
+      '15. kPiiPaths has exactly 21 entries (kAuthPaths union + 9 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(18),
+          equals(21),
           reason:
               'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
               '/api/v1/masters/me, the two auth-gated discovery search paths '
-              '/api/v1/search/masters + /api/v1/search/salons, and the '
-              'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings '
-              '(6 authenticated PII paths = 18 total). The search paths were '
+              '/api/v1/search/masters + /api/v1/search/salons, the '
+              'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings, '
+              'the MO-1 CLIENT appointment create endpoint /api/v1/appointments, '
+              'the track 7.x Wave B PROVIDER→CLIENT feedback create '
+              'endpoint /api/v1/client-reviews, and the Phase 13.x CLIENT '
+              'wish-list toggle endpoint /api/v1/favorites '
+              '(9 authenticated PII paths = 21 total). The search paths were '
               'added by commit b550428 (auth-gated address redaction); '
               '/api/v1/bookings was added by the Phase 14.0 security fix '
-              '(POST /bookings carries the free-text clientComment field). '
+              '(POST /bookings carries the free-text clientComment field); '
+              '/api/v1/appointments was added by the MO-1 fix '
+              '(POST /appointments carries the free-text clientComment field); '
+              '/api/v1/client-reviews was added by track 7.x Wave B '
+              '(POST /client-reviews carries the provider\'s free-text comment); '
+              '/api/v1/favorites was added by the Phase 13.x wish-list track '
+              '(POST/DELETE /favorites echoes the saved service/master ids). '
               'Update this count if new PII endpoints are added.',
         );
       },

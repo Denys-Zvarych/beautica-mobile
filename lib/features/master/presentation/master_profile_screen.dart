@@ -45,9 +45,12 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -56,9 +59,11 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
 import 'master_profile_notifier.dart';
+import 'widgets/master_address_block.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
+import 'widgets/services_stat_tile.dart';
 
 export 'master_profile_notifier.dart' show masterProfileProvider;
 
@@ -331,10 +336,25 @@ class _ProfileBody extends StatelessWidget {
     final String displayName = '${master.firstName} ${master.lastName}';
     final String roleLabel = _roleLabel(master.type, l10n);
 
-    // Pre-compute the combined address string once per build so the identity
-    // card Row's child Text widget never contains inline ternary chains.
-    // Compose: street + buildingNo (if present) + city (if present).
-    final String? locationLine = _buildLocationLine(master);
+    // Phase 220 (C) — pre-compute the SPLIT address lines once per build so
+    // the identity card's Text widgets never contain inline ternary chains.
+    // Each line gets its own independent budget instead of one combined
+    // string crammed into the ~150px right-hand column.
+    //
+    // Phase 224 — also pre-compose the COLLAPSED one-line form. Which of the
+    // two renderings actually ships is decided by `MasterAddressBlock`, which
+    // measures the collapsed string against the real available width; both
+    // forms are composed here so the widget stays a pure layout decision.
+    final String? localityLine = buildLocalityLine(master.city);
+    final String? streetLine = buildStreetLine(
+      master.street,
+      master.buildingNo,
+    );
+    final String? combinedAddressLine = buildCombinedAddressLine(
+      master.city,
+      master.street,
+      master.buildingNo,
+    );
     final String? noteText = (master.locationNote?.isNotEmpty ?? false)
         ? master.locationNote
         : null;
@@ -383,40 +403,44 @@ class _ProfileBody extends StatelessWidget {
                             : roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (locationLine != null) ...[
+                      // `combinedAddressLine != null` is EXACTLY equivalent to
+                      // the old `localityLine != null || streetLine != null`
+                      // gate — all three builders treat the same fields as
+                      // blank — and it promotes the local to non-nullable for
+                      // the widget below.
+                      if (combinedAddressLine != null) ...[
                         const SizedBox(height: VelvetSpacing.xs),
-                        // Location row: icon + combined address string.
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const AppIcon(
-                              BeauticaAssetIcons.locationMarker,
-                              size: 13,
-                              color: BrandColors.muted,
-                            ),
-                            const SizedBox(width: 3),
-                            Flexible(
-                              child: Text(
-                                locationLine,
-                                key: const Key('master-profile-address-text'),
-                                // 11 sp variant allows wrapping so longer
-                                // address strings are never clipped.
-                                style: VelvetText.feedbackMutedXs,
-                              ),
-                            ),
-                          ],
+                        // Phase 220 (C) + Phase 224 — semantic hierarchy:
+                        // locality (city) first — matching the convention in
+                        // `result_address_block.dart` — then street +
+                        // building, then the note. `MasterAddressBlock`
+                        // collapses the first two onto ONE row when the whole
+                        // string fits at the real available width, and keeps
+                        // the 220 split when it does not; the pin rides beside
+                        // whichever line renders first either way.
+                        MasterAddressBlock(
+                          keyPrefix: 'master-profile',
+                          icon: const AppIcon(
+                            BeauticaAssetIcons.locationMarker,
+                            size: MasterAddressBlock.iconSize,
+                            color: BrandColors.muted,
+                          ),
+                          localityLine: localityLine,
+                          streetLine: streetLine,
+                          combinedLine: combinedAddressLine,
                         ),
                         // Note row: shown only when locationNote is set.
+                        // Phase 221 (B) — tap-to-expand: clamped at
+                        // maxLines: 3 (Phase 219 A) with a «більше»/
+                        // «згорнути» toggle that appears only when the note
+                        // actually overflows that budget.
                         if (noteText != null) ...[
                           const SizedBox(height: 2),
                           Padding(
                             padding: const EdgeInsets.only(left: 16),
-                            child: Text(
-                              noteText,
-                              // Pre-cached static (11 sp variant) avoids
-                              // per-frame copyWith call.
-                              style: VelvetText.feedbackMutedNote,
-                              overflow: TextOverflow.ellipsis,
+                            child: ExpandableNote(
+                              key: const Key('master-profile-location-note'),
+                              text: noteText,
                             ),
                           ),
                         ],
@@ -459,16 +483,15 @@ class _ProfileBody extends StatelessWidget {
                     onTap: () => context.push(RouteNames.masterReceivedReviews),
                     child: StatTile(
                       icon: Icons.star_rounded,
+                      // `displayRating` folds all three "no rating yet" shapes
+                      // (null average, a stale 0.0, zero reviews) onto null, so
+                      // the star and the readout cannot disagree. See its doc.
                       iconWidget: RatingStar(
-                        rating: master.reviewCount == 0
-                            ? null
-                            : master.avgRating,
+                        rating: master.displayRating,
                         size: 18,
                         showLabel: false,
                       ),
-                      value: master.reviewCount == 0
-                          ? '—'
-                          : master.avgRating.toStringAsFixed(1),
+                      value: master.displayRating?.toStringAsFixed(1) ?? '—',
                       caption: l10n.masterRatingLabel,
                       valueKey: const Key('master-profile-rating-value'),
                     ),
@@ -479,15 +502,20 @@ class _ProfileBody extends StatelessWidget {
                   child: Consumer(
                     builder: (context, ref, _) {
                       final servicesAsync = ref.watch(servicesListProvider);
-                      final String countValue = servicesAsync.when(
-                        data: (list) => list.length.toString(),
-                        loading: () => '—',
-                        error: (_, _) => '—',
+                      // null = unresolved; ServicesStatTile collapses that AND
+                      // an empty catalogue onto '—', mirroring the
+                      // rating/reviews tiles' zero-state on this row. A FAILED
+                      // load is kept distinguishable (hasError → '?') so a
+                      // suppressed /services response never reads as "this
+                      // master has no services".
+                      final (int? count, bool hasError) = servicesAsync.when(
+                        data: (list) => (list.length, false),
+                        loading: () => (null, false),
+                        error: (_, _) => (null, true),
                       );
-                      return StatTile(
-                        icon: Icons.design_services_outlined,
-                        value: countValue,
-                        caption: l10n.masterServicesLabel,
+                      return ServicesStatTile(
+                        count: count,
+                        hasError: hasError,
                         valueKey: const Key('master-profile-services-value'),
                       );
                     },
@@ -688,7 +716,7 @@ class _ProfileBody extends StatelessWidget {
   /// "@"-prefixed, or full URL). It is sanitized through
   /// [canonicalInstagramUri] (STRICT https + host/charset allow-list) before
   /// launch — an unvalidated string is never handed to [launchUrl]. On a null
-  /// result (no safe URL) or a launch failure, a localized SnackBar is shown.
+  /// result (no safe URL) or a launch failure, a localized VelvetSnack is shown.
   ///
   /// Invoked fire-and-forget from the tile's synchronous [ContactTile.onTap];
   /// [context.mounted] is re-checked after the await before touching the tree.
@@ -721,12 +749,17 @@ class _ProfileBody extends StatelessWidget {
     if (!launched) _showInstagramError(context);
   }
 
-  /// Shows the localized "couldn't open Instagram" SnackBar.
+  /// Shows the localized "couldn't open Instagram" error VelvetSnack.
+  ///
+  /// This is the master's OWN tab-root screen — its `bottomNavBar` always
+  /// renders the shared `VelvetBottomNavBar` (never suppressed), so the
+  /// bottom-anchored snack needs `bottomInset` to clear it; see
+  /// `VelvetSizes.bottomNavClearanceMaster`'s doc.
   static void _showInstagramError(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
-      ),
+    showErrorSnack(
+      context,
+      AppLocalizations.of(context).masterInstagramOpenError,
+      bottomInset: VelvetSizes.bottomNavClearanceMaster,
     );
   }
 
@@ -740,47 +773,6 @@ class _ProfileBody extends StatelessWidget {
       case MasterType.salonOwner:
         return l10n.masterRoleSalonOwner;
     }
-  }
-
-  /// Builds the combined address line for the identity card location row.
-  ///
-  /// Composition rules (matching the approved design mockup):
-  /// - street + buildingNo + city  → "вул. Хрещатик, 22, Київ"
-  /// - street only + city          → "вул. Хрещатик, Київ"
-  /// - city only                   → "Київ"
-  /// - nothing available           → `null` (caller must hide the row)
-  ///
-  /// Called once per build from [build()] and stored in a local `final` to
-  /// avoid repeated computation during the frame.
-  static String? _buildLocationLine(Master master) {
-    final String? street = (master.street?.isNotEmpty ?? false)
-        ? master.street
-        : null;
-    final String? building = (master.buildingNo?.isNotEmpty ?? false)
-        ? master.buildingNo
-        : null;
-    final String? city = (master.city?.isNotEmpty ?? false)
-        ? master.city
-        : null;
-
-    if (street == null && city == null) return null;
-
-    final StringBuffer buf = StringBuffer();
-    if (street != null) {
-      buf.write(street);
-      if (building != null) {
-        buf.write(', ');
-        buf.write(building);
-      }
-      if (city != null) {
-        buf.write(', ');
-        buf.write(city);
-      }
-    } else {
-      // Only city is present.
-      buf.write(city);
-    }
-    return buf.toString();
   }
 }
 

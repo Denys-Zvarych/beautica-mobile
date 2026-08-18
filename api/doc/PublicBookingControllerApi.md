@@ -28,7 +28,7 @@ import 'package:beautica_api/api.dart';
 final api = BeauticaApi().getPublicBookingControllerApi();
 final String slug = slug_example; // String | 
 final Date date = 2013-10-20; // Date | 
-final String serviceId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final BuiltList<String> serviceId = ; // BuiltList<String> | 
 
 try {
     final response = api.availability(slug, date, serviceId);
@@ -44,7 +44,7 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **slug** | **String**|  | 
  **date** | **Date**|  | 
- **serviceId** | **String**|  | 
+ **serviceId** | [**BuiltList&lt;String&gt;**](String.md)|  | 
 
 ### Return type
 

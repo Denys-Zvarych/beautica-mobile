@@ -86,16 +86,22 @@ void main() {
         );
 
         // ── Послуги tab → tap the NAILS service (salon-svc-shared) ───────────
-        await tester.tap(find.byKey(const Key('salon-tab-2')));
+        final Finder servicesTab = find.byKey(const Key('salon-tab-2'));
+        expect(servicesTab, findsOneWidget);
+        await AppHarness.tapVisible(tester, servicesTab);
         await tester.pumpAndSettle();
 
-        // NAILS is the first category → expanded on load → its row is visible.
+        // NAILS is the first category → expanded on load → its row EXISTS,
+        // but the cover + hero + tab bar + bottom booking shelf push it below
+        // the fold on the flutter-tester 800×600 surface — `findsOneWidget`
+        // only proves existence, not that the row is hit-testable (see
+        // [AppHarness.tapVisible]'s doc comment).
         final Finder serviceRow = find.byKey(
           const Key('salon-service-row-salon-svc-shared'),
         );
         expect(serviceRow, findsOneWidget);
 
-        await tester.tap(serviceRow);
+        await AppHarness.tapVisible(tester, serviceRow);
         // fixed-wait-ok: settles the tab jump + the real coverage-fetch call.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
@@ -152,7 +158,11 @@ void main() {
         );
 
         // ── Clear the filter → the full roster returns ───────────────────────
-        await tester.tap(find.byKey(const Key('salon-masters-filter-clear')));
+        final Finder filterClear = find.byKey(
+          const Key('salon-masters-filter-clear'),
+        );
+        expect(filterClear, findsOneWidget);
+        await AppHarness.tapVisible(tester, filterClear);
         await tester.pumpAndSettle();
 
         expect(

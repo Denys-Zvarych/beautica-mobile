@@ -3,7 +3,9 @@
 // Layered on top of the dev's compile-and-mount smoke stub. Covers the four
 // AsyncValue states (skeleton / cards / empty / error), the documented contract
 // field-gaps (master ★rating + «від N ₴» / «Без відгуків»; salon range /
-// collapse / hide + NO rating), chip-clear re-query, infinite-scroll loadMore
+// collapse / hide + NO rating), the applied-query chip and its clear-and-requery
+// action (the screen's ONLY query affordance — the search box lives on the
+// filters screen), the sort control, infinite-scroll loadMore
 // (bottom spinner, no double-fetch, last-page no-op), the optimistic favorite
 // heart (flip / idempotent toggle / revert + snackbar on repo error / per-heart
 // rebuild scope), and the card-body navigation contract: BOTH the MASTER card
@@ -37,12 +39,14 @@ import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/salon_result_card.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/search_query_field.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,6 +56,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockSearchRepository extends Mock implements SearchRepository {}
 
@@ -138,6 +144,7 @@ Widget _host(
   List<Object> extraOverrides = const <Object>[],
 }) {
   return ProviderScope(
+    retry: beauticaProviderRetry,
     // ProviderScope.overrides expects List<Override>; the public name is not
     // exported by riverpod 2.x, so callers pass plain override expressions and
     // we cast (the same pattern as test/helpers/pump_app.dart).
@@ -185,10 +192,18 @@ void main() {
       final repo = _MockSearchRepository();
       final completer = Completer<SearchPage<MasterSearchItem>>();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) => completer.future);
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(_host(repo));
@@ -202,10 +217,18 @@ void main() {
     testWidgets('renders master + salon cards on data', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>([_salon('s1')]));
 
       await tester.pumpWidget(
@@ -223,10 +246,18 @@ void main() {
     testWidgets('masters render before salons (merge order)', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>([_salon('s1')]));
 
       await tester.pumpWidget(
@@ -244,10 +275,18 @@ void main() {
     testWidgets('shows the empty state when no results match', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(_host(repo));
@@ -265,10 +304,18 @@ void main() {
         'line (copy-only removal regression guard)', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(_host(repo));
@@ -300,10 +347,18 @@ void main() {
     testWidgets('shows the error state + retry on failure', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenThrow(StateError('boom'));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(_host(repo));
@@ -317,7 +372,11 @@ void main() {
       final repo = _MockSearchRepository();
       var masterCalls = 0;
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async {
         masterCalls++;
         // Fail the first attempt, succeed on the retry.
@@ -325,7 +384,11 @@ void main() {
         return _page<MasterSearchItem>([_master('m1')]);
       });
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -353,7 +416,11 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([
           _master(
@@ -365,7 +432,11 @@ void main() {
         ]),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -389,14 +460,22 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([
           _master('m1', avgRating: 0, reviewCount: 0),
         ]),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -413,10 +492,18 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<SalonSearchItem>([
           _salon('s1', priceMin: 400, priceMax: 900),
@@ -439,10 +526,18 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<SalonSearchItem>([
           _salon('s1', priceMin: 500, priceMax: 500),
@@ -467,10 +562,18 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<SalonSearchItem>([
           _salon('s1', priceMin: null, priceMax: null),
@@ -496,14 +599,22 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([
           _master('m1', serviceNames: const ['Манікюр', 'Педикюр']),
         ]),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -524,14 +635,22 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([
           _master('m1', serviceNames: const <String>[]),
         ]),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -548,7 +667,11 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([
           _master(
@@ -562,7 +685,11 @@ void main() {
         ]),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -609,10 +736,18 @@ void main() {
         'value', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(hostWithSort(repo));
@@ -636,10 +771,18 @@ void main() {
     ) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(hostWithSort(repo));
@@ -659,7 +802,11 @@ void main() {
       final repo = _MockSearchRepository();
       final List<SearchFilters> masterCallFilters = <SearchFilters>[];
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((invocation) async {
         masterCallFilters.add(
           invocation.namedArguments[const Symbol('filters')] as SearchFilters,
@@ -667,7 +814,11 @@ void main() {
         return _page<MasterSearchItem>([_master('m1')]);
       });
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(hostWithSort(repo));
@@ -689,6 +840,189 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // 2b — the applied-query chip, and the ABSENCE of a search field
+  //
+  // The results screen used to host a live copy of [SearchQueryField]. It was
+  // removed: free-text entry belongs to the filters screen alone, so this screen
+  // has exactly ONE query affordance left — the chip echoing the applied term,
+  // whose tap clears it. These tests pin both halves, because "the field is
+  // gone" is silent (the screen still renders and still shows results) and
+  // "clearing still works" is the behaviour the removal could plausibly break.
+  // -------------------------------------------------------------------------
+
+  group('applied-query chip', () {
+    const Key chip = Key('results_query_chip');
+
+    /// Stubs both endpoints, recording the filter set every masters call rides.
+    void stubRecording(
+      _MockSearchRepository repo,
+      List<SearchFilters> recorded,
+    ) {
+      when(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((invocation) async {
+        recorded.add(
+          invocation.namedArguments[const Symbol('filters')] as SearchFilters,
+        );
+        return _page<MasterSearchItem>([_master('m1')]);
+      });
+      when(
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+    }
+
+    /// Hosts the screen with the keepAlive filters controller overridden by an
+    /// auth-free seeded double, so `_clearQuery` can read `.notifier`.
+    Widget hostWithQuery(_MockSearchRepository repo, SearchFilters seed) =>
+        _host(
+          repo,
+          favorites: _MockFavoriteRepository(),
+          filters: seed,
+          extraOverrides: <Object>[
+            searchFiltersControllerProvider.overrideWith(
+              () => _SeededFiltersController(seed),
+            ),
+          ],
+        );
+
+    testWidgets('there is NO search field on the results screen', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      stubRecording(repo, <SearchFilters>[]);
+
+      await tester.pumpWidget(
+        hostWithQuery(repo, const SearchFilters(query: 'манікюр')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(SearchQueryField),
+        findsNothing,
+        reason:
+            'the search box lives on the FILTERS screen only — a second copy '
+            'here is what let a below-minimum term be typed against a filter '
+            'set the backend had already answered',
+      );
+      // Key-independent backstop: any text input at all, however it is keyed.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('client-search-results')),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+      // …and the results are still on screen (isolation control — the removal
+      // must not have taken the list with it).
+      expect(find.byKey(const Key('results_list')), findsOneWidget);
+    });
+
+    testWidgets('the chip renders the applied term', (tester) async {
+      final repo = _MockSearchRepository();
+      stubRecording(repo, <SearchFilters>[]);
+
+      await tester.pumpWidget(
+        hostWithQuery(repo, const SearchFilters(query: 'манікюр')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(chip),
+        findsOneWidget,
+        reason:
+            'with no field on the page the chip is the ONLY indication of '
+            'which term produced these results',
+      );
+    });
+
+    testWidgets('the chip is absent on a query-less (filters-only) search', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      stubRecording(repo, <SearchFilters>[]);
+
+      await tester.pumpWidget(
+        hostWithQuery(repo, const SearchFilters(cityId: 'city-kyiv')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(chip), findsNothing);
+    });
+
+    testWidgets('tapping the chip clears the query and re-queries without it', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      final recorded = <SearchFilters>[];
+      stubRecording(repo, recorded);
+
+      const seed = SearchFilters(query: 'манікюр', cityId: 'city-kyiv');
+      await tester.pumpWidget(hostWithQuery(repo, seed));
+      await tester.pumpAndSettle();
+      expect(recorded.single.query, 'манікюр');
+
+      await tester.tap(find.byKey(chip));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(chip), findsNothing);
+      expect(
+        recorded.length,
+        2,
+        reason: 'clearing the term must re-key the family for a fresh page 0',
+      );
+      expect(recorded.last.query, isNull);
+      expect(
+        recorded.last.cityId,
+        'city-kyiv',
+        reason:
+            'clearing the QUERY must not drop the other facets — that is the '
+            '"search resets my filters" regression class',
+      );
+    });
+
+    testWidgets('the chip clear empties the shared draft, so the filters '
+        'screen comes back with an empty box', (tester) async {
+      final repo = _MockSearchRepository();
+      stubRecording(repo, <SearchFilters>[]);
+
+      const seed = SearchFilters(query: 'манікюр');
+      await tester.pumpWidget(hostWithQuery(repo, seed));
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SearchResultsScreen)),
+      );
+      container
+          .read(searchQueryDraftControllerProvider.notifier)
+          .setDraft('манікюр');
+
+      await tester.tap(find.byKey(chip));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(searchFiltersControllerProvider).query,
+        isNull,
+        reason: 'the clear must go through the one setQuery funnel',
+      );
+      expect(
+        container.read(searchQueryDraftControllerProvider),
+        '',
+        reason:
+            'the filters screen re-seeds its box from this draft — leaving '
+            '«манікюр» here would restore the term the user just cleared',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // 3 — top-bar filter button (SVG icon) + active-filter «(N)» count badge
   //
   // The applied-filters chip ROW was replaced by an SVG funnel filter button
@@ -705,10 +1039,18 @@ void main() {
     /// settle synchronously.
     void stubOneMaster(_MockSearchRepository repo) {
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
     }
 
@@ -820,6 +1162,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           // ignore: avoid_dynamic_calls
           overrides: <Object>[
             searchRepositoryProvider.overrideWithValue(repo),
@@ -869,7 +1212,11 @@ void main() {
       // Page 0: a full page of masters (well past one viewport) with another
       // page available.
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>(
           List<MasterSearchItem>.generate(20, (i) => _master('m$i')),
@@ -877,11 +1224,19 @@ void main() {
         ),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
       // Page 1: the second master page (last page).
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 1),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>(
           <MasterSearchItem>[_master('m99')],
@@ -897,7 +1252,11 @@ void main() {
 
       // Page-1 has not been requested yet (only the first-page fetch fired).
       verifyNever(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 1),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       );
 
       // Scroll to the end → the controller crosses the load-more threshold and
@@ -918,7 +1277,11 @@ void main() {
       }
 
       verify(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 1),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).called(1);
       // Both endpoints are now spent → the trailing spinner slot is gone.
       expect(find.byKey(const Key('results_load_more_spinner')), findsNothing);
@@ -932,12 +1295,20 @@ void main() {
     testWidgets('a last-page list shows no load-more spinner', (tester) async {
       final repo = _MockSearchRepository();
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([_master('m1')], totalPages: 1),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
       await tester.pumpWidget(
@@ -948,7 +1319,11 @@ void main() {
       expect(find.byKey(const Key('results_load_more_spinner')), findsNothing);
       // No page-1 fetch is ever issued on a single-page result.
       verifyNever(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 1),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       );
     });
   });
@@ -964,10 +1339,18 @@ void main() {
       _MockFavoriteRepository favorites,
     ) async {
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
       await tester.pumpWidget(_host(repo, favorites: favorites));
       await tester.pumpAndSettle();
@@ -1044,7 +1427,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('favorite_master_m1')));
       await tester.pump(); // optimistic fill
-      await tester.pumpAndSettle(); // add() rejects → revert + snackbar
+      await tester.pump(); // add() rejects, mounts the VelvetSnack
+      await pumpVelvetSnackIn(tester); // entrance animation to completion
 
       // Reverted to the outlined heart.
       expect(
@@ -1054,7 +1438,11 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.byType(SnackBar), findsOneWidget);
+      // VelvetSnack lives on the root overlay — a SIBLING of the routed
+      // screen, never a descendant (see velvet_snack_matchers.dart header).
+      expect(find.byType(VelvetSnack), findsOneWidget);
+
+      await pumpPastVelvetSnack(tester); // drain the dwell Timer
     });
 
     testWidgets('toggling one heart does not flip an unrelated card heart', (
@@ -1064,12 +1452,20 @@ void main() {
       final favorites = _MockFavoriteRepository();
       when(() => favorites.add(any())).thenAnswer((_) async {});
       when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer(
         (_) async => _page<MasterSearchItem>([_master('m1'), _master('m2')]),
       );
       when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
       await tester.pumpWidget(_host(repo, favorites: favorites));
       await tester.pumpAndSettle();
@@ -1123,10 +1519,18 @@ void main() {
       (tester) async {
         final repo = _MockSearchRepository();
         when(
-          () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+          () => repo.searchMasters(
+            filters: any(named: 'filters'),
+            page: 0,
+            cancelToken: any(named: 'cancelToken'),
+          ),
         ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
         when(
-          () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+          () => repo.searchSalons(
+            filters: any(named: 'filters'),
+            page: 0,
+            cancelToken: any(named: 'cancelToken'),
+          ),
         ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
         final favorites = _MockFavoriteRepository();
@@ -1155,6 +1559,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             // ignore: avoid_dynamic_calls
             overrides: <Object>[
               searchRepositoryProvider.overrideWithValue(repo),
@@ -1211,10 +1616,18 @@ void main() {
       (tester) async {
         final repo = _MockSearchRepository();
         when(
-          () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+          () => repo.searchMasters(
+            filters: any(named: 'filters'),
+            page: 0,
+            cancelToken: any(named: 'cancelToken'),
+          ),
         ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
         when(
-          () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+          () => repo.searchSalons(
+            filters: any(named: 'filters'),
+            page: 0,
+            cancelToken: any(named: 'cancelToken'),
+          ),
         ).thenAnswer((_) async => _page<SalonSearchItem>([_salon('s1')]));
 
         final favorites = _MockFavoriteRepository();
@@ -1241,6 +1654,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             // ignore: avoid_dynamic_calls
             overrides: <Object>[
               searchRepositoryProvider.overrideWithValue(repo),
@@ -1293,9 +1707,9 @@ void main() {
 }
 
 /// Test double for the keepAlive filters controller — seeds a fixed filter set
-/// and skips the production ref.watch(authProvider). The chip-clear path reads
-/// `.notifier` and calls selectCity(...), which mutates this double's state via
-/// the inherited copyWith logic.
+/// and skips the production ref.watch(authProvider). The screen's `_setSort`
+/// and `_clearQuery` paths read `.notifier`, and their mutations run against
+/// this double's state via the inherited logic.
 class _SeededFiltersController extends SearchFiltersController {
   _SeededFiltersController(this._seed);
 

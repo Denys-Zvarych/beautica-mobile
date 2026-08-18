@@ -19,8 +19,12 @@
 # forbidden in `test/**` and `integration_test/**`. A legitimate fixed wait
 # (e.g. asserting a debounce window is NOT yet elapsed, advancing past a known
 # TTL, or driving a real-async integration step where pump-until is impossible)
-# is unblocked with a `// fixed-wait-ok: <reason>` comment on the same line or
-# the line directly above.
+# is unblocked with a `// fixed-wait-ok: <reason>` comment on the same line, or
+# anywhere in the unbroken run of `//` comment lines immediately above it (a
+# long reason may wrap across several comment lines — the annotation can be on
+# any of them). The walk upward stops at the first line that is not a bare
+# `//` comment line, so an annotation separated from the call by real code
+# does NOT count — it would otherwise become a blanket file-level opt-out.
 #
 # LEGACY BASELINE (ratchet, not a big-bang rewrite)
 # -------------------------------------------------
@@ -55,9 +59,13 @@ annotation='[/][/][[:space:]]*fixed-wait-ok:'
 #   skipped when it is a genuine `//` comment line (first non-space token is
 #   `//`), when a `//` precedes the match in string-stripped text (a `//`
 #   inside a string can't mask a real call), or when the `// fixed-wait-ok:`
-#   annotation is on the line itself or the line directly above. Single awk
-#   pass over the whole file so the "annotation above" check sees the real
-#   previous line.
+#   annotation is on the line itself or anywhere in the unbroken run of `//`
+#   comment lines immediately above it. Single awk pass: `comment_run_annotated`
+#   tracks whether the contiguous block of comment lines seen so far contains
+#   the annotation; it is set on an annotated comment line, left untouched on
+#   any other comment line (so a wrapped, multi-line reason still counts), and
+#   cleared the moment a non-comment (real code) line is seen — so the walk
+#   never crosses into code above the block.
 # ---------------------------------------------------------------------------
 scan_file() {
   awk -v file="$1" -v pat="$pattern" -v ann="$annotation" '
@@ -77,24 +85,46 @@ scan_file() {
       return out
     }
     {
+      trimmed = $0
+      sub(/^[[:space:]]+/, "", trimmed)
+      is_comment_line = (trimmed ~ /^[/][/]/)
+
       if ($0 ~ pat) {
-        # (1a) Genuine comment line? First non-space token is `//`.
-        firsttok = $0
-        sub(/^[[:space:]]+/, "", firsttok)
-        if (firsttok ~ /^[/][/]/) { prev = $0; next }
+        # (1a) Genuine comment line (commented-out code)? Not a real call —
+        # still track it as part of the comment run, then move on.
+        if (is_comment_line) {
+          if (trimmed ~ ann) comment_run_annotated = 1
+          next
+        }
         # (1b) `//` comment after CODE masking the call? Test string-free text.
         codeonly = strip_strings($0)
         where = match(codeonly, pat)
         if (where > 0) {
           before = substr(codeonly, 1, where - 1)
-          if (before ~ /[/][/]/) { prev = $0; next }
+          if (before ~ /[/][/]/) {
+            comment_run_annotated = 0   # real code line — breaks the run
+            next
+          }
         }
-        # (2) Annotated fixed-wait-ok on this line or the line directly above.
-        if ($0 ~ ann)   { prev = $0; next }
-        if (prev ~ ann) { prev = $0; next }
+        # (2) Annotated fixed-wait-ok on this line, or anywhere in the
+        # contiguous `//` comment block immediately above.
+        if ($0 ~ ann || comment_run_annotated) {
+          comment_run_annotated = 0
+          next
+        }
         printf "%s:%d:%s\n", file, NR, $0
+        comment_run_annotated = 0
+        next
       }
-      prev = $0
+
+      # Not a fixed-wait line: track the contiguous comment run for lines
+      # that follow. A comment line extends the run (and sets the flag if it
+      # carries the annotation); any other line breaks it.
+      if (is_comment_line) {
+        if (trimmed ~ ann) comment_run_annotated = 1
+      } else {
+        comment_run_annotated = 0
+      }
     }
   ' "$1"
 }
@@ -111,15 +141,38 @@ if [ "${1:-}" = "--self-test" ]; then
     "      await tester.pumpAndSettle(const Duration(seconds: 2));" \
     "      await tester.pumpUntilFound(find.byKey(k));" \
     "      // await tester.pump(const Duration(seconds: 1));" \
+    "      // fixed-wait-ok: advancing the pointer-sample clock in lockstep with the" \
+    "      // synthetic move timestamps, not waiting on a condition." \
+    "      await tester.pump(const Duration(milliseconds: 40));" \
+    "      // fixed-wait-ok: advancing past the screen's 220 ms day-tap debounce, so a" \
+    "      // selection a paging regression had queued would have FIRED by the time the" \
+    '      // "no request" assertions below run. Without it those assertions would only' \
+    "      // prove the debounce timer had not expired yet." \
+    "      await tester.pump(const Duration(milliseconds: 300));" \
+    "      // fixed-wait-ok: this annotation is orphaned by a real code line below" \
+    "      someRealCodeLine();" \
+    "      await tester.pump(const Duration(milliseconds: 50));" \
     > "$tmp"
   out="$(scan_file "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  if [ "$flagged" -ne 1 ]; then
-    echo "SELF-TEST FAIL: expected 1 offender, got $flagged"
+  if [ "$flagged" -ne 2 ]; then
+    echo "SELF-TEST FAIL: expected 2 offenders, got $flagged"
     printf '%s\n' "$out"
     exit 1
   fi
-  echo "SELF-TEST PASS: 1 raw fixed wait flagged; annotated / pumpUntil / commented lines clean"
+  if ! printf '%s\n' "$out" | grep -q ':1:'; then
+    echo "SELF-TEST FAIL: expected the raw unannotated pump (line 1) to be flagged"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  if ! printf '%s\n' "$out" | grep -q ':16:'; then
+    echo "SELF-TEST FAIL: expected the pump separated from its annotation by real code (line 16) to be flagged"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  echo "SELF-TEST PASS: 2 offenders flagged (raw fixed wait; annotation orphaned by real code)."
+  echo "Clean: same-line-above annotation, 2-line and 4-line wrapped annotations, pumpUntil, commented-out line."
+  echo "SELF-TEST OK: forbid_fixed_wait.sh"
   exit 0
 fi
 

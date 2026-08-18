@@ -1,12 +1,18 @@
 // Phase 13.4 — Discovery results async-state widgets.
 //
-// The three non-data states for the results screen:
-//   • [ResultsSkeleton] — a 6-card shimmerless neumorphic placeholder list shown
-//     while the first page loads,
-//   • [ResultsEmpty]    — «Нічого не знайдено» + a «Змінити фільтри» action,
-//   • [ResultsError]    — the failure message + a retry button.
+// The non-data states for the results screen:
+//   • [ResultsSkeleton]       — a 6-card shimmerless neumorphic placeholder list
+//     shown while the first page loads,
+//   • [ResultsEmpty]          — «Нічого не знайдено» + a «Змінити фільтри»
+//     action,
+//   • [ResultsError]          — the failure message + a retry button.
 //
-// All three live inside the same padded list region as the real cards so the
+// There is deliberately no "query too short" state here. The search box lives
+// on the FILTERS screen only, and its «Показати майстрів» CTA is disabled while
+// the box holds 1–2 characters, so a below-minimum term can never reach this
+// screen: `SearchFilters.query` is null or wire-ready by invariant.
+//
+// All of them live inside the same padded list region as the real cards so the
 // layout never jumps between states.
 
 import 'package:flutter/material.dart';

@@ -13,7 +13,11 @@
 // All navigation taps use key-based finders. See app_harness.dart for policy.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -57,10 +61,60 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // The day cards for ISO 1–7 have keys 'weekly-day-1' through 'weekly-day-7'.
+      final Finder day1 = find.byKey(const Key('weekly-day-1'));
       expect(
-        find.byKey(const Key('weekly-day-1')),
+        day1,
         findsOneWidget,
         reason: 'WeeklyTemplateEditorScreen must render day-1 (Monday) card',
+      );
+
+      // mobile-qa (2026-07-29, Phase 23.2 audit) — REGRESSION GUARD: this is
+      // the ONLY test in the whole suite that renders a weekday label
+      // through the REAL pipeline (FakeBackend's HTTP-level JSON response →
+      // `ScheduleMapper.weeklyScheduleFromResponse` → `ukCapitalize
+      // (weekdayName(isoDay))` → `TemplateDay.label` → this screen's
+      // `Text(widget.label)`). Every widget/golden test for this screen
+      // fabricates `TemplateDay(label: 'd$dow', ...)` directly, bypassing the
+      // mapper entirely — so a weekday off-by-one shipped in
+      // `uk_calendar.dart` or the mapper would be invisible to the whole
+      // widget-test layer. Asserting the rendered strings for BOTH ISO
+      // week-ends here (Monday and Sunday — the two indices an off-by-one
+      // corrupts first) is what makes this integration test the one place
+      // that regression cannot hide. The expected strings are derived via
+      // `ukCapitalize(weekdayName(isoDay))` — the exact expression
+      // `ScheduleMapper.weeklyScheduleFromResponse` uses to build
+      // `TemplateDay.label` — rather than hard-coded Ukrainian literals, so
+      // this test stays a pipeline check (mapper → label → widget), not a
+      // literal-bytes check; the literal Ukrainian bytes themselves are
+      // pinned separately by `test/shared/formatters/uk_calendar_test.dart`.
+      expect(
+        find.descendant(
+          of: day1,
+          matching: find.text(ukCapitalize(weekdayName(1))),
+        ),
+        findsOneWidget,
+        reason:
+            'day-1 must render the Ukrainian label for Monday end-to-end '
+            'through the real mapper — a weekday off-by-one would silently '
+            'relabel this without any widget test catching it',
+      );
+
+      final Finder day7 = find.byKey(const Key('weekly-day-7'));
+      await tester.scrollUntilVisible(
+        day7,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: day7,
+          matching: find.text(ukCapitalize(weekdayName(7))),
+        ),
+        findsOneWidget,
+        reason:
+            'day-7 must render the Ukrainian label for Sunday — the other '
+            'end of the ISO week',
       );
 
       expect(
@@ -351,6 +405,556 @@ void main() {
         .toList();
     expect(times, <String>['09:00', '11:00']);
   }, timeout: const Timeout(Duration(seconds: 40)));
+
+  // ── Test 5 — REGRESSION (CRITICAL availability data-loss): a break flush
+  //            against the working-window START must reach the wire.
+  //
+  // THE BUG: `DayHours.toIntervals()` skipped any break touching a window edge
+  // without advancing its cursor, so a «Перерва» dragged onto the window start
+  // was silently discarded AFTER validation had passed and Save was enabled.
+  // The saved template then advertised the FULL 09:00–18:00 window — the
+  // blocked time came back as bookable.
+  //
+  // Unit + widget coverage alone cannot close this (Rule 3b): the defect was in
+  // the collapse step that sits between the editor's state and the PUT body, and
+  // the pre-existing domain test asserted the WRONG expectation. This flow drives
+  // the real screen end-to-end against the fake backend and asserts the OUTBOUND
+  // `days[].intervals` payload — the only artefact the backend (and therefore
+  // every booking slot) actually sees.
+  //
+  // Day 1 (Monday) is seeded ACTIVE 09:00–18:00. Adding a break seeds
+  // 09:15–10:15; dragging its start back one 15-min step makes it flush at
+  // 09:00. Correct payload: `[10:15–18:00]`. Pre-fix payload: `[09:00–18:00]`.
+
+  testWidgets(
+    'A break dragged flush against the working-window start is EXCLUDED from '
+    'the saved working intervals (PUT body carries 10:15–18:00, never '
+    '09:00–18:00)',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      final Finder day1 = find.byKey(const Key('weekly-day-1'));
+      expect(day1, findsOneWidget, reason: 'Monday card must render');
+
+      // ── Add a break to Monday. `_addBreak` seeds window-start + 15 min gap,
+      // 1 h long → 09:15–10:15.
+      final Finder addBreak = find.byKey(const Key('weekly-day-1-add-break'));
+      await tester.ensureVisible(addBreak);
+      await tester.pumpAndSettle();
+      await tester.tap(addBreak);
+      await tester.pumpAndSettle();
+
+      final Finder breakStart = find.descendant(
+        of: day1,
+        matching: find.widgetWithText(TimeWell, '09:15'),
+      );
+      expect(
+        breakStart,
+        findsOneWidget,
+        reason: 'the seeded break must start at 09:15',
+      );
+
+      // ── Drag the break start back one 15-min step: 09:15 → 09:00, i.e. FLUSH
+      // against the working-window start. This is the exact user gesture that
+      // used to lose the break at save time.
+      await _dragTimeWell(tester, well: breakStart, minuteSteps: -1);
+
+      expect(
+        find.descendant(
+          of: day1,
+          matching: find.widgetWithText(TimeWell, '09:15'),
+        ),
+        findsNothing,
+        reason: 'the break start must now read 09:00',
+      );
+
+      final int putsBefore = fb.putScheduleCalls;
+
+      final Finder saveBtn = find.byKey(const Key('btn-save-weekly-template'));
+      await tester.ensureVisible(saveBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(saveBtn);
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+      expect(
+        fb.putScheduleCalls,
+        greaterThan(putsBefore),
+        reason:
+            'carving a break out of Monday is a real diff vs the seeded '
+            '09:00–18:00 baseline — Save must be enabled and the PUT must '
+            'fire. THIS IS THE FIRST SYMPTOM OF THE BUG: when the flush break '
+            'was discarded on collapse, the computed payload equalled the '
+            'baseline, the dirty-gate read "no changes" and Save never fired '
+            'at all — the master\'s break vanished without a single request',
+      );
+
+      // ── THE ASSERTION. The wire payload for Monday must carry exactly the
+      // post-break working block.
+      final List<dynamic>? days = fb.lastWeeklyDays;
+      expect(days, isNotNull, reason: 'the PUT body must carry a days list');
+      final Map<String, dynamic> day1Body = days!
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['dayOfWeek'] == 1);
+
+      final List<Map<String, dynamic>> intervals =
+          (day1Body['intervals'] as List<dynamic>).cast<Map<String, dynamic>>();
+
+      // HH:mm:ss → HH:mm for a readable comparison.
+      String hhmm(Object? t) => (t! as String).substring(0, 5);
+      final List<String> spans = intervals
+          .map((i) => '${hhmm(i['startTime'])}–${hhmm(i['endTime'])}')
+          .toList();
+
+      expect(
+        spans,
+        <String>['10:15–18:00'],
+        reason:
+            'THE BUG: a payload of [09:00–18:00] means the flush break was '
+            'discarded on collapse and the saved template re-advertised the '
+            'blocked 09:00–10:15 window as bookable',
+      );
+      // Redundant on purpose — this is the single fact that matters, stated as
+      // a property so a future shape change still trips it.
+      expect(
+        intervals.any((i) => hhmm(i['startTime']) == '09:00'),
+        isFalse,
+        reason: 'no saved working interval may start inside the break window',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+
+  // ── Test 6 — THE RELOAD HALF of the edge-flush-break story (2026-07-27).
+  //
+  // Test 5 above proves the OUTBOUND half: the break reaches the wire, i.e. the
+  // blocked hour is genuinely excluded from availability. It says nothing about
+  // what the master SEES when they come back.
+  //
+  // THE REPORTED BUG lives on that return trip. Only working INTERVALS were
+  // persisted and breaks were reconstructed from the GAPS BETWEEN them, so an
+  // edge-flush break left no gap to see: `[10:00–18:00]` read back as "window
+  // 10:00–18:00, no breaks". The master reopened «Робочі дні та години» and
+  // their 09:00–10:00 break was GONE — silently normalised into a shortened
+  // working day. Availability was correct; the screen lied.
+  //
+  // The backend now persists `windowStart`/`windowEnd` alongside the intervals,
+  // and `DayHours.fromIntervals` re-derives `breaks = window MINUS intervals`.
+  // This flow feeds that exact wire shape through the REAL repository, mapper,
+  // notifier and editor and asserts the RENDERED result — the user-visible
+  // acceptance criterion, which no unit or widget test observes end-to-end
+  // (Rule 3b: the read path crosses the generated client, the mapper's
+  // both-or-neither guard and the editor's seed, and a wire-name mismatch
+  // anywhere in that chain is invisible to all three layers individually).
+  //
+  // Monday: intervals [10:00–18:00] + window 09:00–18:00 → must render від
+  // 09:00 WITH a 09:00–10:00 break row.
+  // Tuesday: a LEGACY row (intervals only) → must still render від 09:00 with
+  // NO break row, proving the legacy regime is untouched in the same run.
+
+  testWidgets(
+    'A stored working window reloads as a BREAK ROW, not a shortened working '
+    'day (Monday 10:00–18:00 + window 09:00–18:00 → від 09:00 + break '
+    '09:00–10:00); a legacy row in the same response is unchanged',
+    (tester) async {
+      final fb = FakeBackend();
+      // Reseed BEFORE boot so the editor's first load sees the window row.
+      fb.seedWeeklyScheduleWithStoredWindow();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      expect(
+        fb.getScheduleCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'the editor must have loaded the seeded template',
+      );
+
+      // ── THE ASSERTION. The window well shows the STORED 09:00 start …
+      final Finder day1 = find.byKey(const Key('weekly-day-1'));
+      expect(day1, findsOneWidget, reason: 'Monday card must render');
+      await tester.ensureVisible(day1);
+      await tester.pumpAndSettle();
+
+      expect(
+        _wellText(tester, 'weekly-day-1-work-start'),
+        '09:00',
+        reason:
+            'THE BUG: 10:00 here means the stored window never reached the '
+            'editor and the break was normalised into a shortened working day '
+            '— exactly what the master reported seeing',
+      );
+      expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+
+      // … and the carved hour is rendered as a real BREAK ROW.
+      expect(
+        find.byKey(const Key('weekly-day-1-break-0-start')),
+        findsOneWidget,
+        reason:
+            'the edge-flush break must reappear as a break row — its absence '
+            'IS the reported bug',
+      );
+      expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+      expect(_wellText(tester, 'weekly-day-1-break-0-end'), '10:00');
+
+      // ── The legacy row in the SAME response is untouched: Tuesday carries no
+      // stored window, so it takes the historical gap reconstruction.
+      final Finder day2 = find.byKey(const Key('weekly-day-2'));
+      await tester.scrollUntilVisible(
+        day2,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(_wellText(tester, 'weekly-day-2-work-start'), '09:00');
+      expect(_wellText(tester, 'weekly-day-2-work-end'), '18:00');
+      expect(
+        find.byKey(const Key('weekly-day-2-break-0-start')),
+        findsNothing,
+        reason: 'a legacy row must render exactly as it always did',
+      );
+
+      // ── A pure reload is NOT an edit: reconstructing the break out of the
+      // stored window must leave the pristine Save gate intact.
+      expect(
+        find.byKey(const Key('weekly-no-changes-hint')),
+        findsOneWidget,
+        reason:
+            'merely reopening the template must stay pristine — a dirty gate '
+            'here would mean the seed disagrees with its own baseline',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+
+  // ── Test 7 — the window SURVIVES a save round-trip on the wire.
+  //
+  // Test 6 proves the window comes IN correctly. This proves it goes back OUT:
+  // after an unrelated edit (closing Tuesday), Monday's untouched row must
+  // still carry BOTH window keys in the PUT body — otherwise the very next
+  // reload silently demotes the row back to legacy and the break vanishes
+  // again, one save later.
+
+  testWidgets(
+    'Saving after an unrelated edit re-sends Monday\'s windowStart/windowEnd '
+    'in the PUT body (the row is never silently demoted back to legacy)',
+    (tester) async {
+      final fb = FakeBackend();
+      fb.seedWeeklyScheduleWithStoredWindow();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      // Edit a DIFFERENT day: close Tuesday. Monday is untouched.
+      // The day cards live in a lazy ListView, so scroll the toggle into
+      // existence before targeting it.
+      final Finder tuesdayToggle = find.byKey(const Key('weekly-toggle-2'));
+      await tester.scrollUntilVisible(
+        tuesdayToggle,
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(tuesdayToggle);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+      final int putsBefore = fb.putScheduleCalls;
+      final Finder saveBtn = find.byKey(const Key('btn-save-weekly-template'));
+      await tester.ensureVisible(saveBtn);
+      await tester.pumpAndSettle();
+      await tester.tap(saveBtn);
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+      expect(fb.putScheduleCalls, greaterThan(putsBefore));
+
+      final List<dynamic>? days = fb.lastWeeklyDays;
+      expect(days, isNotNull, reason: 'the PUT body must carry a days list');
+      final Map<String, dynamic> day1Body = days!
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['dayOfWeek'] == 1);
+
+      expect(
+        day1Body['windowStart'],
+        '09:00:00',
+        reason:
+            'dropping the window on a save demotes the row to legacy — the '
+            'break would survive exactly one more reload and then vanish',
+      );
+      expect(day1Body['windowEnd'], '18:00:00');
+      // Availability is unchanged by the window — the intervals ride alongside.
+      final List<Map<String, dynamic>> intervals =
+          (day1Body['intervals'] as List<dynamic>).cast<Map<String, dynamic>>();
+      expect(intervals, hasLength(1));
+      expect(
+        (intervals.single['startTime'] as String).substring(0, 5),
+        '10:00',
+      );
+
+      // The CLOSED day carries no window (nothing to contain) and the LEGACY
+      // Tuesday row is not retro-fitted with a synthesised one.
+      final Map<String, dynamic> day2Body = days
+          .cast<Map<String, dynamic>>()
+          .firstWhere((d) => d['dayOfWeek'] == 2);
+      expect(day2Body['intervals'], isEmpty, reason: 'Tuesday was closed');
+      expect(day2Body['windowStart'], isNull);
+      expect(day2Body['windowEnd'], isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+
+  // ── Test 8 — the CONSOLIDATED PeriodRangePicker round-trips a custom
+  //      window end-to-end (mobile-qa, calendar-consolidation audit, Rule
+  //      3b). `PeriodRangePicker` forked ~250 lines of `month_calendar.dart`
+  //      before the consolidation (`lib/shared/widgets/calendar_grid.dart`)
+  //      and had NO integration coverage of its own before this test: every
+  //      existing schedule flow (`schedule_first_create_flow_test.dart`
+  //      included) only ever exercises `ApplyScheduleSheet`'s PRESET chips —
+  //      never the custom date-well → PeriodRangePicker → Save path this
+  //      test drives. Widget-tier coverage
+  //      (`test/features/schedule/presentation/period_range_picker_test
+  //      .dart`) proves the shared `CalendarWeekRow`/`CalendarDayCell`
+  //      primitives render and geometrically align correctly in isolation;
+  //      this proves the SAME tap-start/tap-end/save gesture through those
+  //      primitives still resolves into the exact PUT body a real
+  //      route/provider/HTTP stack sends for this picker's one production
+  //      caller — the thing a widget harness with a bare `ProviderScope`
+  //      cannot observe.
+  testWidgets(
+    'picking a CUSTOM window via the consolidated PeriodRangePicker and '
+    'applying it fires PUT …/weekly-schedules/schedule-1 with the exact '
+    'picked validFrom/validTo',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.scheduleWeeklyEditor);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      AppHarness.expectLocation(router, RouteNames.scheduleWeeklyEditor);
+
+      // `WeeklyTemplateEditorScreen` (`app_router.dart:1090`,`:1113`) is
+      // constructed with NO `clock:` override, but its `_today` now falls
+      // back to `ref.read(clockProvider)` rather than a bare `DateTime.now()`
+      // — so it, `showApplyScheduleSheet(today: _today)`'s `firstMonth`, AND
+      // (as of the follow-up fix that plumbed `PeriodRangePicker.clock`
+      // through `showPeriodRangePicker`/`ApplyScheduleSheet._pickRange`) the
+      // picker's own "today" ring all correctly resolve `kFixedNow`
+      // (2026-06-14), the harness's pinned instant — not the real host date.
+      // This was a genuine gap once (found the hard way: a first version of
+      // this test hardcoded "20/25 June" assuming kFixedNow and failed with
+      // the wire carrying the REAL host month instead; a second version
+      // tried matching that live read with its own `DateTime.now()` in the
+      // test, correctly REJECTED by `forbid_host_local_instant_anchor.sh`,
+      // which has no escape hatch for "matches a production bug" on
+      // purpose — the fix belongs in the screen, not the test).
+      //
+      // This test still reads no clock of its own: it discovers which days
+      // are actually TAPPABLE, and which month/year they belong to, from the
+      // REAL rendered widget tree — ground truth, the same technique this
+      // file's other tests use for rendered data (`_wellText`), never an
+      // independent prediction. That now happens to agree with `kFixedNow`
+      // rather than compensating for a screen that ignored it.
+      // Numeric-label filter, not just `button: true` — the picker's own
+      // chrome (the back button, `«Зберегти»`) is ALSO
+      // `Semantics(button: true, ...)`, with a non-numeric label ("Назад" /
+      // "Зберегти"); only a day cell's `semanticsLabel` is a bare digit
+      // string (`_DayCell.build()`: `semanticsLabel: '${info.day}'`).
+      final RegExp numericLabel = RegExp(r'^\d+$');
+      final Finder enabledDayCells = find.descendant(
+        of: find.byType(PeriodRangePicker),
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is Semantics &&
+              (w.properties.button ?? false) &&
+              w.properties.label != null &&
+              numericLabel.hasMatch(w.properties.label!),
+        ),
+      );
+
+      // The seeded schedule-1's window (validFrom=2026-06-14, validTo=null —
+      // a FIXTURE date, unrelated to this screen's own live "today") opens
+      // the «Період дії графіка» sheet — the EXISTING-template path, which
+      // persists immediately via PUT.
+      final Finder windowCard = find.byKey(
+        const Key('weekly-active-window-card'),
+      );
+      await tester.ensureVisible(windowCard);
+      await tester.pumpAndSettle();
+      await tester.tap(windowCard);
+      await tester.pumpAndSettle();
+
+      // Open the CUSTOM range picker (not a preset chip) — the consolidated
+      // PeriodRangePicker itself.
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+
+      // The picker's FIRST rendered month section is `firstMonth`
+      // (`_pickRange()`'s `firstMonth: DateTime(widget.today.year,
+      // widget.today.month)`) — whatever that resolves to on THIS run.
+      // Parse its own rendered "<Місяць> <Рік>" header (`_monthSection()`)
+      // rather than assuming one.
+      final RegExp monthHeaderPattern = RegExp(
+        r'^([А-Яа-яІіЇїЄєҐґ]+) (\d{4})$',
+      );
+      final Finder monthHeader = find
+          .descendant(
+            of: find.byType(PeriodRangePicker),
+            matching: find.byWidgetPredicate(
+              (Widget w) =>
+                  w is Text &&
+                  w.data != null &&
+                  monthHeaderPattern.hasMatch(w.data!),
+            ),
+          )
+          .first;
+      final RegExpMatch headerMatch = monthHeaderPattern.firstMatch(
+        tester.widget<Text>(monthHeader).data!,
+      )!;
+      final int monthNumber =
+          monthNamesNominative.indexOf(headerMatch.group(1)!) + 1;
+      final int year = int.parse(headerMatch.group(2)!);
+      expect(
+        monthNumber,
+        greaterThan(0),
+        reason:
+            'the rendered month header "${tester.widget<Text>(monthHeader).data}" '
+            'must resolve to one of the 12 monthNamesNominative entries',
+      );
+
+      // The enabled cells within the FIRST section are exactly `firstMonth`'s
+      // tappable (>= today) days, in ascending day-of-month order — tree
+      // order mirrors the grid's own row-major layout. `start` = the
+      // EARLIEST tappable day (today itself — `firstSelectableDay:
+      // _math.today` in `_pickRange()`); `end` walks forward through
+      // however many of THIS SAME month's enabled cells remain (up to 5),
+      // so both endpoints are provably within the parsed month/year above —
+      // never assuming there are enough days left before the month rolls
+      // over.
+      final List<Semantics> enabled = tester
+          .widgetList<Semantics>(enabledDayCells)
+          .toList();
+      expect(
+        enabled,
+        isNotEmpty,
+        reason: 'the picker must render at least one tappable day',
+      );
+      final int startDay = int.parse(enabled.first.properties.label!);
+      int endIndex = 0;
+      for (int i = 1; i < enabled.length && i <= 5; i++) {
+        final int candidate = int.parse(enabled[i].properties.label!);
+        if (candidate <= startDay) break; // rolled into the NEXT month
+        endIndex = i;
+      }
+      final int endDay = int.parse(enabled[endIndex].properties.label!);
+
+      final DateTime start = DateTime(year, monthNumber, startDay);
+      final DateTime end = DateTime(year, monthNumber, endDay);
+
+      await tester.tap(_periodDayCell(startDay));
+      await tester.pumpAndSettle();
+      await tester.tap(_periodDayCell(endDay));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-range-picker-save')));
+      await tester.pumpAndSettle();
+
+      final int putsBefore = fb.putScheduleCalls;
+      await tester.tap(find.byKey(const Key('btn-apply-schedule')));
+      await tester.pumpAndSettle();
+
+      expect(
+        fb.putScheduleCalls,
+        greaterThan(putsBefore),
+        reason:
+            'applying the picked custom window on an EXISTING template must '
+            'persist immediately via PUT — ApplyScheduleSheet._apply()\'s '
+            'baseSchedule.id != null path',
+      );
+      expect(
+        fb.lastWeeklyValidFrom,
+        toApiDate(start),
+        reason:
+            'the exact day tapped as START in the consolidated '
+            'PeriodRangePicker must reach the wire unchanged — proving the '
+            'shared calendar_grid.dart day-cell tap/select machinery still '
+            'works end-to-end for its one real production caller, through '
+            'the full route/provider/HTTP stack',
+      );
+      expect(fb.lastWeeklyValidTo, toApiDate(end));
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+}
+
+/// A tappable day cell in the [PeriodRangePicker] for the given [day] number
+/// — mirrors `apply_schedule_sheet_test.dart`'s identically-named helper.
+/// Day cells carry no per-day `Key`; matched by the cell's button
+/// `Semantics.label`, scoped to `.first` so a later rendered month's
+/// identical day-of-month number never collides.
+Finder _periodDayCell(int day) => find
+    .byWidgetPredicate(
+      (Widget w) =>
+          w is Semantics &&
+          (w.properties.button ?? false) &&
+          w.properties.label == '$day',
+    )
+    .first;
+
+/// Reads the `HH:MM` rendered inside a keyed [TimeWell] (`…-work-start`,
+/// `…-work-end`, `…-break-N-start`, …) — a data value, never localised copy.
+String _wellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
+}
+
+/// Opens the wheel time picker behind [well], moves the hours wheel by
+/// [hourSteps] rows and the minutes wheel by [minuteSteps] rows (positive =
+/// later, negative = earlier), then confirms.
+///
+/// Break-row [TimeWell]s carry no `Key` in the production widget, so callers
+/// target them by their rendered `HH:MM` VALUE scoped to a day card — a data
+/// value, never localised copy, and never an order-dependent `.first`.
+Future<void> _dragTimeWell(
+  WidgetTester tester, {
+  required Finder well,
+  int hourSteps = 0,
+  int minuteSteps = 0,
+}) async {
+  await tester.ensureVisible(well);
+  await tester.pumpAndSettle();
+  await tester.tap(well);
+  await tester.pumpAndSettle();
+
+  final Finder wheels = find.byType(ListWheelScrollView);
+  expect(wheels, findsNWidgets(2), reason: 'hours + minutes wheels');
+
+  if (hourSteps != 0) {
+    await tester.drag(wheels.at(0), Offset(0, -_kItemExtent * hourSteps));
+    await tester.pumpAndSettle();
+  }
+  if (minuteSteps != 0) {
+    await tester.drag(wheels.at(1), Offset(0, -_kItemExtent * minuteSteps));
+    await tester.pumpAndSettle();
+  }
+
+  await tester.tap(find.byKey(const Key('btn-velvet-time-picker-confirm')));
+  await tester.pumpAndSettle();
 }
 
 /// One velvet-time-picker wheel item extent (px) — matches the picker's fixed

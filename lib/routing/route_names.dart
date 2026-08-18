@@ -79,6 +79,16 @@ abstract final class RouteNames {
   static const String clientBookings = '/bookings';
   static const String clientPassport = '/passport';
 
+  /// Phase 239 — «Усі збережені», the full BEAUTY WISH LIST. Nested under
+  /// [clientPassport] so it pushes onto the passport branch's OWN navigator:
+  /// swipe-back then returns to the still-scrolled passport page instead of
+  /// unwinding to a branch root.
+  ///
+  /// ⚠ Reached with `context.push`, never `context.go`. A pushed leaf collapses
+  /// to the PARENT path in `GoRouterState.fullPath`, so a `go`-based navigation
+  /// test would false-pass against `/passport`.
+  static const String clientWishlist = '$clientPassport/wishlist';
+
   /// Phase 14.3 — «Деталі запису», nested under [clientBookings] so it
   /// pushes onto that branch's own navigator (swipe-back returns to the
   /// still-scrolled list). Reached by tapping any `BookingCard`.
@@ -118,6 +128,16 @@ abstract final class RouteNames {
 
   /// Phase 13.6 — public salon profile, opened from a salon result card tap.
   /// Same lifecycle note as [masterPublicProfile].
+  ///
+  /// Bare path only. An earlier cut accepted an optional `serviceId` that
+  /// appended `?serviceId=<id>&tab=masters`, deep-linking the profile's
+  /// "Майстри" tab pre-filtered to one service for the salon-arm wish-list
+  /// CTA. That CTA now re-enters the salon booking flow's step-2 master picker
+  /// ([salonBookingMasters]) instead — a screen that already IS "the salon's
+  /// masters who perform the selected service(s)" — so the parameter, its
+  /// query assembly and the screen-side seed were all deleted as redundant.
+  /// The in-profile service→masters filter reachable by TAPPING a service in
+  /// the "Послуги" tab is a separate, unaffected feature.
   static String salonPublicProfile(String salonId) =>
       '/salons/${Uri.encodeComponent(salonId)}';
 
@@ -180,36 +200,24 @@ abstract final class RouteNames {
   /// `SalonMasterSelectionScreen`, CLIENT-guarded.
   static const String salonBookingMasters = '/booking/salon/masters';
 
-  /// Step 3 placeholder — the per-master time picker
-  /// (`docs/signup-designs/SalonBookingTime/`) is deferred; this minimal
-  /// stub is where «Підтвердити» on `SalonMasterSelectionScreen` routes
-  /// instead, carrying the salon id (a bare `String`) in `extra` so the
-  /// placeholder can offer a "back to profile" action. Never routes into the
-  /// independent-master `SlotPickerScreen` — that flow assumes one master,
-  /// not the salon's N-appointments-per-master model.
-  static const String salonBookingComingSoon = '/booking/salon/coming-soon';
-
-  /// Step 3 — per-master date/time picker ("Час"), Phase 14.16/14.17. Pushed
-  /// from `SalonMasterSelectionScreen`'s «Підтвердити» CTA with a
-  /// `SalonBookingTimeArgs` in `extra`. Renders `SalonTimeScreen`,
-  /// CLIENT-guarded. [salonBookingComingSoon] stays in the route tree
-  /// unchanged — it is now THIS screen's own «Підтвердити» hand-off target
-  /// (standing in for the not-yet-scoped step 4), not the direct target of
-  /// step 2's confirm CTA anymore.
+  /// Step 3 — single date/time picker ("Час"), MO-4. Pushed from
+  /// `SalonMasterSelectionScreen`'s «Далі» CTA with a `SalonBookingTimeArgs`
+  /// (the resolved single-master visit) in `extra`. Renders `SalonTimeScreen`,
+  /// CLIENT-guarded. (The pre-MO-4 `/booking/salon/coming-soon` placeholder
+  /// route is retired.)
   static const String salonBookingTime = '/booking/salon/time';
 
-  /// Step 4 — salon booking confirmation (review + submit), Phase 14.18.
-  /// Pushed from `SalonTimeScreen`'s «Підтвердити» CTA with a
-  /// `SalonBookingConfirmArgs` (the N resolved per-master appointments) in
-  /// `extra`. Renders `SalonBookingConfirmScreen`, CLIENT-guarded; submits one
-  /// `POST /bookings` per master. Replaces [salonBookingComingSoon] as the
-  /// step-3 «Підтвердити» hand-off target — the coming-soon stub is retired
-  /// (no longer routed to, but its route stays registered harmlessly).
+  /// Step 4 — salon booking confirmation (review + submit), MO-4. Pushed from
+  /// `SalonTimeScreen`'s «Далі» CTA with a `SalonBookingConfirmArgs` (the
+  /// single resolved visit) in `extra`. Renders `SalonBookingConfirmScreen`,
+  /// CLIENT-guarded; submits ONE `POST /appointments` via the shared
+  /// `AppointmentSubmit`.
   static const String salonBookingConfirm = '/booking/salon/confirm';
 
-  /// Step 4b — salon booking success recap, Phase 14.18. Reached ONLY via
-  /// `SalonBookingConfirmScreen`'s `pushReplacement` once EVERY appointment's
-  /// booking succeeded, carrying a `SalonBookingSuccessArgs` in `extra`.
+  /// Step 4b — salon booking success recap, MO-4. Reached ONLY via
+  /// `SalonBookingConfirmScreen`'s `pushReplacement` once the single
+  /// `POST /appointments` succeeded, carrying a `SalonBookingSuccessArgs` in
+  /// `extra`.
   /// Renders `SalonBookingSuccessScreen` (`PopScope(canPop: false)`),
   /// CLIENT-guarded; a missing/invalid `extra` bounces to [clientHome].
   static const String salonBookingSuccess = '/booking/salon/success';
@@ -264,6 +272,58 @@ abstract final class RouteNames {
   static String masterBookingDetail(String bookingId) =>
       '$masterBookings/${Uri.encodeComponent(bookingId)}';
 
+  /// Phase 231 — the master «Архів» page: a paginated, filterable list of
+  /// PAST bookings reached from a header button on [masterBookings], from
+  /// which a not-yet-closed visit can be closed in place.
+  ///
+  /// A CHILD of [masterBookings] (`/master/bookings/archive`), NOT a sibling
+  /// top-level route — same reasoning as [masterBookingDetail]: it inherits
+  /// the `/master/*` prefix role gate in `auth_redirect.dart` (currently
+  /// INDEPENDENT_MASTER-only — see that file's own comment on why no other
+  /// provider role is carved into `/master/*` yet) for free, and pushes onto
+  /// the master's own stack so back returns to the still-scrolled day
+  /// timeline. `archive`, not `:something`, because there is exactly one —
+  /// no id to parametrise.
+  static const String masterBookingsArchive = '$masterBookings/archive';
+
+  /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
+  ///
+  /// Same URL shape as [masterBookingDetail]'s `/review` child would be, but
+  /// registered in `app_router.dart` as a STANDALONE top-level `GoRoute`
+  /// (mirroring the `/masters/:masterId` + `/masters/:masterId/reviews`
+  /// sibling pair), NOT nested under it — nesting under a plain content
+  /// screen (not a shell) made go_router insert the detail route's own match
+  /// into every push, silently mounting a shadow `BookingDetailScreen`
+  /// underneath the review screen and breaking pop-back for the archive
+  /// entry path. See the route registration's own comment in
+  /// `app_router.dart` for the full investigation. A push here therefore
+  /// pops back to whatever the caller actually had on the stack: the
+  /// [masterBookingDetail] screen when reached from its COMPLETED-provider-
+  /// booking entry CTA (`_DetailBody._providerActions`), or the
+  /// `/master/bookings/archive` list when reached from there
+  /// (`master_archive_screen.dart`).
+  ///
+  /// GATING — like [bookingReview]'s `canReview`, both entry points gate their
+  /// CTA on a server-computed flag: `Booking.providerCanReviewClient`, which
+  /// carries a real per-row value on `GET /bookings/{id}` AND on the provider
+  /// rows of `GET /bookings/me` (backend `fix/list-provider-can-review-client`,
+  /// 2026-08-17). The destination then RE-GATES on its own
+  /// `GET /bookings/{id}`, pre-empting a stale list row before the form is ever
+  /// built, and a duplicate submit's 409 remains the last backstop — see
+  /// `LeaveClientFeedbackScreen`'s file header.
+  ///
+  /// (The earlier note here — "there is no server-computed canReview-equivalent
+  /// flag for the provider side yet, so the CTA is offered on every COMPLETED
+  /// provider booking" — was false on both halves by 2026-08-17 and is
+  /// deleted rather than softened: it read as an instruction to re-widen the
+  /// gate that fixed the already-reviewed-row bug.)
+  ///
+  /// `extra` on a push here carries the ENTRY POINT (`ClientReviewEntry`) — see
+  /// the route's registration comment in `app_router.dart`. It never appears in
+  /// the path this method builds.
+  static String clientReview(String bookingId) =>
+      '${masterBookingDetail(bookingId)}/review';
+
   // Master profile settings hub (INDEPENDENT_MASTER). Pushed from the profile
   // screen's top-right menu icon. Lists edit sections, each pushing its own
   // dedicated page; the terminal logout row raises the logout confirm dialog.
@@ -286,12 +346,18 @@ abstract final class RouteNames {
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';
-  static const String serviceCreate = '/services/create';
   static String serviceEdit(String id) => '/services/$id/edit';
 
-  /// First-time service setup (INDEPENDENT_MASTER). The empty-state, one-pass
-  /// menu builder reached from the services-list empty state when the master
-  /// has zero services. Saves via `POST /independent-masters/me/services/bulk`.
+  /// Service setup (INDEPENDENT_MASTER) — the ONE "add services" surface.
+  ///
+  /// The multi-select menu builder, reached from BOTH the services-list empty
+  /// state and the «Додати послугу» FAB on a populated list. Saves via
+  /// `POST /independent-masters/me/services/bulk`, which the backend made
+  /// additive (`beautica-backend` c5e420f) — so it appends to an existing
+  /// catalogue just as well as it seeds an empty one.
+  ///
+  /// The former single-create form (`/services/create`) was removed when the
+  /// two flows were collapsed onto this screen; do not reintroduce it.
   static const String serviceSetup = '/services/setup';
 
   // Phase 6.2 — legacy working-hours editor path. The route is NO LONGER
@@ -305,6 +371,14 @@ abstract final class RouteNames {
 
   // Phase 15.2 — Master schedule («Графік роботи»). The destination of the
   // Календар bottom-nav tile: a calendar-first availability view (read path).
+  //
+  // Optional `?date=yyyy-MM-dd` query param (added alongside the master
+  // bookings screen's "no working hours" empty state): pre-selects that date
+  // instead of today (`MasterScheduleScreen.initialDate`, parsed in
+  // `app_router.dart` via `parseApiDate`). Built ad hoc at its one call site
+  // (`master_bookings_screen.dart`'s `onAddWorkingHours`, mirroring
+  // [services]'s `?expandCategory=` precedent below) rather than a dedicated
+  // helper here — a second call site should promote it to one.
   static const String masterSchedule = '/schedule';
 
   // Phase 15.5 — the weekly-template editor («Робочі дні та години»). The

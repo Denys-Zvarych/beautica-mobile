@@ -131,5 +131,15 @@ abstract class MasterService with _$MasterService {
     /// mapper will read it and this default will only apply on cache-miss.
     /// A value > 0 blocks deactivation until those bookings are resolved.
     @Default(0) int futureBookingCount,
+
+    /// Whether the current CLIENT has favourited this service.
+    ///
+    /// Wire contract (`MasterServiceResponse.isFavorite`) is three-state:
+    /// `true`/`false` for an authenticated CLIENT, `null` for an
+    /// anonymous/non-CLIENT caller. The render is only ever two-state (filled
+    /// or hollow heart), and a guest cannot favourite anything anyway, so
+    /// null collapses to `false` at the mapper — mirrors the existing
+    /// `isActive: dto.isActive ?? true` precedent one field over.
+    @Default(false) bool isFavorite,
   }) = _MasterService;
 }

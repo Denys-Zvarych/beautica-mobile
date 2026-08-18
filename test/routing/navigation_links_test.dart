@@ -90,6 +90,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -137,6 +138,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// network / platform-channel I/O.
 GoRouter _productionRouter() {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(
         () => _FixedAuthNotifier(_authenticatedSession),
@@ -287,6 +289,10 @@ void main() {
       'clientSearch': RouteNames.clientSearch,
       'clientBookings': RouteNames.clientBookings,
       'clientPassport': RouteNames.clientPassport,
+      // Phase 239 — «Усі збережені», a pushed leaf nested under the passport
+      // branch. Registered, so it belongs in `allRoutes` rather than in
+      // `deliberatelyUnregistered`.
+      'clientWishlist': RouteNames.clientWishlist,
       'bookingDetail()': RouteNames.bookingDetail(kSampleId),
       'bookingReview()': RouteNames.bookingReview(kSampleId),
       'clientSearchResults': RouteNames.clientSearchResults,
@@ -300,7 +306,6 @@ void main() {
       'bookingSuccess': RouteNames.bookingSuccess,
       'salonBookingServices': RouteNames.salonBookingServices,
       'salonBookingMasters': RouteNames.salonBookingMasters,
-      'salonBookingComingSoon': RouteNames.salonBookingComingSoon,
       'salonBookingTime': RouteNames.salonBookingTime,
       'salonBookingConfirm': RouteNames.salonBookingConfirm,
       'salonBookingSuccess': RouteNames.salonBookingSuccess,
@@ -312,13 +317,14 @@ void main() {
       'masterProfile': RouteNames.masterProfile,
       'masterBookings': RouteNames.masterBookings,
       'masterBookingDetail()': RouteNames.masterBookingDetail(kSampleId),
+      'masterBookingsArchive': RouteNames.masterBookingsArchive,
+      'clientReview()': RouteNames.clientReview(kSampleId),
       'masterMenu': RouteNames.masterMenu,
       'masterEditPersonal': RouteNames.masterEditPersonal,
       'masterEditContacts': RouteNames.masterEditContacts,
       'masterEditLocation': RouteNames.masterEditLocation,
       'masterReceivedReviews': RouteNames.masterReceivedReviews,
       'services': RouteNames.services,
-      'serviceCreate': RouteNames.serviceCreate,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,
       'masterSchedule': RouteNames.masterSchedule,
@@ -328,13 +334,21 @@ void main() {
       'myRating': RouteNames.myRating,
     };
 
-    // The ONE deliberate exclusion. `/master/working-hours` was retired in
-    // Phase 6.2 (it wrote the deprecated `working_hours` table and was
-    // deep-link-reachable with no production navigation); the constant is kept
-    // only because auth_redirect_test.dart uses it as a representative
-    // `/master/*` path. `app_router_page_type_test.dart`'s RR-1 asserts the
-    // opposite — that it stays UNregistered — so this exclusion is itself
-    // covered by a test, not merely asserted here.
+    // Deliberate exclusions. `/master/working-hours` was retired in Phase 6.2
+    // (it wrote the deprecated `working_hours` table and was deep-link-
+    // reachable with no production navigation); the constant is kept only
+    // because auth_redirect_test.dart uses it as a representative `/master/*`
+    // path. `app_router_page_type_test.dart`'s RR-1 asserts the opposite —
+    // that it stays UNregistered — so this exclusion is itself covered by a
+    // test, not merely asserted here.
+    //
+    // NOT an exclusion — `/services/create` (2026-08-04): the single-create
+    // form (`ServiceCreateScreen`) was deleted and the two "add services"
+    // flows collapsed onto the one surface `/services/setup`. Unlike the
+    // entries below, the `RouteNames.serviceCreate` CONSTANT was deleted too,
+    // so it belongs in neither `allRoutes` nor `deliberatelyUnregistered` —
+    // NL-R01c's `covered.difference(declared)` assertion is what forced the
+    // `allRoutes` row out. `/services/setup` is still covered above.
     const Set<String> deliberatelyUnregistered = <String>{'workingHours'};
 
     test('NL-R01: every RouteNames constant resolves to a registered GoRoute '
@@ -474,6 +488,7 @@ void main() {
       // A container that starts with an unauthenticated session and
       // transitions to Authenticated after acceptInvite() succeeds.
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => repo),
           secureStorageProvider.overrideWith((_) => storage),
@@ -594,6 +609,7 @@ void main() {
       'navigates to /register (step-1)',
       (tester) async {
         final container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -684,6 +700,7 @@ void main() {
     testWidgets('NL-B02: tapping the AuthScaffold back button on /register/step-3 '
         'navigates to /register/step-2', (tester) async {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -798,6 +815,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -874,6 +892,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),

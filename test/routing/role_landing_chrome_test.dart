@@ -38,6 +38,8 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
@@ -54,6 +56,7 @@ import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import 'role_landing_chrome_matrix.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('each role lands on a screen that shows its expected nav chrome', () {
@@ -158,6 +161,7 @@ void main() {
 /// timer — same overrides the leaked-timer guard relies on).
 ProviderContainer _authedContainer(UserRole role) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(() => _FixedAuthNotifier(_sessionFor(role))),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -175,7 +179,7 @@ ProviderContainer _authedContainer(UserRole role) {
       ),
       // Settle the CLIENT Home-Hub data path (used only by the client row).
       //
-      // HomeHubScreen watches four async providers. clientProfileProvider
+      // HomeHubScreen watches five async providers. clientProfileProvider
       // derives from clientEditProfileProvider, which fires a REAL GET /users/me
       // on the authenticated Dio. Under this harness that request never resolves,
       // so Riverpod 3.x schedules a ~200ms `triggerRetry` Timer that outlives the
@@ -201,6 +205,22 @@ ProviderContainer _authedContainer(UserRole role) {
       beautyTimelineProvider.overrideWith(
         (ref) async => const <TimelineEntry>[],
       ),
+      // `_StatPillsRow` (home_hub_screen.dart) watches `myRatingProvider` — the
+      // fifth home-hub data provider, added after this harness was written.
+      // Its REAL build (`my_rating_notifier.dart`) starts a 5-minute
+      // `ref.keepAlive()` TTL `Timer` unconditionally at build time — cancelled
+      // correctly via `ref.onDispose` on provider disposal, but disposal only
+      // happens when `container.dispose()` runs (`addTearDown`, AFTER this
+      // test's body returns), which is AFTER `TestWidgetsFlutterBinding`'s
+      // `!timersPending` invariant check. So a genuine, unavoidable-by-
+      // production-code-changes 5-minute Timer is still pending at that check
+      // no matter how fast the underlying future resolves — same shape as the
+      // Dio-timeout leaks `app_router_no_leaked_timer_test.dart` documents.
+      // Settling with an override (bypassing `myRating`'s build body, and thus
+      // the Timer, entirely) is the SAME project-blessed fix that file's header
+      // comment prescribes, matching the pattern already applied to the other
+      // four home-hub providers above.
+      myRatingProvider.overrideWith((ref) async => const ClientRating()),
     ],
   );
   addTearDown(container.dispose);

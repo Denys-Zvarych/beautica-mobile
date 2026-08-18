@@ -1,0 +1,34 @@
+# Baseline for scripts/forbid_raw_ui_strings.sh — SHRINK-ONLY
+# RATCHET. Established 2026-08-18, the day the gate first actually
+# ran. Every path below carries at least one raw user-visible
+# string literal in a widget argument that should be flowing
+# through AppLocalizations.of(context).<key>.
+#
+# These are NOT approved. They are the honest measurement of a
+# debt that accumulated while `dart run custom_lint` passed
+# unconditionally: the rule was authored in Phase 1.3, promoted
+# to `error` in Phase 1.5, and never executed once. Ukrainian is
+# the product language, so every literal here renders UA no
+# matter the active locale and silently breaks the EN build.
+#
+# THE LIST ONLY SHRINKS. Adding a path is never the fix for a
+# new violation — localize it, or annotate the one line with
+#     // raw-ui-string-ok: <why this literal is not UI copy>
+# When a listed file is next meaningfully touched, move its
+# strings into lib/l10n/app_uk.arb (+ app_en.arb), run
+# `flutter gen-l10n`, and delete its line here.
+#
+# Regenerate (baseline reset only, never to make CI green):
+#   dart tool/lints/no_raw_ui_strings.dart --write-allow
+
+lib/core/widgets/neumorphic.dart
+lib/core/widgets/velvet_field.dart
+lib/features/calendar/presentation/working_hours_screen.dart
+lib/features/home/presentation/widgets/passport_preview_card.dart
+lib/features/master/presentation/widgets/profile_avatar.dart
+lib/features/rating/presentation/my_rating_screen.dart
+lib/features/schedule/presentation/widgets/interval_editor.dart
+lib/features/schedule/presentation/widgets/schedule_widgets.dart
+lib/features/schedule/presentation/widgets/velvet_time_picker.dart
+lib/features/services/presentation/widgets/pricing_field.dart
+lib/features/shell/presentation/widgets/client_top_bar.dart

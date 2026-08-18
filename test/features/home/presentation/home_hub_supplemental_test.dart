@@ -26,12 +26,15 @@ import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -87,16 +90,23 @@ const _sampleProfile = ClientProfileSummary(
 
 List<Object> _overrides({
   AsyncValue<ClientProfileSummary> profile = const AsyncData(_sampleProfile),
-  AsyncValue<NextAppointment?> nextAppt = const AsyncData(null),
+  AsyncValue<Booking?> nextAppt = const AsyncData(null),
   AsyncValue<List<FavoriteMasterItem>> favorites = const AsyncData(
     <FavoriteMasterItem>[],
   ),
   AsyncValue<List<TimelineEntry>> timeline = const AsyncData(<TimelineEntry>[]),
   ScreenProtectionManager? protection,
+  // The rating pill now sources from the authoritative myRatingProvider (same
+  // as MyRatingScreen), NOT the profile summary's clientRating slice. Default
+  // is an empty ClientRating (avgRating null → "—"). Overriding it here also
+  // suppresses the real loader's 5-min keepAlive Timer, which would otherwise
+  // leave a pending timer at test teardown.
+  ClientRating rating = const ClientRating(),
 }) {
   final prot = protection ?? _NoOpScreenProtection();
   return [
     screenProtectionProvider.overrideWithValue(prot),
+    myRatingProvider.overrideWith((ref) async => rating),
     clientProfileProvider.overrideWith(
       (ref) async => profile.when(
         data: (v) => v,
@@ -107,7 +117,7 @@ List<Object> _overrides({
     nextAppointmentProvider.overrideWith((ref) async {
       return nextAppt.when(
         data: (v) => v,
-        loading: () => Completer<NextAppointment?>().future,
+        loading: () => Completer<Booking?>().future,
         error: (e, _) => Future.error(e),
       );
     }),
@@ -151,8 +161,15 @@ void main() {
   //      clientProfileProvider is a user-controlled dependency that the test
   //      can produce a settled AsyncError for.
   //
-  // Integration test (client_home_hub_flow_test.dart) covers the full error
-  // → retry → reload flow end-to-end against the fake backend.
+  // mobile-qa audit correction (was: "Integration test (client_home_hub_flow_
+  // test.dart) covers the full error → retry → reload flow end-to-end
+  // against the fake backend" — VERIFIED FALSE, that integration file carries
+  // zero error/retry/failure fixtures). The real coverage for the
+  // `_NextAppointmentSection` error → retry path lives in
+  // `home_hub_screen_test.dart`'s "Next appointment section — error + retry
+  // (via HomeHubScreen)" group (2 tests), pumping the real `HomeHubScreen`
+  // against a rejecting `nextAppointmentProvider` override and driving the
+  // retry CTA.
 
   group('HomeHubScreen — error state widgets', () {
     testWidgets(
@@ -206,6 +223,7 @@ void main() {
         const HomeHubScreen(),
         overrides: [
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          myRatingProvider.overrideWith((ref) async => const ClientRating()),
           // Override the profile to throw a StateError so AsyncNotifier gets it.
           clientProfileProvider.overrideWith(
             (ref) => Future<ClientProfileSummary>.error(

@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 
@@ -37,12 +38,16 @@ class ResultThumbnail extends StatelessWidget {
     colors: <Color>[BrandColors.accent, BrandColors.accentLatte],
   );
 
+  // The gradient stand-in behind the shadowed frame. The extruded shadow now
+  // lives on the always-present outer DecoratedBox (see [build]) so it wraps
+  // BOTH the loaded photo and this fallback identically — as it did before,
+  // when the loaded path carried the shadow on its own outer box and the
+  // fallback carried its own copy.
   Widget _placeholder() {
     return DecoratedBox(
       decoration: const BoxDecoration(
         borderRadius: _radius,
         gradient: _placeholderGradient,
-        boxShadow: VelvetShadows.extrudedSmall,
       ),
       child: Icon(
         isSalon ? Icons.storefront_rounded : Icons.person_rounded,
@@ -54,21 +59,11 @@ class ResultThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? url = avatarUrl;
-    // Image.network uses its own HttpClient (not the pinned Dio), so guard the
-    // scheme here: only https is allowed. A null/empty/non-https URL falls
-    // through to the gradient placeholder — this stops a malicious/compromised
-    // `http://` avatar leaking the client IP if ATS/NSC is ever relaxed.
-    final bool isHttps =
-        url != null && url.isNotEmpty && Uri.tryParse(url)?.scheme == 'https';
-    if (!isHttps) {
-      return SizedBox(height: _size, width: _size, child: _placeholder());
-    }
-    // Cap decode resolution to the tile's physical pixel width so a full-res
-    // avatar isn't decoded into a 72dp box. Height follows the aspect ratio
-    // under BoxFit.cover.
-    final int cacheWidth = (_size * MediaQuery.devicePixelRatioOf(context))
-        .round();
+    // The https-only + host-allowlist guard, decode-bounding and disk cache now
+    // live in RemoteImage (core/media/beautica_image.dart). A null / empty /
+    // non-https / non-allowed URL falls through to the gradient placeholder
+    // WITHOUT a fetch. The 72dp rounded shape and the placeholder are
+    // unchanged.
     return SizedBox(
       height: _size,
       width: _size,
@@ -77,14 +72,14 @@ class ResultThumbnail extends StatelessWidget {
           borderRadius: _radius,
           boxShadow: VelvetShadows.extrudedSmall,
         ),
-        child: ClipRRect(
+        child: RemoteImage(
+          url: avatarUrl,
+          width: _size,
+          height: _size,
+          shape: RemoteImageShape.roundedRect,
           borderRadius: _radius,
-          child: Image.network(
-            url,
-            fit: BoxFit.cover,
-            cacheWidth: cacheWidth,
-            errorBuilder: (_, _, _) => _placeholder(),
-          ),
+          excludeFromSemantics: true,
+          fallback: _placeholder(),
         ),
       ),
     );

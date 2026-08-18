@@ -239,20 +239,28 @@ class _BookingsTabViewState extends ConsumerState<_BookingsTabView> {
               ],
             );
           }
+          // One card per service — a multi-service visit's rows share an
+          // `appointmentId`, but that carries no rendering weight here: each
+          // row is its own ordinary `BookingCard`, acting on its own booking.
+          // `GET /bookings/me` already returns the tab's whole status set
+          // sorted by `startAt` server-side (see `MyBookingsNotifier`'s file
+          // header), so a visit's legs land in their natural chronological
+          // position among any other bookings with no client-side re-sort.
+          final List<Booking> items = state.items;
           final int extra = state.hasMore ? 1 : 0;
           return ListView.separated(
             key: ValueKey<String>('my-bookings-list-${widget.tab.name}'),
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: kMyBookingsListPadding,
-            itemCount: state.items.length + extra,
+            itemCount: items.length + extra,
             separatorBuilder: (BuildContext context, int i) =>
                 const SizedBox(height: VelvetSpacing.md),
             itemBuilder: (BuildContext context, int i) {
-              if (i >= state.items.length) {
+              if (i >= items.length) {
                 return const MyBookingsLoadMoreSpinner();
               }
-              final Booking booking = state.items[i];
+              final Booking booking = items[i];
               return RepaintBoundary(
                 key: ValueKey<String>(booking.id),
                 child: BookingCard(

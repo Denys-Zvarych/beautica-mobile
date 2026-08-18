@@ -329,42 +329,81 @@ void main() {
   // -------------------------------------------------------------------------
   // Phase 13.6 navigation — the card body is a button that navigates to
   // RouteNames.salonPublicProfile (/salons/:id, registered in Phase 13.6). It
-  // is wrapped in Semantics(button: true, label: name) so screen readers
-  // announce it as a tappable element carrying the salon's name — mirrors
-  // MasterResultCard's identical Phase 13.5 navigation contract.
+  // is wrapped in Semantics(button: true) so screen readers announce it as a
+  // tappable element, with the salon's name supplied by the merged descendant
+  // Text — NOT by an explicit `label:` on the annotation. Mirrors
+  // MasterResultCard's identical Phase 13.5 navigation contract, including
+  // the re-pointing from the Semantics WIDGET PROPERTY to the compiled
+  // SemanticsNode; see `master_result_card_test.dart`'s equivalent group
+  // header for the full rationale (the property assertion stayed `true`
+  // throughout a regression that left the annotation with a role and no
+  // action, so it was measuring the wrong thing).
   // -------------------------------------------------------------------------
   group('SalonResultCard navigation (Phase 13.6)', () {
     testWidgets(
-      'card body is a button: Semantics carries the name label AND the button '
-      'flag',
+      'the card is announced as ONE node carrying both the tap action and the '
+      'button flag, labelled with the salon name',
       (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
         await _pump(tester, _salon());
 
         // The fixture's salon name — the card's own data label, not a
         // localised UI string.
         const String name = 'Студія Краси «Камелія»';
 
-        final Finder cardSemantics = find.ancestor(
-          of: find.byType(NeumorphicCard),
-          matching: find.byWidgetPredicate(
-            (Widget w) => w is Semantics && w.properties.label == name,
-          ),
-        );
-        expect(
-          cardSemantics,
-          findsOneWidget,
-          reason:
-              'the card body wraps NeumorphicCard in Semantics(label: name)',
+        final SemanticsNode node = tester.getSemantics(
+          find.byType(NeumorphicCard),
         );
 
-        final Semantics semantics = tester.widget<Semantics>(cardSemantics);
         expect(
-          semantics.properties.button,
-          isTrue,
+          node,
+          isSemantics(isButton: true, hasTapAction: true),
           reason:
               'the card body navigates to /salons/:id on tap (Phase 13.6), so '
-              'it must be announced as a button carrying the salon name.',
+              'the SAME node must carry both the button role and the tap '
+              'action — a role on an action-less node is the merge-group '
+              'regression this assertion exists to catch',
         );
+
+        expect(
+          node.getSemanticsData().label,
+          contains(name),
+          reason: 'the card must be announced with the salon name',
+        );
+
+        handle.dispose();
+      },
+    );
+
+    testWidgets(
+      'the announced label carries the salon name EXACTLY ONCE — no stutter',
+      (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await _pump(tester, _salon());
+
+        const String name = 'Студія Краси «Камелія»';
+        final String label = tester
+            .getSemantics(find.byType(NeumorphicCard))
+            .getSemanticsData()
+            .label;
+
+        // A plain `contains` passes against «Камелія, Камелія, Галицький,
+        // Львів …» and catches nothing. See the equivalent assertion in
+        // `master_result_card_test.dart` for the full history and the
+        // mutation proof.
+        //
+        // MUTATION PROOF: restoring `label: name` on the card's Semantics
+        // makes this count 2 and this assertion RED; removing it again
+        // returns it to 1 and GREEN.
+        expect(
+          name.allMatches(label).length,
+          1,
+          reason:
+              'the salon name must be announced once, not stuttered — got '
+              '${name.allMatches(label).length} occurrences in "$label"',
+        );
+
+        handle.dispose();
       },
     );
 

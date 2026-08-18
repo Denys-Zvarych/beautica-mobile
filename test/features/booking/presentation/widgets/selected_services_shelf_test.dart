@@ -112,6 +112,35 @@ Finder _inShelf(Finder matching) =>
     find.descendant(of: find.byKey(_expandedListKey), matching: matching);
 
 void main() {
+  // mobile-qa gap-fix (fix/ui-polish): the «Послуги та ціни» section label was
+  // deleted from the PUBLIC MASTER PROFILE booking shelf, whose test now pins
+  // it with `findsNothing`. The shared ARB key `publicMasterBookingSectionLabel`
+  // was deliberately RETAINED because THIS shelf still renders it — but after
+  // that deletion the key had no POSITIVE assertion left anywhere in the suite,
+  // so deleting the key (or this label row) would have gone green. This group
+  // is the surviving consumer's live guard.
+  group('section label', () {
+    testWidgets(
+      'renders the shared «Послуги та ціни» label, collapsed and expanded',
+      (tester) async {
+        await tester.pumpApp(_shelf());
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // Resolved via l10n, never a raw literal (M2/M11).
+        expect(find.text(l10n.publicMasterBookingSectionLabel), findsOneWidget);
+
+        // The label row is hoisted out of the ValueListenableBuilder for perf —
+        // pin that the hoist keeps it rendered across an expand toggle.
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.publicMasterBookingSectionLabel), findsOneWidget);
+      },
+    );
+  });
+
   group('collapsed by default', () {
     testWidgets('the itemized list is not built until the toggle is tapped', (
       tester,

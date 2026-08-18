@@ -55,6 +55,7 @@ abstract final class MasterReviewMapper {
           clientDisplayName: dto.clientDisplayName ?? '',
           rating: dto.rating ?? 0,
           comment: dto.comment ?? '',
+          // instant-ok: last-resort fallback for a malformed/absent DTO timestamp
           createdAt: dto.createdAt ?? DateTime.now(),
           serviceName: dto.serviceName,
         ),

@@ -10,6 +10,11 @@ const FavoriteResponseTargetTypeEnum _$favoriteResponseTargetTypeEnum_MASTER =
     const FavoriteResponseTargetTypeEnum._('MASTER');
 const FavoriteResponseTargetTypeEnum _$favoriteResponseTargetTypeEnum_SALON =
     const FavoriteResponseTargetTypeEnum._('SALON');
+const FavoriteResponseTargetTypeEnum _$favoriteResponseTargetTypeEnum_SERVICE =
+    const FavoriteResponseTargetTypeEnum._('SERVICE');
+const FavoriteResponseTargetTypeEnum
+    _$favoriteResponseTargetTypeEnum_SALON_SERVICE =
+    const FavoriteResponseTargetTypeEnum._('SALON_SERVICE');
 
 FavoriteResponseTargetTypeEnum _$favoriteResponseTargetTypeEnumValueOf(
     String name) {
@@ -18,6 +23,10 @@ FavoriteResponseTargetTypeEnum _$favoriteResponseTargetTypeEnumValueOf(
       return _$favoriteResponseTargetTypeEnum_MASTER;
     case 'SALON':
       return _$favoriteResponseTargetTypeEnum_SALON;
+    case 'SERVICE':
+      return _$favoriteResponseTargetTypeEnum_SERVICE;
+    case 'SALON_SERVICE':
+      return _$favoriteResponseTargetTypeEnum_SALON_SERVICE;
     default:
       throw ArgumentError(name);
   }
@@ -28,6 +37,8 @@ final BuiltSet<FavoriteResponseTargetTypeEnum>
         FavoriteResponseTargetTypeEnum>(const <FavoriteResponseTargetTypeEnum>[
   _$favoriteResponseTargetTypeEnum_MASTER,
   _$favoriteResponseTargetTypeEnum_SALON,
+  _$favoriteResponseTargetTypeEnum_SERVICE,
+  _$favoriteResponseTargetTypeEnum_SALON_SERVICE,
 ]);
 
 Serializer<FavoriteResponseTargetTypeEnum>
@@ -39,10 +50,14 @@ class _$FavoriteResponseTargetTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'MASTER': 'MASTER',
     'SALON': 'SALON',
+    'SERVICE': 'SERVICE',
+    'SALON_SERVICE': 'SALON_SERVICE',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'MASTER': 'MASTER',
     'SALON': 'SALON',
+    'SERVICE': 'SERVICE',
+    'SALON_SERVICE': 'SALON_SERVICE',
   };
 
   @override

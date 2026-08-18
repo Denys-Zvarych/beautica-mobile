@@ -12,15 +12,23 @@
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('clockProvider', () {
     test('default resolves to a real, advancing clock near DateTime.now', () {
-      final container = ProviderContainer();
+      final container = ProviderContainer(retry: beauticaProviderRetry);
       addTearDown(container.dispose);
 
+      // This test's SUBJECT is that the UN-overridden clockProvider returns the
+      // real device instant. `before`/`after` bracket the read as absolute
+      // instants and are consumed only by `.isBefore`/`.isAfter` against it —
+      // no calendar day is ever derived from either, so Kyiv-anchoring them via
+      // kyivToday would destroy the very property under test.
+      // instant-ok: opening half of an absolute-instant bracket; see above
       final before = DateTime.now();
       final now = container.read(clockProvider)();
+      // instant-ok: closing half of the bracket above — same rationale.
       final after = DateTime.now();
 
       // The default clock returns the real instant — within the wall-clock
@@ -33,8 +41,9 @@ void main() {
     });
 
     test('overrideWithValue pins "now" to a fixed instant', () {
-      final fixed = DateTime(2026, 6, 14, 12);
+      final fixed = DateTime.utc(2026, 6, 14, 12);
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [clockProvider.overrideWithValue(() => fixed)],
       );
       addTearDown(container.dispose);
@@ -45,8 +54,9 @@ void main() {
     });
 
     test('overridden clock returns the same fixed instant on every read', () {
-      final fixed = DateTime(2026, 1, 1, 0, 0, 0);
+      final fixed = DateTime.utc(2026, 1, 1, 0, 0, 0);
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [clockProvider.overrideWithValue(() => fixed)],
       );
       addTearDown(container.dispose);
@@ -72,10 +82,11 @@ void main() {
       // next read would re-run the body (buildCount == 2, new instance).
       var buildCount = 0;
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           clockProvider.overrideWith((ref) {
             buildCount++;
-            final fixed = DateTime(2026, 6, 14, 12);
+            final fixed = DateTime.utc(2026, 6, 14, 12);
             return () => fixed;
           }),
         ],

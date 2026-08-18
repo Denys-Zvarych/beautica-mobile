@@ -1,50 +1,70 @@
-// Phase 13.8 — BEAUTY PASSPORT page OVERFLOW regression guard.
+// Phase 238 — BEAUTY PASSPORT page OVERFLOW regression guard.
 //
-// WHY THIS FILE EXISTS
-// --------------------
-// PassportScreen is an INTENTIONALLY single-screen, NON-scrolling layout: a
-// `Column` (top bar → profile block → BEAUTY PASSPORT card as an `Expanded`
-// hero). That makes it the most overflow-prone client page on:
-//   • short phones (320×568) where the fixed chrome eats the viewport and the
-//     `Expanded` hero is squeezed toward — or past — zero height,
-//   • large accessibility text scale (1.3–1.5) where the profile lines, the
-//     card's three columns, the chips and the footer all grow.
+// THE PAGE CHANGED SHAPE — SO DID THIS FILE'S PREMISE
+// ---------------------------------------------------
+// Until Phase 238 the passport was an INTENTIONALLY non-scrolling `Column` with
+// an `Expanded` hero, so its dominant failure mode was VERTICAL: fixed chrome
+// squeezing the hero to a negative height under a large text scale. That page
+// is gone. `passport_screen.dart` is now a scrolling `ListView` of four blocks,
+// and vertical growth is absorbed by the scroll — a Column can no longer
+// overflow downward.
 //
-// The hero ITSELF wraps its content in a `SingleChildScrollView` safety valve
-// (passport_screen.dart `_PassportHero`), so vertical growth INSIDE the card is
-// absorbed. The residual risks this matrix exercises are therefore:
-//   1. the top-level Column: fixed chrome (top bar + profile block + gaps) that,
-//      under large text scale, leaves the `Expanded` a NEGATIVE height → the
-//      classic "BOTTOM OVERFLOWED" stripe,
-//   2. the card's 3-column `IntrinsicHeight`/`Row` (passport_table.dart): chips
-//      + ruled hairlines that can overflow on the RIGHT when labels/chips grow.
+// What is left is HORIZONTAL, and there is more of it than before. Every block
+// on the new page is a `Row` that cannot yield:
+//   • the profile block   — 100 dp avatar slot + `Expanded` name/city/phone;
+//   • the identity strip  — seal + 56/44 flex columns either side of a
+//                           full-height hairline, inside an `IntrinsicHeight`;
+//   • the derived block   — an `Expanded` eyebrow beside «≈» + a `PriceTag`,
+//                           over a `Wrap` of locality names;
+//   • the wish-list line  — two `Expanded` compact cards in an
+//                           `IntrinsicHeight` row, each carrying an unbounded,
+//                           un-ellipsised service name.
+// All four grow with text scale, and none of them may ever paint an overflow
+// stripe.
+//
+// SO THE WHOLE LIST MUST BE LAID OUT, NOT JUST THE FIRST SCREENFUL
+// ----------------------------------------------------------------
+// A `ListView` builds only what is visible (plus `cacheExtent`), so at 320x568
+// the wish-list line — the widest-risk block on the page — is BELOW THE FOLD
+// and is never laid out by a plain pump. A matrix that only pumped would
+// therefore be measuring the profile block and calling it "the page". Each cell
+// here scrolls to the bottom and asserts the tail block actually rendered, so
+// the overflow guard sees every Row on the page.
 //
 // HOW OVERFLOW IS CAUGHT
 // ----------------------
-// The suite-wide overflow guard (test/helpers/overflow_guard.dart) records the
-// first RenderFlex overflow and fails the test in tearDown. Each cell ALSO
-// asserts `tester.takeException()` is null as a second, explicit net.
+// The suite-wide guard (test/helpers/overflow_guard.dart) records the first
+// RenderFlex overflow and fails the test in tearDown. Each cell ALSO asserts
+// `tester.takeException()` is null as a second, explicit net.
 //
-// SURFACE SIZING NOTE — WHY NOT pumpApp(width:)
-// ---------------------------------------------
-// `pumpApp(width:)` forces the surface HEIGHT to 2400 (it is built to hunt
-// HORIZONTAL overflow without a vertical false-positive). A non-scrolling page's
-// primary failure mode is VERTICAL, so this file sets `view.physicalSize`
-// explicitly to a REALISTIC device height per cell — otherwise a 2400-tall
-// surface gives the `Expanded` hero enormous slack and no short-phone cell ever
-// reproduces the squeeze. We still install the overflow guard manually.
+// SURFACE SIZING — WHY NOT pumpApp(width:)
+// ----------------------------------------
+// `pumpApp(width:)` forces the surface HEIGHT to 2400, which would put the
+// whole page above the fold and silently delete the scroll case this file now
+// exists to exercise. Every cell therefore sets `view.physicalSize` to a REAL
+// device size and installs the guard by hand.
+//
+// FIXTURES: the worst case on purpose — the longest real Ukrainian district
+// («Шевченківський», the string the redesign exists to stop clipping), the
+// longest real master name («Анастасія Мельниченко»), the longest service names
+// and one RANGE price. Nothing here reads a clock: `memberSinceYear` is a wire
+// value, so it is a literal.
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/passport/application/passport_notifier.dart';
 import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../helpers/fakes/fake_wishlist_repository.dart';
 import '../../../helpers/overflow_guard.dart';
 
 // ---------------------------------------------------------------------------
@@ -63,47 +83,177 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 }
 
 // ---------------------------------------------------------------------------
-// Fixtures. The POPULATED passport carries the MAX content the UI shows so the
-// columns are at their tallest and the chips at their longest:
-//   • top-3 procedures, top-3 districts (rank-ordered),
-//   • a budget band (drives the budget chip),
-//   • a non-zero reviews count + a member-since year (footer).
-// Long-ish Ukrainian labels mimic real derived data that grows under text scale.
+// Fixtures — MAX content.
 // ---------------------------------------------------------------------------
 
 const _sampleProfile = ClientProfileSummary(
   firstName: 'Олександра',
   lastName: 'Коваленко-Тестівська',
-  city: 'Львів',
+  city: 'Печерський, Київ',
   phone: '+380 97 000 00 00',
   clientRating: 4.7,
   memberSinceYear: 2024,
 );
 
 const _populatedPassport = Passport(
-  favoriteProcedures: <String>[
-    'Манікюр гель-лак',
-    'Брови ламінування',
-    'Косметологія обличчя',
-  ],
-  favoriteDistricts: <String>['Центр', 'Сихів', 'Залізничний'],
-  budget: BudgetBand(avg: 650, min: 400, max: 800),
+  favoriteDistricts: <String>['Шевченківський', 'Голосіївський', 'Печерський'],
+  favoriteCities: <String>['Київ', 'Бровари'],
+  budget: BudgetBand(avg: 1250, min: 400, max: 2400),
   bookingsConsidered: 12,
-  reviewsLeft: 8,
-  memberSinceYear: 2024,
+  reviewsWritten: 128,
+  memberSinceYear: 2019,
 );
 
-final Passport _emptyPassport = Passport.empty();
+/// A client with history but nothing derivable — the derived block is dropped
+/// entirely, so the page is three blocks instead of four.
+final Passport _noDerivedPassport = Passport.empty(memberSinceYear: 2026);
 
-List<Object> _overrides(Passport passport) => <Object>[
-  screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-  clientProfileProvider.overrideWith((ref) async => _sampleProfile),
-  passportProvider.overrideWith((ref) async => passport),
+WishlistService _wish(
+  String id, {
+  required String serviceName,
+  required String masterName,
+  required int durationMinutes,
+  required String priceDisplay,
+  bool isRange = false,
+  double? priceMin,
+  double? priceMax,
+}) => WishlistService(
+  masterServiceId: id,
+  masterId: 'm-$id',
+  serviceName: serviceName,
+  masterName: masterName,
+  durationMinutes: durationMinutes,
+  priceDisplay: priceDisplay,
+  isRangePrice: isRange,
+  priceMin: priceMin,
+  priceMax: priceMax,
+);
+
+final List<WishlistService> _kFavourites = <WishlistService>[
+  _wish(
+    'w1',
+    serviceName: 'Ламінування та фарбування брів',
+    masterName: 'Анастасія Мельниченко',
+    durationMinutes: 150,
+    priceDisplay: '1 200 ₴',
+  ),
+  _wish(
+    'w2',
+    serviceName: 'Манікюр з покриттям гель-лак',
+    masterName: 'Ірина Бондаренко',
+    durationMinutes: 90,
+    priceDisplay: 'від 600 до 900 ₴',
+    isRange: true,
+    priceMin: 600,
+    priceMax: 900,
+  ),
+  _wish(
+    'w3',
+    serviceName: 'Педикюр апаратний з покриттям',
+    masterName: 'Вікторія Ткаченко',
+    durationMinutes: 120,
+    priceDisplay: '700–1100 ₴',
+    isRange: true,
+    priceMin: 700,
+    priceMax: 1100,
+  ),
 ];
 
 // ---------------------------------------------------------------------------
-// Realistic viewport matrix (logical px). textScale is applied via MediaQuery
-// override so chips/labels grow exactly as on an accessibility device.
+// The page states under measurement.
+// ---------------------------------------------------------------------------
+
+/// One composition of the four blocks, plus the key that proves its TAIL block
+/// actually got laid out after scrolling.
+class _PageState {
+  const _PageState(this.label, this.overrides, this.tailKey);
+
+  final String label;
+  final List<Object> Function() overrides;
+
+  /// A key in the page's LAST block. Asserted after the scroll so a cell can
+  /// never pass by measuring only the part of the list that fitted.
+  final Key tailKey;
+}
+
+List<Object> _base({
+  required Object passport,
+  required Object profile,
+  required Object wishlist,
+}) => <Object>[
+  screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+  profile,
+  passport,
+  wishlist,
+];
+
+final List<_PageState> _states = <_PageState>[
+  _PageState(
+    'populated (max content) + 3 favourites',
+    () => _base(
+      profile: clientProfileProvider.overrideWith(
+        (ref) async => _sampleProfile,
+      ),
+      passport: passportProvider.overrideWith(
+        (ref) async => _populatedPassport,
+      ),
+      wishlist: wishlistRepositoryProvider.overrideWithValue(
+        FakeWishlistRepository(services: _kFavourites),
+      ),
+    ),
+    const Key('wishlist_show_all_button'),
+  ),
+  _PageState(
+    'no derived data + empty wish list',
+    () => _base(
+      profile: clientProfileProvider.overrideWith(
+        (ref) async => _sampleProfile,
+      ),
+      passport: passportProvider.overrideWith(
+        (ref) async => _noDerivedPassport,
+      ),
+      wishlist: wishlistRepositoryProvider.overrideWithValue(
+        FakeWishlistRepository(),
+      ),
+    ),
+    const Key('wishlist_empty_state'),
+  ),
+  _PageState(
+    'passport error + wish-list error (two failure cards)',
+    () => _base(
+      profile: clientProfileProvider.overrideWith(
+        (ref) async => _sampleProfile,
+      ),
+      passport: passportProvider.overrideWith(
+        // Async throw, never `thenThrow` — a sync throw during provider build
+        // bypasses Riverpod's async machinery entirely.
+        (ref) async => throw const ServerFailure(statusCode: 500),
+      ),
+      wishlist: wishlistRepositoryProvider.overrideWithValue(
+        FakeWishlistRepository(failure: const ServerFailure(statusCode: 500)),
+      ),
+    ),
+    const Key('wishlist_error_state'),
+  ),
+  _PageState(
+    'profile error + populated passport + favourites',
+    () => _base(
+      profile: clientProfileProvider.overrideWith(
+        (ref) async => throw const ServerFailure(statusCode: 500),
+      ),
+      passport: passportProvider.overrideWith(
+        (ref) async => _populatedPassport,
+      ),
+      wishlist: wishlistRepositoryProvider.overrideWithValue(
+        FakeWishlistRepository(services: _kFavourites),
+      ),
+    ),
+    const Key('wishlist_show_all_button'),
+  ),
+];
+
+// ---------------------------------------------------------------------------
+// Viewport matrix (logical px).
 // ---------------------------------------------------------------------------
 
 class _Viewport {
@@ -115,73 +265,39 @@ class _Viewport {
 }
 
 const List<_Viewport> _matrix = <_Viewport>[
-  // Small phone — iPhone SE 1st gen / small Android. Worst case for a no-scroll
-  // page: least vertical room for the fixed chrome + the hero.
+  // THE REQUIRED CELL — iPhone-SE-class small phone.
   _Viewport('small-phone 320x568', 320, 568, 1.0),
-  // Compact low-end Android.
+  // THE REQUIRED a11y CELLS at that same width.
+  _Viewport('small-phone 320x568 @1.3x', 320, 568, 1.3),
+  _Viewport('small-phone 320x568 @1.5x', 320, 568, 1.5),
+  // Compact low-end Android and the baseline modern phone.
   _Viewport('compact 360x640', 360, 640, 1.0),
-  // Baseline modern phone.
+  _Viewport('compact 360x640 @1.5x', 360, 640, 1.5),
   _Viewport('baseline 390x844', 390, 844, 1.0),
-  // Large accessibility text scale on the baseline phone — chips/labels/profile
-  // lines all grow; the fixed chrome can squeeze the Expanded hero negative.
   _Viewport('baseline 390x844 @1.3x', 390, 844, 1.3),
   _Viewport('baseline 390x844 @1.5x', 390, 844, 1.5),
 ];
 
-// ---------------------------------------------------------------------------
-// EXTREME-but-SAFE matrix — cells proven overflow-free. These are PERMANENT
-// guards: if a future change reintroduces a top-bar overflow at any of these
-// realistic-or-extreme cells, the suite goes red.
-//
-// FIX HISTORY (2026-06-22): the `_TopBar` Row (passport_screen.dart:499 —
-// wordmark + Spacer + bell + burger) previously overflowed on the RIGHT at
-// large text scale because the `beautica` wordmark `Text` grew with text scale
-// while the fixed-size bell + burger could not yield space. The wordmark is now
-// wrapped in `Flexible(child: Text(..., overflow: ellipsis, maxLines: 1))`, so
-// it ellipsizes (and ultimately collapses to nothing) before the Row overflows.
-// The four cells that USED to overflow are now safe and have moved here:
-//   • 360x640 @2.0x  — Android "largest font" on the most common Android width.
-//   • 320x568 @1.5x  — iPhone-SE-class width at a moderate a11y scale.
-//   • 280x653 @1.3x  — split-screen + large font.
-//   • 270x844 @1.0x  — sub-floor ultra-narrow portrait.
-//
-// The boundary sweep AFTER the fix proves the top bar is now overflow-free at
-// every reachable config and well beyond — safe down to 240x844 @3.0x and
-// 200x844 @3.0x. Residual overflow only appears at absurd, unreachable widths
-// (≤160px @ ≥4.0x), where the fixed bell + burger + gaps alone exceed the
-// surface (the wordmark is already fully ellipsized to zero) and the offending
-// widget is no longer the top bar — i.e. there is no longer a reachable
-// top-bar overflow boundary to document, so the EXPECTED-OVERFLOW probe matrix
-// was removed.
-// ---------------------------------------------------------------------------
+/// EXTREME-but-SAFE cells. Permanent guards: the page must stay overflow-free
+/// far past any real device, so a future change that reintroduces a squeeze at
+/// a reachable size trips these first.
 const List<_Viewport> _extremeSafeMatrix = <_Viewport>[
-  // ── Previously-overflowing cells, now fixed by the Flexible+ellipsis wrap. ──
-  _Viewport('360x640 @2.0x (a11y largest font, common width)', 360, 640, 2.0),
-  _Viewport('320x568 @1.5x (iPhone-SE-class a11y)', 320, 568, 1.5),
-  _Viewport('280x653 @1.3x (split-screen + large font)', 280, 653, 1.3),
-  _Viewport('270x844 @1.0x (sub-floor ultra-narrow)', 270, 844, 1.0),
-  // ── Pre-existing safe guards. ──
-  // 2.0× ("largest font" Android a11y) on the baseline-WIDTH phone.
-  _Viewport('baseline 390x844 @2.0x (a11y largest font)', 390, 844, 2.0),
-  // Ultra-narrow split-screen / old Android at 1.0×.
+  _Viewport('360x640 @2.0x (Android largest font)', 360, 640, 2.0),
   _Viewport('ultra-narrow 280x653 @1.0x', 280, 653, 1.0),
-  // Short / landscape-ish surfaces at 1.0× — exercise the vertical squeeze of
-  // the no-scroll Column directly. Wide enough that the top bar never overflows;
-  // the hero's SingleChildScrollView absorbs the vertical squeeze, so PASS.
+  _Viewport('ultra-narrow 280x653 @1.3x', 280, 653, 1.3),
+  _Viewport('sub-floor 270x844 @1.0x', 270, 844, 1.0),
+  // Short / landscape-ish surfaces: the ListView absorbs the vertical squeeze,
+  // so these exercise the horizontal Rows at an extreme aspect ratio.
   _Viewport('landscape-ish 640x360 @1.0x', 640, 360, 1.0),
-  _Viewport('landscape-ish 720x360 @1.0x', 720, 360, 1.0),
-  // Beyond-reachable extreme — proves the Flexible wrap holds far past any real
-  // device. The wordmark ellipsizes to zero; the bell + burger still fit.
-  _Viewport('beyond-reach 240x844 @3.0x (top bar still safe)', 240, 844, 3.0),
-  _Viewport('beyond-reach 200x844 @3.0x (top bar still safe)', 200, 844, 3.0),
+  _Viewport('landscape-ish 720x360 @1.5x', 720, 360, 1.5),
 ];
 
-/// Pumps [PassportScreen] at an EXACT device viewport (width AND height) with
-/// the given text scale, then settles the passport/profile futures.
-Future<void> _pumpPassport(
+/// Pumps [PassportScreen] at an EXACT device viewport, settles both futures,
+/// then scrolls the ListView to the very bottom so EVERY block is laid out.
+Future<void> _pumpAndScrollThrough(
   WidgetTester tester, {
   required _Viewport vp,
-  required Passport passport,
+  required _PageState state,
 }) async {
   installOverflowGuard();
 
@@ -192,7 +308,12 @@ Future<void> _pumpPassport(
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: _overrides(passport).cast(),
+      // Retry OFF so the error cells actually reach AsyncError and their
+      // failure cards are on screen to be measured. `beauticaProviderRetry`
+      // classifies a 5xx as transient, which would park those cells in
+      // AsyncLoading(retrying: true) — a skeleton, not the state under test.
+      retry: (_, _) => null,
+      overrides: state.overrides().cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -207,107 +328,110 @@ Future<void> _pumpPassport(
       ),
     ),
   );
+  await tester.pumpAndSettle();
 
-  // Resolve the profile + passport futures so the hero lays out at final height.
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 50));
+  // Drag the list all the way up so the tail block is built and laid out. A
+  // `drag` rather than a `fling`: no ballistic simulation to settle, and the
+  // offset is deliberately far larger than any page height so one drag always
+  // reaches the end.
+  final Finder list = find.byType(Scrollable).first;
+  await tester.drag(list, const Offset(0, -4000));
+  await tester.pumpAndSettle();
 }
 
 void main() {
-  group('PassportScreen overflow matrix — POPULATED (max content)', () {
-    for (final _Viewport vp in _matrix) {
-      testWidgets('no overflow at ${vp.label} (populated)', (tester) async {
-        await _pumpPassport(tester, vp: vp, passport: _populatedPassport);
+  for (final _PageState state in _states) {
+    group('PassportScreen overflow — ${state.label}', () {
+      for (final _Viewport vp in <_Viewport>[
+        ..._matrix,
+        ..._extremeSafeMatrix,
+      ]) {
+        testWidgets('no overflow at ${vp.label}', (tester) async {
+          await _pumpAndScrollThrough(tester, vp: vp, state: state);
 
-        expect(
-          find.byKey(const Key('client-branch-passport')),
-          findsOneWidget,
-          reason: 'PassportScreen must render (sanity)',
-        );
-        expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'PassportScreen (populated, max content) must not overflow at '
-              '${vp.label} — non-scrolling Column hero squeeze / 3-column card.',
-        );
-      });
-    }
-  });
-
-  group('PassportScreen overflow matrix — EMPTY variant', () {
-    for (final _Viewport vp in _matrix) {
-      testWidgets('no overflow at ${vp.label} (empty)', (tester) async {
-        await _pumpPassport(tester, vp: vp, passport: _emptyPassport);
-
-        expect(
-          find.byKey(const Key('passport_find_master_button')),
-          findsOneWidget,
-          reason: 'empty-passport CTA must render (sanity)',
-        );
-        expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'PassportScreen (empty variant) must not overflow at ${vp.label}.',
-        );
-      });
-    }
-  });
+          expect(
+            find.byKey(const Key('client-branch-passport')),
+            findsOneWidget,
+            reason: 'PassportScreen must render (sanity) at ${vp.label}',
+          );
+          expect(
+            find.byKey(state.tailKey),
+            findsOneWidget,
+            reason:
+                'the page TAIL (${state.tailKey}) must be laid out after the '
+                'scroll — without it this cell would be measuring only the '
+                'blocks that happened to fit above the fold at ${vp.label}',
+          );
+          expect(
+            tester.takeException(),
+            isNull,
+            reason:
+                'PassportScreen (${state.label}) must not overflow at '
+                '${vp.label} — profile Row / identity strip IntrinsicHeight / '
+                'derived block spend Row / two-card wish-list line.',
+          );
+        });
+      }
+    });
+  }
 
   // -------------------------------------------------------------------------
-  // EXTREME-but-SAFE cells — permanent guards. POPULATED + EMPTY both proven
-  // overflow-free by the 2026-06-22 boundary sweep. They must STAY green.
+  // NON-VACUITY. The matrix above is only meaningful if the scroll genuinely
+  // matters — i.e. if the page really is taller than the small-phone viewport
+  // and the tail block really is NOT laid out before the drag. Without this,
+  // a future refactor that fitted everything on one screen would quietly turn
+  // every cell above into a first-screenful-only assertion again.
   // -------------------------------------------------------------------------
-  group('PassportScreen overflow matrix — EXTREME (safe) POPULATED', () {
-    for (final _Viewport vp in _extremeSafeMatrix) {
-      testWidgets('no overflow at ${vp.label} (populated)', (tester) async {
-        await _pumpPassport(tester, vp: vp, passport: _populatedPassport);
+  group('PassportScreen overflow — the scroll is load-bearing', () {
+    testWidgets('the wish-list line is BELOW THE FOLD at 320x568', (
+      tester,
+    ) async {
+      installOverflowGuard();
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        expect(
-          find.byKey(const Key('client-branch-passport')),
-          findsOneWidget,
-          reason: 'PassportScreen must render (sanity) at ${vp.label}',
-        );
-        expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'PassportScreen (populated) must stay overflow-free at the '
-              'extreme-but-safe cell ${vp.label} — top bar / hero squeeze.',
-        );
-      });
-    }
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: (_, _) => null,
+          overrides: _states.first.overrides().cast(),
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: MediaQuery(
+              data: MediaQueryData(size: Size(320, 568)),
+              child: PassportScreen(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder showAll = find.byKey(const Key('wishlist_show_all_button'));
+      final bool builtBeforeScroll = showAll.evaluate().isNotEmpty;
+      final double foldBefore = builtBeforeScroll
+          ? tester.getTopLeft(showAll).dy
+          : double.infinity;
+
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -4000));
+      await tester.pumpAndSettle();
+
+      expect(
+        showAll,
+        findsOneWidget,
+        reason: 'the tail must be reachable by scrolling',
+      );
+      expect(
+        foldBefore,
+        greaterThan(568),
+        reason:
+            'the wish-list overflow control must sit BELOW the 568 dp fold '
+            'before the scroll — if the whole page fitted, the matrix above '
+            'would be asserting nothing about the blocks past the first '
+            'screenful (measured pre-scroll dy: $foldBefore)',
+      );
+    });
   });
-
-  group('PassportScreen overflow matrix — EXTREME (safe) EMPTY', () {
-    for (final _Viewport vp in _extremeSafeMatrix) {
-      testWidgets('no overflow at ${vp.label} (empty)', (tester) async {
-        await _pumpPassport(tester, vp: vp, passport: _emptyPassport);
-
-        expect(
-          find.byKey(const Key('passport_find_master_button')),
-          findsOneWidget,
-          reason: 'empty-passport CTA must render (sanity) at ${vp.label}',
-        );
-        expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'PassportScreen (empty) must stay overflow-free at the '
-              'extreme-but-safe cell ${vp.label}.',
-        );
-      });
-    }
-  });
-
-  // -------------------------------------------------------------------------
-  // NOTE: the former EXPECTED-OVERFLOW boundary probe group was removed in the
-  // 2026-06-22 fix. The `beautica` wordmark is now wrapped in
-  // `Flexible(child: Text(..., overflow: ellipsis))`, so the `_TopBar` Row no
-  // longer overflows at any reachable config (or even far beyond — see the
-  // beyond-reach cells in `_extremeSafeMatrix`). There is therefore no longer a
-  // reachable top-bar overflow boundary to document as an executable
-  // expectation; the safe-matrix assertions above are the regression guard.
-  // -------------------------------------------------------------------------
 }

@@ -300,6 +300,385 @@ void main() {
     });
   });
 
+  // MO-1 — the additive `appointmentId` field: non-null when the booking is one
+  // line of a multi-service visit, null for a standalone legacy booking. MO-5
+  // groups «Мої записи» by this id, so a silent drop would collapse every
+  // multi-service card back into N separate rows — this pins the passthrough.
+  group('BookingMapper.fromDto — appointmentId (MO-1)', () {
+    test('a present appointmentId maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-in-visit'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..appointmentId = 'appt-99'
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.appointmentId, 'appt-99');
+    });
+
+    test(
+      'an absent appointmentId maps to null (standalone legacy booking)',
+      () {
+        // _validDto never sets appointmentId → the field is null on the wire.
+        final Booking b = BookingMapper.fromDto(
+          _validDto(id: 'booking-legacy'),
+        );
+
+        expect(
+          b.appointmentId,
+          isNull,
+          reason:
+              'a null appointmentId is the legacy single-service shape — MO-5 '
+              'treats it as its own group of one, so it must NOT default to ""',
+        );
+      },
+    );
+  });
+
+  // Track 7.x Wave B — `providerCanReviewClient`: gates the PROVIDER footer's
+  // «Залишити відгук про клієнта» CTA (`booking_detail_screen.dart`) and the
+  // «Архів» card's «Відгук» slot (`MasterBookingCard.onReview`). Real value
+  // arrives on GET /bookings/{id} and, since backend
+  // `fix/list-provider-can-review-client`, the provider rows of
+  // GET /bookings/me too. `@Default(false)` on the freezed field means a
+  // dropped/renamed wire field silently fails CLOSED at the model layer, and
+  // (2026-08-18) the mapper ALSO ANDs the wire value with
+  // `status == BookingStatus.completed` — a second, independent fail-closed
+  // gate alongside the render-site one, so an older backend still on the
+  // wider CONFIRMED-or-elapsed predicate cannot make an unclosed booking
+  // reviewable. This pins the mapper's OWN coalescing/gating so a regression
+  // is caught here, at unit level, rather than only by the (much slower,
+  // wider) widget suite noticing the CTA appeared where it should not.
+  group('BookingMapper.fromDto — providerCanReviewClient', () {
+    test('a null wire value maps to false (fail-closed)', () {
+      // _validDto never sets providerCanReviewClient → null on the wire.
+      final Booking b = BookingMapper.fromDto(_validDto(id: 'booking-no-flag'));
+
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'every GET /bookings/me row omits this field server-side; a '
+            'null wire value must never be trusted as reviewable',
+      );
+    });
+
+    test('a true wire value maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-reviewable'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.COMPLETED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.providerCanReviewClient, isTrue);
+    });
+
+    test('an explicit false wire value maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-already-reviewed'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.COMPLETED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = false
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.providerCanReviewClient, isFalse);
+    });
+
+    // 2026-08-18 — second, independent fail-closed gate alongside the
+    // render-site one in `MasterBookingCard._buildFullBody`. An older
+    // backend build still on the wider pre-2026-08-18 predicate (COMPLETED
+    // OR CONFIRMED-and-elapsed) could send `providerCanReviewClient: true`
+    // on an elapsed-but-unclosed CONFIRMED booking; the mapper must not let
+    // that survive even if a future caller ever bypassed the widget's own
+    // check.
+    test('a true wire value on a non-COMPLETED (CONFIRMED) booking maps to '
+        'false — the mapper re-derives the COMPLETED-only gate itself rather '
+        'than trusting an older backend', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-awaiting-closure'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'status is CONFIRMED, not COMPLETED — an older backend could '
+            'still send true here, and the mapper must fail CLOSED on its '
+            'own regardless of what the render site does.',
+      );
+    });
+
+    // mobile-security MEDIUM (2026-08-18, this chain) — the AND above reads
+    // the ALREADY-MAPPED `status` local, not the raw wire enum, so its
+    // correctness on a status the mapper cannot even identify was unpinned.
+    // Today it is provably safe (a null/unrecognised wire status decodes to
+    // [BookingStatus.unknown] before this line ever runs, and
+    // `unknown != completed` closes the AND independently of the flag), but
+    // nothing asserted that — a future refactor of the AND expression (e.g.
+    // "simplify" it to read `statusDto?.name == 'COMPLETED'` directly off the
+    // wire, bypassing the already-decoded local) could silently regress this
+    // exact combination with no other test catching it, since every other
+    // case in this group pins a RECOGNISED status.
+    test('a true wire value with an ABSENT wire status maps to false — the '
+        'null-status branch (`BookingStatus.unknown`) closes the AND just '
+        'like an explicit non-COMPLETED status does', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-no-status'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                // `status` deliberately left UNSET — the wire-omitted /
+                // UnknownEnumTolerancePlugin-stripped shape, per this
+                // mapper's own file-header contract.
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.status, BookingStatus.unknown, reason: 'precondition');
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'an absent status must never let a true wire flag through — '
+            'the mapper cannot even identify this booking, let alone grant '
+            'the review capability on it',
+      );
+    });
+
+    test('a true wire value with an UNRECOGNISED wire status maps to false '
+        '— same fail-closed outcome as the absent-status case, reached '
+        'through the OTHER branch of the null-check', () {
+      // `_dtoWithUnrecognisedStatus` does not set `providerCanReviewClient`;
+      // this fixture needs it `true` to actually exercise the AND, so build
+      // the DTO by hand instead of reusing the helper's `false` default.
+      final BookingDetailResponse dtoWithFlag =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-weird-status'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = const _UnrecognisedStatus('RESCHEDULED')
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dtoWithFlag);
+
+      expect(b.status, BookingStatus.unknown, reason: 'precondition');
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'a status this build does not recognise must never let a true '
+            'wire flag survive to the domain — a future backend status the '
+            'app predates must fail CLOSED on review capability the same '
+            'way an absent status does',
+      );
+    });
+  });
+
+  // ==========================================================================
+  // `clientAvatarUrl` — the booking client's photo (2026-07-24).
+  //
+  // `_ClientAvatarMark` (`master_booking_card.dart`) renders this straight into
+  // an `Image.network`, guarded by `url != null && url.isNotEmpty && scheme ==
+  // 'https'`. Two things about the mapper are therefore load-bearing, and
+  // NEITHER is visible from the widget tier — a widget test builds its own
+  // `Booking` and never sees the DTO:
+  //
+  //   1. THE PASSTHROUGH. If the mapper ever stops carrying the field, every
+  //      card silently falls back to the glyph. No test goes red: the glyph is
+  //      a legitimate state, so the suite reads a total feature loss as the
+  //      "client has no photo" path.
+  //
+  //   2. NO `?? ''`. Every sibling String field in this mapper IS coalesced
+  //      (`serviceId: dto.masterServiceId ?? ''`), so adding one here is the
+  //      natural-looking edit — and it would be wrong. An empty string is not
+  //      a URL. It survives the `isNotEmpty` clause only by accident of that
+  //      clause existing (the scheme check catches it too, so the mark's own
+  //      behaviour would not change today) — but it would put a bare `''` on
+  //      the domain object, where "no photo" stops being expressible as null
+  //      and any future consumer that only null-checks starts fetching it.
+  //      This pins the deliberate un-coalesced choice.
+  //
+  // The third test goes through `standardSerializers` rather than the typed
+  // builder, so the `@BuiltValueField(wireName: 'clientAvatarUrl')` binding is
+  // pinned too: a backend rename or a regenerated client that drops the field
+  // fails HERE, at unit level, instead of shipping as a blank slot.
+  // ==========================================================================
+  group('BookingMapper.fromDto — clientAvatarUrl', () {
+    test('a present https photo URL maps through unchanged', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-with-photo'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..clientAvatarUrl = 'https://cdn.example.com/avatars/c-1.png'
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(
+        b.clientAvatarUrl,
+        'https://cdn.example.com/avatars/c-1.png',
+        reason:
+            'the mark hands this value straight to Image.network — any '
+            'rewriting, trimming or re-hosting here changes what is fetched',
+      );
+    });
+
+    test('an absent photo maps to NULL — never to the empty string', () {
+      // _validDto never sets clientAvatarUrl → null on the wire. This is BOTH
+      // the guest/LINK booking and the registered-client-with-no-photo case;
+      // the backend makes them deliberately indistinguishable.
+      final Booking b = BookingMapper.fromDto(
+        _validDto(id: 'booking-no-photo'),
+      );
+
+      expect(
+        b.clientAvatarUrl,
+        isNull,
+        reason:
+            'a missing photo must stay null all the way to the card, which '
+            'reads null as "render the fallback glyph"',
+      );
+      expect(
+        b.clientAvatarUrl,
+        isNot(''),
+        reason:
+            'the deliberate NON-coalescing pin: a `?? \'\'` here would put a '
+            'non-URL on the domain object and make "no photo" inexpressible '
+            'as null. The card\'s https guard would still reject it, but only '
+            'incidentally — this must not depend on that luck.',
+      );
+    });
+
+    test('the wire name survives deserialization — a renamed or dropped '
+        '`clientAvatarUrl` field fails here, not as a blank slot on the '
+        'card', () {
+      final BookingDetailResponse? dto = standardSerializers
+          .deserializeWith(BookingDetailResponse.serializer, <String, Object?>{
+            'id': 'booking-wire',
+            'masterId': 'master-1',
+            'masterServiceId': 'service-1',
+            'masterFirstName': 'Оля',
+            'masterLastName': 'Коваль',
+            'masterType': 'INDEPENDENT_MASTER',
+            'serviceName': 'Манікюр',
+            'status': 'CONFIRMED',
+            'startsAt': '2026-07-10T10:00:00Z',
+            'endsAt': '2026-07-10T11:00:00Z',
+            'priceAtBooking': 500,
+            'durationMinutesAtBooking': 60,
+            'canReview': false,
+            'clientAvatarUrl': 'https://cdn.example.com/avatars/c-1.png',
+          });
+
+      expect(dto, isNotNull, reason: 'precondition: the envelope decodes');
+
+      final Booking b = BookingMapper.fromDto(dto!);
+
+      expect(
+        b.clientAvatarUrl,
+        'https://cdn.example.com/avatars/c-1.png',
+        reason:
+            'JSON key -> @BuiltValueField(wireName:) -> DTO -> mapper -> domain '
+            'is the whole contract surface this feature added; a rename on '
+            'either side must fail loudly here',
+      );
+    });
+  });
+
   group('BookingStatus.fromWire', () {
     // Phase 7.1 reversed the old throw-on-unknown contract (a dropped booking
     // is invisible to the master, so the row must survive). Security S1 then
@@ -434,5 +813,202 @@ void main() {
         expect(result.single.id, 'booking-1');
       },
     );
+
+    // The test ABOVE puts the throwing row LAST, which makes it blind to the
+    // difference between `continue` and `break`/`return`: with
+    // `[valid, broken]` a loop that ABORTS on the first Failure yields exactly
+    // the same one-element result as a loop that SKIPS. So the assertion
+    // "one broken row is dropped instead of blanking the page" — the whole
+    // documented reason `fromDtoList` has a try/catch — was never actually
+    // pinned down.
+    //
+    // Putting the throwing row in the MIDDLE is what makes it pinned: only a
+    // real `continue` can produce [booking-1, booking-3]. An abort yields
+    // [booking-1]; swallowing the loop yields [].
+    //
+    // Mutation-verified 2026-07-31: replacing `continue` with `break` turns
+    // this red and leaves the trailing-row test above green.
+    test(
+      'a row that throws in the MIDDLE of the list is SKIPPED, not aborted on '
+      '— rows AFTER the broken one still map, in order (this is the '
+      'continue-vs-break distinction the trailing-row test cannot make)',
+      () {
+        final dtos = <BookingDetailResponse>[
+          _validDto(id: 'booking-1'),
+          // Deserializes fine; `fromDto` throws ServerFailure on it because
+          // `id` is absent. The throw happens during MAPPING, inside the loop
+          // — not during deserialization, which is a different skip loop in
+          // HttpBookingRepository._decodeBookingsPage.
+          BookingDetailResponseBuilder().build(),
+          _validDto(
+            id: 'booking-3',
+            status: BookingDetailResponseStatusEnum.COMPLETED,
+          ),
+        ];
+
+        final result = BookingMapper.fromDtoList(dtos);
+
+        expect(
+          result.map((Booking b) => b.id).toList(),
+          <String>['booking-1', 'booking-3'],
+          reason:
+              'exactly the two mappable rows survive, in their original '
+              'order. [booking-1] alone would mean the loop ABORTED on the '
+              'first Failure (break/return, not continue); an empty list '
+              'would mean the whole page was blanked — the precise regression '
+              'this loop exists to prevent.',
+        );
+        expect(
+          result.last.status,
+          BookingStatus.completed,
+          reason:
+              'the row after the broken one is fully mapped, not a '
+              'degraded placeholder',
+        );
+      },
+    );
+
+    test(
+      'a list whose ONLY row throws yields an empty list rather than '
+      'propagating the Failure — the caller gets an empty page, never a crash',
+      () {
+        expect(
+          BookingMapper.fromDtoList(<BookingDetailResponse>[
+            BookingDetailResponseBuilder().build(),
+          ]),
+          isEmpty,
+        );
+      },
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 232 — `salonId`, the key phase 233's salon-side cache fan-out uses.
+  //
+  // Three tests, and the third is the load-bearing one: `salonId` and
+  // `salonName` arrive as two independent wire fields carrying two different
+  // meanings (a cache key vs display text), and a mapper that "helpfully"
+  // derived either from the other would make `invalidateSalonReviewSurfaces`
+  // fire against a name, or skip a salon that has an id but no name. Backend
+  // phase 242 made both resolve from the same booking snapshot, which makes
+  // the two fields agree in practice — precisely why an assertion that only
+  // ever sees them agree proves nothing. These feed them values that DISAGREE.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('BookingMapper.fromDto — salonId (phase 232)', () {
+    /// A valid CONFIRMED DTO with the two salon fields set independently.
+    BookingDetailResponse salonDto({String? salonId, String? salonName}) {
+      final BookingDetailResponseBuilder b = BookingDetailResponseBuilder()
+        ..id = 'booking-1'
+        ..masterId = 'master-1'
+        ..masterServiceId = 'service-1'
+        ..masterFirstName = 'Оля'
+        ..masterLastName = 'Коваль'
+        ..serviceName = 'Манікюр'
+        ..status = BookingDetailResponseStatusEnum.CONFIRMED
+        ..startsAt = DateTime.utc(2026, 7, 10, 10)
+        ..endsAt = DateTime.utc(2026, 7, 10, 11)
+        ..priceAtBooking = 500
+        ..durationMinutesAtBooking = 60
+        ..canReview = false
+        ..masterType = BookingDetailResponseMasterTypeEnum.SALON_MASTER;
+      if (salonId != null) b.salonId = salonId;
+      if (salonName != null) b.salonName = salonName;
+      return b.build();
+    }
+
+    test('should_mapSalonId_when_dtoCarriesSalon', () {
+      final Booking booking = BookingMapper.fromDto(
+        salonDto(salonId: 'salon-xyz', salonName: 'Студія «Камелія»'),
+      );
+
+      expect(
+        booking.salonId,
+        'salon-xyz',
+        reason:
+            'the wire value must reach the domain verbatim — this is the id '
+            '`invalidateSalonReviewSurfaces` keys every one of its six '
+            'invalidations on.',
+      );
+    });
+
+    test('should_mapNullSalonId_when_dtoOmitsSalon', () {
+      // An INDEPENDENT_MASTER booking: no salon on the wire at all.
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-solo'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      // The whole point: this must NOT throw. `salonId` is deliberately absent
+      // from the mapper's required-field set, because a null salon is a
+      // legitimate independent-master booking rather than a broken payload —
+      // if it ever joined that set, `fromDtoList`'s resilience loop would
+      // silently DROP every independent master's booking from «Мої записи».
+      final Booking booking = BookingMapper.fromDto(dto);
+
+      expect(booking.salonId, isNull);
+      expect(booking.id, 'booking-solo', reason: 'the row survives intact');
+      expect(
+        BookingMapper.fromDtoList(<BookingDetailResponse>[dto]),
+        hasLength(1),
+        reason:
+            'a null salonId must never be treated as a mapping Failure — the '
+            'resilience loop must keep the row, not drop it.',
+      );
+    });
+
+    test('should_keepSalonIdAndSalonNameIndependent', () {
+      // Deliberately DISAGREEING values. If either field were derived from the
+      // other, one of the two assertions below is impossible to satisfy.
+      final Booking booking = BookingMapper.fromDto(
+        salonDto(salonId: 'salon-A', salonName: 'Салон Б'),
+      );
+
+      expect(booking.salonId, 'salon-A');
+      expect(booking.salonName, 'Салон Б');
+
+      // And the one-sided shapes, which is where a "derive the missing one"
+      // shortcut would actually show up.
+      final Booking idOnly = BookingMapper.fromDto(
+        salonDto(salonId: 'salon-A'),
+      );
+      expect(idOnly.salonId, 'salon-A');
+      expect(
+        idOnly.salonName,
+        isNull,
+        reason: 'an id must never be laundered into a display name',
+      );
+      expect(
+        idOnly.atSalon,
+        isFalse,
+        reason:
+            '`atSalon` stays keyed on salonName — do not re-express it on '
+            'salonId (phase 232 «Out of scope»).',
+      );
+
+      final Booking nameOnly = BookingMapper.fromDto(
+        salonDto(salonName: 'Салон Б'),
+      );
+      expect(nameOnly.salonName, 'Салон Б');
+      expect(
+        nameOnly.salonId,
+        isNull,
+        reason:
+            'a name must never be laundered into a cache key — the salon '
+            'fan-out would then fire against a display string.',
+      );
+    });
   });
 }

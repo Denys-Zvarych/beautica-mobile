@@ -45,6 +45,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// A minimal pushed booking-detail page carrying a stable [Key] so its
 /// presence/absence on the Записи branch stack is a clean assertion target.
@@ -133,6 +134,7 @@ GoRouter _buildRouter() => GoRouter(
 Future<void> _pumpShell(WidgetTester tester, GoRouter router) async {
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       child: MaterialApp.router(
         routerConfig: router,
         localizationsDelegates: AppLocalizations.localizationsDelegates,

@@ -44,14 +44,17 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
-import '../domain/booking_appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
@@ -80,23 +83,66 @@ class SlotDateScreen extends ConsumerStatefulWidget {
 }
 
 class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
-  late final DateTime _today;
-  late final DateTime _firstMonth;
-  late final DateTime _lastMonth;
-  late DateTime _visibleMonth;
-
   /// Booking horizon — 3 months out. Matches the master schedule's own
   /// period-range picker horizon; no backend signal dictates a different cap.
   static const int _horizonMonths = 3;
 
+  /// "Today", Kyiv-anchored — RE-DERIVED on every read, never captured once.
+  ///
+  /// Kyiv-anchored (backlog :226): slot availability is a Kyiv-day concept on
+  /// the backend (`SlotCalculationService`'s `atStartOfDay(TimeZones.KYIV)`),
+  /// so "today" — which gates the calendar's past-day cells and anchors the
+  /// booking horizon below — must be the Kyiv day, not the device's own. See
+  /// `shared/time/kyiv_day.dart`.
+  ///
+  /// Was captured once in `initState`, which froze the past-day gate for the
+  /// life of the screen: a picker left open across Kyiv midnight kept greying
+  /// out the day that had just BECOME today (and kept the day that had just
+  /// become yesterday tappable). Reading it per build instead means every
+  /// repaint — including the one that follows any tap on this screen — sees
+  /// the live Kyiv day. `clockProvider` is a `keepAlive` seam whose value is
+  /// a `DateTime Function()`, so this is `ref.read` (nothing to react to), and
+  /// the derivation is one tz-database lookup.
+  ///
+  /// Read exactly ONCE per build and threaded down as a parameter (never
+  /// re-read per use, and never per calendar cell — see [_availabilityFrom]).
+  /// That is a CORRECTNESS requirement, not a micro-optimisation: six
+  /// independent reads inside one build are not atomic, so a build straddling
+  /// Kyiv midnight could hand [MonthCalendar] a `today` from day N alongside
+  /// an `isAvailable` predicate built from day N+1 — one frame with the wrong
+  /// cell greyed out.
+  DateTime get _today => kyivToday(ref.read(clockProvider));
+
+  DateTime _firstMonth(DateTime today) => DateTime(today.year, today.month, 1);
+
+  DateTime _lastMonth(DateTime today) =>
+      DateTime(today.year, today.month + _horizonMonths, 1);
+
+  /// Backing store for [_visibleMonth] — the month the user has paged to.
+  late DateTime _pagedMonth;
+
+  /// The month grid to render: [_pagedMonth] clamped UP to the live
+  /// [_firstMonth] floor. Because that floor is re-derived from the current
+  /// Kyiv day, a midnight rollover into a new month moves it forward; without
+  /// the clamp the grid would sit on a month that is now entirely in the past,
+  /// with its «prev» arrow already disabled.
+  ///
+  /// The LOWER bound is the only one clamped, deliberately. [_lastMonth] is
+  /// `today + _horizonMonths`, so the very rollover that pushes the floor up
+  /// pushes the ceiling up by the same month — it only ever moves FORWARD, and
+  /// [_pagedMonth] is never written above it in the first place («next» is
+  /// wired to `null` once the visible month reaches it, see [_calendarBody]).
+  /// So nothing can strand [_pagedMonth] over the ceiling and an upper clamp
+  /// would be dead code.
+  DateTime _visibleMonth(DateTime today) {
+    final DateTime first = _firstMonth(today);
+    return _pagedMonth.isBefore(first) ? first : _pagedMonth;
+  }
+
   @override
   void initState() {
     super.initState();
-    final DateTime now = DateTime.now();
-    _today = DateTime(now.year, now.month, now.day);
-    _firstMonth = DateTime(_today.year, _today.month, 1);
-    _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
-    _visibleMonth = _firstMonth;
+    _pagedMonth = _firstMonth(_today);
   }
 
   /// Loading-flash fix (mirrors `MasterScheduleScreen`'s `_lastDays` visual
@@ -127,11 +173,27 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// the whole independent-master flow (slot fetch in [_selectDay] + booking
   /// creation in [SlotTimeScreen._confirm] both key off it), so gating the
   /// calendar on the same id keeps all three consistent.
-  WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
-    masterId: widget.args.masterId,
-    anyDayInMonth: _visibleMonth,
-    serviceId: widget.args.services.first.id,
-  );
+  WorkingDaysQuery _workingDaysQuery(DateTime visibleMonth) =>
+      WorkingDaysQuery.month(
+        masterId: widget.args.masterId,
+        anyDayInMonth: visibleMonth,
+        // MO-3: the WHOLE visit's ordered service selection — the backend's
+        // availability-aware `working` flag is then "the summed duration of
+        // ALL these services fits a free range", the SAME computation
+        // `getMasterSlots` runs below, so the calendar day-gate agrees with
+        // the time grid. Order is preserved (it is the back-to-back running
+        // order).
+        serviceIds: _serviceIds,
+      );
+
+  /// The visit's ordered service ids — the single availability request and the
+  /// eventual `POST /appointments` both key off this exact ordered list.
+  /// `widget.args.services` is immutable for this screen's life, so the list is
+  /// built once (the freezed value-equal query key already absorbs identity —
+  /// this just avoids re-allocating a fresh `List<String>` on each access).
+  late final List<String> _serviceIds = <String>[
+    for (final MasterService s in widget.args.services) s.id,
+  ];
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
@@ -140,36 +202,48 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// `working: true`. A day absent from the set (should not normally happen
   /// — the query always spans the full visible month) is treated
   /// conservatively as non-working rather than defaulting to tappable.
-  bool Function(DateTime) _availabilityFrom(List<WorkingDay> days) {
+  ///
+  /// [today] is the build's single Kyiv-day read, passed in rather than
+  /// re-derived — the returned closure runs for all ~35-42 day cells of the
+  /// grid, and it must agree with the `today` handed to [MonthCalendar] in the
+  /// same frame (see [_today]).
+  bool Function(DateTime) _availabilityFrom(
+    List<WorkingDay> days,
+    DateTime today,
+  ) {
     final Map<int, bool> workingByDay = <int, bool>{
       for (final WorkingDay w in days) _dayKey(w.date): w.working,
     };
     return (DateTime day) {
-      if (day.isBefore(_today)) return false;
+      if (day.isBefore(today)) return false;
       return workingByDay[_dayKey(day)] ?? false;
     };
   }
 
   void _selectDay(DateTime day) {
-    final String serviceId = widget.args.services.first.id;
+    // MO-3: fetch availability for the WHOLE ordered visit selection — the
+    // backend sizes each returned slot to the summed duration of all these
+    // services performed back-to-back.
     ref
         .read(slotPickerProvider.notifier)
         .loadSlots(
           masterId: widget.args.masterId,
-          serviceId: serviceId,
+          serviceIds: _serviceIds,
           date: day,
         );
   }
 
   void _prevMonth() {
+    final DateTime visible = _visibleMonth(_today);
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month - 1, 1);
+      _pagedMonth = DateTime(visible.year, visible.month - 1, 1);
     });
   }
 
   void _nextMonth() {
+    final DateTime visible = _visibleMonth(_today);
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 1);
+      _pagedMonth = DateTime(visible.year, visible.month + 1, 1);
     });
   }
 
@@ -189,11 +263,15 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     final DateTime? selectedDate = ref.watch(
       slotPickerProvider.select((SlotPickerState s) => s.selectedDate),
     );
+    // The build's ONE Kyiv-day read — everything date-derived below hangs off
+    // this single value so the frame is internally consistent (see [_today]).
+    final DateTime today = _today;
+    final DateTime visibleMonth = _visibleMonth(today);
     // Phase 14.14: the per-day working/non-working signal for the currently
-    // visible month, re-derived (and re-watched) whenever `_visibleMonth`
+    // visible month, re-derived (and re-watched) whenever `visibleMonth`
     // changes — see `_workingDaysQuery`.
     final AsyncValue<List<WorkingDay>> workingDaysAsync = ref.watch(
-      workingDaysProvider(_workingDaysQuery),
+      workingDaysProvider(_workingDaysQuery(visibleMonth)),
     );
 
     return Scaffold(
@@ -232,6 +310,10 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               // at mismatched y-offsets the instant the push settles.
               child: Hero(
                 tag: 'master-strip-${widget.args.master.id}',
+                // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
+                // an in-flight wizard step. It is also the Hero SOURCE of the
+                // flight into «Час» — a tap that pushed a third route
+                // mid-gesture would strand that flight.
                 child: MasterStrip.fromMaster(
                   widget.args.master,
                   showRole: true,
@@ -240,19 +322,28 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               ),
             ),
             const SizedBox(height: VelvetSpacing.lg),
-            // `CalendarWeekdayBar` (and `_calendarBody`'s `MonthCalendar`) are
-            // deliberately left UNWRAPPED here — both already self-pad
-            // horizontally by the same `VelvetSpacing.lg`, matching
-            // `master_schedule_page.dart`'s pattern (see its comment at the
-            // `CalendarWeekdayBar` usage there). Nesting either inside this
-            // screen's own `Padding(horizontal: VelvetSpacing.lg)` — as
-            // `MasterStrip` above still needs, since it does NOT self-pad —
-            // would stack insets and misalign the weekday labels from the
-            // day-grid columns beneath them.
-            const CalendarWeekdayBar(),
+            // `_calendarBody`'s `MonthCalendar` self-pads horizontally by
+            // `VelvetSpacing.lg` (its own outer `Padding`), so this explicit
+            // wrap matches it exactly — mobile-backlog D4/D5:
+            // `CalendarWeekdayBar` itself renders NO horizontal padding any
+            // more (see `calendar_grid.dart`'s file header), so every caller,
+            // this one included, now supplies the SAME inset its sibling grid
+            // uses rather than relying on the bar's own (removed) self-pad.
+            // `master_schedule_page.dart` mirrors this same pattern at its
+            // own `CalendarWeekdayBar` usage.
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+              child: CalendarWeekdayBar(),
+            ),
             const SizedBox(height: VelvetSpacing.xs),
             Expanded(
-              child: _calendarBody(l10n, selectedDate, workingDaysAsync),
+              child: _calendarBody(
+                l10n,
+                selectedDate,
+                workingDaysAsync,
+                today,
+                visibleMonth,
+              ),
             ),
           ],
         ),
@@ -267,15 +358,22 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// this screen's single (unbounded-cache) data source — see
   /// `working_days_notifier.dart`'s file header for why the full keepAlive
   /// machinery isn't mirrored too.
+  ///
+  /// [today] and [visibleMonth] are the caller's already-derived values — see
+  /// [_today] for why they are threaded rather than re-read here.
   Widget _calendarBody(
     AppLocalizations l10n,
     DateTime? selectedDate,
     AsyncValue<List<WorkingDay>> workingDaysAsync,
+    DateTime today,
+    DateTime visibleMonth,
   ) {
     if (workingDaysAsync.hasError) {
       return _WorkingDaysErrorBody(
         failure: workingDaysAsync.error!,
-        onRetry: () => ref.invalidate(workingDaysProvider(_workingDaysQuery)),
+        onRetry: () => ref.invalidate(
+          workingDaysProvider(_workingDaysQuery(visibleMonth)),
+        ),
       );
     }
 
@@ -300,13 +398,17 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
       physics: const BouncingScrollPhysics(),
       child: MonthCalendar(
         key: const Key('booking-month-calendar'),
-        visibleMonth: _visibleMonth,
-        today: _today,
+        visibleMonth: visibleMonth,
+        today: today,
         selected: selectedDate,
-        isAvailable: _availabilityFrom(daysToRender),
+        isAvailable: _availabilityFrom(daysToRender, today),
         onSelectDay: _selectDay,
-        onPrevMonth: _visibleMonth.isAfter(_firstMonth) ? _prevMonth : null,
-        onNextMonth: _visibleMonth.isBefore(_lastMonth) ? _nextMonth : null,
+        onPrevMonth: visibleMonth.isAfter(_firstMonth(today))
+            ? _prevMonth
+            : null,
+        onNextMonth: visibleMonth.isBefore(_lastMonth(today))
+            ? _nextMonth
+            : null,
       ),
     );
 
@@ -352,26 +454,57 @@ class _WorkingDaysErrorBody extends StatelessWidget {
     final String message = failure is Failure
         ? (failure as Failure).userMessage(context)
         : l10n.errUnknown;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(VelvetSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              message,
-              style: VelvetText.body(),
-              textAlign: TextAlign.center,
+    // Scrollable so the retry state cannot RenderFlex-overflow at a short
+    // viewport. The slot this body renders into is only ~83px tall on an
+    // 800×600 surface while a two-line message + CTA needs ~86px; a portrait
+    // phone has room to spare, but a landscape phone, a split-screen window or
+    // a large text scale does not, and an overflowing error state hides the
+    // retry button that is the only way out of it.
+    //
+    // `LayoutBuilder` + `ConstrainedBox(minHeight: maxHeight)` is what keeps
+    // the content VERTICALLY CENTRED while it is also scrollable. A bare
+    // `SingleChildScrollView(child: Center(…))` does not: this body renders
+    // into an `Expanded` (see `_calendarBody`'s call site), so the scroll view
+    // hands its child UNBOUNDED height, `Center` collapses to its child's own
+    // size, and the message + retry silently pin to the TOP of the calendar
+    // area on every roomy viewport. Giving the child a minimum equal to the
+    // viewport restores "centre when there is room, scroll when there is not".
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // `.isFinite` guard: an infinite `minHeight` is an assertion crash, and
+        // this widget is one refactor away from a caller that does not bound
+        // it (today it is always inside an `Expanded`). Falling back to 0
+        // degrades to the old top-aligned layout instead of throwing.
+        final double minHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 0.0;
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(VelvetSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      message,
+                      style: VelvetText.body(),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: VelvetSpacing.md),
+                    NeumorphicButton(
+                      key: const Key('booking-calendar-retry'),
+                      label: l10n.retryLabel,
+                      onPressed: onRetry,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: VelvetSpacing.md),
-            NeumorphicButton(
-              key: const Key('booking-calendar-retry'),
-              label: l10n.retryLabel,
-              onPressed: onRetry,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -391,24 +524,23 @@ class SlotTimeScreen extends ConsumerWidget {
   static const Uuid _uuid = Uuid();
 
   void _confirm(BuildContext context, BookingSlot slot) {
-    // The RETAINED single-service / reschedule picker: builds a 1-element
-    // `appointments` list feeding the SAME `BookingConfirmScreen` the
-    // multi-service `BookingTimeScreen` flow uses. The stable idempotency key
-    // is generated once here (per tap), never regenerated on a retry from the
-    // confirm screen.
+    // MO-3: the whole multi-service visit shares ONE start time and ONE
+    // idempotency key. The key is minted here ONCE per submit attempt (per tap
+    // that reaches confirm) via `Uuid().v4()` (CSPRNG-backed) and carried on the
+    // args, so a retry on the confirm screen reuses it unchanged (de-dupes an
+    // ambiguously-failed `POST /appointments`) while backing out and re-picking
+    // a new time mints a fresh key. The single `createAppointment` submit runs
+    // on `BookingConfirmScreen`, not here.
     context.push(
       RouteNames.bookingConfirm,
       extra: BookingConfirmArgs(
         masterId: args.masterId,
         master: args.master,
-        appointments: <BookingAppointment>[
-          BookingAppointment(
-            serviceId: args.services.first.id,
-            startAt: slot.startAt,
-            idempotencyKey: _uuid.v4(),
-          ),
-        ],
+        services: args.services,
+        startAt: slot.startAt,
+        idempotencyKey: _uuid.v4(),
         rescheduleBookingId: args.rescheduleBookingId,
+        rescheduleAppointmentId: args.rescheduleAppointmentId,
       ),
     );
   }
@@ -536,6 +668,10 @@ class SlotTimeScreen extends ConsumerWidget {
                     // `onChange` performed.
                     Hero(
                       tag: 'master-strip-${args.master.id}',
+                      // INERT (no `onTap`) per the policy on
+                      // `MasterStrip.onTap`: the last in-flight wizard step
+                      // before «Підтвердження», where the strip becomes
+                      // tappable.
                       child: MasterStrip.fromMaster(
                         args.master,
                         showRole: true,
@@ -593,10 +729,25 @@ class _SlotsSectionState extends State<_SlotsSection> {
   // used to redo the O(n) bucketing loop on every rebuild — including the
   // rebuild triggered by simply tapping a time chip (which only ever changes
   // `selectedSlot`, never `slots`). Cache the three buckets and only
-  // recompute when the underlying `slots` list identity changes.
+  // recompute when the underlying `slots` list identity changes. The memo now
+  // also saves an O(n) tz conversion per rebuild (see [_bucketsFor]).
   List<BookingSlot>? _cachedSlots;
   (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? _cachedBuckets;
 
+  /// Splits [slots] into morning / afternoon / evening on the KYIV wall-clock
+  /// hour.
+  ///
+  /// `BookingSlot.startAt` is a canonical UTC instant (built_value deserializes
+  /// the ISO-8601 wire value with `.toUtc()`), so `startAt.hour` is the UTC
+  /// hour — uniformly 2-3h behind the Kyiv hour the chip beside the heading
+  /// actually renders (`formatSlotTime` → `toBeauticaTime`). Bucketing on it
+  /// filed a 13:00-15:00 Kyiv working day entirely under «Ранок». This is not
+  /// a device-zone leak — it was wrong on every device, Kyiv ones included —
+  /// so the fix is the market zone, not the host's: `toBeauticaTime(...).hour`,
+  /// the same derivation the visible label goes through.
+  ///
+  /// The chip `Key`s deliberately stay on the raw UTC ISO string (see
+  /// [_group]) — they are identity, not display.
   (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>) _bucketsFor(
     List<BookingSlot> slots,
   ) {
@@ -609,7 +760,7 @@ class _SlotsSectionState extends State<_SlotsSection> {
     final List<BookingSlot> afternoon = <BookingSlot>[];
     final List<BookingSlot> evening = <BookingSlot>[];
     for (final BookingSlot s in slots) {
-      final int hour = s.startAt.hour;
+      final int hour = toBeauticaTime(s.startAt).hour;
       if (hour < 12) {
         morning.add(s);
       } else if (hour < 17) {

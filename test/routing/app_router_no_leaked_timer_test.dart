@@ -45,6 +45,8 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -57,6 +59,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const _fakeClientUser = User(
   id: 'c1',
@@ -83,6 +86,7 @@ void main() {
 
     ProviderContainer makeAuthenticatedContainer() {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),
@@ -162,21 +166,37 @@ void main() {
 
     ProviderContainer makeAuthenticatedClientContainer() {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedClientSession),
           ),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-          // These are the overrides under test. Reverting either would route
-          // ServiceSelectorSheet's publicMasterProfileProvider back to the
-          // real HttpMasterRepository / HttpServiceRepository → real Dio
+          // These are the overrides under test. Reverting any of them would
+          // route ServiceSelectorSheet's publicMasterProfileProvider back to
+          // the real HttpMasterRepository / HttpServiceRepository → real Dio
           // requests → leaked connection-timeout Timers → tear-down
           // `!timersPending` failure below.
           masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
           publicServiceRepositoryProvider.overrideWith(
             (_) => FakeServiceRepository(),
           ),
+          // Phase 240 — ServiceSelectorSheet now also watches wishlistProvider
+          // (to prime each row's favourite heart). Overriding the NESTED
+          // wishlistRepositoryProvider is NOT enough here (unlike
+          // `service_selector_sheet_test.dart`'s `pumpApp`-based tests, whose
+          // implicit ProviderScope is disposed as ordinary widget-tree
+          // teardown): `Wishlist.build()` unconditionally starts its own
+          // 5-minute keep-alive TTL Timer BEFORE it ever reads the
+          // repository, and `ref.onDispose` only cancels it when the
+          // PROVIDER disposes — which for this file's
+          // `UncontrolledProviderScope` + manual `ProviderContainer` happens
+          // in `container.dispose()` (`addTearDown`), AFTER flutter_test's
+          // `!timersPending` check has already run. Bypassing
+          // `Wishlist.build()` entirely — not just its repository dependency
+          // — is the only fix; see `_SettledWishlistNotifier` below.
+          wishlistProvider.overrideWith(_SettledWishlistNotifier.new),
         ],
       );
       addTearDown(container.dispose);
@@ -242,6 +262,16 @@ class _SettledMasterProfileNotifier extends MasterProfile {
     reviewCount: 0,
     type: MasterType.independentMaster,
   );
+}
+
+/// [Wishlist] stub that resolves immediately to an empty list, bypassing the
+/// real notifier's `build()` body ENTIRELY — including its unconditional
+/// 5-minute keep-alive TTL `Timer` — so the leaked-timer regression this file
+/// guards against cannot be reintroduced via the wish-list dependency Phase
+/// 240 added to `ServiceSelectorSheet`. See the override site above.
+class _SettledWishlistNotifier extends Wishlist {
+  @override
+  Future<List<WishlistService>> build() async => const <WishlistService>[];
 }
 
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue].

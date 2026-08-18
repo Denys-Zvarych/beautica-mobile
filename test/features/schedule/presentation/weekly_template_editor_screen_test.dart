@@ -27,6 +27,8 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -38,17 +40,51 @@ import 'package:beautica_mobile/features/schedule/presentation/widgets/discrete_
 import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/calendar_grid.dart';
+import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+
+import '../../../helpers/clock_instant.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Fixtures.
 // ───────────────────────────────────────────────────────────────────────────
 
 /// A fixed clock so the saved active window is run-day independent (M6).
+///
+/// [_clock] is a DATE TOKEN (see `lib/shared/time/kyiv_day.dart`) — used
+/// throughout this file for `validFrom`/`ScheduleRange.month`/assertion
+/// comparisons. Never pass it directly to a `clock:` param; use
+/// [asClockInstant] (test/helpers/clock_instant.dart) for that instead.
+///
+/// DO NOT "fix" this to `DateTime.utc(2026, 6, 9)` — it looks like the
+/// `forbid_host_local_instant_anchor.sh` anti-pattern but is not one, and
+/// converting it introduces a REAL regression (verified, not theorised):
+/// this token is compared with bare `==` directly against production's own
+/// `validFrom` output at the "UPDATE path: _buildSchedule clamps ... UP to
+/// today" test (`weekly.savedSchedule!.validFrom` equals `_clock`), and that
+/// `validFrom` is itself `kyivDayOf(...)`'s result — ALWAYS a host-local
+/// midnight `DateTime` (`kyiv_day.dart`'s own contract), never UTC. Dart's
+/// `DateTime==` compares the underlying INSTANT, not the UTC/local flag, so
+/// a bare-local `_clock` and a bare-local production token always agree on
+/// every host `TZ` (both resolve through the SAME host offset and cancel
+/// out — a coherent "both host-local" pairing, not a host-TZ-dependent
+/// one), while a `.utc()` `_clock` would only agree when the host TZ offset
+/// happens to be zero. Reproduced: swapping to `.utc()` and running under
+/// `TZ=Asia/Tokyo` fails that exact test with `Expected: ...00.000Z` /
+/// `Actual: ...00.000` (no `Z`) — confirmed, then reverted. This file's
+/// clock-INSTANT need is already served by [asClockInstant] at every
+/// `clock:` call site; this bare declaration must stay host-local because
+/// its OTHER role — a direct-equality fixture against `kyivDayOf`'s
+/// host-local output — depends on matching its construction style, not its
+/// calendar value. The whole `TZ=Europe/Kyiv`/`TZ=UTC`/`TZ=Asia/Tokyo`
+/// matrix passes with this declaration exactly as written; do not touch it.
 final DateTime _clock = DateTime(2026, 6, 9);
 
 WorkInterval _interval(int sh, int sm, int eh, int em) => WorkInterval(
@@ -84,6 +120,56 @@ WeeklySchedule _rangedTemplate({String? id = 'sched-1'}) => WeeklySchedule(
   validTo: DateTime(2026, 12, 31),
   days: <TemplateDay>[
     for (int dow = 1; dow <= 7; dow++)
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: dow <= 5
+            ? <WorkInterval>[_interval(9, 0, 18, 0)]
+            : <WorkInterval>[],
+      ),
+  ],
+);
+
+/// A persisted template whose MONDAY carries a STORED WORKING WINDOW: the
+/// canonical intervals are `[10:00–18:00]` but the window is `09:00–18:00`,
+/// i.e. the master saved a «Перерва» 09:00–10:00 flush against the window
+/// start. Tue–Fri are ordinary legacy 09:00–18:00 days (no stored window), so
+/// closing Monday never trips the all-off DELETE path.
+WeeklySchedule _windowTemplate({String? id = 'sched-1'}) => WeeklySchedule(
+  id: id,
+  validFrom: _clock,
+  validTo: null,
+  days: <TemplateDay>[
+    TemplateDay(
+      dayOfWeek: 1,
+      label: 'd1',
+      intervals: <WorkInterval>[_interval(10, 0, 18, 0)],
+      window: _interval(9, 0, 18, 0),
+    ),
+    for (int dow = 2; dow <= 7; dow++)
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: dow <= 5
+            ? <WorkInterval>[_interval(9, 0, 18, 0)]
+            : <WorkInterval>[],
+      ),
+  ],
+);
+
+/// A persisted PRE-WINDOW (legacy) template: Monday carries [mondayIntervals]
+/// and NO stored window, so the editor seeds it through the historical
+/// gap-reconstruction regime and `_baselineWindows[0]` is `null`.
+WeeklySchedule _legacyTemplate(
+  List<WorkInterval> mondayIntervals, {
+  String? id = 'sched-1',
+}) => WeeklySchedule(
+  id: id,
+  validFrom: _clock,
+  validTo: null,
+  days: <TemplateDay>[
+    TemplateDay(dayOfWeek: 1, label: 'd1', intervals: mondayIntervals),
+    for (int dow = 2; dow <= 7; dow++)
       TemplateDay(
         dayOfWeek: dow,
         label: 'd$dow',
@@ -211,6 +297,7 @@ Future<ProviderContainer> _pump(
   bool settle = true,
 }) async {
   final ProviderContainer container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: overrides.cast(),
   );
   final GoRouter router = GoRouter(
@@ -219,7 +306,7 @@ Future<ProviderContainer> _pump(
       GoRoute(
         path: RouteNames.scheduleWeeklyEditor,
         builder: (BuildContext context, GoRouterState state) =>
-            WeeklyTemplateEditorScreen(clock: () => _clock),
+            WeeklyTemplateEditorScreen(clock: () => asClockInstant(_clock)),
       ),
       GoRoute(
         path: RouteNames.masterSchedule,
@@ -263,6 +350,73 @@ String _workEndText(WidgetTester tester, int dayOfWeek) {
   final Finder well = find.byKey(Key('weekly-day-$dayOfWeek-work-end'));
   final Finder txt = find.descendant(of: well, matching: find.byType(Text));
   return tester.widget<Text>(txt.first).data!;
+}
+
+/// Reads the `HH:MM` rendered inside any keyed [TimeWell] (`…-work-start`,
+/// `…-work-end`, `…-break-N-start`, …).
+String _wellText(WidgetTester tester, String key) {
+  final Finder well = find.byKey(Key(key));
+  expect(well, findsOneWidget, reason: 'time well "$key" must be rendered');
+  final Finder txt = find.descendant(of: well, matching: find.byType(Text));
+  return tester.widget<Text>(txt.first).data!;
+}
+
+/// One velvet-time-picker wheel item extent (px) — matches the picker's fixed
+/// `_itemExtent`. Dragging N extents UP (negative dy) advances N rows.
+const double _kItemExtent = 46.0;
+
+/// Opens the wheel time picker behind the keyed [key] well, moves the hours
+/// wheel by [hourSteps] rows and the minutes wheel by [minuteSteps] rows
+/// (positive = later), then confirms.
+///
+/// The IntervalEditor opens its picker with `minuteStep: 15`, so ONE minute
+/// row is 15 minutes.
+Future<void> _dragWorkWell(
+  WidgetTester tester, {
+  required String key,
+  int hourSteps = 0,
+  int minuteSteps = 0,
+}) async {
+  final Finder well = find.byKey(Key(key));
+  await tester.ensureVisible(well);
+  await tester.pumpAndSettle();
+  await tester.tap(well);
+  await tester.pumpAndSettle();
+
+  final Finder wheels = find.byType(ListWheelScrollView);
+  expect(wheels, findsNWidgets(2), reason: 'hours + minutes wheels');
+  if (hourSteps != 0) {
+    await tester.drag(wheels.at(0), Offset(0, -_kItemExtent * hourSteps));
+    await tester.pumpAndSettle();
+  }
+  if (minuteSteps != 0) {
+    await tester.drag(wheels.at(1), Offset(0, -_kItemExtent * minuteSteps));
+    await tester.pumpAndSettle();
+  }
+
+  await tester.tap(find.byKey(const Key('btn-velvet-time-picker-confirm')));
+  await tester.pumpAndSettle();
+}
+
+/// Taps the remove ("×") action on the FIRST break row of [dayOfWeek].
+///
+/// The remove control carries no `Key` in `interval_editor.dart`'s `_BreakRow`,
+/// so it is located by its icon SCOPED to the day card — never an
+/// order-dependent `.first` across the tree, and never a localised string (M2).
+Future<void> _removeBreak(WidgetTester tester, {required int dayOfWeek}) async {
+  final Finder remove = find.descendant(
+    of: find.byKey(Key('weekly-day-$dayOfWeek')),
+    matching: find.byIcon(Icons.close_rounded),
+  );
+  expect(
+    remove,
+    findsOneWidget,
+    reason: 'day $dayOfWeek must render exactly one break-remove action',
+  );
+  await tester.ensureVisible(remove);
+  await tester.pumpAndSettle();
+  await tester.tap(remove);
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -1997,8 +2151,12 @@ void main() {
       're-anchors the window to the NEW today, shows the reanchored snackbar, '
       'and persists NOTHING on that first Save',
       (tester) async {
-        // D = 2026-06-09; advance to D+1 = 2026-06-10 before Save.
-        DateTime now = DateTime(2026, 6, 9);
+        // D = 2026-06-09; advance to D+1 = 2026-06-10 before Save. Anchored as
+        // a genuine instant (noon UTC), not a bare local `DateTime(y, m, d)` —
+        // the editor runs the injected clock through `kyivDayOf`, so a
+        // host-local midnight literal drifts a Kyiv day under e.g.
+        // TZ=Asia/Tokyo.
+        DateTime now = DateTime.utc(2026, 6, 9, 12);
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -2024,7 +2182,7 @@ void main() {
         );
 
         // ── Cross midnight: the live clock now reads D+1. ──
-        now = DateTime(2026, 6, 10);
+        now = DateTime.utc(2026, 6, 10, 12);
 
         // FIRST Save — the staged start (09.06) is now past → re-anchor + bail.
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
@@ -2066,7 +2224,9 @@ void main() {
       'the SECOND Save (after the re-anchor) persists validFrom == the NEW '
       'today (D+1), never the stale D',
       (tester) async {
-        DateTime now = DateTime(2026, 6, 9);
+        // Anchored as a genuine instant (noon UTC), not a bare local
+        // `DateTime(y, m, d)` — see the previous test's comment above.
+        DateTime now = DateTime.utc(2026, 6, 9, 12);
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -2082,7 +2242,7 @@ void main() {
         await _pickThisMonthWindowViaCard(tester);
 
         // Roll past midnight; the first Save re-anchors (persists nothing).
-        now = DateTime(2026, 6, 10);
+        now = DateTime.utc(2026, 6, 10, 12);
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();
         expect(
@@ -2091,13 +2251,14 @@ void main() {
           reason: 'the first Save after the rollover only re-anchors + bails',
         );
 
-        // Dismiss the reanchored snackbar so it no longer overlays the Save
-        // button at the bottom of the screen (otherwise the second tap lands on
-        // the snackbar, not the button).
-        ScaffoldMessenger.of(
-          tester.element(find.byType(WeeklyTemplateEditorScreen)),
-        ).hideCurrentSnackBar();
-        await tester.pumpAndSettle();
+        // Let the reanchored VelvetSnack run its full lifecycle (entrance +
+        // dwell + exit) so it stops overlaying the Save button at the bottom
+        // of the screen. `ScaffoldMessenger.hideCurrentSnackBar()` is a no-op
+        // against VelvetSnack (wrong host — see
+        // test/helpers/velvet_snack_matchers.dart) and leaves the snack
+        // mounted, hit-testing the second tap into the Overlay instead of the
+        // button underneath.
+        await pumpPastVelvetSnack(tester);
 
         // SECOND Save — the re-anchored start (10.06) is present → persists.
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
@@ -2174,6 +2335,760 @@ void main() {
       },
     );
   });
+
+  // ── mobile-qa (2026-08-03, backlog :226) — Kyiv-anchored `_today` ──────────
+  //
+  // `_today` (`weekly_template_editor_screen.dart:225`) derives via
+  // `kyivDayOf(widget._clock?.call() ?? DateTime.now())`. Every OTHER clock
+  // fixture in this file — including the M6 group directly above — anchors on
+  // `_clock` (2026-06-09, noon UTC) or a same-day +1 rollover, both nowhere
+  // near a Kyiv day boundary, so none of them can disagree with a reverted
+  // `dateOnly(clock())` (a bare device/UTC-day read, skipping the
+  // `kyivDayOf`/`toBeauticaTime` conversion). This is the one fixture that
+  // pins the Kyiv-vs-UTC derivation itself, via the «Весь поточний місяць»
+  // preset's `_today`-anchored window — the same `showApplyScheduleSheet
+  // (today: _today)` seam `_pickThisMonthWindowViaCard` already drives.
+  //
+  // Anchored the day BEFORE the boundary `slot_picker_test.dart` /
+  // `master_schedule_screen_test.dart` use (2026-07-31T22:30Z, not
+  // 2026-08-01T22:30Z) so the Kyiv-correct vs UTC/device-day "today" land in
+  // DIFFERENT MONTHS — the strongest possible divergence for a month-window
+  // preset: UTC day = Jul 31 (the LAST day of July) vs Kyiv day = Aug 1 (the
+  // FIRST day of August), so «Весь поточний місяць» resolves to a single-day
+  // 31.07–31.07 window under the bug vs a full 01.08–31.08 window when
+  // correct — not merely a one-day slip.
+  group('WeeklyTemplateEditorScreen — Kyiv-anchored "today" (mobile-qa, '
+      '2026-08-03, backlog :226)', () {
+    testWidgets(
+      '«Весь поточний місяць» resolves to AUGUST (Kyiv today = Aug 1) even '
+      'though the clock instant is still calendar-day JULY 31 in UTC — a '
+      'UTC/device-day _today would wrongly stage a single-day 31.07 window',
+      (tester) async {
+        final DateTime clockInstant = DateTime.utc(2026, 7, 31, 22, 30);
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pumpWithClock(
+          tester,
+          overrides: _overridesFor(weekly),
+          clock: () => clockInstant,
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        await _pickThisMonthWindowViaCard(tester);
+
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('01.08', '31.08')),
+          findsOneWidget,
+          reason:
+              'the Kyiv-correct "today" (Aug 1) must anchor the «Весь '
+              'поточний місяць» preset to the FULL August window',
+        );
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('31.07', '31.07')),
+          findsNothing,
+          reason:
+              'a UTC/device-day _today would read the boundary instant as '
+              'Jul 31 (still July there) and stage a degenerate single-day '
+              'window at the end of the WRONG month',
+        );
+      },
+    );
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-07-27 — STORED WORKING WINDOW in the dirty-diff (`_baselineWindows`).
+  //
+  // THE SUBTLE PART. Two DIFFERENT persisted day shapes collapse to the SAME
+  // canonical interval list:
+  //
+  //     window 09:00–18:00 + break 09:00–10:00  →  [10:00–18:00]
+  //     window 10:00–18:00 + no break           →  [10:00–18:00]
+  //
+  // The dirty-diff used to compare intervals ONLY, so editing a day from the
+  // first shape into the second read as "no changes": the Save button stayed
+  // DISABLED on a day the master had visibly just edited. `_baselineWindows`
+  // adds the window to the comparison and closes that hole.
+  //
+  // The pristine-load contract on the other side: merely OPENING an untouched
+  // LEGACY (pre-window) template must NOT enable Save, even though
+  // `DayHours.fromIntervals` always derives SOME window for display. That holds
+  // by VALUE-EQUALITY, not by skipping the comparison: `_seed` baselines the
+  // window it actually drew (`seededDay.window`, the derived
+  // `[first start, last end]` for a legacy row), so the seeded draft window IS
+  // the baseline until the master moves it.
+  //
+  // An earlier shape of this fix baselined only the STORED window
+  // (`d.window?.clone()`), leaving the baseline `null` on every legacy row and
+  // the window leg of the diff skipped entirely. That left one edit invisible —
+  // see the COMPENSATING-EDIT test below, which is the case this audit
+  // originally argued away as unreachable and got wrong.
+  //
+  // Driven purely through observable UI: the Save button's enabled flag, the
+  // keyed no-changes hint, and the rendered window/break wells.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  group('WeeklyTemplateEditorScreen — stored-window dirty-diff '
+      '(_baselineWindows)', () {
+    testWidgets('a stored window seeds the day as WINDOW + BREAK (not a '
+        'shortened working day) and the load stays PRISTINE', (tester) async {
+      final ProviderContainer c = await _pumpLoaded(tester, _windowTemplate());
+      addTearDown(c.dispose);
+
+      // The window well shows the STORED 09:00 start, not the 10:00 the
+      // intervals alone would imply.
+      expect(
+        _wellText(tester, 'weekly-day-1-work-start'),
+        '09:00',
+        reason:
+            'THE BUG: 10:00 here means the stored window was ignored and the '
+            'break was normalised into a shortened working day',
+      );
+      expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+
+      // …and the carved hour is rendered as a real break row.
+      expect(
+        find.byKey(const Key('weekly-day-1-break-0-start')),
+        findsOneWidget,
+        reason: 'the edge-flush break must reappear as a break row',
+      );
+      expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+      expect(_wellText(tester, 'weekly-day-1-break-0-end'), '10:00');
+
+      // Reconstructing a break out of the stored window is a pure DISPLAY
+      // change — it must not register as an edit.
+      expect(
+        _saveButton(tester).onPressed,
+        isNull,
+        reason:
+            'seeding the window-present regime must keep the Phase 6.2 '
+            'pristine-load contract — Save stays disabled until a real edit',
+      );
+    });
+
+    testWidgets(
+      'THE REGRESSION: a WINDOW-ONLY edit that collapses to the SAME interval '
+      'list still ENABLES Save',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _windowTemplate(),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        expect(_saveButton(tester).onPressed, isNull, reason: 'precondition');
+
+        // ── The master's edit: "I don't want a break at the start, I just
+        // want to begin at 10:00." Remove the break, then move the window
+        // start 09:00 → 10:00.
+        await _removeBreak(tester, dayOfWeek: 1);
+        // Intermediate state (window 09:00–18:00, no break) collapses to
+        // [09:00–18:00] ≠ the baseline [10:00–18:00], so the interval diff
+        // alone already reads dirty here — that is NOT the case under test.
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: 1,
+        );
+
+        // The draft is now window 10:00–18:00 with no breaks → toIntervals()
+        // is [10:00–18:00], BYTE-IDENTICAL to the persisted baseline. Only the
+        // stored WINDOW differs (09:00 → 10:00).
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '10:00');
+        expect(
+          find.byKey(const Key('weekly-day-1-break-0-start')),
+          findsNothing,
+          reason: 'the break row was removed',
+        );
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'THE BUG: with an interval-only diff this state equals the '
+              'baseline, so Save stayed DISABLED on a visibly-edited day — the '
+              'master could not persist the change at all',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+          reason:
+              'the gate must be `saveable`, not `noChanges` — a "no changes" '
+              'hint on an edited day is the user-facing symptom',
+        );
+      },
+    );
+
+    testWidgets(
+      'the window-only edit PERSISTS: the saved day-1 carries the NEW window '
+      'alongside the unchanged intervals',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _windowTemplate(),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        await _removeBreak(tester, dayOfWeek: 1);
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: 1,
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        final TemplateDay saved = weekly.savedSchedule!.days.firstWhere(
+          (TemplateDay d) => d.dayOfWeek == 1,
+        );
+        expect(saved.window, isNotNull);
+        expect(
+          saved.window!.start,
+          const TimeOfDay(hour: 10, minute: 0),
+          reason: 'the edited від–до must be persisted, not the stale 09:00',
+        );
+        expect(saved.window!.end, const TimeOfDay(hour: 18, minute: 0));
+        // Availability is unchanged by this edit — that is exactly why the
+        // interval-only diff could not see it.
+        expect(summariseIntervals(saved.intervals), '10:00–18:00');
+      },
+    );
+
+    testWidgets(
+      'a break edit inside a window-present day still enables Save (the '
+      'ordinary path is not broken by the added window comparison)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _windowTemplate(),
+        );
+        addTearDown(c.dispose);
+
+        await _removeBreak(tester, dayOfWeek: 1);
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'removing a break widens the working day — a real edit',
+        );
+      },
+    );
+
+    // ── The legacy pristine-load contract ───────────────────────────────────
+
+    testWidgets(
+      'LEGACY: opening an untouched pre-window template stays PRISTINE even '
+      'though the seeded day derives a display window',
+      (tester) async {
+        // Persisted with intervals ONLY (window == null) — every row saved
+        // before the backend stored the field. `DayHours.fromIntervals` still
+        // derives a window (10:00–18:00) for display, and `_seed` baselines
+        // that SAME derived value, so the window leg of the diff compares
+        // 10:00–18:00 against 10:00–18:00 and finds no change.
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        );
+        addTearDown(c.dispose);
+
+        expect(
+          _wellText(tester, 'weekly-day-1-work-start'),
+          '10:00',
+          reason: 'legacy rows keep the historical gap-reconstruction display',
+        );
+        expect(
+          find.byKey(const Key('weekly-day-1-break-0-start')),
+          findsNothing,
+          reason:
+              'an edge-flush break is unrecoverable without a stored window — '
+              'the legacy regime must stay byte-identical',
+        );
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'the seeded draft window EQUALS the baselined derived window '
+              'until the master moves it — merely OPENING an untouched '
+              'template must never enable Save',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsOneWidget,
+          reason: 'the pristine gate is `noChanges`',
+        );
+      },
+    );
+
+    testWidgets(
+      'LEGACY: a split legacy day (two intervals → a derived window WIDER than '
+      'either) is also pristine on load',
+      (tester) async {
+        // Derived window 09:00–18:00 + an interior 13:00–14:00 break, from a
+        // row that stored no window at all — the shape most likely to be
+        // mistaken for an edit if `_seed` baselined anything other than the
+        // window it just drew.
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _legacyTemplate(<WorkInterval>[
+            _interval(9, 0, 13, 0),
+            _interval(14, 0, 18, 0),
+          ]),
+        );
+        addTearDown(c.dispose);
+
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '09:00');
+        expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '13:00');
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'the derived 09:00–18:00 window is ALSO what `_seed` baselined, '
+              'so the window leg finds no change on a pure load',
+        );
+      },
+    );
+
+    testWidgets(
+      'a legacy day still enables Save on a REAL edit (a shortened day moves '
+      'BOTH the intervals and the window off their baselines)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        );
+        addTearDown(c.dispose);
+
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-end',
+          hourSteps: -1,
+        ); // 18:00 → 17:00
+
+        expect(_wellText(tester, 'weekly-day-1-work-end'), '17:00');
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'shortening a legacy day moves its collapsed intervals AND its '
+              'window off the seeded baselines — either leg alone is enough',
+        );
+      },
+    );
+
+    // ── THE COMPENSATING EDIT — the case this audit originally argued away ──
+    //
+    // My first pass filed this as "verified NOT reachable", reasoning that on a
+    // legacy (break-less) day the derived window always equals
+    // `[firstStart, lastEnd]`, so any window drag necessarily moves the
+    // collapsed intervals too and the interval leg fires anyway.
+    //
+    // That is true of a LONE window drag. It is FALSE the moment the master
+    // makes a COMPENSATING edit — widening the window and carving the widened
+    // part straight back out as a break:
+    //
+    //     persisted (legacy):  [10:00–18:00],  no stored window
+    //     seeded:              window 10:00–18:00, no breaks
+    //     master edits to:     window 09:00–18:00 + break 09:00–10:00
+    //     toIntervals():       [10:00–18:00]   ← IDENTICAL to the baseline
+    //
+    // The interval leg sees no change. With the earlier `d.window?.clone()`
+    // baseline the window leg was skipped on legacy rows, so `_isDirty` was
+    // false and Save sat DISABLED on a day the master had visibly just edited —
+    // the same user-facing symptom as the window-present regression above, on
+    // the far larger population of already-shipped legacy rows.
+    //
+    // `_seed` now baselines the window it DREW, so the window leg always has an
+    // operand and this edit registers.
+
+    testWidgets(
+      'THE REGRESSION (legacy rows): a COMPENSATING edit — widen the від, carve '
+      'the widened hour back out as a break — collapses to the SAME interval '
+      'list and must still ENABLE Save',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason: 'precondition: an untouched legacy load is pristine',
+        );
+
+        // 1. Widen the working window 10:00 → 09:00. On its own this already
+        //    moves the intervals to [09:00–18:00], so the interval leg is
+        //    dirty here — that is NOT the case under test.
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: -1,
+        );
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '09:00');
+
+        // 2. Add a break. With a 09:00–18:00 window and no existing breaks the
+        //    editor seeds 09:15–10:15 (window start + 15-min gap, 1 h long).
+        final Finder addBreak = find.byKey(const Key('weekly-day-1-add-break'));
+        await tester.ensureVisible(addBreak);
+        await tester.pumpAndSettle();
+        await tester.tap(addBreak);
+        await tester.pumpAndSettle();
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:15');
+
+        // 3. Pull the break flush onto the window start and back to a round
+        //    hour: 09:15–10:15 → 09:00–10:00. The minute wheel steps by 15.
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-start',
+          minuteSteps: -1,
+        );
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-end',
+          minuteSteps: -1,
+        );
+
+        // The day is now VISIBLY different from the one that loaded …
+        expect(_wellText(tester, 'weekly-day-1-work-start'), '09:00');
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+        expect(_wellText(tester, 'weekly-day-1-break-0-end'), '10:00');
+        // … while collapsing to BYTE-IDENTICAL availability: window 09:00–18:00
+        // minus a 09:00–10:00 break is exactly the persisted [10:00–18:00].
+        expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
+
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'THE BUG: the collapsed intervals equal the baseline, so with a '
+              'null legacy window baseline the diff found nothing and Save sat '
+              'DISABLED — the master could not persist a break they had just '
+              'drawn, on any pre-window row',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+          reason:
+              'a "no changes" hint on a day showing a brand-new break row is '
+              'the user-facing symptom',
+        );
+      },
+    );
+
+    testWidgets(
+      'the compensating edit PERSISTS: the saved legacy day gains a window '
+      '09:00–18:00 while its intervals stay [10:00–18:00]',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _legacyTemplate(<WorkInterval>[_interval(10, 0, 18, 0)]),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-work-start',
+          hourSteps: -1,
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('weekly-day-1-add-break')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('weekly-day-1-add-break')));
+        await tester.pumpAndSettle();
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-start',
+          minuteSteps: -1,
+        );
+        await _dragWorkWell(
+          tester,
+          key: 'weekly-day-1-break-0-end',
+          minuteSteps: -1,
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        final TemplateDay saved = weekly.savedSchedule!.days.firstWhere(
+          (TemplateDay d) => d.dayOfWeek == 1,
+        );
+        // Availability is unchanged — which is exactly why the interval-only
+        // diff could not see this edit.
+        expect(summariseIntervals(saved.intervals), '10:00–18:00');
+        // …but the row is no longer legacy: it now carries the window that
+        // makes the break survive the NEXT reload.
+        expect(
+          saved.window,
+          isNotNull,
+          reason:
+              'the compensating edit is only meaningful if the widened від is '
+              'persisted — otherwise the break vanishes again on reload',
+        );
+        expect(saved.window!.start, const TimeOfDay(hour: 9, minute: 0));
+        expect(saved.window!.end, const TimeOfDay(hour: 18, minute: 0));
+      },
+    );
+
+    testWidgets(
+      'toggling a window-present day OFF and back ON is a no-op → Save '
+      're-disables (the window survives the stash round-trip)',
+      (tester) async {
+        // `_toggleDay` stashes and restores the window with its intervals. If
+        // the restore dropped the window, the restored day would seed from
+        // gap-reconstruction, its від–до would collapse to 10:00 and the
+        // no-op toggle would leave Save stuck ENABLED.
+        final ProviderContainer c = await _pumpLoaded(
+          tester,
+          _windowTemplate(),
+        );
+        addTearDown(c.dispose);
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        expect(_saveButton(tester).onPressed, isNotNull, reason: 'day closed');
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+
+        expect(
+          _wellText(tester, 'weekly-day-1-work-start'),
+          '09:00',
+          reason: 'the stored window must survive the off→on stash restore',
+        );
+        expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'a toggle that restores the day exactly is a no-op → Save must '
+              're-disable (Phase 6.2 contract)',
+        );
+      },
+    );
+  });
+
+  // ── Router-shaped no-`clock:` construction follows clockProvider ───────────
+  //
+  // Regression guard for the MEDIUM raised in the calendar-consolidation QA
+  // pass (`app_router.dart:1090,1113` construct `WeeklyTemplateEditorScreen()`
+  // with no `clock:` — exactly as reproduced here): before the fix, `_today`
+  // fell back to a bare `DateTime.now()`, so anything the screen derives from
+  // "today" silently ignored the E2E harness's / this test's pinned
+  // `clockProvider`. Every OTHER test in this file passes an explicit
+  // `clock:` (via `_pump`), which bypasses the provider fallback entirely and
+  // would stay green even if that fallback regressed back to `DateTime.now()`
+  // — so this is the only place that path is exercised.
+  //
+  // Drives the same production chain a real navigation does: `_today` →
+  // `showApplyScheduleSheet(today: _today)` → `ApplyScheduleSheet._pickRange`'s
+  // `firstMonth: DateTime(widget.today.year, widget.today.month)`. Reads the
+  // picker's OWN rendered "<Місяць> <Рік>" header as ground truth (never a
+  // hardcoded expectation) and asserts it resolves to the PINNED month, not
+  // whatever month the test happens to run on.
+  //
+  // NOTE — does not cover the "today" ring itself: at the time this test was
+  // written, `showPeriodRangePicker` had no `clock` parameter to forward, so
+  // `PeriodRangePicker`'s own `_today` (used only by `_isToday()`/the ring)
+  // still fell back to a bare `DateTime.now()` reached through this exact
+  // call path. That follow-up gap is now closed and pinned by the dedicated
+  // test immediately below this one, which asserts on the ring directly.
+  testWidgets(
+    'router-shaped construction (no clock:) still resolves "today" from the '
+    'overridden clockProvider, not the real host date',
+    (tester) async {
+      final DateTime pinned = DateTime.utc(2027, 3, 10, 12);
+      final ProviderContainer c = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: <Object>[
+          weeklyScheduleProvider.overrideWith(
+            () => _RecordingWeekly(<WeeklySchedule>[_template()]),
+          ),
+          effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          clockProvider.overrideWithValue(() => pinned),
+        ].cast(),
+      );
+      addTearDown(c.dispose);
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.scheduleWeeklyEditor,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.scheduleWeeklyEditor,
+            // Deliberately NO `clock:` — mirrors `app_router.dart:1090,1113`.
+            builder: (BuildContext context, GoRouterState state) =>
+                const WeeklyTemplateEditorScreen(),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+
+      final RegExp monthHeaderPattern = RegExp(
+        r'^([А-Яа-яІіЇїЄєҐґ]+) (\d{4})$',
+      );
+      final Text header = tester.widget<Text>(
+        find
+            .byWidgetPredicate(
+              (Widget w) =>
+                  w is Text &&
+                  w.data != null &&
+                  monthHeaderPattern.hasMatch(w.data!),
+            )
+            .first,
+      );
+      final RegExpMatch match = monthHeaderPattern.firstMatch(header.data!)!;
+      final int monthNumber = monthNamesNominative.indexOf(match.group(1)!) + 1;
+      final int year = int.parse(match.group(2)!);
+
+      expect(
+        (year, monthNumber),
+        (pinned.year, pinned.month),
+        reason:
+            'the picker\'s first rendered month must follow the pinned '
+            'clockProvider (${pinned.year}-${pinned.month}), not the real '
+            'host date — proving the router-shaped no-`clock:` construction '
+            'no longer falls back to a bare DateTime.now()',
+      );
+    },
+  );
+
+  // ── Router-shaped no-`clock:` construction — the picker's "today" RING ─────
+  //
+  // Closes the other half of the MEDIUM the test above left explicitly open
+  // (its own NOTE): that test proves `firstMonth` follows the pinned
+  // `clockProvider`, but `showPeriodRangePicker` had no `clock` parameter to
+  // forward, so `PeriodRangePicker`'s own `_today` — used only by the "today"
+  // ring — still fell back to a bare `DateTime.now()` on this exact call
+  // path. `PeriodRangePicker`'s own widget tests
+  // (`period_range_picker_test.dart`) all pass `clock:` explicitly to
+  // `PeriodRangePicker` directly, so none of them exercise the
+  // `showPeriodRangePicker` → `ApplyScheduleSheet._pickRange` plumbing this
+  // guards.
+  //
+  // Drives the identical production chain as the test above (router →
+  // screen → active-window card → date well) and then asserts on the
+  // PICKER'S OWN rendered `CalendarDayCell` for the pinned day — ground
+  // truth, found by the same [periodDayCellKey] the picker itself uses to key
+  // that cell — rather than re-deriving "today" independently.
+  testWidgets(
+    'router-shaped construction (no clock:) rings the pinned clockProvider '
+    'day, not the real host date, on the period-range-picker "today" ring',
+    (tester) async {
+      final DateTime pinned = DateTime.utc(2027, 3, 10, 12);
+      final ProviderContainer c = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: <Object>[
+          weeklyScheduleProvider.overrideWith(
+            () => _RecordingWeekly(<WeeklySchedule>[_template()]),
+          ),
+          effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          clockProvider.overrideWithValue(() => pinned),
+        ].cast(),
+      );
+      addTearDown(c.dispose);
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.scheduleWeeklyEditor,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.scheduleWeeklyEditor,
+            // Deliberately NO `clock:` — mirrors `app_router.dart:1090,1113`.
+            builder: (BuildContext context, GoRouterState state) =>
+                const WeeklyTemplateEditorScreen(),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+
+      // `pinned` is noon UTC on 2027-03-10, and Kyiv sits at UTC+2 in March
+      // (pre-DST), so its Kyiv calendar day is the same 2027-03-10 the
+      // month-header test above asserts on — a plain host-local date token is
+      // therefore the right key here (`periodDayCellKey` only reads
+      // y/m/d, never the instant).
+      // `cellKey` lands on the [CalendarDayCell]'s inner `Semantics` node, not
+      // on the [CalendarDayCell] widget itself (`calendar_grid.dart`'s
+      // `build()`) — so locate the day by key, then walk up to the
+      // [CalendarDayCell] ancestor that carries `isToday`.
+      final Key todayCellKey = periodDayCellKey(DateTime(2027, 3, 10));
+      final Finder todaySemantics = find.descendant(
+        of: find.byType(PeriodRangePicker),
+        matching: find.byKey(todayCellKey),
+      );
+      expect(
+        todaySemantics,
+        findsOneWidget,
+        reason:
+            'the pinned day must be rendered in the picker\'s first '
+            'visible month for this assertion to be meaningful',
+      );
+      final Finder todayCell = find.ancestor(
+        of: todaySemantics,
+        matching: find.byType(CalendarDayCell),
+      );
+      final CalendarDayCell cell = tester.widget<CalendarDayCell>(todayCell);
+
+      expect(
+        cell.isToday,
+        isTrue,
+        reason:
+            'the picker\'s "today" ring must follow the pinned clockProvider '
+            '(${pinned.year}-${pinned.month}-${pinned.day}), not the real '
+            'host date — proving `showPeriodRangePicker`/`ApplyScheduleSheet'
+            '._pickRange` now forward an explicit `clock:` instead of '
+            'letting `PeriodRangePicker._today` fall back to a bare '
+            '`DateTime.now()`',
+      );
+    },
+  );
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -2308,6 +3223,7 @@ IntervalEditorStrings _intervalStrings(AppLocalizations l10n) =>
       errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
       errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
       errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+      errBreakCoversWholeWindow: l10n.intervalEditorErrBreakCoversWholeDay,
       errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
     );
 
@@ -2322,6 +3238,7 @@ Future<ProviderContainer> _pumpWithClock(
   required DateTime Function() clock,
 }) async {
   final ProviderContainer container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: overrides.cast(),
   );
   final GoRouter router = GoRouter(

@@ -139,8 +139,15 @@ class _SlotChipState extends State<SlotChip> {
         boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
       ),
       child: Center(
+        // Same horizontal inset as the selected and unavailable faces above
+        // (`sm + 2`): the three faces are the same pill in three depths and
+        // must agree. At `md` (16) the available face left only ~42px of the
+        // caller's fixed 74px box for an 11sp w800 "13:30" — which fits, but
+        // has nothing to spare at the app-wide `textScaler` clamp of 1.3
+        // (`main.dart`), and made the label visibly jump inward the moment a
+        // chip was selected.
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md),
+          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.sm + 2),
           child: Text(widget.time, style: _label(BrandColors.text)),
         ),
       ),

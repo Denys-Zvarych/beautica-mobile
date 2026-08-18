@@ -97,14 +97,14 @@ void main() {
         find.byKey(const ValueKey<String>('reset_submit')),
       );
       await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
-      // Deliberately NOT pumpAndSettle() first — the forced-logout SnackBar
+      // Deliberately NOT pumpAndSettle() first — the forced-logout VelvetSnack
       // has its own timer and pumpAndSettle() would pump straight past it,
       // leaving nothing to assert. Bounded pumps let the async
       // confirmPasswordReset → logout → snackbar → context.go chain settle
-      // while the SnackBar is still visible.
+      // while the VelvetSnack is still visible.
       await tester.pump();
       await tester.pump();
-      // fixed-wait-ok: real-async step — the forced-logout SnackBar must still be visible below.
+      // fixed-wait-ok: real-async step — the forced-logout VelvetSnack must still be visible below.
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(fb.resetPasswordCalls, equals(1));

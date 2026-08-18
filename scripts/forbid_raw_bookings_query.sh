@@ -125,6 +125,7 @@ EOF
   echo "SELF-TEST PASS: the declaring file and .freezed.dart codegen are exempt;"
   echo "                the BookingsDayQuery.masterOwn( calls under test/ AND"
   echo "                integration_test/ are both flagged."
+  echo "SELF-TEST OK: forbid_raw_bookings_query.sh"
   exit 0
 fi
 

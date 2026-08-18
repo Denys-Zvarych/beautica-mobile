@@ -19,6 +19,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
 
@@ -72,6 +73,7 @@ void main() {
 
   ProviderContainer makeContainer() {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [scheduleRepositoryProvider.overrideWithValue(repo)],
     );
     addTearDown(container.dispose);

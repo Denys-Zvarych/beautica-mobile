@@ -43,6 +43,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Locality taxonomy fixtures (drive the prefill's oblast → city → district
@@ -264,7 +265,11 @@ void main() {
         _seededUser = _userWithLocation;
 
         await tester.pumpWidget(
-          ProviderScope(overrides: _overrides().cast(), child: _app()),
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: _overrides().cast(),
+            child: _app(),
+          ),
         );
         await tester.pumpAndSettle();
 
@@ -299,7 +304,11 @@ void main() {
       _seededUser = _userNoLocation;
 
       await tester.pumpWidget(
-        ProviderScope(overrides: _overrides().cast(), child: _app()),
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides().cast(),
+          child: _app(),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -333,6 +342,7 @@ void main() {
       // controllers (and the one-shot guard) persist — exactly as a real
       // in-session navigation would.
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -408,6 +418,7 @@ void main() {
         // session flip live in it) — exactly as the real app's single root
         // ProviderScope does across a logout→login within one process.
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -526,6 +537,7 @@ void main() {
         _mutableProfile = _userWithLocation; // profile starts at Київ
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides(
             profileFactory: _MutableStubClientEditProfile.new,
           ).cast(),
@@ -587,9 +599,15 @@ void main() {
     );
 
     testWidgets(
-      'a manual pick BEFORE a mid-session profile change still wins — the '
-      'profile-driven reseed must never clobber a genuine user choice, '
-      'regardless of which direction the profile itself later changes',
+      'prefillFromProfileIfNeeded (the PASSIVE path): a manual pick BEFORE a '
+      'mid-session profile change still wins — the passive profile-driven '
+      'reseed must never clobber a genuine user choice, regardless of which '
+      'direction the profile itself later changes. This guard is scoped to '
+      'prefillFromProfileIfNeeded ONLY — the AUTHORITATIVE '
+      'applyProfileLocationSave path (called from '
+      'ClientLocationEditScreen._save on an explicit profile-location save) '
+      'intentionally bypasses it; see the _userTouchedLocality doc on '
+      'SearchFiltersController for why the two are split.',
       (tester) async {
         installOverflowGuard();
         _sizeView(tester);
@@ -597,6 +615,7 @@ void main() {
         _mutableProfile = _userWithLocation; // Київ
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides(
             profileFactory: _MutableStubClientEditProfile.new,
           ).cast(),
@@ -679,6 +698,7 @@ void main() {
         // persist — exactly as the real root ProviderScope does across a
         // refreshUser() while the Пошук branch stays alive in the IndexedStack.
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -770,6 +790,7 @@ void main() {
         _seededUser = _userWithLocation;
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -816,6 +837,7 @@ void main() {
         'service selection, but a different user id still resets it', () {
       _seededUser = _userWithLocation;
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -860,6 +882,7 @@ void main() {
         'a later prefill still respects the manual choice', () async {
       _seededUser = _userWithLocation;
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -921,6 +944,7 @@ void main() {
       _seededUser = _userWithLocation;
 
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -959,6 +983,7 @@ void main() {
         're-emissions', () async {
       _seededUser = _userWithLocation;
       final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: _overrides().cast(),
       );
       addTearDown(container.dispose);
@@ -1002,6 +1027,7 @@ void main() {
         _seededUser = _userWithLocation; // A signs in first (Київ)
 
         final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
           overrides: _overrides().cast(),
         );
         addTearDown(container.dispose);
@@ -1080,4 +1106,175 @@ void main() {
       },
     );
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // applyProfileLocationSave — the identical-value ("unchanged") short-circuit.
+  //
+  // A perf fix added `if (unchanged) return;` to applyProfileLocationSave to
+  // skip the redundant state/label write when a profile-location save doesn't
+  // actually change the locality (the user opened the location editor and
+  // saved without picking anything different). The guard reset
+  // (`_userTouchedLocality = false`) MUST still run before that early return —
+  // it is the entire reason this method exists (see its doc: patched five
+  // times before the authoritative/passive split). These tests pin that
+  // ordering directly, independent of the emission-count optimisation itself.
+  // ═══════════════════════════════════════════════════════════════════════════
+  group(
+    'applyProfileLocationSave — identical-value save (unchanged branch)',
+    () {
+      test(
+        'a same-locality save still clears _userTouchedLocality — a later '
+        'passive prefill is NOT permanently suppressed by the earlier manual '
+        'pick, and the no-op save leaves the locality exactly as it was',
+        () async {
+          _seededUser = _userWithLocation;
+          _mutableProfile = _userWithLocation; // Київ / Печерський
+          final ProviderContainer container = ProviderContainer(
+            retry: beauticaProviderRetry,
+            overrides: _overrides(
+              profileFactory: _MutableStubClientEditProfile.new,
+            ).cast(),
+          );
+          addTearDown(container.dispose);
+
+          // Known harness trap: authProvider MUST be force-settled before the
+          // FIRST read of searchFiltersControllerProvider — an unsettled auth
+          // future races the controller's lazy build() and silently re-arms
+          // _userTouchedLocality out from under the test, independent of
+          // production behaviour.
+          await container.read(authProvider.future);
+
+          final controller = container.read(
+            searchFiltersControllerProvider.notifier,
+          );
+
+          // The user manually picks — through Search's own picker — exactly
+          // the locality that will shortly be "saved" from the profile
+          // screen, so the `unchanged` branch below is guaranteed to fire.
+          controller
+            ..selectOblast(oblastId: _kOblastId)
+            ..selectCity(cityId: _kCityWithDistrictsId)
+            ..selectDistrict(districtId: _kDistrictId);
+          expect(
+            container.read(searchFiltersControllerProvider).cityId,
+            _kCityWithDistrictsId,
+          );
+
+          // The identical-value save — the previously untested branch.
+          controller.applyProfileLocationSave(
+            oblast: _kOblast,
+            city: _kCityWithDistricts,
+            district: _kDistrict,
+          );
+
+          // Property 2 — the early return must not leave state half-written
+          // or stale: the locality is still exactly what was there before.
+          final SearchFilters afterSave = container.read(
+            searchFiltersControllerProvider,
+          );
+          expect(afterSave.oblastId, _kOblastId);
+          expect(afterSave.cityId, _kCityWithDistrictsId);
+          expect(afterSave.districtId, _kDistrictId);
+
+          // Property 1 — the guard was cleared DESPITE the early return.
+          // Proven observably: swap the profile to a DIFFERENT locality and
+          // invoke the PASSIVE prefill. If _userTouchedLocality were still
+          // true (the exact bug shape this test exists to catch — the
+          // short-circuit reordered above the guard reset),
+          // prefillFromProfileIfNeeded would return on its own first line and
+          // the filter would stay stuck at Київ forever.
+          _mutableProfile = _userWithLocationLviv; // Львів, no district
+          await controller.prefillFromProfileIfNeeded();
+
+          final SearchFilters afterPrefill = container.read(
+            searchFiltersControllerProvider,
+          );
+          expect(
+            afterPrefill.cityId,
+            _kCityNoDistrictsId,
+            reason:
+                'an identical-value applyProfileLocationSave must still '
+                'clear _userTouchedLocality — otherwise the earlier manual '
+                'pick would permanently suppress every later profile-driven '
+                'prefill, defeating the very method whose job is to make a '
+                'profile save win',
+          );
+          expect(afterPrefill.oblastId, _kOblastId);
+          expect(
+            afterPrefill.districtId,
+            isNull,
+            reason: 'Львів has no district',
+          );
+        },
+      );
+
+      test('a null/cleared locality save when the filter is already empty '
+          'computes `unchanged == true` correctly (no null-handling comparison '
+          'bug) and still clears the guard', () async {
+        _seededUser = _userWithLocation;
+        _mutableProfile = _userWithLocation; // Київ / Печерський — used
+        // later, once the guard has (correctly) cleared.
+        final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: _overrides(
+            profileFactory: _MutableStubClientEditProfile.new,
+          ).cast(),
+        );
+        addTearDown(container.dispose);
+
+        await container.read(authProvider.future);
+
+        final controller = container.read(
+          searchFiltersControllerProvider.notifier,
+        );
+
+        // Arm the guard with a manual CLEAR (not a pick) — state.oblastId/
+        // cityId/districtId are already null on a fresh build(), so this is
+        // a no-op on `state` but still marks _userTouchedLocality, exactly
+        // like a real "opened the picker and backed out" interaction.
+        controller.selectOblast(oblastId: null);
+        expect(
+          container.read(searchFiltersControllerProvider).oblastId,
+          isNull,
+        );
+
+        // The null-handling edge: oblast/city/district are all null, and
+        // state is already all null — `unchanged` must resolve true via
+        // `null == null?.id`, not throw or mis-match.
+        controller.applyProfileLocationSave(
+          oblast: null,
+          city: null,
+          district: null,
+        );
+
+        final SearchFilters afterSave = container.read(
+          searchFiltersControllerProvider,
+        );
+        expect(afterSave.oblastId, isNull);
+        expect(afterSave.cityId, isNull);
+        expect(afterSave.districtId, isNull);
+
+        // The guard must still have cleared on this null/null comparison —
+        // proven the same way: a subsequent passive prefill against a
+        // profile that HAS a saved locality must actually seed it.
+        await controller.prefillFromProfileIfNeeded();
+
+        final SearchFilters afterPrefill = container.read(
+          searchFiltersControllerProvider,
+        );
+        expect(
+          afterPrefill.cityId,
+          _kCityWithDistrictsId,
+          reason:
+              'a null-locality save must clear _userTouchedLocality just '
+              'like a same-value save does — otherwise a manual CLEAR '
+              'followed by an unrelated profile save with no locality '
+              'would permanently lock Search out of ever seeding a '
+              'locality again this session',
+        );
+        expect(afterPrefill.oblastId, _kOblastId);
+        expect(afterPrefill.districtId, _kDistrictId);
+      });
+    },
+  );
 }

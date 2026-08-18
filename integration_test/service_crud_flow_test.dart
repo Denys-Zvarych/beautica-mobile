@@ -1,18 +1,37 @@
 // Phase 17.3 — E2E: Service CRUD Flow
 //
-// Journey (INDEPENDENT_MASTER):
+// Two independent journeys (INDEPENDENT_MASTER):
+//
+// Test 1 — CREATE, via the setup screen's bulk write:
 //   1. Login → /master/profile
-//   2. Navigate to /services (services list)
-//   3. Tap "Create service" → /services/create
-//   4. Fill form (FIXED pricing) → Save → verify service created in fake backend
-//   5. Tap the new service card → /services/:id/edit (ServiceEditScreen)
-//   6. Change pricing type to RANGE → Save → verify PATCH fired with maxPrice
+//   2. Navigate to /services/setup
+//   3. Tap the NAILS category chip → its service-type rows load inline
+//   4. Toggle one type ON, fill its duration + FIXED price
+//   5. Save → assert the BULK POST fired, that its PAYLOAD carries the expected
+//      serviceTypeId / duration / price, and that the screen returns to /services
+//
+// Test 2 — EDIT (independent of test 1):
+//   1. Login → /master/profile
+//   2. Navigate straight to /services/assign-2/edit
+//   3. Assert the RANGE pricing fields rendered from the seeded backend data
+//
+// WHY TEST 1 GOES THROUGH /services/setup
+// ---------------------------------------
+// `/services/create` and its single-service form are DELETED. `/services/setup`
+// is now the ONE "add services" surface — reached from both the services-list
+// empty state and the «Додати послугу» FAB — and it writes through
+// `POST /independent-masters/me/services/bulk`, which `beautica-backend`
+// c5e420f made ADDITIVE (it used to 409 whenever the catalogue was non-empty,
+// which is why a separate create form existed at all). So "a master can create
+// a service end-to-end over the real HTTP path" is now proved against the bulk
+// endpoint, asserted on `bulkCreateCalls` + `lastBulkItems` rather than on the
+// retired `createServiceCalls`.
 //
 // NOTE ON SERVICE REPOSITORY
 // --------------------------
-// The service_create and service_edit screens call ServiceRepository.create /
-// .update directly (not via Dio) only when serviceRepositoryProvider is backed
-// by the real HttpServiceRepository. In the harness the dioProvider is the
+// The setup and edit screens call ServiceRepository.bulkCreate / .update
+// directly (not via Dio) only when serviceRepositoryProvider is backed by the
+// real HttpServiceRepository. In the harness the dioProvider is the
 // FakeBackend's Dio, so the real Http repositories hit the fake endpoints
 // wired in fake_backend.dart. This proves the REAL HTTP path (not a mocked
 // repository).
@@ -29,6 +48,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -37,158 +57,174 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  // ── Test 1 — Create a service (FIXED pricing) ─────────────────────────────
+  // ── Test 1 — Create a service (FIXED pricing) via the bulk setup screen ───
 
   testWidgets(
     'INDEPENDENT_MASTER can create a FIXED-price service',
     (tester) async {
+      // The service type this flow configures. Deliberately NOT
+      // `type-nails-classic`: the fake backend seeds that one into the master's
+      // existing catalogue, so its row renders inert (a static check glyph
+      // instead of a toggle, sub-label «Вже додано») — an already-owned type
+      // can never be included, which would block this flow for a reason
+      // unrelated to what it proves.
+      //
+      // Not a hedge: `servicesListProvider` has ALWAYS resolved by the time the
+      // setup screen's initState reads it, because the services list is the
+      // entry point this flow navigates FROM, and it awaits its own data before
+      // rendering the FAB that opens this screen. Measured, not assumed. The
+      // earlier "whenever … has already resolved" wording invited a future
+      // author to weaken the exclusion assertion on the theory that the
+      // exclusion might not have applied — it always does.
+      const String typeId = 'type-nails-gel';
+
       final fb = FakeBackend();
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
-      // Should land on /master/profile. Navigate directly to /services/create
-      // via the router reference — skipping the services list (which is an
-      // intermediate step that adds a second Scrollable to the tree during the
-      // GoRouter transition, causing scrollUntilVisible to throw 'Too many
-      // elements'). Direct navigation tests the create form in isolation.
+      // Should land on /master/profile. Navigate directly to /services/setup via
+      // the router reference — skipping the services list, whose loading
+      // skeleton runs an infinite shimmer (and which would add a second
+      // Scrollable to the tree during the GoRouter transition).
       //
-      // Use bounded pumps instead of pumpAndSettle() after navigation because
-      // the ServiceCreateScreen contains a category picker whose loading state
-      // shows a CircularProgressIndicator (infinite animation) while the
-      // approvedCategoriesProvider is resolving. pumpAndSettle() never settles
-      // with an infinite animation in the tree.
-      // 20 × 100ms = 2000ms — enough for GoRouter transition (300ms) + async
-      // provider resolution (DioAdapter fires in next microtask).
+      // pump-until, never pumpAndSettle: the setup screen shows a
+      // CircularProgressIndicator (an infinite animation) while
+      // approvedCategoriesProvider resolves, and again per-category while the
+      // service types load. pumpAndSettle can never observe "no frames
+      // scheduled" with one of those in the tree.
       AppHarness.expectLocation(router, RouteNames.masterProfile);
-      router.go(RouteNames.serviceCreate);
-      for (int i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      AppHarness.expectLocation(router, RouteNames.serviceCreate);
+      router.go(RouteNames.serviceSetup);
 
-      // ── Fill the service form (FIXED pricing) ─────────────────────────────
-      // ServiceForm field keys (from service_form.dart + pricing_field.dart):
-      //   'field-service-name'   — name TextFormField wrapper
-      //   'field-service-duration' — duration TextField (inside PricingField)
-      //   'pricing-fixed-amount' — fixed price TextField (inside PricingField)
-      //   'select-category-field' — GestureDetector that opens category bottom sheet
-      //   'chip-category-NAILS'  — option row inside the category bottom sheet
-      //   'btn-submit-service'   — submit NeumorphicButton
-
-      // Fill name: enter text into the TextField inside the wrapper.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-name')),
-          matching: find.byType(TextField),
-        ),
-        'Манікюр тест',
-      );
-      await tester.pump();
-
-      // Fill duration (required): 60 minutes.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-duration')),
-          matching: find.byType(TextField),
-        ),
-        '60',
-      );
-      await tester.pump();
-
-      // Fill fixed price (required): 400 ₴.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('pricing-fixed-amount')),
-          matching: find.byType(TextField),
-        ),
-        '400',
-      );
-      await tester.pump();
-
-      // Select a category (required by the form). The fake backend seeds one
-      // approved category: {name:'NAILS', displayName:'Нігті'}. Tapping the
-      // closed field (key 'select-category-field') opens a modal bottom sheet;
-      // the chip for NAILS has key 'chip-category-NAILS'. After tapping the
-      // chip the sheet pops and the form records the selection.
-      //
-      // Use bounded pumps for the sheet lifecycle — the bottom sheet has a
-      // slide-in animation (ModalBottomSheet) and the dismiss has a slide-out
-      // animation. Both complete in ~300ms; 12 × 100ms covers both directions.
-      final Finder categoryField = find.byKey(
-        const Key('select-category-field'),
-      );
-      await tester.ensureVisible(categoryField);
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(categoryField);
-      // Let the sheet open: bottom-sheet entrance animation ~300ms.
-      for (int i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      final Finder nailsChip = find.byKey(const Key('chip-category-NAILS'));
-      expect(
-        nailsChip,
-        findsOneWidget,
-        reason: 'NAILS category chip must appear in the picker sheet',
-      );
+      // ── Expand the NAILS category ────────────────────────────────────────
+      // The fake backend seeds two approved categories
+      // ({name:'NAILS', displayName:'Нігті'} and BROWS). Selecting a chip
+      // expands it INLINE — there is no bottom sheet on this screen — and lazily
+      // fetches that category's service types.
+      final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
+      await tester.pumpUntilFound(nailsChip.hitTestable());
+      AppHarness.expectLocation(router, RouteNames.serviceSetup);
       await tester.tap(nailsChip);
-      // Let the sheet dismiss: bottom-sheet exit animation ~300ms.
-      for (int i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
 
-      // ── Select a service type (MANDATORY on create) ──────────────────────
-      // Service type is now required on create (backend @NotNull); without a
-      // selection the client blocks submit with an inline error. The second-
-      // level picker (key 'select-service-type-field') mounts once a category
-      // is chosen and lists the fake backend's NAILS types. Pick the classic
-      // manicure type (row key 'chip-service-type-type-nails-classic').
-      final Finder serviceTypeField = find.byKey(
-        const Key('select-service-type-field'),
+      // Wait for the ROW itself (not a pump count) — the per-category fetch
+      // renders its own spinner until the types arrive.
+      final Finder row = find.byKey(const Key('setup_row_$typeId'));
+      await tester.pumpUntilFound(row);
+
+      // ── Toggle the row ON ────────────────────────────────────────────────
+      // `.hitTestable()` — NOT bare existence. Rows are emitted by a lazy
+      // SliverList and each card animates (AnimatedContainer, 220 ms), so a
+      // bare `pumpUntilFound` can return while the toggle is not yet a valid
+      // hit target; the tap would then either be swallowed or trip
+      // `hitTestWarningShouldBeFatal` (armed in AppHarness.boot). Waiting on
+      // hit-testability OBSERVES the animation instead of guessing at it.
+      final Finder toggle = find.byKey(const Key('setup_row_toggle_$typeId'));
+      await tester.ensureVisible(toggle);
+      await tester.pumpUntilFound(toggle.hitTestable());
+      await tester.tap(toggle);
+
+      // ── Fill duration + FIXED price ──────────────────────────────────────
+      // Both entries are SCOPED to this row's card: every included row renders
+      // the same `service-setup-duration` / `pricing-fixed-amount` keys, so an
+      // unscoped finder would be ambiguous as soon as a second row is included.
+      // The fields ride the card's AnimatedSize + AnimatedSwitcher (~240 ms
+      // cross-fade), so wait for them to exist before typing.
+      final Finder durationField = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('service-setup-duration')),
       );
-      await tester.ensureVisible(serviceTypeField);
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(serviceTypeField);
-      // Sheet entrance animation ~300ms.
-      for (int i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      final Finder classicTypeChip = find.byKey(
-        const Key('chip-service-type-type-nails-classic'),
+      final Finder priceField = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('pricing-fixed-amount')),
+      );
+      await tester.pumpUntilFound(durationField);
+      await tester.pumpUntilFound(priceField);
+      await tester.enterText(durationField, '60');
+      await tester.pump();
+      await tester.enterText(priceField, '400');
+      await tester.pump();
+
+      // ── Save ─────────────────────────────────────────────────────────────
+      // The CTA is pinned in the footer and is disabled (onPressed == null)
+      // while nothing is included, so hit-testability here also implies the
+      // toggle above actually took.
+      final Finder saveBtn = find.byKey(const Key('btn-setup-save'));
+      await tester.pumpUntilFound(saveBtn.hitTestable());
+      await tester.tap(saveBtn);
+
+      // DIAGNOSE AT THE CAUSE — assert the POST fired before asserting on the
+      // route. A save blocked client-side (swallowed toggle tap, a row flagged
+      // by _assemble for a missing duration/price) leaves the app sitting on
+      // /services/setup, which reads as "navigation is broken" when it is
+      // really "the request never happened".
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.bulkCreateCalls >= 1,
+        description:
+            'the bulk POST to reach the fake backend — if it never does, the '
+            'save was blocked CLIENT-SIDE (most likely the row was never '
+            'actually included, or its duration/price failed _assemble and '
+            'flagged the row instead of assembling a payload)',
+      );
+
+      // PAYLOAD assertion — proves the screen submitted the RIGHT thing, not
+      // merely that a call happened. `lastBulkItems` is the decoded `items`
+      // list exactly as it went over the wire.
+      final List<dynamic>? items = fb.lastBulkItems;
+      expect(
+        items,
+        isNotNull,
+        reason: 'the bulk POST body must carry an `items` list',
       );
       expect(
-        classicTypeChip,
-        findsOneWidget,
-        reason: 'NAILS service-type chip must appear in the picker sheet',
+        items,
+        hasLength(1),
+        reason: 'exactly one row was included, so exactly one item must ship',
       );
-      await tester.tap(classicTypeChip);
-      // Sheet exit animation ~300ms.
-      for (int i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+      final Map<String, dynamic> item = (items!.first as Map)
+          .cast<String, dynamic>();
+      expect(
+        item['serviceTypeId'],
+        typeId,
+        reason:
+            'the submitted item must name the service type that was toggled',
+      );
+      expect(
+        item['durationMinutes'],
+        60,
+        reason: 'the entered duration must reach the wire as an int',
+      );
+      expect(
+        item['priceType'],
+        'FIXED',
+        reason: 'the row was left in the default FIXED pricing mode',
+      );
+      expect(
+        item['price'],
+        400,
+        reason: 'the entered fixed price must reach the wire',
+      );
+      expect(
+        item.containsKey('priceMin'),
+        isFalse,
+        reason:
+            'FIXED items must omit (not null) the RANGE-only price fields — see '
+            'HttpServiceRepository._bulkItemToJson',
+      );
 
-      // Scroll the submit button into view and tap.
-      // ensureVisible handles nested scrollables better than scrollUntilVisible.
-      // Use bounded pumps after tap — the form submit triggers an async HTTP
-      // POST, and then the screen pops. The pop navigation also has an animation.
-      final Finder submitBtn = find.byKey(const Key('btn-submit-service'));
-      await tester.ensureVisible(submitBtn);
-      await tester.pump(const Duration(milliseconds: 100));
-
-      await tester.tap(submitBtn);
-      // Post + pop: give 20 × 100ms = 2000ms for the HTTP call + navigation.
-      for (int i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-
-      // After successful create the screen pops back to /services.
+      // After a successful bulk save the screen leaves back to /services.
+      // `router.go` gave this route no stack to pop, so `_leave()` takes its
+      // `context.go(RouteNames.services)` fallback; from the FAB the same call
+      // pops instead. Both land here.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => AppHarness.location(router) == RouteNames.services,
+        description:
+            'the setup screen to leave back to /services after the successful '
+            'bulk save',
+      );
       AppHarness.expectLocation(router, RouteNames.services);
-      expect(
-        fb.createServiceCalls,
-        greaterThanOrEqualTo(1),
-        reason: 'POST /independent-masters/me/services must have been called',
-      );
     },
-    // Timeout extension — service form includes category async loading.
+    // Timeout extension — the setup screen loads categories then service types.
     timeout: const Timeout(Duration(seconds: 30)),
   );
 

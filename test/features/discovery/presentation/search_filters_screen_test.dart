@@ -68,6 +68,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // The production approvedCategoriesProvider now sources categories DIRECTLY
 // from categoryRequestApiProvider.listApproved() (a CLIENT-search 403
@@ -299,6 +300,7 @@ Future<_CategoriesController> _pumpScreen(
 
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -1293,6 +1295,93 @@ void main() {
         reason: 'a region re-pick clears the city → region-only → CTA disabled',
       );
       expect(find.text(l10n.searchCityRequiredHint), findsOneWidget);
+    });
+
+    // ── the min-length gate ─────────────────────────────────────────────────
+    //
+    // A 1–2 character term is below what the backend honours, so it is never
+    // promoted onto SearchFilters.query. The CTA used to sail straight through
+    // it and push a search for whatever had been applied BEFORE — the user
+    // arrived at results for a term they had already edited away. Watching the
+    // draft is what makes the sub-minimum term visible to this gate at all;
+    // watching `SearchFilters.query` cannot see it by construction.
+
+    testWidgets('a 1-character term DISABLES the CTA', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('search_query_field')), 'м');
+      await tester.pumpAndSettle();
+
+      expect(
+        cta(tester).onPressed,
+        isNull,
+        reason:
+            'the user must not be able to reach results with a term the '
+            'backend will not honour',
+      );
+    });
+
+    testWidgets('a 2-character term DISABLES the CTA, and tapping is inert', (
+      tester,
+    ) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('search_query_field')), 'ма');
+      await tester.pumpAndSettle();
+
+      expect(cta(tester).onPressed, isNull);
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('test-results-sink')), findsNothing);
+      expect(
+        _pushedFilters,
+        isNull,
+        reason: 'the old behaviour pushed a search for the PREVIOUS term',
+      );
+    });
+
+    testWidgets('an EMPTY box leaves the CTA enabled', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('search_query_field')), 'ма');
+      await tester.pumpAndSettle();
+      expect(cta(tester).onPressed, isNull);
+
+      // Escape hatch 1: clear the box. A filters-only search is legitimate, so
+      // an empty term is NOT an error and must not keep the CTA disabled.
+      await tester.enterText(find.byKey(const Key('search_query_field')), '');
+      await tester.pumpAndSettle();
+
+      expect(cta(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('completing the term to 3 characters RE-ENABLES the CTA', (
+      tester,
+    ) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('search_query_field')), 'ма');
+      await tester.pumpAndSettle();
+      expect(cta(tester).onPressed, isNull);
+
+      // Escape hatch 2: finish the word.
+      await tester.enterText(
+        find.byKey(const Key('search_query_field')),
+        'ман',
+      );
+      await tester.pumpAndSettle();
+
+      expect(cta(tester).onPressed, isNotNull);
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+      expect(_pushedFilters?.query, 'ман');
     });
   });
 

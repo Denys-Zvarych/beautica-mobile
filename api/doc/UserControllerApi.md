@@ -10,6 +10,7 @@ All URIs are relative to *http://localhost:8080*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**getMe**](UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
+[**getMyRating**](UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [**requestChangePasswordOtp**](UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
 [**updateMe**](UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
@@ -39,6 +40,43 @@ This endpoint does not need any parameter.
 ### Return type
 
 [**ApiResponseUserProfileResponse**](ApiResponseUserProfileResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyRating**
+> ApiResponseUserRatingResponse getMyRating()
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getUserControllerApi();
+
+try {
+    final response = api.getMyRating();
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling UserControllerApi->getMyRating: $e\n');
+}
+```
+
+### Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**ApiResponseUserRatingResponse**](ApiResponseUserRatingResponse.md)
 
 ### Authorization
 

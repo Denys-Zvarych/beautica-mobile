@@ -40,6 +40,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/velvet_time_picker.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import 'working_hours_notifier.dart';
@@ -190,25 +191,13 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
       // The save succeeded: the committed draft is now the persisted truth, so
       // it becomes the new baseline and Save disables again until the next edit.
       setState(() => _baseline = List<WorkingHours>.of(_draft!));
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
+      showSuccessSnack(context, l10n.savedSnackbar);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: BrandColors.error,
-          content: Text(f.userMessage(context)),
-        ),
-      );
+      showErrorSnack(context, f.userMessage(context));
     } on Failure catch (f) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: BrandColors.error,
-          content: Text(f.userMessage(context)),
-        ),
-      );
+      showErrorSnack(context, f.userMessage(context));
     } finally {
       if (mounted) setState(() => _saving = false);
     }

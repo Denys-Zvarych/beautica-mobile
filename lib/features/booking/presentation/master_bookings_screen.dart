@@ -95,8 +95,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'bookings_discovery_view.dart';
@@ -120,17 +123,46 @@ class MasterBookingsScreen extends ConsumerWidget {
         // A day is required by `BookingsDayQuery.of`, but `BookingsDiscoveryView`
         // deliberately does NOT use this field as its initial selection — it
         // derives Kyiv "today" itself (`dateOnly(toBeauticaTime(DateTime.now
-        // ()))`) rather than trusting a host-local `DateTime.now()` stamped
-        // here. See that file's header for why the day is owned there, not
-        // here.
-        query: BookingsDayQuery.of(day: DateTime.now()),
+        // ()))`) rather than trusting whatever is stamped here. So this value
+        // is a genuine no-op today (`BookingsDiscoveryView:210` overwrites
+        // it) — but it is still Kyiv-anchored via `kyivToday`, not a bare
+        // `DateTime.now()`, so a reader copying this call site as a template
+        // learns the right pattern rather than the bug this whole track
+        // exists to close (backlog :226). See that file's header for why the
+        // day is owned there, not here.
+        //
+        // NO seed statuses, deliberately — and that is NOT the same as "show
+        // every status". An empty seed means "the master has chosen no
+        // filter", which `BookingsDiscoveryView` resolves on the wire to
+        // `BookingStatus.visibleInDayListByDefault` (CANCELLED and DECLINED
+        // hidden, NOT_COMPLETED kept — locked 2026-08-13). Seeding statuses
+        // here would instead read as a master-chosen filter and light up the
+        // funnel badge. See that file's "CANCELLED/DECLINED are hidden by
+        // default" header section.
+        query: BookingsDayQuery.of(day: kyivToday(ref.read(clockProvider))),
         title: l10n.masterBookingsTitle,
         // Bottom-nav tab root — no back affordance.
         onBack: null,
         // A single master's own list never offers the teammate filter.
         showMasterFilter: false,
+        // The master's own screen is the ONE call site that bounds the
+        // timeline by working hours instead of by bookings — see
+        // `BookingsDiscoveryView.useScheduleWindow`'s doc.
+        useScheduleWindow: true,
+        // The "no working hours" empty state's CTA — routes to the
+        // schedule screen with the day it was showing pre-selected
+        // (`RouteNames.masterSchedule`'s `?date=` contract), so the master
+        // can tap that day's pencil straight away rather than hunting for
+        // it. `context.go`, not `context.push` — this is a bottom-nav
+        // destination, matching `VelvetBottomNavBar`'s own navigation
+        // (see that file's header).
+        onAddWorkingHours: (DateTime date) =>
+            context.go('${RouteNames.masterSchedule}?date=${toApiDate(date)}'),
         onBookingTap: (Booking booking) =>
             context.push(RouteNames.masterBookingDetail(booking.id)),
+        // Phase 231 — the master «Архів» page. Additive-only wiring (see
+        // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
+        onOpenArchive: () => context.push(RouteNames.masterBookingsArchive),
       ),
       // Tile 1 ("Мої записи") — this screen IS that destination.
       bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 1),

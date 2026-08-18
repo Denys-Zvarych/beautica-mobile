@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
@@ -39,6 +40,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/overflow_guard.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -97,6 +99,12 @@ PageResponse<Booking> _page(
 /// call; Phase 26.3 — `sort` drives `sort=startsAt,<asc|desc>`).
 /// Defaults every tab to an empty page so a test only has to describe the
 /// tab(s) it cares about.
+///
+/// Phase 227: the notifier now also sends `partition: tab.partition` on
+/// every request (the rollout safety valve — see `booking_tab.dart`'s file
+/// header). Pinned here too, otherwise the real call would never match and
+/// every `MyBookingsScreen` surface in this file would throw
+/// `MissingStubError`.
 void _stubAllTabs(
   _MockBookingRepository repo, {
   List<Booking> upcoming = const <Booking>[],
@@ -106,6 +114,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.upcoming.statuses,
+      partition: BookingPartition.upcoming,
       sort: BookingSort.oldest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -114,6 +123,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.past.statuses,
+      partition: BookingPartition.past,
       sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -122,6 +132,7 @@ void _stubAllTabs(
   when(
     () => repo.getMyBookings(
       statuses: BookingTab.cancelled.statuses,
+      partition: BookingPartition.cancelled,
       sort: BookingSort.newest,
       page: any(named: 'page'),
       size: any(named: 'size'),
@@ -140,11 +151,15 @@ const List<LocalizationsDelegate<Object?>> _delegates =
 const List<Locale> _locales = <Locale>[Locale('uk'), Locale('en')];
 
 /// A plain `MaterialApp home:` host (no router) — for the interactions that
-/// fire NO navigation (error retry, infinite scroll). [retry] disables
-/// Riverpod's backoff so a build failure stays put and call counts are exact.
+/// fire NO navigation (error retry, infinite scroll).
+///
+/// [retry] defaults to the PRODUCTION predicate [beauticaProviderRetry], so
+/// this host resolves error paths the way the shipped app does. Pass
+/// `(_, _) => null` to disable retry outright when a build failure must stay
+/// put and call counts must be exact.
 Widget _host(
   _MockBookingRepository repo, {
-  Duration? Function(int, Object)? retry,
+  Duration? Function(int, Object)? retry = beauticaProviderRetry,
 }) {
   return ProviderScope(
     // ignore: avoid_dynamic_calls
@@ -195,6 +210,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           // ignore: avoid_dynamic_calls
           overrides: <Object>[
             bookingRepositoryProvider.overrideWithValue(repo),
@@ -232,9 +248,15 @@ void main() {
       tester,
     ) async {
       final repo = _MockBookingRepository();
+      // Any tab's fetch failing is enough to exercise the error state — this
+      // test never asserts WHICH tab/request, so `partition` stays `any(...)`
+      // deliberately, matching the pre-existing `any(...)` on every other
+      // param here (a Phase 227 exact per-tab value would force this test to
+      // enumerate tabs it does not care about).
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -252,9 +274,13 @@ void main() {
 
     testWidgets('tapping retry re-fetches the active tab', (tester) async {
       final repo = _MockBookingRepository();
+      // Same tab-agnostic failure stub as above — this test only cares that
+      // SOME fetch fails first; the tab-specific shape is asserted below by
+      // the two `verify()` calls instead.
       when(
         () => repo.getMyBookings(
           statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
           sort: any(named: 'sort'),
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -268,6 +294,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -281,6 +308,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -310,6 +338,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 0,
           size: any(named: 'size'),
@@ -318,6 +347,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 1,
           size: any(named: 'size'),
@@ -339,6 +369,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.past.statuses,
+          partition: BookingPartition.past,
           sort: BookingSort.newest,
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -347,6 +378,7 @@ void main() {
       when(
         () => repo.getMyBookings(
           statuses: BookingTab.cancelled.statuses,
+          partition: BookingPartition.cancelled,
           sort: BookingSort.newest,
           page: any(named: 'page'),
           size: any(named: 'size'),
@@ -367,6 +399,7 @@ void main() {
       verify(
         () => repo.getMyBookings(
           statuses: BookingTab.upcoming.statuses,
+          partition: BookingPartition.upcoming,
           sort: BookingSort.oldest,
           page: 1,
           size: any(named: 'size'),

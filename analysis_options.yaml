@@ -2,9 +2,19 @@
 #
 # Extends Google's `flutter_lints` rule set (the default for new Flutter
 # projects) and layers on:
-#   - `custom_lint` runner enabling `riverpod_lint` (compile-time provider
-#     validation — used after Phase 1 introduces `@riverpod` notifiers).
 #   - Stricter defaults: const constructors, no `print()`, no unused imports.
+#
+# NO ANALYZER PLUGINS ARE CONFIGURED, deliberately (2026-08-18). This file
+# used to declare `plugins: - custom_lint` to host `riverpod_lint`. That host
+# was archived upstream 2026-03-24 and riverpod_lint had already left it in
+# 3.1.0, so it loaded zero plugins and still exited 0 — it gated nothing.
+# Re-homing riverpod_lint on Dart's native analyzer-plugin path was then
+# tried and abandoned: the rules DO fire there, but their diagnostics cannot
+# be suppressed by ANY mechanism on this toolchain (`// ignore:`,
+# `// ignore_for_file:`, `analyzer: errors: <rule>: ignore`, and
+# `linter: rules: <rule>: false` were each tested and each is inert), which
+# makes it unusable under CI's `--fatal-infos --fatal-warnings`. Full
+# rationale and the revisit condition live in pubspec.yaml's lints block.
 #
 # Generated code (`api/**`, `*.g.dart`, `*.freezed.dart`) is excluded
 # from analysis — they live under `pubspec.yaml`'s codegen umbrella and are
@@ -15,8 +25,7 @@
 #   anywhere under `lib/` outside the `AppSpacing.*` tokens. The check runs
 #   as the "Forbid magic padding numbers" step in
 #   `.github/workflows/pr-validate.yml`. The Dart analyzer has no first-
-#   class lint for this today; once `custom_lint` is wired in Phase 3+ we
-#   can promote the rule to an analyzer-level check. Numeric padding in
+#   class lint for this today. Numeric padding in
 #   `lib/features/**` is an automatic `mobile-qa` HIGH finding.
 
 # SECURITY: SharedPreferences is forbidden for auth tokens.
@@ -52,8 +61,6 @@ analyzer:
     prefer_const_constructors: error
     avoid_print: error
     unused_import: error
-  plugins:
-    - custom_lint
 
 linter:
   rules:
@@ -66,11 +73,5 @@ linter:
     use_super_parameters: true
     sort_pub_dependencies: false
 
-# Phase 1.5 — `no_raw_ui_strings` promoted from WARNING to ERROR.
-# The l10n key set has settled and all widget targets are covered; any raw
-# string literal in a flagged widget arg now fails `dart run custom_lint`
-# in CI (see `.github/workflows/pr-validate.yml` "Custom lint" step).
-# Severity was WARNING from Phase 1.3 until this promotion.
-custom_lint:
-  rules:
-    - no_raw_ui_strings: error
+# `no_raw_ui_strings` is NOT an analyzer rule — it is a shell guard.
+# See scripts/forbid_raw_ui_strings.sh (CI hard-gate + local runner).

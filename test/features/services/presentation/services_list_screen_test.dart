@@ -1275,11 +1275,9 @@ void main() {
         reason: 'pull-to-refresh must trigger one additional listMyServices()',
       );
 
-      // The fresh list replaced the old one. Expand the uncategorized section
-      // again (the rebuilt list reset section expansion).
-      await tester.tap(find.byKey(const Key('category_section__none')));
-      await tester.pumpAndSettle();
-
+      // The fresh list replaced the old one. The uncategorized section stays
+      // expanded across the refresh (`_CategorySectionState` is reused under the
+      // same key), so the refreshed card is already on-screen — no second tap.
       expect(
         find.byKey(const Key('service_card_svc-002')),
         findsOneWidget,

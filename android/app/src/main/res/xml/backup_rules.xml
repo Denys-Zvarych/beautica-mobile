@@ -4,4 +4,12 @@
     <exclude domain="sharedpref" path="FlutterSecureStorage"/>
     <exclude domain="database" path="FlutterSecureStorageDatabase"/>
     <exclude domain="file" path=".flutter_secure_storage"/>
+    <!-- Exclude the media loader's flutter_cache_manager metadata store. It holds
+         rows of avatar/photo URLs whose R2 keys embed avatars/<userId>/…, so backing
+         it up would leak WHICH USERS a device viewed. flutter_cache_manager keys the
+         store on 'beauticaImages' and writes it to getApplicationSupportDirectory()
+         (= Android getFilesDir(), the "file" domain) as beauticaImages.db. The cached
+         image BYTES live in getTemporaryDirectory() (cache dir), already excluded from
+         auto-backup by default, so only this metadata DB needs an explicit rule. -->
+    <exclude domain="file" path="beauticaImages.db"/>
 </full-backup-content>

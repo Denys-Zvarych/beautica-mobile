@@ -40,6 +40,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -81,6 +82,10 @@ final class HttpWorkingHoursRepository implements WorkingHoursRepository {
   HttpWorkingHoursRepository({
     required MasterControllerApi masterApi,
     required String masterId,
+    // The constructor-level injectable clock seam's own default — mirrors
+    // clockProvider's production default; the provider wires clockProvider
+    // over this parameter (see working_hours_repository_provider.dart).
+    // instant-ok: injectable clock seam default, mirrors clockProvider
     DateTime Function() now = DateTime.now,
   }) : _masterApi = masterApi,
        _masterId = masterId,
@@ -238,14 +243,11 @@ final class HttpWorkingHoursRepository implements WorkingHoursRepository {
     return fa.compareTo(fb) > 0;
   }
 
-  /// "Today" as a date-only [DateTime] at local midnight. The mobile client
-  /// treats its already-local `DateTime.now()` as Kyiv civil time (consistent
-  /// with the schedule feature's date math) and strips the time-of-day so the
-  /// window comparison is purely date-based.
-  DateTime _todayKyiv() {
-    final now = _now();
-    return DateTime(now.year, now.month, now.day);
-  }
+  /// "Today" as a Kyiv-anchored date token (see `shared/time/kyiv_day.dart`),
+  /// so the window comparison in [_pickSchedule] agrees with the backend's
+  /// own `atStartOfDay(TimeZones.KYIV)` day boundary regardless of the
+  /// device's own zone.
+  DateTime _todayKyiv() => kyivDayOf(_now());
 
   void _logDio(String op, DioException e, StackTrace st) {
     if (kDebugMode) {

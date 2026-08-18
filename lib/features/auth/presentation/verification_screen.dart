@@ -482,18 +482,13 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       action = () => context.go(RouteNames.login);
     } else if (error is ValidationFailure) {
       // Post-OTP provider save (salon create / locality update) rejected one or
-      // more register step 2/3 fields. Surface the failed field name(s) + their
-      // messages instead of collapsing to the generic banner. The offending
-      // fields live on a previous step, so the user must go back and fix them.
+      // more register step 2/3 fields. Surface the failed field name(s)
+      // instead of collapsing to the generic banner — never the backend's raw
+      // per-field message (mobile-security, 2026-08 — see
+      // `buildFieldErrorBanner`'s doc). The offending fields live on a
+      // previous step, so the user must go back and fix them.
       final banner = buildFieldErrorBanner(error.fieldErrors, l10n);
-      if (banner != null) {
-        message = banner;
-      } else {
-        final serverMessage = error.serverMessage?.trim();
-        message = (serverMessage != null && serverMessage.isNotEmpty)
-            ? serverMessage
-            : l10n.errValidation;
-      }
+      message = banner ?? error.userMessage(context);
     } else if (error is UnimplementedError) {
       message = l10n.verificationServiceUnavailable;
     } else if (error is Failure) {

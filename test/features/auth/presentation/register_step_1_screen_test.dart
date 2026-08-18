@@ -43,6 +43,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,6 +94,7 @@ ProviderContainer _makeContainer({UserRole? role = UserRole.client}) {
   final repo = FakeAuthRepository();
   final storage = FakeSecureStorage();
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authRepositoryProvider.overrideWith((_) => repo),
       secureStorageProvider.overrideWith((_) => storage),
@@ -122,6 +124,7 @@ _makeContainerWithRepo({UserRole? role = UserRole.client}) {
   final repo = FakeAuthRepository();
   final storage = FakeSecureStorage();
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authRepositoryProvider.overrideWith((_) => repo),
       secureStorageProvider.overrideWith((_) => storage),

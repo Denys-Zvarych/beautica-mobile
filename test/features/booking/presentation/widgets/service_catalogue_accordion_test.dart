@@ -256,17 +256,27 @@ void main() {
       // what the widget renders regardless of device locale.
       // i18n-finder-ok: see the fixture-data note above (`_rowA.name`).
       expect(find.text('Класичний манікюр'), findsOneWidget);
+      // The price and duration render on a shared meta line
+      // (`_CatalogueServiceTileState._metaLine`, mobile-perf/mobile-security
+      // audit fix round 2, 2026-08-10) as a `Wrap` holding two independent
+      // `Text` widgets — each figure is its own plain `Text`, so an exact
+      // `find.text` would now match either one directly. `textContaining` is
+      // kept anyway (not a weaker match than `find.text` here — both figures
+      // are still asserted present, in the same tile) so this assertion
+      // stays correct regardless of which of the two render strategies
+      // (merged `Text.rich` vs. `Wrap` of plain `Text`s) the widget happens
+      // to use.
       // i18n-finder-ok: see the fixture-data note above (`_rowA.durationLabel`).
-      expect(find.text('1 год'), findsOneWidget);
+      expect(find.textContaining('1 год'), findsOneWidget);
       // i18n-finder-ok: see the fixture-data note above (`_rowA.priceLabel`).
-      expect(find.text('300 ₴'), findsOneWidget);
+      expect(find.textContaining('300 ₴'), findsOneWidget);
 
       // i18n-finder-ok: see the fixture-data note above (`_rowB.name`).
       expect(find.text('Педикюр'), findsOneWidget);
       // i18n-finder-ok: see the fixture-data note above (`_rowB.durationLabel`).
-      expect(find.text('2 год'), findsOneWidget);
+      expect(find.textContaining('2 год'), findsOneWidget);
       // i18n-finder-ok: see the fixture-data note above (`_rowB.priceLabel`).
-      expect(find.text('800 ₴'), findsOneWidget);
+      expect(find.textContaining('800 ₴'), findsOneWidget);
     });
 
     testWidgets('rows are absent while collapsed', (tester) async {

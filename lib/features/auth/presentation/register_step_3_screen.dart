@@ -54,6 +54,7 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/validators/building_validator.dart';
 import '../../../shared/validators/server_field_error_banner.dart';
 import '../../../shared/validators/locality_validator.dart';
@@ -332,23 +333,17 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         // Map a 400/422 ValidationFailure to a banner naming the failed
         // field(s) — the offending fields (firstName/lastName/phone/salonName)
         // live on step 2, so a generic snackbar gives the user no clue what to
-        // fix. Fall back to serverMessage, then the generic string, when the
-        // field map is empty.
+        // fix. The banner names the field(s) but never the backend's raw
+        // per-field message (mobile-security, 2026-08 — see
+        // `buildFieldErrorBanner`'s doc); falls back to the localized generic
+        // copy when the field map is empty.
         if (error is ValidationFailure) {
           final banner = buildFieldErrorBanner(error.fieldErrors, l10n);
-          if (banner != null) {
-            _showSnackBar(banner);
-          } else {
-            final serverMessage = error.serverMessage?.trim();
-            _showSnackBar(
-              (serverMessage != null && serverMessage.isNotEmpty)
-                  ? serverMessage
-                  : l10n.errValidation,
-            );
-          }
+          showErrorSnack(context, banner ?? error.userMessage(context));
           return;
         }
-        _showSnackBar(
+        showErrorSnack(
+          context,
           error is Failure ? error.userMessage(context) : l10n.errUnknown,
         );
         return;
@@ -431,22 +426,6 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         );
       }
     }
-  }
-
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          key: const Key('step3-snackbar'),
-          content: Text(message),
-          backgroundColor: BrandColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.field)),
-          ),
-        ),
-      );
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────

@@ -36,6 +36,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -75,6 +76,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// [appRouterProvider] without real network or storage I/O.
 ProviderContainer _makeContainer() {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(
         () => _FixedAuthNotifier(_authenticatedSession),
@@ -165,38 +167,14 @@ void main() {
         },
       );
 
-      // SB-2 — /services/create
-      test(
-        'SB-2: RouteNames.serviceCreate (/services/create) uses builder: not pageBuilder:',
-        () {
-          final route = _findRoute(
-            router.configuration.routes,
-            RouteNames.serviceCreate,
-          );
-          expect(
-            route,
-            isNotNull,
-            reason:
-                'RouteNames.serviceCreate (${RouteNames.serviceCreate}) must be '
-                'registered in appRouter',
-          );
-          expect(
-            route!.builder,
-            isNotNull,
-            reason:
-                '/services/create must use builder: for MaterialPage / '
-                'swipe-back support',
-          );
-          expect(
-            route.pageBuilder,
-            isNull,
-            reason:
-                '/services/create must NOT use pageBuilder: — would suppress '
-                'the swipe-back gesture',
-          );
-        },
-      );
-
+      // SB-2 — /services/create was RETIRED (2026-08-04). The single-create
+      // form (ServiceCreateScreen) was deleted and both "add services" entry
+      // points collapsed onto /services/setup, so the route and the
+      // RouteNames.serviceCreate constant are gone. The swipe-back guarantee
+      // this case protected did not need re-homing: SB-3 below already pins
+      // exactly the same contract on /services/setup, which is now the sole
+      // pushed add-service leaf.
+      //
       // SB-3 — /services/setup
       test(
         'SB-3: RouteNames.serviceSetup (/services/setup) uses builder: not pageBuilder:',

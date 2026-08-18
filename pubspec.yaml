@@ -42,8 +42,12 @@ dependencies:
   google_fonts: ^8.1.0
 
   # Models / serialization — freezed + json_serializable codegen.
-  # Upgraded to ^3.0.0 in Phase 1.4 to align with custom_lint ^0.8.x which
-  # requires freezed_annotation ^3; the ^2.x constraint broke build_runner.
+  # Upgraded to ^3.0.0 in Phase 1.4 to align with the then-present
+  # custom_lint ^0.8.x, which required freezed_annotation ^3 (the ^2.x
+  # constraint broke build_runner). custom_lint was removed 2026-08-18 (see
+  # the lints block below), but the ^3.0.0 floor is kept deliberately: it is
+  # the version freezed's own current codegen targets, and nothing here
+  # wants a downgrade.
   freezed_annotation: ^3.0.0
   json_annotation: ^4.9.0
 
@@ -148,6 +152,29 @@ dependencies:
   timezone: ^0.11.1
   material_symbols_icons: ^4.2951.0
 
+  # Shared disk-cached, TLS-controlled media image loader (lib/core/media/).
+  # Backs `beauticaImageCacheManager` / `beauticaMediaProvider` / `RemoteImage`
+  # — a single home for the R2 public-media fetch path with an injected
+  # `dart:io HttpClient` (system trust store, bounded per-host concurrency,
+  # explicit connection/idle timeouts) sitting beneath cached_network_image's
+  # own request queue. See lib/core/media/beautica_image.dart's ADR header for
+  # WHY the media path uses SecurityContext.defaultContext rather than the
+  # pinned dio_provider context (deliberate divergence, not an oversight).
+  cached_network_image: ^3.4.1
+
+  # Direct-imported by lib/core/media/beautica_image.dart (CacheManager, Config,
+  # HttpFileService, BaseCacheManager) and the injected IOClient. These are NOT
+  # pre-existing deps: cached_network_image above is itself new, and it drags in
+  # a fresh transitive closure — flutter_cache_manager plus sqflite (×5 packages:
+  # sqflite, sqflite_common, sqflite_android/darwin, sqflite_platform_interface),
+  # octo_image, synchronized, and the cached_network_image_platform_interface /
+  # _web interfaces. sqflite in particular is a NATIVE plugin, newly added for the
+  # disk cache's metadata store. flutter_cache_manager and http are pinned here
+  # (not just left transitive) because `depend_on_referenced_packages` requires a
+  # direct import to be a declared direct dependency.
+  flutter_cache_manager: ^3.4.1
+  http: ^1.6.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -165,6 +192,13 @@ dev_dependencies:
   # golden_toolkit removed 2026-05-26 — discontinued on pub.dev; was declared but never imported.
   # When golden tests are needed, use Flutter's built-in matchesGoldenFile or the alchemist package.
   mocktail: ^1.0.4
+
+  # In-memory filesystem for the shared media-loader tests: FakeMediaCacheManager
+  # yields a FileInfo backed by a MemoryFileSystem file so the "loaded" state
+  # decodes real bytes without touching disk. Already a transitive dep of
+  # flutter_cache_manager; declared here only for the direct import in
+  # test/helpers/fake_media_cache.dart.
+  file: ^7.0.1
   network_image_mock: ^2.1.1
 
   # Declared so widget tests can swap UrlLauncherPlatform.instance for a mock
@@ -203,15 +237,86 @@ dev_dependencies:
   # aggregator.
   patrol: ^4.7.1
 
-  # Lints — flutter_lints + riverpod_lint via custom_lint.
-  # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the
-  # analyzer_plugin 0.12.0 vs analyzer 7.6.0 incompatibility that prevented
-  # build_runner from compiling the build script. Both custom_lint and
-  # custom_lint_builder must be pinned to the same minor version.
+  # Lints — flutter_lints only.
+  #
+  # `custom_lint` / `custom_lint_builder` / `riverpod_lint` were all removed
+  # 2026-08-18. Two separate findings, recorded here so neither is
+  # re-litigated:
+  #
+  # 1. THE custom_lint HOST WAS DEAD, AND GREEN.
+  #    * `custom_lint` was ARCHIVED upstream on 2026-03-24; its README now
+  #      points users at `analysis_server_plugin`.
+  #    * `riverpod_lint` 3.1.0 LEFT it — changelog 2025-12-26: "riverpod_lint
+  #      is no-longer implemented using `custom_lint`, but instead
+  #      `analysis_server_plugin`". Its pubspec carries no
+  #      `custom_lint_builder` dependency at all.
+  #    * Net effect: `dart run custom_lint` loaded ZERO plugins and still
+  #      exited 0. Falsified — a probe violating three riverpod_lint rules at
+  #      once produced `No issues found!` / exit 0 / `{"diagnostics":[]}`.
+  #      The CI step citing it was pure theatre and has been deleted.
+  #
+  # 2. RE-HOMING riverpod_lint ON THE NATIVE PLUGIN PATH WAS ATTEMPTED, AND
+  #    ABANDONED. It is not that it failed to work — it worked too well to
+  #    be adoptable. With `riverpod_lint: 3.1.0` plus the
+  #    `analyzer: plugins:` + top-level `plugins:` blocks its README
+  #    specifies, `flutter analyze` DID report the rules by name (verified
+  #    against a planted probe: `avoid_public_notifier_properties` and
+  #    `missing_provider_scope` both fired). It surfaced 33 pre-existing
+  #    findings across two rules — and NOTHING CAN SUPPRESS THEM. All four
+  #    escape hatches were tested on this toolchain and all four are inert
+  #    against analysis_server_plugin diagnostics:
+  #        // ignore: <rule>                        -> no effect
+  #        // ignore_for_file: <rule>               -> no effect
+  #        analyzer: errors: {<rule>: ignore}       -> unrecognized_error_code
+  #        linter:  rules:  {<rule>: false}         -> no effect
+  #    CI runs `flutter analyze --fatal-infos --fatal-warnings`, so adopting
+  #    it would mean a permanently red gate unless all 33 are really fixed.
+  #    21 of them require adding `dependencies: [...]` to production
+  #    `@Riverpod(...)` annotations — a change to Riverpod SCOPING SEMANTICS
+  #    needing its own review — and 2 are the locked HIGH-1 auth-token
+  #    architecture in auth_notifier.dart. No deliberate exception could ever
+  #    be annotated. That is an unworkable gate, not a strict one.
+  #
+  #    The fix upstream (working suppression) lives in newer
+  #    analysis_server_plugin, but `analysis_server_plugin >=0.3.20` requires
+  #    `analyzer 14.1.0`, which collides with the DIRECT `analyzer: ^8.4.0`
+  #    dev-dependency below that
+  #    lib/core/lints/no_raw_ui_strings_checker.dart and
+  #    tool/lints/no_raw_ui_strings.dart are built against. Verified:
+  #    "Because analysis_server_plugin >=0.3.20 depends on analyzer 14.1.0
+  #    and beautica_mobile depends on analyzer ^8.4.0, ... version solving
+  #    failed."
+  #
+  #    REVISIT WHEN: the analyzer pin below can move to ^13/^14 (i.e. the
+  #    no_raw_ui_strings checker is ported to the newer analyzer AST API).
+  #    At that point adopt `riverpod_lint` >=3.1.8 together with
+  #    `analysis_server_plugin` >=0.3.20 and re-check that `// ignore:`
+  #    actually suppresses before wiring it into a blocking gate.
   flutter_lints: ^6.0.0
-  custom_lint: ^0.8.1
-  custom_lint_builder: ^0.8.1
-  riverpod_lint: ^3.1.0
+
+  # Analyzer — a DIRECT dev-dependency, not a transitive accident. Two
+  # first-party dev-side consumers import its AST API:
+  #   - lib/core/lints/no_raw_ui_strings_checker.dart (the pure checker)
+  #   - tool/lints/no_raw_ui_strings.dart             (the CLI host)
+  # Both were previously riding on a transitive resolution; now the version
+  # is declared rather than inherited by accident.
+  #
+  # The checker still carries `// ignore_for_file:
+  # depend_on_referenced_packages`, and MUST: that lint counts only regular
+  # `dependencies`, and the file lives under `lib/`. Promoting analyzer to a
+  # regular dependency to silence it would ship the whole analyzer package
+  # into the app's dependency graph to appease a cosmetic info — the wrong
+  # trade. The checker is dev-side tooling that no runtime code imports
+  # (verified: its only importers are `test/core/lints/` and
+  # `tool/lints/`); it stays in `lib/` only so the test can reach it by
+  # `package:` URI.
+  #
+  # Caret-pinned on the MAJOR resolved in
+  # pubspec.lock (8.4.0) — the checker walks `CompilationUnit` /
+  # `SimpleStringLiteral` / `constructorName.type.name`, whose shapes move
+  # across analyzer majors, so an unbounded constraint would silently break
+  # the gate rather than fail resolution.
+  analyzer: ^8.4.0
 
   # Launcher icon generator — runs at build prep time only (Phase 2.14).
   # Generates Android mipmap-*/launcher_icon.png, adaptive-icon XML, themed

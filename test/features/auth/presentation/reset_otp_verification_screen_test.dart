@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const _kEmail = 'anya@example.com';
 
@@ -79,6 +80,7 @@ Future<void> _pump(
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
+      retry: beauticaProviderRetry,
       child: MaterialApp.router(
         routerConfig: router,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -282,6 +284,7 @@ void main() {
       addTearDown(router.dispose);
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           child: MaterialApp.router(
             routerConfig: router,
             localizationsDelegates: AppLocalizations.localizationsDelegates,

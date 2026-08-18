@@ -89,9 +89,12 @@ Booking _booking({required int durationMinutes}) {
 /// private implementation detail, and a test that silently followed a change
 /// to it would stop pinning the pairing this file exists for.
 double _floorFor(int durationMinutes) {
-  const double hourHeight = 112; // `BookingsTimelineGrid._kHourH`
+  const double hourHeight = 120; // `BookingsTimelineGrid._kHourH` (ADDENDUM 8)
   final double proportional = durationMinutes / 60.0 * hourHeight;
-  return proportional > hourHeight / 2 ? proportional : hourHeight / 2;
+  // Floored at the MICRO layout's natural height, DECOUPLED from the
+  // 30-minute gridline slot — mirrors production `_cardMinHeightFor`.
+  const double floor = MasterBookingCard.microLayoutNaturalHeight;
+  return proportional > floor ? proportional : floor;
 }
 
 /// The card's REAL rendered box height at [floor].
@@ -131,26 +134,61 @@ void main() {
     'MasterBookingCard.occupiedHeightFor predicts the rendered box exactly',
     () {
       // Every duration the timeline can realistically hand a card, chosen to
-      // straddle the compact/full switch rather than to sample evenly:
+      // straddle BOTH switches.
       //
-      //   10  — under the 30-minute slot floor, so floor == 56 == natural
-      //   30  — the floor lands exactly on the compact natural (56)
-      //   45  — floor 84 clears the compact natural, still compact
-      //   59  — floor 110.1, the last duration BELOW the full-layout switch
-      //   60  — floor 112 == fullLayoutMinHeight, natural 117: THE BUG
-      //   61  — floor 113.9, still under the 117 natural
-      //   63  — floor 117.6, the first duration whose floor CLEARS the
-      //         natural, so the two branches swap over
-      //   90  — floor 168, comfortably content-independent
-      //   120 — floor 224, the long tail
+      // FONT-SIZE PASS (2026-08-15) — the naturals this sweep straddles all
+      // moved (`estimatedNaturalHeight` 56 -> 54, `fullLayoutNaturalHeight`
+      // 118 -> 115; see `master_booking_card.dart`'s doc for both). The
+      // per-row comments below are updated to match. NOTE what did NOT need
+      // to change: this whole group's assertions compare
+      // `MasterBookingCard.occupiedHeightFor(floor)` against the REAL
+      // rendered card, both computed from the CURRENT constants at test-run
+      // time — so the sweep is self-consistent by construction and would
+      // have passed even with stale comments. The comments are informative
+      // documentation, not a second source of truth the assertions depend on.
+      //
+      // At ADDENDUM 8's 120dp/hour the micro/compact boundary is now 54dp
+      // (duration 27min, was 56dp/28min) and the compact/full boundary is now
+      // 115dp (duration 57.5min — an ODD number of dp, so unlike the old
+      // 118dp threshold, no WHOLE-minute duration lands exactly on it; the
+      // nearest points are 57min/114dp COMPACT and 58min/116dp FULL, 1dp
+      // clear):
+      //
+      //   5   — 10dp proportional, floored at the 27dp micro natural; MICRO,
+      //         and the one row where the floor is BELOW the natural, so
+      //         occupiedHeightFor genuinely raises it
+      //   10  — 20dp proportional, floored at 27; MICRO, same non-echo branch
+      //   13  — 26dp proportional, floored at 27; the LONGEST duration the
+      //         floor still raises, one minute under the break-even
+      //   14  — 28dp proportional, now 1dp ABOVE the 27dp floor (was exactly
+      //         AT the 28dp floor pre-pass) — no longer the break-even row,
+      //         kept in the sweep as an ordinary MICRO case
+      //   15  — floor 30 (15/60*120), clears the micro natural; MICRO
+      //   28  — floor 56, now 2dp PAST the micro/compact boundary (was
+      //         exactly on it pre-pass); COMPACT
+      //   30  — floor 60, COMPACT (60 < 115)
+      //   45  — floor 90, COMPACT — this flipped back from full when the
+      //         scale came down from 168; see `_kFullLayoutMinHeight`'s doc
+      //   58  — floor 116, now the FIRST duration in this sweep to clear the
+      //         full switch (was one step BELOW it pre-pass) — FULL, 1dp
+      //         clearance over the 115dp natural
+      //   59  — floor 118, FULL, 3dp clearance (was EXACTLY the switch,
+      //         zero clearance, before the 2026-08-15 pass)
+      //   60  — floor 120, FULL; lands exactly on its end-time line
+      //   90  — floor 180, comfortably content-independent
+      //   120 — floor 240, the long tail
       for (final int durationMinutes in <int>[
+        5,
         10,
+        13,
+        14,
+        15,
+        28,
         30,
         45,
+        58,
         59,
         60,
-        61,
-        63,
         90,
         120,
       ]) {
@@ -180,39 +218,50 @@ void main() {
         });
       }
 
-      // The 60-minute case is the one that actually shipped broken, so it
-      // gets an assertion that cannot pass by coincidence: the prediction
-      // must be STRICTLY above the floor, i.e. it really is reading the full
-      // layout's natural height rather than echoing its input back.
+      // occupiedHeightFor must GENUINELY read the selected layout's natural
+      // height, not echo its input. The 5- and 10-minute rows of the sweep
+      // above already exercise that branch in production terms (their floors
+      // sit below the 28dp micro natural), which is itself the ADDENDUM 8
+      // correction: at the retired 168dp scale EVERY real floor exceeded its
+      // natural, the function was a mathematical no-op, and the only proof it
+      // was not came from an artificial fixture. The artificial case is kept
+      // as the WIDE version of the same property — a floor far below every
+      // layout — so the branch stays pinned even if a future scale lifts the
+      // real durations back above their naturals.
       testWidgets(
-        'the 60-minute case is a genuine overshoot, not an echo of the floor',
+        'occupiedHeightFor reads the natural, not the floor: a 12dp floor '
+        'still predicts (and renders) the 28dp micro natural',
         (WidgetTester tester) async {
-          final double floor = _floorFor(60);
+          const double floor = 12; // far below microLayoutNaturalHeight
           expect(
             floor,
-            closeTo(MasterBookingCard.fullLayoutMinHeight, 0.01),
+            lessThan(MasterBookingCard.microLayoutNaturalHeight),
             reason:
-                'fixture guard: a 60-minute booking must land exactly on the '
-                'full-layout switch, or this case is not the regression',
+                'fixture guard: this floor must sit below the SHORTEST layout '
+                'natural or the branch under test is not exercised',
           );
 
           final double rendered = await _renderedHeight(
             tester,
-            durationMinutes: 60,
+            durationMinutes: 30,
             floor: floor,
             laneWidth: 272,
           );
           expect(
             rendered,
-            greaterThan(floor),
+            closeTo(MasterBookingCard.microLayoutNaturalHeight, 0.5),
             reason:
-                'the full layout no longer overshoots its own floor, so the '
-                'ADDENDUM 5 regression cannot reproduce and the sweep above '
-                'proves nothing. Re-derive fullLayoutNaturalHeight.',
+                'the card must grow past a sub-natural floor to its own 28dp '
+                'content (no clipping) — if it renders at 12dp the class-doc '
+                'floor-not-ceiling contract is broken.',
           );
           expect(
             MasterBookingCard.occupiedHeightFor(floor),
-            closeTo(rendered, 0.01),
+            closeTo(rendered, 0.5),
+            reason:
+                'occupiedHeightFor echoed the 12dp floor instead of predicting '
+                'the 28dp natural — the culling placeholder would under-'
+                'reserve and every card below would slide off its gridline.',
           );
         },
       );
@@ -249,6 +298,16 @@ void main() {
         'above textScaler 1.0 the prediction is deliberately WRONG — which is '
         'why BookingsTimelineGrid only ever culls BELOW the visible window',
         (WidgetTester tester) async {
+          // A 60-minute booking, and the duration matters. The floor has to
+          // sit BETWEEN the selected layout's 1.0 natural and its 1.3 natural,
+          // or the content cannot grow past the floor at 1.3 and the
+          // prediction holds by coincidence instead of being wrong. At
+          // ADDENDUM 8's 120dp scale that window is the FULL layout's
+          // 118 (@1.0) → 132 (@1.3), and a 60-minute floor is 120dp — inside
+          // it. (This used to be 45 minutes for the same reason at the 168dp
+          // scale, where a 45-minute floor was 126dp; at 120 a 45-minute floor
+          // is 90dp and selects the compact layout, whose 1.3 natural is only
+          // 65dp — the test would have silently stopped testing anything.)
           final double floor = _floorFor(60);
           final double rendered = await _renderedHeight(
             tester,

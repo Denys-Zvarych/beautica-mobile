@@ -1,0 +1,389 @@
+// Track 27.x Wave A — E2E: the PROVIDER footer's decline/complete round trip.
+//
+// WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
+// --------------------------------------------------------------
+// `booking_detail_provider_footer_test.dart` (widget tier) proves the footer
+// content per status/`hasStarted`, that the decline/complete dialogs wire to
+// `BookingRepository.declineBooking`/`completeBooking`, that a 409 surfaces
+// the friendly message, and that a successful write invalidates an
+// actively-watched `bookingsDayProvider` family member — but it does all of
+// that against a MOCKED `BookingRepository`. Two links of the real chain sit
+// entirely outside a mocked-repository test's reach:
+//
+//   * `HttpBookingRepository.declineBooking` builds a real
+//     `StatusUpdateRequest` (`cancellationReason` enum + optional `comment`)
+//     and serialises it through the generated `built_value` client before it
+//     ever reaches the mock boundary. A mocked repository proves the DART
+//     call site is right; it cannot prove the WIRE body is — a wrong wire
+//     name or enum value would still satisfy every widget-tier `verify(...)`
+//     while breaking against the real backend.
+//   * The status change has to actually PERSIST server-side and be visible on
+//     a subsequent real `GET` — not merely update an in-memory `Booking` the
+//     mock happened to be told to return.
+//
+// This flow drives both PROVIDER write paths — decline and complete — through
+// a real login, a real `BookingDetailScreen` reached via `router.push` (the
+// established idiom for reaching a child route whose OWN navigation is
+// already proven elsewhere — see `master_bookings_flow_test.dart`'s rail →
+// card → detail journey; re-deriving that lazy-rail scroll here would just
+// re-prove navigation this file is not about), a real `PATCH
+// /bookings/{id}/decline|complete` against `FakeBackend`, and a real
+// subsequent `GET` that must reflect the new terminal status. It also
+// establishes a REAL (unmocked) subscription to `bookingsDayProvider` for the
+// booking's own day BEFORE acting — mirroring the widget test's own
+// container-subscription technique, but here proving the invalidation reaches
+// the real `HttpBookingRepository` → real `Dio` → `FakeBackend` chain, not a
+// mock that was simply told to return a value.
+//
+// Decline is proven on BOTH a not-yet-started AND an underway/elapsed
+// CONFIRMED booking — the backend allows a provider decline at any time, so a
+// client no-show is recorded as a decline with a free-text reason rather than
+// a separate no-show action.
+//
+// KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears
+// nowhere in this file — every assertion is by key or call count.
+
+import 'dart:async';
+
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:integration_test/integration_test.dart';
+
+import '../test/helpers/overflow_guard.dart';
+import 'support/app_harness.dart';
+
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(installOverflowGuard);
+  tearDown(AppHarness.tearDownHarness);
+
+  /// Pushes the PROVIDER detail route for the seeded `booking-1` and
+  /// establishes an ACTIVE watcher on `bookingsDayProvider` for the booking's
+  /// own day — the real (unmocked) counterpart of what
+  /// `bookings_discovery_view.dart` watches underneath the pushed detail
+  /// screen in the real app, and what `booking_detail_provider_footer_test`
+  /// proves against a mock. Returns the day's initial `getMyBookingsCalls`
+  /// count so a test can assert a NEW fetch fired after its write.
+  Future<int> openDetailWithActiveDayWatch(
+    WidgetTester tester,
+    GoRouter router,
+    FakeBackend fb,
+  ) async {
+    unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+    final BookingsDayQuery dayQuery = BookingsDayQuery.of(
+      day: DateTime.parse(fb.bookingStartsAt),
+    );
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(BookingDetailScreen)),
+    );
+    final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+        .listen(bookingsDayProvider(dayQuery), (_, _) {});
+    addTearDown(sub.close);
+    await container.read(bookingsDayProvider(dayQuery).future);
+
+    return fb.getMyBookingsCalls;
+  }
+
+  testWidgets(
+    'PROVIDER declines a CONFIRMED, not-yet-started booking → the real '
+    'StatusUpdateRequest reaches FakeBackend, the status persists across a '
+    'real re-fetch (footer goes terminal), and the actively-watched day-list '
+    'refetches for real',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Default seed is CONFIRMED, ~7 real days out — `hasStarted` is false,
+      // so the footer must offer reschedule + decline, never complete.
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      final int callsBeforeAct = await openDetailWithActiveDayWatch(
+        tester,
+        router,
+        fb,
+      );
+
+      expect(
+        find.byKey(const Key('booking-detail-decline')),
+        findsOneWidget,
+        reason: 'CONFIRMED + not started must offer decline',
+      );
+      expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('booking-detail-decline')));
+      await AppHarness.settle(tester);
+      expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Client rescheduled elsewhere.',
+      );
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+      await AppHarness.settle(tester);
+
+      // [AppHarness.settle] can return in the lull between the PATCH
+      // resolving and the follow-up GET landing (see [pumpUntilGone]'s doc) —
+      // wait for the pre-write decline button to genuinely leave the tree
+      // before asserting the terminal state below.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-decline')),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('decline-booking-dialog')), findsNothing);
+
+      // ── The REAL wire body — not a Dart-level mock argument. ──────────────
+      expect(
+        fb.declineBookingCalls,
+        1,
+        reason:
+            'exactly one PATCH /bookings/booking-1/decline must reach '
+            'the fake',
+      );
+      expect(fb.lastDeclineComment, 'Client rescheduled elsewhere.');
+      expect(fb.lastDeclineCancellationReason, 'PROVIDER_UNAVAILABLE');
+
+      // ── The status PERSISTS across a real re-fetch: the footer, driven by
+      //      `bookingDetailProvider`'s invalidation, goes fully terminal. ────
+      expect(
+        find.byKey(const Key('booking-detail-decline')),
+        findsNothing,
+        reason: 'a DECLINED booking must not still offer decline',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-provider-reschedule')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+
+      // ── The actively-watched day-list refetched for real, through the
+      //      REAL repository → REAL Dio → FakeBackend — not a mock told to
+      //      report an invocation. ─────────────────────────────────────────
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(callsBeforeAct),
+        reason:
+            'a successful decline must invalidate the booking day\'s '
+            'actively-watched bookingsDayProvider member, issuing a new real '
+            'GET /bookings/me',
+      );
+    },
+  );
+
+  testWidgets(
+    'PROVIDER completes an underway CONFIRMED booking → the real PATCH '
+    '/complete reaches FakeBackend, the status persists across a real '
+    're-fetch (footer goes terminal), and the actively-watched day-list '
+    'refetches for real',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Wide, wall-clock-safe "underway" window — started well in the past,
+      // ends well in the future, so `hasStarted` is deterministically true and
+      // `isPast` deterministically false regardless of how long this test
+      // takes to run on a real device.
+      // The window is anchored to the HARNESS'S INJECTED CLOCK ([kFixedNow] —
+      // the same instant `AppHarness` overrides `clockProvider` to), NOT the
+      // device clock it used to track. Since the 2026-08-17 CRITICAL fix the
+      // provider footer's start-time gate reads
+      // `Booking.hasStartedAt(ref.watch(clockProvider)())` instead of the
+      // device-clock `Booking.hasStarted` getter, so the FIXTURE clock and the
+      // APP clock must be the SAME clock (test-clock coherence invariant). A
+      // `DateTime.now()`-anchored window — what this used to be, correctly, on
+      // the old gate — sits far AFTER `kFixedNow` and would read as
+      // not-yet-started, hiding «Завершити» entirely. Both-pinned is now the
+      // only coherent form, and it removes the last wall-clock race here:
+      // started an hour before the app's "now", ending three hours after it.
+      // `isPast` (still device-clock, still `instant-ok`) does not gate the
+      // PROVIDER footer at all — `_providerActions` returns before every
+      // `isPast` branch — so leaving it out of this pinning changes nothing.
+      final DateTime start = kFixedNow.subtract(const Duration(hours: 1));
+      final DateTime end = start.add(const Duration(hours: 4));
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = end.toIso8601String();
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      final int callsBeforeAct = await openDetailWithActiveDayWatch(
+        tester,
+        router,
+        fb,
+      );
+
+      expect(
+        find.byKey(const Key('booking-detail-complete')),
+        findsOneWidget,
+        reason: 'an underway CONFIRMED booking must offer complete',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-decline')),
+        findsOneWidget,
+        reason:
+            'decline stays offered on an underway booking too — the backend '
+            'allows a provider decline at any time',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-provider-reschedule')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const Key('booking-detail-complete')));
+      await AppHarness.settle(tester);
+      expect(find.byKey(const Key('complete-booking-dialog')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await AppHarness.settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('complete-booking-dialog')), findsNothing);
+
+      // ── The REAL wire round trip — no body expected, just the PATCH. ──────
+      expect(
+        fb.completeBookingCalls,
+        1,
+        reason:
+            'exactly one PATCH /bookings/booking-1/complete must reach '
+            'the fake',
+      );
+
+      // ── The status PERSISTS across a real re-fetch: terminal footer. ──────
+      expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+
+      // ── The actively-watched day-list refetched for real. ─────────────────
+      expect(
+        fb.getMyBookingsCalls,
+        greaterThan(callsBeforeAct),
+        reason:
+            'a successful complete must invalidate the booking day\'s '
+            'actively-watched bookingsDayProvider member, issuing a new real '
+            'GET /bookings/me',
+      );
+    },
+  );
+
+  testWidgets('PROVIDER declines an elapsed CONFIRMED booking → the real '
+      'StatusUpdateRequest still reaches FakeBackend (the backend allows a '
+      'provider decline at any time), the status persists across a real '
+      're-fetch (footer goes terminal), and the actively-watched day-list '
+      'refetches for real', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+    // Same wide, wall-clock-safe "underway/elapsed" window as the complete
+    // test above — `hasStarted` deterministically true.
+    // The window is anchored to the HARNESS'S INJECTED CLOCK ([kFixedNow] —
+    // the same instant `AppHarness` overrides `clockProvider` to), NOT the
+    // device clock it used to track. Since the 2026-08-17 CRITICAL fix the
+    // provider footer's start-time gate reads
+    // `Booking.hasStartedAt(ref.watch(clockProvider)())` instead of the
+    // device-clock `Booking.hasStarted` getter, so the FIXTURE clock and the
+    // APP clock must be the SAME clock (test-clock coherence invariant). A
+    // `DateTime.now()`-anchored window — what this used to be, correctly, on
+    // the old gate — sits far AFTER `kFixedNow` and would read as
+    // not-yet-started, hiding «Завершити» entirely. Both-pinned is now the
+    // only coherent form, and it removes the last wall-clock race here:
+    // started an hour before the app's "now", ending three hours after it.
+    // `isPast` (still device-clock, still `instant-ok`) does not gate the
+    // PROVIDER footer at all — `_providerActions` returns before every
+    // `isPast` branch — so leaving it out of this pinning changes nothing.
+    final DateTime start = kFixedNow.subtract(const Duration(hours: 1));
+    final DateTime end = start.add(const Duration(hours: 4));
+    fb.bookingStartsAt = start.toIso8601String();
+    fb.bookingEndsAt = end.toIso8601String();
+
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+    final int callsBeforeAct = await openDetailWithActiveDayWatch(
+      tester,
+      router,
+      fb,
+    );
+
+    expect(
+      find.byKey(const Key('booking-detail-complete')),
+      findsOneWidget,
+      reason: 'an elapsed CONFIRMED booking must offer complete',
+    );
+    expect(
+      find.byKey(const Key('booking-detail-decline')),
+      findsOneWidget,
+      reason:
+          'decline must ALSO be offered on an elapsed booking — the '
+          'backend allows a provider decline at any time; a client no-show '
+          'is recorded as a decline with a free-text reason',
+    );
+    expect(
+      find.byKey(const Key('booking-detail-provider-reschedule')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('booking-detail-decline')));
+    await AppHarness.settle(tester);
+    expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('cancel-booking-note-field')),
+      'Client never arrived, could not reach them.',
+    );
+    await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+    await AppHarness.settle(tester);
+
+    // [AppHarness.settle] can return in the lull between the PATCH
+    // resolving and the follow-up GET landing (see [pumpUntilGone]'s doc) —
+    // wait for the pre-write decline button to genuinely leave the tree
+    // before asserting the terminal state below.
+    await AppHarness.pumpUntilGone(
+      tester,
+      find.byKey(const Key('booking-detail-decline')),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('decline-booking-dialog')), findsNothing);
+
+    // ── The REAL wire body — not a Dart-level mock argument. ──────────────
+    expect(
+      fb.declineBookingCalls,
+      1,
+      reason:
+          'exactly one PATCH /bookings/booking-1/decline must reach '
+          'the fake',
+    );
+    expect(
+      fb.lastDeclineComment,
+      'Client never arrived, could not reach them.',
+    );
+    expect(fb.lastDeclineCancellationReason, 'PROVIDER_UNAVAILABLE');
+
+    // ── The status PERSISTS across a real re-fetch: the footer, driven by
+    //      `bookingDetailProvider`'s invalidation, goes fully terminal. ────
+    expect(
+      find.byKey(const Key('booking-detail-decline')),
+      findsNothing,
+      reason: 'a DECLINED booking must not still offer decline',
+    );
+    expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+
+    // ── The actively-watched day-list refetched for real, through the
+    //      REAL repository → REAL Dio → FakeBackend — not a mock told to
+    //      report an invocation. ─────────────────────────────────────────
+    expect(
+      fb.getMyBookingsCalls,
+      greaterThan(callsBeforeAct),
+      reason:
+          'a successful decline must invalidate the booking day\'s '
+          'actively-watched bookingsDayProvider member, issuing a new real '
+          'GET /bookings/me',
+    );
+  });
+}

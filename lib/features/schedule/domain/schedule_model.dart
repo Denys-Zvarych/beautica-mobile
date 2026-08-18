@@ -11,60 +11,42 @@
 // (returned from pure functions, never passed to a widget arg), so they are
 // outside the `no_raw_ui_strings` lint surface.
 //
-// WIRE-LAYER NOTE: the window+breaks split is a PRESENTATION affordance handled
-// entirely inside this model (`DayHours.fromIntervals`/`toIntervals`). The data
-// layer (`schedule_mapper.dart`) only ever sees `List<WorkInterval>`, exactly
-// like the backend. Never move break logic into the wire layer.
+// WIRE-LAYER NOTE (superseded 2026-07-27 for the WINDOW only): break RANGES stay
+// a presentation affordance derived here (`DayHours.fromIntervals` /
+// `toIntervals`) — never serialise a break list, and never re-derive breaks in
+// the wire layer. The working WINDOW, however, is now genuinely persisted: the
+// backend stores `windowStart`/`windowEnd` on the weekly-template day, the
+// per-date override and the effective day as DISPLAY-ONLY metadata (intervals
+// remain the sole canonical availability; no backend availability path reads
+// the window). So `schedule_mapper.dart` legitimately carries the window across
+// the boundary — it is a stored field, not reconstructed break logic. Breaks are
+// still computed here, from `window MINUS intervals`.
 
 import 'package:flutter/material.dart';
+
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 
 // Phase 7.7 — the nominative month table moved to `shared/formatters/` when the
 // range calendar was promoted to `shared/widgets/` and gained a second (booking)
 // caller. Re-exported so every existing `monthNominative(...)` call site in the
 // schedule feature keeps resolving through this file unchanged.
-export 'package:beautica_mobile/shared/formatters/month_names.dart'
+//
+// Phase 23.2 — retargeted at the canonical `uk_calendar.dart` module (the
+// former single-purpose name-table file it pointed at is now retired); the
+// export itself stays so no call site needs to change.
+export 'package:beautica_mobile/shared/formatters/uk_calendar.dart'
     show monthNominative;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Calendar / time formatting helpers (Ukrainian).
-// Shared verbatim with the TimeOffScreen preview's month tables so the two
-// screens speak the same calendar language.
+//
+// Phase 23.2 — the two local month-name tables this file used to carry are
+// retired in favour of the canonical `uk_calendar.dart` module (track 23);
+// the function below preserves its exact pre-migration output.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const List<String> _monthsShort = <String>[
-  'СІЧ',
-  'ЛЮТ',
-  'БЕР',
-  'КВІ',
-  'ТРА',
-  'ЧЕР',
-  'ЛИП',
-  'СЕР',
-  'ВЕР',
-  'ЖОВ',
-  'ЛИС',
-  'ГРУ',
-];
-
-const List<String> _monthsGenitive = <String>[
-  'січня',
-  'лютого',
-  'березня',
-  'квітня',
-  'травня',
-  'червня',
-  'липня',
-  'серпня',
-  'вересня',
-  'жовтня',
-  'листопада',
-  'грудня',
-];
-
-String monthShort(int month) => _monthsShort[month - 1];
-
 /// Long human date — e.g. "29 травня".
-String formatDay(DateTime d) => '${d.day} ${_monthsGenitive[d.month - 1]}';
+String formatDay(DateTime d) => '${d.day} ${monthGenitive(d.month)}';
 
 /// `HH:MM` with zero padding.
 String formatTime(TimeOfDay t) =>
@@ -181,14 +163,31 @@ bool intervalsValid(List<WorkInterval> intervals) =>
 //     WorkInterval for each gap between the previous cursor and the next break
 //     start, then jump the cursor past the break end; a trailing WorkInterval
 //     covers window-end. Zero breaks ⇒ a single [window.start, window.end].
-//   • fromIntervals: the window is [firstStart, lastEnd]; each GAP between two
-//     consecutive intervals becomes a break range. This is exactly the inverse,
-//     so a load→edit→save cycle is lossless for any template the old multi-
-//     interval editor could produce.
+//   • fromIntervals: has TWO regimes, decided by whether a stored window came
+//     back from the wire.
 //
-// So on the backend port nothing changes: the wire shape is still a list of
-// {startTime,endTime} working intervals per day. The window+breaks split is a
-// pure client-side affordance.
+// REGIME 1 — WINDOW PRESENT (the current backend contract). The stored
+// `windowStart`/`windowEnd` IS the outer від–до, and
+//
+//     breaks  =  window  MINUS  intervals
+//
+// recovers EVERY break in one pass: interior breaks, a break flush against the
+// window start, one flush against the end, or both. The round-trip is then
+// GENUINELY LOSSLESS — saving window 09:00–18:00 with a 09:00–10:00 break stores
+// intervals `[10:00–18:00]` PLUS window `09:00–18:00`, and reopening shows the
+// window 09:00–18:00 with the 09:00–10:00 break still rendered as a break.
+//
+// REGIME 2 — WINDOW ABSENT (`null`). Every pre-window row hits this legacy path,
+// and its behaviour is unchanged: the window is [firstStart, lastEnd] and each
+// GAP between two consecutive intervals becomes a break. That regime is lossless
+// in AVAILABILITY but NORMALIZING for edge-flush breaks — an edge-flush break
+// leaves no gap to reconstruct, so `[10:00–18:00]` reads back as the window
+// 10:00–18:00 with zero breaks. The presentation differs; the bookable time does
+// not, which is why the legacy encoding was never wrong, only lossy on display.
+//
+// The wire shape is still the list of {startTime,endTime} working intervals that
+// alone determines availability; `windowStart`/`windowEnd` ride alongside as
+// display-only metadata the backend stores but never reads for availability.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A single break range (start–end) carved out of the working window.
@@ -230,17 +229,44 @@ class DayHours {
   );
 
   /// Reconstruct a window+breaks view from the canonical working-interval list.
-  /// Window = [first start, last end]; every gap between consecutive intervals
-  /// becomes a break. Empty list → a default day (callers gate on day-off
-  /// separately, so this never represents "closed").
-  factory DayHours.fromIntervals(List<WorkInterval> intervals) {
+  ///
+  /// [window] is the STORED working window (`windowStart`/`windowEnd` off the
+  /// wire), when the backend has one for this day. It selects between the two
+  /// regimes documented in this file's header:
+  ///
+  ///   • [window] NON-NULL — the given window is the outer від–до and the breaks
+  ///     are exactly `window MINUS intervals`. This recovers every break shape,
+  ///     including one flush against the window start and/or end, which the
+  ///     gap-based reconstruction below cannot see. Intervals are clamped to the
+  ///     window first, so a malformed row (an interval poking outside a stored
+  ///     window) degrades to a sane view instead of an inverted break.
+  ///   • [window] NULL — legacy reconstruction, byte-for-byte the pre-window
+  ///     behaviour: window = [first start, last end], every gap between two
+  ///     consecutive intervals becomes a break. Edge-flush breaks are
+  ///     unrecoverable here because they left no gap.
+  ///
+  /// Empty [intervals] → a default day regardless of [window] (callers gate on
+  /// day-off separately, so this never represents "closed" — and the backend
+  /// never stores a window for a day with no intervals, so honouring one here
+  /// would only ever manufacture a whole-window break that
+  /// [validateDayHours] rejects).
+  factory DayHours.fromIntervals(
+    List<WorkInterval> intervals, {
+    WorkInterval? window,
+  }) {
     if (intervals.isEmpty) return DayHours.defaultDay();
     final List<WorkInterval> sorted = List<WorkInterval>.of(intervals)
       ..sort(
         (WorkInterval a, WorkInterval b) =>
             a.startMinutes.compareTo(b.startMinutes),
       );
-    final WorkInterval window = WorkInterval(
+    if (window != null && window.endMinutes > window.startMinutes) {
+      return DayHours(
+        window: window.clone(),
+        breaks: _breaksFromWindowMinusIntervals(window, sorted),
+      );
+    }
+    final WorkInterval derivedWindow = WorkInterval(
       start: sorted.first.start,
       end: sorted.last.end,
     );
@@ -249,21 +275,68 @@ class DayHours {
       final int gapStart = sorted[i - 1].endMinutes;
       final int gapEnd = sorted[i].startMinutes;
       if (gapEnd > gapStart) {
-        breaks.add(
-          BreakRange(
-            start: TimeOfDay(hour: gapStart ~/ 60, minute: gapStart % 60),
-            end: TimeOfDay(hour: gapEnd ~/ 60, minute: gapEnd % 60),
-          ),
-        );
+        breaks.add(_breakOf(gapStart, gapEnd));
       }
     }
-    return DayHours(window: window, breaks: breaks);
+    return DayHours(window: derivedWindow, breaks: breaks);
+  }
+
+  static BreakRange _breakOf(int startMinutes, int endMinutes) => BreakRange(
+    start: TimeOfDay(hour: startMinutes ~/ 60, minute: startMinutes % 60),
+    end: TimeOfDay(hour: endMinutes ~/ 60, minute: endMinutes % 60),
+  );
+
+  /// The exact inverse of [toIntervals] for a KNOWN window: walk [sorted]
+  /// (start-ordered, clamped to [window]) left→right and emit a [BreakRange] for
+  /// every stretch of the window no interval covers — leading, interior and
+  /// trailing alike.
+  static List<BreakRange> _breaksFromWindowMinusIntervals(
+    WorkInterval window,
+    List<WorkInterval> sorted,
+  ) {
+    final List<BreakRange> breaks = <BreakRange>[];
+    int cursor = window.startMinutes;
+    for (final WorkInterval w in sorted) {
+      final int end = w.endMinutes.clamp(
+        window.startMinutes,
+        window.endMinutes,
+      );
+      // Fully behind the cursor / entirely before the window.
+      if (end <= cursor) {
+        continue;
+      }
+      final int start = w.startMinutes.clamp(
+        window.startMinutes,
+        window.endMinutes,
+      );
+      if (start > cursor) breaks.add(_breakOf(cursor, start));
+      cursor = end;
+    }
+    if (cursor < window.endMinutes) {
+      breaks.add(_breakOf(cursor, window.endMinutes));
+    }
+    return breaks;
   }
 
   /// Collapse back to the canonical working-interval list (window minus breaks).
   /// This is what the host stores and what the backend port serialises. Assumes
-  /// the day is valid (caller gates on [validate]); on a still-invalid state it
-  /// degrades gracefully by skipping out-of-window / inverted breaks.
+  /// the day is valid (caller gates on [validateDayHours]); on a still-invalid
+  /// state it degrades gracefully by CLAMPING each break to the remaining window
+  /// and skipping the ones that fall entirely outside it.
+  ///
+  /// Clamping (never skipping) is what makes a break flush against the window
+  /// edge carve real time off the day: a 09:00–10:00 break in a 09:00–18:00
+  /// window emits `[10:00–18:00]`, not the unbroken window. An edge-flush break
+  /// therefore yields no leading / trailing block at all — the break survives a
+  /// reload because [window] is persisted alongside these intervals and
+  /// [DayHours.fromIntervals] re-derives it as `window MINUS intervals` (see the
+  /// two regimes in this file's header).
+  ///
+  /// Every emitted interval is contained in [window] by construction (the walk
+  /// starts at `window.startMinutes`, never emits past `window.endMinutes`, and
+  /// clamps each break to both edges). That is what lets the mapper send the
+  /// window alongside these intervals without tripping the backend's
+  /// "window must contain every interval" 400.
   List<WorkInterval> toIntervals() {
     final List<BreakRange> sorted = List<BreakRange>.of(breaks)
       ..sort(
@@ -273,20 +346,24 @@ class DayHours {
     final List<WorkInterval> result = <WorkInterval>[];
     int cursor = window.startMinutes;
     for (final BreakRange b in sorted) {
-      // Ignore breaks that don't sit cleanly inside the remaining window.
-      if (b.startMinutes <= cursor || b.endMinutes >= window.endMinutes) {
-        continue;
-      }
-      if (b.endMinutes <= b.startMinutes) continue;
-      if (b.startMinutes > cursor) {
+      if (b.endMinutes <= b.startMinutes) continue; // inverted / empty
+      if (b.endMinutes <= cursor) continue; // fully behind the cursor
+      // Fully past the window.
+      if (b.startMinutes >= window.endMinutes) continue;
+      final int start = b.startMinutes < cursor ? cursor : b.startMinutes;
+      final int end = b.endMinutes > window.endMinutes
+          ? window.endMinutes
+          : b.endMinutes;
+      if (start > cursor) {
         result.add(
           WorkInterval(
             start: TimeOfDay(hour: cursor ~/ 60, minute: cursor % 60),
-            end: b.start,
+            end: TimeOfDay(hour: start ~/ 60, minute: start % 60),
           ),
         );
       }
-      cursor = b.endMinutes;
+      // Always advance — a clamped break still consumes its span.
+      cursor = end;
     }
     if (cursor < window.endMinutes) {
       result.add(
@@ -296,11 +373,11 @@ class DayHours {
         ),
       );
     }
-    // A window with no valid working time left collapses to the bare window so
-    // the day is never silently emptied.
-    if (result.isEmpty) {
-      result.add(WorkInterval(start: window.start, end: window.end));
-    }
+    // NOTE: no "collapse to the bare window" fallback. A break set that eats the
+    // whole window is rejected up-front by [validateDayHours]
+    // ([DayHoursErrorKind.breakCoversWholeWindow]), so an empty result can only
+    // mean the caller ignored validation — and emitting FULL availability there
+    // is the exact inverse of what the master asked for (an overbooking hazard).
     return result;
   }
 
@@ -313,7 +390,7 @@ class DayHours {
 /// The distinct validation problems a [DayHours] can carry. Lets the editor
 /// localise the message via `AppLocalizations` instead of string-matching the
 /// (domain-string) [DayHoursError.message]. Each value maps 1:1 to one of the
-/// four `validateDayHours` return cases.
+/// `validateDayHours` return cases.
 enum DayHoursErrorKind {
   /// The working window's end is not strictly after its start.
   windowEndBeforeStart,
@@ -326,6 +403,12 @@ enum DayHoursErrorKind {
 
   /// Two breaks overlap.
   breaksOverlap,
+
+  /// The breaks consume the ENTIRE working window, leaving zero bookable time.
+  /// Saving such a day would either publish full availability (the exact
+  /// inverse of the intent) or an empty interval list indistinguishable from a
+  /// day off — the master must shorten a break or close the day instead.
+  breakCoversWholeWindow,
 
   /// A time edge (window or break start/end) is not a multiple of 15 minutes.
   /// The editor snaps new picks to 15-min steps, but a legacy / loaded schedule
@@ -418,6 +501,26 @@ DayHoursError? validateDayHours(DayHours day) {
       );
     }
   }
+
+  // Every break is individually sound by now (inside the window, non-inverted,
+  // non-overlapping), so their union covers the window iff walking them in
+  // start order never leaves a gap. Zero working time left is rejected here so
+  // [DayHours.toIntervals] may assume at least one working block survives —
+  // without this gate a whole-window break would save FULL availability.
+  if (indexed.isNotEmpty) {
+    int cursor = day.window.startMinutes;
+    for (final MapEntry<int, BreakRange> entry in indexed) {
+      if (entry.value.startMinutes > cursor) break; // a working block survives
+      cursor = entry.value.endMinutes;
+    }
+    if (cursor >= day.window.endMinutes) {
+      return DayHoursError(
+        'Перерва не може займати весь робочий день',
+        DayHoursErrorKind.breakCoversWholeWindow,
+        breakIndex: indexed.last.key,
+      );
+    }
+  }
   return null;
 }
 
@@ -506,6 +609,7 @@ class TemplateDay {
     required this.intervals,
     this.mode = WeekdayMode.interval,
     this.times = const <TimeOfDay>[],
+    this.window,
   });
 
   final int dayOfWeek; // 1=Mon … 7=Sun (ISO)
@@ -524,6 +628,14 @@ class TemplateDay {
   /// empty for [WeekdayMode.interval]. The opposite-shape field must stay
   /// cleared (see [setMode]).
   List<TimeOfDay> times;
+
+  /// The stored working window (`windowStart`/`windowEnd`) for an INTERVAL day —
+  /// DISPLAY-ONLY metadata that lets [DayHours.fromIntervals] recover a break
+  /// flush against a window edge. `null` means "no stored window": a day-off, an
+  /// [WeekdayMode.explicitTimes] day, or any legacy row saved before the backend
+  /// persisted the field — all of which take the gap-reconstruction regime.
+  /// [intervals] stays the sole source of availability either way.
+  WorkInterval? window;
 
   /// A day-off is empty in whichever shape the [mode] selects.
   bool get isDayOff =>
@@ -544,6 +656,9 @@ class TemplateDay {
     mode = next;
     if (next == WeekdayMode.explicitTimes) {
       intervals = <WorkInterval>[];
+      // The stored window describes an INTERVAL day's від–до; it is meaningless
+      // (and rejected by the backend) for EXPLICIT_TIMES.
+      window = null;
     } else {
       times = const <TimeOfDay>[];
     }
@@ -573,12 +688,14 @@ class ScheduleOverride {
     : kind = OverrideKind.dayOff,
       mode = WeekdayMode.interval,
       intervals = const <WorkInterval>[],
-      times = const <TimeOfDay>[];
+      times = const <TimeOfDay>[],
+      window = null;
 
   ScheduleOverride.custom({
     required this.start,
     required this.end,
     required this.intervals,
+    this.window,
   }) : kind = OverrideKind.custom,
        mode = WeekdayMode.interval,
        times = const <TimeOfDay>[];
@@ -592,7 +709,8 @@ class ScheduleOverride {
   }) : kind = OverrideKind.custom,
        mode = WeekdayMode.explicitTimes,
        intervals = const <WorkInterval>[],
-       times = sortDedupeTimes(times);
+       times = sortDedupeTimes(times),
+       window = null;
 
   final OverrideKind kind;
   final DateTime start;
@@ -607,6 +725,14 @@ class ScheduleOverride {
 
   /// Custom-hours EXPLICIT_TIMES shape only — discrete start times.
   final List<TimeOfDay> times;
+
+  /// The stored working window (`windowStart`/`windowEnd`) of a CUSTOM_HOURS
+  /// INTERVAL override — DISPLAY-ONLY metadata, exactly like [TemplateDay.window]
+  /// (see that field for the null semantics). Always `null` for a day-off and for
+  /// an EXPLICIT_TIMES override. Deliberately NOT part of [key]: two overrides on
+  /// the same date can never coexist, so the window would only churn list
+  /// identity without disambiguating anything.
+  final WorkInterval? window;
 
   bool get isSingleDay =>
       start.year == end.year &&
@@ -631,5 +757,142 @@ class ScheduleOverride {
     }
     return '${start.toIso8601String()}_${kind.name}_'
         '${summariseIntervals(intervals)}';
+  }
+
+  /// The new working window this override would leave in place, formatted
+  /// `HH:mm–HH:mm` (e.g. `10:00–15:00`) — the day-off-conflict dialog's
+  /// `narrowedHours` subline detail. `null` for a day-off (no window) or a
+  /// custom override with no working time at all.
+  ///
+  /// INTERVAL mode: the earliest interval start to the latest interval end.
+  /// EXPLICIT_TIMES mode: the earliest to the latest discrete start time —
+  /// there is no "end" for a discrete slot, so the span is start-to-start,
+  /// which is still a useful "these are the new hours" summary.
+  String? get narrowedHoursLabel {
+    if (kind == OverrideKind.dayOff) return null;
+    if (mode == WeekdayMode.explicitTimes) {
+      if (times.isEmpty) return null;
+      final sorted = sortDedupeTimes(times);
+      return '${formatTime(sorted.first)}–${formatTime(sorted.last)}';
+    }
+    if (intervals.isEmpty) return null;
+    final sorted = List<WorkInterval>.of(intervals)
+      ..sort((a, b) => a.startMinutes.compareTo(b.startMinutes));
+    final latestEnd = sorted.fold<TimeOfDay>(
+      sorted.first.end,
+      (acc, i) => i.endMinutes > (acc.hour * 60 + acc.minute) ? i.end : acc,
+    );
+    return '${formatTime(sorted.first.start)}–${formatTime(latestEnd)}';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-07-26 design — schedule override booking-conflict check.
+//
+// `POST /masters/{id}/overrides/conflicts` (read-only preview) and the
+// `cancelOverlapping` flag on `PUT /overrides/{date}` (write). See
+// `ScheduleRepository.previewConflicts` / `.putOverride` for the wire layer,
+// `OverridesNotifier.checkConflicts` for the orchestration, and
+// `DayOffConflictDialog` (presentation/widgets) for the confirmation UI these
+// feed. Ported from the approved preview at
+// `docs/signup-designs/DayOffConflictDialog/lib/screens/day_off_conflict_data.dart`
+// — the dialog's copy is NOT baked into these domain types (unlike the
+// preview, which returns literal Ukrainian strings from `title`/`subline`
+// getters): every user-facing string route through `AppLocalizations` per
+// the `no_raw_ui_strings` CI gate, so this app's `DayOffConflictDialog` reads
+// this DATA and composes the copy itself via l10n ICU plurals.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// What kind of schedule change produced a conflict list — decides which
+/// dialog copy the presentation layer selects.
+enum DayOffChangeKind {
+  /// One calendar date turned into a full day off.
+  singleDay,
+
+  /// A span of dates turned into days off (vacation, sick leave).
+  dateRange,
+
+  /// The date(s) stay a working day, but the hours were narrowed and some
+  /// bookings now fall outside them.
+  narrowedHours,
+}
+
+/// One CONFIRMED booking that a pending override would leave without
+/// availability. Carries no price — the dialog is about people and times,
+/// not revenue (locked 2026-07-26 design decision).
+class OverrideConflict {
+  const OverrideConflict({
+    required this.bookingId,
+    required this.appointmentId,
+    required this.date,
+    required this.startsAt,
+    required this.endsAt,
+    required this.clientDisplayName,
+    required this.serviceName,
+  });
+
+  final String bookingId;
+
+  /// Non-null when this conflict is one item of a multi-service visit.
+  final String? appointmentId;
+
+  /// Calendar date (Kyiv-local) the booking falls on — the backend's own
+  /// timezone-resolved value, never re-derived client-side from [startsAt].
+  final DateTime date;
+
+  final DateTime startsAt;
+  final DateTime endsAt;
+  final String clientDisplayName;
+  final String serviceName;
+
+  int get durationMinutes => endsAt.difference(startsAt).inMinutes;
+}
+
+/// The full result of `POST /overrides/conflicts` — [OverridesNotifier
+/// .checkConflicts]'s return value and the day-off-conflict dialog's single
+/// input (together with [start] / [end] / the change [DayOffChangeKind]).
+class OverrideConflictCheck {
+  const OverrideConflictCheck({
+    required this.conflicts,
+    required this.totalCount,
+    required this.truncated,
+    required this.scanTruncated,
+  });
+
+  /// Sorted chronologically by the backend. Capped at the server's
+  /// `MAX_PREVIEW_RESULTS` (500) — see [truncated].
+  final List<OverrideConflict> conflicts;
+
+  /// The server-computed conflict count. Equal to `conflicts.length` unless
+  /// [truncated] is true, in which case this is the true count (still exact,
+  /// since only the RESULT LIST was trimmed) — unless [scanTruncated] is
+  /// ALSO true, in which case this is only a lower bound (the candidate scan
+  /// itself was capped before counting). See [isCountExact].
+  final int totalCount;
+
+  /// True when [conflicts] was trimmed to fewer rows than [totalCount].
+  final bool truncated;
+
+  /// True when the server's underlying candidate scan itself was capped —
+  /// [totalCount] is then only a LOWER BOUND on the true conflict count, not
+  /// an exact figure. Independent of [truncated] (see that field's doc and
+  /// `ScheduleOverrideConflictService.MAX_CANDIDATES_SCANNED`'s javadoc on the
+  /// backend).
+  final bool scanTruncated;
+
+  bool get isEmpty => conflicts.isEmpty;
+  bool get isNotEmpty => conflicts.isNotEmpty;
+
+  /// False the moment [totalCount] cannot be trusted as the true conflict
+  /// count — the dialog must then render "at least N" copy instead of "N".
+  bool get isCountExact => !scanTruncated;
+
+  /// True when [conflicts] spans more than one calendar date — the dialog
+  /// then groups rows under date headers instead of relying on its own
+  /// subline to establish the day.
+  bool get spansMultipleDates {
+    if (conflicts.length < 2) return false;
+    final DateTime first = conflicts.first.date;
+    return conflicts.any((OverrideConflict c) => c.date != first);
   }
 }

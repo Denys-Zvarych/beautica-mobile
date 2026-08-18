@@ -1,21 +1,19 @@
-// Phase 14.13 — Widget tests for SalonMasterSelectionScreen.
+// MO-4 — Widget tests for the reworked SalonMasterSelectionScreen.
 //
-// Covers (phase doc Step 4):
-//   1. Only masters covering ≥1 selected service render.
-//   2. Auto-attach when exactly one candidate performs a service.
-//   3. Tap-to-choose chips + assignment when multiple candidates.
-//   4. "Підтвердити" disabled while any service is unassigned, enabled once
-//      all are covered.
-//   5. Navigates to /booking/salon/coming-soon on confirm.
-//   6. No "any available master" option is ever rendered.
-
-import 'dart:async';
+// The salon flow now picks the ONE master who performs ALL selected services
+// (the coverage INTERSECTION), single-select. Covers:
+//   1. Only masters covering EVERY selected service render (intersection).
+//   2. No-covering-master empty state (single-master constraint, no fallback).
+//   3. Single-service selection.
+//   4. «Далі» disabled until a master is picked; enabled after.
+//   5. Confirm builds a SalonMasterSchedule visit with ordered per-master
+//      assignment ids and pushes /booking/salon/time.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
@@ -23,21 +21,14 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
 
-/// Tall test surface so every row (including the contested-service candidate
-/// chips inside the per-master grouped preview, which only appear once ≥2
-/// masters covering the same service are picked) is fully on-screen without
-/// scrolling — avoids flaky hit-test misses from tapping content the default
-/// (short) test viewport would otherwise clip.
 Future<void> _pumpTall(WidgetTester tester) async {
   tester.view.physicalSize = const Size(800, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -46,7 +37,6 @@ Future<void> _pumpTall(WidgetTester tester) async {
 }
 
 const String _kSalonId = 'salon-1';
-
 const _stubSalon = Salon(id: _kSalonId, name: 'Салон «Вельвет»');
 
 const _svc1 = SalonCatalogService(
@@ -58,7 +48,6 @@ const _svc1 = SalonCatalogService(
   priceType: ServicePriceType.fixed,
   priceMin: 500,
 );
-
 const _svc2 = SalonCatalogService(
   id: 'svc-2',
   name: 'Педикюр',
@@ -84,9 +73,7 @@ const _stubCatalog = <SalonServiceCategoryEntry>[
   ),
 ];
 
-/// m1 covers ONLY svc1; m2 covers BOTH svc1 and svc2 (so svc1 becomes
-/// contested once both are picked); m3 covers NEITHER selected service and
-/// must never render.
+// m1 covers ONLY svc-1; m2 covers BOTH; m3 covers NEITHER.
 const _m1 = SalonMasterSummary(
   masterId: 'm1',
   firstName: 'Олена',
@@ -111,217 +98,158 @@ const _m3 = SalonMasterSummary(
   reviewCount: 1,
   type: MasterType.salonMaster,
 );
-
 const _stubMasters = <SalonMasterSummary>[_m1, _m2, _m3];
 
-// Phase 14.16/14.17 bugfix — coverage values are now `serviceDefId ->
-// assignmentId` maps (the master's OWN `MasterServiceResponse.id`), not a
-// bare `Set<String>` of covered catalog ids. This screen only ever calls
-// `.containsKey` on these maps (never reads the values), so any non-empty
-// String value works here — deliberately kept DIFFERENT from the catalog id
-// to match production (`master_services.id` != `service_definitions.id`),
-// mirroring `salon_time_screen_test.dart`'s identical fixture convention.
-final _stubCoverage = <String, Map<String, String>>{
-  'm1': <String, String>{'svc-1': 'assignment-m1-svc-1'},
-  'm2': <String, String>{
-    'svc-1': 'assignment-m2-svc-1',
-    'svc-2': 'assignment-m2-svc-2',
-  },
+// Coverage: serviceDefId -> the master's OWN assignment id (deliberately
+// different from the catalog id, mirroring production).
+final _coverage = <String, Map<String, String>>{
+  'm1': <String, String>{'svc-1': 'assign-m1-svc1'},
+  'm2': <String, String>{'svc-1': 'assign-m2-svc1', 'svc-2': 'assign-m2-svc2'},
   'm3': <String, String>{},
 };
 
-SalonBookingMasterSelectionArgs _args() =>
-    const SalonBookingMasterSelectionArgs(
-      salonId: _kSalonId,
-      selectedServiceIds: <String>['svc-1', 'svc-2'],
-    );
+SalonBookingMasterSelectionArgs _args({
+  List<String> ids = const <String>['svc-1', 'svc-2'],
+}) => SalonBookingMasterSelectionArgs(
+  salonId: _kSalonId,
+  selectedServiceIds: ids,
+);
 
-List<Object> _overrides() => <Object>[
+List<Object> _overrides({
+  Map<String, Map<String, String>>? coverage,
+  required SalonBookingMasterSelectionArgs args,
+}) => <Object>[
+  screenProtectionProvider.overrideWithValue(ScreenProtectionManager()),
   publicSalonProfileProvider(
     _kSalonId,
   ).overrideWith((ref) => (_stubSalon, _stubMasters)),
   salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
   salonMasterServiceCoverageProvider(
-    _args(),
-  ).overrideWith((ref) => _stubCoverage),
+    args,
+  ).overrideWith((ref) => coverage ?? _coverage),
 ];
 
-/// [GoRouter] with the screen under test at its initial location, plus a
-/// terminal capture route for `/booking/salon/time` — Phase 14.16 retargeted
-/// «Підтвердити» from the old direct-to-coming-soon hop to the real step-3
-/// "Час" screen.
-GoRouter _routerFor({ValueChanged<SalonBookingTimeArgs>? onReached}) {
-  return GoRouter(
-    initialLocation: RouteNames.salonBookingMasters,
-    routes: <RouteBase>[
-      GoRoute(
-        path: RouteNames.salonBookingMasters,
-        builder: (context, state) => SalonMasterSelectionScreen(args: _args()),
-      ),
-      GoRoute(
-        path: RouteNames.salonBookingTime,
-        builder: (context, state) {
-          onReached?.call(state.extra! as SalonBookingTimeArgs);
-          return const Scaffold(
-            body: Center(child: Text('salon-time-reached')),
-          );
-        },
-      ),
-    ],
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Per-master professional-title regression (salon-master-title bug).
-//
-// The eligible-master itemBuilder previously passed the SHARED generic role
-// (`_roleLabel(m.type, l10n)`) as EVERY row's subtitle, so all salon masters
-// (all `MasterType.salonMaster`) showed the identical "Майстер салону"
-// subtitle regardless of their own title. The fix binds each master's OWN
-// `professionalTitle` (trimmed, non-empty) and falls back to the generic role
-// only when it is null/blank.
-//
-// These fixtures are LOCAL to that regression test: four eligible masters, ALL
-// `MasterType.salonMaster` and ALL covering svc-1 (so none is filtered out by
-// the eligibility rule), with DISTINCT titles "Стиліст"/"Барбер" and two
-// blank cases (null + whitespace) that must both fall back to "Майстер
-// салону".
-const _titleStylist = SalonMasterSummary(
-  masterId: 'ts1',
-  firstName: 'Ірина',
-  lastName: 'Стиль',
-  professionalTitle: 'Стиліст',
-  avgRating: 4.8,
-  reviewCount: 5,
-  type: MasterType.salonMaster,
-);
-const _titleBarber = SalonMasterSummary(
-  masterId: 'ts2',
-  firstName: 'Петро',
-  lastName: 'Голій',
-  professionalTitle: 'Барбер',
-  avgRating: 4.7,
-  reviewCount: 8,
-  type: MasterType.salonMaster,
-);
-const _titleNull = SalonMasterSummary(
-  masterId: 'ts3',
-  firstName: 'Ганна',
-  lastName: 'Безтитул',
-  // professionalTitle omitted -> null -> falls back to the role label.
-  avgRating: 4.5,
-  reviewCount: 2,
-  type: MasterType.salonMaster,
-);
-const _titleWhitespace = SalonMasterSummary(
-  masterId: 'ts4',
-  firstName: 'Марта',
-  lastName: 'Пробіл',
-  professionalTitle: '   ', // whitespace-only -> trims empty -> role fallback.
-  avgRating: 4.4,
-  reviewCount: 1,
-  type: MasterType.salonMaster,
-);
-
-const _titleMasters = <SalonMasterSummary>[
-  _titleStylist,
-  _titleBarber,
-  _titleNull,
-  _titleWhitespace,
-];
-
-// Every master covers svc-1 -> all four are eligible and rendered.
-final _titleCoverage = <String, Map<String, String>>{
-  'ts1': <String, String>{'svc-1': 'assignment-ts1-svc-1'},
-  'ts2': <String, String>{'svc-1': 'assignment-ts2-svc-1'},
-  'ts3': <String, String>{'svc-1': 'assignment-ts3-svc-1'},
-  'ts4': <String, String>{'svc-1': 'assignment-ts4-svc-1'},
-};
-
-List<Object> _titleOverrides() => <Object>[
-  publicSalonProfileProvider(
-    _kSalonId,
-  ).overrideWith((ref) => (_stubSalon, _titleMasters)),
-  salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
-  salonMasterServiceCoverageProvider(
-    const SalonBookingMasterSelectionArgs(
-      salonId: _kSalonId,
-      selectedServiceIds: <String>['svc-1'],
-    ),
-  ).overrideWith((ref) => _titleCoverage),
-];
-
-/// Router whose master-selection screen selects ONLY svc-1, so all four
-/// title-fixture masters (each covering svc-1) are eligible.
-GoRouter _titleRouter() {
-  return GoRouter(
-    initialLocation: RouteNames.salonBookingMasters,
-    routes: <RouteBase>[
-      GoRoute(
-        path: RouteNames.salonBookingMasters,
-        builder: (context, state) => const SalonMasterSelectionScreen(
-          args: SalonBookingMasterSelectionArgs(
-            salonId: _kSalonId,
-            selectedServiceIds: <String>['svc-1'],
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-/// Finds the subtitle [text] scoped to a SPECIFIC master's row (by the outer
-/// `_MasterPickRowListener`'s key) — so an assertion targets the RIGHT row's
-/// subtitle, never merely "this string exists somewhere on screen".
-Finder _subtitleInRow(String masterId, String text) => find.descendant(
-  of: find.byKey(Key('salon_booking_master_row_$masterId')),
-  matching: find.text(text),
-);
-
-/// A router with a placeholder initial route + this screen pushed onto it —
-/// needed (unlike [_routerFor], which starts ON this screen) so tapping the
-/// screen's own back button actually POPS it (and therefore disposes it),
-/// letting a test observe `ScreenProtectionManager.release()` firing. Mirrors
-/// `salon_booking_confirm_screen_test.dart`'s identical push-then-pop
-/// approach for its own ScreenProtectionManager lifecycle group.
-GoRouter _pushableRouter() => GoRouter(
-  initialLocation: '/start',
+GoRouter _routerFor(
+  SalonBookingMasterSelectionArgs args, {
+  ValueChanged<SalonBookingTimeArgs>? onReached,
+}) => GoRouter(
+  initialLocation: RouteNames.salonBookingMasters,
   routes: <RouteBase>[
     GoRoute(
-      path: '/start',
-      builder: (context, state) =>
-          const Scaffold(body: Center(child: Text('start'))),
+      path: RouteNames.salonBookingMasters,
+      builder: (context, state) => SalonMasterSelectionScreen(args: args),
     ),
     GoRoute(
-      path: RouteNames.salonBookingMasters,
-      builder: (context, state) => SalonMasterSelectionScreen(args: _args()),
+      path: RouteNames.salonBookingTime,
+      builder: (context, state) {
+        onReached?.call(state.extra! as SalonBookingTimeArgs);
+        return const Scaffold(body: Center(child: Text('salon-time-reached')));
+      },
     ),
   ],
 );
 
-/// Counts acquire()/release() calls — mirrors
-/// `salon_booking_confirm_screen_test.dart`'s identical
-/// `_CountingScreenProtection` (the established pattern for pinning a PII
-/// screen's FLAG_SECURE lifecycle).
-class _CountingScreenProtection extends ScreenProtectionManager {
-  int acquireCount = 0;
-  int releaseCount = 0;
-
-  @override
-  void acquire() => acquireCount++;
-
-  @override
-  void release() => releaseCount++;
-}
-
 void main() {
+  testWidgets('only masters covering EVERY selected service render', (
+    tester,
+  ) async {
+    await _pumpTall(tester);
+    final args = _args();
+    await tester.pumpRoutedApp(
+      _routerFor(args),
+      overrides: _overrides(args: args),
+    );
+    await tester.pumpAndSettle();
+
+    // m2 covers both svc-1 + svc-2 → the ONLY covering master.
+    expect(
+      find.byKey(const Key('salon_booking_master_row_m2')),
+      findsOneWidget,
+    );
+    // m1 covers only svc-1, m3 covers nothing → not in the intersection.
+    expect(find.byKey(const Key('salon_booking_master_row_m1')), findsNothing);
+    expect(find.byKey(const Key('salon_booking_master_row_m3')), findsNothing);
+  });
+
+  testWidgets('no-covering-master empty state when nobody covers all', (
+    tester,
+  ) async {
+    await _pumpTall(tester);
+    final args = _args();
+    // Split coverage: m1 does svc-1, m2 does svc-2, nobody does both.
+    final coverage = <String, Map<String, String>>{
+      'm1': <String, String>{'svc-1': 'assign-m1-svc1'},
+      'm2': <String, String>{'svc-2': 'assign-m2-svc2'},
+      'm3': <String, String>{},
+    };
+    await tester.pumpRoutedApp(
+      _routerFor(args),
+      overrides: _overrides(args: args, coverage: coverage),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('salon-master-selection-no-covering-master')),
+      findsOneWidget,
+    );
+    // No confirm bar in the empty state.
+    expect(find.byKey(const Key('booking-summary-cta')), findsNothing);
+  });
+
+  // ── catalogue-consistency regression (mobile-security INFO) ──────────────
+  //
+  // Step 1 can only forward ids it read out of the salon catalogue, so the
+  // selection always resolves there. The wish-list «Обрати майстра» CTA
+  // (`wishlist_rebook.dart`, salon arm) deep-enters this step with a
+  // serviceDefId from the FAVOURITES api instead — an independent read. If
+  // that id is bookable (coverage endpoint returns a master for it) but absent
+  // from `GET /salons/{id}/services`, `selected` resolves to NOTHING while
+  // `covering` is non-empty: «Далі» would be enabled and would push a visit
+  // carrying zero services. The screen must fall into its existing
+  // no-covering-master empty state instead.
   testWidgets(
-    'only masters covering >=1 selected service render (m3 filtered out)',
+    'a selected id missing from the catalogue shows the empty state and no '
+    'enabled «Далі» (favourites deep-entry)',
     (tester) async {
       await _pumpTall(tester);
-      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
+      // 'svc-ghost' is NOT in `_stubCatalog` — but IS covered by m2, exactly
+      // the server-side skew the guard exists for.
+      final args = _args(ids: const <String>['svc-ghost']);
+      final coverage = <String, Map<String, String>>{
+        'm2': <String, String>{'svc-ghost': 'assign-m2-ghost'},
+      };
+      await tester.pumpRoutedApp(
+        _routerFor(args),
+        overrides: _overrides(args: args, coverage: coverage),
+      );
       await tester.pumpAndSettle();
 
+      expect(
+        find.byKey(const Key('salon-master-selection-no-covering-master')),
+        findsOneWidget,
+      );
+      // No master row, and no confirm bar at all — the bar is omitted (not
+      // merely disabled) whenever nothing covers the selection.
+      expect(
+        find.byKey(const Key('salon_booking_master_row_m2')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('booking-summary-cta')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'single-service selection lists every master doing that service',
+    (tester) async {
+      await _pumpTall(tester);
+      final args = _args(ids: const <String>['svc-1']);
+      await tester.pumpRoutedApp(
+        _routerFor(args),
+        overrides: _overrides(args: args),
+      );
+      await tester.pumpAndSettle();
+
+      // Both m1 and m2 perform svc-1.
       expect(
         find.byKey(const Key('salon_booking_master_row_m1')),
         findsOneWidget,
@@ -337,753 +265,150 @@ void main() {
     },
   );
 
-  testWidgets('no "any available master" option is ever rendered', (
-    tester,
-  ) async {
-    await _pumpTall(tester);
-    await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Будь-який'), findsNothing);
-    expect(find.textContaining('вільний майстер'), findsNothing);
-  });
-
-  testWidgets('auto-attaches when exactly one candidate performs a service', (
-    tester,
-  ) async {
-    await _pumpTall(tester);
-    await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-    await tester.pumpAndSettle();
-
-    // Pick ONLY m1 (covers svc-1 only). svc-1 has exactly one candidate
-    // (m1) -> auto-attached; svc-2 has zero picked candidates -> uncovered.
-    await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.textContaining('Педикюр'),
-      findsWidgets,
-    ); // uncovered-service prompt names it
-    // Confirm CTA still disabled (svc-2 unassigned).
-    final NeumorphicButton cta = tester.widget<NeumorphicButton>(
-      find.byKey(const Key('salon-assign-confirm-cta')),
-    );
-    expect(cta.onPressed, isNull);
-  });
-
   testWidgets(
-    'tap-to-choose resolves a contested service; Підтвердити enables once '
-    'every service is assigned, then navigates to /booking/salon/time with '
-    'the exact resolved per-master assignment',
+    'picking a master enables «Далі» and pushes the visit with ordered '
+    'assignment ids',
     (tester) async {
       await _pumpTall(tester);
-      SalonBookingTimeArgs? capturedArgs;
+      final args = _args();
+      SalonBookingTimeArgs? reached;
       await tester.pumpRoutedApp(
-        _routerFor(onReached: (args) => capturedArgs = args),
-        overrides: _overrides(),
+        _routerFor(args, onReached: (a) => reached = a),
+        overrides: _overrides(args: args),
       );
       await tester.pumpAndSettle();
 
-      // Pick BOTH masters -> svc-1 becomes contested (m1 + m2 both cover it);
-      // svc-2 auto-attaches to m2 (the only candidate).
-      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
-      await tester.pumpAndSettle();
+      // Pick the only covering master, then tap the pinned «Далі» CTA.
       await tester.tap(find.byKey(const Key('salon_booking_master_row_m2')));
       await tester.pumpAndSettle();
 
-      // CTA still disabled: svc-1 is contested/unresolved.
-      NeumorphicButton cta = tester.widget<NeumorphicButton>(
-        find.byKey(const Key('salon-assign-confirm-cta')),
-      );
-      expect(cta.onPressed, isNull);
-
-      // Resolve the contested svc-1 by tapping the m1 candidate chip.
-      final chip = find.byKey(
-        const Key('salon_booking_candidate_chip_svc-1_m1'),
-      );
-      expect(chip, findsOneWidget);
-      await tester.tap(chip);
-      await tester.pumpAndSettle();
-
-      cta = tester.widget<NeumorphicButton>(
-        find.byKey(const Key('salon-assign-confirm-cta')),
-      );
-      expect(cta.onPressed, isNotNull);
-
-      await tester.tap(find.byKey(const Key('salon-assign-confirm-cta')));
+      final Finder cta = find.byKey(const Key('booking-summary-cta'));
+      expect(cta, findsOneWidget);
+      await tester.tap(cta);
       await tester.pumpAndSettle();
 
       expect(find.text('salon-time-reached'), findsOneWidget);
-      expect(capturedArgs, isNotNull);
-      expect(capturedArgs!.salonId, _kSalonId);
-      expect(capturedArgs!.selectedServiceIds, <String>['svc-1', 'svc-2']);
-      // m1 resolved svc-1 (the contested-chip choice); m2 auto-attached
-      // svc-2 (the only candidate) — exactly the assignment the client made,
-      // not a fresh re-derivation from coverage alone.
-      expect(capturedArgs!.assignedServiceIdsByMaster, <String, List<String>>{
-        'm1': <String>['svc-1'],
-        'm2': <String>['svc-2'],
-      });
+      expect(reached, isNotNull);
+      expect(reached!.visit.masterId, 'm2');
+      // Ordered per svc-1, svc-2 selection order.
+      expect(reached!.visit.orderedMasterServiceIds, <String>[
+        'assign-m2-svc1',
+        'assign-m2-svc2',
+      ]);
+      expect(reached!.visit.services.map((s) => s.id).toList(), <String>[
+        'svc-1',
+        'svc-2',
+      ]);
     },
   );
 
-  // mobile-perf re-audit follow-up (Phase 14.13): "No test... asserts...
-  // per-row rebuild-scoping". The screen's own file header documents that
-  // `_MasterPickRowListener` listens to the shared pick `ValueNotifier`
-  // DIRECTLY (rather than via a `ValueListenableBuilder` wrapping the whole
-  // master list) specifically so toggling one master only rebuilds THAT row
-  // — never its siblings, never the O(N) eligible-master list itself.
+  // ── a11y regression (re-audit MEDIUM) ────────────────────────────────────
   //
-  // TECHNIQUE — no existing precedent asserts scoped rebuilds anywhere in
-  // this codebase (checked `services_list_screen_test.dart` and
-  // `service_selector_sheet_test.dart`; neither counts/scopes rebuilds).
-  // `_MasterPickRowListener`/`_MasterPickRow` are private to
-  // `salon_master_selection_screen.dart`, so no State object or build-count
-  // field is reachable from this test file. The chosen proxy uses Flutter's
-  // own `debugPrintRebuildDirtyWidgets` framework flag (`framework.dart`'s
-  // `Element.rebuild`: `debugPrint('Rebuilding $this')` for every dirty
-  // Element rebuilt in a frame) — a real, documented Flutter debug facility
-  // for exactly this purpose, not a private-API hack. `Element.toStringShort()`
-  // renders as `'$runtimeType-$key'` when the widget carries a `Key`, and
-  // both master rows ARE keyed (`salon_booking_master_row_<masterId>`,
-  // see `_Body`'s `itemBuilder`), so the captured rebuild log names each
-  // row's Element unambiguously — spot-checked once against this exact
-  // screen/fixture before being relied on here. One single-frame
-  // `tester.pump()` (not `pumpAndSettle`, which would blur multiple frames
-  // together) is captured right after the tap.
-  testWidgets(
-    'toggling one master rebuilds only that row — the untapped sibling '
-    "row's Element never appears in the same frame's rebuild log",
-    (tester) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-      await tester.pumpAndSettle();
-
-      final List<String> rebuiltLines = <String>[];
-      final DebugPrintCallback previousDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {
-        if (message != null) rebuiltLines.add(message);
-      };
-      debugPrintRebuildDirtyWidgets = true;
-      addTearDown(() {
-        debugPrintRebuildDirtyWidgets = false;
-        debugPrint = previousDebugPrint;
-      });
-
-      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
-      // Exactly ONE frame — the frame the tap's setState schedules. Using
-      // pumpAndSettle here would merge subsequent animation frames into the
-      // same log and defeat the single-frame assertion below.
-      await tester.pump();
-
-      debugPrintRebuildDirtyWidgets = false;
-      debugPrint = previousDebugPrint;
-
-      final bool m1RowRebuilt = rebuiltLines.any(
-        (String l) => l.contains('salon_booking_master_row_m1'),
-      );
-      final bool m2RowRebuilt = rebuiltLines.any(
-        (String l) => l.contains('salon_booking_master_row_m2'),
-      );
-
-      expect(
-        m1RowRebuilt,
-        isTrue,
-        reason:
-            'the TAPPED row (m1) must rebuild to flip its selected visual '
-            'state — if this is false the proxy technique itself is broken, '
-            'not proving isolation',
-      );
-      expect(
-        m2RowRebuilt,
-        isFalse,
-        reason:
-            "the UNTAPPED sibling row (m2)'s Element must never appear in "
-            'the same-frame rebuild log — a regression back to a single '
-            'ValueListenableBuilder wrapping the whole master list would '
-            'rebuild every row on every toggle and fail this assertion',
-      );
-
-      await tester.pumpAndSettle();
-    },
-  );
-
-  // salon-master-title regression — each salon master's row must show its OWN
-  // `professionalTitle` (with a role fallback when null/blank), NOT the shared
-  // generic role for everyone. The pre-fix itemBuilder passed
-  // `role: _roleLabel(m.type, l10n)` for every row, so all four rows below
-  // (all MasterType.salonMaster) rendered the identical "Майстер салону"
-  // subtitle — the per-title `findsOneWidget`/`findsNothing` assertions here
-  // would then FAIL, which is exactly what guards the fix.
-  testWidgets(
-    'each salon master row shows its OWN professionalTitle, with the role '
-    'label as fallback when the title is null or whitespace',
-    (tester) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(_titleRouter(), overrides: _titleOverrides());
-      await tester.pumpAndSettle();
-
-      // All four masters are eligible (each covers svc-1) and rendered.
-      expect(
-        find.byKey(const Key('salon_booking_master_row_ts1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('salon_booking_master_row_ts4')),
-        findsOneWidget,
-      );
-
-      // Each titled master's row shows its OWN title — scoped to that row so
-      // we assert the RIGHT subtitle, not just "the text exists somewhere".
-      expect(_subtitleInRow('ts1', 'Стиліст'), findsOneWidget);
-      expect(_subtitleInRow('ts2', 'Барбер'), findsOneWidget);
-
-      // ...and NOT another master's title or the shared generic role. On the
-      // OLD code every row showed "Майстер салону", so each of these would
-      // find that generic label in the titled rows and fail.
-      expect(_subtitleInRow('ts1', 'Барбер'), findsNothing);
-      expect(_subtitleInRow('ts1', 'Майстер салону'), findsNothing);
-      expect(_subtitleInRow('ts2', 'Стиліст'), findsNothing);
-      expect(_subtitleInRow('ts2', 'Майстер салону'), findsNothing);
-
-      // Null-title master falls back to the generic role label.
-      expect(_subtitleInRow('ts3', 'Майстер салону'), findsOneWidget);
-      // Whitespace-only title trims empty -> same role fallback.
-      expect(_subtitleInRow('ts4', 'Майстер салону'), findsOneWidget);
-    },
-  );
-
-  // white-corner-shadow regression — the 40x40 master avatar in the per-master
-  // grouped preview (`_GroupRow`) previously used `VelvetShadows.extrudedSmall`,
-  // a diagonally-OFFSET shadow pair (`Offset(5,5)` dark + `Offset(-5,-5)`
-  // near-white). On the small rounded avatar the untranslated corner of the
-  // near-white offset shadow poked out as a WHITE SQUARE in the corner. The fix
-  // swapped it to `VelvetShadows.borderedCard` — a single, NON-offset
-  // (`Offset.zero`) shadow — so no translated corner can bleed.
+  // `_MasterPickRow` wraps its subtree in `ExcludeSemantics`, which strips the
+  // `MasterStrip` InkWell's tap action out of the tree. The outer `Semantics`
+  // therefore has to carry the action itself, or TalkBack is handed a
+  // checkable BUTTON WITH NO ACTION — the master cannot be selected at all and
+  // the salon booking flow is unfinishable by screen reader.
   //
-  // The mandatory structural guard (golden-independent, per the debugger's
-  // guidance): the `_GroupRow` avatar Container's every `BoxShadow` must have
-  // `offset == Offset.zero`. A regression back to `extrudedSmall` (or any
-  // offset pair) reintroduces a non-zero offset and fails here. The avatar is
-  // located structurally — a 40x40 `Container` with a `BoxDecoration` gradient +
-  // shadow whose child is `Icon(Icons.person_rounded)` — never by a brittle
-  // golden. `_GroupRow` is private, so it is driven through the public screen:
-  // picking m1 (covers only svc-1) auto-attaches svc-1 to m1, materialising
-  // exactly one group row and thus exactly one such avatar.
-  testWidgets(
-    "the grouped-preview master avatar's every BoxShadow has zero offset "
-    '(no white-corner bleed from an offset shadow pair)',
-    (tester) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-      await tester.pumpAndSettle();
+  // Asserting `hasTapAction` alone is not enough: the whole defect was that
+  // the flags were right and the action was missing. So this drives the real
+  // assistive-tech path — `semanticsOwner.performAction` — and asserts the
+  // SELECTION actually happened, not that a callback shape exists.
+  testWidgets('screen reader can activate a master row (semantics tap action '
+      'reaches the selection callback)', (tester) async {
+    await _pumpTall(tester);
+    // Disposed explicitly at the end rather than via `addTearDown`: the
+    // framework's leaked-handle check runs BEFORE tear-downs and fails the
+    // test regardless of the assertions.
+    final SemanticsHandle handle = tester.ensureSemantics();
 
-      // Pick m1 -> svc-1 auto-attaches -> one `_GroupRow` (and its 40x40
-      // avatar) is rendered inside the grouped preview.
-      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
-      await tester.pumpAndSettle();
-
-      // Structural finder: the 40x40 gradient+shadow avatar Container. The only
-      // other shadow-bearing gradient avatar on this screen is the 52dp master-
-      // row avatar (`_MasterPickRow`), excluded here by the tight 40x40 size.
-      final Finder avatarFinder = find.byWidgetPredicate((Widget w) {
-        if (w is! Container) return false;
-        final Decoration? decoration = w.decoration;
-        if (decoration is! BoxDecoration) return false;
-        return w.constraints ==
-                const BoxConstraints.tightFor(width: 40, height: 40) &&
-            decoration.gradient != null &&
-            decoration.boxShadow != null;
-      }, description: '40x40 gradient+shadow _GroupRow avatar container');
-
-      // Exactly one group (m1/svc-1) -> exactly one such avatar.
-      expect(avatarFinder, findsOneWidget);
-
-      // Confirm this really is the avatar: it wraps the person glyph.
-      expect(
-        find.descendant(
-          of: avatarFinder,
-          matching: find.byIcon(Icons.person_rounded),
-        ),
-        findsOneWidget,
-      );
-
-      final BoxDecoration decoration =
-          tester.widget<Container>(avatarFinder).decoration! as BoxDecoration;
-
-      // Other avatar invariants (kept, per the debugger's note) — a rounded
-      // (not sharp-cornered) bordered avatar.
-      expect(decoration.borderRadius, isNotNull);
-      expect(decoration.border, isNotNull);
-
-      // THE MANDATORY GUARD — every shadow is non-offset, so no translated
-      // near-white corner can poke out. `extrudedSmall`'s ±5dp offsets would
-      // fail this; `borderedCard`'s single Offset.zero shadow passes.
-      final List<BoxShadow> shadows = decoration.boxShadow!;
-      expect(shadows, isNotEmpty);
-      for (final BoxShadow shadow in shadows) {
-        expect(
-          shadow.offset,
-          Offset.zero,
-          reason:
-              'A _GroupRow avatar BoxShadow has a non-zero offset '
-              '(${shadow.offset}) — a diagonally-offset shadow pair (e.g. a '
-              'regression back to VelvetShadows.extrudedSmall) bleeds a white '
-              'square out of the small rounded avatar corner. Use a single '
-              'non-offset shadow (VelvetShadows.borderedCard).',
-        );
-      }
-    },
-  );
-
-  // ===========================================================================
-  // mobile-qa gap (card-unification audit): the picker's rows render the
-  // SHARED `MasterStrip(showRating: true)` card (the same widget the
-  // calendar/time/confirm/success screens render) — but no test ever
-  // asserted the ACTUAL rating digits/review-count render here. Rating on
-  // the salon picker is the whole point of the card-unification change (the
-  // deleted bespoke `_MasterPickRow` header never showed one). Scoped to
-  // each master's own row so a coincidental match elsewhere can't
-  // false-pass this.
-  // ===========================================================================
-  testWidgets(
-    "each eligible master's row renders its OWN ★rating(reviewCount) via "
-    'the shared MasterStrip card',
-    (tester) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-      await tester.pumpAndSettle();
-
-      final Finder m1Row = find.byKey(const Key('salon_booking_master_row_m1'));
-      expect(
-        find.descendant(of: m1Row, matching: find.text('4.9')),
-        findsOneWidget,
-        reason:
-            "MasterStrip(showRating: true) must render m1's own "
-            'avgRating.toStringAsFixed(1) (4.9) — this is the whole point '
-            'of the card-unification change: rating on the salon picker, '
-            'which the deleted bespoke row never showed.',
-      );
-      expect(
-        find.descendant(of: m1Row, matching: find.text('(12)')),
-        findsOneWidget,
-        reason: 'reviewCount (12) > 0 -> the parenthetical suffix must render',
-      );
-
-      final Finder m2Row = find.byKey(const Key('salon_booking_master_row_m2'));
-      expect(
-        find.descendant(of: m2Row, matching: find.text('5.0')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: m2Row, matching: find.text('(3)')),
-        findsOneWidget,
-      );
-    },
-  );
-
-  // mobile-qa gap (M2-adjacent, KNOWN COVERAGE GAP): the picker is the ONLY
-  // one of the nine `MasterStrip` call sites that sets `showLabel: false` —
-  // no master has been chosen yet here, so the muted "Запис до майстра"
-  // caption every OTHER booking screen shows would be both untrue and
-  // repeated once per row. A regression that dropped (or flipped) the flag
-  // would silently reintroduce it.
-  testWidgets(
-    'the picker\'s master rows never render the "Запис до майстра" caption '
-    '(showLabel: false — no master has been chosen yet)',
-    (tester) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-      await tester.pumpAndSettle();
-
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(SalonMasterSelectionScreen)),
-      );
-      expect(find.text(l10n.bookingMasterStripLabel), findsNothing);
-    },
-  );
-
-  // mobile-qa gap-fix — the pinned `_AssignConfirmBar`'s new composition of
-  // `SelectedServicesShelf` (the "always show selected services" bottom bar
-  // behaviour) had NO coverage: every test above only drives the master-pick
-  // interaction, never the shelf pinned above the bar's own "Разом"/assigned-
-  // progress/CTA content. The main regression risk is the shelf's own toggle
-  // interfering with — or hiding — that pre-existing content, so this group
-  // expands the shelf and re-asserts the progress counter + CTA both survive.
-  group('selected-services shelf composition (mobile-qa gap-fix)', () {
-    const Key toggleKey = Key('booking-summary-expand-toggle');
-    const Key expandedListKey = Key('booking-summary-expanded-list');
-
-    // Every eligible master row ALSO renders a "covers: <service names>"
-    // subtitle sourced from the SAME [_svc1]/[_svc2] fixture names, so a raw
-    // unscoped `find.text(_svc1.name)` would match BOTH that subtitle AND
-    // the shelf's own itemized entry — scope every assertion to the shelf's
-    // `expanded-list` subtree so it only ever proves the SHELF's own
-    // content, never coincides with an unrelated row.
-    Finder inShelf(Finder matching) =>
-        find.descendant(of: find.byKey(expandedListKey), matching: matching);
-
-    testWidgets('expanding the shelf shows every client-selected service (both '
-        'svc-1 and svc-2, regardless of assignment state) while the assign '
-        'progress counter and CTA stay in place', (tester) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-      await tester.pumpAndSettle();
-
-      // Collapsed: the shelf's own itemized list is not built at all yet.
-      expect(find.byKey(expandedListKey), findsNothing);
-
-      await tester.tap(find.byKey(toggleKey));
-      await tester.pumpAndSettle();
-
-      // i18n-finder-ok: fixture service names (test data), not app UI copy.
-      expect(inShelf(find.text(_svc1.name)), findsOneWidget);
-      // i18n-finder-ok: fixture service names (test data), not app UI copy.
-      expect(inShelf(find.text(_svc2.name)), findsOneWidget);
-
-      // The pre-existing "N assigned" progress counter + CTA must still be
-      // present once the shelf is expanded — the regression risk this
-      // change introduces.
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(SalonMasterSelectionScreen)),
-      );
-      expect(
-        find.text(l10n.salonBookingAssignedProgress(0, 2)),
-        findsOneWidget,
-      );
-      final NeumorphicButton cta = tester.widget<NeumorphicButton>(
-        find.byKey(const Key('salon-assign-confirm-cta')),
-      );
-      expect(cta.onPressed, isNull); // nothing assigned yet
-    });
-
-    testWidgets(
-      'the assign progress counter updates and the CTA stays reachable '
-      'after assigning a master, even with the shelf left expanded',
-      (tester) async {
-        await _pumpTall(tester);
-        await tester.pumpRoutedApp(_routerFor(), overrides: _overrides());
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(toggleKey));
-        await tester.pumpAndSettle();
-        // i18n-finder-ok: fixture service name (test data), not app UI copy.
-        expect(inShelf(find.text(_svc1.name)), findsOneWidget);
-
-        // Pick m1 (covers ONLY svc-1) -> svc-1 auto-attaches; svc-2 stays
-        // unassigned (m1 doesn't cover it).
-        await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
-        await tester.pumpAndSettle();
-
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(SalonMasterSelectionScreen)),
-        );
-        expect(
-          find.text(l10n.salonBookingAssignedProgress(1, 2)),
-          findsOneWidget,
-          reason:
-              'the shelf remaining expanded must not prevent the '
-              '_ProgressHint from rebuilding with the new assigned count',
-        );
-        // The itemized shelf list must still be intact after the pick too.
-        // i18n-finder-ok: fixture service name (test data), not app UI copy.
-        expect(inShelf(find.text(_svc1.name)), findsOneWidget);
-      },
+    final args = _args(ids: const <String>['svc-1']);
+    await tester.pumpRoutedApp(
+      _routerFor(args),
+      overrides: _overrides(args: args),
     );
+    await tester.pumpAndSettle();
+
+    final Finder row = find.byKey(const Key('salon_booking_master_row_m1'));
+    final SemanticsNode node = tester.getSemantics(row);
+
+    // The announcement contract AND the action, together — the whole defect
+    // was that the flags were right while the action was absent, so asserting
+    // either one alone would have passed on the broken build. The label check
+    // also confirms this is the node a screen reader focuses for this row.
+    expect(node.label, contains('Олена Ковальчук'));
+    expect(
+      node,
+      isSemantics(
+        isButton: true,
+        hasCheckedState: true,
+        isChecked: false,
+        hasTapAction: true,
+      ),
+    );
+
+    // Drive the platform path a screen reader uses. Nothing below this line
+    // touches the widget tree directly — no `tester.tap`, no callback poke.
+    node.owner!.performAction(node.id, SemanticsAction.tap);
+    await tester.pumpAndSettle();
+
+    // The selection landed: the row now reports checked, and the CTA that is
+    // gated on having a master picked is present.
+    expect(tester.getSemantics(row), isSemantics(isChecked: true));
+    expect(find.byKey(const Key('booking-summary-cta')), findsOneWidget);
+
+    handle.dispose();
   });
 
-  // ===========================================================================
-  // ScreenProtectionManager lifecycle (mobile-security MEDIUM fix — this
-  // screen now renders the client's selected service names + prices via
-  // `SelectedServicesShelf` inside the pinned `_AssignConfirmBar`). Mirrors
-  // `salon_booking_confirm_screen_test.dart`'s established acquire/release
-  // pattern.
-  // ===========================================================================
-  group('ScreenProtectionManager lifecycle (mobile-security gap-fix)', () {
-    testWidgets(
-      'acquire() is called exactly once when the master-selection screen '
-      'mounts',
-      (tester) async {
-        await _pumpTall(tester);
-        final GoRouter router = _pushableRouter();
-        final _CountingScreenProtection counting = _CountingScreenProtection();
-
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            ..._overrides(),
-            screenProtectionProvider.overrideWithValue(counting),
-          ],
-        );
-        unawaited(router.push(RouteNames.salonBookingMasters));
-        await tester.pumpAndSettle();
-
-        expect(
-          counting.acquireCount,
-          1,
-          reason:
-              'initState must call acquire() exactly once to enable '
-              'FLAG_SECURE now that this screen renders selected service '
-              'names + prices via SelectedServicesShelf',
-        );
-      },
+  // ── hit-target regression (re-audit LOW) ─────────────────────────────────
+  //
+  // Deleting the row-wide `GestureDetector` (the F1 scroll-pin fix) left the
+  // `SizedBox(width: VelvetSpacing.sm + 2)` gutter between the strip and the
+  // select token as a dead zone — a tap there toggled nothing. The row
+  // detector is back (opaque, tap-only, no press state), so the gutter selects
+  // again. Tapped by OFFSET, inside the gutter but outside both the strip and
+  // the token, so it cannot pass by accidentally hitting either one.
+  testWidgets('the gutter between the strip and the select token selects', (
+    tester,
+  ) async {
+    await _pumpTall(tester);
+    final args = _args(ids: const <String>['svc-1']);
+    SalonBookingTimeArgs? reached;
+    await tester.pumpRoutedApp(
+      _routerFor(args, onReached: (a) => reached = a),
+      overrides: _overrides(args: args),
     );
+    await tester.pumpAndSettle();
 
-    testWidgets(
-      'release() is called exactly once when the master-selection screen is '
-      'popped (disposed) — acquire/release stay symmetric',
-      (tester) async {
-        await _pumpTall(tester);
-        final GoRouter router = _pushableRouter();
-        final _CountingScreenProtection counting = _CountingScreenProtection();
-
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            ..._overrides(),
-            screenProtectionProvider.overrideWithValue(counting),
-          ],
-        );
-        unawaited(router.push(RouteNames.salonBookingMasters));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('salon-master-selection-back')));
-        await tester.pumpAndSettle();
-
-        expect(
-          counting.releaseCount,
-          1,
-          reason:
-              'dispose() must call release() exactly once so FLAG_SECURE is '
-              'cleared once the master-selection screen is popped',
-        );
-        expect(counting.acquireCount, counting.releaseCount);
-      },
+    final Finder row = find.byKey(const Key('salon_booking_master_row_m1'));
+    final Finder strip = find.descendant(
+      of: row,
+      matching: find.byType(MasterStrip),
     );
+    final Rect stripRect = tester.getRect(strip);
+    final Rect rowRect = tester.getRect(row);
+
+    // A point in the dead gutter: past the strip's right edge, before the
+    // token. Guard the geometry so the test fails loudly if the layout ever
+    // stops having a gap rather than silently testing the strip.
+    final double gutterX = stripRect.right + 2;
+    expect(gutterX, lessThan(rowRect.right - _SelectTokenProbe.size));
+
+    await tester.tapAt(Offset(gutterX, rowRect.center.dy));
+    await tester.pumpAndSettle();
+
+    // Selection happened from the gutter alone. Asserted by DRIVING the flow —
+    // `booking-summary-cta` is always mounted (`enabled: picked != null`), so
+    // merely finding it would pass on a dead gutter.
+    await tester.tap(find.byKey(const Key('booking-summary-cta')));
+    await tester.pumpAndSettle();
+    expect(reached, isNotNull);
+    expect(reached!.visit.masterId, 'm1');
   });
+}
 
-  // ===========================================================================
-  // Security MEDIUM — the FOURTH unguarded money-string builder.
-  //
-  // `_AssignConfirmBar.build` hand-built its own
-  // `'${minSum.toStringAsFixed(0)}–${maxSum.toStringAsFixed(0)} ₴'` from
-  // `_totals`, which summed `SalonCatalogService.priceMin`/`priceMax` — the
-  // same unclamped wire doubles `salon_mapper.dart` passes straight through —
-  // with NO `isRenderablePrice` gate at term OR sum level.
-  //
-  // Verified in Dart against the pre-fix expression:
-  //   priceMin: double.infinity  ->  «Infinity ₴»
-  //   priceMin: -0.0             ->  «-0 ₴»
-  //   priceMin: 1e30             ->  «1e+30 ₴»
-  //   priceMin: 1e30 + -1e30     ->  «0 ₴»   (a confident, fictional total)
-  //   priceMin: double.nan       ->  «NaN–NaN ₴» (NaN != NaN takes the band)
-  //
-  // Unlike `BookingRecap`'s int-coercing sibling this NEVER threw — it coerces
-  // nothing — which is exactly why it survived three rounds of consolidation:
-  // it had no crash to announce itself with. It just quietly stated a
-  // fictional price on the screen where the client commits to it.
-  //
-  // The CONTROL case at the end is what makes this group honest: a blanket
-  // "always render —" mutation would satisfy every hostile case above and fail
-  // only the control.
-  // ===========================================================================
-
-  group('_AssignConfirmBar totals — unrenderable wire prices', () {
-    /// A hostile svc-1 whose `priceMin` is [bad]. `priceDisplay` stays a
-    /// well-formed string so the only route a garbage figure can take onto the
-    /// screen is the confirm bar's own summation — not the shelf echoing a
-    /// pre-broken display string back at us.
-    SalonCatalogService hostileSvc1(double bad) => SalonCatalogService(
-      id: 'svc-1',
-      name: 'Манікюр з покриттям',
-      durationLabel: '1 год 30 хв',
-      priceDisplay: '500 ₴',
-      durationMinutes: 90,
-      priceType: ServicePriceType.fixed,
-      priceMin: bad,
-    );
-
-    /// Overrides pinning a single-service selection (svc-1 only, covered by
-    /// m1) whose catalogue entry carries [services].
-    List<Object> hostileOverrides(List<SalonCatalogService> services) {
-      const args = SalonBookingMasterSelectionArgs(
-        salonId: _kSalonId,
-        selectedServiceIds: <String>['svc-1', 'svc-2'],
-      );
-      return <Object>[
-        publicSalonProfileProvider(
-          _kSalonId,
-        ).overrideWith((ref) => (_stubSalon, _stubMasters)),
-        salonServiceCatalogProvider(_kSalonId).overrideWith(
-          (ref) => <SalonServiceCategoryEntry>[
-            SalonServiceCategoryEntry(
-              category: 'MANICURE',
-              displayName: 'Манікюр',
-              count: services.length,
-              services: services,
-            ),
-          ],
-        ),
-        salonMasterServiceCoverageProvider(
-          args,
-        ).overrideWith((ref) => _stubCoverage),
-      ];
-    }
-
-    /// Every rendered `Text` string in the tree — asserts no garbage figure
-    /// leaked into ANY node, not merely the one a scoped finder looked at.
-    List<String> renderedTexts(WidgetTester tester) => tester
-        .widgetList<Text>(find.byType(Text))
-        .map((Text t) => t.data ?? '')
-        .toList();
-
-    /// The confirm bar's price `Text`, located structurally (never by a
-    /// Cyrillic literal): it is the last `Text` inside the bar's total row,
-    /// so scope to the CTA's enclosing bar and read every `Text` there.
-    List<String> confirmBarTexts(WidgetTester tester) => tester
-        .widgetList<Text>(
-          find.descendant(
-            of: find
-                .ancestor(
-                  of: find.byKey(const Key('salon-assign-confirm-cta')),
-                  matching: find.byType(Column),
-                )
-                .last,
-            matching: find.byType(Text),
-          ),
-        )
-        .map((Text t) => t.data ?? '')
-        .toList();
-
-    Future<void> pumpHostile(
-      WidgetTester tester,
-      List<SalonCatalogService> services,
-    ) async {
-      await _pumpTall(tester);
-      await tester.pumpRoutedApp(
-        _routerFor(),
-        overrides: hostileOverrides(services),
-      );
-      await tester.pumpAndSettle();
-    }
-
-    for (final (String name, double bad, String leak)
-        in <(String, double, String)>[
-          ('double.infinity', double.infinity, 'Infinity'),
-          ('double.nan', double.nan, 'NaN'),
-          ('1e30 (exponent-notation threshold)', 1e30, 'e+'),
-        ]) {
-      testWidgets(
-        'a $name priceMin off the wire renders the neutral unavailable label, '
-        'never «$leak ₴», in the assign confirm bar',
-        (tester) async {
-          await pumpHostile(tester, <SalonCatalogService>[
-            hostileSvc1(bad),
-            _svc2,
-          ]);
-
-          expect(tester.takeException(), isNull);
-          expect(
-            confirmBarTexts(tester),
-            contains(priceUnavailableLabel),
-            reason:
-                'an unstatable total must fall back to the shared '
-                'priceUnavailableLabel, exactly as every other «Разом» surface '
-                'does — the whole band is poisoned rather than the bad term '
-                'dropped, because dropping it would UNDERSTATE the price the '
-                'client is agreeing to',
-          );
-          expect(
-            renderedTexts(tester).where((String s) => s.contains(leak)),
-            isEmpty,
-            reason: '«$leak ₴» must never be stringified onto a screen',
-          );
-        },
-      );
-    }
-
-    testWidgets(
-      'a -0.0 priceMin does not render the leading minus «-0 ₴» — `>= 0` waves '
-      'negative zero through, which is why isRenderablePrice uses isNegative',
-      (tester) async {
-        await pumpHostile(tester, <SalonCatalogService>[
-          hostileSvc1(-0.0),
-          _svc2,
-        ]);
-
-        expect(tester.takeException(), isNull);
-        expect(confirmBarTexts(tester), contains(priceUnavailableLabel));
-        expect(
-          renderedTexts(
-            tester,
-          ).where((String s) => RegExp(r'-\s*\d').hasMatch(s)),
-          isEmpty,
-          reason:
-              'a leading minus collides with the band en-dash into «-0–800 ₴»; '
-              'no negative money figure may render on the commit screen',
-        );
-      },
-    );
-
-    testWidgets(
-      'a CANCELLING PAIR (1e30 + -1e30 == 0.0) is poisoned by the PER-TERM '
-      'gate — a sum-level check alone would state a confident, fictional «0 ₴»',
-      (tester) async {
-        await pumpHostile(tester, <SalonCatalogService>[
-          hostileSvc1(1e30),
-          const SalonCatalogService(
-            id: 'svc-2',
-            name: 'Педикюр',
-            durationLabel: '2 год',
-            priceDisplay: '800 ₴',
-            durationMinutes: 120,
-            priceType: ServicePriceType.fixed,
-            priceMin: -1e30,
-          ),
-        ]);
-
-        expect(tester.takeException(), isNull);
-        expect(
-          confirmBarTexts(tester),
-          contains(priceUnavailableLabel),
-          reason:
-              'both terms are individually unrenderable but their SUM is '
-              'exactly 0.0 and passes isRenderablePrice; only a per-term gate '
-              'catches this, which is why the gate is not applied to the sums '
-              'alone',
-        );
-        expect(
-          confirmBarTexts(tester).where((String s) => s.contains('0 ₴')),
-          isEmpty,
-          reason: 'the fictional «0 ₴» total must not be stated',
-        );
-      },
-    );
-
-    testWidgets(
-      'CONTROL — well-formed prices still render the real band, so a blanket '
-      '"always render —" mutation cannot satisfy this group',
-      (tester) async {
-        await pumpHostile(tester, const <SalonCatalogService>[_svc1, _svc2]);
-
-        expect(tester.takeException(), isNull);
-
-        final List<String> texts = confirmBarTexts(tester);
-        expect(
-          texts,
-          contains('1300 ₴'),
-          reason:
-              'svc1 (500) + svc2 (800), both FIXED, collapse to a degenerate '
-              'band and must render as the real total',
-        );
-        expect(
-          texts,
-          isNot(contains(priceUnavailableLabel)),
-          reason:
-              'a renderable selection must never fall back to the unavailable '
-              'label — this is the mutation guard for the four cases above',
-        );
-      },
-    );
-  });
+/// The `_SelectToken` side length, mirrored here because the token itself is
+/// private. Only used to assert the probe point lands in the gutter.
+abstract final class _SelectTokenProbe {
+  static const double size = 30;
 }

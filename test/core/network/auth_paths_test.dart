@@ -289,6 +289,109 @@ void main() {
       expect(redactLogPath('/api/v1/bookings'), equals('/api/v1/bookings'));
     });
 
+    // ── MO-1 — appointment (multi-service visit) PII paths ──────────────────
+    //
+    // The visit endpoints carry the SAME PII the single-service booking
+    // endpoints do (enriched master name/address/price + free-text
+    // clientComment / providerComment / clientCancellationNote):
+    //   POST  /api/v1/appointments                 (create — clientComment)
+    //   GET   /api/v1/appointments/{id}            (detail — full enrichment)
+    //   PATCH /api/v1/appointments/{id}/cancel     (clientCancellationNote)
+    // They MUST be classified PII so LoggingInterceptor redacts request AND
+    // response bodies (the error-path logger logs response bodies otherwise).
+    // Mirrors the `/api/v1/bookings` (exact) + `/api/v1/bookings/` (prefix)
+    // pair. This is the tripwire guarding the mobile-security allowlist fix —
+    // if the exact-`/appointments` entry or the `/appointments/` prefix is ever
+    // removed, these fail loudly.
+    test('bare POST /appointments is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/appointments'),
+        isTrue,
+        reason:
+            'POST /appointments carries free-text clientComment — its body '
+            'must be redacted in debug logs, exactly like POST /bookings.',
+      );
+    });
+
+    test('appointment sub-routes ({id}/cancel) are PII routes', () {
+      expect(
+        isPiiPath('/api/v1/appointments/appt-123'),
+        isTrue,
+        reason:
+            'GET /appointments/{id} returns enriched master address + notes — '
+            'PII that must be redacted, like GET /bookings/{id}.',
+      );
+      expect(
+        isPiiPath('/api/v1/appointments/appt-123/cancel'),
+        isTrue,
+        reason:
+            'PATCH .../cancel carries the free-text clientCancellationNote.',
+      );
+    });
+
+    test('a PII appointment path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/appointments/appt-123?token=secret'),
+        equals('/api/v1/appointments/appt-123?[REDACTED]'),
+      );
+    });
+
+    // ── Track 7.x Wave B — client-review PII path (mobile-security HIGH fix) ─
+    //
+    // `POST /api/v1/client-reviews` carries the provider's free-text
+    // `comment` about the client (private feedback, never shown to the
+    // client — but still free text that must never land in plain-text debug
+    // logs, exactly like the CLIENT→MASTER `POST /reviews` comment). This is
+    // the tripwire guarding the fix — if the exact-match entry is ever
+    // removed from kPiiPaths, this fails loudly instead of silently logging
+    // PII again.
+    test('bare POST /client-reviews is in kPiiPaths (exact match, no dynamic '
+        'segment)', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/client-reviews'),
+        reason:
+            'POST /client-reviews carries the free-text provider comment '
+            'about the client — its body must be redacted in debug logs, '
+            'exactly like POST /bookings and POST /appointments.',
+      );
+    });
+
+    test(
+      '/api/v1/client-reviews is classified as a PII route via isPiiPath',
+      () {
+        expect(
+          isPiiPath('/api/v1/client-reviews'),
+          isTrue,
+          reason:
+              'isPiiPath must resolve true for the exact bare path so '
+              'LoggingInterceptor redacts the request body.',
+        );
+      },
+    );
+
+    test('a PII client-reviews path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/client-reviews?token=secret'),
+        equals('/api/v1/client-reviews?[REDACTED]'),
+      );
+    });
+
+    test(
+      '/api/v1/client-reviews is NOT in kAuthPaths (it is authenticated)',
+      () {
+        expect(
+          kAuthPaths,
+          isNot(contains('/api/v1/client-reviews')),
+          reason:
+              'POST /client-reviews requires a Bearer token (the authenticated '
+              'provider) — listing it in kAuthPaths would strip the token and '
+              'cause a 401, mirroring the independent-masters/me precedent '
+              'above.',
+        );
+      },
+    );
+
     test('auth/PII token route: whole query redacted (token value absent)', () {
       // /api/v1/auth/verify-email is an exact kPiiPaths member → full mask,
       // including the param NAME, not just its value.
@@ -300,6 +403,38 @@ void main() {
         out,
         isNot(contains('secretLinkToken123')),
         reason: 'the verify-email link token must never reach the log',
+      );
+    });
+
+    // ── mobile-security MEDIUM fix — favourites PII paths ────────────────────
+    //
+    // `GET /api/v1/favorites/services` and `POST`/`DELETE /api/v1/favorites`
+    // echo the client's wish list (service names, master first/last names,
+    // prices) — booking-intent PII. This is the exact class already fixed for
+    // `/api/v1/clients/me` (the sibling passport endpoint) one phase earlier;
+    // the favourites endpoints shipped without the same treatment. Without
+    // these entries `LoggingInterceptor.onError` would log
+    // `err.response?.data` verbatim on any 4xx/5xx in a debug build. This is
+    // the tripwire guarding the fix — if either entry is ever removed from
+    // [kPiiPaths] / [kPiiPathPrefixes], these fail loudly.
+    test('bare /api/v1/favorites is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/favorites'),
+        isTrue,
+        reason:
+            'POST/DELETE /favorites echoes the saved service/master '
+            'identifiers — its body must be redacted in debug logs.',
+      );
+    });
+
+    test('GET /api/v1/favorites/services is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/favorites/services'),
+        isTrue,
+        reason:
+            'GET /favorites/services returns the client\'s wish list — '
+            'service names, master names, prices — and must be redacted, '
+            'exactly like GET /clients/me/passport.',
       );
     });
   });

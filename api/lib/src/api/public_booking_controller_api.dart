@@ -43,7 +43,7 @@ class PublicBookingControllerApi {
   Future<Response<BuiltList<AvailableSlotResponse>>> availability({
     required String slug,
     required Date date,
-    required String serviceId,
+    required BuiltList<String> serviceId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -69,8 +69,12 @@ class PublicBookingControllerApi {
 
     final _queryParameters = <String, dynamic>{
       r'date': encodeQueryParameter(_serializers, date, const FullType(Date)),
-      r'serviceId':
-          encodeQueryParameter(_serializers, serviceId, const FullType(String)),
+      r'serviceId': encodeCollectionQueryParameter<String>(
+        _serializers,
+        serviceId,
+        const FullType(BuiltList, [FullType(String)]),
+        format: ListFormat.multi,
+      ),
     };
 
     final _response = await _dio.request<Object>(

@@ -12,3 +12,9 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# gradle.properties sets -XX:+HeapDumpOnOutOfMemoryError with no -XX:HeapDumpPath,
+# so an OOM in this Gradle daemon dumps a .hprof into the CWD (inside the project
+# tree) — and that heap can hold the release signingConfig's plaintext keystore/key
+# password. Never let a stray dump get swept up by `git add -A`.
+*.hprof

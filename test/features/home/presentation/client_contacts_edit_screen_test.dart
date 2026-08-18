@@ -21,12 +21,14 @@ import 'package:beautica_mobile/features/home/domain/client_profile_update.dart'
 import 'package:beautica_mobile/features/home/presentation/client_contacts_edit_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 class _MockClientProfileRepository extends Mock
     implements ClientProfileRepository {}
@@ -168,25 +170,22 @@ void main() {
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('btn-save-contacts')));
-      await tester.pump(); // run the save future + showSnackBar
-      await tester.pump(); // let the SnackBar animate in
+      await pumpVelvetSnackIn(tester); // run the save future, mount + enter
 
       // The screen stays put — no navigation to the stub home occurred.
       expect(find.byKey(const Key('stub-home')), findsNothing);
       expect(find.byKey(const Key('field-phone')), findsOneWidget);
 
-      // The localized ServerFailure message renders inside a SnackBar.
+      // The localized ServerFailure message renders in a root-overlay
+      // VelvetSnack — NOT a SnackBar/ScaffoldMessenger descendant (see
+      // test/helpers/velvet_snack_matchers.dart header).
       final BuildContext ctx = tester.element(
         find.byKey(const Key('field-phone')),
       );
       final String expected = AppLocalizations.of(ctx).errServer;
-      expect(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.text(expected),
-        ),
-        findsOneWidget,
-      );
+      expectVelvetSnack(expected, variant: VelvetSnackVariant.error);
+
+      await pumpPastVelvetSnack(tester); // drain the dwell Timer
     },
   );
 

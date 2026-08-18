@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -39,7 +40,10 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart'
     show calendarDayCount;
-import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -84,13 +88,24 @@ class _MutableAuthNotifier extends AuthNotifier {
 /// `ref.watch`es `authProvider.select(...)`, so reading `bookedDaysProvider`
 /// while `authProvider` is still `AsyncLoading` would observe a `null`
 /// selected id, then rebuild a SECOND time the instant `_initial` resolves.
+///
+/// [clock] optionally overrides `clockProvider` — used by the Kyiv-anchoring
+/// regression group below to pin the device's "now" to an instant observed
+/// from a specific device zone. `null` leaves the provider's own
+/// [DateTime.now] default in place, matching production.
 Future<({ProviderContainer container, _MutableAuthNotifier auth})>
-_containerWithAuth(BookingRepository repo, AuthSession initialAuth) async {
+_containerWithAuth(
+  BookingRepository repo,
+  AuthSession initialAuth, {
+  DateTime Function()? clock,
+}) async {
   final auth = _MutableAuthNotifier(initialAuth);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
       authProvider.overrideWith(() => auth),
+      if (clock != null) clockProvider.overrideWithValue(clock),
     ].cast(),
   );
   addTearDown(container.dispose);
@@ -298,7 +313,13 @@ void main() {
       );
       await visit(result.container);
 
-      final DateTime today = dateOnly(DateTime.now());
+      // Kyiv-anchored (backlog :226): production now derives "today" via
+      // kyivToday(ref.read(clockProvider)), which — since clockProvider is
+      // NOT overridden in this test — resolves to kyivToday(DateTime.now).
+      // The oracle here must match that exactly, not the device's raw day,
+      // or this assertion is host-TZ-dependent instead of a real pin (caught
+      // by the TZ=Asia/Tokyo sweep, 2026-08-02).
+      final DateTime today = kyivToday(DateTime.now);
       final DateTime expectedFrom = DateTime(
         today.year,
         today.month,
@@ -364,6 +385,12 @@ void main() {
       'the repository response\'s stray time-of-day components are '
       'normalised away via dateOnly, so a date-only key hits the Set',
       () async {
+        // A stub REPOSITORY RESPONSE value (data flowing INTO the system
+        // under test), not a device-clock anchor — the assertion only checks
+        // that dateOnly() strips y/m/d, which is host-TZ-independent: a local
+        // DateTime's own .year/.month/.day always echo back exactly what was
+        // constructed, on any host TZ.
+        // host-tz-ok: repository-response stub value, not a device-clock anchor
         stubBookedDays(<DateTime>[DateTime(2026, 7, 10, 13, 45, 30)]);
         final result = await _containerWithAuth(
           repo,
@@ -384,6 +411,10 @@ void main() {
           reason: 'a date-only membership probe must hit the normalised key',
         );
         expect(
+          // Same stub-response value as above (see the preceding
+          // stubBookedDays call), re-probed to prove the RAW stray-time key
+          // misses the Set.
+          // host-tz-ok: repository-response stub value, not a device-clock anchor
           days.contains(DateTime(2026, 7, 10, 13, 45, 30)),
           isFalse,
           reason:
@@ -450,6 +481,91 @@ void main() {
           reason:
               'ref.onDispose(cancelToken.cancel) must fire when the element '
               'is disposed, aborting the still-pending ±180-day sweep',
+        );
+      },
+    );
+  });
+
+  group('bookedDaysProvider — Kyiv-anchored "today" (mobile-dev, 2026-08-02, '
+      'backlog :226 clockProvider half)', () {
+    test(
+      'the fetched from/to window is anchored to the KYIV day, not the '
+      "device's own calendar day, when the device sits in Asia/Tokyo",
+      () async {
+        initBeauticaTimeZones();
+
+        // 2026-08-02 05:00 in Asia/Tokyo (UTC+9, no DST) is 2026-08-01
+        // 20:00Z, which is 2026-08-01 23:00 Kyiv (EEST, +3) — a full Kyiv day
+        // EARLIER than the device's own calendar day. `bookedDaysProvider`
+        // must anchor its ±180-day window on the KYIV day (Aug 1), not the
+        // device's (Aug 2) — the backend interprets `from`/`to` as Kyiv civil
+        // days (`atStartOfDay(TimeZones.KYIV)`), so a device-day-anchored
+        // window would silently request the wrong 361-day span.
+        final tz.TZDateTime deviceInstant = tz.TZDateTime(
+          tz.getLocation('Asia/Tokyo'),
+          2026,
+          8,
+          2,
+          5,
+          0,
+        );
+
+        late DateTime capturedFrom;
+        late DateTime capturedTo;
+        when(
+          () => repo.getMyBookedDays(
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer((Invocation invocation) async {
+          capturedFrom = invocation.namedArguments[#from] as DateTime;
+          capturedTo = invocation.namedArguments[#to] as DateTime;
+          return const <DateTime>[];
+        });
+
+        final result = await _containerWithAuth(
+          repo,
+          const AuthSession.authenticated(
+            user: _master1,
+            accessToken: 'token-1',
+          ),
+          clock: () => deviceInstant,
+        );
+        await visit(result.container);
+
+        final DateTime kyivToday = DateTime(2026, 8, 1);
+        final DateTime deviceToday = DateTime(2026, 8, 2);
+
+        expect(
+          capturedFrom,
+          DateTime(
+            kyivToday.year,
+            kyivToday.month,
+            kyivToday.day - kBookedDaysSpanDays,
+          ),
+        );
+        expect(
+          capturedTo,
+          DateTime(
+            kyivToday.year,
+            kyivToday.month,
+            kyivToday.day + kBookedDaysSpanDays,
+          ),
+        );
+
+        // Negative-space assertion: the DEVICE's own calendar day (Tokyo,
+        // Aug 2) must never leak through as the anchor — this is the exact
+        // shape of window a `dateOnly(DateTime.now())` regression would send.
+        expect(
+          capturedTo,
+          isNot(
+            DateTime(
+              deviceToday.year,
+              deviceToday.month,
+              deviceToday.day + kBookedDaysSpanDays,
+            ),
+          ),
         );
       },
     );

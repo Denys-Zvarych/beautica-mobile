@@ -25,6 +25,7 @@ import 'package:beautica_mobile/shared/widgets/loading_skeleton.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Test-only Notifier — exposes a `set` method so tests can push any
@@ -68,6 +69,7 @@ class _TestWidget extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 Widget _wrap(Widget child) => ProviderScope(
+  retry: beauticaProviderRetry,
   child: MaterialApp(
     locale: const Locale('uk', 'UA'),
     localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -98,6 +100,7 @@ void main() {
     ) async {
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           child: MaterialApp(
             locale: const Locale('uk', 'UA'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,

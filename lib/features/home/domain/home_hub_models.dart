@@ -41,30 +41,6 @@ class ClientProfileSummary {
   }
 }
 
-/// The soonest upcoming (PENDING / CONFIRMED) booking — drives the
-/// "Найближчий запис" card and its live countdown chip.
-class NextAppointment {
-  const NextAppointment({
-    required this.id,
-    required this.masterName,
-    required this.service,
-    required this.dateLabel,
-    required this.timeLabel,
-    required this.location,
-    required this.startsAt,
-    required this.masterInitials,
-  });
-
-  final String id;
-  final String masterName;
-  final String service;
-  final String dateLabel;
-  final String timeLabel;
-  final String location;
-  final DateTime startsAt;
-  final String masterInitials;
-}
-
 /// A master in the favorites horizontal rail.
 class FavoriteMasterItem {
   const FavoriteMasterItem({

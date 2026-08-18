@@ -33,12 +33,14 @@ import 'package:beautica_mobile/features/services/domain/service_type_option.dar
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'select_dropdown_test_helpers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks + helpers
@@ -110,6 +112,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
+        retry: beauticaProviderRetry,
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
           approvedCategoriesProvider.overrideWith((ref) async => categories),
@@ -357,7 +360,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // The server message lands INLINE on the service-type field, not a
-      // generic snackbar.
+      // generic snack.
       expect(find.byKey(const Key('error-service-type')), findsOneWidget);
       expect(
         find.descendant(
@@ -366,7 +369,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(VelvetSnack), findsNothing);
     },
   );
 

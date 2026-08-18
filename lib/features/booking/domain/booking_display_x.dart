@@ -62,6 +62,33 @@ extension BookingDisplayX on Booking {
     return initials.isEmpty ? '?' : initials;
   }
 
+  /// The master's average rating to DISPLAY on a booking surface, or `null`
+  /// when there is nothing to show and the caller must render the no-rating
+  /// treatment («—»).
+  ///
+  /// The booking-side twin of [MasterRatingX.displayRating] (`master.dart`),
+  /// folding the same three "no rating yet" shapes onto one null so «Деталі
+  /// запису», «Залишити відгук» and [MasterStrip.fromBooking] cannot disagree:
+  ///
+  ///  * [Booking.masterAvgRating] is `null` — the Phase 240 wire contract for
+  ///    an unreviewed master.
+  ///  * [Booking.masterAvgRating] is `<= 0` — the pre-240 wire shape, and
+  ///    still what a stale backend or an older cached response sends. A real
+  ///    average is always >= 1.0, so a zero is a storage artefact, never a
+  ///    score. Guarding on the review count ALONE let `0.0` + an absent count
+  ///    print «0.0» — the exact artefact Phase 240 removed.
+  ///  * [Booking.masterReviewCount] is a KNOWN `0` — no reviews can produce an
+  ///    average. It stays nullable-for-unknown (a pre-240 backend omits it),
+  ///    so an unknown count does NOT by itself suppress a genuine average; the
+  ///    `<= 0` guard above already covers the artefact case.
+  double? get masterDisplayRating {
+    final double? avg = masterAvgRating;
+    if (avg == null || avg <= 0) return null;
+    final int? count = masterReviewCount;
+    if (count != null && count <= 0) return null;
+    return avg;
+  }
+
   /// A salon booking (`salonName != null`) was acted on BY THE SALON; an
   /// independent-master booking was acted on BY THE MASTER. The cancelled /
   /// declined LABEL no longer varies on this (both read the neutral
@@ -133,7 +160,62 @@ extension BookingDisplayX on Booking {
   /// regardless of each operand's zone. No Kyiv-pinned `toBeauticaTime`
   /// conversion is needed here: that pin governs wall-clock DISPLAY
   /// (`.hour`/`.minute`), not instant ORDERING, which is timezone-agnostic.
+  // instant-ok: absolute-instant comparison, endAt is canonical UTC.
   bool get isPast => endAt.isBefore(DateTime.now());
+
+  /// Whether this booking's START instant is already at-or-past the device
+  /// clock — a PRESENTATION-ONLY signal for the PROVIDER footer (track 27.x
+  /// Wave A).
+  ///
+  /// Mirrors the backend's Phase 27.1 `BookingTemporalGuard` predicates,
+  /// which compare `startsAt` (never `endsAt`):
+  ///   * `assertFutureForProviderCancel` — decline requires `now < startsAt`
+  ///     (strictly future); once elapsed, 409.
+  ///   * `assertElapsedForComplete` — complete requires `now >= startsAt`;
+  ///     while still future, 409.
+  ///   * `assertCurrentNotElapsedForReschedule` — the provider arm of
+  ///     reschedule shares decline's predicate.
+  ///
+  /// This is deliberately a DIFFERENT field than [isPast] (which compares
+  /// `endAt`, for the CLIENT's own elapsed-guard question — a client may act
+  /// right up until the appointment has fully ENDED). Do not conflate the
+  /// two or reuse [isPast] for the provider footer: a booking can be
+  /// `hasStarted == true` while `isPast == false` (the appointment is
+  /// currently underway), and the provider footer must show «Завершити», not
+  /// «Перенести»/«Скасувати», for exactly that window.
+  ///
+  /// Like [isPast], this is UX-only — the SERVER clock is authoritative. A
+  /// stale screen or a rolled-back device clock can still let a tap through
+  /// to a 409 (`ProviderDeclineWindowClosedFailure` /
+  /// `ProviderCompleteNotStartedFailure`), which the screen catches and
+  /// resolves by refetching so the footer re-renders correctly.
+  ///
+  /// PREFER [hasStartedAt] wherever a `WidgetRef` is reachable — this getter
+  /// reads the DEVICE clock, which no test can pin.
+  // instant-ok: absolute-instant comparison, startAt is canonical UTC.
+  bool get hasStarted => hasStartedAt(DateTime.now());
+
+  /// Whether this booking's START instant is already at-or-past [now] — the
+  /// injected-clock form of [hasStarted], and the SINGLE implementation of the
+  /// predicate (that getter is now a one-line delegate, so the two can never
+  /// diverge). See [hasStarted]'s doc above for the full contract: which
+  /// backend guard this mirrors, why it compares `startAt` and not `endAt`
+  /// (deliberately a DIFFERENT gate than [isPast]), and why it is UX-only with
+  /// the SERVER clock authoritative.
+  ///
+  /// Call sites that can reach a `WidgetRef` MUST use this one, sourcing [now]
+  /// from `ref.watch(clockProvider)()` (widgets) / `ref.read(clockProvider)()`
+  /// (notifier actions) — a gate the test cannot pin is a gate the test cannot
+  /// prove. NOTE the coherence invariant when you do: a fixture's booking
+  /// window must be anchored to the SAME clock the app is reading, so a test
+  /// that overrides `clockProvider` must anchor `startAt` to that override,
+  /// never to `DateTime.now()`.
+  ///
+  /// Compares ABSOLUTE INSTANTS — [startAt] is canonical UTC and `isAfter`
+  /// orders by microsecondsSinceEpoch regardless of either operand's zone. Do
+  /// NOT convert either side through `toBeauticaTime`: that Kyiv pin governs
+  /// wall-clock DISPLAY (`.hour`/`.minute`), never instant ORDERING.
+  bool hasStartedAt(DateTime now) => !startAt.isAfter(now);
 
   /// The four location fields composed into one line, or `null` when the
   /// provider has no usable location on file. See [composeAddressLine].

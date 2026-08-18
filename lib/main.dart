@@ -8,6 +8,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/config/app_config.dart';
+import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
@@ -127,7 +128,15 @@ Future<void> main() async {
   // the SecurityContext is cached before any provider reads dioProvider.
   await initCertPinning();
 
-  runApp(const ProviderScope(child: BeauticaApp()));
+  // `retry:` installs the app-wide retry predicate on the ROOT container, so
+  // it governs every provider at once. Riverpod's own default retries ANY
+  // error that is not an `Error`/`ProviderException` ten times over ~38 s —
+  // and a `Failure` is neither, so a 404 or a decode breakdown used to hold
+  // the screen in `AsyncLoading` for the whole 38 s instead of rendering its
+  // error state. See `core/errors/failure_retry_policy.dart`.
+  runApp(
+    const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
+  );
 
   // Phase 2.15 fix — release the native splash so the first Flutter frame
   // can render. Must be called after runApp() and synchronously (not in a
@@ -164,6 +173,14 @@ Future<void> _warmSharedSvgs() async {
   }
 }
 
+/// `BeauticaApp` needs no explicit mount point for `VelvetSnack`
+/// (`lib/shared/feedback/`): `showVelvetSnack` resolves
+/// `Overlay.of(context, rootOverlay: true)`, which is the `Overlay` the root
+/// `Navigator` below creates on the very first frame and never rebuilds —
+/// every route, shell tab, dialog and bottom sheet mounted under
+/// `MaterialApp.router` already has it as an ancestor. See
+/// `velvet_snack_host.dart`'s file-level doc for the full rationale
+/// (including why a snack fired immediately before a route pop survives it).
 class BeauticaApp extends ConsumerWidget {
   const BeauticaApp({super.key});
 

@@ -43,6 +43,7 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/validators/password_validator.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
@@ -220,15 +221,11 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
 
       if (fromChangePassword) {
         // Skip the normal in-screen success state entirely — go straight to
-        // /login with a forced-logout message.
+        // /login with a forced-logout message. Warning, not error/success: the
+        // password change itself succeeded, but the session termination is a
+        // state change the user did not explicitly ask for.
         final l10nLogout = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(l10nLogout.changePasswordForcedLogoutMessage),
-            ),
-          );
+        showWarningSnack(context, l10nLogout.changePasswordForcedLogoutMessage);
         context.go(RouteNames.login);
         if (kDebugMode) {
           log(

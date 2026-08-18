@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -68,6 +69,7 @@ Future<({ProviderContainer container, _MutableAuthNotifier auth})>
 _containerWithAuth(ServiceRepository repo, AuthSession initialAuth) async {
   final auth = _MutableAuthNotifier(initialAuth);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       // Deliberately a fixed value, not the real provider — see the file
       // header for why this isolates the fix's own watch from the cascade

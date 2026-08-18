@@ -21,33 +21,46 @@
 //     [ScheduleOverrideResponse] maps to a single-day [ScheduleOverride]
 //     (start == end), and [overrideToRequestForDate] serialises one date.
 //
-// WINDOW+BREAKS NOTE: the window+breaks split is NOT part of the wire layer.
-// This mapper only ever sees `List<WorkInterval>` — exactly like the backend.
-// The editor (Phase 15.3) does the `DayHours.fromIntervals`/`toIntervals` split.
-// Do not move break logic here.
+// WINDOW+BREAKS NOTE: BREAK ranges are NOT part of the wire layer — this mapper
+// never sees a `BreakRange`, and the editor (Phase 15.3) alone does the
+// `DayHours.fromIntervals`/`toIntervals` split. Do not move break logic here.
+//
+// The working WINDOW is different, and IS carried across this boundary (added
+// 2026-07-27): the backend persists `windowStart`/`windowEnd` on
+// `WeeklyScheduleDay{Request,Response}`, `ScheduleOverride{Request,Response}`
+// and (response-only) `EffectiveDayResponse` as DISPLAY-ONLY metadata —
+// intervals remain the sole canonical availability and no backend availability
+// path reads the window. It is a stored field, so mapping it is translation, not
+// reconstructed break logic. Contract this mapper honours:
+//   • Both-or-neither. Never send one edge alone; never synthesise a window from
+//     `min(start)..max(end)` — an absent window is a real, meaningful `null`
+//     (the legacy gap-reconstruction regime in `DayHours.fromIntervals`).
+//     DELIBERATE EXCEPTION, do not "fix": `DayHoursSheet._save`
+//     (`presentation/day_hours_sheet.dart`) always sends `window:
+//     _day.window.clone()` on a CUSTOM_HOURS save, INCLUDING when the sheet was
+//     seeded from a legacy row with no stored window. That is not synthesis at
+//     the mapping boundary — it is the master's actual edited від–до, and it is
+//     what lets a legacy override row heal itself on first re-save. The
+//     no-synthesis rule above binds THIS file (the read path), not the editor.
+//   • `windowEnd > windowStart`, and the window CONTAINS every interval, else
+//     the backend 400s. `DayHours.toIntervals()` guarantees containment by
+//     construction, so a valid editor state always satisfies it. On the READ
+//     path the same containment is re-checked rather than assumed — see
+//     [ScheduleMapper._windowFromWire].
+//   • Ignored by the backend for day-off and EXPLICIT_TIMES days — this mapper
+//     sends `null` there rather than relying on that leniency.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
+
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 
 /// Number of ISO days in a week (1 = Monday … 7 = Sunday).
 const int _kDaysInWeek = 7;
-
-/// Ukrainian ISO-weekday labels, ordered Monday(1) … Sunday(7). Ported from the
-/// approved MasterSchedule preview (`_weekdayFull`). Domain strings (used to
-/// label a [TemplateDay]); they are not widget-arg literals.
-const List<String> _kWeekdayLabels = <String>[
-  'Понеділок',
-  'Вівторок',
-  'Середа',
-  'Четвер',
-  'П’ятниця',
-  'Субота',
-  'Неділя',
-];
 
 /// Translates generated schedule DTOs to / from the domain model.
 ///
@@ -115,6 +128,56 @@ abstract final class ScheduleMapper {
     List<WorkInterval> intervals,
   ) => BuiltList<WorkIntervalDto>(intervals.map(intervalToDto));
 
+  // ── Working window: windowStart/windowEnd ⇄ WorkInterval? ────────────────────
+
+  /// Reads the stored display-only working window off a wire pair, validated
+  /// against the [intervals] of the SAME row.
+  ///
+  /// BOTH-OR-NEITHER: a `null`/empty edge on either side — or a degenerate pair
+  /// where the end is not strictly after the start — yields `null`, i.e. "this
+  /// row has no stored window", which routes the reader to the legacy
+  /// gap-reconstruction regime. The window is NEVER synthesised from the
+  /// intervals; a missing window must stay missing.
+  ///
+  /// CONTAINMENT (2026-07-27 audit): the window is additionally rejected unless
+  /// it contains EVERY interval of the row. The backend enforces containment on
+  /// the write side, but the client must not *rely* on that guarantee — a
+  /// backend regression or tampered row could otherwise ship e.g.
+  /// `intervals=[08:00–18:00]` with `window=09:00–10:00`, and
+  /// `DayHours._breaksFromWindowMinusIntervals` CLAMPS intervals into the
+  /// window rather than rejecting them. That silently renders a 09:00–10:00 day
+  /// with no warning, and the next save collapses `toIntervals()` to
+  /// `[09:00–10:00]` — writing away 8 hours of genuinely bookable time, with the
+  /// backend blessing the (now self-consistent) result. Falling back to `null`
+  /// keeps the intervals authoritative: the legacy regime derives the window
+  /// from them instead.
+  ///
+  /// An empty [intervals] list satisfies containment vacuously. Such a row is a
+  /// day-off, where every reader ignores the window anyway
+  /// ([DayHours.fromIntervals] returns a default day, and
+  /// [weeklyScheduleToRequest] suppresses the window on the way back out).
+  static WorkInterval? _windowFromWire(
+    String? start,
+    String? end,
+    List<WorkInterval> intervals,
+  ) {
+    if (start == null || start.isEmpty || end == null || end.isEmpty) {
+      return null;
+    }
+    final WorkInterval window = WorkInterval(
+      start: parseTime(start),
+      end: parseTime(end),
+    );
+    if (!window.selfValid) return null;
+    for (final WorkInterval interval in intervals) {
+      if (interval.startMinutes < window.startMinutes ||
+          interval.endMinutes > window.endMinutes) {
+        return null;
+      }
+    }
+    return window;
+  }
+
   // ── Date ⇄ DateTime (date-only, local midnight) ──────────────────────────────
 
   static DateTime _dateFromWire(Date? date) => date == null
@@ -157,9 +220,17 @@ abstract final class ScheduleMapper {
           // Broken contract row — cannot be placed in the week; skip it.
           continue;
         }
-        byDay[dow] = _weeklyModeIsExplicit(dayDto.mode)
-            ? _DayShape.explicit(_timesFromWire(dayDto.times))
-            : _DayShape.interval(_intervalsFromDtos(dayDto.intervals));
+        if (_weeklyModeIsExplicit(dayDto.mode)) {
+          byDay[dow] = _DayShape.explicit(_timesFromWire(dayDto.times));
+        } else {
+          final List<WorkInterval> intervals = _intervalsFromDtos(
+            dayDto.intervals,
+          );
+          byDay[dow] = _DayShape.interval(
+            intervals,
+            _windowFromWire(dayDto.windowStart, dayDto.windowEnd, intervals),
+          );
+        }
       }
     }
 
@@ -171,10 +242,11 @@ abstract final class ScheduleMapper {
         for (var day = 1; day <= _kDaysInWeek; day++)
           TemplateDay(
             dayOfWeek: day,
-            label: _kWeekdayLabels[day - 1],
+            label: ukCapitalize(weekdayName(day)),
             mode: byDay[day]!.mode,
             intervals: byDay[day]!.intervals,
             times: byDay[day]!.times,
+            window: byDay[day]!.window,
           ),
       ],
     );
@@ -217,6 +289,15 @@ abstract final class ScheduleMapper {
                 db
                   ..mode = WeeklyScheduleDayRequestModeEnum.INTERVAL
                   ..intervals = _intervalsToDtos(d.intervals).toBuilder();
+                // Display-only working window, both-or-neither. Suppressed for a
+                // day-off (empty intervals): the backend ignores it there, and a
+                // window with nothing to contain is meaningless.
+                final WorkInterval? window = d.window;
+                if (window != null && d.intervals.isNotEmpty) {
+                  db
+                    ..windowStart = formatTimeWire(window.start)
+                    ..windowEnd = formatTimeWire(window.end);
+                }
               }
             }),
           ),
@@ -242,45 +323,67 @@ abstract final class ScheduleMapper {
         times: _timesFromWire(dto.times),
       );
     }
+    final List<WorkInterval> intervals = _intervalsFromDtos(dto.intervals);
     return ScheduleOverride.custom(
       start: date,
       end: date,
-      intervals: _intervalsFromDtos(dto.intervals),
+      intervals: intervals,
+      window: _windowFromWire(dto.windowStart, dto.windowEnd, intervals),
     );
   }
 
-  /// Serialises a single-day override into the PUT body for [date]. The caller
-  /// (repository) expands a multi-day [ScheduleOverride] span into one PUT per
-  /// date and supplies that date here — the mapper never groups spans.
-  static ScheduleOverrideRequest overrideToRequestForDate(
-    ScheduleOverride override,
-    DateTime date,
-  ) {
-    // Contract (Phase 15.9, backend `ScheduleOverrideRequest.isKindConsistent`):
-    //   • DAY_OFF carries neither intervals nor times.
-    //   • CUSTOM_HOURS carries EITHER a non-empty intervals list (INTERVAL) OR a
-    //     non-empty times list (EXPLICIT_TIMES), never both, never empty.
-    // A CUSTOM_HOURS override that resolves to zero working slots (empty times
-    // in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
-    // valid CUSTOM_HOURS payload — it would 400 on `kindConsistent`. Such an
-    // override means "no hours that date", which is the DAY_OFF encoding, so we
-    // collapse it to DAY_OFF.
+  /// Resolves the discrete DAY_OFF/CUSTOM_HOURS(INTERVAL|EXPLICIT_TIMES) shape
+  /// an [override] serialises to on the wire, shared by
+  /// [overrideToRequestForDate] and [conflictQueryRequestForSpan] so the two
+  /// request builders can never disagree about what counts as a day-off.
+  ///
+  /// Contract (Phase 15.9, backend `ScheduleOverrideRequest.isKindConsistent`
+  /// — the conflict-preview `OverrideConflictQueryRequest` mirrors the same
+  /// rule):
+  ///   • DAY_OFF carries neither intervals nor times.
+  ///   • CUSTOM_HOURS carries EITHER a non-empty intervals list (INTERVAL) OR
+  ///     a non-empty times list (EXPLICIT_TIMES), never both, never empty.
+  /// A CUSTOM_HOURS override that resolves to zero working slots (empty times
+  /// in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
+  /// valid CUSTOM_HOURS payload — it would 400 on `kindConsistent`. Such an
+  /// override means "no hours that date", which is the DAY_OFF encoding, so it
+  /// collapses to DAY_OFF here too.
+  static _OverrideWireShape _wireShapeOf(ScheduleOverride override) {
     final isExplicit = override.mode == WeekdayMode.explicitTimes;
     final hasWork = isExplicit
         ? override.times.isNotEmpty
         : override.intervals.isNotEmpty;
     final isDayOff = override.kind == OverrideKind.dayOff || !hasWork;
+    return _OverrideWireShape(isDayOff: isDayOff, isExplicit: isExplicit);
+  }
+
+  /// Serialises a single-day override into the PUT body for [date]. The caller
+  /// (repository) expands a multi-day [ScheduleOverride] span into one PUT per
+  /// date and supplies that date here — the mapper never groups spans.
+  ///
+  /// [cancelOverlapping] forwards the 2026-07-26 booking-conflict design's
+  /// consent flag: `false` (default) preserves the pre-existing behaviour
+  /// (409 if the write would orphan a CONFIRMED booking); `true` — sent only
+  /// after the master confirms [DayOffConflictDialog] — asks the backend to
+  /// also decline every conflicting booking atomically with the write.
+  static ScheduleOverrideRequest overrideToRequestForDate(
+    ScheduleOverride override,
+    DateTime date, {
+    bool cancelOverlapping = false,
+  }) {
+    final shape = _wireShapeOf(override);
     return ScheduleOverrideRequest((b) {
       b
         ..date = dateToWire(date)
-        ..kind = isDayOff
+        ..cancelOverlapping = cancelOverlapping
+        ..kind = shape.isDayOff
             ? ScheduleOverrideRequestKindEnum.DAY_OFF
             : ScheduleOverrideRequestKindEnum.CUSTOM_HOURS;
       // DAY_OFF carries only its kind (no intervals/times, no reason/note — the
       // backend dropped those fields). CUSTOM_HOURS carries either the discrete
       // times (EXPLICIT_TIMES) or the intervals (INTERVAL), never both.
-      if (isDayOff) return;
-      if (isExplicit) {
+      if (shape.isDayOff) return;
+      if (shape.isExplicit) {
         b
           ..mode = ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES
           ..times = _timesToWire(override.times).toBuilder();
@@ -288,22 +391,108 @@ abstract final class ScheduleMapper {
         b
           ..mode = ScheduleOverrideRequestModeEnum.INTERVAL
           ..intervals = _intervalsToDtos(override.intervals).toBuilder();
+        // Display-only working window, both-or-neither. Only reachable on the
+        // CUSTOM_HOURS INTERVAL branch — [_wireShapeOf] has already collapsed an
+        // empty-intervals override to DAY_OFF above, which returns before here.
+        final WorkInterval? window = override.window;
+        if (window != null) {
+          b
+            ..windowStart = formatTimeWire(window.start)
+            ..windowEnd = formatTimeWire(window.end);
+        }
       }
     });
   }
 
+  // ── Booking-conflict preview (2026-07-26 design) ─────────────────────────────
+
+  /// Builds the `POST /overrides/conflicts` body for the WHOLE `[span.start,
+  /// span.end]` range in ONE request — never expanded per-date, unlike the PUT
+  /// fan-out [overrideToRequestForDate] feeds. The shape (kind/mode/intervals/
+  /// times) is held constant across the range, mirroring how
+  /// `OverridesNotifier.putSpan` applies one override to every date it expands.
+  static OverrideConflictQueryRequest conflictQueryRequestForSpan(
+    ScheduleOverride span,
+  ) {
+    final shape = _wireShapeOf(span);
+    return OverrideConflictQueryRequest((b) {
+      b
+        ..from = dateToWire(span.start)
+        ..to = dateToWire(span.end)
+        ..kind = shape.isDayOff
+            ? OverrideConflictQueryRequestKindEnum.DAY_OFF
+            : OverrideConflictQueryRequestKindEnum.CUSTOM_HOURS;
+      if (shape.isDayOff) return;
+      if (shape.isExplicit) {
+        b
+          ..mode = OverrideConflictQueryRequestModeEnum.EXPLICIT_TIMES
+          ..times = _timesToWire(span.times).toBuilder();
+      } else {
+        b
+          ..mode = OverrideConflictQueryRequestModeEnum.INTERVAL
+          ..intervals = _intervalsToDtos(span.intervals).toBuilder();
+      }
+    });
+  }
+
+  /// Maps one `OverrideConflictResponse` row to the domain [OverrideConflict].
+  /// Every wire field is nullable (generic `built_value` codegen) even though
+  /// the backend always populates them for a real row; defensive fallbacks
+  /// (epoch / empty string) keep one malformed row from crashing the whole
+  /// preview instead of just rendering blank.
+  ///
+  /// [OverrideConflict.startsAt] / `.endsAt` are kept as the CANONICAL UTC
+  /// instant the generated client deserialises — never `.toLocal()` (the
+  /// device-zone convention this app deliberately dropped; see
+  /// `shared/time/time_zones.dart`'s header). The presentation layer converts
+  /// via `toBeauticaTime` at render time, exactly like every other booking
+  /// instant in the app.
+  static OverrideConflict overrideConflictFromResponse(
+    OverrideConflictResponse dto,
+  ) => OverrideConflict(
+    bookingId: dto.bookingId ?? '',
+    appointmentId: dto.appointmentId,
+    date: _dateFromWire(dto.date),
+    startsAt: dto.startsAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+    endsAt: dto.endsAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+    clientDisplayName: dto.clientDisplayName ?? '',
+    serviceName: dto.serviceName ?? '',
+  );
+
+  /// Maps the full `OverrideConflictPreviewResponse` envelope to the domain
+  /// [OverrideConflictCheck].
+  static OverrideConflictCheck overrideConflictCheckFromResponse(
+    OverrideConflictPreviewResponse dto,
+  ) {
+    final conflicts = (dto.conflicts ?? const <OverrideConflictResponse>[])
+        .map(overrideConflictFromResponse)
+        .toList(growable: false);
+    return OverrideConflictCheck(
+      conflicts: conflicts,
+      totalCount: dto.totalCount ?? conflicts.length,
+      truncated: dto.truncated ?? false,
+      scanTruncated: dto.scanTruncated ?? false,
+    );
+  }
+
   // ── EffectiveDayResponse → EffectiveDay ───────────────────────────────────────
 
-  static EffectiveDay effectiveDayFromResponse(
-    EffectiveDayResponse dto,
-  ) => EffectiveDay(
-    date: _dateFromWire(dto.date),
-    source: _sourceFromResponse(dto.source_),
-    intervals: _intervalsFromDtos(dto.intervals),
-    // EffectiveDayResponse carries no `mode`; a non-empty `times` list is
-    // itself the EXPLICIT_TIMES signal (see [EffectiveDay.isExplicitTimes]).
-    times: _timesFromWire(dto.times),
-  );
+  static EffectiveDay effectiveDayFromResponse(EffectiveDayResponse dto) {
+    final List<WorkInterval> intervals = _intervalsFromDtos(dto.intervals);
+    return EffectiveDay(
+      date: _dateFromWire(dto.date),
+      source: _sourceFromResponse(dto.source_),
+      intervals: intervals,
+      // EffectiveDayResponse carries no `mode`; a non-empty `times` list is
+      // itself the EXPLICIT_TIMES signal (see [EffectiveDay.isExplicitTimes]).
+      times: _timesFromWire(dto.times),
+      // Display-only window the backend projects from whichever source resolved
+      // the day (TEMPLATE / OVERRIDE_CUSTOM). Null for a day-off, a no-schedule
+      // day, an EXPLICIT_TIMES day, any row saved without a stored window, and
+      // any row whose window does not contain its own intervals.
+      window: _windowFromWire(dto.windowStart, dto.windowEnd, intervals),
+    );
+  }
 
   // ── Enum translation (DTO *_Enum ⇄ domain) ────────────────────────────────────
 
@@ -335,23 +524,39 @@ abstract final class ScheduleMapper {
       mode == ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES;
 }
 
+/// Internal carrier for [ScheduleMapper._wireShapeOf]'s resolved DAY_OFF vs.
+/// CUSTOM_HOURS(INTERVAL|EXPLICIT_TIMES) verdict, shared by the PUT and
+/// conflict-preview request builders.
+class _OverrideWireShape {
+  const _OverrideWireShape({required this.isDayOff, required this.isExplicit});
+
+  final bool isDayOff;
+  final bool isExplicit;
+}
+
 /// Internal carrier for a resolved weekly-day shape during gap-fill so the
 /// dense 7-entry build can read mode + the applicable list uniformly.
 class _DayShape {
   const _DayShape.off()
     : mode = WeekdayMode.interval,
       intervals = const <WorkInterval>[],
-      times = const <TimeOfDay>[];
+      times = const <TimeOfDay>[],
+      window = null;
 
-  const _DayShape.interval(this.intervals)
+  const _DayShape.interval(this.intervals, this.window)
     : mode = WeekdayMode.interval,
       times = const <TimeOfDay>[];
 
   const _DayShape.explicit(this.times)
     : mode = WeekdayMode.explicitTimes,
-      intervals = const <WorkInterval>[];
+      intervals = const <WorkInterval>[],
+      window = null;
 
   final WeekdayMode mode;
   final List<WorkInterval> intervals;
   final List<TimeOfDay> times;
+
+  /// The stored display-only working window; `null` for a day-off, an
+  /// EXPLICIT_TIMES day, and any legacy row the backend saved without one.
+  final WorkInterval? window;
 }

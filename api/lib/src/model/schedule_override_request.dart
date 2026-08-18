@@ -19,7 +19,11 @@ part 'schedule_override_request.g.dart';
 /// * [mode]
 /// * [intervals]
 /// * [times]
+/// * [cancelOverlapping]
+/// * [windowStart]
+/// * [windowEnd]
 /// * [kindConsistent]
+/// * [windowConsistent]
 @BuiltValue()
 abstract class ScheduleOverrideRequest
     implements Built<ScheduleOverrideRequest, ScheduleOverrideRequestBuilder> {
@@ -40,8 +44,20 @@ abstract class ScheduleOverrideRequest
   @BuiltValueField(wireName: r'times')
   BuiltList<String>? get times;
 
+  @BuiltValueField(wireName: r'cancelOverlapping')
+  bool? get cancelOverlapping;
+
+  @BuiltValueField(wireName: r'windowStart')
+  String? get windowStart;
+
+  @BuiltValueField(wireName: r'windowEnd')
+  String? get windowEnd;
+
   @BuiltValueField(wireName: r'kindConsistent')
   bool? get kindConsistent;
+
+  @BuiltValueField(wireName: r'windowConsistent')
+  bool? get windowConsistent;
 
   ScheduleOverrideRequest._();
 
@@ -104,10 +120,38 @@ class _$ScheduleOverrideRequestSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
+    if (object.cancelOverlapping != null) {
+      yield r'cancelOverlapping';
+      yield serializers.serialize(
+        object.cancelOverlapping,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.windowStart != null) {
+      yield r'windowStart';
+      yield serializers.serialize(
+        object.windowStart,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.windowEnd != null) {
+      yield r'windowEnd';
+      yield serializers.serialize(
+        object.windowEnd,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.kindConsistent != null) {
       yield r'kindConsistent';
       yield serializers.serialize(
         object.kindConsistent,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.windowConsistent != null) {
+      yield r'windowConsistent';
+      yield serializers.serialize(
+        object.windowConsistent,
         specifiedType: const FullType(bool),
       );
     }
@@ -172,12 +216,40 @@ class _$ScheduleOverrideRequestSerializer
           ) as BuiltList<String>;
           result.times.replace(valueDes);
           break;
+        case r'cancelOverlapping':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.cancelOverlapping = valueDes;
+          break;
+        case r'windowStart':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.windowStart = valueDes;
+          break;
+        case r'windowEnd':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.windowEnd = valueDes;
+          break;
         case r'kindConsistent':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(bool),
           ) as bool;
           result.kindConsistent = valueDes;
+          break;
+        case r'windowConsistent':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.windowConsistent = valueDes;
           break;
         default:
           unhandled.add(key);

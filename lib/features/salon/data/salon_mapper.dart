@@ -186,6 +186,13 @@ abstract final class SalonServiceCatalogMapper {
                     : ServicePriceType.fixed,
                 priceMin: s.priceMin?.toDouble(),
                 priceMax: s.priceMax?.toDouble(),
+                // Three-state wire contract (true/false/null) collapses to
+                // two-state here — null means "no favorite answer applies"
+                // (anonymous/non-CLIENT caller) and the heart only has
+                // filled/hollow, so it reads identically to "not
+                // favourited". Mirrors `master_service_mapper.dart`'s
+                // `MasterService.isFavorite` mapping.
+                isFavorite: s.isFavorite ?? false,
               ),
           ],
         ),
@@ -269,6 +276,7 @@ abstract final class SalonReviewMapper {
           serviceName: dto.serviceName,
           rating: dto.rating ?? 0,
           comment: dto.comment ?? '',
+          // instant-ok: last-resort fallback for a malformed/absent DTO timestamp
           createdAt: dto.createdAt ?? DateTime.now(),
         ),
       );

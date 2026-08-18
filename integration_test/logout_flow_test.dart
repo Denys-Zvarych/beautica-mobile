@@ -9,7 +9,7 @@
 // notifier records a back-edge that closes a dependency cycle. Riverpod's
 // CircularDependencyError assert (kDebugMode ONLY) then throws, escapes the
 // state transition, and the settings-hub catch-block surfaces the
-// `l10n.logoutFailed` SnackBar ("Вихід не вдався. Спробуйте ще раз.") to the
+// `l10n.logoutFailed` VelvetSnack ("Вихід не вдався. Спробуйте ще раз.") to the
 // user — logout appearing to fail even though the local token wipe ran.
 //
 // That assert fires ONLY in debug builds. Unit/widget tests that override
@@ -44,7 +44,7 @@
 // FLOW: login as INDEPENDENT_MASTER → land on /master/profile → open the
 // settings hub (btn-menu-master → /master/menu) → tap the logout row →
 // confirm the dialog → assert the app lands on /login AND the logoutFailed
-// SnackBar is NOT shown AND the server revocation endpoint was hit once.
+// VelvetSnack is NOT shown AND the server revocation endpoint was hit once.
 //
 // KEY-BASED NAVIGATION POLICY (enforced, see app_harness.dart): all taps use
 // find.byKey(); Ukrainian strings appear ONLY in absence-assertions.
@@ -60,6 +60,53 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
+/// Bounded poll for the router settling on [RouteNames.login] after the
+/// logout confirm tap.
+///
+/// WHY NOT `pumpAndSettle()` (confirmed flaky in CI — diagnosed, not
+/// hypothesized): `_loggingOut` in `settings_hub_screen.dart` is a bare
+/// `ValueNotifier<bool>` with no `ValueListenableBuilder`/`AnimatedBuilder`
+/// consumer anywhere, so nothing schedules frames while
+/// `runLogoutFlow`'s `await ref.read(authProvider.notifier).logout()`
+/// (`logout_action.dart`) is in flight — a real Keystore wipe. A plain
+/// unfinished `Future` with no frame-scheduling work does not hold
+/// `pumpAndSettle()` open, so once the confirm dialog's pop animation
+/// settles, `pumpAndSettle()` can return BEFORE `logout()` resolves and
+/// `context.go(RouteNames.login)` runs. CI evidence: failing run landed on
+/// `/master/menu` with 32 skipped frames / 396.59 ms avg frame; the passing
+/// run (34 skipped frames / 303.09 ms avg) simply outran the same race.
+///
+/// WHY NOT [AppHarness.pumpUntilCondition]: that helper deliberately THROWS
+/// a `TestFailure` on timeout so a genuine hang fails fast — exactly right
+/// for boot/login. Here we want the OPPOSITE on timeout: fall through
+/// silently so the `expect(AppHarness.location(router), ...)` a few lines
+/// below still runs and reports the real location plus this test's own
+/// `reason:`, rather than a generic "timed out waiting for X" message. That
+/// is a different contract from the shared helper, so it stays local rather
+/// than becoming a second exported variant.
+///
+/// Still bites a genuine regression: if `logout()` never navigates, this
+/// loop simply exhausts its timeout and returns — the assertion below then
+/// fails with the real (stale) location, exactly as it would have with a
+/// hung `pumpAndSettle()`, just without the false negative on a slow frame.
+Future<void> _pumpUntilLoggedOut(
+  WidgetTester tester,
+  GoRouter router, {
+  Duration timeout = const Duration(seconds: 10),
+  Duration step = const Duration(milliseconds: 100),
+}) async {
+  // instant-ok: elapsed-wall-time poll deadline, mirrors AppHarness.pumpUntilFound/pumpUntilCondition
+  final DateTime deadline = DateTime.now().add(timeout);
+  while (!AppHarness.location(router).startsWith(RouteNames.login)) {
+    // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+    if (DateTime.now().isAfter(deadline)) break;
+    await tester.pump(step);
+  }
+  // One extra frame so a condition that just went true is fully built before
+  // the caller inspects it (mirrors AppHarness.pumpUntilFound/Condition).
+  await tester.pump();
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -67,12 +114,12 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   // Locale-pinned UK strings used ONLY for absence assertions (the harness
-  // pins the app to uk_UA). We must NOT see the logout-failure SnackBar.
+  // pins the app to uk_UA). We must NOT see the logout-failure VelvetSnack.
   final AppLocalizationsUk l10n = AppLocalizationsUk();
 
   testWidgets(
     'INDEPENDENT_MASTER logout from settings hub lands on /login without the '
-    'logoutFailed SnackBar (regression: cyclic masterProfile→auth invalidation)',
+    'logoutFailed VelvetSnack (regression: cyclic masterProfile→auth invalidation)',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -120,7 +167,10 @@ void main() {
       // Pump through: dialog pop → logout() server call (fake) → secure-storage
       // wipe → state flips Unauthenticated → masterProfile/services watchers
       // rebuild (the cascade) → context.go(/login) → router redirect settles.
-      await tester.pumpAndSettle();
+      //
+      // BOUNDED POLL, NOT pumpAndSettle() — see _pumpUntilLoggedOut's doc
+      // comment for the confirmed CI race this replaces.
+      await _pumpUntilLoggedOut(tester, router);
 
       // 1) Landed back on /login. If the cyclic-invalidation bug were present,
       //    logout() would have thrown CircularDependencyError, context.go(login)
@@ -136,14 +186,14 @@ void main() {
         reason: 'the login form must be rendered after logout',
       );
 
-      // 2) The failure SnackBar must NOT be shown. This is the direct symptom
+      // 2) The failure VelvetSnack must NOT be shown. This is the direct symptom
       //    the cyclic-invalidation bug produced for the user.
       expect(
         find.text(l10n.logoutFailed),
         findsNothing,
         reason:
             'logout must succeed end-to-end — the "${l10n.logoutFailed}" '
-            'SnackBar means logout() threw (the cyclic-invalidation regression)',
+            'VelvetSnack means logout() threw (the cyclic-invalidation regression)',
       );
 
       // 3) The server-side revocation endpoint was hit exactly once (best-effort

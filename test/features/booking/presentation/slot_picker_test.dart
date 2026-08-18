@@ -17,6 +17,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
@@ -31,6 +32,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -135,13 +137,16 @@ class _FakeSlotRepository implements SlotRepository {
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
-    required String serviceId,
+    required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
   }) async {
     callCount++;
     lastMasterId = masterId;
-    lastServiceId = serviceId;
+    // MO-2: these widget tests drive the single-service path (N=1), so the
+    // first (only) id is captured into the existing single-String? field —
+    // every assertion (`expect(fake.lastServiceId, _kService.id)`) is unchanged.
+    lastServiceId = serviceIds.isEmpty ? null : serviceIds.first;
     lastDate = date;
     final Object? err = errorToThrow;
     if (err != null) throw err;
@@ -153,13 +158,18 @@ class _FakeSlotRepository implements SlotRepository {
     required String masterId,
     required DateTime from,
     required DateTime to,
-    String? serviceId,
+    List<String>? serviceIds,
     CancelToken? cancelToken,
   }) async {
     workingDaysCallCount++;
     lastWorkingDaysMasterId = masterId;
     lastWorkingDaysFrom = from;
     lastWorkingDaysTo = to;
+    // MO-2: single-service path — collapse the one-element list back to the
+    // String? discriminator these tests key the two working-days modes on.
+    final String? serviceId = serviceIds == null || serviceIds.isEmpty
+        ? null
+        : serviceIds.first;
     lastWorkingDaysServiceId = serviceId;
     final Completer<void>? gate = workingDaysGate;
     if (gate != null) await gate.future;
@@ -205,11 +215,10 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
       path: RouteNames.bookingConfirm,
       builder: (context, state) {
         final BookingConfirmArgs args = state.extra! as BookingConfirmArgs;
-        final appt = args.appointments.first;
         return Scaffold(
           body: Text(
-            'confirm-stub:${args.masterId}:${appt.serviceId}:'
-            '${appt.startAt.toIso8601String()}:${args.rescheduleBookingId}',
+            'confirm-stub:${args.masterId}:${args.services.first.id}:'
+            '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}',
           ),
         );
       },
@@ -231,7 +240,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       final Finder todayCell = find.byKey(
         Key('booking-calendar-day-${today.day}'),
       );
@@ -254,7 +263,7 @@ void main() {
       'a day the working-days fetch marks working:false cannot be selected '
       'and never loads slots',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -317,7 +326,7 @@ void main() {
       'service is disabled once the calendar is service-scoped (Phase 14.20 '
       'availability-aware gate) — never tappable, never loads slots',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -389,7 +398,7 @@ void main() {
       'a day the service-scoped working-days query marks working:true stays '
       'enabled and loads its slots on tap',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final fake = _FakeSlotRepository(
           const <BookingSlot>[],
           // Availability-aware mode reports EVERY day working:true here.
@@ -513,10 +522,15 @@ void main() {
       'a FUTURE day (not today) the service-scoped query marks working:false is '
       'disabled and untappable, while a sibling working:true future day is not',
       (tester) async {
-        final DateTime now = DateTime.now();
+        // Kyiv "today", not the DEVICE's today: `SlotDateScreen` derives its
+        // own `_today` via `kyivToday(ref.read(clockProvider))`, so a month
+        // computed off a bare `DateTime.now().month` would be the HOST's
+        // month and can disagree with the screen's near a month boundary in
+        // any non-Kyiv zone.
+        final DateTime today = kyivToday(DateTime.now);
         // The 15th of NEXT month is unconditionally in the future regardless
         // of when this test runs; the 16th is its always-working sibling.
-        final DateTime nextMonth = DateTime(now.year, now.month + 1, 1);
+        final DateTime nextMonth = DateTime(today.year, today.month + 1, 1);
         final DateTime disabledDay = DateTime(
           nextMonth.year,
           nextMonth.month,
@@ -601,8 +615,11 @@ void main() {
       // >=29-day month, guaranteeing both a real day-29 cell AND that
       // it's strictly in the future (so the default "not in the past"
       // availability check never disqualifies it).
-      final DateTime now = DateTime.now();
-      DateTime target = DateTime(now.year, now.month + 1, 1);
+      // Kyiv "today", not the DEVICE's today — see the note on the
+      // working:false future-day case above; the screen's own `_today` is
+      // Kyiv-anchored, so this walk must start from the same calendar.
+      final DateTime today = kyivToday(DateTime.now);
+      DateTime target = DateTime(today.year, today.month + 1, 1);
       int monthsAhead = 1;
       while (DateTime(target.year, target.month + 1, 0).day < 29) {
         target = DateTime(target.year, target.month + 1, 1);
@@ -647,7 +664,7 @@ void main() {
       'a day silently absent from the working-days response defaults to '
       'non-working (conservative fallback), never tappable',
       (tester) async {
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -720,6 +737,122 @@ void main() {
 
         expect(find.byKey(const Key('booking-calendar-retry')), findsNothing);
         expect(find.byKey(const Key('booking-month-calendar')), findsOneWidget);
+        expect(fake.workingDaysCallCount, 2);
+      },
+    );
+
+    // The working-days retry state is SCROLLABLE (so it cannot
+    // RenderFlex-overflow and hide the retry button on a short viewport) AND
+    // vertically CENTRED (so it does not look broken on a roomy one). Those
+    // two requirements fight each other, and the naive way to satisfy the
+    // first silently breaks the second: this body renders into an `Expanded`,
+    // so a bare `SingleChildScrollView(child: Center(…))` hands its child
+    // UNBOUNDED height, `Center` collapses to the child's own size, and the
+    // content pins to the TOP. The fix is `LayoutBuilder` +
+    // `ConstrainedBox(minHeight: constraints.maxHeight)`.
+    //
+    // Both halves are asserted, because each is invisible to the other's test.
+    testWidgets(
+      'the working-days retry state is vertically CENTRED in the calendar '
+      'area when there is room — not pinned to the top',
+      (tester) async {
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          workingDaysErrorToThrow: const NetworkFailure(),
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+          retry: (int _, Object _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder retry = find.byKey(const Key('booking-calendar-retry'));
+        expect(retry, findsOneWidget);
+
+        // The scroll viewport IS the calendar area (`_calendarBody`'s
+        // `Expanded` slot), so its centre is what the content must line up on.
+        final Rect viewport = tester.getRect(
+          find
+              .ancestor(of: retry, matching: find.byType(SingleChildScrollView))
+              .first,
+        );
+        final Rect content = tester.getRect(
+          find.ancestor(of: retry, matching: find.byType(Column)).first,
+        );
+
+        expect(
+          viewport.height,
+          greaterThan(content.height + 40),
+          reason:
+              'this assertion is only meaningful with slack to centre INTO — '
+              'if the viewport ever shrinks to the content size, top-aligned '
+              'and centred become indistinguishable and this test goes '
+              'vacuously green',
+        );
+        expect(
+          content.center.dy,
+          closeTo(viewport.center.dy, 1.0),
+          reason:
+              'content top ${content.top} vs viewport top ${viewport.top}: a '
+              'top-pinned body (the unbounded-height Center collapse) puts '
+              'these two within a pixel of each other instead',
+        );
+      },
+    );
+
+    testWidgets(
+      'the working-days retry state still scrolls — and does not overflow — '
+      'when the calendar area is too short to fit it',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(400, 460));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fake = _FakeSlotRepository(
+          const <BookingSlot>[],
+          workingDaysErrorToThrow: const NetworkFailure(),
+        );
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+          retry: (int _, Object _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        // `pumpAndSettle` would already have thrown on a RenderFlex overflow
+        // (see `helpers/overflow_guard.dart`); reaching here is half the
+        // assertion. The other half is that the retry button — the only way
+        // out of this state — is actually reachable rather than clipped
+        // outside the viewport.
+        final Finder retry = find.byKey(const Key('booking-calendar-retry'));
+        expect(retry, findsOneWidget);
+
+        // Non-vacuity guard. At a surface where the content already fits, a
+        // top-pinned body and a scrolling one behave identically and this test
+        // would prove nothing — so assert the body genuinely has to scroll.
+        // (`minHeight: constraints.maxHeight` never CREATES scroll extent; it
+        // only stops the content collapsing above the fold.)
+        final ScrollPosition position = tester
+            .state<ScrollableState>(
+              find.ancestor(of: retry, matching: find.byType(Scrollable)).first,
+            )
+            .position;
+        expect(
+          position.maxScrollExtent,
+          greaterThan(0),
+          reason:
+              'the calendar slot must be SHORTER than the error body here, or '
+              'this test is not exercising the overflow path at all',
+        );
+
+        await tester.ensureVisible(retry);
+        await tester.tap(retry);
+        await tester.pumpAndSettle();
+
         expect(fake.workingDaysCallCount, 2);
       },
     );
@@ -834,6 +967,18 @@ void main() {
         final Finder masterStrip = find.byType(MasterStrip);
         expect(masterStrip, findsOneWidget);
 
+        // Phase 240 tappability policy (LOCKED) — the INERT half. See the
+        // SlotTimeScreen assertion below for the full rationale: an in-flight
+        // wizard step must never offer a tap that abandons a half-made
+        // booking.
+        expect(
+          tester.widget<MasterStrip>(masterStrip).onTap,
+          isNull,
+          reason:
+              'SlotDateScreen is an IN-FLIGHT wizard step — the strip must '
+              'stay inert.',
+        );
+
         final l10n = AppLocalizations.of(tester.element(masterStrip));
         final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
         expect(
@@ -845,7 +990,10 @@ void main() {
               'l10n.masterRoleIndependent',
         );
 
-        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        // `!` is deliberate: the fixture defines a non-null rating, and this
+        // assertion must stay strict — falling back to the `—` placeholder
+        // here would let a regression that drops the rating pass silently.
+        final String ratingLabel = _kMaster.avgRating!.toStringAsFixed(1);
         expect(
           find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
           findsOneWidget,
@@ -885,7 +1033,7 @@ void main() {
       expect(find.byType(SlotTimeScreen), findsNothing);
 
       // Select today, then advance.
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
       await tester.tap(cta);
@@ -895,15 +1043,97 @@ void main() {
     });
   });
 
+  // ── mobile-qa (2026-08-02, backlog :226) — Kyiv-anchored `_today` ──────────
+  //
+  // `SlotDateScreen.initState` derives `_today` via `kyivToday(ref.read
+  // (clockProvider))` (`slot_picker_screen.dart:102`), which gates both the
+  // "past day, untappable" rule (`day.isBefore(_today)`) and the calendar's
+  // "today" ring. Every OTHER test in this file (no `clockProvider`
+  // override, so the widget reads the REAL device clock) computes its own
+  // "today" via `kyivToday(DateTime.now)` too — mobile-qa fix, 2026-08:
+  // these used to read a bare `DateTime.now()`, which disagrees with the
+  // widget's Kyiv-anchored `_today` for roughly a third of every 24h window
+  // (UTC ~21:00–24:00, when Kyiv has already rolled to the next calendar
+  // day) and deterministically taps an already-PAST, disabled "today" cell —
+  // `tapCalendarDay` then silently no-ops and every downstream assertion in
+  // the same test fails. This fixture (the dedicated Kyiv-vs-UTC group
+  // below) still pins the derivation itself with an explicit fixed
+  // `clockProvider` override, mirroring `booked_days_notifier_test.dart`'s
+  // identical pattern for the "reaches the wire" notifier.
+  group('SlotDateScreen — Kyiv-anchored "today" (mobile-qa, 2026-08-02, '
+      'backlog :226)', () {
+    testWidgets(
+      'the day before Kyiv "today" renders PAST (untappable, no fetch) even '
+      'though it is still the SAME calendar day in UTC — a UTC/device-day '
+      '_today would wrongly leave it selectable',
+      (tester) async {
+        // 2026-08-01T22:30Z: UTC calendar day = Aug 1; Kyiv calendar day
+        // (EEST, +3) = Aug 2 (01:30 local, already rolled over) — the same
+        // fixture `kyiv_day_test.dart` uses for `kyivDayOf` itself.
+        // future-date-ok: this IS the fake clockProvider "now" — a fixed instant straddling the Kyiv/UTC day boundary is the whole point; a now-relative offset cannot express "an instant that crosses the Kyiv day boundary".
+        final DateTime clockInstant = DateTime.utc(2026, 8, 1, 22, 30);
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            clockProvider.overrideWithValue(() => clockInstant),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Aug 1 is YESTERDAY once "today" correctly resolves to Aug 2 in
+        // Kyiv — no GestureDetector (the same "disabled cell" shape the
+        // working-days gate above uses), and tapping it triggers no fetch.
+        final Finder aug1Cell = find.byKey(const Key('booking-calendar-day-1'));
+        expect(aug1Cell, findsOneWidget);
+        expect(
+          find.descendant(of: aug1Cell, matching: find.byType(GestureDetector)),
+          findsNothing,
+          reason:
+              'Aug 1 is already YESTERDAY in Kyiv (today=Aug 2) even though '
+              'it is still the SAME calendar day in UTC — a device/UTC-day '
+              '_today would wrongly leave this cell tappable',
+        );
+        await tester.tap(aug1Cell, warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(fake.callCount, 0);
+
+        // Aug 2 — the correct Kyiv "today" — is tappable and loads slots.
+        final Finder aug2Cell = find.byKey(const Key('booking-calendar-day-2'));
+        expect(aug2Cell, findsOneWidget);
+        await tester.tapCalendarDay(2);
+        await tester.pumpAndSettle();
+        expect(fake.callCount, 1);
+        expect(fake.lastDate, DateTime(2026, 8, 2));
+      },
+    );
+  });
+
   group('SlotTimeScreen', () {
+    // `.utc` (mobile-qa 2026-08-03): these are genuine instants — a slot's
+    // start/end — read only via `.hour` (bucketing) and `formatSlotTime`
+    // (display), never compared against a Kyiv-derived date token, so `.utc`
+    // is the correct anchor, not merely a gate-suppression. Previously bare
+    // `DateTime(...)` — harmless while this file had no `clockProvider`
+    // reference (Rule 1's zone-critical Stage-1 filter never looked at it),
+    // but the "SlotDateScreen — Kyiv-anchored ..." group above now imports
+    // `clockProvider`, so the WHOLE file is zone-critical and Rule 1 rightly
+    // flags any bare arity>=4 `DateTime(` in it, this pair included.
     final BookingSlot available = BookingSlot(
-      startAt: DateTime(2026, 7, 20, 10),
-      endAt: DateTime(2026, 7, 20, 11),
+      // future-date-ok: fixed instant read only via `.hour`/formatSlotTime (bucketing/display), never compared against isPast — see the group comment above.
+      startAt: DateTime.utc(2026, 7, 20, 10),
+      // future-date-ok: same as startAt above — bucketing/display only.
+      endAt: DateTime.utc(2026, 7, 20, 11),
       available: true,
     );
     final BookingSlot unavailable = BookingSlot(
-      startAt: DateTime(2026, 7, 20, 12),
-      endAt: DateTime(2026, 7, 20, 13),
+      // future-date-ok: fixed instant read only via `.hour`/formatSlotTime (bucketing/display), never compared against isPast — see the group comment above.
+      startAt: DateTime.utc(2026, 7, 20, 12),
+      // future-date-ok: same as startAt above — bucketing/display only.
+      endAt: DateTime.utc(2026, 7, 20, 13),
       available: false,
     );
 
@@ -928,7 +1158,7 @@ void main() {
       // fixture list ([available], [unavailable]) no matter which date is
       // requested, so the exact tapped day-of-month is irrelevant to the
       // fixture that ends up in `slotPickerProvider.slots`.
-      final DateTime today = DateTime.now();
+      final DateTime today = kyivToday(DateTime.now);
       await tester.tapCalendarDay(today.day);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
@@ -971,6 +1201,25 @@ void main() {
               'change — it must appear exactly once now',
         );
 
+        // ── Phase 240 tappability policy (LOCKED) — the INERT half ────────
+        //
+        // The strip became tappable in Phase 240, but deliberately NOT on the
+        // three in-flight wizard steps: a stray tap here would yank the client
+        // out of a half-made booking to go read reviews. The policy is written
+        // down in `MasterStrip.onTap`'s doc and, until this assertion, was
+        // enforced by nothing — a refactor that threaded `onTap` through every
+        // call site uniformly would have silently broken it, and the resulting
+        // bug (losing a half-made booking to a mis-tap) is one users report as
+        // "the app randomly left my booking".
+        expect(
+          tester.widget<MasterStrip>(masterStrip).onTap,
+          isNull,
+          reason:
+              'SlotTimeScreen is an IN-FLIGHT wizard step — the strip must '
+              'stay inert. Tappability is for terminal/review-shaped screens '
+              '(confirm, «Деталі запису», «Залишити відгук») only.',
+        );
+
         // The master's name must render INSIDE MasterStrip itself, not just
         // somewhere on screen.
         final String masterName = '${_kMaster.firstName} ${_kMaster.lastName}'
@@ -983,7 +1232,7 @@ void main() {
         // `_DayHeaderChip` is gone: its day-label text must be ABSENT, not
         // just unlocated. Using the real formatter (not a hardcoded string)
         // keeps this assertion locale-agnostic per mobile-qa M2.
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
@@ -1043,7 +1292,10 @@ void main() {
           findsOneWidget,
         );
 
-        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        // `!` is deliberate: the fixture defines a non-null rating, and this
+        // assertion must stay strict — falling back to the `—` placeholder
+        // here would let a regression that drops the rating pass silently.
+        final String ratingLabel = _kMaster.avgRating!.toStringAsFixed(1);
         expect(
           find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
           findsOneWidget,
@@ -1165,7 +1417,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));
@@ -1205,7 +1457,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final DateTime today = DateTime.now();
+        final DateTime today = kyivToday(DateTime.now);
         await tester.tapCalendarDay(today.day);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('booking-summary-cta')));

@@ -28,14 +28,24 @@
 // [authRedirectForLocation] therefore keeps re-routing to /splash forever,
 // so /login never mounts and find.byKey('login_email') finds nothing.
 //
-// Fix: [boot()] calls [AppStartTime.setStartForTest] with a timestamp 5 s in
-// the past, making elapsed() ≈ 5 s > 3 s. This unblocks the auth redirect on
-// the first pumpAndSettle(). [tearDownHarness()] resets it so state does not
-// bleed between tests. Tests that call [boot()] MUST register tearDownHarness
-// in their tearDown:
+// Fix: [boot()] applies [applyE2eBootPolicy], which backdates
+// [AppStartTime.setStartForTest] by 5 s, making elapsed() ≈ 5 s > 3 s. This
+// unblocks the auth redirect on the first pumpAndSettle(). [tearDownHarness()]
+// resets it so state does not bleed between tests. Tests that call [boot()]
+// MUST register tearDownHarness in their tearDown:
 //
 //   setUp(installOverflowGuard);
 //   tearDown(AppHarness.tearDownHarness);
+//
+// SHARED BOOT POLICY
+// ------------------
+// The rules that must hold for EVERY E2E boot — overflow guard, the
+// off-screen-tap guard, the text-input mock registration, the timezone
+// database, and the splash-gate priming above — are NOT defined in this file.
+// They live in `integration_test/support/e2e_boot_policy.dart` and are applied
+// by a single [applyE2eBootPolicy] call in [boot], because the patrol tier's
+// harness must apply the identical set and a hand-mirrored copy is guaranteed
+// to drift (it did — see that file's header). Add cross-tier policy there.
 //
 // KEY-BASED NAVIGATION POLICY (ENFORCED)
 // ----------------------------------------
@@ -86,25 +96,19 @@
 //     AppHarness.expectLocation(router, '/master/profile');
 //   });
 
-import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/network/dio_provider.dart';
-import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
-import 'package:beautica_mobile/core/theme/app_theme.dart';
-import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../test/helpers/fakes/fake_secure_storage.dart';
-import '../../test/helpers/overflow_guard.dart';
+import 'e2e_boot_policy.dart';
 import 'fake_backend.dart';
 
 export 'fake_backend.dart' show FakeBackend, kFixedNow;
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Shared boot path and convenience helpers for Phase 17.3 E2E tests.
 abstract final class AppHarness {
@@ -113,34 +117,313 @@ abstract final class AppHarness {
   // ── Cascade guard (Fix #2) ─────────────────────────────────────────────────
 
   /// Bounded settle window for EVERY [pumpAndSettle] on the shared boot/login
-  /// path. The flutter_test default [pumpAndSettle] timeout is 10 MINUTES,
-  /// which is far longer than the per-test [Timeout(Duration(seconds: 45))] used
-  /// by the aggregated suite (integration_test/all_tests.dart, one isolate for
-  /// 17 flows). When a flow hangs in an unbounded pumpAndSettle, the test-level
-  /// Timeout completes the test future WHILE a pump is still in flight, leaving
-  /// the single per-isolate [IntegrationTestWidgetsFlutterBinding] mid-frame —
-  /// corrupting it for EVERY subsequent test (1 hang → ~50 cascade failures).
+  /// path. The flutter_test default [pumpAndSettle] timeout is 10 MINUTES.
   ///
-  /// Capping pumpAndSettle at 20 s (< the 45 s test Timeout) makes a hang throw
-  /// `FlutterError("pumpAndSettle timed out")` SYNCHRONOUSLY inside the test
-  /// body BEFORE the harness-level abort fires: the test fails as exactly ONE
-  /// clean failure, [addTearDown] unmounts normally, and the next test boots
-  /// from a clean tree.
+  /// THERE IS NO AMBIENT PER-TEST `Timeout` HERE (corrected 2026-08-17)
+  /// ------------------------------------------------------------------
+  /// This doc used to claim a per-test `Timeout(Duration(seconds: 45))` applied
+  /// to the aggregated suite, and derived "20 s < 45 s" from it. That was
+  /// false. `IntegrationTestWidgetsFlutterBinding` sets
+  /// `defaultTestTimeout = Timeout.none` (`package:integration_test`), so under
+  /// `integration_test/` a `testWidgets` runs with NO ambient deadline at all
+  /// unless it passes its own `timeout:` argument — and most flows, this file's
+  /// callers included, do not.
+  ///
+  /// So the 20 s cap is not "the tighter of two bounds"; on the aggregated
+  /// isolate it is one of the FEW bounds there is. It still earns its keep for
+  /// the reason the original note gave: a flow that hangs in an unbounded
+  /// `pumpAndSettle` leaves the single per-isolate binding mid-frame, and once
+  /// that happens EVERY subsequent test in the isolate fails (1 hang → ~50
+  /// cascade failures). Capping `pumpAndSettle` makes the ordinary
+  /// never-settles case throw `FlutterError("pumpAndSettle timed out")`
+  /// SYNCHRONOUSLY inside the test body: one clean failure, [addTearDown]
+  /// unmounts normally, and the next test boots from a clean tree.
+  ///
+  /// AND NEITHER THIS NOR ANY OTHER IN-ISOLATE BOUND CATCHES STARVATION
+  /// ------------------------------------------------------------------
+  /// This constant, [settle]'s [_settleWallClockBound] `Future.timeout`, every
+  /// `pumpUntil*` poll deadline below, and a per-test `Timeout` are ALL
+  /// implemented as timers on the isolate's own event loop. A synchronous
+  /// allocating loop inside `build` (the 2026-08-17 incident: a single
+  /// out-of-window booking driving `BookingsTimelineGrid` to ~56 500 hour rows)
+  /// starves that loop, so NONE of them ever tick — measured, a
+  /// `Timer.periodic(1 s)` armed before the triggering tap fired zero times in
+  /// 110 s. The hang is unbounded and unattributed no matter what any of these
+  /// constants say. The ONLY effective backstop for that class is EXTERNAL:
+  /// the `timeout <N>` wrappers around every `flutter test integration_test/…`
+  /// invocation in `.github/workflows/pr-validate.yml`. Keep those; do not
+  /// "replace" them with an in-isolate bound. See [settle]'s doc, which states
+  /// the same exception.
+  ///
+  /// THIS BOUND USED TO BE FICTIONAL. `WidgetController.pumpAndSettle`'s own
+  /// timeout check (`if (clock.now().isAfter(endTime)) throw ...`) runs ONLY
+  /// in the gap BETWEEN successive `pump()` calls inside its loop — it cannot
+  /// preempt a single `pump()` that never returns (e.g. the engine never
+  /// delivers the awaited frame callback). A stall inside one `pump()` hung
+  /// FOREVER, with no exception, regardless of this constant. See [settle]
+  /// for the real bound.
   static const Duration settleTimeout = Duration(seconds: 20);
 
-  /// [pumpAndSettle] bounded by [settleTimeout]. Preserves the default
-  /// 100 ms interval / [EnginePhase.sendSemanticsUpdate] phase semantics —
-  /// only the timeout is constrained. Use on the shared boot/login path so a
-  /// single hang cannot cascade across the aggregated isolate (see [settleTimeout]).
+  /// Wall-clock ceiling wrapped around the ENTIRE bounded [pumpAndSettle] call
+  /// in [settle] — see that method's doc for why this exists on top of
+  /// [settleTimeout]. Kept a few seconds above [settleTimeout] so a NORMAL
+  /// pumpAndSettle timeout (pumps are completing, the tree just never settles)
+  /// still gets the chance to throw its own more specific
+  /// `FlutterError("pumpAndSettle timed out")` first; this outer bound exists
+  /// for the case that error can never fire at all — a single stalled `pump()`
+  /// — and is the last line of defense against a genuine infinite hang.
+  static const Duration _settleWallClockBound = Duration(seconds: 25);
+
+  /// [pumpAndSettle] bounded by [settleTimeout], wrapped in a REAL wall-clock
+  /// [Future.timeout] ([_settleWallClockBound]). Preserves the default 100 ms
+  /// interval / [EnginePhase.sendSemanticsUpdate] phase semantics — only the
+  /// timeout handling changes. Use on the shared boot/login path so a single
+  /// hang cannot cascade across the aggregated isolate (see [settleTimeout]).
+  ///
+  /// MECHANISM — why a `Future.timeout` wrapper, not a hand-rolled bounded
+  /// pump loop
+  /// -------------------------------------------------------------------
+  /// [pumpAndSettle]'s internal deadline check cannot preempt a single stalled
+  /// `pump()` (see [settleTimeout]'s doc). `Future.timeout` fixes exactly
+  /// that: it starts a `Timer` on the isolate's event loop, independent of
+  /// whatever the wrapped future is doing. As long as the stall is a genuine
+  /// async wait (never-completing engine callback, never-completing HTTP
+  /// mock, etc.) and not a synchronous infinite loop starving the event loop,
+  /// the `Timer` still fires on schedule and forces the outer `Future` to
+  /// complete with our own attributable [TestFailure] — turning "hangs
+  /// forever, silently" into "throws a clear, named error after ~25 s".
+  ///
+  /// THAT EXCEPTION IS NOT HYPOTHETICAL — it bit on 2026-08-17. A synchronous,
+  /// allocating build loop (`BookingsTimelineGrid` → `TimelineHourRuler`, one
+  /// row per hour, driven to ~56 500 rows by a single out-of-window booking)
+  /// starved the loop for as long as anyone was willing to wait; this
+  /// `Future.timeout` never fired, because its `Timer` never got to run. See
+  /// [settleTimeout]'s doc: the only bound that catches this class is the
+  /// EXTERNAL `timeout <N>` around the whole `flutter test` invocation in CI.
+  ///
+  /// A hand-rolled loop of short bounded `pump()` calls was considered
+  /// instead (poll `binding.hasScheduledFrame` against a wall-clock deadline,
+  /// each individual `pump()` wrapped in its own short `.timeout()`). It would
+  /// pinpoint WHICH pump in the sequence stalled, but every one of its steps
+  /// still needs the same `Future.timeout` primitive underneath to bound a
+  /// single `pump()` call — so it is strictly more code for the same
+  /// underlying guarantee, and it changes [settle]'s observable semantics
+  /// (interval/phase timing) more than a pure wrapper does. Rejected in favor
+  /// of the minimal change that makes the ALREADY-ADVERTISED bound real.
+  ///
+  /// TRADE-OFF ACCEPTED
+  /// -------------------
+  /// `Future.timeout` cannot CANCEL the future it wraps — there is no
+  /// mechanism in Dart to abort an in-flight `pump()`. When this fires, the
+  /// original `tester.pumpAndSettle(...)` call keeps running in the
+  /// background. If it later completes (or throws) after this method has
+  /// already thrown its own [TestFailure] and the test has already failed and
+  /// begun tearing down, that stray completion can touch a binding/tree the
+  /// test no longer owns — the same "1 hang → cascade" risk the file's own
+  /// header already documents for the aggregated suite's file-level
+  /// `Timeout`. This wrapper does not remove that risk; it converts a truly
+  /// UNBOUNDED, UNATTRIBUTED hang into a BOUNDED, ATTRIBUTED failure at ~25 s,
+  /// which is a strictly better failure mode even though the underlying stall
+  /// is not cleanly cancelled.
   static Future<void> settle(
     WidgetTester tester, {
     Duration interval = const Duration(milliseconds: 100),
   }) {
-    return tester.pumpAndSettle(
-      interval,
-      EnginePhase.sendSemanticsUpdate,
-      settleTimeout,
-    );
+    return tester
+        .pumpAndSettle(interval, EnginePhase.sendSemanticsUpdate, settleTimeout)
+        .timeout(
+          _settleWallClockBound,
+          onTimeout: () {
+            throw TestFailure(
+              'AppHarness.settle: pumpAndSettle did not return within '
+              '${_settleWallClockBound.inSeconds}s (its own internal bound is '
+              '${settleTimeout.inSeconds}s). This means a single pump() call '
+              'inside pumpAndSettle itself never returned — pumpAndSettle can '
+              'only check its own deadline BETWEEN pump() calls, so it could '
+              'not preempt this stall on its own. Wrapped in a real wall-clock '
+              'Future.timeout so the stall fails loudly and attributably '
+              'instead of hanging forever. See settle()\'s doc comment for the '
+              'accepted trade-off (the underlying pumpAndSettle is NOT '
+              'cancelled and may complete later in the background).',
+            );
+          },
+        );
+  }
+
+  // ── Bounded pump-until (spinner-safe) ───────────────────────────────────────
+
+  /// Pumps in small, bounded steps until [finder] resolves to at least one
+  /// widget, or [timeout] elapses.
+  ///
+  /// Every discovery-results submit can render a trailing INDETERMINATE
+  /// `_LoadMoreSpinner` the instant `SearchResultsState.hasMore` is true —
+  /// which it always is on the very first page against [FakeBackend], whose
+  /// `/search/masters` fixture deliberately seeds `totalPages: 2` so a
+  /// `loadMore` scroll has a genuine second page to fetch (search_results_
+  /// screen.dart's `_ResultsList`). An indeterminate `CircularProgressIndicator`
+  /// drives its own `AnimationController.repeat()`, which keeps
+  /// `SchedulerBinding.hasScheduledFrame` permanently true — so
+  /// `pumpAndSettle()` can never observe "no more frames scheduled" and hangs
+  /// until the enclosing `testWidgets` [Timeout] kills it (typically ~90 s,
+  /// tripping `LiveTestWidgetsFlutterBinding`'s `'_pendingFrame == null'`
+  /// invariant in `postTest`). Do NOT reach for `pumpAndSettle()` after any
+  /// action that can leave that spinner mounted (a filters submit, a sort
+  /// change, a re-search) — use this instead.
+  ///
+  /// Polls every [step] (default 100 ms — well inside [FakeBackend]'s
+  /// sub-second in-memory response time) up to [timeout] (default 10 s, a
+  /// generous multiple of that). Ends with one extra plain [WidgetTester.pump]
+  /// so the frame that just made [finder] match is fully built/laid out before
+  /// the caller inspects it. Throws a [TestFailure] (not a raw hang) when
+  /// [finder] never appears, so a genuine regression still fails fast and
+  /// legibly instead of riding the full per-test timeout.
+  static Future<void> pumpUntilFound(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    // This deadline measures how long the RUNNER has been pumping — real
+    // elapsed wall time. The app's injected clock (kFixedNow) has no bearing
+    // on it, and anchoring the poll to a FROZEN instant would make the
+    // timeout never fire at all.
+    // instant-ok: elapsed-wall-time poll deadline
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (finder.evaluate().isEmpty) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+      if (DateTime.now().isAfter(deadline)) {
+        throw TestFailure(
+          'AppHarness.pumpUntilFound timed out after $timeout waiting for '
+          '$finder to appear (polled every $step).',
+        );
+      }
+      await tester.pump(step);
+    }
+    await tester.pump();
+  }
+
+  /// The counterpart to [pumpUntilFound]: pumps in small, bounded steps until
+  /// [finder] resolves to NO widgets, or [timeout] elapses.
+  ///
+  /// A provider-close write (decline/complete) does its server-side work
+  /// (PATCH) and then re-fetches (GET) to confirm the terminal status before
+  /// the UI reflects it. `AppHarness.settle` (a bounded `pumpAndSettle`) can
+  /// return in the LULL between the PATCH resolving and the follow-up GET
+  /// landing — `SchedulerBinding.hasScheduledFrame` genuinely goes false for
+  /// a beat between those two async hops — reporting "settled" while the
+  /// screen is still showing the PRE-write state (e.g. a `booking-detail-
+  /// decline` button that should already be gone). The eventual rebuild that
+  /// reflects the terminal status still happens correctly, just a frame or
+  /// two after `settle` already returned; a caller that asserts immediately
+  /// reads stale UI even though nothing in `lib/` is broken.
+  ///
+  /// Use this right after `settle` on a provider-close tap to wait for the
+  /// PRE-write widget (a button/card key that only exists in the not-yet-
+  /// closed state) to genuinely leave the tree before asserting the
+  /// post-write state. Throws a [TestFailure] on timeout rather than hanging
+  /// or silently reading stale state, exactly like [pumpUntilFound].
+  static Future<void> pumpUntilGone(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    // instant-ok: elapsed-wall-time poll deadline — see pumpUntilFound above
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (finder.evaluate().isNotEmpty) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+      if (DateTime.now().isAfter(deadline)) {
+        throw TestFailure(
+          'AppHarness.pumpUntilGone timed out after $timeout waiting for '
+          '$finder to disappear (polled every $step).',
+        );
+      }
+      await tester.pump(step);
+    }
+    await tester.pump();
+  }
+
+  /// Pumps until [condition] is true, or [timeout] elapses.
+  ///
+  /// The counterpart to [pumpUntilFound] for effects that are NOT in the widget
+  /// tree — a captured wire param, a POST counter, a repository call. Do NOT
+  /// smuggle these through `find.byWidgetPredicate((_) => <bool>)`: that finder
+  /// matches EVERY widget when the bool is true and NONE when it is false, so
+  /// it works by accident, walks the whole tree on every poll, and reports the
+  /// useless "Found 0 widgets with widget matching predicate: []" instead of
+  /// naming the condition that never came true.
+  static Future<void> pumpUntilCondition(
+    WidgetTester tester,
+    bool Function() condition, {
+    required String description,
+    Duration timeout = const Duration(seconds: 10),
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    // instant-ok: elapsed-wall-time poll deadline — see pumpUntilFound above
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (!condition()) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+      if (DateTime.now().isAfter(deadline)) {
+        throw TestFailure(
+          'AppHarness.pumpUntilCondition timed out after $timeout waiting for '
+          '$description (polled every $step).',
+        );
+      }
+      await tester.pump(step);
+    }
+    await tester.pump();
+  }
+
+  // ── Scroll-into-view + hit-testable tap (existence-vs-readiness guard) ─────
+
+  /// Taps [finder] only after it is genuinely interactable — not merely
+  /// present in the tree.
+  ///
+  /// `findsOneWidget` proves EXISTENCE. It says nothing about READINESS: a
+  /// row can be fully mounted below the fold of a `SingleChildScrollView`
+  /// (clipped by its implicit `ClipRect`, `clipBehavior: Clip.hardEdge`) or
+  /// sitting under a still-animating route transition, and a plain
+  /// `tester.tap(finder)` on it silently hits whatever IS hit-testable at
+  /// that point (an Overlay, the previous screen) instead of throwing —
+  /// the tap "succeeds" and the assertion that depends on it fails several
+  /// lines later, far from the real cause.
+  ///
+  /// This is the `login_submit` idiom (see [loginAs]) and the salon-card /
+  /// results-list idiom (see `public_salon_profile_flow_test.dart`) promoted
+  /// to a shared helper: scroll the target on-screen first (best-effort —
+  /// `ensureVisible` throws when there is no `Scrollable` ancestor or the
+  /// target is already fully visible, both of which are fine to ignore),
+  /// settle the scroll animation, THEN wait for [finder] to become
+  /// [Finder.hitTestable] before tapping it.
+  ///
+  /// Existence is asserted by the caller BEFORE calling this (so a genuinely
+  /// missing widget fails as "0 widgets found" at the call site, not as an
+  /// opaque `ensureVisible` "Found 0 widgets" thrown from inside here).
+  ///
+  /// Only [tester.ensureVisible] itself is inside the try. Per
+  /// `Scrollable.ensureVisible`'s framework source, "no Scrollable ancestor"
+  /// and "already fully visible" are BOTH no-ops (empty `futures`) — neither
+  /// throws — so this catch exists solely for the rarer case of a target
+  /// that isn't laid out yet (mid route-transition). [settle] is
+  /// DELIBERATELY OUTSIDE the try: if the scroll triggers a genuine hang
+  /// elsewhere in the app, [settle]'s bounded `pumpAndSettle` must surface
+  /// that `FlutterError` to the caller, not have it swallowed here only to
+  /// resurface as a confusing failure several lines downstream (or not at
+  /// all, if [finder] happens to already be hit-testable despite the hang).
+  static Future<void> tapVisible(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    try {
+      await tester.ensureVisible(finder);
+    } catch (_) {
+      // Not yet laid out (mid-transition) — nothing to do; pumpUntilFound
+      // below still gates on genuine hit-testable readiness.
+    }
+    await settle(tester);
+    await pumpUntilFound(tester, finder.hitTestable(), timeout: timeout);
+    await tester.tap(finder);
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
@@ -188,72 +471,48 @@ abstract final class AppHarness {
   /// manual «retry» button deterministically and in milliseconds rather than
   /// after a 38-second real-time wait. It changes NOTHING about the app's own
   /// behaviour — only how long the harness waits before observing it.
+  ///
+  /// DEFAULT = THE PRODUCTION PREDICATE
+  /// ----------------------------------
+  /// [retry] defaults to [beauticaProviderRetry] — the very predicate
+  /// `main.dart` installs on the root scope — so an E2E boot resolves error
+  /// paths exactly as the shipped app does. The paragraphs above describe
+  /// `ProviderContainer.defaultRetry`, which this harness used to inherit by
+  /// defaulting to `null`; that made every flow validate a blanket-retry policy
+  /// production had already removed, so a deterministic failure the user would
+  /// see as an error screen was silently retried away in test. The E2E tier is
+  /// the LAST place that skew should exist — its whole claim is "this is the
+  /// real app".
   static Future<GoRouter> boot(
     WidgetTester tester,
     FakeBackend fakeBackend, {
     FakeSecureStorage? storage,
     List<Object> extraOverrides = const <Object>[],
-    Duration? Function(int retryCount, Object error)? retry,
+    Duration? Function(int retryCount, Object error)? retry =
+        beauticaProviderRetry,
+    // mobile-qa (2026-08-02, backlog :226 audit) — optionally overrides the
+    // injected `clockProvider` instant away from [kFixedNow]. `null` (every
+    // existing call site) preserves the exact prior behaviour. Passed
+    // straight through to [e2eProviderOverrides] — NOT via [extraOverrides],
+    // which would double-override `clockProvider` and throw ("Tried to
+    // override a provider twice within the same container", see that
+    // function's own doc comment for the identical `secureStorageProvider`
+    // trap).
+    DateTime Function()? clock,
   }) async {
-    installOverflowGuard();
-
-    // ── TEXT-INPUT MOCK REGISTRATION — DO NOT DELETE ────────────────────────
+    // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
-    // WITHOUT THIS LINE, `tester.enterText(...)` IS A SILENT NO-OP IN ANY
-    // NON-DEBUG BUILD (`flutter drive --profile` / `--release`). Every field
-    // stays empty, the form's own "required" validation correctly bails, and
-    // the failure surfaces far downstream as a confusing tap/navigation
-    // assertion. It looks redundant in a debug `flutter test` run — it is not.
-    //
-    // MECHANISM
-    // ---------
-    //  1. `WidgetTester.enterText` ultimately posts a
-    //     `TextInputClient.updateEditingState` platform message carrying the
-    //     connection id `TestTextInput._client ?? -1`.
-    //  2. `IntegrationTestWidgetsFlutterBinding` overrides
-    //     `registerTestTextInput => false`, so the binding never registers the
-    //     `TestTextInput` mock handler, `_client` is never assigned, and the id
-    //     posted is ALWAYS `-1`.
-    //  3. In `TextInput._handleTextInputInvocation`, the escape hatch that
-    //     accepts `-1` ("the framework is in a test") lives INSIDE an
-    //     `assert(() { ... }())` block.
-    //  4. Asserts are stripped in profile/release. The `-1` message therefore
-    //     falls through and the injected value is DISCARDED WITHOUT ERROR.
-    //
-    // Registering the mock assigns a real `_client` id, so the message routes
-    // through the normal (non-assert) path and the text actually lands in the
-    // field — identically in debug and profile.
-    //
-    // WHY PER-`boot()`, AND WHY UNCONDITIONAL
-    // ---------------------------------------
-    // The binding's `reset()` between tests clears `_client`, but it only
-    // re-registers when `registerTestTextInput` is true — which it never is
-    // here. So registration has to happen on every boot, not once per isolate.
-    // Keeping it unconditional (rather than `if (!kDebugMode)`) means debug and
-    // profile exercise ONE code path, so the debug suite actually covers what
-    // the profile drive runs. `register()` is idempotent.
-    //
-    // Regression-guarded by the post-`enterText` assertion in [loginAs] (which
-    // turns a silent drop into a one-line diagnosis) and structurally by
-    // `scripts/forbid_missing_test_text_input.sh`.
-    tester.binding.testTextInput.register();
-
-    // Load the IANA timezone database so booking/slot formatters can convert to
-    // the pinned Europe/Kyiv wall-clock. The E2E harness boots the real app tree
-    // via `_HarnessApp` (NOT `main()`), so main.dart's initBeauticaTimeZones()
-    // never runs here — do it explicitly. Idempotent across the aggregated
-    // per-test re-boots.
-    initBeauticaTimeZones();
-
-    // RC1 — prime the splash-duration gate so the auth redirect is not stuck
-    // on /splash. [AppStartTime.elapsed()] must return > [minSplashDuration]
-    // (3 000 ms) on the very first frame. We set the recorded start to 5 s
-    // ago — safely past the gate in every build mode. Without this call,
-    // elapsed() returns Duration.zero (null _start → fallback) and the guard
-    // loops back to /splash indefinitely.
-    AppStartTime.setStartForTest(
-      DateTime.now().subtract(const Duration(seconds: 5)),
-    );
+    // Overflow guard, off-screen-tap guard
+    // (`WidgetController.hitTestWarningShouldBeFatal`), text-input mock
+    // registration, timezone database, and the splash-gate priming all live in
+    // `e2e_boot_policy.dart` and are applied by this ONE call. They used to be
+    // inlined here AND hand-mirrored in
+    // `integration_test/patrol/support/patrol_harness.dart` — which drifted
+    // (the tap guard reached only this tier), so the whole patrol tier kept the
+    // flake class the guard removes. Add new cross-tier policy THERE, never
+    // here, or the mirror comes back. See that file's header for the full
+    // rationale and for what is deliberately NOT shared.
+    applyE2eBootPolicy(tester);
 
     final effectiveStorage = storage ?? FakeSecureStorage();
 
@@ -264,12 +523,14 @@ abstract final class AppHarness {
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
         overrides: <Object>[
-          dioProvider.overrideWithValue(fakeBackend.dio),
-          secureStorageProvider.overrideWithValue(effectiveStorage),
-          clockProvider.overrideWithValue(() => kFixedNow),
+          ...e2eProviderOverrides(
+            fakeBackend: fakeBackend,
+            storage: effectiveStorage,
+            clock: clock,
+          ),
           ...extraOverrides,
         ].cast(),
-        child: const _HarnessApp(),
+        child: const E2eHarnessApp(),
       ),
     );
 
@@ -301,15 +562,38 @@ abstract final class AppHarness {
       // left mid-frame. An unguarded pumpWidget/pumpAndSettle here then collides
       // with that interrupted pump and corrupts the binding for EVERY subsequent
       // test in the isolate — one per-test timeout cascades into 50 failures.
-      // Guarding the unmount localises the blast radius: a single timed-out test
-      // fails exactly ONE test, and the next test still boots from a clean tree.
-      try {
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pumpAndSettle();
-      } catch (_) {
-        // Binding was left in a bad state by an interrupted/timed-out test —
-        // swallow so this teardown cannot turn one failure into a suite wipe.
-      }
+      //
+      // BOUNDED, NOT SILENT (was: unbounded `pumpAndSettle()` — the framework
+      // default 10-MINUTE timeout — inside a bare `catch (_) {}`). That used to
+      // mean two different failure modes were indistinguishable from "clean
+      // teardown": a genuinely wedged binding could hang here for up to 10
+      // minutes before the SUITE-level runner gave up, and even a fast failure
+      // was thrown away silently, so a real regression in the unmount path
+      // could never surface as a test failure — only as a mysteriously slow or
+      // stuck run. Both `pumpWidget` and the settle are now bounded by
+      // [settleTimeout]/[_settleWallClockBound] via [settle], and neither
+      // exception is swallowed: a wedged binding now fails the CURRENT test's
+      // teardown loudly and attributably, exactly the outcome
+      // [_settleWallClockBound]'s doc comment describes as strictly better
+      // than an unbounded hang. If this starts firing on a previously-green
+      // test, that is a REAL pre-existing teardown problem the old
+      // `catch (_) {}` was hiding — do not re-add the swallow to silence it.
+      await tester
+          .pumpWidget(const SizedBox.shrink())
+          .timeout(
+            _settleWallClockBound,
+            onTimeout: () {
+              throw TestFailure(
+                'AppHarness.boot teardown: pumpWidget(SizedBox.shrink()) did not '
+                'return within ${_settleWallClockBound.inSeconds}s while '
+                'unmounting after the test — the binding is likely wedged from an '
+                'earlier interrupted pump. This used to be silently swallowed by '
+                'a bare catch (_) {}; it now surfaces so a wedged binding is '
+                'visible instead of hidden.',
+              );
+            },
+          );
+      await settle(tester);
     });
 
     // RC2 — read the live GoRouter from the ProviderScope container. The
@@ -318,7 +602,7 @@ abstract final class AppHarness {
     // initialized after pumpAndSettle() because _HarnessApp calls
     // ref.watch(appRouterProvider) in its build().
     final container = ProviderScope.containerOf(
-      tester.element(find.byType(_HarnessApp)),
+      tester.element(find.byType(E2eHarnessApp)),
     );
     return container.read(appRouterProvider);
   }
@@ -396,6 +680,67 @@ abstract final class AppHarness {
         .matchedLocation;
   }
 
+  /// Resolves the current location for a route reached via `context.push`
+  /// that is NESTED under the currently-active [StatefulShellRoute] branch's
+  /// OWN route tree — e.g. `/search/results`, declared in app_router.dart as
+  /// a child `GoRoute` of `/search` inside the CLIENT shell's search branch
+  /// ("Nested under the search branch so it pushes onto that branch's
+  /// navigator"), as opposed to a route declared entirely outside the shell.
+  ///
+  /// Neither [location] nor [shellLocation] resolves this shape:
+  ///  * [location]'s only special case is "the TOP-level match IS an
+  ///    [ImperativeRouteMatch]". But [RouteMatchList.push] (go_router's
+  ///    `match.dart`, `_createNewMatchUntilIncompatible`) recurses INTO the
+  ///    existing top-level [ShellRouteMatch] — rather than appending a new
+  ///    top-level entry — whenever the freshly-matched target's own top
+  ///    segment is the SAME shell route already active. So `matches.last`
+  ///    stays a [ShellRouteMatch], the special case never fires, and
+  ///    [location] falls back to the stale pre-push `configuration.uri`
+  ///    (confirmed empirically: it keeps reading `/search` after a push to
+  ///    `/search/results`).
+  ///  * [shellLocation] reads `matches.last.matchedLocation` — but
+  ///    [ShellRouteMatch.copyWith] (what `push` uses to graft the new leaf
+  ///    in) never updates `matchedLocation`; it stays whatever it was when
+  ///    THIS [ShellRouteMatch] was first created (the branch's own root), so
+  ///    it is equally stale for this shape (also confirmed empirically —
+  ///    both resolvers report `/search`, never `/search/results`).
+  ///
+  /// This mirrors go_router's OWN internal recovery for exactly this shape
+  /// (`GoRouteInformationParser.restoreRouteInformation`): drill through
+  /// [ShellRouteMatch.matches] until an [ImperativeRouteMatch] surfaces, then
+  /// read ITS OWN freshly-matched nested `RouteMatchList.uri` — which [push]
+  /// DOES set correctly, it is only the outer wrapper(s) that go stale.
+  /// Falls back to [location] if no nested [ImperativeRouteMatch] is found
+  /// (a plain, non-nested case — behaves identically to [location] there).
+  static String nestedPushLocation(GoRouter router) {
+    RouteMatchBase match =
+        router.routerDelegate.currentConfiguration.matches.last;
+    while (match is! ImperativeRouteMatch) {
+      if (match is ShellRouteMatch && match.matches.isNotEmpty) {
+        match = match.matches.last;
+      } else {
+        break;
+      }
+    }
+    if (match case final ImperativeRouteMatch imperative) {
+      // router-location-ok: reading the resolved push's OWN nested match
+      // list (not the stale outer `currentConfiguration.uri`) is exactly
+      // what this drill-down resolver exists to do.
+      return imperative.matches.uri.toString();
+    }
+    return location(router);
+  }
+
+  /// [expectLocation] for a route reached via [nestedPushLocation]'s shape —
+  /// a `context.push` nested under the currently-active shell branch's own
+  /// route tree (see [nestedPushLocation]'s doc comment).
+  static void expectNestedPushLocation(GoRouter router, String expected) =>
+      _expectPath(
+        nestedPushLocation(router),
+        expected,
+        'AppHarness.expectNestedPushLocation',
+      );
+
   /// Convenience assertion built on [location]. See [expectShellLocation] for
   /// the [StatefulShellRoute] variant.
   ///
@@ -465,29 +810,17 @@ abstract final class AppHarness {
 
   // ── Tear-down ─────────────────────────────────────────────────────────────
 
-  /// Resets [AppStartTime] to its pre-boot null state, then waits briefly
-  /// for the just-unmounted GL rendering surface to release host-side.
+  /// Undoes the per-test half of the shared boot policy — see
+  /// [resetE2eBootPolicy] for the full rationale (splash-gate reset + the
+  /// host-side GL settle delay the CI emulator needs between relaunches).
   ///
   /// Must be called in [tearDown] in every test file that uses [boot], so the
   /// splash-gate override does not leak into subsequent tests. Idempotent.
   ///
-  /// SETTLE DELAY (2026-07-07 — see docs/ci_investigation_notes.md in the
-  /// Beautifier monorepo for the full investigation). GitHub's headless CI
-  /// emulator (goldfish-opengl / swiftshader_indirect) crashes the WHOLE
-  /// emulator process (`Failed to find ColorBuffer` -> `adb: device
-  /// offline`, unrecoverable) when a 2nd+ [boot] starts immediately after
-  /// the previous test's own unmount. Confirmed by isolating flows down to
-  /// exactly one relaunch (always clean, 0 crashes) vs. two-or-more
-  /// back-to-back relaunches (crashed on every one of 9+ CI samples,
-  /// independent of flow content, API level 33/34, or test ordering) — the
-  /// crash fires specifically on the transition INTO the 2nd relaunch, not
-  /// on rendering itself. This pause gives the driver's async ColorBuffer
-  /// cleanup time to actually complete host-side before the next relaunch
-  /// allocates new buffers. `integration_test/`-only; no production effect.
-  static Future<void> tearDownHarness() async {
-    AppStartTime.resetForTest();
-    await Future<void>.delayed(const Duration(seconds: 2));
-  }
+  /// Delegates rather than reimplements: the patrol tier's own
+  /// `PatrolHarness.tearDownHarness` calls the SAME function, so the two can no
+  /// longer drift apart (they previously carried two hand-copied bodies).
+  static Future<void> tearDownHarness() => resetE2eBootPolicy();
 
   // ── Text-field introspection ──────────────────────────────────────────────
 
@@ -542,6 +875,37 @@ abstract final class AppHarness {
     );
   }
 
+  /// Pumps until [FakeBackend.loginCalls] advances past [callsBefore], and
+  /// reports whether it did — WITHOUT throwing.
+  ///
+  /// The non-throwing contract is the point. [pumpUntilCondition] is the right
+  /// tool when a missing condition IS the failure, but here a negative result
+  /// is a legitimate branch: [loginAs] wants to retry the tap once and, failing
+  /// that, report through its own field-aware diagnostic (which names WHY the
+  /// submit did not take — dropped `enterText` vs. an absorbed tap). Throwing a
+  /// generic "condition never came true" here would pre-empt that far better
+  /// message.
+  ///
+  /// Bounded well under [settleTimeout] — [FakeBackend] serves from memory, so
+  /// anything approaching this bound is a genuine "the tap never landed", not
+  /// slowness.
+  static Future<bool> _pumpUntilLoginDispatched(
+    WidgetTester tester,
+    FakeBackend fakeBackend,
+    int callsBefore, {
+    Duration timeout = const Duration(seconds: 5),
+    Duration step = const Duration(milliseconds: 50),
+  }) async {
+    // instant-ok: elapsed-wall-time poll deadline — see pumpUntilFound above
+    final DateTime deadline = DateTime.now().add(timeout);
+    while (fakeBackend.loginCalls == callsBefore) {
+      // instant-ok: elapsed-wall-time poll deadline, paired with the read above
+      if (DateTime.now().isAfter(deadline)) return false;
+      await tester.pump(step);
+    }
+    return true;
+  }
+
   // ── Convenience: drive the login flow to completion ───────────────────────
 
   /// Drives the real login form with the fixture email for [role], taps Submit,
@@ -573,6 +937,23 @@ abstract final class AppHarness {
     // instead of corrupting the shared isolate's binding mid-frame.
     await settle(tester);
 
+    // READINESS, NOT EXISTENCE (phase 26.x flake fix). `settle` only proves no
+    // frame is scheduled — it does NOT prove the login form is mounted. Any
+    // change that shifts auth resolution by even one microtask (e.g. adding an
+    // interceptor to FakeBackend's Dio, which inserts an extra async hop into
+    // every response) can make the settle above return while the router is
+    // still on /splash, and the very next `enterText` then fails with
+    // "Found 0 widgets with key [<'login_email'>]". Wait on the widgets we are
+    // about to drive instead of assuming the settle implied them.
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('login_email')),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('login_password')),
+    );
+
     // We should be on the login screen — fill the fields and submit.
     await tester.enterText(
       find.byKey(const ValueKey<String>('login_email')),
@@ -602,12 +983,27 @@ abstract final class AppHarness {
     // Ensure the submit button is on-screen + interactive before tapping
     // (best-effort: only scrolls if the form has a Scrollable ancestor).
     final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
+
+    // Existence first — otherwise `ensureVisible` throws "Found 0 widgets" and
+    // the bare `catch (_)` below SWALLOWS it, deferring the failure to the tap
+    // where it reads as an unrelated absorption problem.
+    await pumpUntilFound(tester, submit);
     try {
       await tester.ensureVisible(submit);
       await settle(tester);
     } catch (_) {
       // No scrollable ancestor / already fully visible — nothing to do.
     }
+
+    // …then INTERACTABILITY. `hitTestable()` is the readiness condition the
+    // plain finder cannot express: during an in-flight route transition the
+    // login subtree is mounted but sits under a RenderAbsorbPointer /
+    // RenderIgnorePointer / RenderOffstage, so it EXISTS while every tap on it
+    // is swallowed (see the flake-guard comment at the top of this method).
+    // Waiting on `.hitTestable()` — the idiom already used across the
+    // client_search / public_salon / service_duplicate flows — waits for the
+    // barrier to lift rather than retrying the tap and hoping.
+    await pumpUntilFound(tester, submit.hitTestable());
 
     // Tap submit and confirm it actually triggered _submit(). If the tap was
     // absorbed (loginCalls did not advance), settle and retry ONCE, then fail
@@ -616,13 +1012,48 @@ abstract final class AppHarness {
     // loginAs() calls within one test stay correct.
     final int callsBefore = fakeBackend.loginCalls;
     await tester.tap(submit);
-    await tester.pump();
-    await tester.pump();
-    if (fakeBackend.loginCalls == callsBefore) {
+
+    // WAIT ON THE OBSERVABLE, NOT A PUMP COUNT.
+    //
+    // This used to be a bare `pump(); pump();` followed by
+    // `if (loginCalls == callsBefore) { retry }` — i.e. it treated "two frames
+    // elapsed" as "the request has definitely been dispatched". That is the
+    // same existence-vs-readiness assumption as the finders above, just
+    // expressed on a frame count instead of a widget, and it is FALSE the
+    // moment anything adds an async hop to the Dio pipeline. Installing
+    // ErrorMapperInterceptor on FakeBackend's Dio does exactly that: even an
+    // onError-only interceptor is walked by Dio's request chain, so the adapter
+    // handler (which increments [FakeBackend.loginCalls]) now lands one
+    // microtask later than it used to.
+    //
+    // The concrete failure that produced: tap #1 SUCCEEDS, `loginCalls` has not
+    // caught up after two pumps, the guard concludes "absorbed" and enters the
+    // retry branch — but its `settle()` lets the login complete and the router
+    // navigate to the authenticated home, so `login_submit` is gone and the
+    // retry `tap()` dies with "Found 0 widgets with key [<'login_submit'>]".
+    // A green login was reported as an absorbed tap.
+    //
+    // Polling the counter is not a sleep and not a retry mask: `loginCalls` IS
+    // the condition the guard wants to know about, and the bound is short
+    // (FakeBackend answers from memory in well under a frame). The retry below
+    // is now reachable ONLY when the call genuinely never happened.
+    final bool dispatched = await _pumpUntilLoginDispatched(
+      tester,
+      fakeBackend,
+      callsBefore,
+    );
+    if (!dispatched) {
       await settle(tester);
-      await tester.tap(submit);
-      await tester.pump();
-      await tester.pump();
+      // Re-check interactability before tapping again. Without this the retry
+      // can fire at a moment when the login screen has already been replaced,
+      // turning a recoverable situation into a raw "Found 0 widgets" crash that
+      // buries the honest diagnostic below.
+      if (submit.hitTestable().evaluate().isNotEmpty) {
+        await tester.tap(submit);
+        // Result deliberately not captured: the expect() below reads
+        // `loginCalls` directly and is the single authority on the outcome.
+        await _pumpUntilLoginDispatched(tester, fakeBackend, callsBefore);
+      }
     }
     // DIAGNOSE HONESTLY. The pre-2026-07-22 version of this guard asserted
     // "the button was absorbed by an in-flight overlay/route transition"
@@ -676,30 +1107,7 @@ abstract final class AppHarness {
   }
 }
 
-// ---------------------------------------------------------------------------
-// _HarnessApp — the real MaterialApp.router without main()'s side-effects
-// ---------------------------------------------------------------------------
-
-/// Boots the real app using [appRouterProvider] from the enclosing ProviderScope.
-///
-/// Bypasses the main() entry-point side-effects that are incompatible with
-/// flutter_test (cert-pinning, FlutterNativeSplash, SystemChrome). All of
-/// those are platform-channel calls that flutter_test's binding does not route.
-/// The router, theme, and localisation delegates are identical to production.
-class _HarnessApp extends ConsumerWidget {
-  const _HarnessApp();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
-    return MaterialApp.router(
-      debugShowCheckedModeBanner: false,
-      theme: velvetTheme(),
-      themeMode: ThemeMode.light,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      locale: const Locale('uk', 'UA'),
-      routerConfig: router,
-    );
-  }
-}
+// The real MaterialApp.router that this harness pumps is [E2eHarnessApp], in
+// `e2e_boot_policy.dart`. It used to be a private `_HarnessApp` here plus a
+// byte-identical private `_PatrolHarnessApp` in the patrol harness — one more
+// strand of the mirror this refactor removed.

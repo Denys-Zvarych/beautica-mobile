@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// [AuthNotifier] stub that settles immediately to `unauthenticated` — this
 /// test never navigates or asserts on auth-gated behaviour, it only needs
@@ -73,6 +74,7 @@ void main() {
       'CustomTransitionPage bypasses the CupertinoPageTransitionsBuilder that '
       'installs the left-edge swipe-back gesture', (tester) async {
     final container = ProviderContainer(
+      retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -146,4 +148,34 @@ void main() {
   test('RouteNames.salonPublicProfile matches the tested path shape', () {
     expect(RouteNames.salonPublicProfile('abc'), '/salons/abc');
   });
+
+  test(
+    'RouteNames.salonPublicProfile builds a BARE path — no query params',
+    () {
+      // The `serviceId:` overload that appended `?serviceId=…&tab=masters` was
+      // deleted along with the screen-side deep-link seed it fed: the salon-arm
+      // wish-list CTA (its only producer) now opens the salon booking flow's
+      // step-2 master picker instead. The path-segment encoding this route has
+      // always done stays pinned — ids are backend UUIDs today, but nothing
+      // pins that.
+      //
+      // ⚠️ SCOPE — READ BEFORE RELYING ON THIS AS A DELETION GUARD.
+      // The `contains('?')` assertion below does NOT catch the deep link
+      // coming back, and must not be described as if it does. Mutation-
+      // verified: with `RouteNames.salonPublicProfile(String, {String?
+      // serviceId})` restored verbatim from before the deletion, BOTH
+      // assertions here stay GREEN — the no-arg call still returns a bare
+      // path, exactly as it did while the overload existed. What this pins is
+      // only "the DEFAULT call shape emits no query", which was already true
+      // before the change.
+      //
+      // The behavioural guard — that a URL carrying `?serviceId=…&tab=masters`
+      // is INERT, and that entry auto-selects no tab and no service filter —
+      // lives in `salon_profile_no_deep_link_seed_test.dart`, which drives the
+      // real `/salons/:salonId` builder closure and IS shown red under that
+      // same restore.
+      expect(RouteNames.salonPublicProfile('a b'), '/salons/a%20b');
+      expect(RouteNames.salonPublicProfile('abc').contains('?'), isFalse);
+    },
+  );
 }

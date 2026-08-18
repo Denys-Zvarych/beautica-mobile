@@ -223,7 +223,7 @@ void main() {
             masterId: any(named: 'masterId'),
             from: any(named: 'from'),
             to: any(named: 'to'),
-            serviceId: any(named: 'serviceId'),
+            serviceIds: any(named: 'serviceIds'),
             cancelToken: any(named: 'cancelToken'),
           ),
         ).thenAnswer((_) async => const <WorkingDay>[]);
@@ -232,7 +232,7 @@ void main() {
         final query = WorkingDaysQuery.month(
           masterId: 'master-1',
           anyDayInMonth: DateTime(2026, 7, 1),
-          serviceId: 'svc-42',
+          serviceIds: <String>['svc-42'],
         );
         await container.read(workingDaysProvider(query).future);
 
@@ -241,13 +241,13 @@ void main() {
             masterId: any(named: 'masterId'),
             from: any(named: 'from'),
             to: any(named: 'to'),
-            serviceId: captureAny(named: 'serviceId'),
+            serviceIds: captureAny(named: 'serviceIds'),
             cancelToken: any(named: 'cancelToken'),
           ),
         ).captured;
         expect(
           captured.single,
-          'svc-42',
+          <String>['svc-42'],
           reason:
               'a null serviceId here would silently drop the calendar back to '
               'the duration-blind schedule-shape mode — the pre-fix bug',
@@ -262,7 +262,7 @@ void main() {
           masterId: any(named: 'masterId'),
           from: any(named: 'from'),
           to: any(named: 'to'),
-          serviceId: any(named: 'serviceId'),
+          serviceIds: any(named: 'serviceIds'),
           cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer((_) async => const <WorkingDay>[]);
@@ -280,7 +280,7 @@ void main() {
           masterId: any(named: 'masterId'),
           from: any(named: 'from'),
           to: any(named: 'to'),
-          serviceId: captureAny(named: 'serviceId'),
+          serviceIds: captureAny(named: 'serviceIds'),
           cancelToken: any(named: 'cancelToken'),
         ),
       ).captured;

@@ -99,6 +99,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
   final BuiltList<String>? serviceTypeSlugs;
   @override
   final bool? priceRangeValid;
+  @override
+  final bool? withinResultWindow;
 
   factory _$MasterSearchRequest(
           [void Function(MasterSearchRequestBuilder)? updates]) =>
@@ -115,7 +117,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
       this.page,
       this.size,
       this.serviceTypeSlugs,
-      this.priceRangeValid})
+      this.priceRangeValid,
+      this.withinResultWindow})
       : super._();
   @override
   MasterSearchRequest rebuild(
@@ -140,7 +143,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
         page == other.page &&
         size == other.size &&
         serviceTypeSlugs == other.serviceTypeSlugs &&
-        priceRangeValid == other.priceRangeValid;
+        priceRangeValid == other.priceRangeValid &&
+        withinResultWindow == other.withinResultWindow;
   }
 
   @override
@@ -157,6 +161,7 @@ class _$MasterSearchRequest extends MasterSearchRequest {
     _$hash = $jc(_$hash, size.hashCode);
     _$hash = $jc(_$hash, serviceTypeSlugs.hashCode);
     _$hash = $jc(_$hash, priceRangeValid.hashCode);
+    _$hash = $jc(_$hash, withinResultWindow.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -174,7 +179,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
           ..add('page', page)
           ..add('size', size)
           ..add('serviceTypeSlugs', serviceTypeSlugs)
-          ..add('priceRangeValid', priceRangeValid))
+          ..add('priceRangeValid', priceRangeValid)
+          ..add('withinResultWindow', withinResultWindow))
         .toString();
   }
 }
@@ -231,6 +237,11 @@ class MasterSearchRequestBuilder
   set priceRangeValid(bool? priceRangeValid) =>
       _$this._priceRangeValid = priceRangeValid;
 
+  bool? _withinResultWindow;
+  bool? get withinResultWindow => _$this._withinResultWindow;
+  set withinResultWindow(bool? withinResultWindow) =>
+      _$this._withinResultWindow = withinResultWindow;
+
   MasterSearchRequestBuilder() {
     MasterSearchRequest._defaults(this);
   }
@@ -249,6 +260,7 @@ class MasterSearchRequestBuilder
       _size = $v.size;
       _serviceTypeSlugs = $v.serviceTypeSlugs?.toBuilder();
       _priceRangeValid = $v.priceRangeValid;
+      _withinResultWindow = $v.withinResultWindow;
       _$v = null;
     }
     return this;
@@ -283,6 +295,7 @@ class MasterSearchRequestBuilder
             size: size,
             serviceTypeSlugs: _serviceTypeSlugs?.build(),
             priceRangeValid: priceRangeValid,
+            withinResultWindow: withinResultWindow,
           );
     } catch (_) {
       late String _$failedField;

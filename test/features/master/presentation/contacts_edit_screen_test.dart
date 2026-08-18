@@ -8,8 +8,9 @@
 //
 // Also covers: pristine→dirty Save enable, instagram format validation, the
 // save-success path (updateMyProfile called → profile invalidated → saved
-// SnackBar → navigate), and that a cleared (empty) Instagram is sent verbatim
-// (the contacts page is the ONE place where clearing Instagram is intentional).
+// VelvetSnack → navigate), and that a cleared (empty) Instagram is sent
+// verbatim (the contacts page is the ONE place where clearing Instagram is
+// intentional).
 //
 // Finders use widget Keys (M2). Layer: Widget.
 
@@ -33,6 +34,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
@@ -326,40 +328,44 @@ void main() {
     verifyNever(() => repo.updateMyProfile(any()));
   });
 
-  testWidgets('save success invalidates the profile, shows the saved SnackBar '
-      'and navigates to the profile when canPop is false', (tester) async {
-    when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+  testWidgets(
+    'save success invalidates the profile, shows the saved VelvetSnack '
+    'and navigates to the profile when canPop is false',
+    (tester) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
 
-    final states = <AsyncValue<Object?>>[];
+      final states = <AsyncValue<Object?>>[];
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: _overrides(repo).cast(),
-        child: _InvalidationWatcher(
-          states: states,
-          child: MaterialApp.router(
-            routerConfig: _buildRouter(),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides(repo).cast(),
+          child: _InvalidationWatcher(
+            states: states,
+            child: MaterialApp.router(
+              routerConfig: _buildRouter(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
+      );
+      await tester.pump();
+      await tester.pump();
 
-    final before = states.length;
+      final before = states.length;
 
-    await tester.enterText(_field('field-instagram'), '@updated');
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('btn-save-contacts')));
-    await tester.pumpAndSettle();
+      await tester.enterText(_field('field-instagram'), '@updated');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-contacts')));
+      await tester.pumpAndSettle();
 
-    verify(() => repo.updateMyProfile(any())).called(1);
-    expect(find.byKey(const Key('stub-profile')), findsOneWidget);
-    expect(states.length, greaterThan(before));
-  });
+      verify(() => repo.updateMyProfile(any())).called(1);
+      expect(find.byKey(const Key('stub-profile')), findsOneWidget);
+      expect(states.length, greaterThan(before));
+    },
+  );
 }
 
 class _InvalidationWatcher extends ConsumerWidget {

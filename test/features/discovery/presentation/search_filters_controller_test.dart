@@ -8,7 +8,24 @@
 // Coverage:
 //   SearchFiltersController
 //     • initial state is const SearchFilters()
-//     • setQuery — trims, blank/whitespace → null, real value kept
+//     • setQuery — NORMALISES, decides, and REPORTS. Normalisation is
+//       control-strip → trim → cap at kSearchMaxQueryLength UTF-16 CODE UNITS
+//       (rune-walked, so a surrogate pair is never bisected). The decision is
+//       three-way and now returns a SearchQueryOutcome:
+//         blank                        → CLEAR to null   (outcome: cleared)
+//         1 … kSearchMinQueryLength-1  → CLEAR to null   (outcome: belowMinimum)
+//         kSearchMinQueryLength+       → APPLY           (outcome: applied)
+//       A sub-minimum term is still NEVER promoted onto the wire model (the
+//       backend answers a below-minimum `q` with an empty page), but it no
+//       longer HOLDS the previous term either: holding it is precisely what
+//       left stale results + a stale applied-query chip on screen under a term
+//       the user had already shortened. The rejected term stays observable on
+//       the sibling SearchQueryDraftController, which is what the field's error
+//       ring, the disabled «Показати майстрів» CTA and the filters ↔ results
+//       field sync all read.
+//     • the draft mirror — setQuery writes the normalised term onto
+//       searchQueryDraftControllerProvider on EVERY call; clearFilters/reset
+//       empty it.
 //     • selectCity — sets cityId (+ districtId); clearing cityId clears district
 //     • toggleServiceType — single-select replaces prior; re-tap clears
 //     • setMaxPrice — sets maxPrice; >= kSearchPriceCeiling → null boundary;
@@ -38,6 +55,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -92,6 +110,7 @@ class _MutableAuthNotifier extends AuthNotifier {
 }) {
   final notifier = _MutableAuthNotifier(auth);
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: <Object>[
       authProvider.overrideWith(() => notifier),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -145,11 +164,390 @@ void main() {
 
     test('normalises a null query to null', () {
       final c = _make().container;
-      _filters(c).setQuery('х');
+      // Priming MUST use a 3+ character term: a 1-character one is REJECTED,
+      // not applied, so it would leave `query` null and this test would pass
+      // vacuously — it would no longer prove that null CLEARS anything.
+      _filters(c).setQuery('манікюр');
+      expect(_state(c).query, 'манікюр', reason: 'priming must have taken');
 
       _filters(c).setQuery(null);
 
       expect(_state(c).query, isNull);
+    });
+  });
+
+  // ── setQuery normalisation ────────────────────────────────────────────────
+  //
+  // Everything below pins ORDERING and UNIT choices that are load-bearing. Each
+  // has a cheaper-looking implementation that is wrong in a way no other test in
+  // this repo would notice:
+  //
+  //   • strip-before-trim — Dart's `trim()` whitespace set does NOT include the
+  //     C0 control characters, so trimming first leaves a stray space behind.
+  //   • rune-walk truncation — `substring(0, 100)` can bisect a surrogate pair
+  //     and emit a LONE SURROGATE, which is not valid text on the wire.
+  //   • code-unit cap — the widget's `maxLength` counts GRAPHEMES; the backend's
+  //     `@Size(max = 100)` counts UTF-16 code units, exactly as Dart's
+  //     `String.length` does. 51 astral emoji are 51 graphemes but 102 units:
+  //     under a grapheme cap they sail past the widget and 400 at the backend.
+  group('SearchFiltersController.setQuery normalisation', () {
+    test('control characters are stripped BEFORE trimming', () {
+      final c = _make().container;
+
+      // A leading control character shields the space that follows it from
+      // `trim()`. Strip first and the space becomes leading, so trim removes it;
+      // trim first and the value keeps a stray leading space forever.
+      _filters(c).setQuery('\u0001 abc');
+
+      expect(
+        _state(c).query,
+        'abc',
+        reason:
+            'trim-first would yield " abc" — U+0001 is not in Dart trim()s '
+            'whitespace set, so it shields the space from being trimmed',
+      );
+    });
+
+    test('interior control characters are removed, not replaced', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('ма\u0009ні\u000Aкюр');
+
+      expect(_state(c).query, 'манікюр');
+    });
+
+    test('a term of exactly kSearchMaxQueryLength units is untouched', () {
+      final c = _make().container;
+      final String exact = 'a' * kSearchMaxQueryLength;
+
+      _filters(c).setQuery(exact);
+
+      expect(_state(c).query, exact);
+      expect(_state(c).query!.length, kSearchMaxQueryLength);
+    });
+
+    test('an over-long ASCII term is capped at kSearchMaxQueryLength', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('a' * 250);
+
+      expect(_state(c).query!.length, kSearchMaxQueryLength);
+    });
+
+    test('truncation drops a boundary-straddling emoji WHOLE — never a lone '
+        'surrogate', () {
+      final c = _make().container;
+      // 99 ASCII + one astral emoji = 101 UTF-16 code units. The cut lands
+      // INSIDE the surrogate pair.
+      final String input = '${'a' * 99}😀';
+      expect(input.length, 101, reason: 'fixture sanity: 99 + 2 units');
+
+      _filters(c).setQuery(input);
+
+      final String applied = _state(c).query!;
+
+      expect(
+        applied.length,
+        99,
+        reason:
+            'the emoji cannot fit in the remaining single unit, so the whole '
+            'rune is dropped',
+      );
+      expect(applied, 'a' * 99);
+
+      // The counterfactual — this is what makes the test discriminate. A
+      // `substring(0, 100)` implementation WOULD produce a lone high
+      // surrogate, so asserting only the length above would not catch it.
+      final String viaSubstring = input.substring(0, kSearchMaxQueryLength);
+      expect(
+        viaSubstring.length,
+        kSearchMaxQueryLength,
+        reason: 'substring hits the cap exactly…',
+      );
+      expect(
+        viaSubstring.codeUnits.last,
+        allOf(greaterThanOrEqualTo(0xD800), lessThanOrEqualTo(0xDBFF)),
+        reason:
+            '…but its last unit is an UNPAIRED HIGH SURROGATE — the exact '
+            'corruption the rune walk exists to prevent',
+      );
+      expect(
+        applied.codeUnits.any((int u) => u >= 0xD800 && u <= 0xDFFF),
+        isFalse,
+        reason: 'the real implementation emits no surrogate at all here',
+      );
+    });
+
+    test(
+      'the cap counts UTF-16 CODE UNITS, not graphemes — 51 astral emoji are '
+      'capped to 50',
+      () {
+        final c = _make().container;
+        const String emoji = '😀';
+        expect(emoji.length, 2, reason: 'fixture sanity: astral = 2 units');
+
+        final String input = emoji * 51;
+        expect(input.runes.length, 51, reason: '51 graphemes…');
+        expect(input.length, 102, reason: '…but 102 code units');
+
+        _filters(c).setQuery(input);
+
+        final String applied = _state(c).query!;
+        expect(
+          applied.length,
+          lessThanOrEqualTo(kSearchMaxQueryLength),
+          reason:
+              'THE point of the fix: a grapheme cap would let all 51 through '
+              'at 102 units and the backend @Size(max = 100) would 400',
+        );
+        expect(applied.runes.length, 50);
+        expect(applied.length, 100);
+      },
+    );
+
+    test('a cut that exposes trailing whitespace is trimmed again', () {
+      final c = _make().container;
+
+      // 99 chars, then a space at unit 100, then more — the cap lands on the
+      // space, which must not survive as a trailing character.
+      _filters(c).setQuery('${'a' * 99} bbbb');
+
+      expect(_state(c).query, 'a' * 99);
+      expect(
+        _state(c).query!.endsWith(' '),
+        isFalse,
+        reason: 'the post-cap trim exists exactly for this',
+      );
+    });
+  });
+
+  // ── setQuery BELOW-MINIMUM semantics ──────────────────────────────────────
+  //
+  // This group used to pin the exact opposite contract ("HOLD the previously
+  // applied query"), and that contract WAS the defect: a bare `return` left the
+  // state untouched, so the results screen read back an unchanged applied query,
+  // never re-keyed, and kept the previous term's cards plus its applied-query
+  // chip on screen with no signal that the keystroke had been rejected. The
+  // wire invariant it protected is still intact — a sub-minimum term is STILL
+  // never promoted onto SearchFilters.query — but the previous term now goes
+  // with it, and the caller is told which of the two null-producing cases it
+  // got.
+  group('SearchFiltersController.setQuery below-minimum semantics', () {
+    test('a 1-character term CLEARS the previously applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('м');
+
+      expect(
+        _state(c).query,
+        isNull,
+        reason:
+            'holding it is what left stale results and a stale chip under a '
+            'term the user had already deleted',
+      );
+    });
+
+    test('a 1-character term reports belowMinimum', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      expect(_filters(c).setQuery('м'), SearchQueryOutcome.belowMinimum);
+    });
+
+    test('a 2-character term CLEARS the previously applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('ма');
+
+      expect(_state(c).query, isNull);
+      expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+    });
+
+    test('a sub-minimum term is NEVER promoted onto the wire model', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('ма');
+
+      expect(
+        _state(c).query,
+        isNull,
+        reason:
+            'SearchFilters.query is the wire model: null, or something the '
+            'backend will honour. The below-minimum term lives on the draft.',
+      );
+    });
+
+    test('the below-minimum term IS observable, on the draft', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).setQuery('ма');
+
+      expect(
+        c.read(searchQueryDraftControllerProvider),
+        'ма',
+        reason:
+            'the whole point of the fix: the term is not silently swallowed, '
+            'it is just kept OUT of the wire model — the CTA gate, the field '
+            'error and the cross-screen sync all read it here',
+      );
+    });
+
+    test(
+      'a padded 2-character term is below-minimum (normalisation first)',
+      () {
+        final c = _make().container;
+        _filters(c).setQuery('манікюр');
+
+        expect(
+          _filters(c).setQuery('  ма  '),
+          SearchQueryOutcome.belowMinimum,
+          reason:
+              'the decision is made on the NORMALISED term — the padding must '
+              'not inflate it past the minimum',
+        );
+        expect(_state(c).query, isNull);
+        expect(
+          c.read(searchQueryDraftControllerProvider),
+          'ма',
+          reason: 'the draft carries the NORMALISED term, not the raw padding',
+        );
+      },
+    );
+
+    test('a\u0009b normalises to 2 chars and is therefore below-minimum', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      expect(
+        _filters(c).setQuery('a\u0009b'),
+        SearchQueryOutcome.belowMinimum,
+        reason:
+            'intentional: the tab is stripped, leaving "ab" — a 2-character '
+            'term. A raw-length check would have applied it.',
+      );
+      expect(_state(c).query, isNull);
+    });
+
+    test('a below-minimum term with NO prior query leaves it null', () {
+      final c = _make().container;
+
+      expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+      expect(_state(c).query, isNull);
+    });
+
+    test(
+      'a 2-character Cyrillic term is below-minimum (no locale shortcut)',
+      () {
+        final c = _make().container;
+        _filters(c).setQuery('манікюр');
+
+        expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+        expect(_state(c).query, isNull);
+      },
+    );
+
+    test('exactly kSearchMinQueryLength characters APPLIES', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      expect(
+        _filters(c).setQuery('ман'),
+        SearchQueryOutcome.applied,
+        reason: 'the minimum is inclusive — 3 is enough',
+      );
+      expect(_state(c).query, 'ман');
+    });
+
+    test('blank CLEARS, and is reported as cleared — NOT as an error', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      final SearchQueryOutcome outcome = _filters(c).setQuery('   ');
+
+      expect(_state(c).query, isNull);
+      expect(
+        outcome,
+        SearchQueryOutcome.cleared,
+        reason:
+            'an empty box is a perfectly good filters-only search. Collapsing '
+            'it into belowMinimum would put a red error under an empty field '
+            'and disable the CTA for a legitimate query-less search.',
+      );
+      expect(c.read(searchQueryDraftControllerProvider), '');
+    });
+
+    test('cleared and belowMinimum are distinguishable despite both nulling '
+        'query', () {
+      final c = _make().container;
+
+      expect(_filters(c).setQuery(''), SearchQueryOutcome.cleared);
+      expect(_state(c).query, isNull);
+
+      expect(_filters(c).setQuery('ма'), SearchQueryOutcome.belowMinimum);
+      expect(_state(c).query, isNull);
+
+      // Same wire model, opposite UI treatment — the outcome is the ONLY way a
+      // caller can tell "no term" from "term rejected".
+    });
+
+    test('completing the term re-applies it and clears the error state', () {
+      final c = _make().container;
+      _filters(c).setQuery('ма');
+      expect(_state(c).query, isNull);
+
+      expect(_filters(c).setQuery('манікюр'), SearchQueryOutcome.applied);
+      expect(_state(c).query, 'манікюр');
+      expect(c.read(searchQueryDraftControllerProvider), 'манікюр');
+    });
+  });
+
+  // ── the draft mirror ──────────────────────────────────────────────────────
+  group('SearchQueryDraftController', () {
+    test('starts empty', () {
+      final c = _make().container;
+      expect(c.read(searchQueryDraftControllerProvider), '');
+    });
+
+    test('setQuery mirrors the normalised term whatever the outcome', () {
+      final c = _make().container;
+
+      _filters(c).setQuery('  манікюр  ');
+      expect(c.read(searchQueryDraftControllerProvider), 'манікюр');
+
+      _filters(c).setQuery('ма');
+      expect(c.read(searchQueryDraftControllerProvider), 'ма');
+
+      _filters(c).setQuery('');
+      expect(c.read(searchQueryDraftControllerProvider), '');
+    });
+
+    test('clearFilters empties the draft as well as the applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('ма');
+      expect(c.read(searchQueryDraftControllerProvider), 'ма');
+
+      _filters(c).clearFilters();
+
+      expect(
+        c.read(searchQueryDraftControllerProvider),
+        '',
+        reason:
+            '«Скинути фільтри» must leave the box genuinely empty — a surviving '
+            'below-minimum draft would keep the field red and the CTA disabled '
+            'over a filter set that carries no query at all',
+      );
+    });
+
+    test('reset empties the draft as well as the applied query', () {
+      final c = _make().container;
+      _filters(c).setQuery('манікюр');
+
+      _filters(c).reset();
+
+      expect(c.read(searchQueryDraftControllerProvider), '');
     });
   });
 

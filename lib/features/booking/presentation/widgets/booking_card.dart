@@ -9,27 +9,41 @@
 ///
 /// ```
 /// ┌──┬────────┬┄┬─────────────────────────────────────┐
-/// │▐ │        ┊ │                              15:00  │
+/// │▐ │        ┊ │                                     │
 /// │▐ │        ┊ │  ⟨photo⟩  Марія Іванюк              │
 /// │▐ │   18   ┊ │   52 dp   Майстриня манікюру        │
 /// │▐ │червня, ┊ │           ▣ Lviv Nails Studio       │
 /// │▐ │   ср   ┊ │                                     │
-/// │▐ │        ┊ │  ✂ Манікюр з покриттям      650 ₴   │
+/// │▐ │ 15:00  ┊ │  ✂ Манікюр з покриттям      650 ₴   │
 /// │▐ │        ┊ │  ⦿ Підтверджено                  ›  │
 /// └──┴────────┴┄┴─────────────────────────────────────┘
 ///  rail  stub  perf              body
 /// ```
 ///
-/// **The date column is exclusive.** Nothing sits above or below it — the
-/// stub is its own column, and every other element lives to its right. The
-/// date is pinned to a FIXED [_stubTopOffset] — NOT `CrossAxisAlignment
-/// .center`d — so it lands on the same y on every card regardless of how
-/// tall the body below it grows. A centred child rides the body's height,
-/// and the body's height varies (a card whose note used to be 3 lines could
-/// grow another ~135 dp when expanded before notes moved to «Деталі
-/// запису»); pinning to the photo's optical centre — the card's dominant
-/// element, always in the same place — gives the centred LOOK with none of
-/// the drift. See [_stubTopOffset]'s own doc for the derivation.
+/// **The date column is exclusive.** Nothing from the body sits inside it,
+/// and nothing from it leaks into the body — the stub is its own column,
+/// carrying the WHOLE "when" of the booking (day, weekday/month, and the
+/// slot time stacked directly under the date it belongs to), and every other
+/// element lives to its right. The outer `Row` is
+/// `CrossAxisAlignment.center`d, so the stub centres against the card's full
+/// content height — the taller `Expanded` body defines that height, the
+/// shorter stub rides in the middle of it.
+///
+/// **This reverses an earlier decision.** An older revision of this file
+/// pinned the stub to a fixed offset derived from the photo's optical
+/// centre specifically so the date would land on the SAME y on every card,
+/// independent of body height — the trade-off being that a genuinely
+/// centred stub drifts, because the body's height is not constant: it grows
+/// or shrinks with whether the master filled in a professional title and/or
+/// salon name, whether their name wraps to a second line, and whether the
+/// service name wraps to a second line. That was a deliberate choice at the
+/// time. The user has since asked for TRUE vertical centring instead, and
+/// this revision honours that: the stub's y position now visibly varies
+/// row-to-row in the «Мої записи» list — a card with a one-line identity
+/// block sits the date noticeably higher than a card with a two-line master
+/// name and both title and salon filled in. That drift is the accepted
+/// cost of true centring; a future editor should not "fix" it back to a
+/// fixed pin without the user asking for that trade-off again.
 ///
 /// ## The card has ONE affordance: open me
 ///
@@ -66,11 +80,15 @@
 /// split its free space 50/50 between the two flex children instead, and
 /// the unallocated remainder floats the price off the margin by a variable
 /// amount per card — measured drift in the original design pass: ~20 dp.
-/// See `_ServiceLine`.
+/// See `_ServiceLine`. (The slot time used to sit top-right of the body,
+/// directly above this anchor, sharing its x — it now lives in the date
+/// stub, so the price's only remaining reference edge is the body's own
+/// right margin.)
 library;
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -108,26 +126,11 @@ const double _gutter = VelvetSpacing.lg; // 24
 const double _tearLineX =
     _railWidth + _stubInset + _DateStub.width + VelvetSpacing.xs;
 
-/// How far down the body the stub is pinned. NOT `CrossAxisAlignment
-/// .center`d — see the library doc. Derivation, from the top of the body:
-///
-/// ```
-///   time line          ~19   (bookingTime — Comfortaa 17, height 1.1)
-///   gap                  4   (VelvetSpacing.xs)
-///   photo               52   → its centre sits at 19 + 4 + 26 = 49
-///
-///   stub                ~40  (day 21 + gap 4 + month line ~15)
-///   → stub top = photo centre − stub half-height = 49 − 20 = 29
-/// ```
-///
-/// A constant on purpose — deriving it at layout time from real text metrics
-/// would reintroduce exactly the coupling it exists to remove.
-const double _stubTopOffset = 29;
-
 /// The widest the price anchor may grow before it scales its text down. A
 /// CAP, not a column width — the price sizes to its content and sits flush
-/// against the body's right edge, so it shares an x with the time above it
-/// whatever its length.
+/// against the body's right edge whatever its length. (It no longer shares
+/// an x with a time line — the slot time moved into the date stub; see the
+/// library doc.)
 ///
 /// Re-verified when the frozen RANGE band («300–500 ₴», see
 /// [BookingDisplayX.priceLabel]) started reaching this anchor: measured in
@@ -144,7 +147,8 @@ const double _stubTopOffset = 29;
 /// the row can never overflow. Do NOT lower it below ~80 — that would start
 /// scaling real bands.
 ///
-/// `master_booking_card.dart`'s `_PriceTag._maxTextWidth` is also 96, but that
+/// The shared `PriceTag.maxTextWidth` (`core/widgets/price_tag.dart`) is also
+/// 96, but that
 /// is a COINCIDENCE of two independent measurements, NOT a shared knob: that
 /// card renders the price in `VelvetText.pill` (Nunito 11/w800), where the same
 /// «12500–25000 ₴» band measures 83.77dp and leaves only ~12dp of headroom. The
@@ -250,16 +254,19 @@ class _BookingCardState extends State<BookingCard> {
                     VelvetSpacing.sm,
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    // Centres the stub against the card's FULL content
+                    // height (the taller Expanded body defines that height;
+                    // the shorter stub centres within it) — see the library
+                    // doc's "date column" section for why this replaced the
+                    // old fixed-offset pin.
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: <Widget>[
-                      Padding(
-                        padding: const EdgeInsets.only(top: _stubTopOffset),
-                        child: _DateStub(
-                          key: ValueKey<String>('stub-${_b.id}'),
-                          start: _b.startAt,
-                          dimmed: _isDead,
-                          struck: _isNoShow,
-                        ),
+                      _DateStub(
+                        key: ValueKey<String>('stub-${_b.id}'),
+                        bookingId: _b.id,
+                        start: _b.startAt,
+                        dimmed: _isDead,
+                        struck: _isNoShow,
                       ),
                       const SizedBox(width: _gutter),
                       Expanded(child: _body(l10n)),
@@ -279,25 +286,9 @@ class _BookingCardState extends State<BookingCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // ── The time, top-right — diagonally opposite the day number, so
-        //    "when" is read across the card's whole width.
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            formatSlotTime(_b.startAt),
-            key: ValueKey<String>('time-${_b.id}'),
-            style: VelvetText.bookingTime.copyWith(
-              color: _isDead ? BrandColors.muted : BrandColors.accentDeep,
-              decoration: _isNoShow
-                  ? TextDecoration.lineThrough
-                  : TextDecoration.none,
-              decorationColor: BrandColors.textSecondary.withValues(alpha: 0.8),
-              decorationThickness: 1.5,
-            ),
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-
+        // ── The time moved out of the body and into the date stub, directly
+        //    under the day it belongs to — see [_DateStub] and the library
+        //    doc. The identity row is now the body's first line.
         _identity(),
         const SizedBox(height: VelvetSpacing.xs),
 
@@ -478,16 +469,26 @@ class _CardChrome extends CustomPainter {
 
 /// The signature element — the ticket's tear-off stub, carrying the date and
 /// nothing else, for the card's whole height. [struck] is the no-show
-/// treatment: the day number is ruled through — no hue, no words, landing
-/// before the client has read anything.
+/// treatment: the day number AND the time below it are ruled through — no
+/// hue, no words, landing before the client has read anything.
+///
+/// Carries three stacked lines now: day number, weekday/month, and — moved
+/// down from the body's old top-right corner — the slot time, directly under
+/// the date it belongs to. See the library doc's ASCII grid and its "date
+/// column" section for how the stub is now centred against the body.
 class _DateStub extends StatelessWidget {
   const _DateStub({
     super.key,
+    required this.bookingId,
     required this.start,
     required this.dimmed,
     this.struck = false,
   });
 
+  /// Only needed so the stub's three stacked `Text`s can carry stable
+  /// `ValueKey`s (`stub-day-$bookingId`, `stub-month-$bookingId`,
+  /// `time-$bookingId`) — widget tests find them there.
+  final String bookingId;
   final DateTime start;
   final bool dimmed;
   final bool struck;
@@ -501,7 +502,25 @@ class _DateStub extends StatelessWidget {
   /// ones («березня», «вересня», «листопада») wrap to two centred lines. It is
   /// narrower than the old scale-to-fit width (68), so [_tearLineX] shifts left
   /// and the Expanded body gains the freed space.
+  ///
+  /// Re-verified for the time line added below the month line: `formatSlotTime`
+  /// always renders a fixed 5-glyph «HH:mm», measured (`TextPainter`, real
+  /// Comfortaa) at [VelvetText.bookingTime] — 33.2 dp for «15:00», worst case
+  /// 36.3 dp for «23:59». Both clear 64 dp with ample headroom (~28 dp), so the
+  /// stub is NOT widened for the time; the `maxLines: 1` + ellipsis on the time
+  /// `Text` below is a defensive floor only, for extreme accessibility text
+  /// scales, mirroring the month line's own ellipsis floor.
   static const double width = VelvetSpacing.xxl + VelvetSpacing.md; // 64
+
+  /// The tight leading between the stub's three stacked lines — one rhythm
+  /// for the whole "when" cluster (day, weekday/month, time), not a
+  /// `VelvetSpacing` token: even `.xs` (4) would loosen the cluster enough
+  /// to read as three separate labels instead of one "when" unit. Also
+  /// keeps the stub's total height close to the 52 dp photo's, so the two
+  /// columns read as roughly matched blocks even though the stub is now
+  /// centred against the whole body rather than pinned to the photo — see
+  /// the library doc's "date column" section.
+  static const double _lineGap = 2;
 
   @override
   Widget build(BuildContext context) {
@@ -516,7 +535,8 @@ class _DateStub extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
-            start.day.toString(),
+            formatStubDayNumber(start),
+            key: ValueKey<String>('stub-day-$bookingId'),
             textAlign: TextAlign.center,
             style: VelvetText.bookingDayNumber.copyWith(
               color: dayColor,
@@ -527,7 +547,7 @@ class _DateStub extends StatelessWidget {
               decorationThickness: 1.8,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: _lineGap),
           // Centred under the day number. At the stub's natural size no month
           // clips: the short ones sit on one line, «березня»/«вересня»/
           // «листопада» wrap to a second centred line rather than scaling. The
@@ -535,11 +555,33 @@ class _DateStub extends StatelessWidget {
           // — it never triggers on real labels at normal scale.
           Text(
             formatStubDayLine(start),
+            key: ValueKey<String>('stub-month-$bookingId'),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: VelvetText.bookingCardCaption.copyWith(
               color: dimmed ? BrandColors.faint : BrandColors.muted,
+            ),
+          ),
+          const SizedBox(height: _lineGap),
+          // ── WHEN, part two — the slot time, moved down from the body's
+          //    old top-right corner so it reads as one unit with the date
+          //    above it. Same colour/decoration contract the body copy used
+          //    to carry, unchanged: dead bookings mute to BrandColors.muted,
+          //    a no-show strikes the figure exactly like the day number does.
+          Text(
+            formatSlotTime(start),
+            key: ValueKey<String>('time-$bookingId'),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: VelvetText.bookingTime.copyWith(
+              color: dimmed ? BrandColors.muted : BrandColors.accentDeep,
+              decoration: struck
+                  ? TextDecoration.lineThrough
+                  : TextDecoration.none,
+              decorationColor: BrandColors.textSecondary.withValues(alpha: 0.8),
+              decorationThickness: 1.5,
             ),
           ),
         ],
@@ -569,6 +611,25 @@ class _MasterPhoto extends StatelessWidget {
   final bool dimmed;
 
   static const double size = 52;
+
+  /// The lit (non-`dimmed`) disc's neumorphic pair. Hoisted to a static field
+  /// — MO-7 made this widget one instance PER SERVICE CARD (was once per
+  /// VISIT under the old grouped `VisitCard`), so a per-build allocation here
+  /// is now N× more frequent. Mirrors `_BookingCardState._deadShadows`'s
+  /// treatment for the same reason. `static final`, not `static const`:
+  /// `Color.withValues` is not a const constructor.
+  static final List<BoxShadow> _liftedShadows = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.75),
+      offset: const Offset(3, 3),
+      blurRadius: 8,
+    ),
+    const BoxShadow(
+      color: BrandColors.shadowLightStrong,
+      offset: Offset(-3, -3),
+      blurRadius: 8,
+    ),
+  ];
 
   static const List<Color> _gradient = <Color>[
     BrandColors.accentLogo,
@@ -600,40 +661,24 @@ class _MasterPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? url = avatarUrl;
-    final bool isHttps =
-        url != null && url.isNotEmpty && Uri.tryParse(url)?.scheme == 'https';
-
     final Widget disc = Container(
       height: size,
       width: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        boxShadow: dimmed
-            ? null
-            : <BoxShadow>[
-                BoxShadow(
-                  color: BrandColors.shadowDarkCard.withValues(alpha: 0.75),
-                  offset: const Offset(3, 3),
-                  blurRadius: 8,
-                ),
-                const BoxShadow(
-                  color: BrandColors.shadowLightStrong,
-                  offset: Offset(-3, -3),
-                  blurRadius: 8,
-                ),
-              ],
+        boxShadow: dimmed ? null : _liftedShadows,
       ),
-      child: ClipOval(
-        child: isHttps
-            ? Image.network(
-                url,
-                fit: BoxFit.cover,
-                cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
-                    .round(),
-                errorBuilder: (_, _, _) => _initialsDisc(),
-              )
-            : _initialsDisc(),
+      // Shared media loader: the https-only + host-allowlist guard, the disk
+      // cache, the socket-level TLS controls and the animated-WebP pin all
+      // live in RemoteImage now (see core/media/beautica_image.dart). The
+      // circular clip + gradient-initials fallback are unchanged.
+      child: RemoteImage(
+        url: avatarUrl,
+        width: size,
+        height: size,
+        shape: RemoteImageShape.circle,
+        excludeFromSemantics: true,
+        fallback: _initialsDisc(),
       ),
     );
     // A cancelled booking's photo desaturates toward the base tone — the

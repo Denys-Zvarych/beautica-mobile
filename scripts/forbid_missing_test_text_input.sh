@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Text-input-mock registration gate (2026-07-22 profile-drive safeguard).
+# Shared-E2E-boot-policy gate (2026-07-22 profile-drive safeguard;
+# 2026-07-31 extended to the single-source refactor).
 #
 # THE BUG THIS GUARDS
 # -------------------
@@ -29,19 +30,38 @@
 # through `AppHarness.boot`, so that single line is what makes the profile job
 # meaningful at all.
 #
+# THE SECOND BUG THIS GUARDS (2026-07-31)
+# ---------------------------------------
+# The registration call, and the rest of the E2E boot rules, used to be
+# hand-copied into BOTH harnesses, kept in sync only by a "Mirrors
+# app_harness.dart" comment. That mirror drifted:
+# `WidgetController.hitTestWarningShouldBeFatal` (the off-screen-tap guard)
+# reached the flutter_test harness only, so the whole patrol tier kept booting
+# unguarded. The rules now live in ONE function — `applyE2eBootPolicy` in
+# `integration_test/support/e2e_boot_policy.dart` — and every E2E entry point
+# calls it.
+#
 # THE RULE
 # --------
-# Every harness listed in `harnesses` below MUST call `testTextInput.register()`
-# INSIDE its `boot(...)` function body — not merely somewhere in the file, and
-# not commented out. The call looks redundant in a debug `flutter test` run
-# (debug keeps the assert, so `enterText` works without it), which is precisely
-# why a refactor can delete it without any test going red. Nothing about the
-# breakage is visible to `flutter analyze`, to a lint, or to the debug suite —
-# so it has to be a structural gate.
+# Two linked obligations, each structurally checked below:
 #
-# If a harness is renamed or its boot entrypoint is restructured, this gate
-# FAILS rather than silently passing on a file it can no longer find. Update the
-# `harnesses` / `boot_decl` values in the same commit.
+#   (1) `applyE2eBootPolicy` MUST still call `testTextInput.register()`.
+#       This is the one definition; if it goes, every tier loses it at once.
+#   (2) Every E2E entry point MUST call `applyE2eBootPolicy`:
+#         • `AppHarness.boot(...)`        — flutter_test tier
+#         • `PatrolHarness.boot(...)`     — patrol fake-backend tier
+#         • `deep_link_patrol_test.dart`  — patrol native tier, which builds its
+#           own tree and so has no harness to inherit from
+#       An entry point that stops calling it silently re-opens the mirror.
+#
+# Commented-out calls do not count. None of this is visible to
+# `flutter analyze`, to a lint, or to a green debug run — the call looks
+# redundant in debug (`enterText` works there because the assert survives),
+# which is precisely why it has to be a structural gate.
+#
+# If a checked file is renamed or its entry point restructured, this gate FAILS
+# rather than silently passing on something it can no longer find. Update the
+# `CHECKS` table in the same commit.
 #
 # CI hard-gate (run from `.github/workflows/pr-validate.yml`); also runnable
 # locally before pushing.
@@ -49,53 +69,65 @@
 
 set -euo pipefail
 
-# Harness files that must register the mock, and the `boot` declaration that
-# opens the function body the call has to live in.
-harnesses=(
-  "integration_test/support/app_harness.dart"
-  "integration_test/patrol/support/patrol_harness.dart"
-)
+# ---------------------------------------------------------------------------
+# CHECKS — one `path|decl|body_end|required|hint` row per obligation.
+#
+#   decl      ERE opening the region the call must live in. EMPTY = whole file.
+#   body_end  ERE closing that region (ignored when decl is empty).
+#   required  ERE the region must contain on a non-comment line.
+#   hint      what to write if it is missing.
+#
 # NOTE: bracket expressions, not backslash escapes — awk's ERE engine rejects
 # `\(` / `\}` ("invalid regexp: Unmatched (") and the gate then silently finds
-# no boot body at all. Caught by --self-test on this gate's first run; keep it
-# this way.
-boot_decl='static Future<GoRouter> boot[(]'
-# Both harnesses declare `boot` as a static member of a class, and the tree is
-# `dart format`-clean, so the method body always terminates at a `}` indented by
-# exactly two spaces.
-body_end='^  [}]$'
-required='testTextInput[.]register[(][)]'
+# no body at all. Caught by --self-test; keep it this way.
+#
+# Both harnesses declare `boot` as a static class member and the tree is
+# `dart format`-clean, so those method bodies always terminate at a `}` indented
+# by exactly two spaces. `applyE2eBootPolicy` is a top-level function, so its
+# body terminates at a `}` in column 0.
+# ---------------------------------------------------------------------------
+CHECKS=(
+  "integration_test/support/e2e_boot_policy.dart|^void applyE2eBootPolicy[(]|^[}]$|testTextInput[.]register[(][)]|tester.binding.testTextInput.register();"
+  "integration_test/support/app_harness.dart|static Future<GoRouter> boot[(]|^  [}]$|applyE2eBootPolicy[(]|applyE2eBootPolicy(tester);"
+  "integration_test/patrol/support/patrol_harness.dart|static Future<GoRouter> boot[(]|^  [}]$|applyE2eBootPolicy[(]|applyE2eBootPolicy(\$.tester);"
+  "integration_test/patrol/deep_link_patrol_test.dart||-|applyE2eBootPolicy[(]|applyE2eBootPolicy(\$.tester);"
+)
 
 # ---------------------------------------------------------------------------
-# scan_file <path>
-#   Prints a diagnosis line if <path> does not call `testTextInput.register()`
-#   on a non-comment line inside its `boot(...)` body. Silent when compliant.
-#   A line is treated as a comment when its first non-space token is `//`.
+# scan_file <path> <decl> <body_end> <required>
+#   Prints a diagnosis line if <path> does not contain <required> on a
+#   non-comment line inside the region opened by <decl> and closed by
+#   <body_end> (or anywhere in the file when <decl> is empty). Silent when
+#   compliant. A line is treated as a comment when its first non-space token
+#   is `//`.
 # ---------------------------------------------------------------------------
 scan_file() {
-  local f="$1"
+  local f="$1" decl="$2" endpat="$3" required="$4"
 
   if [ ! -f "$f" ]; then
-    echo "$f: MISSING — the gate cannot verify a harness it cannot find."
+    echo "$f: MISSING — the gate cannot verify a file it cannot find."
     return 0
   fi
 
   local body
-  body="$(
-    awk -v decl="$boot_decl" -v endpat="$body_end" '
-      $0 ~ decl { inbody = 1 }
-      inbody     { print }
-      inbody && $0 ~ endpat { inbody = 0 }
-    ' "$f"
-  )"
-
-  if [ -z "$body" ]; then
-    echo "$f: no boot(...) body found (expected a line matching /$boot_decl/)."
-    return 0
+  if [ -z "$decl" ]; then
+    body="$(cat "$f")"
+  else
+    body="$(
+      awk -v decl="$decl" -v endpat="$endpat" '
+        $0 ~ decl { inbody = 1 }
+        inbody     { print }
+        inbody && $0 ~ endpat { inbody = 0 }
+      ' "$f"
+    )"
+    if [ -z "$body" ]; then
+      echo "$f: no body found (expected a line matching /$decl/)."
+      return 0
+    fi
   fi
 
   # Strip genuine comment lines (first non-space token is `//`) before looking
-  # for the required call, so a commented-out registration cannot satisfy it.
+  # for the required call, so a commented-out call cannot satisfy it.
   local hits
   hits="$(
     printf '%s\n' "$body" \
@@ -104,7 +136,11 @@ scan_file() {
   )"
 
   if [ "$hits" -eq 0 ]; then
-    echo "$f: boot(...) does not call testTextInput.register()."
+    if [ -z "$decl" ]; then
+      echo "$f: does not call ${required}."
+    else
+      echo "$f: the body opened by /$decl/ does not call ${required}."
+    fi
   fi
 }
 
@@ -118,12 +154,16 @@ if [ "${1:-}" = "--self-test" ]; then
 
   emit() { printf '%s\n' "$@" > "$tmp/$FIXTURE"; }
 
-  # (1) compliant — register() inside the boot body.
+  boot_decl='static Future<GoRouter> boot[(]'
+  boot_end='^  [}]$'
+  register='testTextInput[.]register[(][)]'
+  policy='applyE2eBootPolicy[(]'
+
+  # (1) compliant — the policy call inside the boot body.
   FIXTURE=ok.dart emit \
     'abstract final class H {' \
     '  static Future<GoRouter> boot(WidgetTester tester) async {' \
-    '    installOverflowGuard();' \
-    '    tester.binding.testTextInput.register();' \
+    '    applyE2eBootPolicy(tester);' \
     '    await tester.pumpWidget(const App());' \
     '  }' \
     '}'
@@ -132,7 +172,6 @@ if [ "${1:-}" = "--self-test" ]; then
   FIXTURE=missing.dart emit \
     'abstract final class H {' \
     '  static Future<GoRouter> boot(WidgetTester tester) async {' \
-    '    installOverflowGuard();' \
     '    await tester.pumpWidget(const App());' \
     '  }' \
     '}'
@@ -141,7 +180,7 @@ if [ "${1:-}" = "--self-test" ]; then
   FIXTURE=commented.dart emit \
     'abstract final class H {' \
     '  static Future<GoRouter> boot(WidgetTester tester) async {' \
-    '    // tester.binding.testTextInput.register();' \
+    '    // applyE2eBootPolicy(tester);' \
     '    await tester.pumpWidget(const App());' \
     '  }' \
     '}'
@@ -154,54 +193,101 @@ if [ "${1:-}" = "--self-test" ]; then
     '  }' \
     '' \
     '  static void other(WidgetTester tester) {' \
-    '    tester.binding.testTextInput.register();' \
+    '    applyE2eBootPolicy(tester);' \
     '  }' \
     '}'
 
-  # (5) renamed away — the gate must fail loudly, never silently pass.
-  expect_verdict() { # <fixture> <clean|flagged>
+  # (5) the shared policy itself — top-level function, register() inside.
+  FIXTURE=policy_ok.dart emit \
+    'void applyE2eBootPolicy(WidgetTester tester) {' \
+    '  installOverflowGuard();' \
+    '  tester.binding.testTextInput.register();' \
+    '}'
+
+  # (6) the shared policy with the registration REMOVED — the single-source
+  #     regression this gate exists to catch (every tier loses it at once).
+  FIXTURE=policy_missing.dart emit \
+    'void applyE2eBootPolicy(WidgetTester tester) {' \
+    '  installOverflowGuard();' \
+    '}'
+
+  # (7) whole-file mode (no decl) — an entry point that builds its own tree.
+  FIXTURE=wholefile_ok.dart emit \
+    'void main() {' \
+    '  patrolTest("x", ($) async {' \
+    '    applyE2eBootPolicy($.tester);' \
+    '  });' \
+    '}'
+
+  # (8) whole-file mode, call absent.
+  FIXTURE=wholefile_missing.dart emit \
+    'void main() {' \
+    '  patrolTest("x", ($) async {' \
+    '    await $.pumpWidgetAndSettle(const App());' \
+    '  });' \
+    '}'
+
+  expect_verdict() { # <fixture> <decl> <end> <required> <clean|flagged>
     local out
-    out="$(scan_file "$tmp/$1")"
-    if [ "$2" = "clean" ] && [ -n "$out" ]; then
+    out="$(scan_file "$tmp/$1" "$2" "$3" "$4")"
+    if [ "$5" = "clean" ] && [ -n "$out" ]; then
       echo "SELF-TEST FAIL: $1 expected clean, got: $out"; fail=1
-    elif [ "$2" = "flagged" ] && [ -z "$out" ]; then
+    elif [ "$5" = "flagged" ] && [ -z "$out" ]; then
       echo "SELF-TEST FAIL: $1 expected flagged, got clean"; fail=1
     fi
   }
 
-  expect_verdict ok.dart clean
-  expect_verdict missing.dart flagged
-  expect_verdict commented.dart flagged
-  expect_verdict outside.dart flagged
-  expect_verdict does_not_exist.dart flagged
+  expect_verdict ok.dart               "$boot_decl" "$boot_end" "$policy"   clean
+  expect_verdict missing.dart          "$boot_decl" "$boot_end" "$policy"   flagged
+  expect_verdict commented.dart        "$boot_decl" "$boot_end" "$policy"   flagged
+  expect_verdict outside.dart          "$boot_decl" "$boot_end" "$policy"   flagged
+  expect_verdict policy_ok.dart        '^void applyE2eBootPolicy[(]' '^[}]$' "$register" clean
+  expect_verdict policy_missing.dart   '^void applyE2eBootPolicy[(]' '^[}]$' "$register" flagged
+  expect_verdict wholefile_ok.dart     ""           "-"         "$policy"   clean
+  expect_verdict wholefile_missing.dart ""          "-"         "$policy"   flagged
+  expect_verdict does_not_exist.dart   "$boot_decl" "$boot_end" "$policy"   flagged
 
   if [ "$fail" -ne 0 ]; then
     exit 1
   fi
-  echo "SELF-TEST PASS: missing / commented-out / outside-boot / absent-file registrations flagged; compliant boot clean"
+  echo "SELF-TEST PASS: missing / commented-out / outside-body / absent-file calls flagged, in both scoped and whole-file mode; compliant boot + compliant shared policy clean"
+  echo "SELF-TEST OK: forbid_missing_test_text_input.sh"
   exit 0
 fi
 
 offenders=""
-for f in "${harnesses[@]}"; do
-  hit="$(scan_file "$f")"
+for row in "${CHECKS[@]}"; do
+  IFS='|' read -r path decl endpat required _hint <<< "$row"
+  hit="$(scan_file "$path" "$decl" "$endpat" "$required")"
   [ -n "$hit" ] && offenders+="$hit"$'\n'
 done
 offenders="$(printf '%s' "$offenders" | sed '/^$/d')"
 
 if [ -n "$offenders" ]; then
-  echo "Integration harness is missing its test text-input mock registration:"
+  echo "The shared E2E boot policy is not wired up:"
   echo "$offenders"
   echo
-  echo "Without it, tester.enterText() is a SILENT NO-OP in profile/release:"
-  echo "the editing state is posted with client id -1, and the -1 escape hatch"
-  echo "in TextInput._handleTextInputInvocation sits inside an assert(() {...}())"
-  echo "block that non-debug builds strip. Every form field stays empty and the"
-  echo "flow fails downstream with a misleading tap/navigation error."
+  echo "Every E2E entry point must call applyE2eBootPolicy(...), and that one"
+  echo "function must call tester.binding.testTextInput.register()."
   echo
-  echo "Add it to the harness's boot(...) body (idempotent, keep it"
-  echo "unconditional so debug and profile share one code path):"
-  echo "    tester.binding.testTextInput.register();"
+  echo "Without the registration, tester.enterText() is a SILENT NO-OP in"
+  echo "profile/release: the editing state is posted with client id -1, and the"
+  echo "-1 escape hatch in TextInput._handleTextInputInvocation sits inside an"
+  echo "assert(() {...}()) block that non-debug builds strip. Every form field"
+  echo "stays empty and the flow fails downstream with a misleading"
+  echo "tap/navigation error."
+  echo
+  echo "Without the applyE2eBootPolicy call, that entry point also boots with"
+  echo "the overflow guard and the off-screen-tap guard"
+  echo "(WidgetController.hitTestWarningShouldBeFatal) OFF — the exact drift"
+  echo "that left the whole patrol tier unguarded until 2026-07-31."
+  echo
+  echo "Restore the call (idempotent; keep it unconditional so debug and"
+  echo "profile share one code path):"
+  for row in "${CHECKS[@]}"; do
+    IFS='|' read -r path _decl _endpat _required hint <<< "$row"
+    printf '    %-52s %s\n' "$path" "$hint"
+  done
   echo
   echo "It looks redundant in a debug run — that is exactly why this gate exists."
   exit 1

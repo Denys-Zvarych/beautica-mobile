@@ -30,12 +30,17 @@
 // NOTE: ScreenProtectionManager is a keepAlive singleton — tests override it
 // with a no-op so the native plugin is never called during tests.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
@@ -48,12 +53,18 @@ import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_b
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_empty_state.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -181,15 +192,24 @@ const _sampleProfile = ClientProfileSummary(
   memberSinceYear: 2026,
 );
 
-final _sampleAppointment = NextAppointment(
+// [Booking], not the retired NextAppointment DTO — the Home Hub renders the
+// SAME shared `BookingCard` widget «Мої записи» uses (locked decision), so
+// the populated-state fixture is a full Booking now.
+final DateTime _sampleApptStart = DateTime.now().add(const Duration(days: 2));
+final _sampleAppointment = Booking(
   id: 'appt-1',
-  masterName: 'Марія Іванюк',
-  service: 'Манікюр',
-  dateLabel: '20 червня',
-  timeLabel: '15:00',
-  location: 'Центр, Львів',
-  startsAt: DateTime.now().add(const Duration(days: 2)),
-  masterInitials: 'МІ',
+  masterId: 'master-1',
+  masterFirstName: 'Марія',
+  masterLastName: 'Іванюк',
+  masterType: 'INDEPENDENT_MASTER',
+  serviceId: 'svc-1',
+  serviceName: 'Манікюр',
+  durationMinutes: 90,
+  price: 500,
+  startAt: _sampleApptStart,
+  endAt: _sampleApptStart.add(const Duration(hours: 1, minutes: 30)),
+  status: BookingStatus.confirmed,
+  canReview: false,
 );
 
 const _sampleMaster = FavoriteMasterItem(
@@ -213,15 +233,21 @@ const _sampleTimeline = <TimelineEntry>[
 
 List<Object> _overrides({
   AsyncValue<ClientProfileSummary>? profile,
-  AsyncValue<NextAppointment?> nextAppt = const AsyncData(null),
+  AsyncValue<Booking?> nextAppt = const AsyncData(null),
   AsyncValue<List<FavoriteMasterItem>> favorites = const AsyncData(
     <FavoriteMasterItem>[],
   ),
   AsyncValue<List<TimelineEntry>> timeline = const AsyncData(<TimelineEntry>[]),
+  // The rating pill sources from the authoritative myRatingProvider (same as
+  // MyRatingScreen), not the profile summary's clientRating slice. Overriding
+  // it also avoids the real loader's 5-min keepAlive Timer leaking past
+  // teardown.
+  ClientRating rating = const ClientRating(),
 }) {
   return [
     // Bypass native ScreenProtector
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+    myRatingProvider.overrideWith((ref) async => rating),
     if (profile != null)
       clientProfileProvider.overrideWith(
         (ref) async => profile.when(
@@ -436,85 +462,338 @@ void main() {
     });
   });
 
-  group('Next appointment card', () {
+  // USER-LOCKED DECISION — the populated Next-appointment section now renders
+  // the SAME shared `BookingCard` widget «Мої записи» uses, unchanged and
+  // unparameterised (no in-card reschedule/cancel/calendar buttons any more —
+  // those live on «Деталі запису» only). `BookingCard`'s own rendering
+  // contract (time/service/status/etc.) is already covered by its own test
+  // suite (`test/features/booking/presentation/widgets/`); these tests only
+  // pin the Home-Hub-SPECIFIC wiring: the empty/populated split, the
+  // countdown chip, the details link, and that tapping either the card or the
+  // link opens «Деталі запису» for this exact booking id.
+  group('Next appointment section', () {
     testWidgets('empty state rendered when no appointment', (tester) async {
-      await tester.pumpApp(
-        const NextAppointmentCard(
-          appointment: null,
-          onReschedule: _noop,
-          onCancel: _noop,
-          onAddToGoogleCalendar: _noop,
-          onAddToAppleCalendar: _noop,
-        ),
-      );
+      await tester.pumpApp(const NextAppointmentEmptyState());
       await tester.pump();
       expect(find.byKey(const Key('next_appointment_empty')), findsOneWidget);
     });
 
-    testWidgets('populated state: shows time label', (tester) async {
-      await tester.pumpApp(
-        NextAppointmentCard(
-          appointment: _sampleAppointment,
-          onReschedule: _noop,
-          onCancel: _noop,
-          onAddToGoogleCalendar: _noop,
-          onAddToAppleCalendar: _noop,
-        ),
-      );
-      await tester.pump();
-      expect(
-        find.byKey(const Key('next_appointment_populated')),
-        findsOneWidget,
-      );
-      expect(find.text('15:00'), findsOneWidget);
-    });
+    testWidgets(
+      'loading state renders the section skeleton — never the BookingCard '
+      'and never the empty state',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            myRatingProvider.overrideWith((ref) async => const ClientRating()),
+            clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+            // A never-completing future pins nextAppointmentProvider in
+            // AsyncLoading indefinitely — the same Completer idiom
+            // `home_hub_supplemental_test.dart`'s `_overrides` helper already
+            // uses for this exact provider's loading branch (line ~120).
+            // Riverpod 3.x auto-retry makes AsyncError unreachable via a
+            // rejected Future (see mobile-backlog.md:303), which is why the
+            // loading branch — not the error branch — is what a "pending
+            // fetch" fixture must exercise here.
+            nextAppointmentProvider.overrideWith(
+              (ref) => Completer<Booking?>().future,
+            ),
+            favoriteMastersProvider.overrideWith(
+              (ref) async => const <FavoriteMasterItem>[],
+            ),
+            beautyTimelineProvider.overrideWith(
+              (ref) async => const <TimelineEntry>[],
+            ),
+            unlikeFavoriteMasterProvider.overrideWith(
+              () => UnlikeFavoriteMaster(),
+            ),
+          ],
+        );
+        // A single pump — the provider's future never resolves, so
+        // `pumpAndSettle` would time out. This mirrors the error-state tests
+        // above, which likewise never call `pumpAndSettle` against a settled
+        // AsyncError/AsyncLoading fixture beyond the reveal animation.
+        await tester.pump();
 
-    testWidgets('countdown chip is shown when appointment exists', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        NextAppointmentCard(
-          appointment: _sampleAppointment,
-          onReschedule: _noop,
-          onCancel: _noop,
-          onAddToGoogleCalendar: _noop,
-          onAddToAppleCalendar: _noop,
-        ),
-      );
-      await tester.pump();
-      expect(find.byType(CountdownChip), findsOneWidget);
-    });
+        // `_SectionSkeleton` is private to home_hub_screen.dart — matched by
+        // runtime type name (no import needed) rather than exported for a
+        // test-only Key, consistent with the file staying keyless for its
+        // three skeleton widgets.
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w.runtimeType.toString() == '_SectionSkeleton',
+          ),
+          findsOneWidget,
+          reason:
+              'the next-appointment section must render its loading '
+              'skeleton while nextAppointmentProvider is still pending',
+        );
+        expect(
+          find.byType(BookingCard),
+          findsNothing,
+          reason: 'the populated card must not render before data arrives',
+        );
+        expect(
+          find.byKey(const Key('next_appointment_empty')),
+          findsNothing,
+          reason: 'the empty state must not render while still loading',
+        );
+        expect(
+          find.byKey(const Key('next_appointment_populated')),
+          findsNothing,
+        );
+      },
+    );
 
-    testWidgets('reschedule button has correct key', (tester) async {
-      await tester.pumpApp(
-        NextAppointmentCard(
-          appointment: _sampleAppointment,
-          onReschedule: _noop,
-          onCancel: _noop,
-          onAddToGoogleCalendar: _noop,
-          onAddToAppleCalendar: _noop,
-        ),
-      );
-      await tester.pump();
-      expect(
-        find.byKey(const Key('next_appt_reschedule_button')),
-        findsOneWidget,
-      );
-    });
+    testWidgets(
+      'populated state renders the shared BookingCard + a countdown chip + '
+      'the details link, and NO in-card action buttons',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: _overrides(
+            profile: const AsyncData(_sampleProfile),
+            nextAppt: AsyncData(_sampleAppointment),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 1100));
 
-    testWidgets('cancel button has correct key', (tester) async {
-      await tester.pumpApp(
-        NextAppointmentCard(
-          appointment: _sampleAppointment,
-          onReschedule: _noop,
-          onCancel: _noop,
-          onAddToGoogleCalendar: _noop,
-          onAddToAppleCalendar: _noop,
-        ),
-      );
-      await tester.pump();
-      expect(find.byKey(const Key('next_appt_cancel_button')), findsOneWidget);
+        expect(
+          find.byKey(const Key('next_appointment_populated')),
+          findsOneWidget,
+        );
+        expect(find.byType(BookingCard), findsOneWidget);
+        expect(find.byType(CountdownChip), findsOneWidget);
+        expect(
+          find.text(formatSlotTime(_sampleAppointment.startAt)),
+          findsOneWidget,
+        );
+
+        // No in-card reschedule/cancel buttons any more — retired along with
+        // NextAppointmentCard; both actions now live on «Деталі запису» only.
+        expect(
+          find.byKey(const Key('next_appt_reschedule_button')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('next_appt_cancel_button')), findsNothing);
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(HomeHubScreen)),
+        );
+        expect(
+          find.byKey(const Key('next_appointment_details_link')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(l10n.homeHubNextAppointmentDetailsLink),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // Cross-branch push regression — the highest-risk part of the
+    // BookingCard cutover: `RouteNames.bookingDetail` is nested under the
+    // CLIENT shell's Записи branch in production (app_router.dart), but the
+    // Home Hub sits on a DIFFERENT branch. This proves both the card tap and
+    // the details link actually reach «Деталі запису» for this booking id
+    // through a real GoRouter push — not just that a callback fires.
+    group('opens «Деталі запису» for this booking id', () {
+      Future<GoRouter> pumpHubWithDetailStub(WidgetTester tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: '/home',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/home',
+              builder: (context, state) => const HomeHubScreen(),
+            ),
+            GoRoute(
+              path: '${RouteNames.clientBookings}/:bookingId',
+              builder: (context, state) => Scaffold(
+                key: const Key('detail_stub'),
+                body: Text('detail-${state.pathParameters['bookingId']}'),
+              ),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides(
+            profile: const AsyncData(_sampleProfile),
+            nextAppt: AsyncData(_sampleAppointment),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 1100));
+        return router;
+      }
+
+      testWidgets('tapping the BookingCard navigates there', (tester) async {
+        await pumpHubWithDetailStub(tester);
+
+        await tester.tap(find.byType(BookingCard));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('detail_stub')), findsOneWidget);
+        expect(find.text('detail-${_sampleAppointment.id}'), findsOneWidget);
+      });
+
+      testWidgets('tapping the details link navigates there too', (
+        tester,
+      ) async {
+        await pumpHubWithDetailStub(tester);
+
+        final Finder link = find.byKey(
+          const Key('next_appointment_details_link'),
+        );
+        await tester.ensureVisible(link);
+        await tester.tap(link);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('detail_stub')), findsOneWidget);
+        expect(find.text('detail-${_sampleAppointment.id}'), findsOneWidget);
+      });
     });
+  });
+
+  // ── mobile-qa (Phase 225, Step 2.7 final gate) ───────────────────────────
+  //
+  // GAP FOUND: `_NextAppointmentSection` (home_hub_screen.dart) gained a real
+  // `.when(... error: (e, _) => _CardErrorState(...))` branch as part of the
+  // live-data wiring — the old hardcoded-`null` stub never called anything,
+  // so an error branch literally could not exist before this phase. Nothing
+  // exercised it: every existing override in this file maps
+  // `nextAppointmentProvider`'s error case to `null` (empty state) rather
+  // than letting it settle as AsyncError, and
+  // `home_hub_supplemental_test.dart`'s header claims "Integration test
+  // (client_home_hub_flow_test.dart) covers the full error → retry → reload
+  // flow end-to-end" — but that integration file has no error/retry test at
+  // all (verified: zero hits for retry/error/failure fixtures there). Per the
+  // absolute rule ("never accept a screen test that omits the error state
+  // with retry interaction"), this closes that gap directly, reusing the
+  // same `retry: (_, _) => null` + synchronous-throw technique
+  // `home_hub_rating_pill_dedup_test.dart` already established for a sibling
+  // card in this exact screen.
+  group('Next appointment section — error + retry (via HomeHubScreen)', () {
+    List<Object> errorOverrides(Booking? Function() build) => <Object>[
+      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+      myRatingProvider.overrideWith((ref) async => const ClientRating()),
+      clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+      nextAppointmentProvider.overrideWith((ref) async => build()),
+      favoriteMastersProvider.overrideWith(
+        (ref) async => const <FavoriteMasterItem>[],
+      ),
+      beautyTimelineProvider.overrideWith(
+        (ref) async => const <TimelineEntry>[],
+      ),
+      unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
+    ];
+
+    testWidgets(
+      'a failing nextAppointmentProvider renders _CardErrorState with the '
+      'load-error message and a retry CTA — never a perpetual skeleton and '
+      'never an escaped exception',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          // Throw SYNCHRONOUSLY so the provider settles to AsyncError on its
+          // first build (no intervening AsyncLoading frame), and disable
+          // Riverpod 3.x auto-retry so the error stays put with no pending
+          // backoff Timer (which would hang pumpAndSettle).
+          retry: (_, _) => null,
+          overrides: errorOverrides(
+            () => throw Exception('bookings fetch boom'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        // fixed-wait-ok: running out the time-driven reveal CurvedAnimation.
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(HomeHubScreen)),
+        );
+        expect(
+          find.text(l10n.homeHubNextApptLoadError),
+          findsOneWidget,
+          reason:
+              'the section must render the next-appointment-specific load '
+              'error message, not a generic one',
+        );
+        expect(
+          find.byType(HubFilledButton),
+          findsWidgets,
+          reason: '_CardErrorState must render a retry CTA button',
+        );
+        // Neither the empty nor the populated card leaked through — the error
+        // branch, not a stale/other branch, is what actually rendered.
+        expect(find.byKey(const Key('next_appointment_empty')), findsNothing);
+        expect(
+          find.byKey(const Key('next_appointment_populated')),
+          findsNothing,
+        );
+        // A single failing card must not blank the whole screen.
+        expect(find.byType(HomeHubScreen), findsOneWidget);
+        expect(find.byKey(const Key('home_profile_name')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'tapping the retry CTA invalidates nextAppointmentProvider and the '
+      'section recovers to the populated data state on the next fetch',
+      (tester) async {
+        // First build throws (drives the error branch); every subsequent
+        // build (i.e. after the retry CTA invalidates the provider) returns
+        // real data — proving the CTA's `onRetry` really is
+        // `ref.invalidate(nextAppointmentProvider)`, not a no-op button.
+        var calls = 0;
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          retry: (_, _) => null,
+          overrides: errorOverrides(() {
+            calls++;
+            if (calls == 1) throw Exception('bookings fetch boom');
+            return _sampleAppointment;
+          }),
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(HomeHubScreen)),
+        );
+        expect(find.text(l10n.homeHubNextApptLoadError), findsOneWidget);
+        expect(
+          calls,
+          1,
+          reason: 'sanity: exactly one failed fetch before any retry tap',
+        );
+
+        await tester.ensureVisible(find.byType(HubFilledButton).first);
+        await tester.tap(find.byType(HubFilledButton).first);
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        expect(
+          calls,
+          greaterThanOrEqualTo(2),
+          reason:
+              'the retry CTA must invalidate nextAppointmentProvider — a '
+              'second build call is the only proof the tap actually fired '
+              'a refetch rather than merely dismissing the error UI',
+        );
+        expect(
+          find.byKey(const Key('next_appointment_populated')),
+          findsOneWidget,
+          reason:
+              'once the retried fetch succeeds the section must render the '
+              'populated card, not stay stuck on the error state',
+        );
+        expect(find.text(l10n.homeHubNextApptLoadError), findsNothing);
+      },
+    );
   });
 
   group('FavoriteMastersCard', () {

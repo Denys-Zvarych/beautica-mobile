@@ -16,6 +16,7 @@
 import 'package:beautica_mobile/features/salon/application/salon_service_filter_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -26,7 +27,7 @@ void main() {
   late ProviderContainer container;
 
   setUp(() {
-    container = ProviderContainer();
+    container = ProviderContainer(retry: beauticaProviderRetry);
     addTearDown(container.dispose);
   });
 

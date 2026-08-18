@@ -451,12 +451,15 @@ void main() {
       );
     });
 
-    test('INDEPENDENT_MASTER at /services/create stays (null)', () {
+    // The /services/* leaf these two cases exercise was RETARGETED from
+    // /services/create to /services/setup (2026-08-04): the single-create form
+    // was deleted and both add-service entry points collapsed onto
+    // /services/setup, so RouteNames.serviceCreate no longer exists. The
+    // property being pinned is unchanged — a /services/* LEAF must be
+    // role-gated exactly like the /services root, not just the root itself.
+    test('INDEPENDENT_MASTER at /services/setup stays (null)', () {
       expect(
-        authRedirectForLocation(
-          _authenticatedSession,
-          RouteNames.serviceCreate,
-        ),
+        authRedirectForLocation(_authenticatedSession, RouteNames.serviceSetup),
         isNull,
       );
     });
@@ -468,9 +471,9 @@ void main() {
       );
     });
 
-    test('CLIENT role at /services/create is redirected to /home', () {
+    test('CLIENT role at /services/setup is redirected to /home', () {
       expect(
-        authRedirectForLocation(_clientSession, RouteNames.serviceCreate),
+        authRedirectForLocation(_clientSession, RouteNames.serviceSetup),
         equals(RouteNames.clientHome),
       );
     });

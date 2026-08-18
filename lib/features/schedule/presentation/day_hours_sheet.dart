@@ -25,10 +25,21 @@
 // schedule recompute + re-fetch reactively, so the Master-Schedule calendar
 // repaints with no manual refresh (no explicit `ref.invalidate` needed).
 //
-// OQ-1 (ALWAYS ALLOW): saving an override / day-off is NEVER blocked or gated by
-// existing bookings, and no conflict confirmation is required. There is no
-// booking-conflict gate in this sheet (the optional «N бронювань» info note is a
-// non-blocking nice-to-have, omitted for MVP).
+// BOOKING-CONFLICT GATE (2026-07-26 design — REVERSES the former OQ-1 "always
+// allowed" rule for SAVE only; `_clear` is untouched, still always allowed).
+// `_save` no longer PUTs [override] directly: it first calls
+// `OverridesNotifier.checkConflicts` (ONE `POST /overrides/conflicts` call for
+// the single date this sheet edits). An empty result saves exactly as before
+// — no dialog, no extra tap, no behaviour change. A non-empty result shows
+// [showDayOffConflictDialog] (`widgets/day_off_conflict_dialog.dart`, ported
+// from `docs/signup-designs/DayOffConflictDialog/`): confirming re-issues the
+// PUT with `cancelOverlapping: true` (the backend then declines every
+// conflicting CONFIRMED booking atomically with the write) and invalidates
+// the affected booking views; backing out persists NOTHING AT ALL — not even
+// the override itself — and leaves the sheet open. A 409 on the confirmed PUT
+// (a booking appeared between the preview and the confirm) re-runs the check
+// rather than surfacing a raw error, bounded to `_kMaxConflictCheckAttempts`
+// rounds. See `_saveWithConflictCheck`.
 //
 // SINGLE DATE ONLY: this sheet edits one date (`start == end`). A multi-day
 // Time-Off span (vacation week) is the Propagate/range surface (Phase 15.5),
@@ -48,15 +59,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../domain/schedule_model.dart';
 import 'overrides_notifier.dart';
 import 'schedule_range.dart';
+import 'widgets/day_off_conflict_dialog.dart';
 import 'widgets/discrete_times_editor.dart';
 import 'widgets/interval_editor.dart';
 
@@ -77,6 +93,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required this.initialIntervals,
     required this.hasExistingOverride,
     required this.initialDayOff,
+    this.initialWindow,
     this.initialMode = WeekdayMode.interval,
     this.initialTimes = const <TimeOfDay>[],
     this.clock,
@@ -113,6 +130,13 @@ class DayHoursSheet extends ConsumerStatefulWidget {
   /// Empty → the working-hours editor seeds a sensible default day.
   final List<WorkInterval> initialIntervals;
 
+  /// The day's STORED display-only working window, when the backend has one.
+  /// Non-null → the seed takes the lossless regime (`breaks = window MINUS
+  /// intervals`), so a break flush against a window edge is re-rendered as a
+  /// break instead of vanishing. `null` (legacy row / day-off / EXPLICIT_TIMES)
+  /// → the historical gap reconstruction, unchanged.
+  final WorkInterval? initialWindow;
+
   /// `true` when a per-date override already exists for [date] — drives the
   /// "Видалити перевизначення" (clear) action's visibility.
   final bool hasExistingOverride;
@@ -140,6 +164,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required List<WorkInterval> initialIntervals,
     required bool hasExistingOverride,
     required bool initialDayOff,
+    WorkInterval? initialWindow,
     WeekdayMode initialMode = WeekdayMode.interval,
     List<TimeOfDay> initialTimes = const <TimeOfDay>[],
     DateTime Function()? clock,
@@ -157,6 +182,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialIntervals: initialIntervals,
         hasExistingOverride: hasExistingOverride,
         initialDayOff: initialDayOff,
+        initialWindow: initialWindow,
         initialMode: initialMode,
         initialTimes: initialTimes,
         clock: clock,
@@ -194,7 +220,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     _times = List<TimeOfDay>.of(widget.initialTimes);
     _day = widget.initialIntervals.isEmpty
         ? DayHours.defaultDay()
-        : DayHours.fromIntervals(widget.initialIntervals);
+        : DayHours.fromIntervals(
+            widget.initialIntervals,
+            window: widget.initialWindow,
+          );
   }
 
   /// Custom-hours mode is unsaveable while the relevant editor has errors.
@@ -212,43 +241,46 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
 
   void _setWorkMode(WeekdayMode next) => setState(() => _workMode = next);
 
-  // ── Persistence (OQ-1: always allowed — no booking-conflict gate) ───────────
+  /// Hard bound on [_saveWithConflictCheck]'s "409 → re-check" retry loop
+  /// (a booking created / changed between the preview and the confirmed PUT).
+  /// 2 = the initial confirmed attempt plus exactly one re-check round; a
+  /// SECOND consecutive 409 is treated as a genuine (if rare) contention
+  /// problem rather than retried forever.
+  static const int _kMaxConflictCheckAttempts = 2;
+
+  // ── Persistence ──────────────────────────────────────────────────────────
   Future<void> _save() async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
     // SUBMIT-TIME PAST-DATE GUARD (M6): the sheet opens only for today/future
     // days, but a midnight rollover WHILE it is open can turn [date] past
     // between open and Save. Re-validate against a FRESH today and block the PUT
     // for a now-past date — a past `start` would otherwise 400 at the backend.
+    //
+    // Kyiv-anchored (backlog :226): the backend's past-date rejection is a
+    // Kyiv civil-day check, so "today" here must follow Kyiv's calendar, not
+    // the device's — see `shared/time/kyiv_day.dart`. `widget.date` is left
+    // alone: it is already a date token handed down by the caller (the day
+    // pencil in `master_schedule_screen.dart`), not a raw instant, so it only
+    // needs the local-midnight normalisation `DateTime(y, m, d)` already
+    // gives it — running it through [kyivDayOf] a second time would be the
+    // exact "date token treated as an instant" bug the helper's doc warns
+    // against.
+    // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
     final DateTime now = widget.clock?.call() ?? DateTime.now();
-    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime today = kyivDayOf(now);
     final DateTime targetDate = DateTime(
       widget.date.year,
       widget.date.month,
       widget.date.day,
     );
     if (targetDate.isBefore(today)) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: BrandColors.error,
-            content: Text(l10n.schedulePastDayBlocked),
-          ),
-        );
+      showErrorSnack(context, l10n.schedulePastDayBlocked);
       return;
     }
 
     if (_hasErrors) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: BrandColors.error,
-            content: Text(l10n.scheduleOverrideErrorsBanner),
-          ),
-        );
+      showErrorSnack(context, l10n.scheduleOverrideErrorsBanner);
       return;
     }
 
@@ -270,6 +302,17 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         start: widget.date,
         end: widget.date,
         intervals: _day.toIntervals(),
+        // Persist the edited від–до as display-only metadata so an edge-flush
+        // break survives the next load. Containment holds by construction:
+        // `toIntervals()` walks this exact window and clamps to it.
+        //
+        // Sent UNCONDITIONALLY — including when [widget.initialWindow] was null
+        // (a legacy row saved before the window existed), which is how such a
+        // row heals itself on its first re-save. This is the deliberate inverse
+        // of `ScheduleMapper`'s "never synthesise a window from the intervals"
+        // rule; that rule binds the READ path only. See the EXCEPTION note in
+        // `data/schedule_mapper.dart`'s header before restoring `null` here.
+        window: _day.window.clone(),
       );
     }
 
@@ -282,32 +325,150 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
       );
     }
 
-    setState(() => _saving = true);
     try {
-      await ref
-          .read(overridesProvider(widget.range).notifier)
-          .putOverride(override);
-      if (!mounted) return;
-      // [OverridesNotifier.putOverride] wraps its work in `AsyncValue.guard`, so
-      // a failed PUT does NOT throw here — it surfaces as an [AsyncError] on the
-      // provider state. Read that resulting state and branch on it: only pop +
-      // show success when the mutation actually persisted (`hasError == false`).
-      final AsyncValue<List<ScheduleOverride>> result = ref.read(
-        overridesProvider(widget.range),
-      );
-      if (result.hasError) {
-        _showError(messenger, result.error, l10n);
-        return;
-      }
+      final bool persisted = await _saveWithConflictCheck(override, l10n);
+      if (!persisted || !mounted) return;
       // Resolve the sheet's future with the edited date so the host moves the
       // selected day onto it and re-reads the now-fresh override (rather than a
       // retained stale snapshot) the instant the sheet closes.
       dismissOverlay<DateTime>(context, widget.date);
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
+      showSuccessSnack(context, l10n.savedSnackbar);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// The 2026-07-26 booking-conflict flow: check → (confirm dialog) → save.
+  ///
+  ///   1. [OverridesNotifier.checkConflicts] for [override] — ONE
+  ///      `POST /overrides/conflicts` call, never per-date fan-out (this
+  ///      sheet only ever edits one date, so there is nothing to fan out).
+  ///   2. Empty result → falls straight through to the PUT — byte-for-byte
+  ///      the pre-existing save, no dialog, no extra tap.
+  ///   3. Non-empty → [showDayOffConflictDialog]. Confirm → PUT with
+  ///      `cancelOverlapping: true` and, on success, invalidate every booking
+  ///      view the now-declined bookings could be cached in. Back out
+  ///      (`null`) → returns `false` WITHOUT writing anything — not even the
+  ///      override itself; the sheet stays open exactly as the master left
+  ///      it.
+  ///   4. A [ConflictFailure] on the confirmed PUT (the conflict set changed
+  ///      between step 1 and step 3 — e.g. a client booked a now-conflicting
+  ///      slot in the meantime) re-runs step 1 rather than surfacing a raw
+  ///      error, bounded to [_kMaxConflictCheckAttempts] rounds.
+  ///   5. A failure of the CHECK itself (step 1) — network down, server
+  ///      error — shows [showDayOffCheckErrorDialog] rather than silently
+  ///      falling back to an unchecked save (saving blind is exactly what
+  ///      this whole flow exists to prevent); tapping its retry re-enters the
+  ///      loop at the SAME attempt budget (a check-network retry is a
+  ///      separate, fully user-gated concern from the 409-retry bound).
+  ///
+  /// A LOOP, not recursion, on purpose: `_saving` (the sheet's own Save
+  /// button spinner) must be `true` ONLY while a network call is genuinely
+  /// in flight, and `false` while a dialog is on screen waiting for the
+  /// master — an indeterminate [CircularProgressIndicator] never settles, so
+  /// leaving it spinning under an open dialog would both look broken and
+  /// hang any `pumpAndSettle()` in tests. Toggling it explicitly around each
+  /// `await` (rather than once for the whole method, as the pre-conflict-gate
+  /// code did) keeps that contract regardless of how many check/confirm
+  /// rounds this takes.
+  ///
+  /// Returns `true` only when [override] was actually persisted.
+  Future<bool> _saveWithConflictCheck(
+    ScheduleOverride override,
+    AppLocalizations l10n,
+  ) async {
+    final OverridesNotifier notifier = ref.read(
+      overridesProvider(widget.range).notifier,
+    );
+    int attempt = 0;
+
+    while (true) {
+      if (mounted) setState(() => _saving = true);
+      final OverrideConflictCheck check;
+      try {
+        check = await notifier.checkConflicts(override);
+      } on Failure {
+        if (mounted) setState(() => _saving = false);
+        if (!mounted) return false;
+        final bool? retry = await showDayOffCheckErrorDialog(context);
+        if (retry != true || !mounted) return false;
+        continue;
+      }
+      if (mounted) setState(() => _saving = false);
+      if (!mounted) return false;
+
+      bool cancelOverlapping = false;
+      if (check.isNotEmpty) {
+        // The dialog renders every affected booking's `clientDisplayName` —
+        // PII — so it acquires screenshot/app-switcher-snapshot protection
+        // for exactly as long as it is on screen, same ref-counted contract
+        // every other PII-bearing screen uses (`core/security/
+        // screen_protection.dart`), just scoped to this one dialog instead
+        // of the sheet's whole lifetime (the sheet itself carries no PII
+        // outside this branch).
+        final ScreenProtectionManager screenProtection = ref.read(
+          screenProtectionProvider,
+        );
+        screenProtection.acquire();
+        final bool? confirmed;
+        try {
+          confirmed = await showDayOffConflictDialog(
+            context,
+            DayOffConflictPreview(
+              kind: override.kind == OverrideKind.dayOff
+                  ? DayOffChangeKind.singleDay
+                  : DayOffChangeKind.narrowedHours,
+              from: override.start,
+              to: override.end,
+              hoursLabel: override.narrowedHoursLabel,
+              check: check,
+            ),
+          );
+        } finally {
+          screenProtection.release();
+        }
+        // Backing out (any non-`true` resolution: the quiet action, the
+        // scrim tap, the back gesture) means *do nothing* — the schedule
+        // change itself is not saved either, per the locked design.
+        if (confirmed != true || !mounted) return false;
+        cancelOverlapping = true;
+      }
+
+      if (mounted) setState(() => _saving = true);
+      await notifier.putOverride(
+        override,
+        cancelOverlapping: cancelOverlapping,
+      );
+      if (!mounted) return false;
+      // [OverridesNotifier.putOverride] wraps its work in `AsyncValue.guard`,
+      // so a failed PUT does NOT throw here — it surfaces as an [AsyncError]
+      // on the provider state. Read that resulting state and branch on it.
+      final AsyncValue<List<ScheduleOverride>> result = ref.read(
+        overridesProvider(widget.range),
+      );
+      if (mounted) setState(() => _saving = false);
+
+      if (!result.hasError) {
+        if (cancelOverlapping) {
+          invalidateBookingViewsAfterExternalDecline(
+            ref,
+            check.conflicts.map((OverrideConflict c) => c.bookingId),
+            affectedDates: check.conflicts.map((OverrideConflict c) => c.date),
+          );
+        }
+        return true;
+      }
+
+      final Object? error = result.error;
+      attempt++;
+      if (error is ConflictFailure && attempt < _kMaxConflictCheckAttempts) {
+        continue;
+      }
+      showErrorSnack(
+        context,
+        error is Failure ? error.userMessage(context) : l10n.errUnknown,
+      );
+      return false;
     }
   }
 
@@ -315,7 +476,6 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   /// Always allowed (OQ-1) — never gated on bookings.
   Future<void> _clear() async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     if (kDebugMode) {
       log(
         'clear override ${widget.date.toIso8601String()}',
@@ -336,38 +496,20 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         overridesProvider(widget.range),
       );
       if (result.hasError) {
-        _showError(messenger, result.error, l10n);
+        final Object? error = result.error;
+        showErrorSnack(
+          context,
+          error is Failure ? error.userMessage(context) : l10n.errUnknown,
+        );
         return;
       }
       // Same as [_save]: resolve with the cleared date so the host focuses it
       // and re-reads the reverted (template) day immediately.
       dismissOverlay<DateTime>(context, widget.date);
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(l10n.scheduleOverrideClearedSnack)),
-        );
+      showSuccessSnack(context, l10n.scheduleOverrideClearedSnack);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  /// Shows the failure snackbar for a swallowed-into-state override mutation.
-  /// [error] is the provider's [AsyncValue.error]: a typed [Failure] when the
-  /// repository mapped it, otherwise the generic unknown-error copy.
-  void _showError(
-    ScaffoldMessengerState messenger,
-    Object? error,
-    AppLocalizations l10n,
-  ) {
-    final String message = error is Failure
-        ? error.userMessage(context)
-        : l10n.errUnknown;
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(backgroundColor: BrandColors.error, content: Text(message)),
-      );
   }
 
   // ── Build ────────────────────────────────────────────────────────────────--
@@ -695,6 +837,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
         errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
         errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+        errBreakCoversWholeWindow: l10n.intervalEditorErrBreakCoversWholeDay,
         errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
       );
 

@@ -29,6 +29,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ void main() {
     'owner endpoint (getMyServices), never the public getMasterServices',
     () async {
       final container = ProviderContainer(
+        retry: beauticaProviderRetry,
         overrides: [
           masterProfileProvider.overrideWith(
             () => _StubMasterProfileNotifier(),

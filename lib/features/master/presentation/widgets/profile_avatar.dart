@@ -15,6 +15,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 // Phase 13.6 — ContactTile moved to `shared/widgets/` for cross-feature reuse
 // (the salon public profile also renders a contact row). Re-exported here so
 // every existing `import 'widgets/profile_avatar.dart';` call site keeps
@@ -333,10 +334,50 @@ class StatTile extends StatelessWidget {
   /// ignored. Mirrors the location-marker swap pattern.
   final Widget? iconWidget;
 
+  /// The em-dash a caller passes as [value] for a zero / unresolved state.
+  ///
+  /// Public so the placeholder contract lives in ONE place: callers that render
+  /// it (the rating / reviews / experience tiles here, [ServicesStatTile]'s
+  /// `null || 0` branch) and the semantics mapping below cannot drift apart.
+  static const String noDataGlyph = '—';
+
+  /// The glyph a caller passes as [value] for a FAILED load
+  /// ([ServicesStatTile.hasError]). Deliberately distinct from
+  /// [noDataGlyph] — a suppressed response must never read as an empty one.
+  static const String loadFailedGlyph = '?';
+
+  /// The spoken form of this tile.
+  ///
+  /// A bare glyph is meaningless read aloud — the zero-state used to announce
+  /// "— Послуги" / "— Рейтинг" / "— Відгуки", and a failed load announced
+  /// "? Послуги". Both now get an explicit phrase. Purely a semantics
+  /// concern: the VISUAL [value] is rendered untouched either way, so the
+  /// sighted layout is byte-identical.
+  ///
+  /// The l10n lookup is lazy — a tile with a real value never touches
+  /// [AppLocalizations], so hosts that pump a bare [StatTile] without
+  /// localization delegates keep working.
+  String _semanticsLabel(BuildContext context) {
+    if (value == noDataGlyph) {
+      return AppLocalizations.of(context).statTileNoDataSemantics(caption);
+    }
+    if (value == loadFailedGlyph) {
+      return AppLocalizations.of(context).statTileLoadFailedSemantics(caption);
+    }
+    return '$value $caption';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: '$value $caption',
+      label: _semanticsLabel(context),
+      // The value/caption [Text]s below otherwise MERGE into this node and get
+      // appended to the label — the tile announced
+      // "Послуги: немає даних | — | Послуги", i.e. the meaningless glyph this
+      // label exists to replace came straight back, plus a duplicated caption.
+      // Excluding the descendants leaves exactly the composed label. Affects
+      // the semantics tree ONLY — the rendered widget subtree is untouched.
+      excludeSemantics: true,
       child: NeumorphicCard(
         padding: const EdgeInsets.symmetric(
           vertical: VelvetSpacing.xs,

@@ -13,24 +13,32 @@ part 'passport_response.g.dart';
 /// PassportResponse
 ///
 /// Properties:
-/// * [favoriteProcedures]
 /// * [favoriteDistricts]
+/// * [favoriteCities]
 /// * [budget]
 /// * [bookingsConsidered]
+/// * [reviewsWritten]
+/// * [memberSinceYear]
 @BuiltValue()
 abstract class PassportResponse
     implements Built<PassportResponse, PassportResponseBuilder> {
-  @BuiltValueField(wireName: r'favoriteProcedures')
-  BuiltList<String>? get favoriteProcedures;
-
   @BuiltValueField(wireName: r'favoriteDistricts')
   BuiltList<String>? get favoriteDistricts;
+
+  @BuiltValueField(wireName: r'favoriteCities')
+  BuiltList<String>? get favoriteCities;
 
   @BuiltValueField(wireName: r'budget')
   BudgetBand? get budget;
 
   @BuiltValueField(wireName: r'bookingsConsidered')
   int? get bookingsConsidered;
+
+  @BuiltValueField(wireName: r'reviewsWritten')
+  int? get reviewsWritten;
+
+  @BuiltValueField(wireName: r'memberSinceYear')
+  int? get memberSinceYear;
 
   PassportResponse._();
 
@@ -58,17 +66,17 @@ class _$PassportResponseSerializer
     PassportResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.favoriteProcedures != null) {
-      yield r'favoriteProcedures';
-      yield serializers.serialize(
-        object.favoriteProcedures,
-        specifiedType: const FullType(BuiltList, [FullType(String)]),
-      );
-    }
     if (object.favoriteDistricts != null) {
       yield r'favoriteDistricts';
       yield serializers.serialize(
         object.favoriteDistricts,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
+    if (object.favoriteCities != null) {
+      yield r'favoriteCities';
+      yield serializers.serialize(
+        object.favoriteCities,
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
@@ -83,6 +91,20 @@ class _$PassportResponseSerializer
       yield r'bookingsConsidered';
       yield serializers.serialize(
         object.bookingsConsidered,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.reviewsWritten != null) {
+      yield r'reviewsWritten';
+      yield serializers.serialize(
+        object.reviewsWritten,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.memberSinceYear != null) {
+      yield r'memberSinceYear';
+      yield serializers.serialize(
+        object.memberSinceYear,
         specifiedType: const FullType(int),
       );
     }
@@ -111,19 +133,19 @@ class _$PassportResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'favoriteProcedures':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(BuiltList, [FullType(String)]),
-          ) as BuiltList<String>;
-          result.favoriteProcedures.replace(valueDes);
-          break;
         case r'favoriteDistricts':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.favoriteDistricts.replace(valueDes);
+          break;
+        case r'favoriteCities':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.favoriteCities.replace(valueDes);
           break;
         case r'budget':
           final valueDes = serializers.deserialize(
@@ -138,6 +160,20 @@ class _$PassportResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.bookingsConsidered = valueDes;
+          break;
+        case r'reviewsWritten':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.reviewsWritten = valueDes;
+          break;
+        case r'memberSinceYear':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.memberSinceYear = valueDes;
           break;
         default:
           unhandled.add(key);

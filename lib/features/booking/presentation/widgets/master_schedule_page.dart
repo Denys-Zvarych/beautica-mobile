@@ -1,40 +1,25 @@
-// Phase 14.16/14.17 — MasterSchedulePage: one master's inline date→time
-// picker slide on the salon booking flow's step-3 "Час" screen.
+// MO-4 (single-master single-visit rework) — MasterSchedulePage: the chosen
+// master's inline date→time picker body on the salon booking flow's step-3
+// "Час" screen.
 //
-// Ports `docs/signup-designs/SalonBookingTime/lib/widgets/master_schedule_page.dart`
-// onto real data + providers: the SHARED [MasterStrip] identity header (the
-// same card the independent-master flow's date/time screens render), the
-// SHARED [MonthCalendar]/[CalendarWeekdayBar] for the DATE (day-gated via the
-// real `workingDaysProvider`, exactly like `SlotDateScreen`, Phase 14.14),
-// and the SHARED [SlotGroup]/[SlotChip] Ранок/День/Вечір clusters for the
-// TIME (fetched via `salonMasterDaySlotsProvider`, keyed on this master's
-// PRIMARY assigned service's own per-master ASSIGNMENT id — see
-// `salon_booking_schedule_notifier.dart`'s file header for the full
-// architecture note, and `SalonMasterSchedule.primaryServiceAssignmentId`'s
-// doc comment for why this is an assignment id and not the salon catalog id).
-// [MasterStrip]/[MonthCalendar]/[SlotChip] are all shared verbatim with the
-// independent-master flow — the identity card was unified onto [MasterStrip]
-// (the salon-only `SalonMasterStrip` fork is gone), so a change to that one
-// widget now reaches every booking screen in both flows.
+// The salon flow now books ONE visit against ONE master, so this is a single
+// picker (no `PageView`, no per-master keep-alive) reading the single-state
+// `salonBookingScheduleProvider`. It ports the same shared widgets the
+// independent-master flow uses: the [MasterStrip] identity header, the
+// [MonthCalendar]/[CalendarWeekdayBar] for the DATE (day-gated via
+// `workingDaysProvider` in availability-aware mode — the SUMMED duration of
+// ALL selected services must fit), and the [SlotGroup]/[SlotChip]
+// Ранок/День/Вечір clusters for the TIME (fetched via
+// `salonMasterDaySlotsProvider`, keyed on ALL the visit's ordered per-master
+// assignment ids as a summed block).
 //
-// Two inline phases on the one slide: pick a DATE → the slide swaps to the
-// TIME chips for that date → picking a slot completes the master (the host
-// `SalonTimeScreen` then auto-advances to the next unscheduled master via
-// [onCompleted]). Returning from the TIME phase to the calendar is handled
-// three redundant ways — all of which call the SAME `_clearDate()` — the
-// `SalonTimeScreen` top-bar arrow, the Android system back gesture (both via
-// `salon_time_screen.dart`'s `PopScope`), and a left-edge swipe-back
-// affordance local to this slide's TIME phase (see `_onEdgeSwipeEnd` below),
-// which restores the swipe-back feel the route-level `PopScope(canPop:
-// false)` otherwise silently disarms on the slot grid.
-//
-// Self-sufficient Riverpod integration (mirrors `SlotDateScreen`/
-// `SlotTimeScreen`, NOT the preview's parent-owned local `State`): this
-// widget reads/writes `salonBookingScheduleProvider` directly rather than
-// funnelling every pick through a callback owned by `SalonTimeScreen` — only
-// the "this master just became fully scheduled for the FIRST time" signal
-// bubbles up (via [onCompleted]), since only the host knows the other
-// slides' indices needed to compute the next unscheduled one.
+// Two inline phases on the one screen: pick a DATE → swap to the TIME chips for
+// that date → picking a slot selects the visit time. Returning from the TIME
+// phase to the calendar is handled three redundant ways — all calling the SAME
+// `salonBookingScheduleProvider.clearDate()` — the `SalonTimeScreen` top-bar
+// arrow, the Android system back gesture (both via that screen's `PopScope`),
+// and a left-edge swipe-back affordance local to the TIME phase (restoring the
+// swipe-back feel the route-level `PopScope(canPop: false)` otherwise disarms).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,9 +28,12 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../application/salon_booking_schedule_notifier.dart';
 import '../../application/working_days_notifier.dart';
@@ -63,205 +51,208 @@ class MasterSchedulePage extends ConsumerStatefulWidget {
     super.key,
     required this.schedule,
     required this.avatarGradient,
-    required this.onCompleted,
-    required this.keepAlive,
   });
 
+  /// The chosen master's fully-resolved visit (identity + ordered services +
+  /// per-master assignment ids).
   final SalonMasterSchedule schedule;
   final List<Color> avatarGradient;
-
-  /// Fires once this master transitions from unscheduled to fully scheduled
-  /// (both date AND time set) — drives `SalonTimeScreen`'s slider
-  /// auto-advance. Never fires again on a subsequent slot edit.
-  final VoidCallback onCompleted;
-
-  /// Whether this slide should retain its widget `State` — and therefore
-  /// its `workingDaysProvider`/`salonMasterDaySlotsProvider` subscriptions
-  /// — while scrolled off-screen.
-  ///
-  /// mobile-perf Finding B (MEDIUM): unconditionally keeping every visited
-  /// master's slide alive for the whole `SalonTimeScreen` session grows
-  /// retention linearly with masters visited. `SalonTimeScreen` passes
-  /// `true` only for the active slide and its immediate neighbours
-  /// (current ± 1) — bounded enough (given this codebase's ≤50-master
-  /// accepted ceiling elsewhere) to keep the loading-flash-prevention
-  /// benefit `AutomaticKeepAliveClientMixin` was added for on the common
-  /// back/forward step, while letting far-away slides release their state
-  /// once the client has moved well past them.
-  final bool keepAlive;
 
   @override
   ConsumerState<MasterSchedulePage> createState() => _MasterSchedulePageState();
 }
 
-class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
-    with AutomaticKeepAliveClientMixin {
+class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
   /// Booking horizon — 3 months out, matching `SlotDateScreen`'s own
-  /// `_horizonMonths`; no backend signal dictates a different cap.
+  /// `_horizonMonths`.
   static const int _horizonMonths = 3;
 
-  late final DateTime _today;
-  late final DateTime _firstMonth;
-  late final DateTime _lastMonth;
-  late DateTime _visibleMonth;
+  /// "Today", Kyiv-anchored — RE-DERIVED on every read, never captured once.
+  /// Mirrors `SlotDateScreen._today` (`slot_picker_screen.dart`) exactly; see
+  /// that getter's doc for the Kyiv-anchoring rationale and for why capturing
+  /// it in `initState` froze the calendar's past-day gate across midnight.
+  ///
+  /// Read exactly ONCE per build and threaded down as a parameter — see
+  /// `SlotDateScreen._today` for why that is a correctness requirement (a
+  /// build straddling Kyiv midnight must not mix day N and day N+1).
+  DateTime get _today => kyivToday(ref.read(clockProvider));
 
-  /// Loading-flash fix, mirroring `SlotDateScreen._lastWorkingDays` — see
-  /// that file for the full rationale.
+  DateTime _firstMonth(DateTime today) => DateTime(today.year, today.month, 1);
+
+  DateTime _lastMonth(DateTime today) =>
+      DateTime(today.year, today.month + _horizonMonths, 1);
+
+  /// Backing store for [_visibleMonth] — the month the user has paged to.
+  late DateTime _pagedMonth;
+
+  /// The month grid to render: [_pagedMonth] clamped UP to the live
+  /// [_firstMonth] floor — mirrors `SlotDateScreen`'s own clamp; see it for
+  /// why the floor can move out from under the store, and for why only the
+  /// LOWER bound is clamped ([_lastMonth] only ever moves forward, and
+  /// [_nextMonth] already refuses to page past it).
+  DateTime _visibleMonth(DateTime today) {
+    final DateTime first = _firstMonth(today);
+    return _pagedMonth.isBefore(first) ? first : _pagedMonth;
+  }
+
+  /// Loading-flash fix, mirroring `SlotDateScreen._lastWorkingDays`.
   List<WorkingDay>? _lastWorkingDays;
+
+  /// Memoized morning/afternoon/evening split, keyed on the slot-list identity.
+  /// A slot tap rebuilds the time phase but reuses the same `slots` list, so the
+  /// bucketing (and its O(n) tz conversion) runs once per fetched list rather
+  /// than once per tap.
+  List<BookingSlot>? _lastBucketedSlots;
+  (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? _cachedBuckets;
+
+  /// Splits [slots] into morning / afternoon / evening on the KYIV wall-clock
+  /// hour — mirroring `SlotPickerScreen`'s `_SlotsSectionState._bucketsFor`.
+  ///
+  /// `BookingSlot.startAt` is a canonical UTC instant (built_value deserializes
+  /// the ISO-8601 wire value with `.toUtc()`), so `startAt.hour` is the UTC
+  /// hour — uniformly 2-3h behind the Kyiv hour the chip beside the heading
+  /// actually renders (`formatSlotTime` → `toBeauticaTime`). Bucketing on it
+  /// filed a 13:00-15:00 Kyiv working day entirely under «Ранок». This is not
+  /// a device-zone leak — it was wrong on every device, Kyiv ones included —
+  /// so the fix is the market zone, not the host's: `toBeauticaTime(...).hour`,
+  /// the same derivation the visible label goes through.
+  ///
+  /// The chip `Key`s deliberately stay on the raw UTC ISO string (see
+  /// [_slotGroup]) — they are identity, not display.
+  (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>) _bucketSlots(
+    List<BookingSlot> slots,
+  ) {
+    final (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? cached =
+        _cachedBuckets;
+    if (cached != null && identical(_lastBucketedSlots, slots)) {
+      return cached;
+    }
+    final List<BookingSlot> morning = <BookingSlot>[];
+    final List<BookingSlot> afternoon = <BookingSlot>[];
+    final List<BookingSlot> evening = <BookingSlot>[];
+    for (final BookingSlot s in slots) {
+      final int hour = toBeauticaTime(s.startAt).hour;
+      if (hour < 12) {
+        morning.add(s);
+      } else if (hour < 17) {
+        afternoon.add(s);
+      } else {
+        evening.add(s);
+      }
+    }
+    final (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>) buckets = (
+      morning,
+      afternoon,
+      evening,
+    );
+    _lastBucketedSlots = slots;
+    _cachedBuckets = buckets;
+    return buckets;
+  }
 
   @override
   void initState() {
     super.initState();
-    final DateTime now = DateTime.now();
-    _today = DateTime(now.year, now.month, now.day);
-    _firstMonth = DateTime(_today.year, _today.month, 1);
-    _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
-    _visibleMonth = _firstMonth;
-  }
-
-  @override
-  bool get wantKeepAlive => widget.keepAlive;
-
-  @override
-  void didUpdateWidget(covariant MasterSchedulePage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.keepAlive != widget.keepAlive) {
-      // Required by `AutomaticKeepAliveClientMixin`'s contract: whenever
-      // `wantKeepAlive`'s return value changes, the framework must be told
-      // explicitly so it can add/remove this Element's keep-alive bucket
-      // (see Finding B fix note on `keepAlive` above).
-      updateKeepAlive();
-    }
+    _pagedMonth = _firstMonth(_today);
   }
 
   String get _masterId => widget.schedule.masterId;
 
-  WorkingDaysQuery get _workingDaysQuery =>
-      WorkingDaysQuery.month(masterId: _masterId, anyDayInMonth: _visibleMonth);
+  /// The visit's ordered per-master assignment ids — both the availability-aware
+  /// working-days gate and the slot fetch key off this exact ordered list, so
+  /// the calendar day-gate agrees with the time grid (summed-block availability).
+  List<String> get _serviceIds => widget.schedule.orderedMasterServiceIds;
+
+  WorkingDaysQuery _workingDaysQuery(DateTime visibleMonth) =>
+      WorkingDaysQuery.month(
+        masterId: _masterId,
+        anyDayInMonth: visibleMonth,
+        serviceIds: _serviceIds,
+      );
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
-  bool Function(DateTime) _availabilityFrom(List<WorkingDay> days) {
+  /// [today] is the build's single Kyiv-day read, passed in rather than
+  /// re-derived — the returned closure runs for all ~35-42 day cells of the
+  /// grid, and it must agree with the `today` handed to [MonthCalendar] in the
+  /// same frame (see [_today]).
+  bool Function(DateTime) _availabilityFrom(
+    List<WorkingDay> days,
+    DateTime today,
+  ) {
     final Map<int, bool> workingByDay = <int, bool>{
       for (final WorkingDay w in days) _dayKey(w.date): w.working,
     };
     return (DateTime day) {
-      if (day.isBefore(_today)) return false;
+      if (day.isBefore(today)) return false;
       return workingByDay[_dayKey(day)] ?? false;
     };
   }
 
   void _prevMonth() {
-    if (!_visibleMonth.isAfter(_firstMonth)) return;
+    final DateTime today = _today;
+    final DateTime visible = _visibleMonth(today);
+    if (!visible.isAfter(_firstMonth(today))) return;
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month - 1, 1);
+      _pagedMonth = DateTime(visible.year, visible.month - 1, 1);
     });
   }
 
   void _nextMonth() {
-    if (!_visibleMonth.isBefore(_lastMonth)) return;
+    final DateTime today = _today;
+    final DateTime visible = _visibleMonth(today);
+    if (!visible.isBefore(_lastMonth(today))) return;
     setState(() {
-      _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 1);
+      _pagedMonth = DateTime(visible.year, visible.month + 1, 1);
     });
   }
 
   void _selectDay(DateTime day) {
-    ref.read(salonBookingScheduleProvider.notifier).selectDate(_masterId, day);
+    ref.read(salonBookingScheduleProvider.notifier).selectDate(day);
   }
 
   void _clearDate() {
-    ref.read(salonBookingScheduleProvider.notifier).clearDate(_masterId);
+    ref.read(salonBookingScheduleProvider.notifier).clearDate();
+  }
+
+  void _selectSlot(BookingSlot slot) {
+    ref.read(salonBookingScheduleProvider.notifier).selectSlot(slot);
   }
 
   // ---------------------------------------------------------------------
   // Left-edge swipe-back on the TIME phase — restores the affordance
-  // `PopScope(canPop: !inTimePhase)` in `salon_time_screen.dart` silently
-  // disarms (a `canPop: false` `PopScope` never arms Cupertino's own
-  // edge-drag recognizer at all — see this fix's PR description for the
-  // full trace through `ModalRoute.popGestureEnabled` /
-  // `CupertinoRouteTransitionMixin`). Scoped as a SLIDE-LOCAL gesture
-  // (not a route-level one) so it can never fight the `PageView`'s own
-  // master-to-master swipe in `salon_time_screen.dart` — see `_timePhase`
-  // below for how the detector is confined to a narrow left-edge strip.
-  // Reuses `_clearDate()` verbatim: the exact same call the removed
-  // `_ChangeDateButton`/the still-present `_NoSlotsEmptyState` use, so
-  // there is only ever ONE notion of "go back a phase".
+  // `PopScope(canPop: !inTimePhase)` in `salon_time_screen.dart` disarms.
   // ---------------------------------------------------------------------
 
-  /// Left-edge hit-strip width — same order of magnitude as Cupertino's own
-  /// `_kBackGestureWidth` (`cupertino/route.dart`, 20.0) so the arm-zone
-  /// feels consistent with the real system back-swipe that takes over once
-  /// this master reaches the date phase.
   static const double _kEdgeSwipeWidth = 20;
-
-  /// Net rightward travel (logical px) that alone commits the gesture, even
-  /// at low velocity — roughly 2.4× the hit-strip width, comfortably above
-  /// touch-slop-scale jitter but well short of a full swipe.
   static const double _kEdgeSwipeDistanceThreshold = 48;
-
-  /// Rightward fling velocity (logical px/s) that alone commits the gesture
-  /// even if [_kEdgeSwipeDistanceThreshold] wasn't reached yet — mirrors
-  /// Cupertino's own velocity-based "drop the swipe, still commit" escape
-  /// hatch (`_kMinFlingVelocity` in `cupertino/route.dart`).
   static const double _kEdgeSwipeVelocityThreshold = 400;
 
-  /// Net signed horizontal travel accumulated since the current edge-drag's
-  /// `onHorizontalDragStart` — reset at both the start and the end of every
-  /// gesture.
   double _edgeSwipeDx = 0;
 
-  void _onEdgeSwipeStart(DragStartDetails details) {
-    _edgeSwipeDx = 0;
-  }
+  void _onEdgeSwipeStart(DragStartDetails details) => _edgeSwipeDx = 0;
 
-  void _onEdgeSwipeUpdate(DragUpdateDetails details) {
-    _edgeSwipeDx += details.delta.dx;
-  }
+  void _onEdgeSwipeUpdate(DragUpdateDetails details) =>
+      _edgeSwipeDx += details.delta.dx;
 
   void _onEdgeSwipeEnd(DragEndDetails details) {
     final double dx = _edgeSwipeDx;
     final double velocity = details.primaryVelocity ?? 0;
     _edgeSwipeDx = 0;
-    // Rightward only (the standard "back" direction) — a leftward or
-    // negligible drag never fires.
     if (dx >= _kEdgeSwipeDistanceThreshold ||
         velocity >= _kEdgeSwipeVelocityThreshold) {
       _clearDate();
     }
   }
 
-  void _selectSlot(BookingSlot slot) {
-    final bool wasScheduled = ref
-        .read(salonBookingScheduleProvider)
-        .isScheduled(_masterId);
-    ref.read(salonBookingScheduleProvider.notifier).selectSlot(_masterId, slot);
-    if (wasScheduled) return; // editing an existing slot — no auto-advance.
-    // Let the chip's press animation land, then signal completion — mirrors
-    // the preview's `_selectSlot` delayed `_goTo`.
-    Future<void>.delayed(const Duration(milliseconds: 360), () {
-      if (mounted) widget.onCompleted();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     final l10n = AppLocalizations.of(context);
-    final SalonScheduleEntry entry = ref.watch(
-      salonBookingScheduleProvider.select(
-        (SalonBookingScheduleState s) => s.entryFor(_masterId),
-      ),
+    final SalonBookingScheduleState schedule = ref.watch(
+      salonBookingScheduleProvider,
     );
-    final bool datePhase = entry.date == null;
+    final bool datePhase = schedule.date == null;
 
-    // Vertical-only here — deliberately. The shared [MonthCalendar] (used by
-    // `_datePhase` below) already self-pads horizontally by `VelvetSpacing.lg`
-    // (see its own `build()`), matching `SlotDateScreen`'s single lg inset.
-    // Adding a horizontal inset on this outer scroll view too would stack a
-    // SECOND lg on top of the calendar's own — exactly the double-padding bug
-    // this file previously had (48px per side instead of 24px). Every other
-    // child below now carries its own explicit horizontal padding instead, so
-    // the net inset stays a single `VelvetSpacing.lg` everywhere.
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.md),
@@ -293,7 +284,7 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
                 ),
             child: datePhase
                 ? _datePhase(l10n)
-                : _timePhase(l10n, entry.date!, entry.slot),
+                : _timePhase(l10n, schedule.date!, schedule.slot),
           ),
         ],
       ),
@@ -301,8 +292,12 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
   }
 
   Widget _datePhase(AppLocalizations l10n) {
+    // The build's ONE Kyiv-day read — everything date-derived below hangs off
+    // this single value so the frame is internally consistent (see [_today]).
+    final DateTime today = _today;
+    final DateTime visibleMonth = _visibleMonth(today);
     final AsyncValue<List<WorkingDay>> workingDaysAsync = ref.watch(
-      workingDaysProvider(_workingDaysQuery),
+      workingDaysProvider(_workingDaysQuery(visibleMonth)),
     );
 
     Widget calendarBody;
@@ -310,7 +305,9 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       calendarBody = _WorkingDaysErrorBody(
         key: const ValueKey<String>('salon-schedule-error'),
         failure: workingDaysAsync.error!,
-        onRetry: () => ref.invalidate(workingDaysProvider(_workingDaysQuery)),
+        onRetry: () => ref.invalidate(
+          workingDaysProvider(_workingDaysQuery(visibleMonth)),
+        ),
       );
     } else {
       final List<WorkingDay>? resolvedDays = workingDaysAsync.value;
@@ -330,13 +327,17 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       } else {
         final Widget calendar = MonthCalendar(
           key: const Key('booking-month-calendar'),
-          visibleMonth: _visibleMonth,
-          today: _today,
+          visibleMonth: visibleMonth,
+          today: today,
           selected: null,
-          isAvailable: _availabilityFrom(daysToRender),
+          isAvailable: _availabilityFrom(daysToRender, today),
           onSelectDay: _selectDay,
-          onPrevMonth: _visibleMonth.isAfter(_firstMonth) ? _prevMonth : null,
-          onNextMonth: _visibleMonth.isBefore(_lastMonth) ? _nextMonth : null,
+          onPrevMonth: visibleMonth.isAfter(_firstMonth(today))
+              ? _prevMonth
+              : null,
+          onNextMonth: visibleMonth.isBefore(_lastMonth(today))
+              ? _nextMonth
+              : null,
         );
         calendarBody = loading
             ? Stack(
@@ -376,16 +377,16 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
           ),
         ),
         const SizedBox(height: VelvetSpacing.md),
-        // `CalendarWeekdayBar` and `calendarBody` (which wraps the shared
-        // `MonthCalendar`) are deliberately left UNWRAPPED here — both
-        // already self-pad horizontally by the same `VelvetSpacing.lg`
-        // (`CalendarWeekdayBar`'s self-pad and `MonthCalendar`'s own outer
-        // inset match exactly as of the month_calendar.dart alignment fix),
-        // exactly matching `SlotDateScreen`. Adding another horizontal
-        // Padding around either is the double-padding bug this file is
-        // fixed for — see the outer `SingleChildScrollView`'s comment in
-        // `build()`.
-        const CalendarWeekdayBar(),
+        // `CalendarWeekdayBar` renders no horizontal padding of its own
+        // (mobile-backlog D4/D5 — see `calendar_grid.dart`'s file header):
+        // every caller wraps it in whatever inset its own sibling grid uses.
+        // `MonthCalendar` self-pads by this same `VelvetSpacing.lg`, so
+        // matching it here is what keeps the bar's captions above the day
+        // columns they describe.
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          child: CalendarWeekdayBar(),
+        ),
         const SizedBox(height: VelvetSpacing.xs),
         calendarBody,
       ],
@@ -401,66 +402,15 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       salonMasterDaySlotsProvider(
         SalonMasterDaySlotsQuery(
           masterId: _masterId,
-          // MUST be the master's own service-ASSIGNMENT id
-          // (`MasterServiceResponse.id`), NOT `services.first.id` (the
-          // salon-wide catalog id) — the backend's slots endpoint 404s
-          // ("masterService not found") on the catalog id. See
-          // `SalonMasterSchedule.primaryServiceAssignmentId`'s doc comment.
-          serviceId: widget.schedule.primaryServiceAssignmentId,
+          serviceIds: _serviceIds,
           date: date,
         ),
       ),
     );
-    // Wrapped in a single horizontal Padding — unlike `_datePhase`, nothing
-    // in this phase's subtree (slot-chip groups, empty/loading/error states)
-    // self-pads horizontally, so one `VelvetSpacing.lg` inset here is enough
-    // and can't double up with anything (there's no shared
-    // `MonthCalendar`/`CalendarWeekdayBar` on this phase).
-    //
-    // The row that used to lead this phase — a "Вільний час" heading plus a
-    // compact inline «Змінити» change-date button — is gone entirely. The
-    // button became redundant once the left-edge swipe-back gesture below
-    // joined the top-bar arrow and the system back gesture (all three call
-    // the same `_clearDate()`), and the heading it sat beside was labelling
-    // the only content on the phase, so it carried no information the
-    // Ранок/День/Вечір cluster labels don't already give. `_NoSlotsEmptyState`
-    // still carries its own change-date button for the zero-slot day.
-    //
-    // The slot groups therefore now open the phase directly. No leading
-    // spacer is needed (nor wanted): `build()` already lays a
-    // `VelvetSpacing.lg` gap between the `MasterStrip` identity card and the
-    // `AnimatedSwitcher` this is a child of — the same single section gap
-    // `_datePhase` opens on — so the first `SlotGroup` label lands exactly
-    // where `_datePhase`'s intro line does. Adding another spacer here would
-    // stack a second gap on top of it.
+
     final Widget content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Column(
-        // MUST be `.stretch`, not `.start` (mobile-perf audit fix): this
-        // Column is a child of `AnimatedSwitcher`'s default layout builder,
-        // which wraps transitioning children in its own
-        // `Stack(alignment: .center)` fed via `StackFit.loose` — so this
-        // Column receives a LOOSE width and, with `.start`, sizes itself to
-        // its narrowest branch (the bare-`Text` error state or
-        // `_NoSlotsEmptyState`'s centered content) instead of the full
-        // slide width. Verified empirically (`salon_time_screen_test.dart`,
-        // "phase container fills the slide" tests): this does NOT actually
-        // relocate the left-edge swipe-back `GestureDetector` below —
-        // `SizeTransition`'s own `Align` (default `axis: Axis.vertical`,
-        // `axisAlignment: -1` here) already claims full width and
-        // left-pins its child regardless of this Column's width, so the
-        // detector's rendered x stays at the true screen edge either way.
-        // What DOES shrink without `.stretch` is this phase's own
-        // `Semantics(container: true)` node (the `Stack` wrapping `content`
-        // + the detector, returned below) — from the full slide width down
-        // to the narrow branch's natural width — which shrinks the
-        // accessible bounding box TalkBack's Local Context Menu ("reading
-        // menu" → Actions) and Switch Access's per-item action menu use to
-        // surface the `onDismiss` action to a sliver in the top-left corner
-        // instead of the whole slide. `.stretch` restores full width
-        // regardless of the `slotsAsync.when()` branch, mirroring
-        // `_datePhase`'s own `Column(crossAxisAlignment: .stretch, ...)`
-        // above.
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           slotsAsync.when(
@@ -488,19 +438,13 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
               if (slots.isEmpty) {
                 return _NoSlotsEmptyState(onChangeDate: _clearDate);
               }
-              final List<BookingSlot> morning = <BookingSlot>[];
-              final List<BookingSlot> afternoon = <BookingSlot>[];
-              final List<BookingSlot> evening = <BookingSlot>[];
-              for (final BookingSlot s in slots) {
-                final int hour = s.startAt.hour;
-                if (hour < 12) {
-                  morning.add(s);
-                } else if (hour < 17) {
-                  afternoon.add(s);
-                } else {
-                  evening.add(s);
-                }
-              }
+              final (
+                List<BookingSlot> morning,
+                List<BookingSlot> afternoon,
+                List<BookingSlot> evening,
+              ) = _bucketSlots(
+                slots,
+              );
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
@@ -526,35 +470,6 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       ),
     );
 
-    // `Semantics(onDismiss: _clearDate)` exposes the SAME phase-back action
-    // as the edge-swipe below to assistive tech, since the drag itself is
-    // not discoverable by a screen-reader user and is not operable by
-    // switch access. `ACTION_DISMISS` is surfaced through TalkBack's Local
-    // Context Menu ("reading menu" → Actions) and Switch Access's per-item
-    // action menu — NOT any two-finger scrub/Z-gesture, which is a
-    // navigation gesture, not how a labelled `onDismiss` action is reached.
-    // `hint:` names the action explicitly (reusing the still-live
-    // `bookingChangeDateCta` copy, NOT the deleted `bookingChangeDateSemantics`
-    // key — see this file's header for why the visible button it used to
-    // label is gone) so neither menu presents an anonymous, nameless
-    // "Dismiss" action. The `key` lives here (not on the inner `Padding`)
-    // since this `Semantics` is now the actual `child` `AnimatedSwitcher`
-    // compares between the 'date' and 'time' phases.
-    //
-    // The `Stack` confines the drag detector to a narrow LEFT-EDGE strip —
-    // positioned at the slide's true left edge (outside `content`'s own
-    // `VelvetSpacing.lg` padding, matching Cupertino's own edge-anchored
-    // `_kBackGestureWidth` strip) — so it can never compete with the
-    // `PageView`'s master-to-master swipe anywhere else on the slide. A
-    // touch starting mid-slide never even hit-tests this detector, so
-    // there's no gesture-arena contest for it to lose; a touch starting
-    // within the strip DOES enter the same arena as the ancestor
-    // `PageView`'s own horizontal drag recognizer, but — being the deeper
-    // descendant — this detector is dispatched the pointer first each frame
-    // and wins on first sufficient movement, the same "innermost recognizer
-    // wins its own footprint" mechanics Cupertino's real edge-swipe (an
-    // ANCESTOR-positioned recognizer) already relies on to coexist with this
-    // very `PageView` on the DATE phase today.
     return Semantics(
       key: const ValueKey<String>('time'),
       container: true,

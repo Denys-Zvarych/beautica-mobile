@@ -1,16 +1,20 @@
-// First-time service setup — bulk-save AsyncNotifier.
+// Service setup — bulk-save AsyncNotifier.
 //
-// Drives the one-pass empty-state setup screen. The screen owns all per-row UI
-// state (selected categories, include toggles, duration/price controllers); this
-// notifier owns only the SAVE side effect: it collects the assembled
+// Drives the multi-select setup screen, which serves BOTH first-time setup and
+// "add more services". The screen owns all per-row UI state (selected
+// categories, include toggles, duration/price controllers); this notifier owns
+// only the SAVE side effect: it collects the assembled
 // [MasterServiceBulkItem]s, POSTs them via [ServiceRepository.bulkCreate], and
 // exposes a void [AsyncValue] the screen watches to gate its CTA + surface
 // errors.
 //
-// On success the screen invalidates [servicesListProvider] and navigates to the
-// (now-populated) services list. A 409 (the master already has services) surfaces
-// as [MasterAlreadyHasServicesFailure] so the screen can route the user to the
-// list instead of letting them retry a guaranteed-conflict save.
+// On success the screen invalidates the catalogue providers and pops back to the
+// services list. Two failures carry screen-level behaviour:
+//   • 409 `DUPLICATE_SERVICE` → [ServiceDuplicateFailure]. The master picked a
+//     service they already offer; the batch was rolled back, so the screen keeps
+//     the selection so they can deselect it and re-save.
+//   • 503 → [BulkSetupBusyFailure]. Transient lock contention; nothing was
+//     written, so the screen offers a RETRY action rather than a dead end.
 //
 // Built on [riverpod_generator] — never hand-construct the provider.
 

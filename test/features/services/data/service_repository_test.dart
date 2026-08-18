@@ -899,6 +899,172 @@ void main() {
     );
   });
 
+  // ── 6b. create/update — 409 DUPLICATE_SERVICE → ServiceDuplicateFailure ─────
+  //
+  // The typed `{ data: { code: DUPLICATE_SERVICE, serviceName, existingServiceDefId } }`
+  // 409 envelope must map to [ServiceDuplicateFailure] (NOT the generic
+  // [ServerFailure] the interceptor attaches for a non-auth 409), on both the
+  // create and update write paths. `serviceName` / `existingServiceDefId` are
+  // both nullable and threaded onto the failure when present.
+
+  group('service-catalog write — 409 DUPLICATE_SERVICE', () {
+    DioException duplicate409({
+      Object? serviceName = 'Манікюр класичний',
+      Object? existingServiceDefId = 'def-existing',
+      // The interceptor attaches a generic ServerFailure(409) as e.error for a
+      // non-auth 409; include it so the test proves the hand-decode runs BEFORE
+      // the `e.error is Failure` fallthrough.
+      Failure? attached = const ServerFailure(statusCode: 409),
+    }) => DioException(
+      requestOptions: RequestOptions(path: _listPath),
+      type: DioExceptionType.badResponse,
+      error: attached,
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: _listPath),
+        statusCode: 409,
+        data: <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{
+            'code': 'DUPLICATE_SERVICE',
+            'serviceName': serviceName,
+            'existingServiceDefId': existingServiceDefId,
+          },
+          'message': 'This service already exists',
+        },
+      ),
+    );
+
+    test('create → ServiceDuplicateFailure with the typed fields', () async {
+      when(
+        () => serviceApi.addIndependentMasterService(
+          createServiceDefinitionRequest: any(
+            named: 'createServiceDefinitionRequest',
+          ),
+        ),
+      ).thenThrow(duplicate409());
+
+      final failure = await repository
+          .create(
+            const MasterServiceCreate(
+              name: 'Манікюр класичний',
+              durationMinutes: 60,
+              priceType: ServicePriceType.fixed,
+              price: 500,
+              category: 'MANICURE',
+              serviceTypeId: _serviceTypeId,
+            ),
+          )
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(failure, isA<ServiceDuplicateFailure>());
+      final dup = failure! as ServiceDuplicateFailure;
+      expect(dup.serviceName, 'Манікюр класичний');
+      expect(dup.existingServiceDefId, 'def-existing');
+    });
+
+    test(
+      'update → ServiceDuplicateFailure (not a generic ServerFailure)',
+      () async {
+        when(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: _serviceDefId,
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(duplicate409());
+
+        final failure = await repository
+            .update(
+              _serviceDefId,
+              const MasterServiceUpdate(name: 'Манікюр класичний'),
+              assignmentId: _serviceId,
+            )
+            .then<Object?>((_) => null, onError: (Object e) => e);
+
+        expect(failure, isA<ServiceDuplicateFailure>());
+        expect(failure, isNot(isA<ServerFailure>()));
+      },
+    );
+
+    test(
+      'null serviceName/existingServiceDefId still maps (no throw)',
+      () async {
+        when(
+          () => serviceApi.addIndependentMasterService(
+            createServiceDefinitionRequest: any(
+              named: 'createServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(
+          duplicate409(serviceName: null, existingServiceDefId: null),
+        );
+
+        final failure = await repository
+            .create(
+              const MasterServiceCreate(
+                name: 'Манікюр класичний',
+                durationMinutes: 60,
+                priceType: ServicePriceType.fixed,
+                price: 500,
+                category: 'MANICURE',
+                serviceTypeId: _serviceTypeId,
+              ),
+            )
+            .then<Object?>((_) => null, onError: (Object e) => e);
+
+        expect(failure, isA<ServiceDuplicateFailure>());
+        final dup = failure! as ServiceDuplicateFailure;
+        expect(dup.serviceName, isNull);
+        expect(dup.existingServiceDefId, isNull);
+      },
+    );
+
+    test(
+      'a 409 WITHOUT the DUPLICATE_SERVICE code is NOT a ServiceDuplicateFailure',
+      () async {
+        when(
+          () => serviceApi.addIndependentMasterService(
+            createServiceDefinitionRequest: any(
+              named: 'createServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _listPath),
+            type: DioExceptionType.badResponse,
+            error: const ServerFailure(statusCode: 409),
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: _listPath),
+              statusCode: 409,
+              data: <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{'code': 'SOMETHING_ELSE'},
+              },
+            ),
+          ),
+        );
+
+        final failure = await repository
+            .create(
+              const MasterServiceCreate(
+                name: 'Манікюр класичний',
+                durationMinutes: 60,
+                priceType: ServicePriceType.fixed,
+                price: 500,
+                category: 'MANICURE',
+                serviceTypeId: _serviceTypeId,
+              ),
+            )
+            .then<Object?>((_) => null, onError: (Object e) => e);
+
+        // Falls through to the interceptor-attached generic ServerFailure.
+        expect(failure, isNot(isA<ServiceDuplicateFailure>()));
+        expect(failure, isA<ServerFailure>());
+      },
+    );
+  });
+
   // ── 7. empty masterId — UnauthorizedFailure without network call ───────────
 
   group('empty masterId guard', () {

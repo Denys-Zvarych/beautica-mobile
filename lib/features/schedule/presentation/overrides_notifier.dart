@@ -6,13 +6,25 @@
 // [ScheduleOverride] (the mapper never groups spans — the screen groups
 // consecutive identical rows into spans for display).
 //
-// [putOverride] / [putSpan] / [clearOverride] mutate, then reload the range. The
-// effective-schedule notifier `ref.watch`es `overridesProvider(range)`, so this
-// reload alone makes the calendar recompute + re-fetch the fresh effective
-// schedule — NO manual `ref.invalidate(effectiveScheduleProvider)` is needed (it
-// would only fire a redundant second fetch). A multi-day span is expanded here
-// (presentation layer) into one PUT per date — the repository and mapper stay
-// strictly 1 row = 1 date.
+// [putOverride] / [putSpan] / [clearOverride] mutate, then reload the range and
+// (on success) bump [overridesRevisionProvider] — see [_mutate]. The reactive
+// `ref.watch(overridesProvider(range))` link inside [EffectiveScheduleNotifier.
+// build] only recomputes an effective-schedule instance keyed to this SAME
+// `range`; a caller viewing a DIFFERENT range for the same date (e.g. the
+// month-spanning editor range vs. a single-day range watched by «Мої записи»)
+// is a distinct family instance that a range-scoped reload never touches, and
+// `ref.keepAlive()` there pins its stale value indefinitely (bounded only by
+// the 5-minute TTL). [EffectiveScheduleNotifier.build] also watches
+// [overridesRevisionProvider], a plain int counter that depends on nothing —
+// bumping it forces every live effective-schedule instance to recompute
+// regardless of which range wrote the override, WITHOUT this notifier ever
+// touching `effectiveScheduleProvider` directly (that would be a back-edge:
+// `EffectiveScheduleNotifier` already watches `overridesProvider`, so an
+// `OverridesNotifier` → `ref.invalidate(effectiveScheduleProvider)` call closes
+// a real watch cycle — see [_mutate] for why a one-way revision counter
+// replaces that invalidate instead of annotating it `// cycle-safe:`). A
+// multi-day span is expanded here (presentation layer) into one PUT per date —
+// the repository and mapper stay strictly 1 row = 1 date.
 //
 // Bounded-cache keepAlive (same scheme as the effective-schedule family): the
 // effective-schedule notifier `await`s `overridesProvider(range).future` as its
@@ -40,6 +52,7 @@ import '../../../core/errors/failures.dart';
 import '../data/schedule_repository.dart';
 import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
+import 'overrides_revision_provider.dart';
 import 'schedule_range.dart';
 
 part 'overrides_notifier.g.dart';
@@ -100,16 +113,48 @@ class OverridesNotifier extends _$OverridesNotifier {
 
   ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider);
 
+  /// Read-only preview (2026-07-26 booking-conflict design) of every
+  /// CONFIRMED booking that saving [span] would leave without availability —
+  /// ONE call for the whole `[span.start, span.end]` range, never one per
+  /// expanded date. Does NOT touch [state] (no [AsyncLoading] flicker, no
+  /// reload): this is a pre-write check the caller (the sheet UI) runs
+  /// BEFORE deciding whether to show [DayOffConflictDialog], not a mutation.
+  ///
+  /// Callers: [putOverride]'s single-date host (`DayHoursSheet`) passes a
+  /// `start == end` [span]; a future multi-day span editor would pass the
+  /// whole span here and then call [putSpan] with the SAME
+  /// `cancelOverlapping` decision — the preview is always one call
+  /// regardless of which write method follows.
+  ///
+  /// A thrown [Failure] propagates directly (NOT wrapped in [AsyncValue]) —
+  /// the caller decides how to surface a failed check (e.g. a retryable
+  /// "couldn't check your bookings" dialog) without it disturbing this
+  /// provider's already-loaded override list.
+  Future<OverrideConflictCheck> checkConflicts(ScheduleOverride span) {
+    if (kDebugMode) {
+      log('checkConflicts for span=$span', name: _tag, level: 800);
+    }
+    return _repo.previewConflicts(span);
+  }
+
   /// Upserts a single-date [override] (its [ScheduleOverride.start] is the
   /// target date) and reloads this range. The effective-schedule notifier
   /// watches this provider, so the reload propagates to a fresh effective-
   /// schedule fetch automatically. A thrown [Failure] becomes an [AsyncError];
   /// the previously-resolved override list is left intact on failure.
-  Future<void> putOverride(ScheduleOverride override) =>
-      _mutate('putOverride', () {
-        _assertExplicitTimesValid(override);
-        return _repo.putOverride(override);
-      });
+  ///
+  /// [cancelOverlapping] forwards the booking-conflict design's write-time
+  /// consent flag — see [ScheduleRepository.putOverride]'s doc. Defaults to
+  /// `false`, so a caller that never calls [checkConflicts] gets byte-for-byte
+  /// the pre-existing behaviour. Pass `true` only after the master confirms
+  /// the conflict dialog for THIS exact [override].
+  Future<void> putOverride(
+    ScheduleOverride override, {
+    bool cancelOverlapping = false,
+  }) => _mutate('putOverride', () {
+    _assertExplicitTimesValid(override);
+    return _repo.putOverride(override, cancelOverlapping: cancelOverlapping);
+  });
 
   /// Applies one override across every date of a multi-day span — expanding the
   /// span into one PUT per calendar date (the repository stays 1 row = 1 date).
@@ -120,7 +165,17 @@ class OverridesNotifier extends _$OverridesNotifier {
   /// concurrency batches of [_kPutSpanChunkSize] rather than one serial round
   /// trip per day. On partial failure the surfaced error names the failing
   /// date(s); the post-op reload then reflects whatever actually persisted.
-  Future<void> putSpan(ScheduleOverride span) {
+  ///
+  /// [cancelOverlapping] is forwarded to EVERY expanded per-date PUT — same
+  /// consent flag as [putOverride], applied uniformly across the whole span.
+  /// Callers must run [checkConflicts] with `span` ONCE first (never once per
+  /// expanded date — that would multiply an O(days) count of network round
+  /// trips into what should be a single preview) and only pass `true` here
+  /// after the master confirms the resulting conflict list.
+  Future<void> putSpan(
+    ScheduleOverride span, {
+    bool cancelOverlapping = false,
+  }) {
     return _mutate('putSpan', () async {
       // Phase 15.7 — validate the span's discrete shape ONCE up-front (every
       // expanded per-date PUT shares it), before any network call.
@@ -158,6 +213,9 @@ class OverridesNotifier extends _$OverridesNotifier {
           intervals: span.intervals
               .map((w) => w.clone())
               .toList(growable: false),
+          // The span's display-only window is held constant across every
+          // expanded date, exactly like its intervals.
+          window: span.window?.clone(),
         );
       }
 
@@ -170,7 +228,10 @@ class OverridesNotifier extends _$OverridesNotifier {
         final results = await Future.wait(
           chunk.map(
             (date) => _repo
-                .putOverride(perDayFor(date))
+                .putOverride(
+                  perDayFor(date),
+                  cancelOverlapping: cancelOverlapping,
+                )
                 .then<Object?>((_) => null)
                 .catchError((Object e) => e),
           ),
@@ -181,12 +242,10 @@ class OverridesNotifier extends _$OverridesNotifier {
       }
 
       if (failedDates.isNotEmpty) {
-        final iso = failedDates
-            .map((d) => d.toIso8601String().split('T').first)
-            .join(', ');
-        throw ValidationFailure(
-          fieldErrors: const <String, String>{},
-          serverMessage: 'Failed to save override for: $iso',
+        // Structured failure, not a hand-built serverMessage string — see
+        // [OverrideSpanPartialFailure]'s doc for why (mobile-security, 2026-08).
+        throw OverrideSpanPartialFailure(
+          failedDates: List<DateTime>.unmodifiable(failedDates),
         );
       }
     });
@@ -214,14 +273,36 @@ class OverridesNotifier extends _$OverridesNotifier {
 
   /// Runs a mutation and reloads the range on success. Wraps everything in
   /// [AsyncValue.guard] so a [Failure] surfaces as [AsyncError] without leaking
-  /// a raw exception.
+  /// a raw exception. Shared by [putOverride], [putSpan], and [clearOverride] —
+  /// a day-off toggle or a plain interval override going stale across screens is
+  /// exactly as affected as an explicit-times save; the bug was never specific
+  /// to one override kind.
   ///
-  /// On a successful reload the new override list becomes this provider's state;
-  /// the effective-schedule notifier (which `ref.watch`es this provider) then
-  /// rebuilds and re-fetches the fresh server-resolved schedule. No explicit
-  /// `ref.invalidate(effectiveScheduleProvider)` is issued here — that would
-  /// only trigger a redundant second effective-schedule fetch and widen the work
-  /// beyond the single coherent refetch the dependency already produces.
+  /// On a successful reload the new override list becomes this provider's
+  /// state. That alone only refreshes an [EffectiveScheduleNotifier] instance
+  /// watching THIS SAME `range` (the reactive `ref.watch(overridesProvider(range))`
+  /// link in its `build`) — a different screen watching
+  /// `effectiveScheduleProvider` with a different [ScheduleRange] for an
+  /// overlapping date (e.g. the month-spanning schedule editor vs. a
+  /// single-day range watched by «Мої записи») is a distinct family instance
+  /// that this reload never reaches, and it stays pinned stale by its own
+  /// `ref.keepAlive()` until its 5-minute TTL lapses.
+  ///
+  /// Calling `ref.invalidate(effectiveScheduleProvider)` here would fix that —
+  /// and an earlier revision of this method did exactly that — but
+  /// `EffectiveScheduleNotifier.build` already `ref.watch`es `overridesProvider`
+  /// (see its doc), so this notifier reaching back into `effectiveScheduleProvider`
+  /// closes a real watch cycle (the same shape `test/core/provider_cycle_guard_test.dart`
+  /// exists to catch, mirroring the historical `AuthNotifier.logout()` bug — NOT
+  /// a false positive to silence with `// cycle-safe:`). Instead this bumps
+  /// [overridesRevisionProvider], a plain counter that watches nothing and so
+  /// cannot participate in any cycle: [EffectiveScheduleNotifier.build] watches
+  /// IT too, so any override write at ANY range forces every live
+  /// effective-schedule window to recompute, one-way, with no back-edge into
+  /// this notifier. Shared by [putOverride], [putSpan], and [clearOverride] — a
+  /// day-off toggle or a plain interval override going stale across screens is
+  /// exactly as affected as an explicit-times save; the bug was never specific
+  /// to one override kind.
   Future<void> _mutate(String op, Future<void> Function() action) async {
     if (kDebugMode) {
       log('$op for range=$range', name: _tag, level: 800);
@@ -232,5 +313,13 @@ class OverridesNotifier extends _$OverridesNotifier {
       return _repo.listOverrides(range.from, range.to);
     });
     state = result;
+    if (result.hasValue) {
+      // One-way revision bump — see the doc above for why this replaces a
+      // (cyclic) `ref.invalidate(effectiveScheduleProvider)` call. Carries
+      // THIS notifier's own `range` so a watcher whose range provably shares
+      // no date with it can skip its refetch — see
+      // `overrides_revision_provider.dart`'s `OverridesRevisionEvent` doc.
+      ref.read(overridesRevisionProvider.notifier).bump(range);
+    }
   }
 }

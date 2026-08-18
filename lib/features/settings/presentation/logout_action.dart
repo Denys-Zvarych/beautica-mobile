@@ -17,9 +17,10 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
 /// Runs the full logout flow: confirm dialog → [AuthNotifier.logout] →
-/// `context.go(RouteNames.login)`. Shows a failure SnackBar on error.
+/// `context.go(RouteNames.login)`. Shows a failure snack on error.
 ///
 /// [inFlight] is a double-tap guard owned by the calling widget; this helper
 /// flips it true for the duration of the network call and resets it afterwards.
@@ -69,9 +70,7 @@ Future<void> runLogoutFlow(
     context.go(RouteNames.login);
   } catch (_) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.logoutFailed)));
+    showErrorSnack(context, l10n.logoutFailed);
   } finally {
     inFlight.value = false;
   }

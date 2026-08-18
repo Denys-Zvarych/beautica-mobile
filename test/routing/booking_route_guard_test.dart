@@ -64,15 +64,13 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/booking_time_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
@@ -82,6 +80,8 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -90,9 +90,12 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
+import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -143,24 +146,16 @@ BookingSlotPickerArgs _validArgs() => const BookingSlotPickerArgs(
 BookingConfirmArgs _validConfirmArgs() => BookingConfirmArgs(
   masterId: _kMasterId,
   master: _kMaster,
-  appointments: <BookingAppointment>[
-    BookingAppointment(
-      serviceId: _kService.id,
-      startAt: DateTime(2026, 7, 20, 10),
-      idempotencyKey: 'guard-key-1',
-    ),
-  ],
+  services: <MasterService>[_kService],
+  startAt: DateTime.utc(2026, 7, 20, 10),
+  idempotencyKey: 'guard-key-1',
 );
 
 /// A valid `BookingSuccessArgs` extra for `/booking/success`.
 BookingSuccessArgs _validSuccessArgs() => BookingSuccessArgs(
   master: _kMaster,
-  appointments: <BookingSuccessAppointment>[
-    BookingSuccessAppointment(
-      service: _kService,
-      start: DateTime(2026, 7, 20, 10),
-    ),
-  ],
+  services: <MasterService>[_kService],
+  startAt: DateTime.utc(2026, 7, 20, 10),
 );
 
 // Phase 14.12/14.13 — salon booking flow fixtures.
@@ -204,10 +199,24 @@ const _kSalonMaster = SalonMasterSummary(
 
 SalonBookingTimeArgs _validSalonTimeArgs() => const SalonBookingTimeArgs(
   salonId: _kSalonId,
-  selectedServiceIds: <String>['svc-1'],
-  assignedServiceIdsByMaster: <String, List<String>>{
-    _kSalonMasterId: <String>['svc-1'],
-  },
+  visit: SalonMasterSchedule(
+    masterId: _kSalonMasterId,
+    firstName: 'Salon',
+    lastName: 'Master',
+    type: MasterType.salonMaster,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-1',
+        name: 'Манікюр',
+        durationLabel: '1 год',
+        priceDisplay: '500 ₴',
+        durationMinutes: 60,
+        priceType: ServicePriceType.fixed,
+        priceMin: 500,
+      ),
+    ],
+    orderedMasterServiceIds: <String>['assign-svc-1'],
+  ),
 );
 
 const _clientUser = User(
@@ -230,6 +239,23 @@ const _masterUser = User(
 );
 const _masterSession = AsyncData<AuthSession>(
   AuthSession.authenticated(user: _masterUser, accessToken: 'token'),
+);
+
+/// A SALON_OWNER — the OTHER `roleHomePath` branch (`_ => RouteNames.home`,
+/// i.e. `/`), distinct from INDEPENDENT_MASTER's `/master/profile`. Used by
+/// the `/booking/salon/masters` guard-order group below so that group asserts
+/// against a role whose landing is NOT the one every other non-CLIENT test in
+/// this file already uses — a redirect that collapsed every role to a single
+/// destination could not hide behind a one-role fixture.
+const _salonOwnerUser = User(
+  id: 'so1',
+  email: 'owner@example.com',
+  role: UserRole.salonOwner,
+  firstName: 'Salon',
+  lastName: 'Owner',
+);
+const _salonOwnerSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _salonOwnerUser, accessToken: 'token'),
 );
 
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue] —
@@ -264,6 +290,17 @@ class _SettledMasterProfileNotifier extends MasterProfile {
   );
 }
 
+/// [Wishlist] stub that resolves immediately to an empty list, bypassing the
+/// real notifier's `build()` body ENTIRELY — including its unconditional
+/// 5-minute keep-alive TTL `Timer` — so ServiceSelectorSheet's Phase 240
+/// wish-list watch cannot leak a Timer past this file's manual
+/// `ProviderContainer` disposal. Mirrors `myRatingProvider`'s identical fix
+/// below for the same ordering gotcha.
+class _SettledWishlistNotifier extends Wishlist {
+  @override
+  Future<List<WishlistService>> build() async => const <WishlistService>[];
+}
+
 /// [SlotPicker] stub that starts with a date ALREADY selected.
 ///
 /// `SlotTimeScreen` self-pops (via a post-frame `context.pop()`) when
@@ -277,7 +314,14 @@ class _SettledMasterProfileNotifier extends MasterProfile {
 /// precondition.
 class _SettledSlotPickerNotifier extends SlotPicker {
   @override
-  SlotPickerState build() => SlotPickerState(selectedDate: DateTime.now());
+  // `selectedDate` is a DATE TOKEN (a Kyiv calendar day), not an instant — the
+  // real screen seeds it from `kyivToday(ref.read(clockProvider))`. Seeding it
+  // with a bare `DateTime.now()` handed the guard a host-local INSTANT whose
+  // `.year`/`.month`/`.day` are the DEVICE's calendar day, which is a
+  // different day from Kyiv's for part of every 24h window on any non-Kyiv
+  // host.
+  SlotPickerState build() =>
+      SlotPickerState(selectedDate: kyivToday(DateTime.now));
 }
 
 /// [MaterialApp.router] wrapper for the real [appRouter] with l10n delegates.
@@ -335,6 +379,19 @@ void main() {
           approvedCategoriesProvider.overrideWith(
             (ref) async => const <ServiceCategoryOption>[],
           ),
+          // Phase 240 — ServiceSelectorSheet now also watches wishlistProvider
+          // (to prime each row's favourite heart). Overriding the NESTED
+          // wishlistRepositoryProvider is NOT enough: `Wishlist.build()`
+          // unconditionally starts its own 5-minute keep-alive TTL Timer
+          // BEFORE it ever reads the repository, and `ref.onDispose` only
+          // cancels it when the PROVIDER disposes — which for this file's
+          // manual `ProviderContainer` happens in `container.dispose()`
+          // (`addTearDown`), AFTER flutter_test's `!timersPending` check —
+          // same ordering gotcha `myRatingProvider`'s override below
+          // documents. Bypassing `Wishlist.build()` entirely — not just its
+          // repository dependency — is the fix; see
+          // `_SettledWishlistNotifier` below.
+          wishlistProvider.overrideWith(_SettledWishlistNotifier.new),
           // Settles the INDEPENDENT_MASTER redirect target (/master/profile)
           // synchronously — same leaked-timer regression, different screen.
           masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
@@ -382,6 +439,22 @@ void main() {
               _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
             },
           ),
+          // Malformed/guard-redirect cases land the CLIENT session on
+          // `RouteNames.clientHome` (HomeHubScreen), whose `_StatPillsRow`
+          // watches `myRatingProvider`. `myRating`'s build (`my_rating_
+          // notifier.dart`) unconditionally starts a 5-minute
+          // `ref.keepAlive()` TTL `Timer` — correctly cancelled via
+          // `ref.onDispose` on provider disposal, but disposal only happens
+          // when `container.dispose()` runs (`addTearDown`, AFTER a test
+          // body returns), which is AFTER the `!timersPending` tear-down
+          // check. The `retry: null` knob above does not help here — that
+          // only suppresses Riverpod's error-retry backoff, not this
+          // explicit application Timer. Same leaked-timer shape as the
+          // other overrides in this list; settling with an override
+          // (bypassing `myRating`'s build body, and the Timer, entirely) is
+          // the fix, mirroring `role_landing_chrome_test.dart`'s identical
+          // fix for the same screen.
+          myRatingProvider.overrideWith((ref) async => const ClientRating()),
         ],
       );
       addTearDown(container.dispose);
@@ -437,7 +510,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(BookingTimeScreen), findsNothing);
+        expect(find.byType(SlotDateScreen), findsNothing);
       });
 
       testWidgets('/booking/slots/time (extra: valid args) → /master/profile', (
@@ -502,19 +575,6 @@ void main() {
         },
       );
 
-      testWidgets(
-        '/booking/salon/coming-soon (extra: salonId) → /master/profile',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _masterSession);
-
-          router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.masterProfile));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
-
       testWidgets('/booking/salon/time (extra: valid args) → /master/profile', (
         tester,
       ) async {
@@ -546,7 +606,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.bookingSlots));
-        expect(find.byType(BookingTimeScreen), findsOneWidget);
+        expect(find.byType(SlotDateScreen), findsOneWidget);
       });
 
       testWidgets('/booking/slots/time (extra: valid args)', (tester) async {
@@ -607,18 +667,6 @@ void main() {
         expect(find.byType(SalonMasterSelectionScreen), findsOneWidget);
       });
 
-      testWidgets('/booking/salon/coming-soon (extra: salonId)', (
-        tester,
-      ) async {
-        final router = await pumpRouterAs(tester, _clientSession);
-
-        router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
-        await tester.pumpAndSettle();
-
-        expect(locationOf(router), equals(RouteNames.salonBookingComingSoon));
-        expect(find.byType(SalonBookingComingSoonScreen), findsOneWidget);
-      });
-
       testWidgets('/booking/salon/time (extra: valid args)', (tester) async {
         final router = await pumpRouterAs(tester, _clientSession);
 
@@ -672,7 +720,7 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(BookingTimeScreen), findsNothing);
+          expect(find.byType(SlotDateScreen), findsNothing);
         },
       );
 
@@ -819,33 +867,6 @@ void main() {
 
       // Phase 14.13 — /booking/salon/coming-soon requires a non-empty String
       // (salonId) extra, mirroring /booking/salon/services' guard shape.
-      testWidgets(
-        '/booking/salon/coming-soon with a missing extra redirects to /home '
-        '(clientHome)',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _clientSession);
-
-          router.go(RouteNames.salonBookingComingSoon);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
-
-      testWidgets(
-        '/booking/salon/coming-soon with a wrong-typed extra redirects to '
-        '/home (clientHome)',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _clientSession);
-
-          router.go(RouteNames.salonBookingComingSoon, extra: 42);
-          await tester.pumpAndSettle();
-
-          expect(locationOf(router), equals(RouteNames.clientHome));
-          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
-        },
-      );
 
       // Phase 14.16 — /booking/salon/time has no natural upstream salon id
       // to chain-redirect through either — same "no natural upstream"
@@ -872,6 +893,79 @@ void main() {
 
           expect(locationOf(router), equals(RouteNames.clientHome));
           expect(find.byType(SalonTimeScreen), findsNothing);
+        },
+      );
+    });
+
+    // =====================================================================
+    // `/booking/salon/masters` — a SALON-role bounce, for the wish-list entry
+    // =====================================================================
+    //
+    // This route became a PRODUCTION entry point in its own right when the
+    // salon-arm Beauty Passport favourite's «Обрати майстра» stopped opening
+    // the salon profile deep-linked to a filtered "Майстри" tab (deleted, see
+    // `salon_profile_no_deep_link_seed_test.dart`) and started pushing here
+    // with a `SalonBookingMasterSelectionArgs` instead. It is now reachable
+    // from two unrelated call sites, so its guard carries more weight than
+    // when step 1 was its only caller.
+    //
+    // Already covered elsewhere in this file, deliberately NOT duplicated:
+    //   * CLIENT + valid args is admitted            ("CLIENT may reach…")
+    //   * INDEPENDENT_MASTER + valid args is bounced ("…bounced off every…")
+    //   * CLIENT + missing / wrong-typed extra → /home ("malformed extra…")
+    //
+    // ── A GUARD THAT WAS WRITTEN, PROVEN VACUOUS, AND REMOVED ────────────
+    // The obvious remaining gap looks like the ORDER of the two checks in
+    // this route's `redirect:` — role gate first, extra gate second. Swap
+    // them and a non-CLIENT arriving with a malformed extra would seemingly
+    // be handed `RouteNames.clientHome`, the CLIENT home shell: a role leak.
+    //
+    // Three tests were written for that (INDEPENDENT_MASTER + missing extra,
+    // INDEPENDENT_MASTER + wrong-typed extra, SALON_OWNER + missing extra)
+    // and all three stayed GREEN when the two `if`s were actually swapped in
+    // `app_router.dart`. The reason is that the leak cannot happen: the
+    // GLOBAL `authRedirect` prefix gate (`auth_redirect.dart`'s
+    // `clientBranchPrefixes` block) re-evaluates the redirect chain and
+    // bounces any non-CLIENT off `RouteNames.clientHome` to
+    // `roleHomePath(role)` anyway. Either ordering therefore resolves to the
+    // SAME location, so no assertion on the resolved location can distinguish
+    // them — those three tests could never fail and were removed rather than
+    // left as green decoration.
+    //
+    // What DOES survive a mutation is the one below: delete `clientOnlyGuard`
+    // from this route and a SALON_OWNER carrying valid args is ADMITTED to
+    // `/booking/salon/masters` (verified: `Expected: '/' Actual:
+    // '/booking/salon/masters'`) — the global gate does not cover `/booking/*`
+    // at all, so this route's own role check is the only thing standing there.
+    group('/booking/salon/masters role gate (salon roles)', () {
+      // SALON_OWNER exercises `roleHomePath`'s OTHER branch (`_ =>
+      // RouteNames.home`). Every other non-CLIENT assertion in this file uses
+      // INDEPENDENT_MASTER, whose landing (`/master/profile`) is a different
+      // path — so a regression that hard-coded ONE non-CLIENT destination
+      // would pass everywhere else and fail only here.
+      testWidgets(
+        'a SALON_OWNER with VALID args is bounced to its role home (/), not '
+        'admitted into the salon booking flow',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _salonOwnerSession);
+
+          router.go(
+            RouteNames.salonBookingMasters,
+            extra: _validSalonMasterArgs(),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(RouteNames.home),
+            reason:
+                'roleHomePath(salonOwner) is RouteNames.home — a valid extra '
+                'must not buy a non-CLIENT role into the salon booking flow, '
+                'and /booking/* is NOT covered by the global authRedirect '
+                'prefix gate, so this route\'s own clientOnlyGuard is the '
+                'only thing enforcing it',
+          );
+          expect(find.byType(SalonMasterSelectionScreen), findsNothing);
         },
       );
     });

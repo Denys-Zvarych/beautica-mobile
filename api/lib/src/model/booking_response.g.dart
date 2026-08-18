@@ -106,6 +106,10 @@ class _$BookingResponse extends BookingResponse {
   final int? durationMinutesAtBooking;
   @override
   final DateTime? createdAt;
+  @override
+  final String? appointmentId;
+  @override
+  final bool? awaitingClosure;
 
   factory _$BookingResponse([void Function(BookingResponseBuilder)? updates]) =>
       (BookingResponseBuilder()..update(updates))._build();
@@ -122,7 +126,9 @@ class _$BookingResponse extends BookingResponse {
       this.priceAtBooking,
       this.priceMaxAtBooking,
       this.durationMinutesAtBooking,
-      this.createdAt})
+      this.createdAt,
+      this.appointmentId,
+      this.awaitingClosure})
       : super._();
   @override
   BookingResponse rebuild(void Function(BookingResponseBuilder) updates) =>
@@ -146,7 +152,9 @@ class _$BookingResponse extends BookingResponse {
         priceAtBooking == other.priceAtBooking &&
         priceMaxAtBooking == other.priceMaxAtBooking &&
         durationMinutesAtBooking == other.durationMinutesAtBooking &&
-        createdAt == other.createdAt;
+        createdAt == other.createdAt &&
+        appointmentId == other.appointmentId &&
+        awaitingClosure == other.awaitingClosure;
   }
 
   @override
@@ -164,6 +172,8 @@ class _$BookingResponse extends BookingResponse {
     _$hash = $jc(_$hash, priceMaxAtBooking.hashCode);
     _$hash = $jc(_$hash, durationMinutesAtBooking.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, appointmentId.hashCode);
+    _$hash = $jc(_$hash, awaitingClosure.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -182,7 +192,9 @@ class _$BookingResponse extends BookingResponse {
           ..add('priceAtBooking', priceAtBooking)
           ..add('priceMaxAtBooking', priceMaxAtBooking)
           ..add('durationMinutesAtBooking', durationMinutesAtBooking)
-          ..add('createdAt', createdAt))
+          ..add('createdAt', createdAt)
+          ..add('appointmentId', appointmentId)
+          ..add('awaitingClosure', awaitingClosure))
         .toString();
   }
 }
@@ -243,6 +255,16 @@ class BookingResponseBuilder
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
 
+  String? _appointmentId;
+  String? get appointmentId => _$this._appointmentId;
+  set appointmentId(String? appointmentId) =>
+      _$this._appointmentId = appointmentId;
+
+  bool? _awaitingClosure;
+  bool? get awaitingClosure => _$this._awaitingClosure;
+  set awaitingClosure(bool? awaitingClosure) =>
+      _$this._awaitingClosure = awaitingClosure;
+
   BookingResponseBuilder() {
     BookingResponse._defaults(this);
   }
@@ -262,6 +284,8 @@ class BookingResponseBuilder
       _priceMaxAtBooking = $v.priceMaxAtBooking;
       _durationMinutesAtBooking = $v.durationMinutesAtBooking;
       _createdAt = $v.createdAt;
+      _appointmentId = $v.appointmentId;
+      _awaitingClosure = $v.awaitingClosure;
       _$v = null;
     }
     return this;
@@ -295,6 +319,8 @@ class BookingResponseBuilder
           priceMaxAtBooking: priceMaxAtBooking,
           durationMinutesAtBooking: durationMinutesAtBooking,
           createdAt: createdAt,
+          appointmentId: appointmentId,
+          awaitingClosure: awaitingClosure,
         );
     replace(_$result);
     return _$result;

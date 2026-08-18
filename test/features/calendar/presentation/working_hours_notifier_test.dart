@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/calendar/presentation/working_hours_not
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockWorkingHoursRepository extends Mock
     implements WorkingHoursRepository {}
@@ -47,6 +48,7 @@ List<WorkingHours> _week({bool active = true}) => [
 
 ProviderContainer _makeContainer(_MockWorkingHoursRepository repo) {
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [workingHoursRepositoryProvider.overrideWithValue(repo)],
   );
   addTearDown(container.dispose);

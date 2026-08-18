@@ -99,4 +99,57 @@ void main() {
       );
     }
   });
+
+  // QA (mobile-qa golden-verdict follow-up, backlog row 313) — backlog row
+  // 313 deferred a golden for "MyRatingScreen star-row at 320px/large text
+  // scale... until the backend client-rating endpoint ships and the screen
+  // stabilises". The endpoint has now shipped, but the screen ALSO gained a
+  // whole new two-column layout (proportional bars + right-aligned counts)
+  // that has NEVER been exercised at a stress size, AND a follow-up
+  // (mobile-perf LOW) is about to strip this card's `HubFlatCard` wrapper at
+  // its three call sites — a golden captured today would need re-baselining
+  // the moment that lands, which is exactly the kind of self-referential
+  // churn a golden should not be used for. A plain overflow-stress test (no
+  // pixel snapshot) catches the layout risk that actually exists today — a
+  // `RenderFlex`/text overflow from the two-column Row + IntrinsicHeight
+  // under a narrow width and inflated font — for free, and it is written
+  // against RatingSummaryCard directly (no HubFlatCard in this pump), so it
+  // is unaffected by that pending wrapper removal. See the audit's golden
+  // verdict for the full reasoning.
+  testWidgets(
+    'the two-column distribution table survives 320dp width + 1.3x text '
+    'scale without a RenderFlex/text overflow',
+    (tester) async {
+      await tester.pumpApp(
+        _host(
+          const RatingSummaryCard(
+            avgRating: 4.7,
+            reviewCount: 12,
+            distribution: <int>[7, 3, 1, 1, 0],
+            countLabel: '12 відгуків',
+            averageKey: _avgKey,
+          ),
+        ),
+        width: 320,
+        textScaleFactor: 1.3,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'no RenderFlex/text overflow may escape at the narrowest '
+            'Android width (320dp) combined with an elevated text scale — '
+            'this is the two-column table backlog row 313 named, never '
+            'exercised at a stress size before this test',
+      );
+
+      // The average and at least one distribution row must still be on
+      // screen (not silently clipped to nothing by an overflow guard that
+      // only catches RenderFlex, not visual truncation).
+      expect(find.byKey(_avgKey), findsOneWidget);
+      expect(find.text('7'), findsOneWidget);
+    },
+  );
 }

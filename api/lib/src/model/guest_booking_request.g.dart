@@ -8,7 +8,9 @@ part of 'guest_booking_request.dart';
 
 class _$GuestBookingRequest extends GuestBookingRequest {
   @override
-  final String serviceId;
+  final String? serviceId;
+  @override
+  final BuiltList<String>? masterServiceIds;
   @override
   final DateTime startsAt;
   @override
@@ -21,7 +23,8 @@ class _$GuestBookingRequest extends GuestBookingRequest {
       (GuestBookingRequestBuilder()..update(updates))._build();
 
   _$GuestBookingRequest._(
-      {required this.serviceId,
+      {this.serviceId,
+      this.masterServiceIds,
       required this.startsAt,
       required this.name,
       required this.surname})
@@ -40,6 +43,7 @@ class _$GuestBookingRequest extends GuestBookingRequest {
     if (identical(other, this)) return true;
     return other is GuestBookingRequest &&
         serviceId == other.serviceId &&
+        masterServiceIds == other.masterServiceIds &&
         startsAt == other.startsAt &&
         name == other.name &&
         surname == other.surname;
@@ -49,6 +53,7 @@ class _$GuestBookingRequest extends GuestBookingRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, serviceId.hashCode);
+    _$hash = $jc(_$hash, masterServiceIds.hashCode);
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, surname.hashCode);
@@ -60,6 +65,7 @@ class _$GuestBookingRequest extends GuestBookingRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'GuestBookingRequest')
           ..add('serviceId', serviceId)
+          ..add('masterServiceIds', masterServiceIds)
           ..add('startsAt', startsAt)
           ..add('name', name)
           ..add('surname', surname))
@@ -74,6 +80,12 @@ class GuestBookingRequestBuilder
   String? _serviceId;
   String? get serviceId => _$this._serviceId;
   set serviceId(String? serviceId) => _$this._serviceId = serviceId;
+
+  ListBuilder<String>? _masterServiceIds;
+  ListBuilder<String> get masterServiceIds =>
+      _$this._masterServiceIds ??= ListBuilder<String>();
+  set masterServiceIds(ListBuilder<String>? masterServiceIds) =>
+      _$this._masterServiceIds = masterServiceIds;
 
   DateTime? _startsAt;
   DateTime? get startsAt => _$this._startsAt;
@@ -95,6 +107,7 @@ class GuestBookingRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _serviceId = $v.serviceId;
+      _masterServiceIds = $v.masterServiceIds?.toBuilder();
       _startsAt = $v.startsAt;
       _name = $v.name;
       _surname = $v.surname;
@@ -117,17 +130,30 @@ class GuestBookingRequestBuilder
   GuestBookingRequest build() => _build();
 
   _$GuestBookingRequest _build() {
-    final _$result = _$v ??
-        _$GuestBookingRequest._(
-          serviceId: BuiltValueNullFieldError.checkNotNull(
-              serviceId, r'GuestBookingRequest', 'serviceId'),
-          startsAt: BuiltValueNullFieldError.checkNotNull(
-              startsAt, r'GuestBookingRequest', 'startsAt'),
-          name: BuiltValueNullFieldError.checkNotNull(
-              name, r'GuestBookingRequest', 'name'),
-          surname: BuiltValueNullFieldError.checkNotNull(
-              surname, r'GuestBookingRequest', 'surname'),
-        );
+    _$GuestBookingRequest _$result;
+    try {
+      _$result = _$v ??
+          _$GuestBookingRequest._(
+            serviceId: serviceId,
+            masterServiceIds: _masterServiceIds?.build(),
+            startsAt: BuiltValueNullFieldError.checkNotNull(
+                startsAt, r'GuestBookingRequest', 'startsAt'),
+            name: BuiltValueNullFieldError.checkNotNull(
+                name, r'GuestBookingRequest', 'name'),
+            surname: BuiltValueNullFieldError.checkNotNull(
+                surname, r'GuestBookingRequest', 'surname'),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'masterServiceIds';
+        _masterServiceIds?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'GuestBookingRequest', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

@@ -227,6 +227,7 @@ EOF
   echo "SELF-TEST PASS: 4 vacuous route assertions flagged (RouteNames.home,"
   echo "                literal '/', unqualified local copy, renamed shell"
   echo "                variant); compliant / commented / annotated lines clean"
+  echo "SELF-TEST OK: forbid_expectlocation_home.sh"
   exit 0
 fi
 

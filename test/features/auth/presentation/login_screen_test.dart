@@ -18,11 +18,11 @@
 //   2. Invalid email → inline errorText shown on email field, login NOT called.
 //   3. While loading (AsyncLoading state) → NeumorphicButton shows spinner,
 //      label text is not visible.
-//   4. login() results in AsyncError(UnauthorizedFailure) → SnackBar shown.
+//   4. login() results in AsyncError(UnauthorizedFailure) → VelvetSnack shown.
 //   5. login_signup key is present in the widget tree.
 //   6. Tapping login_signup navigates to /register/role.
 //   7. Tapping login_forgot navigates to /forgot-password.
-//   8. EMAIL_NOT_VERIFIED error → AuthBanner shown, no SnackBar.
+//   8. EMAIL_NOT_VERIFIED error → AuthBanner shown, no VelvetSnack.
 
 import 'dart:async';
 
@@ -38,6 +38,7 @@ import 'package:beautica_mobile/features/auth/presentation/login_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,6 +46,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,6 +110,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -159,6 +163,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -213,6 +218,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authProvider.overrideWith(() => _LoadingAuthNotifier()),
               authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -251,75 +257,83 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 4 — wrong-password 401 → SnackBar shows InvalidCredentialsFailure
+    // Test 4 — wrong-password 401 → VelvetSnack shows InvalidCredentialsFailure
     //          message, NOT the session-expiry message (critical bug fix)
     //
     // The repository remaps plain UnauthorizedFailure (emailNotVerified=false)
     // to InvalidCredentialsFailure so the login screen shows "Incorrect email
     // or password" rather than "Session expired. Sign in again."
     // -----------------------------------------------------------------------
-    testWidgets('4. wrong-password 401 → SnackBar shows errInvalidCredentials, '
-        'NOT errUnauthorized (session-expiry copy)', (tester) async {
-      final storage = FakeSecureStorage();
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+    testWidgets(
+      '4. wrong-password 401 → VelvetSnack shows errInvalidCredentials, '
+      'NOT errUnauthorized (session-expiry copy)',
+      (tester) async {
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            authProvider.overrideWith(() => _InvalidCredentialsAuthNotifier()),
-            authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-            secureStorageProvider.overrideWith((_) => storage),
-          ],
-          child: MaterialApp.router(
-            routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: [
+              authProvider.overrideWith(
+                () => _InvalidCredentialsAuthNotifier(),
+              ),
+              authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // Enter a syntactically valid email + password so local validation passes.
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('login_email')),
-        'user@example.com',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('login_password')),
-        'wrongpassword',
-      );
+        // Enter a syntactically valid email + password so local validation passes.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_email')),
+          'user@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_password')),
+          'wrongpassword',
+        );
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('login_submit')),
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
-      await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('login_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
+        await pumpVelvetSnackIn(tester);
 
-      // The SnackBar must be present.
-      expect(find.byType(SnackBar), findsOneWidget);
+        // l10n resolved from a still-mounted widget — the VelvetSnack overlay
+        // entry is a sibling of the routed screen subtree (root Overlay), not
+        // a descendant, so it cannot supply its own BuildContext for lookup.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('login_email'))),
+        );
 
-      final l10n = AppLocalizations.of(tester.element(find.byType(SnackBar)));
+        // Must show the specific wrong-credentials message, as an error snack.
+        expectVelvetSnack(
+          l10n.errInvalidCredentials,
+          variant: VelvetSnackVariant.error,
+        );
 
-      // Must show the specific wrong-credentials message.
-      expect(
-        find.text(l10n.errInvalidCredentials),
-        findsOneWidget,
-        reason:
-            'A 401 on /auth/login means wrong credentials — the screen '
-            'must show errInvalidCredentials, not the session-expiry copy',
-      );
+        // Must NOT show the misleading session-expiry message.
+        expect(
+          find.text(l10n.errUnauthorized),
+          findsNothing,
+          reason:
+              'errUnauthorized (session-expiry copy) must NOT appear for '
+              'wrong-password 401s on the login screen',
+        );
 
-      // Must NOT show the misleading session-expiry message.
-      expect(
-        find.text(l10n.errUnauthorized),
-        findsNothing,
-        reason:
-            'errUnauthorized (session-expiry copy) must NOT appear for '
-            'wrong-password 401s on the login screen',
-      );
-    });
+        // Drain the dwell Timer so it does not leak past the test.
+        await pumpPastVelvetSnack(tester);
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 5 — login_signup key exists
@@ -334,6 +348,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -367,6 +382,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -406,6 +422,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -457,6 +474,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -562,6 +580,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -625,6 +644,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -686,6 +706,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authProvider.overrideWith(() => _UnverifiedAuthNotifier()),
               authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -739,10 +760,10 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 8 — EMAIL_NOT_VERIFIED → AuthBanner shown, no SnackBar
+    // Test 8 — EMAIL_NOT_VERIFIED → AuthBanner shown, no VelvetSnack
     // -----------------------------------------------------------------------
     testWidgets(
-      '8. EMAIL_NOT_VERIFIED error → AuthBanner shown instead of SnackBar',
+      '8. EMAIL_NOT_VERIFIED error → AuthBanner shown instead of VelvetSnack',
       (tester) async {
         final storage = FakeSecureStorage();
         final router = _makeRouter();
@@ -750,6 +771,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authProvider.overrideWith(() => _UnverifiedAuthNotifier()),
               authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -787,15 +809,15 @@ void main() {
           findsOneWidget,
           reason:
               'AuthBanner must appear when login returns EMAIL_NOT_VERIFIED; '
-              'no SnackBar should be shown',
+              'no VelvetSnack should be shown',
         );
 
-        // No floating SnackBar should appear for the unverified case.
+        // No VelvetSnack should appear for the unverified case.
         expect(
-          find.byType(SnackBar),
+          find.byType(VelvetSnack),
           findsNothing,
           reason:
-              'SnackBar must NOT appear for EMAIL_NOT_VERIFIED — '
+              'VelvetSnack must NOT appear for EMAIL_NOT_VERIFIED — '
               'the AuthBanner is the inline feedback for this state',
         );
       },
@@ -817,6 +839,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
+          retry: beauticaProviderRetry,
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -862,9 +885,12 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 14 — ScreenProtector guard: kDebugMode skips preventScreenshotOn/Off
     //
-    // LoginScreen calls ScreenProtector.preventScreenshotOn() in initState and
-    // preventScreenshotOff() in dispose, both inside `if (!kDebugMode)` guards.
-    // In the test runner kDebugMode == true, so the platform-channel calls are
+    // LoginScreen does NOT call ScreenProtector directly. It captures the
+    // app-wide ref-counted ScreenProtectionManager in initState
+    // (`ref.read(screenProtectionProvider)..acquire()`) and calls `release()`
+    // in dispose; the manager is the single owner that talks to the
+    // screen_protector plugin, and it is internally `!kDebugMode`-guarded. In
+    // the test runner kDebugMode == true, so the platform-channel calls are
     // intentionally suppressed.
     //
     // This test exists to catch the regression where the guard is removed (e.g.
@@ -893,6 +919,7 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
+            retry: beauticaProviderRetry,
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -974,7 +1001,7 @@ class _LoadingAuthNotifier extends AuthNotifier {
 }
 
 /// Returns [UnauthorizedFailure] with [emailNotVerified] = true — triggers
-/// the inline [AuthBanner] path instead of the SnackBar.
+/// the inline [AuthBanner] path instead of the VelvetSnack.
 ///
 /// MEDIUM-2 (mobile-security 2026-05-24): the screen now checks
 /// `e.emailNotVerified` (a typed field set by ErrorMapperInterceptor) instead

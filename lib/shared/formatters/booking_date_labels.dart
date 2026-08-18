@@ -1,14 +1,19 @@
-// Phase 14.1 — Ukrainian calendar vocabulary for the booking slot picker.
+// Phase 14.1 — booking-flow date/time label composition (Europe/Kyiv-aware).
 //
-// Fixed calendar constants (month/weekday short forms), not translated user
-// copy — mirrors the existing `duration_minutes.dart` / `service_price_display.dart`
-// precedent of embedding Ukrainian words directly in a pure-Dart formatter
-// rather than routing through `AppLocalizations` (this app is UA-primary;
-// l10n infrastructure is reserved for genuinely translatable UI copy).
+// The Ukrainian calendar vocabulary (month/weekday names) used to be five
+// fixed consts defined in this file. Phase 23.3 deleted them and repointed
+// every lookup at `shared/formatters/uk_calendar.dart`, the single canonical
+// home for that vocabulary across the app (see that file's header for the
+// "why hand-authored, not `AppLocalizations`/`intl`" rationale — this app is
+// UA-primary; l10n infrastructure is reserved for genuinely translatable UI
+// copy, a decision upheld unchanged since Phase 23.1). This file now owns two
+// things only: composing the resolved words into the booking flow's specific
+// label shapes, and converting each incoming instant to the salon wall-clock
+// before any word or field is read from it.
 //
 // TIMEZONE: every incoming instant is canonical UTC (the generated built_value
-// client normalises every wire `DateTime` to UTC). All six formatters below
-// convert it to the salon market wall-clock (Europe/Kyiv, DST-aware) via
+// client normalises every wire `DateTime` to UTC). Every formatter below
+// converts it to the salon market wall-clock (Europe/Kyiv, DST-aware) via
 // [toBeauticaTime] before reading any hour/minute/day/weekday/month field —
 // NOT device `.toLocal()`, which rendered wrong on non-Kyiv devices and failed
 // on CI's UTC runner. The stored/transmitted instant is never mutated; this is
@@ -17,88 +22,8 @@
 //
 // Pure Dart — no Flutter imports.
 
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
-
-/// Ukrainian month names in the nominative (calendar-header) form, January-first.
-const List<String> kMonthsUk = <String>[
-  'Січень',
-  'Лютий',
-  'Березень',
-  'Квітень',
-  'Травень',
-  'Червень',
-  'Липень',
-  'Серпень',
-  'Вересень',
-  'Жовтень',
-  'Листопад',
-  'Грудень',
-];
-
-/// Short Ukrainian month forms used inside the chosen-window line ("14 лип").
-const List<String> kMonthsUkShort = <String>[
-  'січ',
-  'лют',
-  'бер',
-  'кві',
-  'тра',
-  'чер',
-  'лип',
-  'сер',
-  'вер',
-  'жов',
-  'лис',
-  'гру',
-];
-
-/// Short Ukrainian weekday forms, Monday-first (index 0 = Monday, matching
-/// [DateTime.weekday]'s 1-based Monday-first numbering via `weekday - 1`).
-const List<String> kWeekdaysUkShort = <String>[
-  'пн',
-  'вт',
-  'ср',
-  'чт',
-  'пт',
-  'сб',
-  'нд',
-];
-
-// Phase 14.2 — full weekday/genitive-month forms for the booking confirm +
-// success summary cards' full-width "Дата" row (e.g. "понеділок, 14 липня"),
-// which never abbreviates. Mirrors
-// `docs/signup-designs/BookingConfirmSuccess/lib/util/uk_format.dart`
-// verbatim (`kWeekdaysUkFull` / `kMonthsUkGenitive`), added to this existing
-// file rather than a new `uk_format.dart` since the vocabulary belongs with
-// the rest of the booking flow's calendar constants.
-
-/// Full Ukrainian month forms in the genitive case, as they read after a day
-/// number ("14 липня"). Used by [formatFullDate].
-const List<String> kMonthsUkGenitive = <String>[
-  'січня',
-  'лютого',
-  'березня',
-  'квітня',
-  'травня',
-  'червня',
-  'липня',
-  'серпня',
-  'вересня',
-  'жовтня',
-  'листопада',
-  'грудня',
-];
-
-/// Full Ukrainian weekday names, Monday-first ("понеділок"…"неділя"). Used by
-/// [formatFullDate].
-const List<String> kWeekdaysUkFull = <String>[
-  'понеділок',
-  'вівторок',
-  'середа',
-  'четвер',
-  'пʼятниця',
-  'субота',
-  'неділя',
-];
 
 String _twoDigits(int v) => v.toString().padLeft(2, '0');
 
@@ -111,8 +36,8 @@ String _twoDigits(int v) => v.toString().padLeft(2, '0');
 /// day/weekday/month must all come from the Kyiv value.
 String formatBookingDayHeader(DateTime day) {
   final DateTime local = toBeauticaTime(day);
-  final String wd = kWeekdaysUkShort[local.weekday - 1];
-  final String mon = kMonthsUkShort[local.month - 1];
+  final String wd = weekdayAbbrev(local.weekday);
+  final String mon = monthAbbrev(local.month);
   return '$wd, ${local.day} $mon';
 }
 
@@ -124,8 +49,8 @@ String formatBookingDayHeader(DateTime day) {
 String formatBookingWindow(DateTime start, DateTime end) {
   final DateTime startLocal = toBeauticaTime(start);
   final DateTime endLocal = toBeauticaTime(end);
-  final String wd = kWeekdaysUkShort[startLocal.weekday - 1];
-  final String mon = kMonthsUkShort[startLocal.month - 1];
+  final String wd = weekdayAbbrev(startLocal.weekday);
+  final String mon = monthAbbrev(startLocal.month);
   final String s =
       '${_twoDigits(startLocal.hour)}:${_twoDigits(startLocal.minute)}';
   final String e =
@@ -148,8 +73,8 @@ String formatSlotTime(DateTime time) {
 /// (unlike [formatBookingDayHeader]'s compact chip form).
 String formatFullDate(DateTime day) {
   final DateTime local = toBeauticaTime(day);
-  final String wd = kWeekdaysUkFull[local.weekday - 1];
-  final String mon = kMonthsUkGenitive[local.month - 1];
+  final String wd = weekdayName(local.weekday);
+  final String mon = monthGenitive(local.month);
   return '$wd, ${local.day} $mon';
 }
 
@@ -220,7 +145,17 @@ String formatSlotTimeRange(DateTime start, DateTime end) {
 /// formatter, since its only caller was that card.)
 String formatStubDayLine(DateTime day) {
   final DateTime local = toBeauticaTime(day);
-  final String mon = kMonthsUkGenitive[local.month - 1];
-  final String wd = kWeekdaysUkShort[local.weekday - 1];
+  final String mon = monthGenitive(local.month);
+  final String wd = weekdayAbbrev(local.weekday);
   return '$mon, $wd';
 }
+
+/// The booking card's date-stub first line: the bare Kyiv-local day number,
+/// e.g. `18`. Paired with [formatStubDayLine] directly below it — together
+/// the two lines must describe the same calendar date, so this reads the day
+/// field the same way its sibling does: convert to the Europe/Kyiv wall-clock
+/// via [toBeauticaTime] BEFORE reading `.day`, never off the raw UTC instant.
+/// A late-evening Kyiv booking is already the next UTC day, so a bare
+/// `day.toString()` on the untouched instant can print a date one day behind
+/// the (correct) month/weekday line beside it.
+String formatStubDayNumber(DateTime day) => toBeauticaTime(day).day.toString();

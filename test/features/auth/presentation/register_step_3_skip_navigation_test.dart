@@ -50,6 +50,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -151,6 +152,7 @@ Future<(GoRouter, _MockAuthRepository)> _pumpClientSkip(
   ).thenAnswer((_) async => result);
 
   final container = ProviderContainer(
+    retry: beauticaProviderRetry,
     overrides: [
       authRepositoryProvider.overrideWith((_) => authRepo),
       locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
