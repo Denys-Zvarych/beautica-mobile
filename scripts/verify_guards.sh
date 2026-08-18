@@ -34,11 +34,38 @@
 # sequential runner.
 #
 # Usage:
-#   ./scripts/verify_guards.sh          run every discovered guard
-#   ./scripts/verify_guards.sh --list   print discovered guards, don't run them
+#   ./scripts/verify_guards.sh              run every discovered guard
+#   ./scripts/verify_guards.sh --list       print discovered guards, don't run them
+#   ./scripts/verify_guards.sh --self-test  run every guard's OWN --self-test
 #
-# Self-test: guards themselves each carry their own --self-test; this runner
-# has nothing to self-test beyond discovery, which --list already exercises.
+# THE SECOND GAP: --self-test
+# ---------------------------
+# The note that used to sit here said this runner "has nothing to self-test
+# beyond discovery". That was wrong, and it hid the same class of silent gap
+# the script was written to close.
+#
+# `.github/workflows/pr-validate.yml` used to list all 22 guard `--self-test`
+# invocations BY HAND, one line each. Hand-maintained lists rot: a guard
+# added without someone remembering to append its CI line is a guard whose
+# self-test never runs anywhere — it looks covered (it has a --self-test!)
+# while being verified by nothing. That is exactly the failure mode of the
+# two bugs found on 2026-08-18: `no_raw_ui_strings` shipped as a
+# `custom_lint` plugin that was never loaded, and `riverpod_lint` stopped
+# being loaded when `custom_lint` was archived — both green, both enforcing
+# nothing.
+#
+# So --self-test derives the list from the SAME discovery glob that normal
+# mode uses. Adding a `scripts/forbid_*.sh` automatically enrols it; there is
+# no second place to forget.
+#
+# A guard "passes" its self-test only if it BOTH exits 0 AND prints the
+# sentinel line `SELF-TEST OK: <basename>`. Exit code alone is not enough —
+# exit 0 from a check that silently did nothing is precisely the bug being
+# guarded against, and a guard whose --self-test flag is unrecognised would
+# typically fall through to normal mode and exit 0 looking healthy. The
+# sentinel is the affirmative proof that the self-test path actually ran to
+# completion. The count of sentinels must equal the count of discovered
+# guards; any guard that produced none is named in the summary.
 
 set -euo pipefail
 
@@ -74,6 +101,13 @@ if [ "${1:-}" = "--list" ]; then
     echo "  $(basename "$g")"
   done
   exit 0
+fi
+
+# selftest_mode: passed down to run_one so the same dispatch machinery
+# (process group, bounded concurrency, buffered output) serves both modes.
+selftest_mode=0
+if [ "${1:-}" = "--self-test" ]; then
+  selftest_mode=1
 fi
 
 # ---------------------------------------------------------------------------
@@ -143,8 +177,30 @@ trap cleanup EXIT
 # job it reaps). Runs `bash "$g"` synchronously (no inner backgrounding, no
 # PID capture): with no pidfile to race against there is nothing left that
 # needs the guard's own PID.
+# In --self-test mode the guard is invoked as `bash "$g" --self-test` and the
+# sentinel assertion is applied here, so a guard that exits 0 without ever
+# reaching its self-test path is recorded as a FAILURE, not a pass. The
+# distinction between "exited non-zero" and "exited 0 but printed no
+# sentinel" is preserved in $rc (1 vs 2) so the summary can name the latter
+# specifically — that is the silent-gap case worth calling out by name.
 run_one() {
-  local g="$1" out="$2" rc="$3"
+  local g="$1" out="$2" rc="$3" selftest="$4"
+  local base
+  base="$(basename "$g")"
+
+  if [ "$selftest" = "1" ]; then
+    if bash "$g" --self-test >"$out" 2>&1; then
+      if grep -q "^SELF-TEST OK: $base\$" "$out"; then
+        printf '0\n' >"$rc"
+      else
+        printf '2\n' >"$rc"
+      fi
+    else
+      printf '1\n' >"$rc"
+    fi
+    return 0
+  fi
+
   if bash "$g" >"$out" 2>&1; then
     printf '0\n' >"$rc"
   else
@@ -181,7 +237,7 @@ set -m
   i=0
   for g in "${guards[@]}"; do
     i=$((i + 1))
-    run_one "$g" "$workdir/$i.out" "$workdir/$i.rc" &
+    run_one "$g" "$workdir/$i.out" "$workdir/$i.rc" "$selftest_mode" &
     running=$((running + 1))
     if [ "$running" -ge "$jobs_max" ]; then
       wait -n
@@ -196,25 +252,57 @@ wait "$group_pid" || true
 
 failed=()
 passed=()
+# no_sentinel: guards that exited 0 but never printed `SELF-TEST OK: <base>`.
+# Tracked separately from ordinary failures because it is the interesting
+# case: the guard reported success while proving nothing.
+no_sentinel=()
 i=0
 for g in "${guards[@]}"; do
   i=$((i + 1))
   name="$(basename "$g")"
   echo "== $name =="
   cat "$workdir/$i.out"
-  if [ "$(cat "$workdir/$i.rc")" = "0" ]; then
-    echo "PASS: $name"
-    passed+=("$name")
-  else
-    echo "FAIL: $name"
-    failed+=("$name")
-  fi
+  case "$(cat "$workdir/$i.rc")" in
+    0)
+      echo "PASS: $name"
+      passed+=("$name")
+      ;;
+    2)
+      echo "FAIL: $name — exited 0 but never printed 'SELF-TEST OK: $name'."
+      echo "      Either it has no --self-test mode (so --self-test fell"
+      echo "      through to normal mode and exited 0 looking healthy), or"
+      echo "      its self-test path does not emit the sentinel. Both mean"
+      echo "      this guard is verified by NOTHING."
+      failed+=("$name")
+      no_sentinel+=("$name")
+      ;;
+    *)
+      echo "FAIL: $name"
+      failed+=("$name")
+      ;;
+  esac
   echo
 done
 
-echo "=================== verify_guards summary ==================="
-echo "Passed: ${#passed[@]}/${#guards[@]}"
+if [ "$selftest_mode" = "1" ]; then
+  echo "============== verify_guards --self-test summary =============="
+  echo "Discovered guards: ${#guards[@]}"
+  echo "Sentinels seen:    ${#passed[@]}"
+else
+  echo "=================== verify_guards summary ==================="
+  echo "Passed: ${#passed[@]}/${#guards[@]}"
+fi
+
+if [ "${#no_sentinel[@]}" -gt 0 ]; then
+  echo
+  echo "No 'SELF-TEST OK' sentinel from (missing or non-emitting --self-test):"
+  for f in "${no_sentinel[@]}"; do
+    echo "  - $f"
+  done
+fi
+
 if [ "${#failed[@]}" -gt 0 ]; then
+  echo
   echo "Failed:"
   for f in "${failed[@]}"; do
     echo "  - $f"
@@ -222,5 +310,19 @@ if [ "${#failed[@]}" -gt 0 ]; then
   exit 1
 fi
 
-echo "All guards passed."
+# Cardinality assertion: every discovered guard must have contributed a
+# sentinel. Belt-and-suspenders over the per-guard checks above — if the two
+# ever disagree, the bookkeeping itself is broken and that must not pass
+# silently.
+if [ "$selftest_mode" = "1" ] && [ "${#passed[@]}" -ne "${#guards[@]}" ]; then
+  echo
+  echo "FAIL: sentinel count ${#passed[@]} != discovered guard count ${#guards[@]}."
+  exit 1
+fi
+
+if [ "$selftest_mode" = "1" ]; then
+  echo "All ${#guards[@]} guards self-tested and emitted their sentinel."
+else
+  echo "All guards passed."
+fi
 exit 0

@@ -150,6 +150,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   fi
   echo "SELF-TEST PASS: 1 raw currentConfiguration.uri/fullPath read flagged; annotated / AppHarness.location / commented lines clean"
+  echo "SELF-TEST OK: forbid_naive_router_location.sh"
   exit 0
 fi
 

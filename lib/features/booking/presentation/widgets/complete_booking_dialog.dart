@@ -18,8 +18,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
-/// Confirmation dialog for marking a booking (or a whole multi-service visit)
-/// COMPLETED.
+/// Confirmation dialog for marking ONE booking COMPLETED — either a
+/// standalone booking or a single service line of a multi-service visit.
 ///
 /// Show via [showDialog]:
 /// ```dart
@@ -27,7 +27,10 @@ import 'package:flutter/material.dart';
 ///   context: context,
 ///   builder: (_) => CompleteBookingDialog(isAppointment: booking.appointmentId != null),
 /// );
-/// if (confirmed == true) { /* proceed with completeBooking/completeAppointment */ }
+/// if (confirmed == true) {
+///   // completeAppointmentService(appointmentId, bookingId) for a visit's
+///   // service line, completeBooking(id) for a standalone booking.
+/// }
 /// ```
 ///
 /// Returns `true` when the provider confirmed, `false` (or `null` when the
@@ -36,10 +39,11 @@ import 'package:flutter/material.dart';
 class CompleteBookingDialog extends StatelessWidget {
   const CompleteBookingDialog({super.key, this.isAppointment = false});
 
-  /// `true` when the booking being completed is part of a multi-service
-  /// visit (`Booking.appointmentId != null`) — the confirm swaps to the
-  /// whole-visit copy so the provider knows every service in the visit is
-  /// about to be marked COMPLETED, not just the one they opened.
+  /// `true` when the booking being completed is one service line of a
+  /// multi-service visit (`Booking.appointmentId != null`) — the copy swaps
+  /// to the per-service wording, because the confirm completes only that one
+  /// service (`completeAppointmentService(appointmentId, bookingId)`) and its
+  /// sibling services stay CONFIRMED.
   final bool isAppointment;
 
   @override

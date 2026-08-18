@@ -888,6 +888,47 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// narrow device never clips a card at the viewport's right edge.
   static const double _kCardW = 272;
 
+  /// Minutes in one calendar day — the ceiling on where this grid's TOP may
+  /// sit. See [_kMaxEndMinute].
+  static const int _kDayMinutes = 24 * 60;
+
+  /// The hard ceiling on this grid's BOTTOM, in minutes since [day]'s Kyiv
+  /// midnight: two full days. Generous — a real day's latest booking end is
+  /// `< 1440 + its own duration` — but FINITE, which is the entire point.
+  ///
+  /// WHY A CLAMP EXISTS AT ALL (2026-08-17, unbounded-hang fix)
+  /// ----------------------------------------------------------
+  /// [_recomputeLayoutModel] derives the grid's extent from [bookings] with no
+  /// bound of its own, and `build` turns that extent into one
+  /// `TimelineHourRuler` row per hour — a SYNCHRONOUS, allocating loop. So a
+  /// single booking outside [day] does not merely render in the wrong place:
+  /// it sets `totalHours` to the distance between it and the rest of the day.
+  /// A row six years off the selected day produced ~56 500 rows, which starves
+  /// the Dart event loop outright — and once the loop is starved NOTHING
+  /// timer-based can rescue it (`Future.timeout`, `pumpAndSettle`'s deadline,
+  /// a test `Timeout`, a watchdog: all timers, none of which tick). The build
+  /// never returns.
+  ///
+  /// [bookingsInsideScheduleWindow] is NOT that bound. It is real, and it does
+  /// drop such a row — but only on `BookingsDiscoveryView`'s `data:` branch,
+  /// for an INTERVAL day, once a working-hours window has actually resolved.
+  /// The `loading:` and `error:` branches (`bookings_discovery_view.dart`) both
+  /// fall back to `window: null`, which hands this widget `state.items`
+  /// UNFILTERED with `scheduleFirstMinute == null` — the legacy
+  /// booking-derived path. "Schedule still loading" is the state of every cold
+  /// open of the master's «Мої записи», and "schedule errored" is permanent.
+  /// So the filter runs strictly AFTER, and sometimes never; it cannot be what
+  /// makes the extent safe.
+  ///
+  /// Hence this clamp, applied to the extent itself rather than to the card
+  /// set: `totalHours` is bounded BY CONSTRUCTION, whatever the server, a
+  /// timezone edge, or a stale cache hands in. It deliberately does NOT filter
+  /// [bookings] — that would re-introduce the second, independently-maintained
+  /// filtering computation this widget's class doc forbids (the header count
+  /// and the rendered cards must keep coming from one list). An out-of-window
+  /// card simply lands outside the clamped `Stack` and is not painted.
+  static const int _kMaxEndMinute = 2 * _kDayMinutes;
+
   // `_kMinInterCardGap` IS GONE — IT WAS THE DRIFT BUG (2026-07-24)
   // ----------------------------------------------------------------------
   // It was an 8dp (`VelvetSpacing.sm`) FLOOR on `_geometryForLane`'s spacer,
@@ -1142,9 +1183,15 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // the earliest booking's start. `bookings` is already the caller's
     // in-window set whenever `schedFirst` is set (see [bookings]'s doc), so
     // there is no separate "surviving" subset to derive here any more.
+    // `.clamp` to `[0, _kDayMinutes]` — the grid's top can never precede
+    // [day]'s Kyiv midnight nor start after the day is over, however far off
+    // the day an incoming booking sits. See [_kMaxEndMinute]'s doc for why
+    // this bound lives here and not in the (later, conditional) caller-side
+    // filter.
     _firstMinute =
-        schedFirst ??
-        (startMinutes.isEmpty ? 0 : startMinutes.reduce(math.min));
+        (schedFirst ??
+                (startMinutes.isEmpty ? 0 : startMinutes.reduce(math.min)))
+            .clamp(0, BookingsTimelineGrid._kDayMinutes);
     final int lastMinuteCandidate = bookings.isEmpty
         ? _firstMinute + 60
         : <int>[
@@ -1160,7 +1207,16 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
         ? lastMinuteCandidate
         : math.max(schedWindowEnd, lastMinuteCandidate);
     // Floor: the grid is never shorter than one hour, whatever the data says.
-    _lastMinute = math.max(lastMinuteBase, _firstMinute + 60);
+    // CEILING: nor longer than [_kMaxEndMinute] — so `lastHour - firstHour`
+    // (and therefore the ruler's per-hour row count, `build`'s
+    // `gridStackHeight`, and every gridline `Positioned`) is finite BY
+    // CONSTRUCTION rather than by the incoming data being well-behaved. The
+    // floor is applied last so it always wins: a `_firstMinute` sitting at the
+    // very top of its own clamp still gets its one hour of ruler.
+    _lastMinute = math.max(
+      math.min(lastMinuteBase, BookingsTimelineGrid._kMaxEndMinute),
+      _firstMinute + 60,
+    );
 
     // R3 FIX — group each booking's ORIGINAL index by its assigned lane.
     // [bookings] is already ascending by `startAt` (the class doc's
@@ -1190,6 +1246,16 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // Sharing this ONE floored origin makes a card's top/bottom offsets
     // coincide with the gridline offsets for its start/end times.
     final int originMinute = (_firstMinute ~/ 60) * 60;
+    // The clamped extent in px, in the SAME whole-hour space `build` derives
+    // `gridStackHeight` from, so a card can never be planned outside the ruler
+    // the clamp just bounded. For every in-window card this is inert: its
+    // `desiredTop` is `>= 0` (the origin is the floored earliest start) and
+    // `<= maxTopPx` (`lastHour` already covers the latest END). It bites only
+    // on a booking that does not belong to [day] at all — see
+    // [_kMaxEndMinute]'s doc, and [_geometryForLane]'s `maxTopPx` parameter for
+    // why such a card is repositioned rather than dropped.
+    final double maxTopPx =
+        ((_lastMinute / 60.0).ceil() - _firstMinute ~/ 60) * hourHeight;
     _laneGeometry = <List<_CardGeometry>>[
       for (final List<int> indices in indicesByLane)
         _geometryForLane(
@@ -1198,6 +1264,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
           startMinutes: startMinutes,
           originMinute: originMinute,
           hourHeight: hourHeight,
+          maxTopPx: maxTopPx,
         ),
     ];
   }
@@ -1614,12 +1681,27 @@ class _CardGeometry {
 /// whether two cards can overlap — that guarantee comes from the `Column`
 /// physically laying out child N+1 after child N's REAL rendered size,
 /// regardless of this estimate (see the file header's "R3" section).
+/// [maxTopPx] is the clamped extent's bottom, in the same px space as every
+/// `top` here (see [BookingsTimelineGrid._kMaxEndMinute]). Every in-window
+/// card's `desiredTop` already sits inside `[0, maxTopPx]`, so this bound is
+/// INERT for real data; it exists so a booking that does not belong to the
+/// selected day cannot plan a card 85 000dp down and hand the lane `Column`
+/// — the one non-`Positioned` child driving the grid `Stack`'s size — an
+/// extent the clamped ruler does not cover.
+///
+/// Such a card is REPOSITIONED to the nearest edge, never dropped. Dropping it
+/// would make the rendered card set disagree with the header count the caller
+/// computes from the same list — the exact divergence
+/// `bookingsInsideScheduleWindow` was extracted to prevent (see
+/// [BookingsTimelineGrid.bookings]). Deciding an out-of-window booking should
+/// not be SHOWN is the caller's call; all this widget owes is a finite grid.
 List<_CardGeometry> _geometryForLane({
   required List<Booking> bookings,
   required List<int> indices,
   required List<int> startMinutes,
   required int originMinute,
   required double hourHeight,
+  required double maxTopPx,
 }) {
   final List<_CardGeometry> geometry = <_CardGeometry>[];
   double plannedBottom = 0;
@@ -1627,7 +1709,10 @@ List<_CardGeometry> _geometryForLane({
   for (int k = 0; k < indices.length; k++) {
     final int index = indices[k];
     final double desiredTop =
-        (startMinutes[index] - originMinute) / 60.0 * hourHeight;
+        ((startMinutes[index] - originMinute) / 60.0 * hourHeight).clamp(
+          0.0,
+          maxTopPx,
+        );
     final double minHeight = _cardMinHeightFor(
       bookings[index].durationMinutes,
       hourHeight,

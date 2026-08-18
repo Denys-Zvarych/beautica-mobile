@@ -229,6 +229,7 @@ EOF
   echo "                hex copy, and a raw hex literal in a calendar-grid"
   echo "                consumer are all flagged; the canonical file's own"
   echo "                definitions and ordinary call sites are not."
+  echo "SELF-TEST OK: forbid_forked_calendar_grid.sh"
   exit 0
 fi
 

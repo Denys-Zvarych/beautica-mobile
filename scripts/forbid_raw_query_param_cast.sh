@@ -153,6 +153,7 @@ EOF
   fi
   echo "SELF-TEST PASS: both raw-cast fixtures flagged (String and non-String);"
   echo "                helper-routed / doc-comment / annotated files are clean."
+  echo "SELF-TEST OK: forbid_raw_query_param_cast.sh"
   exit 0
 fi
 

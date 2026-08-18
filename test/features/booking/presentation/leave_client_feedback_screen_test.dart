@@ -129,13 +129,26 @@ void main() {
     /// Boots a two-route GoRouter (`/host` ⇄ the real client-review route)
     /// with the screen already PUSHED onto `/host` (so `context.pop()` has a
     /// destination to assert against).
-    Future<(GoRouter, _MockClientReviewRepository)> pumpFeedback(
+    ///
+    /// [entry] travels exactly the way production sends it — as go_router
+    /// `extra` on the push, decoded by a route builder that MIRRORS
+    /// `app_router.dart`'s own `switch` (2026-08-17). Defaults to
+    /// [ClientReviewEntry.bookingDetail], which is both this suite's
+    /// historical shape and app_router's own fallback for an absent `extra`.
+    ///
+    /// The returned `List<bool?>` records what the pushed screen POPPED, in
+    /// push order — `MasterArchiveScreen._openReview` awaits exactly this value
+    /// and patches the reviewed row from it, so pinning it here is pinning the
+    /// contract, not an incidental return value.
+    Future<(GoRouter, _MockClientReviewRepository, List<bool?>)> pumpFeedback(
       WidgetTester tester, {
       required Future<Booking> Function(Ref ref) detail,
       _MockClientReviewRepository? repo,
+      ClientReviewEntry entry = ClientReviewEntry.bookingDetail,
     }) async {
       final _MockClientReviewRepository r =
           repo ?? _MockClientReviewRepository();
+      final List<bool?> popResults = <bool?>[];
       final GoRouter router = GoRouter(
         initialLocation: '/host',
         routes: <RouteBase>[
@@ -144,8 +157,14 @@ void main() {
             builder: (BuildContext context, _) => Scaffold(
               body: TextButton(
                 key: const Key('go-client-review'),
-                onPressed: () =>
-                    context.push(RouteNames.clientReview(_bookingId)),
+                onPressed: () async {
+                  popResults.add(
+                    await context.push<bool>(
+                      RouteNames.clientReview(_bookingId),
+                      extra: entry,
+                    ),
+                  );
+                },
                 child: const Text('go'),
               ),
             ),
@@ -155,6 +174,12 @@ void main() {
             builder: (BuildContext context, GoRouterState state) =>
                 LeaveClientFeedbackScreen(
                   bookingId: state.pathParameters['bookingId']!,
+                  // Mirrors `app_router.dart`'s real decode, including its
+                  // fallback for an absent/foreign `extra`.
+                  entry: switch (state.extra) {
+                    final ClientReviewEntry e => e,
+                    _ => ClientReviewEntry.bookingDetail,
+                  },
                 ),
           ),
         ],
@@ -173,7 +198,7 @@ void main() {
       await tester.tap(find.byKey(const Key('go-client-review')));
       await tester.pumpAndSettle();
       expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
-      return (router, r);
+      return (router, r, popResults);
     }
 
     testWidgets('submit is disabled at rating 0 and enabled after a star tap', (
@@ -271,7 +296,7 @@ void main() {
           ),
         ).thenAnswer((_) async {});
 
-        final (GoRouter router, _) = await pumpFeedback(
+        final (GoRouter router, _, List<bool?> popResults) = await pumpFeedback(
           tester,
           repo: repo,
           detail: (ref) async => _booking(),
@@ -309,14 +334,29 @@ void main() {
           router.routerDelegate.currentConfiguration.uri.toString(),
           '/host',
         );
+        // The POP RESULT is part of this screen's contract (2026-08-17):
+        // `true` means "this booking is no longer reviewable by this
+        // provider". `MasterArchiveScreen._openReview` awaits it and calls
+        // `MasterArchiveNotifier.markClientReviewed` on `true` — that is the
+        // ONLY signal the archive gets now that this screen no longer
+        // invalidates the whole `masterArchiveProvider` family, so a pop that
+        // reported `null`/`false` here would resurrect the stale-CTA bug.
+        expect(
+          popResults,
+          <bool?>[true],
+          reason:
+              'exactly ONE pop, carrying `true` — the success path must not '
+              'also pop from the 409 branch, and must not pop bare',
+        );
 
         await pumpPastVelvetSnack(tester);
       },
     );
 
     testWidgets('REGRESSION (was: CTA stayed visible → re-tappable → 409) — a '
-        'successful submit invalidates bookingDetailProvider(bookingId) so the '
-        'underlying detail re-fetches', (tester) async {
+        'successful submit from the DETAIL entry invalidates '
+        'bookingDetailProvider(bookingId) so the underlying detail '
+        're-fetches', (tester) async {
       // Before the fix, `_submit`'s success branch popped straight back
       // WITHOUT invalidating `bookingDetailProvider`, so
       // `BookingDetailScreen` (which `ref.watch`es the SAME family
@@ -329,6 +369,10 @@ void main() {
       // fetch on first load, and — the whole point of the fix — a SECOND
       // fetch the instant a successful submit invalidates it, before the
       // pop even completes.
+      //
+      // The entry point is [ClientReviewEntry.bookingDetail] (pumpFeedback's
+      // default), which is exactly the case where that refetch is REQUIRED.
+      // Its counterpart below pins that the ARCHIVE entry skips it.
       final repo = _MockClientReviewRepository();
       when(
         () => repo.createClientReview(
@@ -369,6 +413,210 @@ void main() {
       );
 
       await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('the ARCHIVE entry does NOT invalidate bookingDetailProvider '
+        'on success — it reports through the pop result instead', (
+      tester,
+    ) async {
+      // mobile-perf LOW (2026-08-17). Reached from `MasterArchiveScreen`,
+      // nothing on the stack watches `bookingDetailProvider(id)`: this screen's
+      // own `ref.watch` is the last listener and the autoDispose element dies
+      // with the pop, so an invalidate here fires a `GET /bookings/{id}` whose
+      // response is read by nobody. The archive learns what it needs from the
+      // `true` this pops — see `MasterArchiveNotifier.markClientReviewed`.
+      //
+      // The assertion is deliberately paired: "no second fetch" alone would
+      // also pass if the submit had silently failed, so the pop result and the
+      // repository call are pinned in the same test.
+      final repo = _MockClientReviewRepository();
+      when(
+        () => repo.createClientReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+
+      int fetchCount = 0;
+      final (_, _, List<bool?> popResults) = await pumpFeedback(
+        tester,
+        repo: repo,
+        entry: ClientReviewEntry.masterArchive,
+        detail: (ref) async {
+          fetchCount++;
+          return _booking();
+        },
+      );
+      expect(fetchCount, 1, reason: 'the initial screen load, and only that');
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => repo.createClientReview(
+          bookingId: _bookingId,
+          rating: 4,
+          comment: '',
+        ),
+      ).called(1);
+      expect(
+        fetchCount,
+        1,
+        reason:
+            'the archive entry must NOT re-fetch GET /bookings/{id} after a '
+            'successful submit — nobody on that stack reads it',
+      );
+      expect(
+        popResults,
+        <bool?>[true],
+        reason:
+            'the pop result is how the archive learns the row is no longer '
+            'reviewable; skipping the detail invalidate is only safe because '
+            'this fires',
+      );
+
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('a 409 does NOT pop, and backing out afterwards reports '
+        '`true` so the archive still drops the stale row', (tester) async {
+      // The 409 path never pops on its own (the master reads the info state
+      // first), so it cannot report through the submit. What it CAN do is make
+      // every later pop carry `true` — which is what replaced the bare
+      // `ref.invalidate(masterArchiveProvider)` this branch used to fire.
+      final repo = _MockClientReviewRepository();
+      when(
+        () => repo.createClientReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenThrow(const ClientReviewAlreadyExistsFailure());
+
+      final (_, _, List<bool?> popResults) = await pumpFeedback(
+        tester,
+        repo: repo,
+        entry: ClientReviewEntry.masterArchive,
+        detail: (ref) async => _booking(),
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await tester.pumpAndSettle();
+
+      expect(
+        popResults,
+        isEmpty,
+        reason: 'a duplicate submit must NOT pop — the info state is the point',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+      expect(
+        popResults,
+        <bool?>[true],
+        reason:
+            'the booking is known un-reviewable by now, so the pop must say '
+            'so — otherwise the archive keeps a CTA the server already '
+            'rejected once',
+      );
+    });
+
+    testWidgets('a 409 never flashes the loading skeleton on its way to the '
+        'not-reviewable state (skipLoadingOnReload)', (tester) async {
+      // mobile-security INFO (2026-08-17). The finding predicted that the 409
+      // branch's `ref.invalidate(bookingDetailProvider)` drives `async.when`
+      // back through `loading:` and flashes `_LoadingForm` between the form and
+      // `_NotReviewable`. It does NOT — `AsyncValue.when`'s
+      // `skipLoadingOnRefresh` already defaults to `true` and an invalidate is
+      // a refresh — and this test is the standing proof of the real behaviour
+      // either way. Asserted frame-by-frame rather than after a settle, because
+      // a settle is exactly what would hide a flash.
+      //
+      // The REFETCH IS HELD PENDING on purpose. An `async (ref) => _booking()`
+      // override resolves inside the very microtask drain `tester.pump()` runs
+      // BEFORE building, so no frame would ever observe a pending reload at
+      // all and this test would be asserting nothing. Gating the SECOND fetch
+      // on a Completer is what makes the frames below real — the
+      // `fetches.length == 2` assertion after the loop is what pins that.
+      final repo = _MockClientReviewRepository();
+      when(
+        () => repo.createClientReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenThrow(const ClientReviewAlreadyExistsFailure());
+
+      final List<Completer<Booking>> fetches = <Completer<Booking>>[];
+      await pumpFeedback(
+        tester,
+        repo: repo,
+        detail: (ref) {
+          final Completer<Booking> c = Completer<Booking>();
+          fetches.add(c);
+          // Only the FIRST fetch (the initial load) resolves eagerly, so the
+          // form renders; every later one stays pending until this test says
+          // otherwise.
+          if (fetches.length == 1) c.complete(_booking());
+          return c.future;
+        },
+      );
+      expect(fetches, hasLength(1));
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+
+      final Finder loading = find.byKey(
+        const Key('leave-client-feedback-loading'),
+      );
+      for (int frame = 0; frame < 8; frame++) {
+        await tester.pump();
+        expect(
+          loading,
+          findsNothing,
+          reason:
+              'frame $frame after the duplicate submit: the invalidated '
+              'booking fetch must reload SEAMLESSLY, keeping the previous '
+              'value on screen instead of falling back to _LoadingForm',
+        );
+      }
+      expect(
+        fetches,
+        hasLength(2),
+        reason:
+            'the 409 branch really did invalidate the detail provider, and '
+            'the refetch really is still pending across every frame asserted '
+            'above — otherwise there was no reload to skip the loading state '
+            'for and the loop proved nothing',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsOneWidget,
+        reason:
+            'and the not-reviewable state is on screen THROUGHOUT the pending '
+            'reload — the retained previous value, not a skeleton',
+      );
+
+      fetches.last.complete(_booking(providerCanReviewClient: false));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsOneWidget,
+      );
     });
 
     testWidgets(

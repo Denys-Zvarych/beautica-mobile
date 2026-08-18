@@ -65,23 +65,142 @@
 //      returns to the ARCHIVE, not the detail screen (this entry never
 //      visited detail — see `route_names.dart`'s `clientReview` doc on why
 //      pop returns to whatever the caller actually had on the stack). Also
-//      pins `MasterBookingCard.onReview`'s status gate: a COMPLETED row
-//      offers the button, a PAST-but-not-COMPLETED sibling (`NOT_COMPLETED`)
-//      does not — the one behavioural claim `master_archive_screen.dart`'s
-//      file header makes about this button that no existing E2E asserts.
+//      pins `MasterBookingCard.onReview`'s gate — the LIST row's own
+//      `status == BookingStatus.completed` AND server-computed
+//      `providerCanReviewClient` (2026-08-18: BOTH terms required, not the
+//      flag alone — see that field's doc for why an elapsed-but-unclosed
+//      CONFIRMED row must NOT offer this button even when the flag is
+//      `true`): a reviewable COMPLETED row offers the button, a
+//      PAST-but-not-COMPLETED sibling (`NOT_COMPLETED`, for which the backend
+//      computes `false`) does not — the one behavioural claim
+//      `master_archive_screen.dart`'s file header makes about this button
+//      that no existing E2E asserts.
 //      Also proves `_openReview`'s `listenManual` warmup fetches the booking
 //      EXACTLY ONCE end-to-end (the archive's own prefetch and the pushed
 //      screen's `ref.watch` sharing one subscription) — the real-HTTP-tier
 //      counterpart of `master_archive_screen_test.dart`'s mocked-repository
 //      "exactly 1 fetch" proof.
 //
-//   3. THE PRE-GATE — opening «Відгук» for a booking whose REAL, server-
-//      computed `providerCanReviewClient` is `false` (this client was
-//      already reviewed) renders `_NotReviewable` immediately and the form
-//      is NEVER built — not merely disabled. A mocked-repository widget test
-//      can prove the branch; only a real `GET /bookings/{id}` round trip
-//      proves the SCREEN actually read the real flag off the wire rather
-//      than a value a stub was told to hand it.
+//   3. THE PRE-GATE — the STALE-LIST race. The archive row is seeded
+//      `providerCanReviewClient: true` (so the card offers «Відгук» at all)
+//      while `GET /bookings/{id}` answers `false` (this client was already
+//      reviewed, from another device or since the page was loaded). Opening
+//      the screen must render `_NotReviewable` immediately, from the DETAIL
+//      value, with the form NEVER built — not merely disabled. That the two
+//      sources disagree is the whole point: it proves the screen reads the
+//      real flag off its own round trip rather than trusting the list row it
+//      was navigated from. A mocked-repository widget test can prove the
+//      branch; only a real `GET /bookings/{id}` proves the source.
+//      EXTENDED 2026-08-17: backing out of `_NotReviewable` must ALSO clear
+//      the stale row's CTA — every pop site reports the `bool` "no longer
+//      reviewable", so a master who never submitted anything still stops
+//      seeing a button that can only ever land on the pre-gate again. That
+//      half is the reported bug's second face (pull-to-refresh did not clear
+//      it either), and nothing at any tier pinned it before.
+//
+//   4. THE REPORTED BUG, END TO END (2026-08-17) — submit → pop → the CTA is
+//      GONE. `MasterArchiveScreen._openReview` awaits `context.push<bool>`,
+//      `LeaveClientFeedbackScreen._submit` pops `true`, and the archive calls
+//      `MasterArchiveNotifier.markClientReviewed(id)`, rewriting ONLY that
+//      row's `providerCanReviewClient`. Three properties no other tier pins:
+//
+//        * ZERO NETWORK. `fb.getMyBookingsCalls` must be IDENTICAL either
+//          side of the round trip — the whole reason the mechanism is a
+//          surgical row patch rather than the `ref.invalidate(
+//          masterArchiveProvider)` it replaced (mobile-perf MEDIUM,
+//          2026-08-17; an invalidate arriving while the archive is COVERED
+//          would DISPOSE the autoDispose element and restart pagination from
+//          page 0 on resume). `fb.getBookingDetailCalls` must land on exactly
+//          +1 too: from `ClientReviewEntry.masterArchive` the success path
+//          deliberately does NOT invalidate `bookingDetailProvider`.
+//
+//        * THE PATCH IS LOCAL, PROVABLY. `POST /client-reviews` flips only
+//          `FakeBackend.bookingProviderCanReviewClient` (the DETAIL field,
+//          `fake_backend.dart:4893`) and NEVER the dataset row `GET
+//          /bookings/me` is sliced from. So the fake still reports this row
+//          as reviewable — a refetch would put the CTA straight BACK, and the
+//          only way it can be gone is the in-memory rewrite. The fixture
+//          cannot accidentally pass this scenario through a server round trip.
+//
+//        * SIBLING IMMUTABILITY. A second, never-reviewed row seeded
+//          `providerCanReviewClient: true` must keep its own CTA — the patch
+//          rewrites one row, not the list.
+//
+//   6. THE SECOND ENTRY PATH (2026-08-17 cycle 2) — the SAME user-reported
+//      defect on a DIFFERENT journey, which scenario 4's pop-result mechanism
+//      structurally cannot reach:
+//
+//        archive → tap the ROW → `BookingDetailScreen` → its footer «Залишити
+//        відгук про клієнта» → form → submit → back to detail → back to archive
+//
+//      `MasterArchiveScreen._openDetail` is fire-and-forget, and the review
+//      screen pops onto the DETAIL screen, not the archive — so no `bool` ever
+//      reaches `_openReview`'s `await`, and chaining one down through
+//      `BookingDetailScreen` would still be lost the moment the master leaves
+//      via a system/predictive back gesture (which pops `null`). The fix is
+//      `clientReviewSignalProvider`: a `keepAlive`, session-scoped, ADD-ONLY set
+//      of booking ids the review screen deposits into UNCONDITIONALLY on a
+//      successful submit, which `MasterArchiveScreen.build` `ref.watch`es and
+//      applies via the same `markClientReviewed` row patch. Because the archive
+//      is COVERED (and therefore PAUSED — Riverpod 3) for the whole excursion,
+//      delivery lands on RESUME; the scenario therefore asserts only after
+//      popping all the way back, via `pumpUntilGone`. The zero-network property
+//      is asserted here too: `getMyBookingsCalls` must be IDENTICAL across the
+//      entire two-route round trip, exactly as in scenario 4.
+//
+//   7. THE SESSION BOUNDARY (2026-08-17 cycle 2) — `clientReviewSignalProvider`
+//      is `keepAlive`, so it outlives every screen and holds USER-SCOPED booking
+//      ids. `build()` watches the authenticated identity
+//      (`authProvider.select(… user.id …)`), so a logout must empty it. Driven
+//      here through the REAL logout → login round trip against a fake that still
+//      reports the row reviewable: the CTA must come BACK on the fresh session.
+//      The unit tier (`client_review_signal_provider_test.dart`) pins the
+//      provider's own reset with a stubbed auth notifier; only this tier proves
+//      the reset actually reaches a rebuilt `MasterArchiveScreen` through the
+//      real auth cascade, with a real `keepAlive` element that genuinely
+//      survived the logout.
+//
+//   9. THE 2026-08-18 CTA-GATE FIX, END TO END (mobile-qa, closing this
+//      chain's MUST-FIX finding 2) — the reported bug was an ELAPSED,
+//      UNCLOSED CONFIRMED row rendering BOTH «Виконано» and «Відгук» at
+//      once, because the old gate trusted `providerCanReviewClient` alone.
+//      Scenario 2 above already proves the STATIC negative (an
+//      awaitingClosure CONFIRMED row never offers «Відгук» even when the
+//      list flag is seeded `true`, simulating an older/looser backend still
+//      on the pre-2026-08-18 predicate) — but nothing end-to-end had driven
+//      the row THROUGH a real completion and observed «Відгук» switch ON in
+//      its place on that exact row, which is the actual user-visible
+//      journey the bug report describes and is what `mobile-perf`'s INFO
+//      flagged as unpinned. Two halves, one row:
+//        (a) BEFORE: CONFIRMED + awaitingClosure + providerCanReviewClient:
+//            true → «Виконано» renders, «Відгук» does NOT — the client-side
+//            AND gate fails closed on its own even though the server flag
+//            already says "reviewable", exactly the fail-safe this whole
+//            fix chain added.
+//        (b) AFTER: a real PATCH /bookings/booking-1/complete → the row
+//            refetches → «Виконано» is gone (closed) and «Відгук» has
+//            appeared on the SAME row — proving the gate is not merely
+//            fail-closed but also correctly opens once the booking
+//            genuinely reaches COMPLETED.
+//      A COMPLETED+reviewable sibling, present from the very first frame,
+//      is the anti-vacuity control: it proves the archive CAN render
+//      «Відгук» at all, so booking-1's initial absence is the gate, not an
+//      inability of this page to ever show the button.
+//
+//   8. THE «ВІДГУК» ENTRY WHEN THE DETAIL FETCH FAILS (2026-08-17, closing
+//      mobile-qa's own cycle-1 INFO) — `LeaveClientFeedbackScreen` renders its
+//      entire body out of `bookingDetailProvider(id)`, so a failing
+//      `GET /bookings/{id}` must reach `_ErrorState` (a retry affordance), NOT
+//      `_NotReviewable`. The distinction is the whole point: "we could not ask"
+//      and "the answer was no" look identical to a careless implementation and
+//      are opposites to the master. Backing out of the error state therefore
+//      pops `false` (`async.value` is null, so nothing was learned) and the
+//      archive row KEEPS its «Відгук» CTA — fail-OPEN on an unknown answer,
+//      the mirror image of the fail-CLOSED direction the signal set enforces.
+//      Needs `FakeBackend.bookingDetailFailStatus`, added in this same pass;
+//      see that field's doc for the `DioAdapter` registration-time-status trap
+//      and for why `404` (deterministic) rather than a `5xx` (which
+//      `beauticaProviderRetry` feeds into a ~38 s backoff curve).
 //
 // KEY POLICY (AppHarness): all taps are key-based; Ukrainian text appears
 // only via `l10n.<key>` (unused directly here — every assertion in this file
@@ -103,6 +222,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -306,7 +426,7 @@ void main() {
   );
 
   // ==========================================================================
-  // 2. THE «ВІДГУК» ENTRY POINT (+ the COMPLETED-only gate)
+  // 2. THE «ВІДГУК» ENTRY POINT (+ the status-AND-flag gate)
   // ==========================================================================
   testWidgets(
     'archive «Відгук» on a COMPLETED row lands on the real leave-client-'
@@ -322,10 +442,16 @@ void main() {
           id: 'booking-1',
           status: 'COMPLETED',
           startsAt: start,
+          // The LIST row's own server-computed flag — ANDed with
+          // `status == COMPLETED` (2026-08-18) to gate the archive card's
+          // «Відгук» slot; this row satisfies both.
+          providerCanReviewClient: true,
         ),
         // PAST (NOT_COMPLETED classifies straight into PAST — see
         // `FakeBackend._partitionOf`) but NOT completed — the negative
-        // control for `MasterBookingCard.onReview`'s status gate.
+        // control. The real backend computes `providerCanReviewClient: false`
+        // for a NOT_COMPLETED booking (`isReviewEligible` admits only
+        // COMPLETED or CONFIRMED-and-elapsed), which is this row's default.
         fb.datasetBookingRow(
           id: 'no-show-1',
           status: 'NOT_COMPLETED',
@@ -354,8 +480,10 @@ void main() {
         findsNothing,
         reason:
             'a PAST-but-not-COMPLETED (NOT_COMPLETED) row must NEVER '
-            'offer «Відгук» — `MasterBookingCard.onReview` is gated on '
-            'status == completed, not on membership in the archive',
+            'offer «Відгук» — `MasterBookingCard.onReview` is gated on the '
+            "row's own server-computed providerCanReviewClient, which the "
+            'backend leaves false for a NOT_COMPLETED booking; membership in '
+            'the archive is not enough',
       );
 
       final int callsBeforeTap = fb.getBookingDetailCalls;
@@ -410,7 +538,8 @@ void main() {
   testWidgets(
     'opening «Відгук» for a booking whose REAL providerCanReviewClient is '
     'false renders the not-reviewable state immediately — the form is never '
-    'built, not merely disabled',
+    'built, not merely disabled — and backing out of it still clears that '
+    'row\'s stale CTA (and only that row\'s) with ZERO refetch',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -420,6 +549,25 @@ void main() {
           id: 'booking-1',
           status: 'COMPLETED',
           startsAt: start,
+          // STALE LIST. The card only offers «Відгук» when the row is
+          // COMPLETED (this row is) AND the LIST row says reviewable, so this
+          // must be `true` for the tap
+          // to exist at all — and seeding it `true` while the detail fetch
+          // below says `false` is precisely the race the pre-gate defends
+          // against (the review landed from another device, or the master's
+          // page has been open a while). The old "list is always false"
+          // version of this test could not express that distinction.
+          providerCanReviewClient: true,
+        ),
+        // SIBLING IMMUTABILITY control — never opened, never reviewed, and
+        // ALSO seeded reviewable. `markClientReviewed` must rewrite exactly
+        // the tapped row; a patch that rebuilt the list with a blanket `false`
+        // (or that dropped/refetched pages) would take this CTA with it.
+        fb.datasetBookingRow(
+          id: 'sibling-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(6),
+          providerCanReviewClient: true,
         ),
       ]);
       fb.bookingStatus = 'COMPLETED';
@@ -427,11 +575,19 @@ void main() {
       fb.bookingEndsAt = start
           .add(const Duration(minutes: 60))
           .toIso8601String();
-      // This client was already reviewed — the REAL, server-computed value
-      // the pre-gate must read off the wire.
+      // This client was already reviewed — the REAL, server-computed value on
+      // `GET /bookings/{id}`, which is what the pre-gate must read off the
+      // wire and prefer over the stale list row above.
       fb.bookingProviderCanReviewClient = false;
 
-      await openArchive(tester, fb);
+      final GoRouter router = await openArchive(tester, fb);
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+        reason: 'the never-touched sibling starts out reviewable too',
+      );
+      final int listCallsBeforeTap = fb.getMyBookingsCalls;
 
       await tester.tap(
         find.byKey(const Key('master-booking-card-review-booking-1')),
@@ -467,6 +623,986 @@ void main() {
         reason:
             'no submit was ever possible, so no POST /client-reviews '
             'can have fired',
+      );
+
+      // ── Backing out of `_NotReviewable` pops `true` — "no longer
+      //    reviewable" — so the archive clears the STALE row's CTA even though
+      //    nothing was submitted. This is the reported bug's second face: the
+      //    master saw a button that could only ever land back on this same
+      //    dead end, and pull-to-refresh did not clear it either. ───────────
+      await tester.tap(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.masterBookingsArchive,
+      );
+
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason:
+            'the ROW itself must survive — only its «Відгук» slot is gone. '
+            'A patch that dropped the row would also satisfy the CTA-gone '
+            'assertion above, so this is what tells the two apart',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+        reason:
+            'markClientReviewed rewrites ONE row — the never-opened sibling '
+            'keeps its own CTA',
+      );
+      expect(
+        fb.getMyBookingsCalls,
+        listCallsBeforeTap,
+        reason:
+            'the row patch is in-memory: not one extra GET /bookings/me may '
+            'fire across the push→pre-gate→pop round trip',
+      );
+      expect(
+        fb.createClientReviewCalls,
+        0,
+        reason: 'still nothing submitted — the CTA cleared on the pop result',
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 4. THE REPORTED BUG, END TO END — submit → pop → CTA gone, ZERO network
+  // ==========================================================================
+  testWidgets(
+    'archive «Відгук» → form → 5★ submit → pop: the reviewed row loses its '
+    '«Відгук» CTA while KEEPING the row, a never-reviewed sibling keeps its '
+    'own CTA, and the round trip fires NO extra GET /bookings/me and NO '
+    'second GET /bookings/{id}',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-1',
+          status: 'COMPLETED',
+          startsAt: start,
+          // The LIST flag — ANDed with `status == COMPLETED` for the card's
+          // «Відгук» gate; this row is COMPLETED so it qualifies.
+          providerCanReviewClient: true,
+        ),
+        // The sibling-immutability control. Also reviewable, never opened.
+        fb.datasetBookingRow(
+          id: 'sibling-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(5),
+          providerCanReviewClient: true,
+        ),
+      ]);
+      fb.bookingStatus = 'COMPLETED';
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = start
+          .add(const Duration(minutes: 60))
+          .toIso8601String();
+      // The DETAIL flag the destination pre-gates on: reviewable, so the real
+      // form renders and a genuine submit is reachable.
+      fb.bookingProviderCanReviewClient = true;
+
+      final GoRouter router = await openArchive(tester, fb);
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+      );
+
+      final int listCallsBefore = fb.getMyBookingsCalls;
+      final int detailCallsBefore = fb.getBookingDetailCalls;
+
+      // ── Tap «Відгук» → the REAL form (not the pre-gate). ─────────────────
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsNothing,
+      );
+
+      // ── Rate, comment, submit — a real POST /client-reviews. ─────────────
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+      await tester.enterText(
+        find.byKey(const Key('leave-client-feedback-comment')),
+        'Пунктуальна, приємна клієнтка.',
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.createClientReviewCalls,
+        1,
+        reason: 'exactly one real POST /client-reviews reached the fake',
+      );
+      expect(fb.lastClientReviewBookingId, 'booking-1');
+      expect(fb.lastClientReviewRating, 5);
+      expect(fb.lastClientReviewComment, 'Пунктуальна, приємна клієнтка.');
+
+      // ── The success path pops back onto the ARCHIVE. ─────────────────────
+      expect(
+        find.byType(LeaveClientFeedbackScreen),
+        findsNothing,
+        reason: 'a successful submit pops',
+      );
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.masterBookingsArchive,
+      );
+
+      // ── THE REPORTED BUG. Before the fix the CTA stayed here, re-tappable
+      //    into the "already reviewed" screen, and pull-to-refresh did not
+      //    clear it. The fake still reports this row as reviewable on
+      //    `GET /bookings/me` (the POST flips only the DETAIL field —
+      //    `fake_backend.dart:4893`), so a refetch would put the button
+      //    straight back: its absence can ONLY come from
+      //    `markClientReviewed`'s in-memory rewrite. ──────────────────────
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason:
+            'the ROW must survive the patch — only its «Відгук» slot is gone. '
+            'A patch that dropped the row (or emptied the list) would satisfy '
+            'the CTA-gone assertion above just as well; this is the assertion '
+            'that tells them apart',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+        reason:
+            'SIBLING IMMUTABILITY — the never-reviewed row keeps its own '
+            'server-granted CTA; the patch rewrites one row, not the list',
+      );
+
+      // ── ZERO NETWORK — the entire point of replacing the cross-screen
+      //    `ref.invalidate(masterArchiveProvider)` with the row patch. ─────
+      expect(
+        fb.getMyBookingsCalls,
+        listCallsBefore,
+        reason:
+            'not one extra GET /bookings/me across push → submit → pop. An '
+            'invalidate here would refetch page 0 (and, arriving while the '
+            'archive is COVERED, DISPOSE the autoDispose element first — '
+            'losing every accumulated page and the scroll position)',
+      );
+      expect(
+        fb.getBookingDetailCalls,
+        detailCallsBefore + 1,
+        reason:
+            'exactly ONE GET /bookings/booking-1: the _openReview warmup and '
+            'the destination\'s own ref.watch share one subscription, and the '
+            'ClientReviewEntry.masterArchive success path deliberately does '
+            'NOT invalidate bookingDetailProvider (nothing on this stack '
+            'watches it)',
+      );
+
+      // Drain the success snack's dwell Timer so none is pending at teardown.
+      await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // ==========================================================================
+  // 5. THE 409 RACE — a review that landed between the pre-gate and the submit
+  // ==========================================================================
+  testWidgets(
+    'a submit that 409s (feedback already left elsewhere) does NOT pop, swaps '
+    'the form for the not-reviewable state, and backing out of THAT still '
+    'reports «no longer reviewable» — so the archive drops the same row\'s '
+    'CTA, keeps the sibling\'s, and never refetches the list',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        // The race: the pre-gate's own fetch says reviewable, the WRITE says
+        // otherwise. Note the 409 route deliberately leaves
+        // `bookingProviderCanReviewClient` TRUE (see its doc in
+        // `fake_backend.dart`), so `_NotReviewable` below can only come from
+        // the screen's `_alreadyReviewed` flag — never from a server that
+        // conveniently changed its mind.
+        ..clientReviewRejectDuplicate = true;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-1',
+          status: 'COMPLETED',
+          startsAt: start,
+          providerCanReviewClient: true,
+        ),
+        fb.datasetBookingRow(
+          id: 'sibling-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(5),
+          providerCanReviewClient: true,
+        ),
+      ]);
+      fb.bookingStatus = 'COMPLETED';
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = start
+          .add(const Duration(minutes: 60))
+          .toIso8601String();
+      fb.bookingProviderCanReviewClient = true;
+
+      final GoRouter router = await openArchive(tester, fb);
+      final int listCallsBefore = fb.getMyBookingsCalls;
+
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsOneWidget,
+        reason: 'the pre-gate saw a reviewable booking, so the form renders',
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await AppHarness.settle(tester);
+
+      expect(fb.createClientReviewCalls, 1);
+      expect(
+        find.byType(LeaveClientFeedbackScreen),
+        findsOneWidget,
+        reason:
+            'a 409 must NOT pop — the screen swaps in place, so the master '
+            'reads why their submit did not take',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsNothing,
+      );
+
+      // ── Backing out of the 409 state reports `true` all the same. ────────
+      await tester.tap(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.masterBookingsArchive,
+      );
+
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason: 'the row survives; only its «Відгук» slot is gone',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+        reason: 'the untouched sibling keeps its own CTA',
+      );
+      expect(
+        fb.getMyBookingsCalls,
+        listCallsBefore,
+        reason:
+            'the 409 path patches the row locally too — no GET /bookings/me '
+            'anywhere in this round trip',
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 6. THE SECOND ENTRY PATH — archive → ROW → detail → footer CTA → submit →
+  //    back → back. No pop result can reach the archive here; the SIGNAL does.
+  // ==========================================================================
+  testWidgets(
+    'archive → tap the ROW → BookingDetailScreen → its footer «Залишити відгук '
+    'про клієнта» → 5★ submit → back to detail → back to archive: that row\'s '
+    '«Відгук» CTA is GONE even though nothing ever popped a result to the '
+    'archive, the row and a never-reviewed sibling both survive, and the '
+    'archive fires NO extra GET /bookings/me across the whole excursion',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-1',
+          status: 'COMPLETED',
+          startsAt: start,
+          providerCanReviewClient: true,
+        ),
+        // Sibling immutability control — reviewable, never opened, never
+        // signalled. `_scheduleClientReviewSignalPatch` filters on set
+        // membership, so a patch that rewrote the whole list would take this
+        // CTA with it and the assertion above would pass for the wrong reason.
+        fb.datasetBookingRow(
+          id: 'sibling-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(5),
+          providerCanReviewClient: true,
+        ),
+      ]);
+      // `GET /bookings/booking-1` — what BOTH the detail screen and, after it,
+      // the review screen's pre-gate read. COMPLETED + reviewable is what makes
+      // `_DetailBody._providerActions` render the footer CTA at all.
+      fb.bookingStatus = 'COMPLETED';
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = start
+          .add(const Duration(minutes: 60))
+          .toIso8601String();
+      fb.bookingProviderCanReviewClient = true;
+
+      final GoRouter router = await openArchive(tester, fb);
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+        reason: 'precondition — the server marks this row reviewable',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+      );
+
+      final int listCallsBefore = fb.getMyBookingsCalls;
+      final int detailCallsBefore = fb.getBookingDetailCalls;
+
+      // ── 1. Tap the ROW, not the «Відгук» slot. This is `_openDetail`:
+      //    fire-and-forget, no `await`, no result. From here on the archive is
+      //    COVERED and its consumers are PAUSED. ───────────────────────────
+      await tester.tap(find.byKey(const Key('master-booking-card-booking-1')));
+      await AppHarness.settle(tester);
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason:
+            'precondition — this journey genuinely goes THROUGH the detail '
+            'screen, which is what puts the archive two routes down with no '
+            'pop result coming its way',
+      );
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.masterBookingDetail('booking-1'),
+      );
+
+      // ── 2. The DETAIL screen's own provider footer CTA. Deliberately not the
+      //    archive's slot: `_openReview` never runs on this path, so no
+      //    `ClientReviewEntry.masterArchive` extra is attached and the
+      //    destination takes its default `bookingDetail` entry. ─────────────
+      expect(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        findsOneWidget,
+        reason:
+            'a COMPLETED + providerCanReviewClient booking offers the footer '
+            'CTA — see `_DetailBody._providerActions`',
+      );
+      await tester.tap(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientReview('booking-1'),
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsOneWidget,
+        reason:
+            'the pre-gate read providerCanReviewClient:true, so the real '
+            'form renders',
+      );
+
+      // ── 3. A real POST /client-reviews. ────────────────────────────────
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+      await tester.enterText(
+        find.byKey(const Key('leave-client-feedback-comment')),
+        'Прийшла вчасно, все чудово.',
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await AppHarness.settle(tester);
+
+      expect(fb.createClientReviewCalls, 1);
+      expect(fb.lastClientReviewBookingId, 'booking-1');
+      expect(fb.lastClientReviewRating, 5);
+
+      // ── 4. The success path pops back onto the DETAIL screen — NOT the
+      //    archive. This is exactly why a pop result cannot fix this journey.
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason:
+            'a successful submit pops onto whatever pushed it, which here is '
+            'the DETAIL screen — the archive is still one route further down '
+            'and receives nothing',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        findsNothing,
+        reason:
+            'ClientReviewEntry.bookingDetail invalidates '
+            'bookingDetailProvider on success, and the fake flipped '
+            'providerCanReviewClient false — the detail footer re-resolves '
+            'its own CTA away (pre-existing behaviour, asserted here as the '
+            'precondition that the excursion really did complete)',
+      );
+
+      // ── 5. Back to the archive, via the detail screen's OWN back
+      //    affordance. Deliberately not a synthetic pop-with-result: nothing
+      //    on this path can carry a `bool` down, which is the point. ───────
+      await tester.tap(find.byKey(const Key('booking-detail-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.masterBookingsArchive,
+      );
+
+      // ── THE CYCLE-2 REGRESSION. The archive was PAUSED for the whole
+      //    excursion, so the deposited id can only land once it RESUMES —
+      //    `pumpUntilGone` waits for that rather than asserting on the first
+      //    post-pop frame. The fake still reports this row reviewable on
+      //    `GET /bookings/me` (the POST flips only the DETAIL field), so a
+      //    refetch would put the CTA straight back: its absence can ONLY come
+      //    from the signal-driven `markClientReviewed` rewrite. ─────────────
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason:
+            'the ROW must survive — leaving a client review changes no booking '
+            'status. A patch that dropped the row would satisfy the CTA-gone '
+            'assertion above just as well; this tells them apart',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+        reason:
+            'SIBLING IMMUTABILITY — only the SIGNALLED id is patched; a '
+            'blanket rewrite would take this CTA too',
+      );
+
+      // ── ZERO NETWORK, the same property scenario 4 pins for the adjacent
+      //    path. The signal is an in-memory row patch, not an invalidate. ───
+      expect(
+        fb.getMyBookingsCalls,
+        listCallsBefore,
+        reason:
+            'not one extra GET /bookings/me across archive → detail → review '
+            '→ submit → pop → pop. The cross-screen '
+            'ref.invalidate(masterArchiveProvider) this signal replaced would '
+            'have DISPOSED the covered autoDispose element and refetched page '
+            '0 on resume',
+      );
+      expect(
+        fb.getBookingDetailCalls,
+        detailCallsBefore + 2,
+        reason:
+            'exactly TWO GET /bookings/booking-1: the detail screen\'s own '
+            'initial load, and the post-submit invalidate on the '
+            'ClientReviewEntry.bookingDetail path. The review screen shares '
+            'the still-mounted detail screen\'s family element, so it must NOT '
+            'add a third, independent fetch of its own',
+      );
+
+      await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // ==========================================================================
+  // 7. THE SESSION BOUNDARY — a keepAlive, user-scoped set must not survive a
+  //    logout. Driven through the REAL logout → login round trip.
+  // ==========================================================================
+  testWidgets(
+    'the session-scoped review signal does NOT survive a logout: after '
+    'submitting a review, logging out and logging back in, the archive shows '
+    'that row\'s «Відгук» CTA again — the keepAlive set was emptied by the '
+    'auth cascade, not carried into the new session',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-1',
+          status: 'COMPLETED',
+          startsAt: start,
+          providerCanReviewClient: true,
+        ),
+      ]);
+      fb.bookingStatus = 'COMPLETED';
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = start
+          .add(const Duration(minutes: 60))
+          .toIso8601String();
+      fb.bookingProviderCanReviewClient = true;
+
+      final GoRouter router = await openArchive(tester, fb);
+
+      // ── Session 1: review the booking through the DETAIL entry, and watch
+      //    the CTA go.
+      //
+      //    THE ENTRY PATH HERE IS LOAD-BEARING — deliberately the long way
+      //    round rather than the archive's own «Відгук» slot. On the adjacent
+      //    path the CTA also disappears via `_openReview`'s pop result, so
+      //    "the CTA is gone" would be satisfied without a single id ever
+      //    reaching `clientReviewSignalProvider` — and the post-login
+      //    assertion below would then be vacuously green against an empty set,
+      //    proving nothing about a session boundary. Mutation-verified
+      //    2026-08-17: with the deposit in `_submit` deleted, the archive-entry
+      //    version of this scenario stayed GREEN; this detail-entry version
+      //    goes RED at the `pumpUntilGone` below, because the signal is now the
+      //    ONLY thing that can clear the CTA.
+      await tester.tap(find.byKey(const Key('master-booking-card-booking-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      await tester.tap(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await AppHarness.settle(tester);
+      expect(fb.createClientReviewCalls, 1);
+
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      await tester.tap(find.byKey(const Key('booking-detail-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      await pumpPastVelvetSnack(tester);
+
+      // ── Log out, for real: archive → «Мої записи» → the master nav bar's
+      //    Профіль tile → the settings hub → the logout row → confirm. ──────
+      await tester.tap(find.byKey(const Key('master-archive-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('btn-menu-master')));
+      await AppHarness.settle(tester);
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('row-logout')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+      // BOUNDED POLL, not a bare settle: `runLogoutFlow`'s in-flight
+      // `authProvider.logout()` schedules no frames of its own, so a
+      // `pumpAndSettle` can return BEFORE `context.go(login)` runs — the CI
+      // race `logout_flow_test.dart`'s own `_pumpUntilLoggedOut` documents.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('login_email')),
+      );
+
+      // ── Session 2: same account, brand-new session. The signal provider is
+      //    `keepAlive`, so the ELEMENT survived; only the `authProvider` watch
+      //    in its `build()` can have emptied its set. ──────────────────────
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-open-archive')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.masterBookingsArchive,
+      );
+
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+        reason:
+            'SEC — the fake still reports this row reviewable on '
+            'GET /bookings/me, so the freshly-built archive must offer the CTA '
+            'again. If `clientReviewSignalProvider.build()` did not watch the '
+            'authenticated identity, the previous session\'s id would still be '
+            'in the keepAlive set and would suppress this row for whoever logs '
+            'in next — user-scoped data leaking across a session boundary',
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 8. THE DETAIL FETCH FAILS ON THE «ВІДГУК» ENTRY — error, not "not
+  //    reviewable"; and an unknown answer must never cost the row its CTA.
+  // ==========================================================================
+  testWidgets(
+    'when GET /bookings/{id} FAILS, «Відгук» lands on the retry error state — '
+    'never the not-reviewable pre-gate — the retry genuinely re-issues the '
+    'request, and backing out leaves the row\'s CTA intact so the master can '
+    'try again once the fetch recovers',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        // 404 → NotFoundFailure → `beauticaProviderRetry` stops on the first
+        // attempt, so the error branch renders at once and the call counter
+        // below stays deterministic. See `bookingDetailFailStatus`'s doc for
+        // why a 5xx would instead be fed into a ~38 s backoff curve.
+        ..bookingDetailFailStatus = 404;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-1',
+          status: 'COMPLETED',
+          startsAt: start,
+          providerCanReviewClient: true,
+        ),
+        fb.datasetBookingRow(
+          id: 'sibling-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(5),
+          providerCanReviewClient: true,
+        ),
+      ]);
+      fb.bookingStatus = 'COMPLETED';
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = start
+          .add(const Duration(minutes: 60))
+          .toIso8601String();
+      // Would render the real form — if the fetch ever succeeded. It does not,
+      // until the knob is cleared at the end of this scenario.
+      fb.bookingProviderCanReviewClient = true;
+
+      final GoRouter router = await openArchive(tester, fb);
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+      );
+      final int listCallsBefore = fb.getMyBookingsCalls;
+      final int detailCallsBefore = fb.getBookingDetailCalls;
+
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientReview('booking-1'),
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-error-retry')),
+        findsOneWidget,
+        reason:
+            'a failing detail fetch must reach `_ErrorState` with its retry '
+            'affordance — the only E2E-reachable path to that branch',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsNothing,
+        reason:
+            'THE DISTINCTION THAT MATTERS — "we could not ask" must NEVER be '
+            'rendered as "the answer was no". `_NotReviewable` is terminal and '
+            'offers no retry; showing it here would strand the master',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsNothing,
+        reason: 'no booking loaded, so no form may be built',
+      );
+      expect(
+        fb.getBookingDetailCalls,
+        detailCallsBefore + 1,
+        reason:
+            'exactly one failing GET — a deterministic 404 is not auto-'
+            'retried, so the error is terminal on the first attempt',
+      );
+
+      // ── The retry affordance must genuinely RE-ISSUE the request, not just
+      //    rebuild the widget. Still failing, so the state must not change. ──
+      await tester.tap(
+        find.byKey(const Key('leave-client-feedback-error-retry')),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        fb.getBookingDetailCalls,
+        detailCallsBefore + 2,
+        reason:
+            '«Повторити» invalidates bookingDetailProvider — a real second '
+            'GET reached the fake, not a silent no-op rebuild',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-error-retry')),
+        findsOneWidget,
+        reason: 'the fetch still fails, so the error state stands',
+      );
+
+      // ── Backing out of the ERROR state reports `false`: `async.value` is
+      //    null, so nothing about reviewability was ever learned. FAIL-OPEN —
+      //    the mirror image of the signal set's fail-CLOSED direction. ──────
+      await tester.tap(find.byKey(const Key('leave-client-feedback-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+        reason:
+            'THE FAIL-OPEN PROPERTY — a network failure must not cost the row '
+            'its CTA. The list flag still says reviewable and the master '
+            'learned nothing to the contrary, so hiding the button here would '
+            'silently strip a capability the server still grants',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-1')),
+        findsOneWidget,
+      );
+      expect(
+        fb.getMyBookingsCalls,
+        listCallsBefore,
+        reason: 'a failed detail fetch must not make the archive refetch',
+      );
+      expect(
+        fb.createClientReviewCalls,
+        0,
+        reason: 'nothing was ever submittable',
+      );
+
+      // ── And the CTA that survived is genuinely USABLE: clear the fault and
+      //    walk the same journey again to a real form. Without this, "the CTA
+      //    is still there" would be an assertion about a button, not about a
+      //    recoverable journey. ──────────────────────────────────────────────
+      //
+      //    THE RE-ENTRY BELOW IS LOAD-BEARING, and is the regression guard for
+      //    mobile-qa LOW (2026-08-17 cycle 3). `bookingDetailProvider` is
+      //    autoDispose, but Riverpod DEFERS the disposal of an element whose
+      //    last listener just went away — long enough that a master who backs
+      //    out and IMMEDIATELY re-taps «Відгук» used to re-attach to the SAME
+      //    cached element and be served its stored value with no new
+      //    `GET /bookings/{id}` fired at all (measured 2026-08-17: the re-entry
+      //    left `getBookingDetailCalls` flat and re-rendered `_ErrorState`, and
+      //    only ~10 s of idle pumping let the element go). On a FAILED first
+      //    attempt that stranded the master on an error state they had to tap
+      //    «Повторити» to leave; on a SUCCESSFUL one the same mechanism would
+      //    replay a STALE `providerCanReviewClient` — this screen's entire job
+      //    being to gate on the freshest answer to that one flag.
+      //
+      //    `MasterArchiveScreen._openReview` now invalidates
+      //    `bookingDetailProvider(id)` immediately before pushing, so the
+      //    re-entry ALWAYS fetches fresh. The scenario therefore no longer taps
+      //    «Повторити» to recover: the form must appear from the re-entry
+      //    ALONE. That is strictly stronger than the previous shape — it pins
+      //    that the fast re-entry itself issues a request (the bug), where
+      //    tapping retry first would have masked a re-entry that fired none.
+      fb.bookingDetailFailStatus = null;
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsOneWidget,
+        reason:
+            'THE FAST RE-ENTRY REFETCHES — the recovered fetch renders the real '
+            'form with no «Повторити» tap in between, proving the push '
+            'invalidated the deferred-disposal element instead of replaying its '
+            'cached AsyncError. It also proves the surviving CTA leads '
+            'somewhere, and that the error state above came from the seeded '
+            'fault rather than from anything structurally broken',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-error-retry')),
+        findsNothing,
+      );
+      expect(
+        fb.getBookingDetailCalls,
+        detailCallsBefore + 3,
+        reason:
+            'exactly one more GET — the re-entry is a genuine round trip that '
+            'now answers 200, not a cached value the screen happened to keep. '
+            'The count is unchanged from the pre-fix shape (initial + retry + '
+            'recovery); what moved is WHICH action issues the third request, '
+            'and a re-entry that fired none would now land here as +2',
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 9. THE 2026-08-18 CTA-GATE FIX, END TO END — closes this chain's
+  //    MUST-FIX finding 2 (Step 2.7 Rule 3b: a real user journey through a
+  //    provider screen + a write action + the API contract needs
+  //    integration-tier coverage, not widget tests alone).
+  // ==========================================================================
+  testWidgets(
+    'an elapsed-unclosed CONFIRMED row seeded providerCanReviewClient:true '
+    '(an older/looser backend) offers «Виконано» but NEVER «Відгук» — the '
+    'client-side gate fails closed on its own — and completing it for real '
+    'flips the SAME row: «Виконано» disappears and «Відгук» takes its place',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'booking-1',
+            status: 'CONFIRMED',
+            startsAt: start,
+            duration: const Duration(minutes: 90),
+            // Simulates an older/looser backend still on the pre-2026-08-18
+            // predicate (COMPLETED OR CONFIRMED-and-elapsed): the server
+            // already says this client is reviewable, even though the
+            // booking itself is not yet closed.
+            providerCanReviewClient: true,
+          ),
+          // Server-computed (Phase 29.1/29.2) — required for the archive's
+          // «Виконано» slot to render at all; see `datasetBookingRow`'s doc.
+          'awaitingClosure': true,
+        },
+        // Anti-vacuity control: a COMPLETED + reviewable row, present from
+        // the first frame, proves this archive CAN render «Відгук» at all —
+        // so booking-1's initial absence below is the gate, not the page
+        // being structurally incapable of showing the button.
+        fb.datasetBookingRow(
+          id: 'sibling-completed-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(6),
+          providerCanReviewClient: true,
+        ),
+      ]);
+
+      await openArchive(tester, fb);
+
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
+
+      // ── (a) BEFORE completion — the fail-closed half. ────────────────────
+      expect(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+        findsOneWidget,
+        reason:
+            'awaitingClosure:true + an elapsed startAt must offer «Виконано» '
+            '— the precondition that this row is a genuine still-open '
+            'booking, not one the archive already excludes',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsNothing,
+        reason:
+            'THE FIX. status is CONFIRMED, not COMPLETED — the client-side '
+            'AND gate must hide «Відгук» even though the server flag on '
+            'this row already says providerCanReviewClient:true. Before '
+            'the CTA-gate fix, this rendered stacked next to «Виконано», '
+            'letting a master rate the client before ever closing the '
+            'booking.',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-completed-1')),
+        findsOneWidget,
+        reason:
+            'anti-vacuity control — the archive DOES render «Відгук» for a '
+            'genuinely eligible row, so booking-1\'s absence above is the '
+            'gate at work, not this page failing to render the slot at all',
+      );
+
+      expect(fb.completeBookingCalls, 0);
+
+      // ── Close the booking for real — the same «Виконано» → dialog →
+      //    confirm sequence `master_archive_flow_test.dart`'s primary
+      //    journey uses. ─────────────────────────────────────────────────
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byKey(const Key('complete-booking-dialog')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.completeBookingCalls,
+        1,
+        reason: 'the real PATCH /bookings/booking-1/complete must have fired',
+      );
+
+      // ── (b) AFTER completion — the SAME row switches slots. `settle` can
+      //    return in the lull between the PATCH resolving and the follow-up
+      //    re-fetch landing (identical reasoning to
+      //    `master_archive_flow_test.dart`'s primary journey), so wait for
+      //    the new slot rather than asserting immediately. ────────────────
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason: 'the row survives the close — only its slots change',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+        findsNothing,
+        reason:
+            '«Виконано» must be gone — the booking is now closed, so '
+            'awaitingClosure is no longer true on the refetched row',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+        reason:
+            'THE GATE ALSO OPENS CORRECTLY. status is now COMPLETED and the '
+            'server-computed flag was already true, so «Відгук» must now '
+            'render on this exact row — the fix is not merely restrictive, '
+            'it still lets a genuinely closed, reviewable booking through',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-completed-1')),
+        findsOneWidget,
+        reason: 'the untouched sibling keeps its own CTA throughout',
       );
     },
   );

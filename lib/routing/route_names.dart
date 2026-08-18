@@ -303,10 +303,24 @@ abstract final class RouteNames {
   /// `/master/bookings/archive` list when reached from there
   /// (`master_archive_screen.dart`).
   ///
-  /// Unlike [bookingReview] there is no server-computed canReview-equivalent
-  /// flag for the provider side yet, so the CTA is offered on every
-  /// COMPLETED provider booking; a duplicate submit's 409 is handled ON the
-  /// destination screen (see `LeaveClientFeedbackScreen`'s file header).
+  /// GATING — like [bookingReview]'s `canReview`, both entry points gate their
+  /// CTA on a server-computed flag: `Booking.providerCanReviewClient`, which
+  /// carries a real per-row value on `GET /bookings/{id}` AND on the provider
+  /// rows of `GET /bookings/me` (backend `fix/list-provider-can-review-client`,
+  /// 2026-08-17). The destination then RE-GATES on its own
+  /// `GET /bookings/{id}`, pre-empting a stale list row before the form is ever
+  /// built, and a duplicate submit's 409 remains the last backstop — see
+  /// `LeaveClientFeedbackScreen`'s file header.
+  ///
+  /// (The earlier note here — "there is no server-computed canReview-equivalent
+  /// flag for the provider side yet, so the CTA is offered on every COMPLETED
+  /// provider booking" — was false on both halves by 2026-08-17 and is
+  /// deleted rather than softened: it read as an instruction to re-widen the
+  /// gate that fixed the already-reviewed-row bug.)
+  ///
+  /// `extra` on a push here carries the ENTRY POINT (`ClientReviewEntry`) — see
+  /// the route's registration comment in `app_router.dart`. It never appears in
+  /// the path this method builds.
   static String clientReview(String bookingId) =>
       '${masterBookingDetail(bookingId)}/review';
 

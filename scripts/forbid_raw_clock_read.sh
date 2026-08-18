@@ -350,6 +350,7 @@ EOF
   echo "                matches its own exact line shape and does not leak"
   echo "                to a different DateTime.now() elsewhere in the same"
   echo "                file."
+  echo "SELF-TEST OK: forbid_raw_clock_read.sh"
   exit 0
 fi
 

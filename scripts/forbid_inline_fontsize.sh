@@ -100,6 +100,7 @@ EOF
   fi
   echo "SELF-TEST PASS: allowlisted line 1 is exempt; the new inline"
   echo "                TextStyle(fontSize: 14) on line 2 is flagged."
+  echo "SELF-TEST OK: forbid_inline_fontsize.sh"
   exit 0
 fi
 

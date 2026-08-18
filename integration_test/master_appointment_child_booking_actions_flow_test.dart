@@ -5,12 +5,16 @@
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
 // `booking_detail_appointment_child_footer_test.dart` (widget tier) proves the
-// Dart call site: an appointment-child booking routes complete to
-// `AppointmentRepository.completeAppointment` and decline to the PER-SERVICE
+// Dart call site: an appointment-child booking routes BOTH complete and
+// decline to the PER-SERVICE endpoints —
+// `AppointmentRepository.completeAppointmentService(appointmentId, bookingId)`
+// (`PATCH /appointments/{id}/services/{bookingId}/complete`) and
 // `AppointmentRepository.declineAppointmentService(appointmentId, bookingId)`
-// (`PATCH /appointments/{id}/services/{bookingId}/decline`) — declining ONLY
-// the tapped service, NEVER the whole-visit `declineAppointment` (the CRITICAL
-// bug: it cancelled every service of the visit at once) nor the per-booking
+// (`PATCH /appointments/{id}/services/{bookingId}/decline`) — touching ONLY
+// the tapped service, NEVER the whole-visit `completeAppointment`/
+// `declineAppointment` (the CRITICAL bugs: each closed every service of the
+// visit at once, and complete additionally guarded only the VISIT's `startsAt`
+// so not-yet-started siblings were completed too) nor the per-booking
 // `BookingRepository` methods — but it does all of that against MOCKED
 // repositories. This file closes the same gap
 // `master_booking_provider_actions_flow_test.dart` closes for the plain
@@ -76,7 +80,22 @@ class _FakeAppointmentRepository implements AppointmentRepository {
 
   final FakeBackend _fb;
 
+  /// WHOLE-VISIT complete (`PATCH /appointments/{id}/complete`) — the OLD
+  /// routing the 2026-08-17 CRITICAL bug used, which completed EVERY service
+  /// of the visit at once and guarded only the VISIT's `startsAt`, so siblings
+  /// that had not started were closed too. The per-service fix must NEVER call
+  /// this, so it only records: the complete test below asserts [completeCalls]
+  /// stays 0.
   int completeCalls = 0;
+
+  /// PER-SERVICE complete (`PATCH /appointments/{id}/services/{bookingId}/
+  /// complete`) — the FIXED routing. Records the exact
+  /// (appointmentId, bookingId) the screen passed and flips ONLY that child's
+  /// status on the fake backend via [FakeBackend.completeChild], leaving the
+  /// visit's siblings untouched. Exact mirror of [declineServiceCalls].
+  int completeServiceCalls = 0;
+  String? lastCompleteServiceAppointmentId;
+  String? lastCompleteServiceBookingId;
 
   /// WHOLE-VISIT decline (`PATCH /appointments/{id}/decline`) — the OLD routing
   /// the CRITICAL bug used, which declined EVERY service of the visit at once.
@@ -106,6 +125,21 @@ class _FakeAppointmentRepository implements AppointmentRepository {
     // terminal status through the real HTTP boundary, not a value this fake
     // merely remembers.
     _fb.bookingStatus = 'COMPLETED';
+  }
+
+  @override
+  Future<void> completeAppointmentService(
+    String appointmentId,
+    String bookingId,
+  ) async {
+    completeServiceCalls++;
+    lastCompleteServiceAppointmentId = appointmentId;
+    lastCompleteServiceBookingId = bookingId;
+    // Flips ONLY the tapped child (`bookingId`) to COMPLETED on the real
+    // fake-backed detail, so the screen's post-write
+    // `ref.invalidate(bookingDetailProvider(bookingId))` re-fetches a terminal
+    // status for THIS child while any sibling child stays CONFIRMED.
+    _fb.completeChild(bookingId);
   }
 
   @override
@@ -192,6 +226,38 @@ void main() {
     (tester) async {
       final fb = FakeBackend();
       final fakeAppt = _FakeAppointmentRepository(fb);
+
+      // NOT-YET-STARTED window, anchored on the HARNESS'S INJECTED CLOCK —
+      // same test-clock coherence invariant the two tests below spell out at
+      // length, applied to the opposite branch.
+      //
+      // This used to ride `FakeBackend`'s DEFAULT `bookingStartsAt`, which is
+      // `_futureInstant(7 days)` — anchored on the REAL DEVICE clock. Since the
+      // 2026-08-17 CRITICAL fix the provider footer's gate is
+      // `Booking.hasStartedAt(ref.watch(clockProvider)())`, i.e. it compares
+      // this fixture against `kFixedNow`, so a device-anchored window is a
+      // MIXED-clock fixture: it lands in the not-started branch only while the
+      // device clock happens to sit at-or-after `kFixedNow`. True on the Kyiv
+      // dev VM today, and therefore invisible — the exact live bug class
+      // `scripts/forbid_host_local_instant_anchor.sh` exists for. Roll the
+      // device clock back before 2026-06-07 and the default window falls
+      // BEFORE `kFixedNow`, the footer flips to the started branch, and the
+      // three assertions below invert with no code change.
+      //
+      // +7 days on `kFixedNow` keeps the SAME offset and the SAME 90-minute
+      // duration the default fixture had — the only thing that changes is WHICH
+      // clock it is measured from, so the branch under test (CONFIRMED and NOT
+      // started → «Перенести» + «Відхилити», no «Завершити») is now coherent by
+      // construction instead of by luck. `isPast` (device clock) does not gate
+      // the PROVIDER footer at all — `_providerActions` returns before every
+      // `isPast` branch (`booking_detail_screen.dart:761`) — so the window now
+      // sitting in the device's past changes nothing here, exactly as the two
+      // already-pinned tests below rely on.
+      final DateTime start = kFixedNow.add(const Duration(days: 7));
+      final DateTime end = start.add(const Duration(minutes: 90));
+      fb.bookingStartsAt = start.toIso8601String();
+      fb.bookingEndsAt = end.toIso8601String();
+
       await bootAndOpenDetail(tester, fb, fakeAppt);
 
       // ── Footer: «Перенести» + decline both offered — track 27.x/MO-6 added
@@ -251,6 +317,22 @@ void main() {
 
       // ── The status PERSISTS across a real re-fetch: the footer goes fully
       //    terminal. ────────────────────────────────────────────────────────
+      //
+      // FLAKE FIX (mobile-qa, 2026-08-17). This was a bare `AppHarness.settle`
+      // followed directly by the `findsNothing` below, and failed ~50% of runs
+      // (measured 3/6 red on this file alone) with «Відхилити» still on
+      // screen. `settle` can return in the LULL between the PATCH resolving
+      // and the follow-up `ref.invalidate` re-fetch landing, so the assertion
+      // read a stale pre-write CONFIRMED footer. Identical race, identical
+      // remedy as `master_archive_flow_test.dart`'s own post-close wait — see
+      // that file's comment. Waiting for the affordance to GENUINELY leave is
+      // also strictly stronger than the bare assertion: a screen that never
+      // refetched now times out loudly instead of passing by luck.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-decline')),
+      );
+
       expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
       expect(
         find.byKey(const Key('booking-detail-provider-reschedule')),
@@ -262,7 +344,9 @@ void main() {
 
   testWidgets(
     'PROVIDER completes an underway appointment-child (multi-service visit) '
-    'booking → routes to AppointmentRepository.completeAppointment, never '
+    'booking → routes to '
+    'AppointmentRepository.completeAppointmentService(appointmentId, '
+    'bookingId), never the whole-visit completeAppointment nor '
     'BookingRepository.completeBooking, and the status persists as terminal '
     'across a real re-fetch',
     (tester) async {
@@ -273,17 +357,22 @@ void main() {
       // `master_booking_provider_actions_flow_test.dart`) — started well in
       // the past, ends well in the future, so `hasStarted` is
       // deterministically true regardless of how long this test takes.
-      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
-      // clock on purpose (both `instant-ok` annotated in
-      // `lib/features/booking/domain/booking_display_x.dart`) — a
-      // presentation-only "has this slot passed" signal, deliberately NOT
-      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
-      // would classify as long-elapsed, not underway. See the two-clock
-      // model documented on `FakeBackend.serverNow`.
-      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
-      final DateTime start = DateTime.now().toUtc().subtract(
-        const Duration(hours: 1),
-      );
+      // The window is anchored to the HARNESS'S INJECTED CLOCK ([kFixedNow] —
+      // the same instant `AppHarness` overrides `clockProvider` to), NOT the
+      // device clock it used to track. Since the 2026-08-17 CRITICAL fix the
+      // provider footer's start-time gate reads
+      // `Booking.hasStartedAt(ref.watch(clockProvider)())` instead of the
+      // device-clock `Booking.hasStarted` getter, so the FIXTURE clock and the
+      // APP clock must be the SAME clock (test-clock coherence invariant). A
+      // `DateTime.now()`-anchored window — what this used to be, correctly, on
+      // the old gate — sits far AFTER `kFixedNow` and would read as
+      // not-yet-started, hiding «Завершити» entirely. Both-pinned is now the
+      // only coherent form, and it removes the last wall-clock race here:
+      // started an hour before the app's "now", ending three hours after it.
+      // `isPast` (still device-clock, still `instant-ok`) does not gate the
+      // PROVIDER footer at all — `_providerActions` returns before every
+      // `isPast` branch — so leaving it out of this pinning changes nothing.
+      final DateTime start = kFixedNow.subtract(const Duration(hours: 1));
       final DateTime end = start.add(const Duration(hours: 4));
       fb.bookingStartsAt = start.toIso8601String();
       fb.bookingEndsAt = end.toIso8601String();
@@ -317,10 +406,19 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('complete-booking-dialog')), findsNothing);
 
-      // ── The write went to the WHOLE-VISIT endpoint, never the per-booking
-      //    one. ─────────────────────────────────────────────────────────────
-      expect(fakeAppt.completeCalls, 1);
-      expect(fakeAppt.lastCompleteId, 'appt-1');
+      // ── The write went to the PER-SERVICE endpoint, never the whole-visit
+      //    one and never the per-booking one. ────────────────────────────────
+      expect(fakeAppt.completeServiceCalls, 1);
+      expect(fakeAppt.lastCompleteServiceAppointmentId, 'appt-1');
+      expect(fakeAppt.lastCompleteServiceBookingId, 'booking-1');
+      expect(
+        fakeAppt.completeCalls,
+        0,
+        reason:
+            'the whole-visit PATCH /appointments/{id}/complete closes every '
+            'child in lockstep and guards only the VISIT startsAt — an '
+            'appointment-child complete must never reach it',
+      );
       expect(
         fb.completeBookingCalls,
         0,
@@ -330,6 +428,13 @@ void main() {
       );
 
       // ── The status PERSISTS across a real re-fetch: terminal footer. ──────
+      // Same post-write staleness race as the decline test above — see that
+      // block's FLAKE FIX comment.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-complete')),
+      );
+
       expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
       expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
     },
@@ -348,17 +453,22 @@ void main() {
 
       // Same wide, wall-clock-safe "underway/elapsed" window as the complete
       // test above.
-      // `BookingDisplayX.hasStarted`/`.isPast` compare against the DEVICE
-      // clock on purpose (both `instant-ok` annotated in
-      // `lib/features/booking/domain/booking_display_x.dart`) — a
-      // presentation-only "has this slot passed" signal, deliberately NOT
-      // the injected `clockProvider` instant. A `kFixedNow`-anchored window
-      // would classify as long-elapsed, not underway. See the two-clock
-      // model documented on `FakeBackend.serverNow`.
-      // instant-ok: fixture tracks the DEVICE clock BookingDisplayX reads
-      final DateTime start = DateTime.now().toUtc().subtract(
-        const Duration(hours: 1),
-      );
+      // The window is anchored to the HARNESS'S INJECTED CLOCK ([kFixedNow] —
+      // the same instant `AppHarness` overrides `clockProvider` to), NOT the
+      // device clock it used to track. Since the 2026-08-17 CRITICAL fix the
+      // provider footer's start-time gate reads
+      // `Booking.hasStartedAt(ref.watch(clockProvider)())` instead of the
+      // device-clock `Booking.hasStarted` getter, so the FIXTURE clock and the
+      // APP clock must be the SAME clock (test-clock coherence invariant). A
+      // `DateTime.now()`-anchored window — what this used to be, correctly, on
+      // the old gate — sits far AFTER `kFixedNow` and would read as
+      // not-yet-started, hiding «Завершити» entirely. Both-pinned is now the
+      // only coherent form, and it removes the last wall-clock race here:
+      // started an hour before the app's "now", ending three hours after it.
+      // `isPast` (still device-clock, still `instant-ok`) does not gate the
+      // PROVIDER footer at all — `_providerActions` returns before every
+      // `isPast` branch — so leaving it out of this pinning changes nothing.
+      final DateTime start = kFixedNow.subtract(const Duration(hours: 1));
       final DateTime end = start.add(const Duration(hours: 4));
       fb.bookingStartsAt = start.toIso8601String();
       fb.bookingEndsAt = end.toIso8601String();
@@ -416,6 +526,13 @@ void main() {
       );
 
       // ── The status PERSISTS across a real re-fetch: terminal footer. ──────
+      // Same post-write staleness race as the first decline test — see that
+      // block's FLAKE FIX comment.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-decline')),
+      );
+
       expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
       expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
     },
@@ -461,6 +578,13 @@ void main() {
       expect(fb.declineBookingCalls, 0);
 
       // ── `booking-1` is now terminal across a real re-fetch. ───────────────
+      // Same post-write staleness race as the decline test above — see that
+      // block's FLAKE FIX comment.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-decline')),
+      );
+
       expect(find.byKey(const Key('booking-detail-decline')), findsNothing);
       expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
 

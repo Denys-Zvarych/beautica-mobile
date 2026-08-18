@@ -164,11 +164,32 @@ abstract final class BookingMapper {
       endAt: endsAt,
       status: status,
       canReview: dto.canReview ?? false,
-      // Real value only on GET /bookings/{id}; both GET /bookings/me listing
-      // paths hardcode false server-side, so a null/false wire value here is
-      // the expected shape there, not a missing-field defect. See
-      // `Booking.providerCanReviewClient`'s doc.
-      providerCanReviewClient: dto.providerCanReviewClient ?? false,
+      // The REAL per-row value now arrives on BOTH paths — GET /bookings/{id}
+      // (always did) and the PROVIDER rows of GET /bookings/me (backend
+      // `fix/list-provider-can-review-client`, 2026-08-17). The earlier note
+      // here — "both listing paths hardcode false server-side, so a null/false
+      // wire value is the expected shape there" — is RETRACTED: it described
+      // the pre-2026-08-17 backend and would now tell a reader that a `false`
+      // off a listing carries no information, which is exactly backwards (the
+      // archive's «Відгук» CTA is gated on it — `MasterBookingCard.onReview`).
+      // The `?? false` is a FAIL-CLOSED default for a backend old enough to
+      // OMIT the field, not an expected shape on any current response.
+      //
+      // 2026-08-18: ALSO ANDed with `status == BookingStatus.completed` here
+      // — a second, independent fail-closed gate alongside the render-site
+      // one in `MasterBookingCard._buildFullBody`. The backend's provider-
+      // side predicate is being narrowed to COMPLETED-only in parallel with
+      // this fix, but an older backend still on the wider "COMPLETED or
+      // CONFIRMED-and-elapsed" predicate would keep sending `true` on an
+      // elapsed-but-unclosed CONFIRMED row; ANDing the already-mapped
+      // `status` local here means that stale `true` never survives past this
+      // mapper, regardless of what the render site does. See
+      // `Booking.providerCanReviewClient`'s doc for why the provider→client
+      // review direction requires COMPLETED while the client→provider
+      // direction ([Booking.canReview]) does not.
+      providerCanReviewClient:
+          (dto.providerCanReviewClient ?? false) &&
+          status == BookingStatus.completed,
       // Phase 29.2 field; defaulted so a pre-29.2 backend omitting it entirely
       // cannot crash the mapper. See `Booking.awaitingClosure`'s doc.
       awaitingClosure: dto.awaitingClosure ?? false,

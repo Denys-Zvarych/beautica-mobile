@@ -22,10 +22,12 @@
 //
 // The CLIENT→MASTER mirror gates its form on `Booking.canReview`; this
 // PROVIDER→CLIENT direction mirrors it via `Booking.providerCanReviewClient`
-// — a server-computed flag that is only ever accurate on `GET /bookings/{id}`
-// (list endpoints hardcode it `false` — see `MasterBookingCard.onReview`'s
-// doc for why the master «Архів» page's «Відгук» button is deliberately
-// UNGATED and reachable regardless). This screen fetches that single-booking
+// — a server-computed flag now accurate on BOTH `GET /bookings/{id}` and the
+// provider rows of `GET /bookings/me` (backend
+// `fix/list-provider-can-review-client`, 2026-08-17; the earlier note here
+// that "list endpoints hardcode it `false`" is retracted, and the master
+// «Архів» page's «Відгук» button is now gated on it — see
+// `MasterBookingCard.onReview`'s doc). This screen fetches the single-booking
 // endpoint on open via `bookingDetailProvider(bookingId)` and PRE-GATES on
 // the real value in `build()`: `providerCanReviewClient == false` renders
 // `_NotReviewable` immediately, before the form is ever built, so a master
@@ -53,6 +55,27 @@
 // `GET /bookings/me`, which never warms it, unlike the detail path where the
 // still-mounted `BookingDetailScreen` keeps it warm for free).
 //
+// ## THE POP RESULT IS PART OF THIS SCREEN'S CONTRACT
+//
+// Every pop site here reports a `bool` upward: `true` means "this booking is
+// no longer reviewable by this provider" — the review was just submitted, a
+// duplicate submit 409'd, or the pre-gate's own fetch already said `false`.
+// `MasterArchiveScreen._openReview` awaits it and, on `true`, rewrites JUST
+// that row via `MasterArchiveNotifier.markClientReviewed` (zero network, pages
+// and scroll position kept) instead of the bare `ref.invalidate` on the whole
+// archive family this screen used to fire (mobile-perf MEDIUM, 2026-08-17 —
+// see that method's own doc for the full cost of the invalidate). Callers are
+// free to ignore the result: `BookingDetailScreen` does, because [entry] makes
+// this screen invalidate `bookingDetailProvider` on its behalf while the pop
+// animation runs.
+//
+// The pop result reaches the ADJACENT caller only. A successful submit
+// therefore ALSO deposits the booking id in the session-scoped
+// `clientReviewSignalProvider`, which is what reaches a `MasterArchiveScreen`
+// sitting further down the stack (archive → detail → review) where no pop
+// result can arrive. See that provider's file header and [_submit]'s comment
+// for why both exist and why they cannot conflict.
+//
 // SEC: renders the client's identity and is a form — acquires the app-wide
 // [ScreenProtectionManager] for its lifetime, exactly like `LeaveReviewScreen`
 // / `BookingDetailScreen`.
@@ -73,6 +96,7 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/booking_detail_notifier.dart';
+import '../application/client_review_signal_provider.dart';
 import '../application/leave_client_feedback_notifier.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
@@ -80,11 +104,46 @@ import 'widgets/client_feedback_card.dart';
 import 'widgets/master_feedback_card.dart' show ReviewSectionLabel;
 import 'widgets/star_rating_input.dart';
 
+/// Which surface pushed [LeaveClientFeedbackScreen] — threaded through
+/// go_router's `extra` (never the path: the entry point is not part of the
+/// resource's identity and must not leak into a deep link) and read back in
+/// `app_router.dart`'s route builder.
+///
+/// It exists for exactly ONE decision: whether a successful submit must
+/// invalidate `bookingDetailProvider(bookingId)` before popping. That refetch
+/// is REQUIRED for [bookingDetail] (the still-mounted `BookingDetailScreen`
+/// underneath `ref.watch`es the same family instance and would otherwise keep
+/// serving a cached booking whose `providerCanReviewClient` is stale, keeping
+/// its own review CTA alive and re-tappable), and is pure waste for
+/// [masterArchive] (nothing on the archive stack watches that family — this
+/// screen's own `ref.watch` is the last listener and the autoDispose element
+/// dies with the pop, so the `GET /bookings/{id}` it fires is read by nobody;
+/// mobile-perf LOW, 2026-08-17). The archive learns what it needs from the pop
+/// result instead — see the file header.
+enum ClientReviewEntry {
+  /// Pushed from `BookingDetailScreen`'s «Залишити відгук про клієнта» CTA.
+  /// Also the DEFAULT when `extra` is absent or of another type: it costs one
+  /// unnecessary fetch on an unknown entry point, where the other direction
+  /// would silently resurrect the stale-CTA bug.
+  bookingDetail,
+
+  /// Pushed from a `MasterArchiveScreen` row's «Відгук» slot.
+  masterArchive,
+}
+
 /// The «ВІДГУК ПРО КЛІЄНТА» screen for the booking identified by [bookingId].
 class LeaveClientFeedbackScreen extends ConsumerStatefulWidget {
-  const LeaveClientFeedbackScreen({super.key, required this.bookingId});
+  const LeaveClientFeedbackScreen({
+    super.key,
+    required this.bookingId,
+    this.entry = ClientReviewEntry.bookingDetail,
+  });
 
   final String bookingId;
+
+  /// Which surface pushed this screen — see [ClientReviewEntry] for the one
+  /// behaviour it changes and why the default is the conservative direction.
+  final ClientReviewEntry entry;
 
   @override
   ConsumerState<LeaveClientFeedbackScreen> createState() =>
@@ -147,6 +206,24 @@ class _LeaveClientFeedbackScreenState
       // A duplicate submit swaps the form for the not-reviewable info state —
       // the screen swap itself communicates the outcome, no SnackBar needed.
       if (error is ClientReviewAlreadyExistsFailure) {
+        // A 409 PROVES this client's cached detail diverged from the server:
+        // we only got here by tapping a CTA that a fresh
+        // `providerCanReviewClient` would never have rendered. Invalidate the
+        // shared detail family unconditionally here — unlike the success path
+        // below there is no pop, so this is the ONLY signal a
+        // `BookingDetailScreen` underneath will get, and this screen's own
+        // `ref.watch` is what makes the refetch land (it re-reads the
+        // authoritative `false`). That refetch does NOT flash `_LoadingForm`
+        // between the form and `_NotReviewable` — see `build`'s `async.when`
+        // note for why (and for what was measured rather than assumed there;
+        // mobile-security INFO, 2026-08-17).
+        //
+        // No `ref.invalidate(masterArchiveProvider)` here: the archive learns
+        // the row is no longer reviewable from this screen's POP RESULT (see
+        // the file header) and patches that one row surgically, instead of
+        // dropping every cached filter combination's pages and scroll
+        // position.
+        ref.invalidate(bookingDetailProvider(widget.bookingId));
         setState(() => _alreadyReviewed = true);
         return;
       }
@@ -158,14 +235,69 @@ class _LeaveClientFeedbackScreenState
     }
 
     // Success — the backend just flipped `providerCanReviewClient` to false
-    // for this booking, so invalidate the shared `bookingDetailProvider`
-    // BEFORE popping: `BookingDetailScreen` stays mounted beneath this pushed
-    // route and `ref.watch`es the same family instance, so the invalidation
-    // makes it re-fetch and drop the now-stale review CTA the instant we pop
-    // back onto it (see the file header's gating note).
-    ref.invalidate(bookingDetailProvider(widget.bookingId));
+    // for this booking. Each entry point learns that a different way, and
+    // neither way is a bare invalidate of a whole provider family:
+    //
+    //   • [ClientReviewEntry.bookingDetail] — invalidate
+    //     `bookingDetailProvider(id)` BEFORE popping. `BookingDetailScreen`
+    //     stays mounted beneath this pushed route and `ref.watch`es the same
+    //     family instance; this screen's own live watch is what drives the
+    //     refetch (the covered detail screen's consumers are PAUSED), so it
+    //     resolves DURING the pop animation and the detail screen resumes
+    //     straight onto fresh data with its review CTA already gone — no
+    //     loading flash underneath. See [ClientReviewEntry].
+    //   • [ClientReviewEntry.masterArchive] — NO invalidate. Nothing on that
+    //     stack watches `bookingDetailProvider`, so the refetch would be a
+    //     `GET /bookings/{id}` nobody ever reads (mobile-perf LOW,
+    //     2026-08-17). The archive instead reads the `true` popped below and
+    //     rewrites exactly that one row —
+    //     `MasterArchiveNotifier.markClientReviewed`.
+    //
+    // Deliberately NOT `invalidateBookingViewsAfterProviderClose`: that helper
+    // is the fan-out for a STATUS close (decline/complete) and additionally
+    // drops `bookingsDayProvider`. Leaving a client review changes no booking
+    // status and nothing the day timeline renders, so widening to it would be
+    // gratuitous refetching, not a shared contract.
+    if (widget.entry == ClientReviewEntry.bookingDetail) {
+      ref.invalidate(bookingDetailProvider(widget.bookingId));
+    }
+    // BOTH mechanisms fire, and that is deliberate — they cover DIFFERENT
+    // journeys and cannot conflict (mobile-perf MEDIUM, 2026-08-17 cycle 2):
+    //
+    //   • the POP RESULT below is the ADJACENT-path patch. It reaches
+    //     `MasterArchiveScreen._openReview` synchronously on the frame the pop
+    //     lands, so an archive that pushed this screen itself drops the row's
+    //     «Відгук» CTA instantly, with no dependence on any provider delivery
+    //     ordering.
+    //   • this SIGNAL is the NON-adjacent-path patch, and is written
+    //     unconditionally — independent of [widget.entry], because the entry
+    //     enum only describes who is DIRECTLY underneath. On
+    //     archive → detail → review, the archive is two routes down and no pop
+    //     result can ever reach it (and a predictive-back gesture through the
+    //     detail screen pops `null` anyway). It reads this set instead, on
+    //     resume. See `client_review_signal_provider.dart`'s file header.
+    //
+    // Not accidental duplication, and the second arrival is a genuine no-op —
+    // but be precise about WHY, because the obvious reading is wrong (mobile-
+    // perf LOW, 2026-08-17 cycle 3). It is NOT frame ordering: whether the
+    // pop-result continuation or the archive's resume rebuild runs first is an
+    // implementation detail of the scheduler, and both orders must be safe.
+    // It is `MasterArchiveNotifier.markClientsReviewed`'s guard, which tests
+    // the row's `providerCanReviewClient` FLAG rather than merely the id's
+    // presence: once either path has flipped the row to `false`, the other
+    // finds nothing patchable, returns without touching `items`, and so emits
+    // no state and preserves the list's identity (which
+    // `_MasterArchiveScreenState._groupedEntries` memoises on). An
+    // id-presence-only guard would still allocate and re-emit here — silently
+    // costing an O(n) regroup and a full `ListView` rebuild for no visible
+    // change.
+    ref.read(clientReviewSignalProvider.notifier).markReviewed(booking.id);
     showSuccessSnack(context, l10n.clientReviewSubmitSuccess);
-    if (context.canPop()) context.pop();
+    // `true` — "no longer reviewable"; see the file header's pop-result
+    // contract. Exactly ONE pop on this path: the 409 branch above returned
+    // early without popping at all, so a duplicate submit can never report
+    // `true` from here.
+    if (context.canPop()) context.pop(true);
   }
 
   @override
@@ -175,6 +307,14 @@ class _LeaveClientFeedbackScreenState
       bookingDetailProvider(widget.bookingId),
     );
     final bool submitting = ref.watch(leaveClientFeedbackProvider).isLoading;
+    // The pop-result this screen reports upward from EVERY manual pop site —
+    // see the file header's pop-result contract. `true` once this booking is
+    // known not (or no longer) reviewable by this provider: the pre-gate's own
+    // fetch said `false`, or a duplicate submit 409'd. Stays `false` while the
+    // fetch is still in flight (`async.value` is null then), which is the
+    // correct "nothing learned" answer for a master who backs out early.
+    final bool notReviewable =
+        _alreadyReviewed || async.value?.providerCanReviewClient == false;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -185,9 +325,32 @@ class _LeaveClientFeedbackScreenState
             _TopBar(
               title: l10n.clientReviewScreenTitle,
               backLabel: l10n.clientReviewBackSemantics,
+              popResult: notReviewable,
             ),
             Expanded(
+              // NO LOADING FLASH ON A RELOAD. Two paths re-run
+              // `bookingDetailProvider(id)` while this screen is mounted and
+              // visible: the 409 branch of [_submit] and the detail-entry
+              // success branch (whose refetch overlaps the pop animation).
+              // Neither may fall back through `_LoadingForm` — that would
+              // flash the skeleton between the form and `_NotReviewable`.
+              //
+              // MEASURED, because the obvious story is wrong: both of those
+              // paths are `ref.invalidate`, and `AsyncValue.when` ALREADY
+              // skips the loading branch for an invalidate/refresh — that is
+              // `skipLoadingOnRefresh`, which defaults to `true`. Deleting the
+              // `skipLoadingOnReload: true` below leaves
+              // `leave_client_feedback_screen_test.dart`'s frame-by-frame
+              // no-flash test GREEN (mutation-verified 2026-08-17, against a
+              // deliberately PENDING refetch — so the test is not merely
+              // racing a resolved future). It is kept as the guard for the
+              // OTHER reload trigger it really does cover: a rebuild caused by
+              // one of that provider's own dependencies changing, which
+              // `skipLoadingOnRefresh` does NOT skip. The FIRST load is
+              // unaffected either way and still shows `_LoadingForm` — both
+              // flags apply only once a previous value exists.
               child: async.when(
+                skipLoadingOnReload: true,
                 loading: () => const _LoadingForm(),
                 error: (Object e, StackTrace _) => _ErrorState(
                   onRetry: () =>
@@ -202,7 +365,7 @@ class _LeaveClientFeedbackScreenState
                 // snapshot) and swaps to the same state once true.
                 data: (Booking booking) =>
                     (!booking.providerCanReviewClient || _alreadyReviewed)
-                    ? const _NotReviewable()
+                    ? const _NotReviewable(popResult: true)
                     : _Form(
                         booking: booking,
                         comment: _comment,
@@ -734,10 +897,21 @@ class _CommentFooterRow extends StatelessWidget {
 /// The top bar: a raised back affordance on the left and the centred, tracked
 /// screen title.
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.title, required this.backLabel});
+  const _TopBar({
+    required this.title,
+    required this.backLabel,
+    required this.popResult,
+  });
 
   final String title;
   final String backLabel;
+
+  /// Reported to the caller on pop — see the file header's pop-result
+  /// contract. `true` once this booking is known not (or no longer) reviewable,
+  /// which is what lets `MasterArchiveScreen` drop that row's «Відгук» CTA even
+  /// when the master backs out of an already-reviewed booking instead of
+  /// submitting.
+  final bool popResult;
 
   static final TextStyle _titleStyle = VelvetText.subheading().copyWith(
     letterSpacing: 1.4,
@@ -763,7 +937,7 @@ class _TopBar extends StatelessWidget {
               icon: Icons.arrow_back_ios_new_rounded,
               semanticLabel: backLabel,
               onTap: () {
-                if (context.canPop()) context.pop();
+                if (context.canPop()) context.pop(popResult);
               },
             ),
           ),
@@ -788,7 +962,15 @@ class _TopBar extends StatelessWidget {
 /// `providerCanReviewClient` fetched on open is already `false`) or via the
 /// post-submit 409 backstop for a race (see the file header's gating note).
 class _NotReviewable extends StatelessWidget {
-  const _NotReviewable();
+  const _NotReviewable({required this.popResult});
+
+  /// Reported to the caller on pop — see the file header's pop-result
+  /// contract. A literal `true` at the only call site (rather than the
+  /// `notReviewable` expression [_TopBar] is handed, which is provably `true`
+  /// wherever this state renders) so the widget stays `const` and this info
+  /// state never rebuilds. A parameter rather than a hardcoded `pop(true)`
+  /// inside `build` purely so the contract is visible from the call site.
+  final bool popResult;
 
   static final TextStyle _titleStyle = VelvetText.headingSm;
 
@@ -835,7 +1017,7 @@ class _NotReviewable extends StatelessWidget {
                 label: l10n.clientReviewUnavailableCta,
                 icon: Icons.event_note_rounded,
                 onPressed: () {
-                  if (context.canPop()) context.pop();
+                  if (context.canPop()) context.pop(popResult);
                 },
               ),
             ),

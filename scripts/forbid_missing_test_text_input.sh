@@ -251,6 +251,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   fi
   echo "SELF-TEST PASS: missing / commented-out / outside-body / absent-file calls flagged, in both scoped and whole-file mode; compliant boot + compliant shared policy clean"
+  echo "SELF-TEST OK: forbid_missing_test_text_input.sh"
   exit 0
 fi
 

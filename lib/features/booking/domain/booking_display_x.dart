@@ -189,8 +189,33 @@ extension BookingDisplayX on Booking {
   /// to a 409 (`ProviderDeclineWindowClosedFailure` /
   /// `ProviderCompleteNotStartedFailure`), which the screen catches and
   /// resolves by refetching so the footer re-renders correctly.
+  ///
+  /// PREFER [hasStartedAt] wherever a `WidgetRef` is reachable — this getter
+  /// reads the DEVICE clock, which no test can pin.
   // instant-ok: absolute-instant comparison, startAt is canonical UTC.
-  bool get hasStarted => !startAt.isAfter(DateTime.now());
+  bool get hasStarted => hasStartedAt(DateTime.now());
+
+  /// Whether this booking's START instant is already at-or-past [now] — the
+  /// injected-clock form of [hasStarted], and the SINGLE implementation of the
+  /// predicate (that getter is now a one-line delegate, so the two can never
+  /// diverge). See [hasStarted]'s doc above for the full contract: which
+  /// backend guard this mirrors, why it compares `startAt` and not `endAt`
+  /// (deliberately a DIFFERENT gate than [isPast]), and why it is UX-only with
+  /// the SERVER clock authoritative.
+  ///
+  /// Call sites that can reach a `WidgetRef` MUST use this one, sourcing [now]
+  /// from `ref.watch(clockProvider)()` (widgets) / `ref.read(clockProvider)()`
+  /// (notifier actions) — a gate the test cannot pin is a gate the test cannot
+  /// prove. NOTE the coherence invariant when you do: a fixture's booking
+  /// window must be anchored to the SAME clock the app is reading, so a test
+  /// that overrides `clockProvider` must anchor `startAt` to that override,
+  /// never to `DateTime.now()`.
+  ///
+  /// Compares ABSOLUTE INSTANTS — [startAt] is canonical UTC and `isAfter`
+  /// orders by microsecondsSinceEpoch regardless of either operand's zone. Do
+  /// NOT convert either side through `toBeauticaTime`: that Kyiv pin governs
+  /// wall-clock DISPLAY (`.hour`/`.minute`), never instant ORDERING.
+  bool hasStartedAt(DateTime now) => !startAt.isAfter(now);
 
   /// The four location fields composed into one line, or `null` when the
   /// provider has no usable location on file. See [composeAddressLine].

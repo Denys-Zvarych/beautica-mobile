@@ -25,9 +25,11 @@
 //     `Navigator`).
 //
 // `booking.appointmentId` is `null` on every fixture in this file — the
-// appointment-child branch (`AppointmentRepository.completeAppointment`)
-// mirrors `booking_detail_screen.dart`'s own identical branch verbatim and
-// is not re-proven here.
+// appointment-child branch (`AppointmentRepository.completeAppointmentService`
+// — the PER-SERVICE endpoint since the 2026-08-17 CRITICAL fix; it used to be
+// the whole-visit `completeAppointment`, which closed every sibling of the
+// visit in lockstep) mirrors `booking_detail_screen.dart`'s own identical
+// branch verbatim and is not re-proven here.
 
 import 'dart:async';
 
@@ -35,10 +37,13 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/client_review_signal_provider.dart';
 import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/data/client_review_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -63,8 +68,14 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
+
+/// Only the archive→«Відгук»→submit journey at the bottom of this file needs
+/// it — every other test in here never reaches a real write.
+class _MockClientReviewRepository extends Mock
+    implements ClientReviewRepository {}
 
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
@@ -77,6 +88,12 @@ Booking _booking({
   required String id,
   required BookingStatus status,
   bool awaitingClosure = false,
+  // The server-computed «Відгук» gate (`MasterBookingCard.onReview`). Left
+  // `false` by default — matching the backend's own default and the common
+  // case of an already-reviewed archive row — so only the tests that mean to
+  // exercise the CTA opt in, and every other row in this file keeps rendering
+  // exactly what it rendered before the gate moved off `status` (2026-08-17).
+  bool providerCanReviewClient = false,
   // Overridable ONLY for the date-group-header tests below, which need
   // several distinct instants to exercise grouping — every other call site
   // in this file relies on the fixed PAST literal default (this screen is
@@ -104,6 +121,7 @@ Booking _booking({
   status: status,
   canReview: false,
   awaitingClosure: awaitingClosure,
+  providerCanReviewClient: providerCanReviewClient,
 );
 
 PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
@@ -1632,54 +1650,179 @@ void main() {
     });
   });
 
-  group('«Відгук» review action', () {
-    testWidgets('renders ONLY on a COMPLETED row, never on an awaitingClosure '
-        'CONFIRMED row — a fixture carrying both proves this is not vacuous', (
-      WidgetTester tester,
-    ) async {
-      stubList(<Booking>[
-        _booking(
-          id: 'awaiting',
-          status: BookingStatus.confirmed,
-          awaitingClosure: true,
+  group('reload seamlessness (mobile-perf LOW, 2026-08-17)', () {
+    testWidgets('a «Виконано» close reload keeps the accumulated list on '
+        'screen — the skeleton never replaces it', (WidgetTester tester) async {
+      // What the finding asked for was `skipLoadingOnReload: true` on this
+      // screen's `async.when`, on the premise that the post-close
+      // `ref.invalidate` swaps the list for the skeleton. MEASURED: it does
+      // not, and never did — `AsyncValue.when`'s `skipLoadingOnRefresh`
+      // already defaults to `true` and an invalidate IS a refresh, so the
+      // retained previous value keeps rendering. Deleting the flag leaves this
+      // test green (mutation-verified 2026-08-17). The flag stays as the guard
+      // for the reload trigger `skipLoadingOnRefresh` does NOT cover (a
+      // dependency of the provider changing); THIS test is the standing pin on
+      // the behaviour the master actually sees.
+      //
+      // The reload is held PENDING across the asserted frames on purpose —
+      // against an immediately-resolving stub no frame would ever observe the
+      // reload at all and the assertions would be vacuous.
+      final Booking booking = _booking(
+        id: 'awaiting',
+        status: BookingStatus.confirmed,
+        awaitingClosure: true,
+      );
+      final List<Completer<PageResponse<Booking>>> pages =
+          <Completer<PageResponse<Booking>>>[];
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
         ),
-        _booking(id: 'done', status: BookingStatus.completed),
-      ]);
+      ).thenAnswer((_) {
+        final Completer<PageResponse<Booking>> c =
+            Completer<PageResponse<Booking>>();
+        pages.add(c);
+        if (pages.length == 1) c.complete(_page(<Booking>[booking]));
+        return c.future;
+      });
+      when(() => repo.completeBooking('awaiting')).thenAnswer((_) async {});
 
       await pump(tester);
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey<String>('awaiting')), findsOneWidget);
 
-      expect(
-        find.byKey(const Key('master-booking-card-review-done')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('master-booking-card-review-awaiting')),
-        findsNothing,
-      );
-      // The «Виконано» / «Відгук» pairing is mutually exclusive by
-      // construction (`Booking.awaitingClosure` requires
-      // `status == confirmed`; the review slot requires
-      // `status == completed`) — pinned here alongside the review
-      // assertions above, on the SAME two-row fixture, so a future change
-      // to either gate that let both render on one row would turn one of
-      // these four expectations red.
-      expect(
+      await tester.tap(
         find.byKey(const Key('master-booking-card-complete-awaiting')),
-        findsOneWidget,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+
+      // Deliberately NOT `pumpAndSettle` — the skeleton this test is watching
+      // for runs a PERPETUAL breathe animation, so a settle here would hang
+      // rather than fail if the regression ever landed.
+      for (int frame = 0; frame < 8; frame++) {
+        await tester.pump();
+        expect(
+          find.byKey(const Key('master-archive-skeleton')),
+          findsNothing,
+          reason:
+              'frame $frame of the post-close reload: the master\'s '
+              'accumulated pages and scroll position must survive it',
+        );
+      }
+      expect(
+        pages,
+        hasLength(2),
+        reason:
+            'the close really did trigger a reload, and it really is still '
+            'pending across every frame above — otherwise the loop proved '
+            'nothing',
       );
       expect(
-        find.byKey(const Key('master-booking-card-complete-done')),
-        findsNothing,
+        find.byKey(const ValueKey<String>('awaiting')),
+        findsOneWidget,
+        reason: 'the previous value is what stays on screen, not a skeleton',
       );
+
+      pages.last.complete(_page(<Booking>[booking]));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey<String>('awaiting')), findsOneWidget);
     });
+  });
+
+  group('«Відгук» review action', () {
+    // RETARGETED 2026-08-18. The 2026-08-17 pass gated this slot on
+    // `providerCanReviewClient` alone, reasoning the server's
+    // `isReviewEligible` predicate (COMPLETED or CONFIRMED-and-elapsed)
+    // already covered it — which let an elapsed-but-unclosed CONFIRMED row
+    // (awaitingClosure) stack «Відгук» next to «Виконано», offering a rating
+    // CTA before the master had closed the booking. The gate is now
+    // `status == BookingStatus.completed` AND `providerCanReviewClient` (see
+    // `MasterBookingCard.onReview`'s doc). Three rows so every direction of
+    // the real gate is pinned on one fixture and none can pass vacuously:
+    // an awaitingClosure CONFIRMED row with the flag true (review must be
+    // ABSENT, complete must remain PRESENT — proving the two slots are still
+    // independently gated, not coupled), a COMPLETED + reviewable row
+    // (review present), and a COMPLETED-but-already-reviewed row (review
+    // absent).
+    testWidgets(
+      'renders only on a COMPLETED row the server also marks reviewable; an '
+      'awaitingClosure CONFIRMED row keeps its «Виконано» slot but never '
+      'offers «Відгук», even when the server flag is true',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          // Elapsed-but-unclosed but NOT completed: must hide «Відгук» even
+          // though the server flag says reviewable — the master has not
+          // closed this booking yet.
+          _booking(
+            id: 'awaiting',
+            status: BookingStatus.confirmed,
+            awaitingClosure: true,
+            providerCanReviewClient: true,
+          ),
+          _booking(
+            id: 'done',
+            status: BookingStatus.completed,
+            providerCanReviewClient: true,
+          ),
+          // COMPLETED but already reviewed — the user-reported bug: this row
+          // used to keep its CTA forever.
+          _booking(id: 'reviewed', status: BookingStatus.completed),
+        ]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-done')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-awaiting')),
+          findsNothing,
+          reason:
+              'status is CONFIRMED, not completed, so «Відгук» must be '
+              'absent even though providerCanReviewClient is true on this '
+              'row — a master must close a booking before rating the '
+              'client.',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-reviewed')),
+          findsNothing,
+          reason:
+              'already-reviewed COMPLETED row — the defect the flag gate '
+              'fixes. Also keeps the positive expectation above non-vacuous.',
+        );
+        // «Виконано» is still gated on awaitingClosure + its own callback,
+        // and is unaffected by the review gate — pinned on the same fixture
+        // so the two slots are shown to be independent: the review gate
+        // hiding the CTA above does NOT also hide «Виконано» on that same
+        // row.
+        expect(
+          find.byKey(const Key('master-booking-card-complete-awaiting')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-complete-done')),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets(
       "tap pushes RouteNames.clientReview with the tapped row's own booking "
       'id — via a real context.push, not a bare callback assertion',
       (WidgetTester tester) async {
         stubList(<Booking>[
-          _booking(id: 'done', status: BookingStatus.completed),
+          _booking(
+            id: 'done',
+            status: BookingStatus.completed,
+            providerCanReviewClient: true,
+          ),
         ]);
         // `_openReview` prefetches `bookingDetailProvider('done')` (finding-2
         // fix) before pushing, which calls this on the shared mock —
@@ -1741,8 +1884,16 @@ void main() {
       WidgetTester tester, {
       required Booking archiveRow,
       required void Function() bumpFetchCount,
+      _MockClientReviewRepository? clientReviewRepo,
+      // What `bookingDetailProvider(archiveRow.id)` returns from its SECOND
+      // fetch onward, i.e. after a post-submit invalidate — the server's own
+      // answer once the client has been reviewed. Null (the default) keeps the
+      // original behaviour for every pre-existing test in this group: the same
+      // row on every fetch.
+      Booking? detailRowAfterReview,
     }) async {
       stubList(<Booking>[archiveRow]);
+      int detailFetch = 0;
 
       final GoRouter router = GoRouter(
         // Straight to the archive location so go_router computes the full
@@ -1780,6 +1931,16 @@ void main() {
             builder: (BuildContext context, GoRouterState state) =>
                 LeaveClientFeedbackScreen(
                   bookingId: state.pathParameters['bookingId']!,
+                  // The ENTRY POINT decode, mirroring `app_router.dart`'s own
+                  // `switch` verbatim (2026-08-17) — including its fallback for
+                  // an absent/foreign `extra`. Without this the archive's push
+                  // would silently be treated as a DETAIL entry here and the
+                  // "no wasted GET /bookings/{id} on success" assertion below
+                  // could never fail.
+                  entry: switch (state.extra) {
+                    final ClientReviewEntry e => e,
+                    _ => ClientReviewEntry.bookingDetail,
+                  },
                 ),
           ),
         ],
@@ -1790,11 +1951,27 @@ void main() {
         overrides: <Object>[
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           bookingRepositoryProvider.overrideWithValue(repo),
+          if (clientReviewRepo != null)
+            clientReviewRepositoryProvider.overrideWithValue(clientReviewRepo),
           masterServiceCatalogProvider.overrideWith(
             (ref) async => const <MasterService>[],
           ),
+          // The `:bookingId` route above renders the REAL
+          // `BookingDetailScreen`, whose footer CTA set is chosen by this
+          // provider (which normally derives from the auth session — absent in
+          // a widget test, where it fails closed onto the CLIENT footer). Only
+          // the detail-ENTRY group below actually navigates there; for every
+          // other test in this group it is inert, since no detail screen is
+          // ever mounted.
+          bookingViewerRoleProvider.overrideWithValue(
+            BookingViewerRole.provider,
+          ),
           bookingDetailProvider(archiveRow.id).overrideWith((ref) async {
             bumpFetchCount();
+            detailFetch++;
+            if (detailFetch > 1 && detailRowAfterReview != null) {
+              return detailRowAfterReview;
+            }
             return archiveRow;
           }),
         ],
@@ -1813,6 +1990,9 @@ void main() {
       final Booking booking = _booking(
         id: 'done',
         status: BookingStatus.completed,
+        // Required for the row to offer «Відгук» at all since the gate moved
+        // to this flag (2026-08-17) — this test drives the CTA.
+        providerCanReviewClient: true,
       );
       int fetchCount = 0;
       await pumpRealTopology(
@@ -1877,6 +2057,599 @@ void main() {
         reason:
             'REGRESSION GUARD (finding 1): popping the review screen must '
             'return to the ARCHIVE list the master actually came from',
+      );
+    });
+
+    testWidgets('REGRESSION (the reported bug, end to end) — submitting the '
+        'review drops that row\'s «Відгук» CTA on pop-back, WITHOUT refetching '
+        'the archive and WITHOUT a second GET /bookings/{id}', (
+      WidgetTester tester,
+    ) async {
+      // The whole 2026-08-17 mechanism in one journey: archive → «Відгук» →
+      // submit → pop → CTA gone.
+      //
+      // It deliberately pins the COST as well as the outcome. The first
+      // implementation invalidated the whole `masterArchiveProvider` family
+      // from inside the review screen, which also produced a gone CTA — and
+      // threw away every accumulated page, the scroll position, and (on a
+      // filtered archive) up to `_kMaxAutoContinueAttempts` extra `loadMore`
+      // round trips to do it. So "CTA gone" alone cannot distinguish the
+      // surgical `MasterArchiveNotifier.markClientReviewed` from the
+      // invalidate it replaced; the `getMyBookings` call count is what does
+      // (mobile-perf MEDIUM). The `bookingDetailProvider` count is the
+      // finding-2 half: the archive entry must not fire a
+      // `GET /bookings/{id}` nobody reads (mobile-perf LOW).
+      final Booking booking = _booking(
+        id: 'done',
+        status: BookingStatus.completed,
+        providerCanReviewClient: true,
+      );
+      final _MockClientReviewRepository reviewRepo =
+          _MockClientReviewRepository();
+      when(
+        () => reviewRepo.createClientReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+
+      int detailFetches = 0;
+      await pumpRealTopology(
+        tester,
+        archiveRow: booking,
+        clientReviewRepo: reviewRepo,
+        bumpFetchCount: () => detailFetches++,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-done')),
+        findsOneWidget,
+        reason: 'precondition — the server marks this row reviewable',
+      );
+
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-review-done')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => reviewRepo.createClientReview(
+          bookingId: 'done',
+          rating: 5,
+          comment: '',
+        ),
+      ).called(1);
+      expect(
+        find.byType(LeaveClientFeedbackScreen),
+        findsNothing,
+        reason: 'a successful submit pops back',
+      );
+      expect(
+        find.byKey(const Key('master-archive-screen')),
+        findsOneWidget,
+        reason: 'and lands on the archive, not a shadow detail screen',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-done')),
+        findsOneWidget,
+        reason:
+            'the row itself must SURVIVE — leaving a review changes no '
+            'status, so nothing may drop it from the HISTORY list',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-done')),
+        findsNothing,
+        reason:
+            'THE REPORTED BUG: the «Відгук» CTA must be gone the moment the '
+            'master is back on the archive, with no pull-to-refresh',
+      );
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).called(1);
+      expect(
+        detailFetches,
+        1,
+        reason:
+            'exactly the `_openReview` prefetch — the archive entry must not '
+            'invalidate bookingDetailProvider on success (finding 2)',
+      );
+
+      await pumpPastVelvetSnack(tester);
+    });
+
+    // -----------------------------------------------------------------------
+    // mobile-perf MEDIUM, 2026-08-17 CYCLE 2 — the SAME user-reported defect,
+    // on the OTHER entry path. The pop-result mechanism the two tests above
+    // pin only reaches the archive when the archive is the PUSHER. Deleting
+    // the cross-screen `ref.invalidate(masterArchiveProvider)` left this
+    // journey with no refresh at all:
+    //
+    //   archive → row tap → BookingDetailScreen → footer «Залишити відгук про
+    //   клієнта» → review → submit → pop → pop → back on the archive
+    //
+    // `_openDetail` is fire-and-forget, so nothing awaits a result; the review
+    // screen pops to the DETAIL screen, not here. The archive stays mounted
+    // and PAUSED underneath two routes. `clientReviewSignalProvider` is what
+    // reaches it.
+    // -----------------------------------------------------------------------
+    testWidgets('SIGNAL — reviewing via the DETAIL screen (the archive is two '
+        'routes down and never receives a pop result) still drops that '
+        "row's «Відгук» CTA on return, with NO archive refetch", (
+      WidgetTester tester,
+    ) async {
+      final Booking booking = _booking(
+        id: 'done',
+        status: BookingStatus.completed,
+        providerCanReviewClient: true,
+      );
+      final _MockClientReviewRepository reviewRepo =
+          _MockClientReviewRepository();
+      when(
+        () => reviewRepo.createClientReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+
+      int detailFetches = 0;
+      await pumpRealTopology(
+        tester,
+        archiveRow: booking,
+        clientReviewRepo: reviewRepo,
+        bumpFetchCount: () => detailFetches++,
+        // The post-submit invalidate on THIS entry path refetches the detail;
+        // the server's answer then is "no longer reviewable".
+        detailRowAfterReview: booking.copyWith(providerCanReviewClient: false),
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-done')),
+        findsOneWidget,
+        reason: 'precondition — the server marks this row reviewable',
+      );
+
+      // 1. Tap the ROW ITSELF (not the «Відгук» slot) — the detail entry.
+      await tester.tap(find.byKey(const Key('master-booking-card-done')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason:
+            'precondition — this journey really does go through the detail '
+            'screen, which is what makes the archive a COVERED, PAUSED '
+            'consumer with no pop result coming its way',
+      );
+      expect(
+        detailFetches,
+        1,
+        reason: 'the detail screen fetched its own booking',
+      );
+
+      // 2. The detail screen's own provider footer CTA — NOT the archive's
+      //    slot, so `_openReview`'s `await context.push` never runs and no
+      //    `ClientReviewEntry.masterArchive` extra is attached.
+      await tester.tap(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+
+      // 3. Submit.
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => reviewRepo.createClientReview(
+          bookingId: 'done',
+          rating: 5,
+          comment: '',
+        ),
+      ).called(1);
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason: 'a successful submit pops back onto the DETAIL screen',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        findsNothing,
+        reason:
+            'the detail screen refetched and lost its own CTA — the '
+            'ClientReviewEntry.bookingDetail behaviour, unchanged',
+      );
+
+      // 4. Back to the archive. Deliberately the DETAIL screen's own back
+      //    affordance rather than a synthetic pop-with-result: nothing on this
+      //    path can carry a `bool` down to the archive, which is exactly the
+      //    point (a predictive-back gesture would pop `null` too).
+      await tester.tap(find.byKey(const Key('booking-detail-back')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('master-archive-screen')), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-booking-card-done')),
+        findsOneWidget,
+        reason:
+            'the row itself must SURVIVE — leaving a review changes no status',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-done')),
+        findsNothing,
+        reason:
+            'THE CYCLE-2 REGRESSION: the «Відгук» CTA must be gone here too. '
+            'The archive was PAUSED while covered, so this only passes if the '
+            'signal is actually delivered on RESUME — proving the mechanism '
+            'lands rather than merely being wired up.',
+      );
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).called(1);
+
+      await pumpPastVelvetSnack(tester);
+    });
+  });
+
+  group('client-review signal — build-time application, termination and the '
+      'fail-closed direction (mobile-perf MEDIUM, 2026-08-17 cycle 2)', () {
+    setUp(debugResetGroupArchiveByKyivDayCallCount);
+
+    /// Pumps the archive behind `/from` exactly like [pump], but runs
+    /// [beforeOpen] against the live container BEFORE the archive route is
+    /// pushed — so an id can be planted in `clientReviewSignalProvider` while
+    /// no `MasterArchiveScreen` exists yet.
+    Future<void> pumpWithSeededSignal(
+      WidgetTester tester,
+      void Function(ProviderContainer container) beforeOpen,
+    ) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/from',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/from',
+            builder: (BuildContext context, GoRouterState state) => Scaffold(
+              key: const Key('from-stub'),
+              body: TextButton(
+                key: const Key('open-archive'),
+                onPressed: () => context.push('/archive'),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/archive',
+            builder: (BuildContext context, GoRouterState state) =>
+                const MasterArchiveScreen(),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          bookingRepositoryProvider.overrideWithValue(repo),
+          masterServiceCatalogProvider.overrideWith(
+            (ref) async => const <MasterService>[],
+          ),
+        ],
+      );
+      await tester.pump();
+
+      beforeOpen(
+        ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('from-stub'))),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('open-archive')));
+      await tester.pump();
+      await tester.pumpUntilFound(
+        find.byKey(const Key('master-archive-screen')),
+      );
+    }
+
+    testWidgets('an id ALREADY in the set when the archive is BUILT is '
+        'applied — the archive may be rebuilt long after the review, so the '
+        'signal cannot rely on being observed live', (
+      WidgetTester tester,
+    ) async {
+      stubList(<Booking>[
+        _booking(
+          id: 'reviewed-earlier',
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+        _booking(
+          id: 'untouched',
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+      ]);
+
+      await pumpWithSeededSignal(tester, (ProviderContainer container) {
+        container
+            .read(clientReviewSignalProvider.notifier)
+            .markReviewed('reviewed-earlier');
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-reviewed-earlier')),
+        findsNothing,
+        reason:
+            'the id was in the set before this screen existed — the patch '
+            'must be applied from the first build, not only on a live signal',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-untouched')),
+        findsOneWidget,
+        reason:
+            'the un-signalled sibling keeps its CTA — proves the patch is '
+            'id-scoped and keeps the assertion above non-vacuous',
+      );
+    });
+
+    testWidgets('a LIVE signal deposited while the archive is MOUNTED and '
+        'nothing else changes still patches the row — this is what makes the '
+        'consumer a real subscriber (`ref.watch`) rather than something that '
+        'happens to resample on somebody else\'s rebuild', (
+      WidgetTester tester,
+    ) async {
+      // Deliberately isolates the SUBSCRIPTION from the "the archive rebuilds
+      // on resume anyway" coincidence: no navigation happens here at all, so
+      // the only thing that can schedule a rebuild is the watch itself.
+      // Downgrading `ref.watch(clientReviewSignalProvider)` to `ref.read`
+      // turns this test RED while leaving the pop-back journey green.
+      stubList(<Booking>[
+        _booking(
+          id: 'live',
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+      ]);
+
+      await pumpWithSeededSignal(tester, (_) {});
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('master-booking-card-review-live')),
+        findsOneWidget,
+        reason: 'precondition — nothing signalled yet, the CTA is there',
+      );
+
+      ProviderScope.containerOf(
+        tester.element(find.byType(MasterArchiveScreen)),
+      ).read(clientReviewSignalProvider.notifier).markReviewed('live');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-live')),
+        findsNothing,
+        reason:
+            'the signal alone — no navigation, no refetch, no other state '
+            'change — must be enough to drop the CTA',
+      );
+    });
+
+    testWidgets('TERMINATION — applying the patch does not spin the frame '
+        'loop: the regroup runs exactly once more, never once per frame', (
+      WidgetTester tester,
+    ) async {
+      stubList(<Booking>[
+        _booking(
+          id: 'reviewed-earlier',
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+      ]);
+
+      await pumpWithSeededSignal(tester, (ProviderContainer container) {
+        container
+            .read(clientReviewSignalProvider.notifier)
+            .markReviewed('reviewed-earlier');
+      });
+      await tester.pumpAndSettle();
+
+      final int afterPatch = debugGroupArchiveByKyivDayCallCount;
+      expect(
+        afterPatch,
+        2,
+        reason:
+            'one regroup for the initial data build, one for the patched '
+            'items list — and no more',
+      );
+
+      // Any number of further frames must add nothing: the pending-id filter
+      // skips rows already at `providerCanReviewClient == false`, so no
+      // further `markClientReviewed` (and therefore no further items
+      // re-allocation, and no further regroup) can be scheduled.
+      // Bare frame pumps, no fixed wait: the regression this guards against
+      // (an items rewrite scheduled from every build) would fire on the very
+      // next frame, so frame COUNT is the right axis, not elapsed time.
+      for (int i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+
+      expect(
+        debugGroupArchiveByKyivDayCallCount,
+        afterPatch,
+        reason:
+            'dropping the `providerCanReviewClient` term from the pending '
+            "filter would rewrite `items` on every build — spinning the "
+            'frame loop AND defeating the identity memo',
+      );
+    });
+
+    testWidgets(
+      'RE-ARM — a signalled row that arrives LATER, on a loadMore page, is '
+      'patched too, and the patch still terminates in one extra regroup '
+      '(mobile-perf INFO, 2026-08-17 cycle 3)',
+      (WidgetTester tester) async {
+        // The gap this closes: the build-time patch is derived from the rows
+        // the screen currently HOLDS, so an id sitting in the signal set while
+        // its row is still unfetched produces an EMPTY pending set and
+        // schedules nothing. Everything then rests on the next build (the one
+        // the appended page triggers) re-deriving that set from the NEW rows.
+        // Nothing pinned that re-derivation, so a "compute the pending set
+        // once" optimisation — or hoisting it out of `build` into `initState`
+        // — would leave a stale «Відгук» CTA on every paged-in reviewed row and
+        // stay green everywhere else.
+        stubByPage(<int, List<Booking>>{
+          0: <Booking>[
+            _booking(
+              id: 'onscreen',
+              status: BookingStatus.completed,
+              providerCanReviewClient: true,
+            ),
+          ],
+          1: <Booking>[
+            _booking(
+              id: 'paged-in',
+              status: BookingStatus.completed,
+              providerCanReviewClient: true,
+            ),
+          ],
+        }, totalPages: 2);
+
+        await pumpWithSeededSignal(tester, (ProviderContainer container) {
+          container
+              .read(clientReviewSignalProvider.notifier)
+              .markReviewed('paged-in');
+        });
+        // NOT `pumpAndSettle`: `hasMore` is true here, so the list carries a
+        // trailing `MyBookingsLoadMoreSpinner` whose indeterminate
+        // `CircularProgressIndicator` never stops — the same hazard [pump]'s
+        // own note describes for `BookingsSkeleton`.
+        await tester.pumpUntilFound(
+          find.byKey(const Key('master-booking-card-onscreen')),
+        );
+
+        expect(
+          find.byKey(const Key('master-booking-card-paged-in')),
+          findsNothing,
+          reason:
+              'precondition — the signalled row is NOT loaded yet, so the '
+              'first build has nothing to patch',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-onscreen')),
+          findsOneWidget,
+          reason:
+              'precondition — the un-signalled page-0 row shows its CTA, so '
+              'the CTA gate itself is working',
+        );
+        final int afterFirstPage = debugGroupArchiveByKyivDayCallCount;
+        expect(
+          afterFirstPage,
+          1,
+          reason:
+              'one regroup for the initial page, and NO patch regroup — the '
+              'signalled id matched no loaded row',
+        );
+
+        // The page lands. Driven through the notifier rather than a scroll
+        // gesture on purpose: the scroll→loadMore wiring is pinned by the
+        // auto-continue group above, and what is under test here is what the
+        // screen does with the rows once they ARRIVE.
+        await ProviderScope.containerOf(
+              tester.element(find.byType(MasterArchiveScreen)),
+            )
+            .read(masterArchiveProvider(MasterArchiveQuery.of()).notifier)
+            .loadMore();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-paged-in')),
+          findsOneWidget,
+          reason: 'the appended page really did render',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-paged-in')),
+          findsNothing,
+          reason:
+              'THE RE-ARM — the pending set is re-derived from the newly '
+              'appended rows, so the row arrives with its CTA already dropped',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-onscreen')),
+          findsOneWidget,
+          reason:
+              'SIBLING IMMUTABILITY across the merge — the un-signalled row '
+              'that was already on screen keeps its CTA',
+        );
+
+        final int afterPatch = debugGroupArchiveByKyivDayCallCount;
+        expect(
+          afterPatch,
+          afterFirstPage + 2,
+          reason:
+              'exactly two more regroups: one for the appended items list, one '
+              'for the patched one. A third would mean the patch re-entered',
+        );
+        for (int i = 0; i < 5; i++) {
+          await tester.pump();
+        }
+        expect(
+          debugGroupArchiveByKyivDayCallCount,
+          afterPatch,
+          reason:
+              'and it TERMINATES — the patched row no longer satisfies the '
+              'pending filter, so no further frame schedules anything',
+        );
+      },
+    );
+
+    testWidgets('FAIL-CLOSED — a signalled id whose row the server ALREADY '
+        'reports as not reviewable stays without a CTA; the signal can never '
+        'move the flag back to true', (WidgetTester tester) async {
+      stubList(<Booking>[
+        // Server says: already reviewed.
+        _booking(id: 'already', status: BookingStatus.completed),
+      ]);
+
+      await pumpWithSeededSignal(tester, (ProviderContainer container) {
+        container
+            .read(clientReviewSignalProvider.notifier)
+            .markReviewed('already');
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-already')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-already')),
+        findsNothing,
+        reason:
+            'the only direction this mechanism may move the flag is '
+            'true → false; a signal must never resurrect a CTA',
+      );
+      expect(
+        debugGroupArchiveByKyivDayCallCount,
+        1,
+        reason:
+            'and it must not even rewrite `items` to do nothing — the row is '
+            'already false, so there is no pending id at all',
       );
     });
   });

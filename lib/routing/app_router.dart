@@ -971,10 +971,24 @@ GoRouter appRouter(Ref ref) {
       // `builder:` (not `pageBuilder: _instantPage`) so the default Material
       // transition + left-edge swipe-back apply, matching the detail route
       // and its CLIENT-side `review` twin ([RouteNames.bookingReview]).
+      //
+      // `extra` carries the ENTRY POINT ([ClientReviewEntry]) — never a path
+      // or query segment, because it is not part of the resource's identity
+      // and must not survive into a deep link or a shared URL. It decides one
+      // thing on the destination: whether a successful submit invalidates
+      // `bookingDetailProvider` before popping (required for the detail entry,
+      // pure waste for the archive entry — see that enum's own doc). An absent
+      // or unexpected `extra` falls back to [ClientReviewEntry.bookingDetail],
+      // the direction whose failure mode is one wasted fetch rather than a
+      // resurrected stale CTA.
       GoRoute(
         path: '/master/bookings/:bookingId/review',
         builder: (context, state) => LeaveClientFeedbackScreen(
           bookingId: state.pathParameters['bookingId']!,
+          entry: switch (state.extra) {
+            final ClientReviewEntry entry => entry,
+            _ => ClientReviewEntry.bookingDetail,
+          },
         ),
       ),
       // Master profile settings hub + per-section edit pages. These replace the

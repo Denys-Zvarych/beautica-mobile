@@ -89,7 +89,12 @@ set -euo pipefail
 # so all gate fixtures live in one place.
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then
-  exec "$(dirname "$0")/test/test_cycle_gates.sh" self-invalidation
+  "$(dirname "$0")/test/test_cycle_gates.sh" self-invalidation
+  st_rc=$?
+  if [ "$st_rc" -eq 0 ]; then
+    echo "SELF-TEST OK: forbid_provider_self_invalidation.sh"
+  fi
+  exit "$st_rc"
 fi
 
 # The matcher (awk POSIX ERE): `ref.invalidate(<provider>` or

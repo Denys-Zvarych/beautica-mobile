@@ -14,6 +14,8 @@ import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
 import 'master_archive_flow_test.dart' as master_archive;
+import 'master_archive_per_service_complete_flow_test.dart'
+    as master_archive_per_service_complete;
 import 'master_archive_review_flow_test.dart' as master_archive_review;
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
@@ -76,6 +78,15 @@ void main() {
   // Registered beside `master_bookings_flow`, whose login/router scaffolding
   // it shares.
   group('master_archive_flow', master_archive.main);
+  // 2026-08-17 CRITICAL regression (mobile-qa, Step 2.7 Rule 3b) — completing
+  // ONE service of a multi-service visit from the archive must route to the
+  // PER-SERVICE endpoint and leave its not-yet-started siblings CONFIRMED and
+  // absent from the refetched HISTORY list. Registered beside
+  // `master_archive_flow`, whose login/router scaffolding it shares.
+  group(
+    'master_archive_per_service_complete_flow',
+    master_archive_per_service_complete.main,
+  );
   // 2026-08-16 follow-up (mobile-qa, Step 2.7 Rule 3b) — the archive's
   // «Відгук» entry point + the invalidation-regression guard for a decline
   // performed from the pushed detail screen (not the archive's own

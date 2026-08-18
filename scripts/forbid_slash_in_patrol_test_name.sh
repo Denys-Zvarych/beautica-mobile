@@ -160,7 +160,11 @@ EOF
 
 if [ "${1:-}" = "--self-test" ]; then
   self_test
-  exit $?
+  st_rc=$?
+  if [ "$st_rc" -eq 0 ]; then
+    echo "SELF-TEST OK: forbid_slash_in_patrol_test_name.sh"
+  fi
+  exit "$st_rc"
 fi
 
 mapfile -t files < <(find "$repo_root/integration_test" -type f -name '*.dart' 2>/dev/null || true)

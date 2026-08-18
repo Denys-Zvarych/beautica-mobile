@@ -172,6 +172,7 @@ if [ "${1:-}" = "--self-test" ]; then
   fi
   echo "SELF-TEST PASS: 2 offenders flagged (raw fixed wait; annotation orphaned by real code)."
   echo "Clean: same-line-above annotation, 2-line and 4-line wrapped annotations, pumpUntil, commented-out line."
+  echo "SELF-TEST OK: forbid_fixed_wait.sh"
   exit 0
 fi
 

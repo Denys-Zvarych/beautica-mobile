@@ -4188,13 +4188,13 @@
   "@completeBookingDialogBody": {
     "description": "Track 27.x Wave A — body text of the PROVIDER complete confirmation dialog."
   },
-  "completeAppointmentDialogTitle": "Завершити візит?",
+  "completeAppointmentDialogTitle": "Завершити послугу?",
   "@completeAppointmentDialogTitle": {
-    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions every service in the visit, not just the one shown."
+    "description": "Track 27.x/MO-6 — title of the PROVIDER complete confirmation dialog when the booking is part of a multi-service visit (Booking.appointmentId != null); the completion transitions ONLY the opened service (PATCH /appointments/{id}/services/{bookingId}/complete), never its siblings."
   },
-  "completeAppointmentDialogBody": "Підтвердіть, що візит клієнта відбувся. Усі послуги цього візиту буде позначено як завершені.",
+  "completeAppointmentDialogBody": "Підтвердіть, що цю послугу виконано.",
   "@completeAppointmentDialogBody": {
-    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a multi-service visit, making explicit that every service is affected."
+    "description": "Track 27.x/MO-6 — body text of the PROVIDER complete confirmation dialog for a service inside a multi-service visit. Scoped to the single opened service; deliberately carries no clause about the visit's other services (locked product decision 2026-08-17 — a reassurance clause was reviewed and rejected as redundant)."
   },
   "completeBookingConfirmCta": "Так, завершити",
   "@completeBookingConfirmCta": {
@@ -5215,7 +5215,7 @@
   },
   "masterArchiveReviewCta": "Відгук",
   "@masterArchiveReviewCta": {
-    "description": "Short CTA label for MasterBookingCard's additive «Відгук» slot on a COMPLETED row of the master «Архів» page — pushes LeaveClientFeedbackScreen. Deliberately short (unlike bookingDetailClientReviewCta's full-sentence label) to fit a card-width button; see MasterBookingCard.onReview's doc for why this is offered on every COMPLETED row without a providerCanReviewClient gate."
+    "description": "Short CTA label for MasterBookingCard's additive «Відгук» slot on a still-reviewable row of the master «Архів» page — pushes LeaveClientFeedbackScreen. Deliberately short (unlike bookingDetailClientReviewCta's full-sentence label) to fit a card-width button; see MasterBookingCard.onReview's doc for the providerCanReviewClient gate the slot is rendered behind."
   },
   "statTileNoDataSemantics": "{caption}: немає даних",
   "@statTileNoDataSemantics": {

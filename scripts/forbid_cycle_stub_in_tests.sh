@@ -60,7 +60,12 @@ set -euo pipefail
 # snippets and assert the verdicts, then exit. Delegates to the shared harness.
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then
-  exec "$(dirname "$0")/test/test_cycle_gates.sh" cycle-stub
+  "$(dirname "$0")/test/test_cycle_gates.sh" cycle-stub
+  st_rc=$?
+  if [ "$st_rc" -eq 0 ]; then
+    echo "SELF-TEST OK: forbid_cycle_stub_in_tests.sh"
+  fi
+  exit "$st_rc"
 fi
 
 # Cycle-closing providers — the intermediate providers that transitively

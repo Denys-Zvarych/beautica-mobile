@@ -3960,12 +3960,18 @@ void main() {
         endAt: startAt.add(const Duration(minutes: 60)),
         status: BookingStatus.completed,
         canReview: false,
+        // Status above is already COMPLETED, so this flag is the other half
+        // of the slot's gate — see `MasterBookingCard.onReview`'s doc.
+        // Without it this fixture is a COMPLETED-but-already-reviewed row,
+        // which must NOT show the CTA.
+        providerCanReviewClient: true,
       );
     }
 
     testWidgets(
-      'a COMPLETED booking with a non-null onReview renders the «Відгук» '
-      'button on the FULL layout, and tapping it fires the callback',
+      'a still-reviewable COMPLETED booking with a non-null onReview renders '
+      'the «Відгук» button on the FULL layout, and tapping it fires the '
+      'callback',
       (WidgetTester tester) async {
         int taps = 0;
         final Booking booking = completedBooking();
@@ -3997,67 +4003,108 @@ void main() {
       },
     );
 
-    testWidgets(
-      'a non-COMPLETED (awaitingClosure CONFIRMED) booking never renders '
-      '«Відгук» even with a non-null onReview — proven on the SAME FULL '
-      'layout the completed case above uses, so this is not vacuous',
-      (WidgetTester tester) async {
-        // future-date-ok: pinned Kyiv wall-clock fixture.
-        final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
-        final Booking awaitingBooking = Booking(
-          id: 'review-awaiting',
-          masterId: 'master-1',
-          masterFirstName: 'Оля',
-          masterLastName: 'Коваль',
-          masterType: 'INDEPENDENT_MASTER',
-          clientFirstName: 'Марія',
-          clientLastName: 'Іванюк',
-          serviceId: 'service-1',
-          serviceName: 'Стрижка жіноча',
-          durationMinutes: 60,
-          price: 450,
-          startAt: startAt,
-          endAt: startAt.add(const Duration(minutes: 60)),
-          status: BookingStatus.confirmed,
-          canReview: false,
-          awaitingClosure: true,
-        );
+    // RETARGETED 2026-08-18. The 2026-08-17 pass dropped the local
+    // `status == completed` term and gated this slot on
+    // `providerCanReviewClient` alone, reasoning that the server's
+    // `isReviewEligible` predicate (COMPLETED **or** CONFIRMED-and-elapsed)
+    // already covered it. That let an elapsed-but-unclosed CONFIRMED booking
+    // — which satisfies BOTH `awaitingClosure` (the «Виконано» gate) and the
+    // server's disjunct — show «Відгук» stacked next to «Виконано», so a
+    // master could rate the client before ever closing the booking. The
+    // status term is restored (`MasterBookingCard.onReview`'s doc): the slot
+    // now requires `status == BookingStatus.completed` AND
+    // `providerCanReviewClient`. This case pins the negative half — an
+    // awaitingClosure CONFIRMED fixture hides the slot even with the flag
+    // `true` — and a COMPLETED positive control on the SAME flag value, so
+    // the negative assertion cannot pass merely because the card refuses to
+    // render the slot at all.
+    testWidgets('the «Відгук» slot requires status == completed AND '
+        'providerCanReviewClient: an awaitingClosure CONFIRMED booking hides it '
+        'even when the flag is true, while the same booking marked COMPLETED '
+        'renders it', (WidgetTester tester) async {
+      // future-date-ok: pinned Kyiv wall-clock fixture.
+      final DateTime startAt = DateTime.utc(2026, 7, 20, 6);
+      final Booking awaitingBooking = Booking(
+        id: 'review-awaiting',
+        masterId: 'master-1',
+        masterFirstName: 'Оля',
+        masterLastName: 'Коваль',
+        masterType: 'INDEPENDENT_MASTER',
+        clientFirstName: 'Марія',
+        clientLastName: 'Іванюк',
+        serviceId: 'service-1',
+        serviceName: 'Стрижка жіноча',
+        durationMinutes: 60,
+        price: 450,
+        startAt: startAt,
+        endAt: startAt.add(const Duration(minutes: 60)),
+        status: BookingStatus.confirmed,
+        canReview: false,
+        awaitingClosure: true,
+        providerCanReviewClient: true,
+      );
 
-        await tester.pumpApp(
-          Center(
-            child: SizedBox(
-              width: 272,
-              child: MasterBookingCard(
-                booking: awaitingBooking,
-                onTap: () {},
-                minHeight: MasterBookingCard.fullLayoutMinHeight,
-                onReview: () {},
-              ),
+      await tester.pumpApp(
+        Center(
+          child: SizedBox(
+            width: 272,
+            child: MasterBookingCard(
+              booking: awaitingBooking,
+              onTap: () {},
+              minHeight: MasterBookingCard.fullLayoutMinHeight,
+              onReview: () {},
             ),
           ),
-        );
-        await tester.pump();
-        expect(tester.takeException(), isNull);
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
 
-        expect(
-          find.byKey(const Key('master-booking-card-review-review-awaiting')),
-          findsNothing,
-        );
-        // The «Виконано» slot IS expected here — this booking is the shape
-        // that renders it — pinning that the two slots are mutually
-        // exclusive on real fixture data, not merely "review happens to be
-        // absent".
-        expect(
-          find.byKey(const Key('master-booking-card-complete-review-awaiting')),
-          findsNothing,
-          reason:
-              'onComplete was never passed on this card, so even though this '
-              'booking IS awaitingClosure the slot must still be absent — '
-              'proves the two additive slots are independently gated on '
-              'their OWN callback, not on each other.',
-        );
-      },
-    );
+      final Finder reviewButton = find.byKey(
+        const Key('master-booking-card-review-review-awaiting'),
+      );
+      expect(
+        reviewButton,
+        findsNothing,
+        reason:
+            'status is CONFIRMED, not completed, so the slot must be '
+            'absent even though providerCanReviewClient is true on this '
+            'fixture — a master must close the booking before rating the '
+            'client.',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-complete-review-awaiting')),
+        findsNothing,
+        reason:
+            'onComplete was never passed on this card, so even though this '
+            'booking IS awaitingClosure the slot must still be absent — '
+            'proves the two additive slots are independently gated on '
+            'their OWN callback, not on each other.',
+      );
+
+      // Positive control: flip ONLY status to completed, same flag value.
+      // The button must now appear — proving the negative assertion above
+      // is a real status gate, not the card refusing to render the slot at
+      // all (i.e. the gate cannot pass vacuously).
+      await tester.pumpApp(
+        Center(
+          child: SizedBox(
+            width: 272,
+            child: MasterBookingCard(
+              booking: awaitingBooking.copyWith(
+                status: BookingStatus.completed,
+              ),
+              onTap: () {},
+              minHeight: MasterBookingCard.fullLayoutMinHeight,
+              onReview: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(reviewButton, findsOneWidget);
+    });
 
     testWidgets(
       'onReview == null renders ZERO extra widgets on a COMPLETED booking — '

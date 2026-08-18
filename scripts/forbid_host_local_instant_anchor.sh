@@ -2692,6 +2692,7 @@ EOF
   echo "                Its probe lives under lib/ — the one root only Rule 6"
   echo "                walks — which pins that wider scan root independently"
   echo "                of the matching logic."
+  echo "SELF-TEST OK: forbid_host_local_instant_anchor.sh"
   exit 0
 fi
 
