@@ -538,60 +538,62 @@ class MasterBookingCard extends StatefulWidget {
 
   /// Master «Архів» page (2026-08-16) — an ADDITIVE, optional trailing
   /// «Відгук» action appended below the price/status row, rendered ONLY on
-  /// the FULL layout AND ONLY when [Booking.providerCanReviewClient] is
+  /// the FULL layout AND ONLY when [Booking.status] is
+  /// [BookingStatus.completed] AND [Booking.providerCanReviewClient] is
   /// `true`. Mirrors [onComplete]'s own additive contract exactly — see that
   /// field's doc for the general shape (`null`, the default at every OTHER
   /// call site, renders nothing here, byte-identical to this widget before
   /// this field existed).
   ///
-  /// ## Gated on [Booking.providerCanReviewClient] alone — server-computed
+  /// ## Gated on COMPLETED status AND [Booking.providerCanReviewClient] —
+  /// the flag alone is not enough (2026-08-18 reversal)
   ///
-  /// [Booking.providerCanReviewClient] is now populated with a REAL per-row
-  /// value on BOTH paths — `GET /bookings/{id}` (always was) and the provider
-  /// rows of `GET /bookings/me` (backend `fix/list-provider-can-review-client`,
-  /// 2026-08-17), which is what feeds `master_archive_screen.dart`. It is
-  /// therefore the single authority here, and it is consulted DIRECTLY rather
-  /// than approximated client-side: the server predicate is
-  /// `hasClient && !reviewExists && BookingClosureRule.isReviewEligible(...)`
-  /// (`BookingService.java`), and only the server can know `!reviewExists`.
+  /// [Booking.providerCanReviewClient] is populated with a REAL per-row value
+  /// on BOTH paths — `GET /bookings/{id}` (always was) and the provider rows
+  /// of `GET /bookings/me` (backend `fix/list-provider-can-review-client`,
+  /// 2026-08-17), which is what feeds `master_archive_screen.dart`.
   ///
-  /// This SUPERSEDES the 2026-08-16 decision to show the button on every
-  /// COMPLETED row regardless of real reviewability — that decision existed
-  /// solely because the listing flag was a hardcoded `false` at the time, and
-  /// its only reason is now gone. The user reported the resulting defect
-  /// directly: an already-reviewed row kept its CTA, and tapping it landed on
-  /// `LeaveClientFeedbackScreen`'s "already reviewed" state.
+  /// This field ALSO ANDs a local `status == BookingStatus.completed` term —
+  /// REVERSING the 2026-08-17 decision to drop that term. That decision's
+  /// reasoning was that the server's `isReviewEligible` predicate was
+  /// `COMPLETED` **OR** (`CONFIRMED` and elapsed), so a local status gate
+  /// could only SUBTRACT from the server's answer. The backend predicate is
+  /// being narrowed to COMPLETED-only in parallel with this fix — but mobile
+  /// does not trust that alone. An older backend build still on the wider
+  /// CONFIRMED-or-elapsed predicate would keep sending
+  /// `providerCanReviewClient: true` on an elapsed-but-unclosed CONFIRMED
+  /// row, and this widget must fail CLOSED on its own rather than depend on
+  /// every backend deploy landing first.
   ///
-  /// There is deliberately NO `status == BookingStatus.completed` term
-  /// alongside it. `isReviewEligible` is `COMPLETED` **OR** (`CONFIRMED` AND
-  /// `endsAt` elapsed), so ANDing a local `status == completed` could only
-  /// SUBTRACT from the server's answer — hiding the CTA on an
-  /// elapsed-but-unclosed CONFIRMED row that IS genuinely reviewable. Those
-  /// rows really do appear in this list (ticking «Підтверджено» alone is the
-  /// archive's «Потребують закриття» filter), so the term was a live
-  /// under-inclusion bug, not dead belt-and-braces.
+  /// WHY the two review directions are gated differently: the provider is
+  /// the party who performs the CLOSING action on a booking
+  /// (complete/decline/not-complete). Letting them rate the client before
+  /// doing that lets them rate a visit whose outcome they haven't yet
+  /// confirmed — «Виконано» is supposed to happen first, not after. The
+  /// client has no equivalent control over the booking's lifecycle (only the
+  /// provider can close it), which is why the CLIENT→provider path
+  /// ([Booking.canReview], `leave_review_screen.dart`) keeps its own
+  /// elapsed-time allowance and is intentionally UNCHANGED by this fix.
   ///
-  /// The value fails CLOSED: `booking_mapper.dart` maps a missing field to
-  /// `false`, so an older backend hides the CTA rather than offering a
-  /// doomed one. `LeaveClientFeedbackScreen` still pre-gates on its own
-  /// `GET /bookings/{id}` fetch and a submit-time 409 remains the backstop
-  /// for a race — see that screen's file header.
+  /// The value fails CLOSED in two independent places: `booking_mapper.dart`
+  /// re-ANDs the same `status == completed` term when mapping the DTO (a
+  /// second, redundant gate — see that file), and this widget re-checks
+  /// [Booking.status] again at render time. Either alone is enough to hide
+  /// the CTA on an unclosed booking against an older backend;
+  /// `LeaveClientFeedbackScreen` still pre-gates on its own
+  /// `GET /bookings/{id}` fetch and a submit-time 409 remains the final
+  /// backstop for a race — see that screen's file header.
   ///
   /// ## HEIGHT — mirrors [onComplete]'s own note
   ///
   /// [fullLayoutNaturalHeight]/[occupiedHeightFor] are UNCHANGED by this field
   /// and stay exact for every caller that leaves it `null`. A caller that DOES
   /// set it renders taller than [fullLayoutNaturalHeight] by this button's own
-  /// height — and, when this slot STACKS with [onComplete] on one row (an
-  /// elapsed-but-unclosed CONFIRMED booking the server still marks reviewable,
-  /// which since 2026-08-17 is a reachable state — see
-  /// [_MasterBookingCardState._buildFullBody]), by
-  /// BOTH buttons' heights. That is fine for a plain scrolling list, the only
-  /// kind of caller that sets either slot (the archive), and would only need
-  /// re-deriving if a future TIMELINE consumer ever wanted these actions:
-  /// [occupiedHeightFor] PREDICTS a card's height for the grid's viewport
-  /// culling and never SIZES one (see its own doc), so for an opted-in caller it
-  /// silently under-predicts by the rendered slots' heights.
+  /// height. Because this slot now requires [BookingStatus.completed] and
+  /// [onComplete]'s slot only ever renders on a not-yet-closed booking, the
+  /// two slots are mutually exclusive again — a single row never stacks both,
+  /// so [occupiedHeightFor]'s under-prediction for an opted-in caller is by at
+  /// most ONE slot's height, never both.
   final VoidCallback? onReview;
 
   /// The current instant, supplied by the caller from `clockProvider`
@@ -1379,17 +1381,16 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   Widget _buildFullBody(Booking b, String clientName, AppLocalizations l10n) {
     final Widget content = _fullBodyContent(b, clientName);
     // See [MasterBookingCard.onComplete] / [MasterBookingCard.onReview]'s
-    // docs — both additive, independently-gated slots. They CAN now both be
-    // true on the same [Booking]: an elapsed-but-unclosed CONFIRMED row
-    // satisfies [Booking.awaitingClosure] AND the server's
-    // `isReviewEligible` CONFIRMED-and-elapsed disjunct behind
-    // [Booking.providerCanReviewClient]. (Before 2026-08-17 [showReview] also
-    // required `status == BookingStatus.completed`, which made the two
-    // mutually exclusive — and, on exactly those rows, wrongly hid a CTA the
-    // server was offering; see [MasterBookingCard.onReview]'s doc.) That is
-    // why these are independent `if`s below and not an if/else: both simply
-    // render, stacked, rather than one silently winning and the other
-    // vanishing.
+    // docs — both additive, independently-gated slots, kept as independent
+    // `if`s below rather than an if/else for that reason. [showReview] once
+    // again requires `status == BookingStatus.completed` (reversing the
+    // 2026-08-17 decision to drop that term — see
+    // [MasterBookingCard.onReview]'s doc for why), so [showComplete] (only
+    // true on a not-yet-closed booking) and [showReview] (only true once
+    // closed) are mutually exclusive in practice: a single row can no longer
+    // satisfy both, so the two slots never actually stack on one card. They
+    // stay independent `if`s rather than an if/else anyway, so a future
+    // change to either gate cannot silently make one slot swallow the other.
     //
     // START-TIME GATE. A master may complete a booking only once
     // `now >= that booking's OWN startAt` (the backend's
@@ -1408,7 +1409,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         now != null &&
         b.hasStartedAt(now);
     final bool showReview =
-        widget.onReview != null && b.providerCanReviewClient;
+        widget.onReview != null &&
+        b.status == BookingStatus.completed &&
+        b.providerCanReviewClient;
     if (!showComplete && !showReview) return content;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

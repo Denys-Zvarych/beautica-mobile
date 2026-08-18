@@ -4919,6 +4919,22 @@ final class FakeBackend {
     // field on the row is preserved via spread; only `status` moves. Mirrors
     // [declineChild]'s existing per-row mutation for the non-dataset seeded
     // booking.
+    //
+    // 2026-08-18 (mobile-qa) — ALSO resets `awaitingClosure` to `false`.
+    // `BookingDetailResponse.awaitingClosure`'s own doc defines it as
+    // "Derived, read-time-only … TRUE when this booking's status is still
+    // CONFIRMED but its endsAt has already elapsed" — i.e. the real backend
+    // recomputes it on every read, so it can never stay `true` once the row
+    // is COMPLETED. This fake previously left a seeded `awaitingClosure:
+    // true` row unchanged across `/complete`, which does not reproduce that:
+    // a fixture built with `awaitingClosure: true` to make the archive
+    // card's «Виконано» slot render pre-completion would falsely keep
+    // showing that same slot post-completion (`MasterBookingCard.
+    // _buildFullBody`'s `showComplete` reads `b.awaitingClosure` directly,
+    // not `b.status`), stacking it next to the newly-eligible «Відгук» slot
+    // — the exact visual shape this whole fix chain exists to prevent, just
+    // reproduced by fake-fidelity drift instead of a mapper/widget bug. See
+    // `master_archive_review_flow_test.dart`'s scenario 9.
     _adapter.onRoute(
       '/api/v1/bookings/booking-1/complete',
       (server) => server.replyCallback(200, (_) {
@@ -4933,6 +4949,7 @@ final class FakeBackend {
             dataset[idx] = <String, dynamic>{
               ...dataset[idx],
               'status': 'COMPLETED',
+              'awaitingClosure': false,
             };
           }
         }

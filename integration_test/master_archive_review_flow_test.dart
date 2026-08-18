@@ -65,9 +65,12 @@
 //      returns to the ARCHIVE, not the detail screen (this entry never
 //      visited detail — see `route_names.dart`'s `clientReview` doc on why
 //      pop returns to whatever the caller actually had on the stack). Also
-//      pins `MasterBookingCard.onReview`'s gate — which is the LIST row's own
-//      server-computed `providerCanReviewClient` since 2026-08-17, no longer
-//      `status == COMPLETED`: a reviewable COMPLETED row offers the button, a
+//      pins `MasterBookingCard.onReview`'s gate — the LIST row's own
+//      `status == BookingStatus.completed` AND server-computed
+//      `providerCanReviewClient` (2026-08-18: BOTH terms required, not the
+//      flag alone — see that field's doc for why an elapsed-but-unclosed
+//      CONFIRMED row must NOT offer this button even when the flag is
+//      `true`): a reviewable COMPLETED row offers the button, a
 //      PAST-but-not-COMPLETED sibling (`NOT_COMPLETED`, for which the backend
 //      computes `false`) does not — the one behavioural claim
 //      `master_archive_screen.dart`'s file header makes about this button
@@ -156,6 +159,33 @@
 //      the reset actually reaches a rebuilt `MasterArchiveScreen` through the
 //      real auth cascade, with a real `keepAlive` element that genuinely
 //      survived the logout.
+//
+//   9. THE 2026-08-18 CTA-GATE FIX, END TO END (mobile-qa, closing this
+//      chain's MUST-FIX finding 2) — the reported bug was an ELAPSED,
+//      UNCLOSED CONFIRMED row rendering BOTH «Виконано» and «Відгук» at
+//      once, because the old gate trusted `providerCanReviewClient` alone.
+//      Scenario 2 above already proves the STATIC negative (an
+//      awaitingClosure CONFIRMED row never offers «Відгук» even when the
+//      list flag is seeded `true`, simulating an older/looser backend still
+//      on the pre-2026-08-18 predicate) — but nothing end-to-end had driven
+//      the row THROUGH a real completion and observed «Відгук» switch ON in
+//      its place on that exact row, which is the actual user-visible
+//      journey the bug report describes and is what `mobile-perf`'s INFO
+//      flagged as unpinned. Two halves, one row:
+//        (a) BEFORE: CONFIRMED + awaitingClosure + providerCanReviewClient:
+//            true → «Виконано» renders, «Відгук» does NOT — the client-side
+//            AND gate fails closed on its own even though the server flag
+//            already says "reviewable", exactly the fail-safe this whole
+//            fix chain added.
+//        (b) AFTER: a real PATCH /bookings/booking-1/complete → the row
+//            refetches → «Виконано» is gone (closed) and «Відгук» has
+//            appeared on the SAME row — proving the gate is not merely
+//            fail-closed but also correctly opens once the booking
+//            genuinely reaches COMPLETED.
+//      A COMPLETED+reviewable sibling, present from the very first frame,
+//      is the anti-vacuity control: it proves the archive CAN render
+//      «Відгук» at all, so booking-1's initial absence is the gate, not an
+//      inability of this page to ever show the button.
 //
 //   8. THE «ВІДГУК» ENTRY WHEN THE DETAIL FETCH FAILS (2026-08-17, closing
 //      mobile-qa's own cycle-1 INFO) — `LeaveClientFeedbackScreen` renders its
@@ -396,7 +426,7 @@ void main() {
   );
 
   // ==========================================================================
-  // 2. THE «ВІДГУК» ENTRY POINT (+ the COMPLETED-only gate)
+  // 2. THE «ВІДГУК» ENTRY POINT (+ the status-AND-flag gate)
   // ==========================================================================
   testWidgets(
     'archive «Відгук» on a COMPLETED row lands on the real leave-client-'
@@ -412,8 +442,9 @@ void main() {
           id: 'booking-1',
           status: 'COMPLETED',
           startsAt: start,
-          // The LIST row's own server-computed flag — the archive card's ONLY
-          // «Відгук» gate since 2026-08-17.
+          // The LIST row's own server-computed flag — ANDed with
+          // `status == COMPLETED` (2026-08-18) to gate the archive card's
+          // «Відгук» slot; this row satisfies both.
           providerCanReviewClient: true,
         ),
         // PAST (NOT_COMPLETED classifies straight into PAST — see
@@ -518,8 +549,9 @@ void main() {
           id: 'booking-1',
           status: 'COMPLETED',
           startsAt: start,
-          // STALE LIST. Since 2026-08-17 the card only offers «Відгук» when
-          // the LIST row says reviewable, so this must be `true` for the tap
+          // STALE LIST. The card only offers «Відгук» when the row is
+          // COMPLETED (this row is) AND the LIST row says reviewable, so this
+          // must be `true` for the tap
           // to exist at all — and seeding it `true` while the detail fetch
           // below says `false` is precisely the race the pre-gate defends
           // against (the review landed from another device, or the master's
@@ -659,7 +691,8 @@ void main() {
           id: 'booking-1',
           status: 'COMPLETED',
           startsAt: start,
-          // The LIST flag — the card's only «Відгук» gate.
+          // The LIST flag — ANDed with `status == COMPLETED` for the card's
+          // «Відгук» gate; this row is COMPLETED so it qualifies.
           providerCanReviewClient: true,
         ),
         // The sibling-immutability control. Also reviewable, never opened.
@@ -1432,6 +1465,144 @@ void main() {
             'The count is unchanged from the pre-fix shape (initial + retry + '
             'recovery); what moved is WHICH action issues the third request, '
             'and a re-entry that fired none would now land here as +2',
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 9. THE 2026-08-18 CTA-GATE FIX, END TO END — closes this chain's
+  //    MUST-FIX finding 2 (Step 2.7 Rule 3b: a real user journey through a
+  //    provider screen + a write action + the API contract needs
+  //    integration-tier coverage, not widget tests alone).
+  // ==========================================================================
+  testWidgets(
+    'an elapsed-unclosed CONFIRMED row seeded providerCanReviewClient:true '
+    '(an older/looser backend) offers «Виконано» but NEVER «Відгук» — the '
+    'client-side gate fails closed on its own — and completing it for real '
+    'flips the SAME row: «Виконано» disappears and «Відгук» takes its place',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      final DateTime start = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'booking-1',
+            status: 'CONFIRMED',
+            startsAt: start,
+            duration: const Duration(minutes: 90),
+            // Simulates an older/looser backend still on the pre-2026-08-18
+            // predicate (COMPLETED OR CONFIRMED-and-elapsed): the server
+            // already says this client is reviewable, even though the
+            // booking itself is not yet closed.
+            providerCanReviewClient: true,
+          ),
+          // Server-computed (Phase 29.1/29.2) — required for the archive's
+          // «Виконано» slot to render at all; see `datasetBookingRow`'s doc.
+          'awaitingClosure': true,
+        },
+        // Anti-vacuity control: a COMPLETED + reviewable row, present from
+        // the first frame, proves this archive CAN render «Відгук» at all —
+        // so booking-1's initial absence below is the gate, not the page
+        // being structurally incapable of showing the button.
+        fb.datasetBookingRow(
+          id: 'sibling-completed-1',
+          status: 'COMPLETED',
+          startsAt: elapsedStart(6),
+          providerCanReviewClient: true,
+        ),
+      ]);
+
+      await openArchive(tester, fb);
+
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+      );
+
+      // ── (a) BEFORE completion — the fail-closed half. ────────────────────
+      expect(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+        findsOneWidget,
+        reason:
+            'awaitingClosure:true + an elapsed startAt must offer «Виконано» '
+            '— the precondition that this row is a genuine still-open '
+            'booking, not one the archive already excludes',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsNothing,
+        reason:
+            'THE FIX. status is CONFIRMED, not COMPLETED — the client-side '
+            'AND gate must hide «Відгук» even though the server flag on '
+            'this row already says providerCanReviewClient:true. Before '
+            'the CTA-gate fix, this rendered stacked next to «Виконано», '
+            'letting a master rate the client before ever closing the '
+            'booking.',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-completed-1')),
+        findsOneWidget,
+        reason:
+            'anti-vacuity control — the archive DOES render «Відгук» for a '
+            'genuinely eligible row, so booking-1\'s absence above is the '
+            'gate at work, not this page failing to render the slot at all',
+      );
+
+      expect(fb.completeBookingCalls, 0);
+
+      // ── Close the booking for real — the same «Виконано» → dialog →
+      //    confirm sequence `master_archive_flow_test.dart`'s primary
+      //    journey uses. ─────────────────────────────────────────────────
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byKey(const Key('complete-booking-dialog')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.completeBookingCalls,
+        1,
+        reason: 'the real PATCH /bookings/booking-1/complete must have fired',
+      );
+
+      // ── (b) AFTER completion — the SAME row switches slots. `settle` can
+      //    return in the lull between the PATCH resolving and the follow-up
+      //    re-fetch landing (identical reasoning to
+      //    `master_archive_flow_test.dart`'s primary journey), so wait for
+      //    the new slot rather than asserting immediately. ────────────────
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+      );
+
+      expect(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        findsOneWidget,
+        reason: 'the row survives the close — only its slots change',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+        findsNothing,
+        reason:
+            '«Виконано» must be gone — the booking is now closed, so '
+            'awaitingClosure is no longer true on the refetched row',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-booking-1')),
+        findsOneWidget,
+        reason:
+            'THE GATE ALSO OPENS CORRECTLY. status is now COMPLETED and the '
+            'server-computed flag was already true, so «Відгук» must now '
+            'render on this exact row — the fix is not merely restrictive, '
+            'it still lets a genuinely closed, reviewable booking through',
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-review-sibling-completed-1')),
+        findsOneWidget,
+        reason: 'the untouched sibling keeps its own CTA throughout',
       );
     },
   );

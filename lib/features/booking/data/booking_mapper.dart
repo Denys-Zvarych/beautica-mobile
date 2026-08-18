@@ -173,9 +173,23 @@ abstract final class BookingMapper {
       // off a listing carries no information, which is exactly backwards (the
       // archive's «Відгук» CTA is gated on it — `MasterBookingCard.onReview`).
       // The `?? false` is a FAIL-CLOSED default for a backend old enough to
-      // OMIT the field, not an expected shape on any current response. See
-      // `Booking.providerCanReviewClient`'s doc.
-      providerCanReviewClient: dto.providerCanReviewClient ?? false,
+      // OMIT the field, not an expected shape on any current response.
+      //
+      // 2026-08-18: ALSO ANDed with `status == BookingStatus.completed` here
+      // — a second, independent fail-closed gate alongside the render-site
+      // one in `MasterBookingCard._buildFullBody`. The backend's provider-
+      // side predicate is being narrowed to COMPLETED-only in parallel with
+      // this fix, but an older backend still on the wider "COMPLETED or
+      // CONFIRMED-and-elapsed" predicate would keep sending `true` on an
+      // elapsed-but-unclosed CONFIRMED row; ANDing the already-mapped
+      // `status` local here means that stale `true` never survives past this
+      // mapper, regardless of what the render site does. See
+      // `Booking.providerCanReviewClient`'s doc for why the provider→client
+      // review direction requires COMPLETED while the client→provider
+      // direction ([Booking.canReview]) does not.
+      providerCanReviewClient:
+          (dto.providerCanReviewClient ?? false) &&
+          status == BookingStatus.completed,
       // Phase 29.2 field; defaulted so a pre-29.2 backend omitting it entirely
       // cannot crash the mapper. See `Booking.awaitingClosure`'s doc.
       awaitingClosure: dto.awaitingClosure ?? false,

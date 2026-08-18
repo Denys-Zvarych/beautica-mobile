@@ -233,18 +233,32 @@ abstract class Booking with _$Booking {
     /// `true` only when the CURRENT authenticated viewer is the provider AND
     /// this booking's client may still be reviewed by them — server-computed
     /// (mirrors [canReview], but from the PROVIDER's side): non-guest client,
-    /// no `ClientReview` yet for this booking, AND review-eligible, which the
-    /// backend's `BookingClosureRule.isReviewEligible` defines as COMPLETED
-    /// **or** (CONFIRMED and [endAt] already elapsed) — NOT merely COMPLETED.
-    /// Do not re-derive any part of it client-side; the `!reviewExists` term
-    /// alone is unknowable here.
+    /// no `ClientReview` yet for this booking, AND [status] is
+    /// [BookingStatus.completed]. As of 2026-08-18 the backend's
+    /// `BookingClosureRule.isReviewEligible` for the provider→client
+    /// direction is COMPLETED-only — the earlier "COMPLETED or (CONFIRMED and
+    /// [endAt] elapsed)" shape is RETIRED for this direction (it still holds
+    /// for [canReview], the client→provider direction; see that field's doc
+    /// for why the two are no longer symmetric: the provider is the party who
+    /// performs the booking's CLOSING action, so letting them rate the client
+    /// before that action happens would let them rate a visit whose outcome
+    /// they haven't yet confirmed; the client has no equivalent control over
+    /// the booking's lifecycle, which is what keeps its own elapsed-time
+    /// allowance justified).
     ///
     /// Sent with a real value on `GET /bookings/{id}` and, since backend
     /// `fix/list-provider-can-review-client` (2026-08-17), on the provider
-    /// rows of `GET /bookings/me` too — the earlier "hardcoded `false` on
-    /// every listing row" note is retracted. Still defaults to `false` so an
-    /// older backend that omits the field fails CLOSED (hides the CTA) rather
-    /// than offering a doomed one.
+    /// rows of `GET /bookings/me` too. Defaults to `false` so an older
+    /// backend that omits the field fails CLOSED (hides the CTA) rather than
+    /// offering a doomed one — and, because an older backend build may still
+    /// be on the wider pre-2026-08-18 predicate and could send `true` on an
+    /// elapsed-but-unclosed CONFIRMED row, this value is NOT trusted alone:
+    /// both `BookingMapper.fromDto` (`booking_mapper.dart`) and the render
+    /// site (`MasterBookingCard._buildFullBody`) re-AND it with
+    /// `status == BookingStatus.completed` as independent, redundant
+    /// fail-closed gates. Do not remove either re-derivation on the theory
+    /// that "the server already checked" — the whole point is to not depend
+    /// on every backend deploy landing first.
     ///
     /// Gates the master footer's «Залишити відгук про клієнта» CTA and the
     /// «Архів» card's «Відгук» slot (`MasterBookingCard.onReview`); the write

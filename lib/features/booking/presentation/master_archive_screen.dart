@@ -26,14 +26,23 @@
 // as well"). The same day, the «Відгук» leave-client-feedback action was
 // added as a SECOND additive slot on the same card
 // (`MasterBookingCard.onReview`), pushing the already-shipped
-// `LeaveClientFeedbackScreen` (Track 7.x Wave B) for a reviewable row. That
-// slot IS gated on `booking.providerCanReviewClient` — the earlier rationale
-// here ("that flag is hardcoded `false` on every `GET /bookings/me` row this
-// screen's own list is built from") is RETRACTED: the backend now computes a
-// real per-row value on the provider rows of that listing too
-// (`fix/list-provider-can-review-client`, 2026-08-17), so the flag is the
-// authority on both paths. See that field's own doc. Every OTHER
-// consumer of the card (`bookings_timeline_grid.dart`,
+// `LeaveClientFeedbackScreen` (Track 7.x Wave B) for a reviewable row. As of
+// 2026-08-18 that slot is gated on `booking.status == BookingStatus.completed`
+// AND `booking.providerCanReviewClient` — NOT the flag alone. A brief window
+// (2026-08-17 through 2026-08-18) dropped the status term on the theory that
+// the server's `isReviewEligible` predicate already covered it; that was
+// wrong for this direction, because it let an elapsed-but-unclosed CONFIRMED
+// row (ticking «Підтверджено» alone, the archive's «Потребують закриття»
+// filter) offer the «Відгук» CTA stacked next to «Виконано» — the master
+// could rate the client before ever closing the booking. The provider is the
+// party who performs that closing action, so the rating is meant to follow
+// it, not precede it; the client has no equivalent control over the
+// booking's lifecycle, which is why the client→provider review path keeps
+// its own elapsed-time allowance and is unaffected. The backend's
+// provider-side predicate was narrowed to COMPLETED-only to match — see
+// `MasterBookingCard.onReview`'s doc for the full gate contract, including
+// why mobile re-derives it locally instead of trusting the flag alone. Every
+// OTHER consumer of the card (`bookings_timeline_grid.dart`,
 // `declared_time_cards.dart`) never passes `onComplete` or `onReview`, so it
 // renders byte-identically to before either phase — see those fields' own
 // docs on `MasterBookingCard` for the full "additive, not disruptive"
@@ -305,13 +314,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   /// «Відгук» — pushes the SHIPPED leave-client-feedback screen (Track 7.x
-  /// Wave B) for a row the SERVER says is still reviewable. The card gates the
-  /// slot on `booking.providerCanReviewClient`; the old rationale for offering
-  /// it on every COMPLETED row without that gate ("hardcoded `false` on every
-  /// `GET /bookings/me` row, which is what feeds this screen" — a user-locked
-  /// decision, 2026-08-16) is RETRACTED, because the backend now populates a
-  /// real per-row value on that listing's provider rows too. See
-  /// `MasterBookingCard.onReview`'s doc.
+  /// Wave B) for a COMPLETED row the SERVER also says is still reviewable.
+  /// The card gates the slot on `booking.status == BookingStatus.completed`
+  /// AND `booking.providerCanReviewClient` (2026-08-18 — the status term was
+  /// briefly dropped and is now restored: a provider must close a booking
+  /// before rating the client, not before). See
+  /// `MasterBookingCard.onReview`'s doc for the full gate contract.
   ///
   /// Unlike the detail→review path (where `BookingDetailScreen` stays
   /// mounted underneath and keeps `bookingDetailProvider(id)` warm), this

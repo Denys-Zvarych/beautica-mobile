@@ -350,13 +350,19 @@ void main() {
   });
 
   // Track 7.x Wave B — `providerCanReviewClient`: gates the PROVIDER footer's
-  // «Залишити відгук про клієнта» CTA (`booking_detail_screen.dart`). Real
-  // value only on GET /bookings/{id}; both GET /bookings/me listing paths
-  // hardcode false server-side. `@Default(false)` on the freezed field means
-  // a dropped/renamed wire field silently fails CLOSED at the model layer —
-  // this pins the mapper's OWN `?? false` coalescing so a regression is
-  // caught here, at unit level, rather than only by the (much slower, wider)
-  // widget suite noticing the CTA vanished.
+  // «Залишити відгук про клієнта» CTA (`booking_detail_screen.dart`) and the
+  // «Архів» card's «Відгук» slot (`MasterBookingCard.onReview`). Real value
+  // arrives on GET /bookings/{id} and, since backend
+  // `fix/list-provider-can-review-client`, the provider rows of
+  // GET /bookings/me too. `@Default(false)` on the freezed field means a
+  // dropped/renamed wire field silently fails CLOSED at the model layer, and
+  // (2026-08-18) the mapper ALSO ANDs the wire value with
+  // `status == BookingStatus.completed` — a second, independent fail-closed
+  // gate alongside the render-site one, so an older backend still on the
+  // wider CONFIRMED-or-elapsed predicate cannot make an unclosed booking
+  // reviewable. This pins the mapper's OWN coalescing/gating so a regression
+  // is caught here, at unit level, rather than only by the (much slower,
+  // wider) widget suite noticing the CTA appeared where it should not.
   group('BookingMapper.fromDto — providerCanReviewClient', () {
     test('a null wire value maps to false (fail-closed)', () {
       // _validDto never sets providerCanReviewClient → null on the wire.
@@ -419,6 +425,134 @@ void main() {
       final Booking b = BookingMapper.fromDto(dto);
 
       expect(b.providerCanReviewClient, isFalse);
+    });
+
+    // 2026-08-18 — second, independent fail-closed gate alongside the
+    // render-site one in `MasterBookingCard._buildFullBody`. An older
+    // backend build still on the wider pre-2026-08-18 predicate (COMPLETED
+    // OR CONFIRMED-and-elapsed) could send `providerCanReviewClient: true`
+    // on an elapsed-but-unclosed CONFIRMED booking; the mapper must not let
+    // that survive even if a future caller ever bypassed the widget's own
+    // check.
+    test('a true wire value on a non-COMPLETED (CONFIRMED) booking maps to '
+        'false — the mapper re-derives the COMPLETED-only gate itself rather '
+        'than trusting an older backend', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-awaiting-closure'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = BookingDetailResponseStatusEnum.CONFIRMED
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'status is CONFIRMED, not COMPLETED — an older backend could '
+            'still send true here, and the mapper must fail CLOSED on its '
+            'own regardless of what the render site does.',
+      );
+    });
+
+    // mobile-security MEDIUM (2026-08-18, this chain) — the AND above reads
+    // the ALREADY-MAPPED `status` local, not the raw wire enum, so its
+    // correctness on a status the mapper cannot even identify was unpinned.
+    // Today it is provably safe (a null/unrecognised wire status decodes to
+    // [BookingStatus.unknown] before this line ever runs, and
+    // `unknown != completed` closes the AND independently of the flag), but
+    // nothing asserted that — a future refactor of the AND expression (e.g.
+    // "simplify" it to read `statusDto?.name == 'COMPLETED'` directly off the
+    // wire, bypassing the already-decoded local) could silently regress this
+    // exact combination with no other test catching it, since every other
+    // case in this group pins a RECOGNISED status.
+    test('a true wire value with an ABSENT wire status maps to false — the '
+        'null-status branch (`BookingStatus.unknown`) closes the AND just '
+        'like an explicit non-COMPLETED status does', () {
+      final BookingDetailResponse dto =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-no-status'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                // `status` deliberately left UNSET — the wire-omitted /
+                // UnknownEnumTolerancePlugin-stripped shape, per this
+                // mapper's own file-header contract.
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dto);
+
+      expect(b.status, BookingStatus.unknown, reason: 'precondition');
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'an absent status must never let a true wire flag through — '
+            'the mapper cannot even identify this booking, let alone grant '
+            'the review capability on it',
+      );
+    });
+
+    test('a true wire value with an UNRECOGNISED wire status maps to false '
+        '— same fail-closed outcome as the absent-status case, reached '
+        'through the OTHER branch of the null-check', () {
+      // `_dtoWithUnrecognisedStatus` does not set `providerCanReviewClient`;
+      // this fixture needs it `true` to actually exercise the AND, so build
+      // the DTO by hand instead of reusing the helper's `false` default.
+      final BookingDetailResponse dtoWithFlag =
+          (BookingDetailResponseBuilder()
+                ..id = 'booking-weird-status'
+                ..masterId = 'master-1'
+                ..masterServiceId = 'service-1'
+                ..masterFirstName = 'Оля'
+                ..masterLastName = 'Коваль'
+                ..serviceName = 'Манікюр'
+                ..status = const _UnrecognisedStatus('RESCHEDULED')
+                ..startsAt = DateTime.utc(2026, 7, 10, 10)
+                ..endsAt = DateTime.utc(2026, 7, 10, 11)
+                ..priceAtBooking = 500
+                ..durationMinutesAtBooking = 60
+                ..canReview = false
+                ..providerCanReviewClient = true
+                ..masterType =
+                    BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+              .build();
+
+      final Booking b = BookingMapper.fromDto(dtoWithFlag);
+
+      expect(b.status, BookingStatus.unknown, reason: 'precondition');
+      expect(
+        b.providerCanReviewClient,
+        isFalse,
+        reason:
+            'a status this build does not recognise must never let a true '
+            'wire flag survive to the domain — a future backend status the '
+            'app predates must fail CLOSED on review capability the same '
+            'way an absent status does',
+      );
     });
   });
 

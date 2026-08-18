@@ -1735,70 +1735,83 @@ void main() {
   });
 
   group('«Відгук» review action', () {
-    // RETARGETED 2026-08-17 with the gate. Was "renders ONLY on a COMPLETED
-    // row, never on an awaitingClosure CONFIRMED row"; the slot now follows
-    // `providerCanReviewClient` alone, which the server also sets on an
-    // elapsed-but-unclosed CONFIRMED booking, so «Виконано» and «Відгук» are
-    // no longer mutually exclusive. Three rows so both directions of the real
-    // gate are pinned on one fixture and neither half can pass vacuously.
-    testWidgets('renders on every row the server marks reviewable and on no '
-        'other — including an awaitingClosure CONFIRMED row, where it now '
-        'stacks with «Виконано» rather than being suppressed', (
-      WidgetTester tester,
-    ) async {
-      stubList(<Booking>[
-        // Elapsed-but-unclosed AND still reviewable: the case the old
-        // `status == completed` term wrongly hid.
-        _booking(
-          id: 'awaiting',
-          status: BookingStatus.confirmed,
-          awaitingClosure: true,
-          providerCanReviewClient: true,
-        ),
-        _booking(
-          id: 'done',
-          status: BookingStatus.completed,
-          providerCanReviewClient: true,
-        ),
-        // COMPLETED but already reviewed — the user-reported bug: this row
-        // used to keep its CTA forever.
-        _booking(id: 'reviewed', status: BookingStatus.completed),
-      ]);
+    // RETARGETED 2026-08-18. The 2026-08-17 pass gated this slot on
+    // `providerCanReviewClient` alone, reasoning the server's
+    // `isReviewEligible` predicate (COMPLETED or CONFIRMED-and-elapsed)
+    // already covered it — which let an elapsed-but-unclosed CONFIRMED row
+    // (awaitingClosure) stack «Відгук» next to «Виконано», offering a rating
+    // CTA before the master had closed the booking. The gate is now
+    // `status == BookingStatus.completed` AND `providerCanReviewClient` (see
+    // `MasterBookingCard.onReview`'s doc). Three rows so every direction of
+    // the real gate is pinned on one fixture and none can pass vacuously:
+    // an awaitingClosure CONFIRMED row with the flag true (review must be
+    // ABSENT, complete must remain PRESENT — proving the two slots are still
+    // independently gated, not coupled), a COMPLETED + reviewable row
+    // (review present), and a COMPLETED-but-already-reviewed row (review
+    // absent).
+    testWidgets(
+      'renders only on a COMPLETED row the server also marks reviewable; an '
+      'awaitingClosure CONFIRMED row keeps its «Виконано» slot but never '
+      'offers «Відгук», even when the server flag is true',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          // Elapsed-but-unclosed but NOT completed: must hide «Відгук» even
+          // though the server flag says reviewable — the master has not
+          // closed this booking yet.
+          _booking(
+            id: 'awaiting',
+            status: BookingStatus.confirmed,
+            awaitingClosure: true,
+            providerCanReviewClient: true,
+          ),
+          _booking(
+            id: 'done',
+            status: BookingStatus.completed,
+            providerCanReviewClient: true,
+          ),
+          // COMPLETED but already reviewed — the user-reported bug: this row
+          // used to keep its CTA forever.
+          _booking(id: 'reviewed', status: BookingStatus.completed),
+        ]);
 
-      await pump(tester);
-      await tester.pumpAndSettle();
+        await pump(tester);
+        await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('master-booking-card-review-done')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('master-booking-card-review-awaiting')),
-        findsOneWidget,
-        reason:
-            'providerCanReviewClient is true on this CONFIRMED-and-elapsed '
-            'row, so the server says it is reviewable — the card must not '
-            're-derive a narrower rule from status.',
-      );
-      expect(
-        find.byKey(const Key('master-booking-card-review-reviewed')),
-        findsNothing,
-        reason:
-            'already-reviewed COMPLETED row — the defect this gate fixes. '
-            'Also keeps the positive expectations above non-vacuous.',
-      );
-      // «Виконано» is still gated on awaitingClosure + its own callback, and
-      // is unaffected by the review gate — pinned on the same fixture so the
-      // two slots are shown to be independent, not exclusive.
-      expect(
-        find.byKey(const Key('master-booking-card-complete-awaiting')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('master-booking-card-complete-done')),
-        findsNothing,
-      );
-    });
+        expect(
+          find.byKey(const Key('master-booking-card-review-done')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-awaiting')),
+          findsNothing,
+          reason:
+              'status is CONFIRMED, not completed, so «Відгук» must be '
+              'absent even though providerCanReviewClient is true on this '
+              'row — a master must close a booking before rating the '
+              'client.',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-reviewed')),
+          findsNothing,
+          reason:
+              'already-reviewed COMPLETED row — the defect the flag gate '
+              'fixes. Also keeps the positive expectation above non-vacuous.',
+        );
+        // «Виконано» is still gated on awaitingClosure + its own callback,
+        // and is unaffected by the review gate — pinned on the same fixture
+        // so the two slots are shown to be independent: the review gate
+        // hiding the CTA above does NOT also hide «Виконано» on that same
+        // row.
+        expect(
+          find.byKey(const Key('master-booking-card-complete-awaiting')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-complete-done')),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets(
       "tap pushes RouteNames.clientReview with the tapped row's own booking "
