@@ -4072,6 +4072,42 @@
   "@masterCreateBookingDoneCta": {
     "description": "Sole onward action on the master booking wizard's done step; pops back to «Мої записи»."
   },
+  "salonCreateBookingDateTitle": "Дата",
+  "@salonCreateBookingDateTitle": {
+    "description": "Header title for the salon booking wizard's date-only step."
+  },
+  "salonCreateBookingDateHeading": "Оберіть зручну дату",
+  "@salonCreateBookingDateHeading": {
+    "description": "Body heading above the calendar on the salon booking wizard's date step."
+  },
+  "salonCreateBookingDateNextCta": "Далі — Майстри",
+  "@salonCreateBookingDateNextCta": {
+    "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
+  },
+  "salonCreateBookingMastersStepTitle": "Вільні майстри",
+  "@salonCreateBookingMastersStepTitle": {
+    "description": "Header title for the salon booking wizard's masters step."
+  },
+  "salonCreateBookingMasterOffers": "Виконує",
+  "@salonCreateBookingMasterOffers": {
+    "description": "Status pill on a salon booking wizard master tile: this master performs the selected service."
+  },
+  "salonCreateBookingMasterNotOffered": "Не виконує",
+  "@salonCreateBookingMasterNotOffered": {
+    "description": "Status pill on a salon booking wizard master tile: this master does not perform the selected service."
+  },
+  "salonCreateBookingDoneSubline": "Клієнта додано до розкладу майстра.",
+  "@salonCreateBookingDoneSubline": {
+    "description": "Sub-line under the success headline on the salon booking wizard's done step. Must never claim an SMS/notification was sent — the backend's confirmation SMS is gated off by default."
+  },
+  "salonCreateBookingServiceEmptyTitle": "У салоні ще немає жодної послуги",
+  "@salonCreateBookingServiceEmptyTitle": {
+    "description": "Empty-state title on the salon booking wizard's service step when the salon's masters have no services yet."
+  },
+  "salonCreateBookingServiceEmptyBody": "Додайте послугу майстру, щоб створити запис.",
+  "@salonCreateBookingServiceEmptyBody": {
+    "description": "Empty-state body on the salon booking wizard's service step when the salon's masters have no services yet."
+  },
   "bookingArrivalNoteSemantics": "Як знайти: {text}",
   "@bookingArrivalNoteSemantics": {
     "description": "Accessibility label for the provider's arrival-hint line on the booking detail address block.",

@@ -300,6 +300,45 @@ abstract final class RouteNames {
   /// only planned caller so far.
   static const String masterBookingNew = '$masterBookings/new';
 
+  /// Phase 250 — the STAFF-side salon booking surfaces (`/salon/bookings/…`),
+  /// `SALON_OWNER`/`SALON_ADMIN` only.
+  ///
+  /// NOT to be confused with [salonBookingServices]/[salonBookingMasters]/
+  /// [salonBookingTime]/[salonBookingConfirm]/[salonBookingSuccess] above
+  /// (all under `/booking/salon/…`, CLIENT-guarded) — those are a CLIENT
+  /// booking AT a salon. This is SALON STAFF creating a walk-in booking ON
+  /// BEHALF of the salon, mirroring [masterBookings]'s own shape one level
+  /// up (`/master/bookings/…`, INDEPENDENT_MASTER-only) for the salon role
+  /// pair instead.
+  static const String salonStaffBookings = '/salon/bookings';
+
+  /// Phase 250 — the SALON «Новий запис» 6-step wizard (client → service →
+  /// dateTime → masters → confirm → done): a walk-in booking a
+  /// `SALON_OWNER`/`SALON_ADMIN` creates on behalf of the salon, choosing
+  /// which of the salon's masters performs it.
+  ///
+  /// A literal child of [salonStaffBookings] — today it is the ONLY route
+  /// registered under that prefix (`app_router.dart` registers it as a
+  /// STANDALONE top-level `GoRoute`, mirroring [RouteNames.clientReview]'s
+  /// own "no shell to nest under" reasoning; see that route's registration
+  /// comment). If a future phase adds a dynamic sibling — most likely a
+  /// `/salon/bookings/:bookingId` detail route, mirroring
+  /// [masterBookingDetail] — it MUST be declared AFTER this literal `new`
+  /// segment wherever the two become siblings under one parent `GoRoute`,
+  /// exactly like [masterBookingNew]'s own doc explains (go_router resolves
+  /// literal-before-dynamic ONLY by declaration order among siblings; see
+  /// `test/routing/master_bookings_route_shadowing_test.dart`, mirrored here
+  /// by `test/routing/salon_bookings_route_shadowing_test.dart`).
+  ///
+  /// Inherits the `/salon/*` `SALON_OWNER`/`SALON_ADMIN` role gate added to
+  /// `auth_redirect.dart` for this phase — see that file's own comment.
+  /// Rendered as a fullscreen dialog. Reached with `context.push`, carrying
+  /// the target salon id (a bare `String`) in `extra` — mirrors
+  /// [salonBookingServices]'s own "no natural upstream salon id" shape, since
+  /// nothing on this route's own path carries it. Never `Navigator` — CI
+  /// fails on `Navigator` in `lib/features/`.
+  static const String salonStaffBookingNew = '$salonStaffBookings/new';
+
   /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
   ///
   /// Same URL shape as [masterBookingDetail]'s `/review` child would be, but

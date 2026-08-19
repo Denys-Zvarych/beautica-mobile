@@ -51,7 +51,38 @@
 //
 // `master_create_booking_screen.dart` is the only current caller. Phase 250
 // adds the salon wizard as an ADDITIVE second consumer of these same public
-// types — nothing in this file changes to enable that.
+// types — nothing else in this file changes to enable that.
+//
+// PHASE 250 — two more additive params, both defaulting to `null` so
+// `master_create_booking_screen.dart`'s existing call sites take the exact
+// same branch as before (golden-verified — see
+// `test/golden/master_create_booking_wizard_golden_test.dart`):
+//
+//   * [ServiceStep.servicesOverride] / [ServiceStep.onRetryOverride] — the
+//     master wizard's service picker is fed from `servicesListProvider`
+//     ("MY OWN services" — the authenticated master's own catalogue). The
+//     salon wizard cannot use that provider at all: its caller is
+//     `SALON_OWNER` (who may also be a performing master, i.e. own SOME
+//     services) or `SALON_ADMIN` (who owns NONE — an admin has no master
+//     profile, so `listMyServices()` is the wrong question for them). The
+//     salon wizard's service picker must show the SALON's aggregate
+//     catalogue (every service any of its masters perform), not "my own".
+//     Rather than reaching into [ServiceStep] and rewiring which provider it
+//     watches (which would touch the master wizard's own path too), the step
+//     accepts an already-resolved [AsyncValue] to render instead — the salon
+//     screen computes it from `salonServiceCatalogProvider(salonId)` and
+//     hands it down. `null` (both params) preserves the ORIGINAL
+//     `ref.watch(servicesListProvider)` / `ref.invalidate(servicesListProvider)`
+//     pair unchanged.
+//   * [ConfirmStep.masterCard] — the design's confirm step shows a master
+//     identity card (`_ConfirmStep`'s "Запис до майстра" block) because a
+//     SALON booker picks among several masters. The master wizard
+//     deliberately omits it (deviation #4, `master_create_booking_screen
+//     .dart`'s file header — a master booking themselves would see a card
+//     naming themselves). [BookingSummaryCards] already exposes a
+//     `masterCard: Widget?` slot for exactly this; this promotion only
+//     threads it through from [ConfirmStep]'s own constructor. `null` (the
+//     master wizard's call site) renders no card, exactly as before.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -318,10 +349,29 @@ class ServiceStep extends ConsumerStatefulWidget {
     super.key,
     required this.selectedServiceId,
     required this.onSelect,
+    this.servicesOverride,
+    this.onRetryOverride,
+    this.emptyTitleOverride,
+    this.emptyBodyOverride,
   });
 
   final String? selectedServiceId;
   final ValueChanged<MasterService> onSelect;
+
+  /// Phase 250 (salon wizard) — overrides the internal
+  /// `ref.watch(servicesListProvider)` read with an already-resolved
+  /// [AsyncValue]. `null` (the master wizard's only call site) preserves the
+  /// original behaviour exactly — see this file's header.
+  final AsyncValue<List<MasterService>>? servicesOverride;
+
+  /// Paired with [servicesOverride]: the retry action for that override's
+  /// error state. `null` preserves the original
+  /// `ref.invalidate(servicesListProvider)` retry.
+  final VoidCallback? onRetryOverride;
+
+  /// Forwarded to [ServiceStepEmpty] — see that widget's own doc.
+  final String? emptyTitleOverride;
+  final String? emptyBodyOverride;
 
   @override
   ConsumerState<ServiceStep> createState() => _ServiceStepState();
@@ -384,9 +434,8 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final AsyncValue<List<MasterService>> asyncServices = ref.watch(
-      servicesListProvider,
-    );
+    final AsyncValue<List<MasterService>> asyncServices =
+        widget.servicesOverride ?? ref.watch(servicesListProvider);
     final AsyncValue<List<ServiceCategoryOption>> categoriesAsync = ref.watch(
       approvedCategoriesProvider,
     );
@@ -399,12 +448,16 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
       error: (Object e, StackTrace _) => ErrorState(
         key: const Key('master-create-booking-service-error'),
         failure: e is Failure ? e : UnknownFailure(cause: e),
-        onRetry: () => ref.invalidate(servicesListProvider),
+        onRetry:
+            widget.onRetryOverride ??
+            () => ref.invalidate(servicesListProvider),
       ),
       data: (List<MasterService> list) {
         if (list.isEmpty) {
-          return const ServiceStepEmpty(
-            key: Key('master-create-booking-service-empty'),
+          return ServiceStepEmpty(
+            key: const Key('master-create-booking-service-empty'),
+            titleOverride: widget.emptyTitleOverride,
+            bodyOverride: widget.emptyBodyOverride,
           );
         }
         final List<CategoryGroup> groups = _resolveGroups(
@@ -457,7 +510,16 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
 }
 
 class ServiceStepEmpty extends StatelessWidget {
-  const ServiceStepEmpty({super.key});
+  const ServiceStepEmpty({super.key, this.titleOverride, this.bodyOverride});
+
+  /// Phase 250 (salon wizard) — the master wizard's default copy
+  /// ("Додайте послугу в розділі «Мої послуги»…") tells the reader to go add
+  /// a service THEMSELVES, which is simply wrong for a `SALON_ADMIN` caller
+  /// — that role has no master profile and no «Мої послуги» screen at all.
+  /// `null` (the master wizard's only call site) preserves the original
+  /// copy unchanged.
+  final String? titleOverride;
+  final String? bodyOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -471,13 +533,13 @@ class ServiceStepEmpty extends StatelessWidget {
             const Icon(Icons.spa_rounded, size: 44, color: BrandColors.accent),
             const SizedBox(height: VelvetSpacing.md),
             Text(
-              l10n.masterCreateBookingServiceEmptyTitle,
+              titleOverride ?? l10n.masterCreateBookingServiceEmptyTitle,
               style: VelvetText.headingSm,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: VelvetSpacing.sm),
             Text(
-              l10n.masterCreateBookingServiceEmptyBody,
+              bodyOverride ?? l10n.masterCreateBookingServiceEmptyBody,
               style: VelvetText.body(),
               textAlign: TextAlign.center,
             ),
@@ -568,6 +630,7 @@ class ConfirmStep extends ConsumerWidget {
     required this.firstName,
     required this.lastName,
     required this.phone,
+    this.masterCard,
   });
 
   final MasterService service;
@@ -575,6 +638,13 @@ class ConfirmStep extends ConsumerWidget {
   final String firstName;
   final String lastName;
   final String phone;
+
+  /// Phase 250 (salon wizard) — an optional prebuilt master-identity card,
+  /// forwarded verbatim into [BookingSummaryCards.masterCard]. `null` (the
+  /// master wizard's only call site) renders no card — see this file's
+  /// header for why a master booking themselves has no business naming
+  /// themselves here.
+  final Widget? masterCard;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -620,6 +690,7 @@ class ConfirmStep extends ConsumerWidget {
           // one the client-facing confirm/success screens use.
           BookingSummaryCards(
             key: const Key('master-create-booking-confirm-card'),
+            masterCard: masterCard,
             showAddress: false,
             dateLabel: formatFullDate(startAt),
             timeLabel: formatTimeRange(startAt, service.durationMinutes),

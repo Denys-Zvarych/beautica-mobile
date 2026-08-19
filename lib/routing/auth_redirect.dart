@@ -226,6 +226,27 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate (Phase 250): /salon/* is only accessible to SALON_OWNER /
+  // SALON_ADMIN.
+  //
+  // Mirrors the /master/* gate immediately above — `/salon/bookings/new`
+  // (the SALON «Новий запис» wizard) is the first route under this prefix;
+  // any other authenticated role (CLIENT, INDEPENDENT_MASTER, SALON_MASTER)
+  // that navigates to a /salon/* path is redirected to the home shell. This
+  // did NOT exist before Phase 250 — checked, and there is no pre-existing
+  // /salon/* gate anywhere in this file to reuse or drift out of agreement
+  // with (the CLIENT-facing salon booking flow lives under the DIFFERENT
+  // `/booking/salon/*` prefix and is gated per-route by `app_router.dart`'s
+  // own `clientOnlyGuard`, not here). SALON_MASTER is deliberately excluded:
+  // that role has a read-only calendar, not a walk-in-booking affordance.
+  if (isAuthenticated && location.startsWith('/salon/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.salonOwner &&
+        auth.user.role != UserRole.salonAdmin) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
   // Role gate (Phase 15.6 — OQ-2 hardening): the schedule EDIT surfaces are
   // INDEPENDENT_MASTER-only in MVP. `/schedule` (MasterScheduleScreen) already
   // gates every edit affordance on `scheduleEditableProvider` and is a safe

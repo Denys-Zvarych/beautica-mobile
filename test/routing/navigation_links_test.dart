@@ -333,6 +333,10 @@ void main() {
       'scheduleDayOverride': RouteNames.scheduleDayOverride,
       'schedulePropagate': RouteNames.schedulePropagate,
       'myRating': RouteNames.myRating,
+      // Phase 250 — registered as a STANDALONE top-level `GoRoute`
+      // (`app_router.dart`, near the `/salon/bookings/:bookingId` sibling
+      // group) — see [RouteNames.salonStaffBookingNew]'s own doc.
+      'salonStaffBookingNew': RouteNames.salonStaffBookingNew,
     };
 
     // Deliberate exclusions. `/master/working-hours` was retired in Phase 6.2
@@ -350,7 +354,17 @@ void main() {
     // so it belongs in neither `allRoutes` nor `deliberatelyUnregistered` —
     // NL-R01c's `covered.difference(declared)` assertion is what forced the
     // `allRoutes` row out. `/services/setup` is still covered above.
-    const Set<String> deliberatelyUnregistered = <String>{'workingHours'};
+    //
+    // `salonStaffBookings` (`/salon/bookings`) — Phase 250 — a path-prefix
+    // constant only, so the `/salon/bookings/new` child path can be composed
+    // and the `/salon/*` role gate has a name to reference. There is no
+    // parent SCREEN yet (that is Phase 251's Розклад entry point per
+    // `app_router.dart`'s own comment above the `/salon/bookings/new`
+    // registration), so no `GoRoute` is registered for the bare path today.
+    const Set<String> deliberatelyUnregistered = <String>{
+      'workingHours',
+      'salonStaffBookings',
+    };
 
     test('NL-R01: every RouteNames constant resolves to a registered GoRoute '
         'in the PRODUCTION app_router', () {

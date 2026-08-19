@@ -58,6 +58,7 @@ import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
+import '../features/booking/presentation/salon_create_booking_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
 import '../features/booking/presentation/salon_service_selection_screen.dart';
 import '../features/booking/presentation/salon_time_screen.dart';
@@ -942,6 +943,60 @@ GoRouter appRouter(Ref ref) {
             ),
           ),
         ],
+      ),
+      // Phase 250 — /salon/bookings/new, the SALON «Новий запис» wizard.
+      //
+      // Registered as a STANDALONE top-level route, NOT nested under a
+      // `/salon/bookings` parent `GoRoute` — unlike [masterBookings]
+      // (`/master/bookings`), there is no parent SCREEN yet for the bare
+      // `/salon/bookings` path (that is Phase 251's Розклад entry point);
+      // mirrors [RouteNames.clientReview]'s own "standalone top-level route,
+      // not nested under a plain content screen" precedent (see that route's
+      // registration comment further down for the full go_router-matcher
+      // rationale). `salonId` travels via `extra` (a bare `String`) — this
+      // route's own path carries no id, mirroring [salonBookingServices]'s
+      // identical "no natural upstream salon id" shape.
+      //
+      // Role gate: the `/salon/*` prefix gate added to `auth_redirect.dart`
+      // for this phase (SALON_OWNER / SALON_ADMIN only) — no per-route
+      // `clientOnlyGuard`-style duplicate needed here, unlike the CLIENT
+      // salon-booking routes above (those sit under `/booking/salon/*`,
+      // which carries NO prefix gate in `auth_redirect.dart`, hence their
+      // own redirect closures).
+      //
+      // ⚠ SHADOWING — if a future phase nests a dynamic sibling (most likely
+      // `/salon/bookings/:bookingId`) under a shared `/salon/bookings`
+      // parent, this literal `new` MUST be declared before it — see
+      // [RouteNames.salonStaffBookingNew]'s own doc and
+      // `master_bookings_route_shadowing_test.dart` for why the ordering,
+      // not the path string, is what actually resolves the request.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` pins the
+      // resolved page TYPE for this route today (no dynamic sibling exists
+      // yet, so nothing can shadow it) and documents the same guard for
+      // whichever phase adds one.
+      //
+      // `pageBuilder` + `MaterialPage(fullscreenDialog: true)`, matching
+      // [masterBookingNew]. Reached via `context.push` (never `Navigator`).
+      GoRoute(
+        path: RouteNames.salonStaffBookingNew,
+        redirect: (context, state) {
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            // No natural upstream to chain-redirect through — same shape as
+            // [salonBookingServices]'s own missing-extra fallback, but the
+            // landing is role-derived (this route's callers are staff, not
+            // CLIENT) rather than a fixed `clientHome`.
+            final session = ref.read(authProvider).value;
+            return session is Authenticated
+                ? roleHomePath(session.user.role)
+                : RouteNames.login;
+          }
+          return null;
+        },
+        pageBuilder: (context, state) => MaterialPage<void>(
+          fullscreenDialog: true,
+          child: SalonCreateBookingScreen(salonId: state.extra! as String),
+        ),
       ),
       // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
       // Registered as a STANDALONE top-level route carrying the SAME full
