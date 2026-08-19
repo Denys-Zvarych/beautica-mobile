@@ -408,6 +408,17 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
   List<ServiceCategoryOption>? _cachedCategories;
   List<CategoryGroup>? _cachedGroups;
 
+  // Named (not inlined as `() => ref.invalidate(servicesListProvider)`) so
+  // `dart format` can never re-wrap the call onto a line without `onRetry`
+  // on it. `test/features/services/presentation/services_catalogue_invalidation_test.dart`
+  // greps `lib/**.dart` LINE BY LINE for `invalidate(servicesListProvider)`
+  // and only exempts lines that also contain `onRetry` — a retry of this
+  // step's own failed read is not a catalogue mutation, but the guard is
+  // line-based, so a wrapped `onRetry: widget.onRetryOverride ?? () => ...`
+  // closure (line break landing between `onRetry:` and the invalidate call)
+  // false-positives. Do not "simplify" this back into an inline closure.
+  void _onRetry() => ref.invalidate(servicesListProvider);
+
   List<CategoryGroup> _resolveGroups(
     List<MasterService> services,
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
@@ -448,9 +459,7 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
       error: (Object e, StackTrace _) => ErrorState(
         key: const Key('master-create-booking-service-error'),
         failure: e is Failure ? e : UnknownFailure(cause: e),
-        onRetry:
-            widget.onRetryOverride ??
-            () => ref.invalidate(servicesListProvider),
+        onRetry: widget.onRetryOverride ?? _onRetry,
       ),
       data: (List<MasterService> list) {
         if (list.isEmpty) {
