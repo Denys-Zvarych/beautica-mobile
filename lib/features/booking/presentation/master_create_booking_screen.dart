@@ -2,6 +2,15 @@
 // «Новий запис» wizard — a walk-in / phone booking the master creates on
 // their OWN calendar for a guest with no app account.
 //
+// Phase 249 — PURE MOVE, no behaviour change: the six step widgets
+// (`StepIndicator`, `ClientStep`, `ServiceStep`, `ServiceStepEmpty`,
+// `DateTimeStep`, `ConfirmStep`) that used to be private to this file are now
+// promoted to `widgets/booking_wizard_steps.dart` (dropped the leading
+// underscore) so Phase 250's salon wizard can reuse them without forking.
+// This file now only owns the wizard's ROOT scaffold (step routing, header,
+// PopScope, submit orchestration) plus the `done`-step payoff and its CTA
+// footer, which were NOT promoted (see that phase doc's table).
+//
 // DESIGN SOURCE (locked 2026-08-19): transcribed from
 // `docs/signup-designs/SalonManagementDesign/lib/screens/
 // create_booking_screen.dart` (2026-07-09) — NOT the superseded
@@ -37,21 +46,23 @@
 //   • The phone field's live input MASK reuses
 //     `shared/formatters/ua_phone_input_formatter.dart`
 //     (`UaPhoneInputFormatter`). Normalization to the wire's bare E.164 shape
-//     is new (`_toE164UaPhone` below) — it mirrors, but does not call,
+//     is new (`toE164UaPhone`, promoted in Phase 249 to
+//     `widgets/booking_wizard_steps.dart`) — it mirrors, but does not call,
 //     `shared/validators/phone_validator.dart`'s `validatePhone`, which
 //     answers a different question (validity, not the normalized string —
-//     see `_toE164UaPhone`'s own doc for why the two coexist).
+//     see `toE164UaPhone`'s own doc for why the two coexist).
 //
 // The header (back-chevron + centred title) reuses [BookingTopBar] — every
 // other booking-flow screen in this app already uses it. Only the 4-dot
-// connected-line step indicator ([_StepIndicator] below) is a literal port of
-// the design file's own `_StepIndicator` (adapted to 4 steps): no existing
-// shared widget renders that exact visual grammar (`SubStepIndicator` is a
-// 2-pill auth-flow widget with a different shape; the salon flow's own
-// `_StepIndicator` in `salon_time_screen.dart` is a numeric "1/4" pill +
-// growing bar, not connected dots).
+// connected-line step indicator ([StepIndicator], promoted in Phase 249) is a
+// literal port of the design file's own `_StepIndicator` (adapted to 4
+// steps): no existing shared widget renders that exact visual grammar
+// (`SubStepIndicator` is a 2-pill auth-flow widget with a different shape;
+// the salon flow's own `_StepIndicator` in `salon_time_screen.dart` is a
+// numeric "1/4" pill + growing bar, not connected dots).
 //
-// ## Deviations from the design file (see also each private widget's doc)
+// ## Deviations from the design file (see also each step widget's own doc in
+// `widgets/booking_wizard_steps.dart`)
 //
 //   1. No `masters` step (see above — phase-245/247 rationale).
 //   2. Header uses [BookingTopBar], not a literal port of the design's
@@ -91,90 +102,37 @@
 //
 // ## Phone normalization (locked to the screen boundary, not the repository)
 //
-// See [_toE164UaPhone]'s own doc.
+// See `toE164UaPhone`'s own doc in `widgets/booking_wizard_steps.dart`.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
-import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
-import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
-import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart'
-    show servicesListProvider;
-import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
-import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../application/salon_booking_schedule_notifier.dart';
 import '../domain/create_master_booking_request.dart';
-import '../domain/salon_master_schedule.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
-import 'widgets/labelled_row.dart';
-import 'widgets/master_schedule_page.dart';
-import 'widgets/salon_avatar_gradients.dart';
+import 'widgets/booking_wizard_steps.dart';
 
 export '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
-
-// ---------------------------------------------------------------------------
-// Phone normalization
-// ---------------------------------------------------------------------------
-
-/// Normalizes a Ukrainian phone number typed in ANY shape the client accepts
-/// (`+380 XX XXX XX XX`, `380XXXXXXXXX`, `0XXXXXXXXX`, or a bare 9-digit
-/// subscriber number) to the bare E.164 shape `WalkInGuest.phone`'s wire
-/// CHECK ([kWalkInGuestPhonePattern]) requires — `+380XXXXXXXXX`, no
-/// separators. Returns `null` when [raw] does not resolve to exactly 9
-/// Ukrainian subscriber digits.
-///
-/// Deliberately NOT added to `shared/validators/phone_validator.dart`: this
-/// phase's domain rule (`create_master_booking_request.dart`'s doc) is that
-/// phone normalization happens AT THE SCREEN BOUNDARY, not in a shared
-/// validator or the repository. This mirrors `validatePhone`'s own branch
-/// structure (the exact same accepted/rejected shapes) but returns the
-/// normalized string instead of a validity verdict — a different output
-/// contract that validator was never built to carry, so the two coexist
-/// rather than one wrapping the other.
-String? _toE164UaPhone(String raw) {
-  final String stripped = raw.trim().replaceAll(RegExp(r'[\s\-]'), '');
-  final String subscriber;
-  if (stripped.startsWith('+380')) {
-    subscriber = stripped.substring(4);
-  } else if (stripped.startsWith('380')) {
-    subscriber = stripped.substring(3);
-  } else if (stripped.startsWith('0') && stripped.length == 10) {
-    subscriber = stripped.substring(1);
-  } else if (stripped.startsWith('38') && !stripped.startsWith('380')) {
-    // Paste-guard, mirrors validatePhone: "38" without the "0" is rejected
-    // rather than silently becoming "338...".
-    return null;
-  } else {
-    subscriber = stripped;
-  }
-  if (!RegExp(r'^\d{9}$').hasMatch(subscriber)) return null;
-  return '+380$subscriber';
-}
 
 // ---------------------------------------------------------------------------
 // Step enum — FIVE values, no `masters` step.
@@ -245,10 +203,10 @@ class _MasterCreateBookingScreenState
   Future<void> _submit(String masterId) async {
     final MasterService? service = _service;
     final DateTime? startAt = _startAt;
-    final String? phone = _toE164UaPhone(_phoneCtrl.text);
+    final String? phone = toE164UaPhone(_phoneCtrl.text);
     // Defensive — unreachable via the normal flow: `confirm` is only reached
     // once `_service`/`_startAt` are set, and `client`'s Next is disabled
-    // until the phone normalizes (see `_ClientStep._canAdvance`).
+    // until the phone normalizes (see `ClientStep._canAdvance`).
     if (service == null || startAt == null || phone == null) return;
 
     final CreateMasterBookingRequest request = CreateMasterBookingRequest(
@@ -282,7 +240,7 @@ class _MasterCreateBookingScreenState
   Widget _buildStep(Master master, AppLocalizations l10n) {
     switch (_step) {
       case _BookingStep.client:
-        return _ClientStep(
+        return ClientStep(
           key: const ValueKey<_BookingStep>(_BookingStep.client),
           firstNameCtrl: _firstNameCtrl,
           lastNameCtrl: _lastNameCtrl,
@@ -290,7 +248,7 @@ class _MasterCreateBookingScreenState
           onNext: () => _goTo(_BookingStep.service),
         );
       case _BookingStep.service:
-        return _ServiceStep(
+        return ServiceStep(
           key: const ValueKey<_BookingStep>(_BookingStep.service),
           selectedServiceId: _service?.id,
           onSelect: (MasterService s) {
@@ -299,7 +257,7 @@ class _MasterCreateBookingScreenState
           },
         );
       case _BookingStep.dateTime:
-        return _DateTimeStep(
+        return DateTimeStep(
           key: const ValueKey<_BookingStep>(_BookingStep.dateTime),
           master: master,
           service: _service!,
@@ -309,7 +267,7 @@ class _MasterCreateBookingScreenState
           },
         );
       case _BookingStep.confirm:
-        return _ConfirmStep(
+        return ConfirmStep(
           key: const ValueKey<_BookingStep>(_BookingStep.confirm),
           service: _service!,
           startAt: _startAt!,
@@ -382,7 +340,7 @@ class _MasterCreateBookingScreenState
                 backKey: const Key('master-create-booking-back'),
                 onBack: () => _handleBack(inTimeSubPhase),
               ),
-              _StepIndicator(step: _step),
+              StepIndicator(currentStep: _step.index),
               Expanded(
                 child: masterAsync.when(
                   data: (Master master) => AnimatedSwitcher(
@@ -411,555 +369,12 @@ class _MasterCreateBookingScreenState
 }
 
 // ---------------------------------------------------------------------------
-// Step indicator — 4 dots connected by lines. Literal port of the design
-// file's own `_StepIndicator`, adapted to this wizard's 4 non-`done` steps
-// (the design's version had 5 — it still included `masters`). See file
-// header for why no existing shared widget covers this exact visual.
+// Step widgets — StepIndicator, ClientStep, ServiceStep, ServiceStepEmpty,
+// DateTimeStep, ConfirmStep. Promoted to `widgets/booking_wizard_steps.dart`
+// in Phase 249 (dropped the leading underscore) so Phase 250's salon wizard
+// can reuse them without forking — see that file's own header for the full
+// promotion rationale and the one additive parameter it introduced.
 // ---------------------------------------------------------------------------
-
-class _StepIndicator extends StatelessWidget {
-  const _StepIndicator({required this.step});
-
-  final _BookingStep step;
-
-  static const List<_BookingStep> _steps = <_BookingStep>[
-    _BookingStep.client,
-    _BookingStep.service,
-    _BookingStep.dateTime,
-    _BookingStep.confirm,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final int current = _steps.indexOf(step);
-    return Semantics(
-      label: l10n.salonBookingStepLabel(current + 1, _steps.length),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.xl,
-          vertical: VelvetSpacing.sm,
-        ),
-        child: Row(
-          children: List<Widget>.generate(_steps.length * 2 - 1, (int i) {
-            if (i.isOdd) {
-              return Expanded(
-                child: Container(
-                  height: 1,
-                  color: i ~/ 2 < current
-                      ? BrandColors.accent
-                      : BrandColors.faint,
-                ),
-              );
-            }
-            final int idx = i ~/ 2;
-            final bool done = idx < current;
-            final bool active = idx == current;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              height: active ? 10 : 8,
-              width: active ? 10 : 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: done || active ? BrandColors.accent : BrandColors.faint,
-              ),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Step 1 — Client
-// ---------------------------------------------------------------------------
-
-class _ClientStep extends StatefulWidget {
-  const _ClientStep({
-    super.key,
-    required this.firstNameCtrl,
-    required this.lastNameCtrl,
-    required this.phoneCtrl,
-    required this.onNext,
-  });
-
-  final TextEditingController firstNameCtrl;
-  final TextEditingController lastNameCtrl;
-  final TextEditingController phoneCtrl;
-  final VoidCallback onNext;
-
-  @override
-  State<_ClientStep> createState() => _ClientStepState();
-}
-
-class _ClientStepState extends State<_ClientStep> {
-  bool get _canAdvance =>
-      widget.firstNameCtrl.text.trim().isNotEmpty &&
-      widget.lastNameCtrl.text.trim().isNotEmpty &&
-      _toE164UaPhone(widget.phoneCtrl.text) != null;
-
-  String? _phoneError(AppLocalizations l10n) {
-    final String raw = widget.phoneCtrl.text.trim();
-    if (raw.isEmpty) return null;
-    return _toE164UaPhone(raw) == null ? l10n.errPhoneInvalid : null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(VelvetSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          const SizedBox(height: VelvetSpacing.xs),
-          Text(
-            l10n.masterCreateBookingClientHeading,
-            style: VelvetText.subheadingWizard15,
-          ),
-          const SizedBox(height: VelvetSpacing.xs),
-          Text(l10n.masterCreateBookingClientIntro, style: VelvetText.body()),
-          const SizedBox(height: VelvetSpacing.lg),
-          NeumorphicTextField(
-            key: const Key('master-create-booking-first-name'),
-            label: l10n.masterCreateBookingFirstNameLabel,
-            controller: widget.firstNameCtrl,
-            hintText: l10n.masterCreateBookingFirstNameHint,
-            prefixIcon: const Icon(
-              Icons.person_outline_rounded,
-              size: 18,
-              color: BrandColors.accent,
-            ),
-            textInputAction: TextInputAction.next,
-            // SEC MEDIUM fix — this collects a WALK-IN GUEST's name, a third
-            // party who never installed the app and never consented in it.
-            // Mirrors register_step_1_screen.dart:209,236 /
-            // otp_code_field.dart:76: keep this PII out of the device IME's
-            // personalized-learning corpus (which can cloud-sync and outlive
-            // logout/uninstall).
-            enableIMEPersonalizedLearning: false,
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-          NeumorphicTextField(
-            key: const Key('master-create-booking-last-name'),
-            label: l10n.masterCreateBookingLastNameLabel,
-            controller: widget.lastNameCtrl,
-            hintText: l10n.masterCreateBookingLastNameHint,
-            prefixIcon: const Icon(
-              Icons.person_outline_rounded,
-              size: 18,
-              color: BrandColors.accent,
-            ),
-            textInputAction: TextInputAction.next,
-            // SEC MEDIUM fix — see the first-name field above.
-            enableIMEPersonalizedLearning: false,
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-          NeumorphicTextField(
-            key: const Key('master-create-booking-phone'),
-            label: l10n.masterCreateBookingPhoneLabel,
-            controller: widget.phoneCtrl,
-            hintText: l10n.masterCreateBookingPhoneHint,
-            prefixIcon: const Icon(
-              Icons.phone_outlined,
-              size: 18,
-              color: BrandColors.accent,
-            ),
-            keyboardType: TextInputType.phone,
-            textInputAction: TextInputAction.done,
-            inputFormatters: const <TextInputFormatter>[
-              UaPhoneInputFormatter(),
-            ],
-            errorText: _phoneError(l10n),
-            // SEC MEDIUM fix — see the first-name field above.
-            enableIMEPersonalizedLearning: false,
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-          NeumorphicButton(
-            key: const Key('master-create-booking-client-next'),
-            label: l10n.bookingNextCta,
-            icon: Icons.arrow_forward_rounded,
-            onPressed: _canAdvance ? widget.onNext : null,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Step 2 — Service (picker mode over the Phase 247 part 1 promoted widgets)
-// ---------------------------------------------------------------------------
-
-class _ServiceStep extends ConsumerStatefulWidget {
-  const _ServiceStep({
-    super.key,
-    required this.selectedServiceId,
-    required this.onSelect,
-  });
-
-  final String? selectedServiceId;
-  final ValueChanged<MasterService> onSelect;
-
-  @override
-  ConsumerState<_ServiceStep> createState() => _ServiceStepState();
-}
-
-class _ServiceStepState extends ConsumerState<_ServiceStep> {
-  // PERF A1 (HIGH) fix — mirrors services_list_screen.dart:337. Driving a
-  // `ListView.builder` off the resolved groups (instead of a plain
-  // `ListView` over an eagerly-built `children:` list) means `_ServiceStep`
-  // no longer constructs a `CategorySection`/`ServiceCard` widget object for
-  // every section on every build — only the sections that reach
-  // `itemBuilder` do.
-  //
-  // MEASURED CAVEAT (falsified during the fix, see the audit trail): with
-  // either implementation, `RenderSliverList`'s own viewport-based child
-  // management already deferred *Element* mounting (and therefore
-  // `ServiceCard.initState()` / `AnimationController` allocation) for
-  // off-screen sections — a widget test with 48 services across 8
-  // categories mounted exactly 1 section / 6 cards under BOTH the old
-  // `ListView(children:)` and this `ListView.builder`. So this fix's real
-  // saving is the eager `List<Widget>` CONSTRUCTION pass (calling
-  // `CategorySection(...)`/`ServiceCard(...)` constructors for all N
-  // sections' worth of children on every `_ServiceStep` rebuild) plus the
-  // identity-based grouping cache below (P-M2 pattern) — not eliminating
-  // eager `AnimationController` allocation, which was never actually
-  // happening for off-screen sections in the first place.
-  //
-  // `initiallyExpanded: true` is unchanged and intentional (one-shot picker,
-  // not a maintained catalogue view).
-  //
-  // Identity-based cache (P-M2 pattern): only recompute the grouping when
-  // the underlying services list or category options change by identity.
-  List<MasterService>? _cachedServices;
-  List<ServiceCategoryOption>? _cachedCategories;
-  List<CategoryGroup>? _cachedGroups;
-
-  List<CategoryGroup> _resolveGroups(
-    List<MasterService> services,
-    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
-    String uncategorizedLabel,
-  ) {
-    final List<ServiceCategoryOption>? categoriesValue = categoriesAsync.value;
-    final bool hit =
-        _cachedGroups != null &&
-        identical(_cachedServices, services) &&
-        identical(_cachedCategories, categoriesValue);
-    if (hit) return _cachedGroups!;
-
-    final List<CategoryGroup> groups = groupServicesByCategory(
-      services: services,
-      categoriesAsync: categoriesAsync,
-      uncategorizedLabel: uncategorizedLabel,
-    );
-    _cachedServices = services;
-    _cachedCategories = categoriesValue;
-    _cachedGroups = groups;
-    return groups;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final AsyncValue<List<MasterService>> asyncServices = ref.watch(
-      servicesListProvider,
-    );
-    final AsyncValue<List<ServiceCategoryOption>> categoriesAsync = ref.watch(
-      approvedCategoriesProvider,
-    );
-
-    return asyncServices.when(
-      loading: () => const Center(
-        key: ValueKey<String>('master-create-booking-service-loading'),
-        child: CircularProgressIndicator(color: BrandColors.accent),
-      ),
-      error: (Object e, StackTrace _) => ErrorState(
-        key: const Key('master-create-booking-service-error'),
-        failure: e is Failure ? e : UnknownFailure(cause: e),
-        onRetry: () => ref.invalidate(servicesListProvider),
-      ),
-      data: (List<MasterService> list) {
-        if (list.isEmpty) {
-          return const _ServiceStepEmpty(
-            key: Key('master-create-booking-service-empty'),
-          );
-        }
-        final List<CategoryGroup> groups = _resolveGroups(
-          list,
-          categoriesAsync,
-          l10n.serviceCategoryUncategorized,
-        );
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.md,
-            VelvetSpacing.lg,
-            VelvetSpacing.xl,
-          ),
-          itemCount: groups.length,
-          itemBuilder: (BuildContext context, int index) {
-            final CategoryGroup group = groups[index];
-            final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-              child: CategorySection(
-                key: Key('mcb_category_section_$sectionSlug'),
-                title: group.label,
-                count: group.cards.length,
-                // Every section starts expanded: this is a one-shot picker,
-                // not a maintained catalogue view, so showing everything
-                // open reduces taps to find a service — unlike the services
-                // page, which starts every section collapsed by default.
-                initiallyExpanded: true,
-                children: <Widget>[
-                  for (final CategoryGroupEntry entry in group.cards)
-                    Padding(
-                      padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                      child: ServiceCard(
-                        key: Key('mcb_service_card_${entry.service.id}'),
-                        service: entry.service,
-                        selectable: true,
-                        selected: entry.service.id == widget.selectedServiceId,
-                        onEdit: () => widget.onSelect(entry.service),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _ServiceStepEmpty extends StatelessWidget {
-  const _ServiceStepEmpty({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(VelvetSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Icon(Icons.spa_rounded, size: 44, color: BrandColors.accent),
-            const SizedBox(height: VelvetSpacing.md),
-            Text(
-              l10n.masterCreateBookingServiceEmptyTitle,
-              style: VelvetText.headingSm,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: VelvetSpacing.sm),
-            Text(
-              l10n.masterCreateBookingServiceEmptyBody,
-              style: VelvetText.body(),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Step 3 — Date & Time (reuses MasterSchedulePage unmodified)
-// ---------------------------------------------------------------------------
-
-class _DateTimeStep extends ConsumerWidget {
-  const _DateTimeStep({
-    super.key,
-    required this.master,
-    required this.service,
-    required this.onSlotChosen,
-  });
-
-  final Master master;
-  final MasterService service;
-  final ValueChanged<DateTime> onSlotChosen;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Auto-advance the wizard the instant a slot is picked inside
-    // [MasterSchedulePage] — that widget has no "on slot chosen" callback of
-    // its own (it is a self-contained salon-flow step body), so this listens
-    // to the SAME [salonBookingScheduleProvider] state it writes to instead
-    // of adding one. Fires once per date→slot transition (never on a bare
-    // date pick, which only sets `date`).
-    ref.listen(salonBookingScheduleProvider, (
-      SalonBookingScheduleState? previous,
-      SalonBookingScheduleState next,
-    ) {
-      if (previous?.slot == null && next.slot != null) {
-        onSlotChosen(next.slot!.startAt);
-      }
-    });
-
-    final SalonMasterSchedule schedule = SalonMasterSchedule(
-      masterId: master.id,
-      firstName: master.firstName,
-      lastName: master.lastName,
-      type: master.type,
-      professionalTitle: master.professionalTitle,
-      avgRating: master.displayRating,
-      reviewCount: master.reviewCount,
-      services: <SalonCatalogService>[
-        SalonCatalogService(
-          id: service.id,
-          name: service.name,
-          durationLabel: DurationMinutes.format(service.durationMinutes),
-          priceDisplay: service.priceDisplay,
-          category: service.category,
-          serviceTypeSlug: service.serviceTypeSlug,
-          serviceTypeNameUk: service.serviceTypeNameUk,
-          durationMinutes: service.durationMinutes,
-          priceType: service.priceType,
-          priceMin: service.priceMin,
-          priceMax: service.priceMax,
-        ),
-      ],
-      // The master's own per-master assignment id — the SAME id space
-      // `MasterService.id` already represents (see that field's doc).
-      orderedMasterServiceIds: <String>[service.id],
-    );
-
-    return MasterSchedulePage(
-      schedule: schedule,
-      avatarGradient: salonAvatarGradient(0),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Step 4 — Confirm
-// ---------------------------------------------------------------------------
-
-class _ConfirmStep extends ConsumerWidget {
-  const _ConfirmStep({
-    super.key,
-    required this.service,
-    required this.startAt,
-    required this.firstName,
-    required this.lastName,
-    required this.phone,
-  });
-
-  final MasterService service;
-  final DateTime startAt;
-  final String firstName;
-  final String lastName;
-  final String phone;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context);
-    final AsyncValue<void> submitState = ref.watch(masterCreateBookingProvider);
-
-    final BookingSelection selection = BookingSelection(
-      name: service.name,
-      price: ServicePriceDisplay.format(service),
-      duration: DurationMinutes.format(service.durationMinutes),
-      durationMinutes: service.durationMinutes,
-      priceMin: service.priceMin,
-      priceMax: service.priceMax,
-    );
-
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          // WHO — the walk-in guest. No master-identity card here (see file
-          // header deviation #4): the master IS the one creating this
-          // booking, so a card naming them would be self-referential.
-          NeumorphicCard(
-            key: const Key('master-create-booking-guest-card'),
-            padding: const EdgeInsets.all(VelvetSpacing.md),
-            child: LabelledRow(
-              label: l10n.masterCreateBookingGuestLabel,
-              value: '$firstName $lastName'.trim(),
-              detail: phone.isEmpty ? null : phone,
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-          // WHERE / WHEN / WHAT — the shared booking-details card, the SAME
-          // one the client-facing confirm/success screens use.
-          BookingSummaryCards(
-            key: const Key('master-create-booking-confirm-card'),
-            showAddress: false,
-            dateLabel: formatFullDate(startAt),
-            timeLabel: formatTimeRange(startAt, service.durationMinutes),
-            singleSelection: selection,
-          ),
-          if (submitState.hasError) ...<Widget>[
-            const SizedBox(height: VelvetSpacing.md),
-            _SubmitErrorBanner(
-              failure: submitState.error is Failure
-                  ? submitState.error as Failure
-                  : UnknownFailure(cause: submitState.error),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// The single inline error banner shown when a submit fails — mirrors the
-/// byte-identical `_SubmitErrorBanner` already duplicated across FOUR
-/// existing files in this codebase (`booking_confirm_screen.dart`,
-/// `salon_booking_confirm_screen.dart`, `apply_schedule_sheet.dart`,
-/// `verification_screen.dart`). Following that PRE-EXISTING convention for a
-/// fifth minimal private copy rather than taking on an out-of-scope
-/// promotion refactor across all five.
-class _SubmitErrorBanner extends StatelessWidget {
-  const _SubmitErrorBanner({required this.failure});
-
-  final Failure failure;
-
-  @override
-  Widget build(BuildContext context) {
-    return NeumorphicCard(
-      key: const Key('master-create-booking-submit-error'),
-      showBorder: true,
-      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Padding(
-            padding: EdgeInsets.only(top: 1),
-            child: Icon(
-              Icons.error_outline_rounded,
-              size: 18,
-              color: BrandColors.error,
-            ),
-          ),
-          const SizedBox(width: VelvetSpacing.sm),
-          Expanded(
-            child: Text(
-              failure.userMessage(context),
-              style: VelvetText.feedback(BrandColors.error),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// Pinned bottom footer carrying the «Записатись» CTA — thin wrapper over the
 /// shared [BookingCtaFooter] so this step gets the exact same pinned-footer
