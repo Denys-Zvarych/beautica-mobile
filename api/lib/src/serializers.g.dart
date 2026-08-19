@@ -14,6 +14,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseAvailableSlotsResponse.serializer)
       ..add(ApiResponseAvatarResponse.serializer)
       ..add(ApiResponseBookingDetailResponse.serializer)
+      ..add(ApiResponseBookingResponse.serializer)
       ..add(ApiResponseCategoryRequestResponse.serializer)
       ..add(ApiResponseClientReviewResponse.serializer)
       ..add(ApiResponseContactSupportResponse.serializer)
@@ -122,6 +123,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CreateSalonRequest.serializer)
       ..add(CreateServiceDefinitionRequest.serializer)
       ..add(CreateServiceDefinitionRequestPriceTypeEnum.serializer)
+      ..add(CreateStaffBookingRequest.serializer)
       ..add(DuplicateServiceErrorResponse.serializer)
       ..add(DuplicateServiceResponse.serializer)
       ..add(EffectiveDayResponse.serializer)
@@ -136,6 +138,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ForgotPasswordRequest.serializer)
       ..add(GuestBookingRequest.serializer)
       ..add(GuestBookingResponse.serializer)
+      ..add(GuestClientDto.serializer)
       ..add(GuestTokenResponse.serializer)
       ..add(IndependentMasterUpdateRequest.serializer)
       ..add(InviteAcceptRequest.serializer)
@@ -546,6 +549,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

@@ -163,6 +163,10 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   CategoryAlreadyExistsFailure() => false,
   SupportAttachmentTooLargeFailure() => false,
   ConflictFailure() => false,
+  // 403 — the caller's authorization/scoping over the target master, or the
+  // master's existence/active state. Neither can change by re-issuing the
+  // identical request (Phase 246).
+  MasterBookingNotPermittedFailure() => false,
   DuplicateServiceFailure() => false,
   ServiceDuplicateFailure() => false,
   ClientBookingConflictFailure() => false,

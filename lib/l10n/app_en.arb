@@ -128,6 +128,10 @@
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
   },
+  "bookingErrMasterNotPermitted": "You don't have permission to create this booking.",
+  "@bookingErrMasterNotPermitted": {
+    "description": "Error message shown when POST /api/v1/masters/{masterId}/bookings returns HTTP 403 (backend Phase 22.4 @authz.canBookForMaster) — the caller may not book this master (wrong salon, not the independent master's own profile, read-only SALON_MASTER caller) OR the master id is unknown/inactive (deliberately collapsed into the same 403 as a probe defence). Surfaced via MasterBookingNotPermittedFailure.userMessage — must never imply the master was not found, which would leak that distinction."
+  },
   "bookingErrorAlreadyElapsed": "This booking's time has already passed.",
   "@bookingErrorAlreadyElapsed": {
     "description": "Error message shown when PATCH /bookings/{id}/reschedule or /cancel returns HTTP 409 with data.code == BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's slot is already past the server clock, so it can no longer be rescheduled or cancelled. Surfaced via BookingAlreadyElapsedFailure.userMessage on a stale-screen / clock-rollback tap."

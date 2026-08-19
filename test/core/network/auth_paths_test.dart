@@ -437,5 +437,36 @@ void main() {
             'exactly like GET /clients/me/passport.',
       );
     });
+
+    // ── Phase 246 (2026-08-19) — master walk-in booking PII fix ─────────────
+    //
+    // `POST /api/v1/masters/{masterId}/bookings` carries a walk-in guest's
+    // name, surname and E.164 phone — third-party PII from a person who never
+    // installed the app. The dynamic {masterId} segment sits BEFORE the
+    // meaningful `/bookings` tail (same shape as `/working-hours`), so neither
+    // exact membership in [kPiiPaths] nor a fixed prefix in
+    // [kPiiPathPrefixes] can match it — only the [kPiiPathSegments] substring
+    // match added by this phase. This is the tripwire guarding that fix — if
+    // `/bookings` is ever removed from [kPiiPathSegments], this fails loudly.
+    test(
+      'master walk-in booking create route is a PII route via the /bookings '
+      'segment (dynamic {masterId} precedes the tail, mirrors /working-hours)',
+      () {
+        expect(
+          isPiiPath('/api/v1/masters/master-123/bookings'),
+          isTrue,
+          reason:
+              'POST /masters/{masterId}/bookings carries the walk-in guest\'s '
+              'name/surname/phone in the request body — must be redacted.',
+        );
+      },
+    );
+
+    test('the CLIENT-side /api/v1/bookings family is unaffected by the new '
+        '/bookings segment entry (already covered by the pre-existing exact + '
+        'prefix matches, not a regression risk from the new segment rule)', () {
+      expect(isPiiPath('/api/v1/bookings'), isTrue);
+      expect(isPiiPath('/api/v1/bookings/booking-1'), isTrue);
+    });
   });
 }

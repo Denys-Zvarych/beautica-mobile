@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_success_args.dar
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
@@ -324,6 +325,12 @@ class _RecordingRescheduleRepository implements BookingRepository {
   @override
   Future<Booking> createBooking(CreateBookingRequest req) =>
       throw UnimplementedError();
+
+  @override
+  Future<Booking> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  ) => throw UnimplementedError();
 
   @override
   Future<List<DateTime>> getMyBookedDays({

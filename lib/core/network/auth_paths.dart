@@ -201,6 +201,18 @@ const List<String> kPiiPathSegments = <String>[
   // `LoggingInterceptor.onError` logs `err.response?.data` verbatim, so a 4xx on
   // either route would spill a conflict payload with client identifiers.
   '/overrides',
+  // Phase 246 (2026-08-19 security fix) — INDEPENDENT_MASTER walk-in booking
+  // create endpoint: `POST /api/v1/masters/{masterId}/bookings`. The dynamic
+  // {masterId} segment sits BEFORE the meaningful `/bookings` tail, same shape
+  // as `/working-hours` above, so neither exact membership in [kPiiPaths] nor a
+  // fixed prefix in [kPiiPathPrefixes] can match it (the existing
+  // `/api/v1/bookings/` prefix only covers the CLIENT-side
+  // `/api/v1/bookings/...` routes, a different path family). The request body
+  // carries a walk-in guest's `name`, `surname` and E.164 `phone` — third-party
+  // PII from a person who never installed the app — so without this entry both
+  // the success-path and `onError` loggers in logging_interceptor.dart would
+  // write it to `dart:developer.log()` verbatim on debug builds.
+  '/bookings',
 ];
 
 /// Query-parameter keys whose VALUES must be masked in debug logs on ANY route

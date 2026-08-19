@@ -67,15 +67,29 @@ AppointmentControllerApi appointmentApi(Ref ref) =>
 ReviewControllerApi bookingReviewApi(Ref ref) =>
     ReviewControllerApi(ref.watch(dioProvider), standardSerializers);
 
+/// Provides the generated [StaffBookingsApi] singleton for the PROVIDER-side
+/// walk-in booking write path (`POST /api/v1/masters/{masterId}/bookings`,
+/// backend Phase 22.4 — Phase 246). Built on [standardSerializers]: the
+/// response envelope (`ApiResponseBookingResponse`) carries the LEAN
+/// `BookingResponse`, which has no `EnumClass` status field the way
+/// `BookingDetailResponse` does — see [bookingApi]'s doc for why THAT one
+/// needs [beauticaSerializers] and this one does not.
+@Riverpod(keepAlive: true)
+StaffBookingsApi staffBookingsApi(Ref ref) =>
+    StaffBookingsApi(ref.watch(dioProvider), standardSerializers);
+
 /// Provides the [BookingRepository] singleton backed by the authenticated
 /// [dioProvider] Dio instance (needed for the raw `getMyBookings` GET — see
 /// the WIRE-FORMAT NOTE in `booking_repository.dart`), [bookingApiProvider],
-/// and [bookingReviewApiProvider] (the `POST /reviews` write path).
+/// [bookingReviewApiProvider] (the `POST /reviews` write path), and
+/// [staffBookingsApiProvider] (the master walk-in booking write path, Phase
+/// 246).
 @Riverpod(keepAlive: true)
 BookingRepository bookingRepository(Ref ref) => HttpBookingRepository(
   ref.watch(dioProvider),
   ref.watch(bookingApiProvider),
   ref.watch(bookingReviewApiProvider),
+  ref.watch(staffBookingsApiProvider),
 );
 
 /// Provides the [AppointmentRepository] singleton backed by

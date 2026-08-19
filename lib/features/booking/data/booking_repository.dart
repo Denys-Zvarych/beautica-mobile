@@ -7,6 +7,12 @@
 //   PATCH  /api/v1/bookings/{bookingId}/cancel     → cancel
 //   PATCH  /api/v1/bookings/{bookingId}/reschedule → reschedule (19.2)
 //
+// ...plus, since Phase 246, ONE provider-side path on the same repository
+// (kept here rather than a separate file — it shares `getBookingById` for
+// the enriched-detail follow-up and the same [Failure] taxonomy):
+//   POST   /api/v1/masters/{masterId}/bookings     → createMasterBooking
+//                                                      (walk-in, backend 22.4)
+//
 // Kept provider-free on purpose (mirrors `schedule_repository.dart` /
 // `favorite_repository.dart`) — see `booking_providers.dart` for the Riverpod
 // wiring. Tests construct [HttpBookingRepository] directly with a mocktail
@@ -57,6 +63,7 @@ import '../domain/booking_partition.dart';
 import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
+import '../domain/create_master_booking_request.dart';
 import 'booking_mapper.dart';
 
 /// Default page size for the "my bookings" list (Phase 14.3).
@@ -84,6 +91,41 @@ abstract interface class BookingRepository {
   /// failure's doc). Throws [BookingRateLimitedFailure] on HTTP 429 (per-user
   /// booking-write rate limit).
   Future<Booking> createBooking(CreateBookingRequest req);
+
+  /// Creates a CONFIRMED, `STAFF`-sourced WALK-IN booking on [masterId]'s
+  /// calendar on behalf of the authenticated PROVIDER (Phase 246 — backend
+  /// Phase 22.4, `docs/backend-phases/
+  /// phase-171-22.4-staff-booking-endpoint-and-authz.md`). The caller may be
+  /// an independent master booking THEMSELVES, or a salon owner/admin
+  /// booking a master they manage — `@authz.canBookForMaster` enforces which
+  /// on the backend; this method sends the same request either way.
+  ///
+  /// Wraps `POST /api/v1/masters/{masterId}/bookings`. Like [createBooking],
+  /// the create endpoint returns the LEAN `BookingResponse`, so this method
+  /// follows up with [getBookingById] and returns the fully-enriched
+  /// [Booking].
+  ///
+  /// Error contract (backend Phase 22.4's "Error contract" section):
+  ///   - **403** → [MasterBookingNotPermittedFailure]. Covers "wrong salon /
+  ///     not your own profile / read-only SALON_MASTER" AND "unknown or
+  ///     inactive master" — the backend deliberately collapses both into one
+  ///     status (a probe defence). Never surface a "master not found"
+  ///     message for this — see that failure's doc.
+  ///   - **409 / 422** → [ConflictFailure] — overlapping booking, outside
+  ///     working hours, day-off, past time, or the master doesn't offer
+  ///     [CreateMasterBookingRequest.masterServiceId]. The same generic
+  ///     slot-conflict copy [createBooking] itself surfaces on 409.
+  ///   - **400** → [ValidationFailure] (missing/malformed walk-in guest
+  ///     field, bad phone shape) — mapped by [ErrorMapperInterceptor] before
+  ///     this repository ever sees the [DioException]; [fieldErrors] names
+  ///     the offending field.
+  ///
+  /// [CreateMasterBookingRequest.startsAt] is normalised to UTC
+  /// (`.toUtc()`) before it reaches the wire — see that field's doc for why.
+  Future<Booking> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  );
 
   /// Fetches one page of the authenticated client's bookings, server-sorted
   /// by `startsAt` in the direction [ascending] requests.
@@ -275,11 +317,17 @@ abstract interface class BookingRepository {
 /// Inject via [bookingRepositoryProvider] — never construct directly outside
 /// tests.
 final class HttpBookingRepository implements BookingRepository {
-  HttpBookingRepository(this._dio, this._bookingApi, this._reviewApi);
+  HttpBookingRepository(
+    this._dio,
+    this._bookingApi,
+    this._reviewApi,
+    this._staffBookingsApi,
+  );
 
   final Dio _dio;
   final BookingControllerApi _bookingApi;
   final ReviewControllerApi _reviewApi;
+  final StaffBookingsApi _staffBookingsApi;
 
   @override
   Future<Booking> createBooking(CreateBookingRequest req) async {
@@ -309,6 +357,46 @@ final class HttpBookingRepository implements BookingRepository {
         );
       }
       throw _mapBookingWriteException(e);
+    }
+
+    return getBookingById(bookingId);
+  }
+
+  @override
+  Future<Booking> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  ) async {
+    final String bookingId;
+    try {
+      final res = await _staffBookingsApi.createStaffBooking(
+        masterId: masterId,
+        createStaffBookingRequest: _toWireStaffBookingRequest(request),
+      );
+      final id = res.data?.data?.id;
+      if (id == null || id.isEmpty) {
+        if (kDebugMode) {
+          log(
+            'createMasterBooking: response id is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      bookingId = id;
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'createMasterBooking failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapMasterBookingWriteException(e);
     }
 
     return getBookingById(bookingId);
@@ -750,6 +838,35 @@ final class HttpBookingRepository implements BookingRepository {
     );
   }
 
+  /// Builds the generated wire `CreateStaffBookingRequest` DTO from the
+  /// domain [CreateMasterBookingRequest] (Phase 246).
+  ///
+  /// [CreateMasterBookingRequest.startsAt] is forced to UTC (`.toUtc()`)
+  /// here, unconditionally — the generated `Iso8601DateTimeSerializer`
+  /// THROWS `ArgumentError` on a non-UTC `DateTime` at actual serialization
+  /// time (`api/lib/src/serializers.dart`), and `.toUtc()` is idempotent on a
+  /// value that is already UTC. This is the single point that guarantees the
+  /// wire `startsAt` always carries a real, unambiguous ISO-8601 offset
+  /// (`Z`) regardless of what zone the caller's `DateTime` happened to carry
+  /// — see [CreateMasterBookingRequest.startsAt]'s doc for the full
+  /// reasoning, including why this matters under `TZ=UTC` test runs.
+  ///
+  /// No naming collision with `CreateStaffBookingRequest` — unlike
+  /// `CreateBookingRequest` (shared by both the domain and wire types), this
+  /// generated class name is unique, so no `hide`/`show` aliasing is needed.
+  CreateStaffBookingRequest _toWireStaffBookingRequest(
+    CreateMasterBookingRequest req,
+  ) {
+    return CreateStaffBookingRequest(
+      (b) => b
+        ..masterServiceId = req.masterServiceId
+        ..startsAt = req.startsAt.toUtc()
+        ..guest.name = req.guest.name
+        ..guest.surname = req.guest.surname
+        ..guest.phone = req.guest.phone,
+    );
+  }
+
   /// Decodes the `GET /bookings/me` envelope ROW BY ROW.
   ///
   /// This used to be one `_deserialize<ApiResponsePageResponseBookingDetail
@@ -919,6 +1036,44 @@ final class HttpBookingRepository implements BookingRepository {
     }
     if (statusCode == 429) return BookingRateLimitedFailure(cause: e);
     if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `POST /api/v1/masters/{masterId}/bookings`
+  /// to a typed [Failure] (Phase 246 — backend Phase 22.4's error contract,
+  /// see [BookingRepository.createMasterBooking]'s doc).
+  ///
+  ///   - **403** → [MasterBookingNotPermittedFailure]. Backend amendment A6
+  ///     collapses BOTH "wrong master" (not the owner/admin's salon, not the
+  ///     independent master's own profile, a read-only `SALON_MASTER`
+  ///     caller) AND "unknown/inactive master" into this ONE status — a
+  ///     probe defence, not a real 404. Never surface "майстра не знайдено"
+  ///     for this — see that failure's doc.
+  ///   - **409 / 422** → [ConflictFailure] — overlapping booking, outside
+  ///     working hours, day-off, past time, service not offered. This
+  ///     endpoint has no typed `data.code` 409/422 envelope documented (no
+  ///     `CLIENT_BOOKING_CONFLICT`-style sub-type the way [createBooking]'s
+  ///     mapper needs one), so both statuses share the one generic
+  ///     slot-conflict copy.
+  ///   - everything else (notably **400**) defers to [_mapDioException] —
+  ///     which already returns the [ErrorMapperInterceptor]'s
+  ///     [ValidationFailure] for 400/422 via its `e.error is Failure` check.
+  ///     The 403/409/422 branches here run FIRST specifically to override
+  ///     what the interceptor already attached for those three codes (it has
+  ///     no master-booking-specific 403 case — an unmatched 403 there falls
+  ///     through to [UnknownFailure] — and maps a bare 409 to a generic
+  ///     [ServerFailure] with no slot-conflict copy), mirroring the
+  ///     [_mapBookingWriteException] precedent above. 422 is deliberately
+  ///     NOT deferred to the interceptor's own 422 → [ValidationFailure]
+  ///     branch: on THIS endpoint a 422 is a slot-availability rejection
+  ///     (backend Phase 22.4's contract groups 409/422 together), not a
+  ///     per-field validation error.
+  Failure _mapMasterBookingWriteException(DioException e) {
+    final int? statusCode = e.response?.statusCode;
+    if (statusCode == 403) return MasterBookingNotPermittedFailure(cause: e);
+    if (statusCode == 409 || statusCode == 422) {
+      return ConflictFailure(cause: e);
+    }
     return _mapDioException(e);
   }
 
