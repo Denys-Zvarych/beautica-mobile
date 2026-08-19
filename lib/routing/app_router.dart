@@ -53,6 +53,7 @@ import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/master_archive_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
+import '../features/booking/presentation/master_create_booking_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
@@ -911,6 +912,20 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: 'archive',
             builder: (context, state) => const MasterArchiveScreen(),
+          ),
+          // Phase 247 — /master/bookings/new, the master «Новий запис» walk-in
+          // booking wizard. Registered BEFORE the `:bookingId` sibling below
+          // for the same reason `archive` is (go_router matches literal
+          // segments before dynamic ones only by declaration order among
+          // siblings) — `new` must never be shadowed by `:bookingId`.
+          // `pageBuilder` + `MaterialPage(fullscreenDialog: true)` per the
+          // phase doc; reached via `context.push` (never `Navigator`).
+          GoRoute(
+            path: 'new',
+            pageBuilder: (context, state) => const MaterialPage<void>(
+              fullscreenDialog: true,
+              child: MasterCreateBookingScreen(),
+            ),
           ),
           // /master/bookings/:bookingId — the PROVIDER view of «Деталі
           // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client

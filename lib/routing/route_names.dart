@@ -286,6 +286,20 @@ abstract final class RouteNames {
   /// no id to parametrise.
   static const String masterBookingsArchive = '$masterBookings/archive';
 
+  /// Phase 247 — the INDEPENDENT_MASTER «Новий запис» wizard: a walk-in
+  /// booking the master creates on their own calendar (client → service →
+  /// dateTime → confirm → done).
+  ///
+  /// A CHILD of [masterBookings] (`/master/bookings/new`), registered
+  /// BEFORE the `:bookingId` sibling in `app_router.dart` (mirrors
+  /// [masterBookingsArchive]'s own reasoning — the literal `new` segment
+  /// must never be shadowed by the dynamic one) — inherits the `/master/*`
+  /// INDEPENDENT_MASTER role gate for free. Rendered as a fullscreen-dialog
+  /// page. Reached with `context.push`, never `Navigator` — CI fails on
+  /// `Navigator` in `lib/features/`. The Phase 248 «+» entry point is the
+  /// only planned caller so far.
+  static const String masterBookingNew = '$masterBookings/new';
+
   /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
   ///
   /// Same URL shape as [masterBookingDetail]'s `/review` child would be, but

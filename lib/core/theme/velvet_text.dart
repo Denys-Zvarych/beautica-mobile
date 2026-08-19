@@ -128,6 +128,14 @@ abstract final class VelvetText {
     fontStyle: FontStyle.italic,
   );
 
+  /// Subheading at 15 sp — Comfortaa 15/600, espresso. Used by the master
+  /// booking wizard's client-step sub-heading («Дані клієнта»). NOT the same
+  /// as the pre-existing (mislabelled) [subheading15] below, which actually
+  /// renders at 12 sp — kept distinct rather than reusing that mismatch.
+  static final TextStyle subheadingWizard15 = _subheadingStyle.copyWith(
+    fontSize: 15,
+  );
+
   /// Body at 13 sp — used by DoneScreen description copy.
   static final TextStyle bodySmall = _bodyStyle.copyWith(fontSize: 11);
 
