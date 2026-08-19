@@ -5245,10 +5245,6 @@
   "@masterBookingsAddSemantics": {
     "description": "Accessibility label for the master bookings header's '+' add-booking button (design-parity finding #6)."
   },
-  "masterBookingsAddComingSoon": "Manually creating a booking is coming soon",
-  "@masterBookingsAddComingSoon": {
-    "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
-  },
   "masterArchiveOpenSemantics": "Open booking archive",
   "@masterArchiveOpenSemantics": {
     "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."

@@ -52,6 +52,7 @@ import 'package:beautica_mobile/features/schedule/presentation/effective_schedul
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
@@ -230,6 +231,7 @@ Future<void> _pump(
 const Key _servicesMarker = Key('stub-services-screen');
 const Key _scheduleMarker = Key('stub-schedule-screen');
 const Key _profileMarker = Key('stub-profile-screen');
+const Key _createBookingMarker = Key('stub-create-booking-screen');
 
 /// Same as [_pump], plus stub destinations for every nav-tile route so
 /// nav-tile taps that push them can be observed landing. Returns the
@@ -261,6 +263,17 @@ Future<GoRouter> _pumpWithNavRoutes(
         path: RouteNames.masterProfile,
         builder: (BuildContext context, GoRouterState state) =>
             const Scaffold(body: SizedBox.shrink(key: _profileMarker)),
+      ),
+      // Phase 248 — the «+» add-booking affordance's real destination. A
+      // top-level absolute-path stub (mirroring the three siblings above)
+      // rather than nested under `/` the way production nests it under
+      // `RouteNames.masterBookings`: `context.push` matches by LOCATION
+      // string against the whole route tree, not by the pusher's own
+      // position in it, so the absolute path is all a push needs to resolve.
+      GoRoute(
+        path: RouteNames.masterBookingNew,
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(body: SizedBox.shrink(key: _createBookingMarker)),
       ),
     ],
   );
@@ -1286,6 +1299,68 @@ void main() {
       // is exercised rather than mocked.
       expect(find.byKey(const Key('master-booking-card-b1')), findsOne);
     });
+
+    // Phase 248 — the header's «+» add-booking affordance. Used to show a
+    // "coming soon" VelvetSnack (`_showAddComingSoon`); now pushes the real
+    // Phase 247 wizard route. `canPop()` (not just the marker) is the
+    // context.push proof here — `go` REPLACES the stack (`canPop` stays
+    // false, exactly the assertion the `bottom nav` group's tile tests pin
+    // for THEIR `go` calls just below), so a `push` is the only way this can
+    // read `true`. The full round trip (fill client → pick service → pick
+    // date/slot → confirm → done → pop → the new booking visible in the
+    // refetched list) is proven end to end by
+    // `integration_test/master_create_booking_test.dart`, not here — this
+    // tier only proves the button is wired to a real push and the old snack
+    // is gone.
+    testWidgets(
+      'tapping «+» pushes the Phase 247 wizard route (context.push, not '
+      'router.go) and shows no coming-soon snack',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[]));
+
+        final GoRouter router = await _pumpWithNavRoutes(tester, repo);
+        await tester.pumpAndSettle();
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('master-bookings-add')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(_createBookingMarker),
+          findsOneWidget,
+          reason:
+              'the «+» must push RouteNames.masterBookingNew '
+              '(/master/bookings/new), the Phase 247 wizard route',
+        );
+        expect(
+          router.canPop(),
+          isTrue,
+          reason:
+              'push (not go) — the wizard is ON TOP of the list, so the '
+              'stack has something to pop back to. This is the assertion '
+              'that actually distinguishes context.push from router.go: a '
+              'go() replacing the stack would leave canPop() false even '
+              'though the marker still matched.',
+        );
+        expect(
+          find.byType(VelvetSnack),
+          findsNothing,
+          reason: 'the old "coming soon" placeholder snack must be gone',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

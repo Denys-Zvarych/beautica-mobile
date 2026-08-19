@@ -119,6 +119,7 @@ import 'master_bookings_declared_time_cards_flow_test.dart'
     as master_bookings_declared_time_cards;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
+import 'master_create_booking_test.dart' as master_create_booking;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -319,6 +320,12 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Phase 248 (mobile-dev) — the «+» add-booking entry point → the Phase 247
+  // walk-in wizard, end to end: fill client → pick service → pick date/slot
+  // → confirm → done → pop → the new booking visible in the refetched day
+  // list. Registered beside `master_bookings_flow`, whose login/router
+  // scaffolding it shares.
+  group('master_create_booking_flow', master_create_booking.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
   // bookings including an elapsed-unclosed row, filtering to «Підтверджено»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter
