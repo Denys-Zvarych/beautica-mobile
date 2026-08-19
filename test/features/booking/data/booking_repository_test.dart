@@ -24,17 +24,22 @@ import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class _MockDio extends Mock implements Dio {}
 
 class _MockBookingControllerApi extends Mock implements BookingControllerApi {}
 
 class _MockReviewControllerApi extends Mock implements ReviewControllerApi {}
+
+class _MockStaffBookingsApi extends Mock implements StaffBookingsApi {}
 
 const _createPath = '/api/v1/bookings';
 const _getPath = '/api/v1/bookings/booking-1';
@@ -206,6 +211,7 @@ void main() {
   late _MockDio dio;
   late _MockBookingControllerApi bookingApi;
   late _MockReviewControllerApi reviewApi;
+  late _MockStaffBookingsApi staffBookingsApi;
   late HttpBookingRepository repository;
 
   setUpAll(() {
@@ -239,13 +245,29 @@ void main() {
             StatusUpdateRequestCancellationReasonEnum.PROVIDER_UNAVAILABLE,
       ),
     );
+    registerFallbackValue(
+      CreateStaffBookingRequest(
+        (b) => b
+          ..masterServiceId = 'fallback-service'
+          ..startsAt = DateTime.utc(2026, 1, 1)
+          ..guest.name = 'fallback-name'
+          ..guest.surname = 'fallback-surname'
+          ..guest.phone = '+380500000000',
+      ),
+    );
   });
 
   setUp(() {
     dio = _MockDio();
     bookingApi = _MockBookingControllerApi();
     reviewApi = _MockReviewControllerApi();
-    repository = HttpBookingRepository(dio, bookingApi, reviewApi);
+    staffBookingsApi = _MockStaffBookingsApi();
+    repository = HttpBookingRepository(
+      dio,
+      bookingApi,
+      reviewApi,
+      staffBookingsApi,
+    );
   });
 
   group('createBooking', () {
@@ -543,6 +565,224 @@ void main() {
       await expectLater(
         repository.createBooking(req),
         throwsA(isA<ConflictFailure>()),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 246 — createMasterBooking (PROVIDER-side walk-in write, backend
+  // Phase 22.4 `POST /api/v1/masters/{masterId}/bookings`).
+  // ---------------------------------------------------------------------------
+  group('createMasterBooking', () {
+    const staffBookingPath = '/api/v1/masters/master-1/bookings';
+
+    // 14:00 Kyiv wall-clock, July (EEST/UTC+3) — built via the IANA
+    // Europe/Kyiv `tz.TZDateTime`, NOT a device-local `DateTime`, so the
+    // expected UTC instant below is correct regardless of the host's own
+    // timezone. Run under `TZ=UTC` (the test gate's explicit ask) this is
+    // the only construction that can actually catch a "silently used the
+    // host's local offset instead of Kyiv's" regression — a plain
+    // `DateTime(2026, 7, 10, 14)` would coincidentally equal its own
+    // `.toUtc()` under `TZ=UTC`, masking exactly that bug.
+    final DateTime kyivStart = tz.TZDateTime(beauticaZone, 2026, 7, 10, 14);
+
+    final req = CreateMasterBookingRequest(
+      masterServiceId: 'service-1',
+      startsAt: kyivStart,
+      guest: const WalkInGuest(
+        name: 'Іван',
+        surname: 'Петренко',
+        phone: '+380501234567',
+      ),
+    );
+
+    void stubCreate(Response<ApiResponseBookingResponse> response) {
+      when(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      ).thenAnswer((_) async => response);
+    }
+
+    void stubCreateThrows(DioException e) {
+      when(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      ).thenThrow(e);
+    }
+
+    DioException badResponse(int statusCode, {Failure? attached}) =>
+        DioException(
+          requestOptions: RequestOptions(path: staffBookingPath),
+          type: DioExceptionType.badResponse,
+          error: attached,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: staffBookingPath),
+            statusCode: statusCode,
+          ),
+        );
+
+    test(
+      'success: creates then fetches the enriched detail via getBookingById, '
+      'and normalises startsAt to a correct UTC offset on the wire',
+      () async {
+        stubCreate(
+          Response<ApiResponseBookingResponse>(
+            data: ApiResponseBookingResponse(
+              (b) => b
+                ..data.replace(BookingResponse((br) => br..id = 'booking-1'))
+                ..success = true,
+            ),
+            requestOptions: RequestOptions(path: staffBookingPath),
+            statusCode: 201,
+          ),
+        );
+        when(
+          () => bookingApi.getBooking(bookingId: 'booking-1'),
+        ).thenAnswer((_) async => _detailResponse(_buildDetailDto()));
+
+        final booking = await repository.createMasterBooking('master-1', req);
+
+        expect(booking.id, 'booking-1');
+        expect(booking.status, BookingStatus.confirmed);
+
+        final captured = verify(
+          () => staffBookingsApi.createStaffBooking(
+            masterId: captureAny(named: 'masterId'),
+            createStaffBookingRequest: captureAny(
+              named: 'createStaffBookingRequest',
+            ),
+          ),
+        ).captured;
+        expect(captured[0], 'master-1');
+        final capturedBody = captured[1] as CreateStaffBookingRequest;
+        expect(capturedBody.masterServiceId, 'service-1');
+        expect(capturedBody.guest.name, 'Іван');
+        expect(capturedBody.guest.surname, 'Петренко');
+        expect(capturedBody.guest.phone, '+380501234567');
+        // The generated Iso8601DateTimeSerializer THROWS on a non-UTC
+        // DateTime at real serialization time, so a captured value at all
+        // already proves `.isUtc` — asserted explicitly anyway, plus the
+        // actual instant, to also catch a wrong-DIRECTION offset shift
+        // (e.g. adding instead of subtracting the +3 offset).
+        expect(capturedBody.startsAt.isUtc, isTrue);
+        expect(capturedBody.startsAt, DateTime.utc(2026, 7, 10, 11));
+
+        verify(() => bookingApi.getBooking(bookingId: 'booking-1')).called(1);
+      },
+    );
+
+    test('403 → MasterBookingNotPermittedFailure — the follow-up detail '
+        'fetch never runs', () async {
+      stubCreateThrows(badResponse(403));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<MasterBookingNotPermittedFailure>()),
+      );
+
+      verifyNever(
+        () => bookingApi.getBooking(bookingId: any(named: 'bookingId')),
+      );
+    });
+
+    test('409 → ConflictFailure', () async {
+      stubCreateThrows(badResponse(409));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('422 → ConflictFailure (slot outside working hours / day-off / past '
+        'time / service not offered — this endpoint groups 409 and 422 under '
+        'the same slot-conflict copy, per backend Phase 22.4)', () async {
+      stubCreateThrows(badResponse(422));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('400 → whatever Failure ErrorMapperInterceptor already attached '
+        '(this endpoint does not re-map 400 — it defers entirely, proving the '
+        '403/409/422 branches run BEFORE, not instead of, the interceptor '
+        'passthrough)', () async {
+      const attached = ValidationFailure(
+        fieldErrors: {'guest.phone': 'Некоректний формат телефону'},
+      );
+      stubCreateThrows(badResponse(400, attached: attached));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(same(attached)),
+      );
+    });
+
+    // mobile-qa gap-fix (Phase 246 audit) — the backend's StaffBookingService
+    // throws NotFoundException (404) for an unknown, foreign or inactive
+    // masterServiceId (reachable in practice if the wizard submits a stale
+    // service id after the master edited/removed it mid-flow). Neither
+    // `_mapMasterBookingWriteException` nor the phase doc's error table has a
+    // 404 arm; the method defers to `_mapDioException`, which on a real
+    // request already has `e.error` populated by `ErrorMapperInterceptor`
+    // (`if (statusCode == 404) return NotFoundFailure(cause: err);` — runs
+    // unconditionally for every path, see `error_mapper_interceptor.dart:146`)
+    // — mirrors the identical `e.error is Failure` precedent already pinned
+    // for `getBookingById`'s 404 case above. This test is the tripwire: if a
+    // future change adds a 404 arm to `_mapMasterBookingWriteException` that
+    // returns something OTHER than the pre-mapped Failure (e.g. mistakenly
+    // maps it to `ConflictFailure`, matching the 409/422 slot-conflict copy),
+    // this goes red.
+    test('404 (stale/unknown/foreign/inactive masterServiceId) → the '
+        'pre-mapped NotFoundFailure passes through unchanged, exactly like '
+        'the 400 case above', () async {
+      const attached = NotFoundFailure();
+      stubCreateThrows(badResponse(404, attached: attached));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(same(attached)),
+      );
+    });
+
+    test('connectionError → NetworkFailure', () async {
+      stubCreateThrows(
+        DioException(
+          requestOptions: RequestOptions(path: staffBookingPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('response with null id → ServerFailure(null)', () async {
+      stubCreate(
+        Response<ApiResponseBookingResponse>(
+          data: ApiResponseBookingResponse((b) => b..success = true),
+          requestOptions: RequestOptions(path: staffBookingPath),
+          statusCode: 201,
+        ),
+      );
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(
+          isA<ServerFailure>().having(
+            (f) => f.statusCode,
+            'statusCode',
+            isNull,
+          ),
+        ),
       );
     });
   });

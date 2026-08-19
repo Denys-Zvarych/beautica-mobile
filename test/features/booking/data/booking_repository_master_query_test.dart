@@ -47,6 +47,8 @@ class _MockBookingApi extends Mock implements BookingControllerApi {}
 
 class _MockReviewApi extends Mock implements ReviewControllerApi {}
 
+class _MockStaffBookingsApi extends Mock implements StaffBookingsApi {}
+
 const String _myBookingsPath = '/api/v1/bookings/me';
 const String _bookedDaysPath = '/api/v1/bookings/me/booked-days';
 
@@ -73,6 +75,7 @@ void main() {
       dio,
       _MockBookingApi(),
       _MockReviewApi(),
+      _MockStaffBookingsApi(),
     );
   });
 

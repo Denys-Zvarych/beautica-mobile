@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
@@ -200,6 +201,12 @@ class _RecordingBookingRepository implements BookingRepository {
   @override
   Future<Booking> createBooking(CreateBookingRequest req) =>
       throw UnimplementedError();
+
+  @override
+  Future<Booking> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  ) => throw UnimplementedError();
 
   @override
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>

@@ -64,6 +64,9 @@ class _CapturingSink {
 void main() {
   setUpAll(() {
     registerFallbackValue(RequestOptions(path: '/'));
+    registerFallbackValue(
+      DioException(requestOptions: RequestOptions(path: '/')),
+    );
   });
 
   RequestOptions buildOpts(
@@ -319,5 +322,94 @@ void main() {
       // Sanity: the interceptor classifies this dynamic route as PII.
       expect(isPiiPath(opts.path), isTrue);
     });
+
+    // Phase 246 (2026-08-19 security fix) — mobile-security HIGH: the master
+    // walk-in booking write carries a third party's name/surname/phone, and
+    // `/bookings` sits behind a dynamic {masterId} segment (same shape as
+    // `/working-hours` above), so before this phase's `kPiiPathSegments` entry
+    // the body reached the log verbatim. Behavioural proof, not just the
+    // `isPiiPath` unit assertion in `auth_paths_test.dart`: drives the actual
+    // interceptor and asserts the guest's phone/name are ABSENT from the
+    // logged line, mirroring this group's own vacuous-assertion lesson.
+    test('master walk-in booking create body (guest name/surname/phone) is '
+        'redacted in the log and left intact on the wire', () {
+      final sink = _CapturingSink();
+      final interceptor = LoggingInterceptor(sink: sink.call);
+      final handler = MockRequestHandler();
+      final opts = buildOpts(
+        '/api/v1/masters/master-123/bookings',
+        data: {
+          'masterServiceId': 'service-1',
+          'startsAt': '2026-07-10T11:00:00Z',
+          'guest': {
+            'name': 'Іван',
+            'surname': 'Петренко',
+            'phone': '+380501234567',
+          },
+        },
+      );
+
+      interceptor.onRequest(opts, handler);
+
+      final String logged = sink.only;
+      expect(logged, contains('body: [REDACTED]'));
+      expect(
+        logged,
+        isNot(contains('Петренко')),
+        reason: 'the walk-in guest surname must never reach the log',
+      );
+      expect(
+        logged,
+        isNot(contains('+380501234567')),
+        reason:
+            'the walk-in guest phone (E.164 PII) must never reach the '
+            'log',
+      );
+
+      verify(() => handler.next(any())).called(1);
+      // The live request body is never mutated by the logger.
+      final Map<String, dynamic> guest =
+          (opts.data as Map<String, dynamic>)['guest'] as Map<String, dynamic>;
+      expect(guest['phone'], equals('+380501234567'));
+      // Sanity: the interceptor classifies this dynamic route as PII.
+      expect(isPiiPath(opts.path), isTrue);
+    });
+
+    // The error path (onError) redacts response bodies too — a 403/409/422
+    // from this same endpoint could echo the guest payload back. Proven
+    // separately since onRequest/onError are independent code paths sharing
+    // only `isPiiPath`.
+    test('master walk-in booking ERROR response body is also redacted (onError '
+        'path, independent of onRequest)', () {
+      final sink = _CapturingSink();
+      final interceptor = LoggingInterceptor(sink: sink.call);
+      final handler = _MockErrorHandler();
+      final requestOptions = RequestOptions(
+        path: '/api/v1/masters/master-123/bookings',
+        baseUrl: 'https://api.beautica.test',
+      );
+      final err = DioException(
+        requestOptions: requestOptions,
+        type: DioExceptionType.badResponse,
+        response: Response<dynamic>(
+          requestOptions: requestOptions,
+          statusCode: 409,
+          data: {
+            'success': false,
+            'message': 'Slot taken',
+            'guest': {'name': 'Іван', 'surname': 'Петренко'},
+          },
+        ),
+      );
+
+      interceptor.onError(err, handler);
+
+      final String logged = sink.only;
+      expect(logged, contains('body: [REDACTED]'));
+      expect(logged, isNot(contains('Петренко')));
+      verify(() => handler.next(any())).called(1);
+    });
   });
 }
+
+class _MockErrorHandler extends Mock implements ErrorInterceptorHandler {}

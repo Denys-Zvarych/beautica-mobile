@@ -90,6 +90,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'ResendThrottledFailure': false,
   'CategoryRequestThrottledFailure': false,
   'BookingRateLimitedFailure': false,
+  // A 403 "you may not book for this master" is an authorization verdict, not
+  // a transient network condition — retrying re-sends a request that fails
+  // identically.
+  'MasterBookingNotPermittedFailure': false,
   'ScheduleOverrideRateLimitedFailure': false,
   'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
@@ -154,6 +158,8 @@ Map<String, Failure> _instances() {
     ),
     'CategoryRequestThrottledFailure': const CategoryRequestThrottledFailure(),
     'BookingRateLimitedFailure': const BookingRateLimitedFailure(),
+    'MasterBookingNotPermittedFailure':
+        const MasterBookingNotPermittedFailure(),
     'ScheduleOverrideRateLimitedFailure':
         const ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
     'OverrideSpanPartialFailure': OverrideSpanPartialFailure(

@@ -780,6 +780,33 @@ final class BookingRateLimitedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrRateLimited;
 }
 
+/// Emitted when `POST /api/v1/masters/{masterId}/bookings` returns HTTP
+/// **403 Forbidden** (backend Phase 22.4, amendment A6 —
+/// `docs/backend-phases/phase-171-22.4-staff-booking-endpoint-and-authz.md`).
+///
+/// The backend's `@authz.canBookForMaster` predicate DELIBERATELY collapses
+/// every "you may not book this master" reason into this ONE status:
+///   - the caller is a salon owner/admin whose managed salon does not
+///     contain [masterId]'s master;
+///   - the caller is an `INDEPENDENT_MASTER` and [masterId] is not their own
+///     profile;
+///   - the caller is a `SALON_MASTER` (read-only calendar — never permitted);
+///   - **`masterId` does not exist, or resolves to an inactive master** — a
+///     probe defence: distinguishing "unknown master" from "not yours" via a
+///     404 would let a caller enumerate valid master ids by status code
+///     alone, so the backend answers 403 either way.
+///
+/// [userMessage] therefore NEVER says anything resembling "майстра не
+/// знайдено" ("master not found") — that would leak exactly the distinction
+/// the backend deliberately hides. Do not add a variant that does.
+final class MasterBookingNotPermittedFailure extends Failure {
+  const MasterBookingNotPermittedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrMasterNotPermitted;
+}
+
 /// Emitted when `POST /reviews` returns HTTP **409 Conflict** because the
 /// authenticated client has ALREADY left a review for this booking (Phase
 /// 14.6). The booking's server-computed `canReview` flag normally hides the

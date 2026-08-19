@@ -20,6 +20,7 @@ import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
+import 'package:beautica_api/src/model/api_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_category_request_response.dart';
 import 'package:beautica_api/src/model/api_response_client_review_response.dart';
 import 'package:beautica_api/src/model/api_response_contact_support_response.dart';
@@ -117,6 +118,7 @@ import 'package:beautica_api/src/model/create_platform_category_request.dart';
 import 'package:beautica_api/src/model/create_review_request.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
+import 'package:beautica_api/src/model/create_staff_booking_request.dart';
 import 'package:beautica_api/src/model/duplicate_service_error_response.dart';
 import 'package:beautica_api/src/model/duplicate_service_response.dart';
 import 'package:beautica_api/src/model/effective_day_response.dart';
@@ -127,6 +129,7 @@ import 'package:beautica_api/src/model/favorite_service_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
+import 'package:beautica_api/src/model/guest_client_dto.dart';
 import 'package:beautica_api/src/model/guest_token_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
@@ -233,6 +236,7 @@ part 'serializers.g.dart';
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
   ApiResponseBookingDetailResponse,
+  ApiResponseBookingResponse,
   ApiResponseCategoryRequestResponse,
   ApiResponseClientReviewResponse,
   ApiResponseContactSupportResponse,
@@ -330,6 +334,7 @@ part 'serializers.g.dart';
   CreateReviewRequest,
   CreateSalonRequest,
   CreateServiceDefinitionRequest,
+  CreateStaffBookingRequest,
   DuplicateServiceErrorResponse,
   DuplicateServiceResponse,
   EffectiveDayResponse,
@@ -340,6 +345,7 @@ part 'serializers.g.dart';
   ForgotPasswordRequest,
   GuestBookingRequest,
   GuestBookingResponse,
+  GuestClientDto,
   GuestTokenResponse,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
