@@ -690,10 +690,7 @@ void main() {
 
         // No medallion, no big status title — the neutral collapse.
         expect(find.byType(BookingStatusMedallion), findsNothing);
-        expect(
-          find.text(l10n.bookingDetailSublineDeclinedSalon),
-          findsOneWidget,
-        );
+        expect(find.text(l10n.bookingDetailSublineDeclined), findsOneWidget);
         expect(find.textContaining('₴'), findsNothing);
         // The provider's words arrive — recessed InboundNote (depth = authorship).
         expect(find.text(_providerDeclineNote), findsOneWidget);
@@ -701,7 +698,7 @@ void main() {
       },
     );
 
-    testWidgets('an INDEPENDENT-master decline keeps its own subline', (
+    testWidgets('an INDEPENDENT-master decline uses the neutral subline', (
       tester,
     ) async {
       await _pumpDetail(
@@ -714,10 +711,7 @@ void main() {
       final l10n = _l10n(tester);
 
       expect(find.byType(BookingStatusMedallion), findsNothing);
-      expect(
-        find.text(l10n.bookingDetailSublineDeclinedMaster),
-        findsOneWidget,
-      );
+      expect(find.text(l10n.bookingDetailSublineDeclined), findsOneWidget);
     });
   });
 

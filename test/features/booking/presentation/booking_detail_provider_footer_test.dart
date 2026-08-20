@@ -6,11 +6,14 @@
 //   • CONFIRMED, not yet started → «Перенести» + «Скасувати» (decline), no
 //     «Завершити»;
 //   • CONFIRMED, [Booking.hasStarted] → «Завершити» AND «Скасувати»
-//     (decline) — reschedule alone is hidden (it would 409 server-side,
-//     Phase 27.1); decline itself is NOT time-gated — the backend now allows
-//     a provider decline at any time, so it stays offered on an elapsed
-//     booking too («Клієнт не прийшов» is recorded as a decline reason, not a
-//     separate action);
+//     (decline), PLUS a DISABLED «Перенести» (onPressed: null) with a visible
+//     caption underneath explaining why — it would still 409 server-side
+//     (Phase 27.1's `BookingTemporalGuard`), but the button is kept visible-
+//     but-inert rather than silently omitted (2026-08-20 fix — see
+//     `booking_detail_screen.dart`'s `_providerActions` doc). Decline itself
+//     is NOT time-gated — the backend now allows a provider decline at any
+//     time, so it stays offered on an elapsed booking too («Клієнт не
+//     прийшов» is recorded as a decline reason, not a separate action);
 //   • every terminal status → nothing;
 //   • the decline dialog (reused `cancel_booking_dialog.dart` chrome) wires
 //     to `BookingRepository.declineBooking` with the optional comment (empty
@@ -33,6 +36,8 @@
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -202,8 +207,10 @@ void main() {
     );
 
     testWidgets(
-      'CONFIRMED, underway (started but not yet ended): complete + decline, '
-      'no reschedule — hasStarted is a DIFFERENT gate than isPast',
+      'CONFIRMED, underway (started but not yet ended): complete + decline '
+      'ENABLED, «Перенести» present but DISABLED — hasStarted is a DIFFERENT '
+      'gate than isPast (see the dedicated pinned-clock group below for the '
+      'falsifiable disabled/caption assertions)',
       (tester) async {
         final DateTime start = DateTime.now().toUtc().subtract(
           const Duration(minutes: 10),
@@ -225,9 +232,13 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+        // 2026-08-20 fix — the button is no longer silently omitted once
+        // started; it stays visible but non-interactive. See the
+        // 'reschedule availability (hasStartedAt gate)' group below for the
+        // assertion proving it is genuinely DISABLED, not merely present.
         expect(
           find.byKey(const Key('booking-detail-provider-reschedule')),
-          findsNothing,
+          findsOneWidget,
         );
       },
     );
@@ -300,6 +311,150 @@ void main() {
       expect(find.byKey(const Key('booking-detail-reschedule')), findsNothing);
       expect(find.byKey(const Key('booking-detail-cancel')), findsNothing);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // «Перенести» availability once the booking has started (2026-08-20 fix) —
+  // pinned-clock guard for the silent-omission bug.
+  //
+  // Before this fix, `_providerActions`' `hasStartedAt` branch omitted
+  // «Перенести» outright once a booking started. The build-verifier proved
+  // this was UNGUARDED: with both the disabled `NeumorphicButton` and its
+  // caption `Text` commented out of production code,
+  // `booking_detail_screen_test.dart` and `booking_detail_provider_view_test
+  // .dart` stayed 31/31 green. This group is the guard — mutation-probed
+  // (see the QA report that shipped alongside this group for the RED/GREEN
+  // observations).
+  //
+  // Every instant here is pinned through `clockProvider.overrideWithValue`
+  // — NEVER a `DateTime.now()` read — and every fixture's `startAt` is
+  // derived from the SAME pinned constant, so the fixture clock and the
+  // widget clock (which reads `now` from the SAME overridden `clockProvider`
+  // via `booking_detail_screen.dart`'s `build()`) are identical by
+  // construction. Mixing a pinned clock with a host-clock read in one test
+  // is the recurring bug this file's OTHER groups avoid by going fully live
+  // instead — this group goes fully pinned; never mix the two within one
+  // test body.
+  // -------------------------------------------------------------------------
+
+  group('reschedule availability (hasStartedAt gate, pinned clock)', () {
+    // Fixed instant used only relative to itself (every fixture below
+    // derives its `startAt` from this SAME constant, not from wall-clock-
+    // relative "upcoming" logic) — see the group doc above.
+    // future-date-ok: pinned INPUT for the injected clock itself.
+    final DateTime kNow = DateTime.utc(2026, 8, 20, 12);
+
+    List<Object> overridesWithClock(
+      Booking booking,
+      _MockBookingRepository repo,
+    ) => <Object>[
+      ..._overrides(booking, repo),
+      clockProvider.overrideWithValue(() => kNow),
+    ];
+
+    testWidgets(
+      'started (hasStartedAt is TRUE at the pinned clock): «Перенести» '
+      'renders but is genuinely DISABLED (onPressed: null, not merely '
+      'present), with the unavailable-reason caption visible; «Завершити»/'
+      '«Скасувати» stay ENABLED — the fix must not have collaterally '
+      'disabled the live actions',
+      (tester) async {
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          startAt: kNow.subtract(const Duration(minutes: 10)),
+          durationMinutes: 90,
+        );
+        expect(booking.hasStartedAt(kNow), isTrue);
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.declineBooking(any(), comment: any(named: 'comment')),
+        ).thenAnswer((_) async {});
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: overridesWithClock(booking, repo),
+        );
+        await tester.pumpAndSettle();
+        final AppLocalizations l10n = _l10n(tester);
+
+        final Finder rescheduleFinder = find.byKey(
+          const Key('booking-detail-provider-reschedule'),
+        );
+        expect(rescheduleFinder, findsOneWidget);
+        expect(
+          tester.widget<NeumorphicButton>(rescheduleFinder).onPressed,
+          isNull,
+          reason:
+              'NeumorphicButton\'s disabled state IS onPressed: null — no '
+              'GestureDetector callback is wired and the label/icon dim to '
+              '55% alpha off this same flag (core/widgets/neumorphic.dart)',
+        );
+
+        final Finder captionFinder = find.byKey(
+          const Key('booking-detail-reschedule-unavailable-reason'),
+        );
+        expect(captionFinder, findsOneWidget);
+        expect(
+          find.text(l10n.bookingDetailRescheduleUnavailableStarted),
+          findsOneWidget,
+        );
+
+        final Finder completeFinder = find.byKey(
+          const Key('booking-detail-complete'),
+        );
+        expect(completeFinder, findsOneWidget);
+        expect(
+          tester.widget<NeumorphicButton>(completeFinder).onPressed,
+          isNotNull,
+        );
+
+        // `_DestructiveSecondaryButton` (decline) has no disabled/onPressed
+        // concept to inspect statically in this codebase — every render
+        // wires `onTap` unconditionally — so "still enabled" is proven by
+        // actually driving the interaction and observing the dialog open,
+        // exactly as the 'decline flow' group above does for other cases.
+        await tester.tap(find.byKey(const Key('booking-detail-decline')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'boundary — not yet started (startAt strictly AFTER the pinned clock): '
+      '«Перенести» renders ENABLED and the unavailable-reason caption is '
+      'ABSENT. Without this boundary, a regression disabling reschedule for '
+      'EVERY confirmed booking (not only started ones) would pass the test '
+      'above unnoticed',
+      (tester) async {
+        final Booking booking = _booking(
+          status: BookingStatus.confirmed,
+          startAt: kNow.add(const Duration(hours: 2)),
+          durationMinutes: 90,
+        );
+        expect(booking.hasStartedAt(kNow), isFalse);
+        final repo = _MockBookingRepository();
+
+        await tester.pumpApp(
+          BookingDetailScreen(bookingId: booking.id),
+          overrides: overridesWithClock(booking, repo),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder rescheduleFinder = find.byKey(
+          const Key('booking-detail-provider-reschedule'),
+        );
+        expect(rescheduleFinder, findsOneWidget);
+        expect(
+          tester.widget<NeumorphicButton>(rescheduleFinder).onPressed,
+          isNotNull,
+        );
+        expect(
+          find.byKey(const Key('booking-detail-reschedule-unavailable-reason')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('booking-detail-complete')), findsNothing);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

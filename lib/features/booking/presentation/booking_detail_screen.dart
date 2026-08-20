@@ -585,9 +585,7 @@ class _DetailBody extends StatelessWidget {
       case BookingStatus.cancelled:
         return l10n.bookingDetailSublineCancelled;
       case BookingStatus.declined:
-        return b.atSalon
-            ? l10n.bookingDetailSublineDeclinedSalon
-            : l10n.bookingDetailSublineDeclinedMaster;
+        return l10n.bookingDetailSublineDeclined;
       // No subline. Every other branch here is the app narrating what the
       // status MEANS; for a status this build does not recognise there is
       // nothing truthful to narrate, and the badge already says so.
@@ -719,9 +717,13 @@ class _DetailBody extends StatelessWidget {
   ///     per-item `PATCH /appointments/{id}/services/{bookingId}/reschedule`
   ///     — track 30.x, moving ONLY this service) + «Скасувати» (decline).
   ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» AND «Скасувати»
-  ///     (decline). Reschedule alone is hidden — it would 409 server-side
-  ///     once the appointment has begun (see `hasStarted`'s doc for why this
-  ///     is a DIFFERENT gate than the client-side [Booking.isPast]). Decline
+  ///     (decline), PLUS a DISABLED «Перенести» with a visible caption
+  ///     underneath explaining why — it would 409 server-side once the
+  ///     appointment has begun (see `hasStarted`'s doc for why this is a
+  ///     DIFFERENT gate than the client-side [Booking.isPast]). The button
+  ///     used to be omitted outright, which read as a silent app limitation
+  ///     rather than a fact about this booking — kept visible-but-inert
+  ///     instead (`onPressed: null`; see the branch body for detail). Decline
   ///     itself is NOT time-gated — the backend allows a provider to decline
   ///     a CONFIRMED booking at any time, elapsed or not; a client who never
   ///     showed up is recorded as a decline with a free-text reason, same as
@@ -792,6 +794,35 @@ class _DetailBody extends StatelessWidget {
           label: l10n.bookingDetailDeclineCta,
           icon: Icons.close_rounded,
           onTap: onDecline,
+        ),
+        // Fix for the silent-omission bug: the backend's
+        // `BookingTemporalGuard.assertCurrentNotElapsedForReschedule` still
+        // rejects a reschedule once the booking has started — that rule is
+        // NOT relaxed here — but the button used to simply vanish, which
+        // read to a master as "the app can't reschedule this" rather than
+        // "this specific booking can't be moved anymore". «Перенести» now
+        // stays visible with the SAME key/label/icon as the live variant
+        // above, but `onPressed: null` — `NeumorphicButton` already renders
+        // a fully non-tappable, visibly dimmed state for that (see
+        // `core/widgets/neumorphic.dart`'s `_enabled` gate: no
+        // `GestureDetector` callbacks wired, `Semantics.enabled: false`,
+        // 55%-alpha label/icon) — so no widening of the shared widget was
+        // needed. The reason renders as a permanent caption directly under
+        // the footer, not a tooltip or snack: a hidden explanation is the
+        // same silent-omission bug in a new costume.
+        const SizedBox(height: VelvetSpacing.sm),
+        NeumorphicButton(
+          key: const Key('booking-detail-provider-reschedule'),
+          label: l10n.bookingDetailRescheduleCta,
+          icon: Icons.event_repeat_rounded,
+          onPressed: null,
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+        Text(
+          l10n.bookingDetailRescheduleUnavailableStarted,
+          key: const Key('booking-detail-reschedule-unavailable-reason'),
+          textAlign: TextAlign.center,
+          style: VelvetText.body(),
         ),
       ];
     }
