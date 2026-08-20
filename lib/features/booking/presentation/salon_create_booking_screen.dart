@@ -89,6 +89,49 @@
 // See [ClientStep]'s own doc — unchanged, reused verbatim. Backend Phase
 // 22.3 (linking a walk-in to an existing app client) is deferred; there is
 // no field for it.
+//
+// ## PHASE 253 — `service` becomes multi-select, sharing [ServiceStep]'s
+// widened path with the master wizard
+//
+// `service` used to auto-navigate straight to `dateTime` on a single tap
+// (`onSelect` immediately called `_goTo`). That is exactly the "selection
+// navigates" defect the master wizard already fixed for its own steps
+// (2026-08-20 UX note above `_NextCtaFooter`) — and multi-select makes it
+// outright wrong here too: a tap that jumps away gives no chance to pick a
+// second service. `service` now gets its own pinned [BookingSummaryBar]
+// footer (the SAME reused widget the master wizard's `_buildBottomBar` now
+// pins for this step), and selection is SELECT ONLY — see
+// `master_create_booking_screen.dart`'s widened header for the shared
+// `CatalogueSelectionController` / ordered-list / cap-toggle mechanics,
+// which this screen owns its own instance of (never a shared instance
+// across the two wizards — each wizard is an independent widget subtree).
+// `SalonMastersStep`'s per-master coverage check, `confirm`, and `done`
+// still key off exactly one service (`_primaryService`, a TEMPORARY shim —
+// same as the master wizard's, see its doc).
+//
+// DOC CORRECTION (found while implementing phases 254/255, reported rather
+// than silently deviated on): this comment used to say "until Phases
+// 254–256 widen them", but neither phase-254 nor phase-255's actual scope
+// (D1–D4, Files touched) mentions `SalonMastersStep` /
+// `salon_booking_wizard_steps.dart` at all — phase 254 widens ONLY
+// [DateTimeStep] (which this wizard never calls — see `SalonMastersStep`'s
+// own file header for why it can't reuse that widget), and phase 255 widens
+// ONLY [ConfirmStep]'s RENDERING. Widening THIS screen's `ConfirmStep` call
+// to the plural `services:` path without also widening `SalonMastersStep` to
+// resolve an assignment id per selected service (today it queries
+// `salonMasterServiceCoverageProvider` with a single-element
+// `selectedServiceIds` and `_submit` sends exactly one `assignmentId`) would
+// make the PRE-EXISTING phase-253 gap actively worse: confirm would show an
+// N-service visit total for a request that still only books service #1,
+// silently dropping the rest of what the walk-in guest was told they'd get.
+// So `confirm` stays on the legacy `service:` path here, `_primaryService`
+// remains genuinely load-bearing at all three of its current call sites
+// (`SalonMastersStep`, `ConfirmStep`, `_submit`), and the salon wizard's
+// multi-service walk-in support needs its own dedicated phase that widens
+// `SalonMastersStep`'s coverage/slot-fetch/`onPick` to an ordered list — the
+// same shape `SalonMasterSelectionScreen` (client flow) already resolves for
+// its own N-service coverage intersection, which that future phase should
+// reuse rather than re-derive.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -103,23 +146,28 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
+import '../data/slot_repository.dart' show maxServicesPerVisit;
 import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
+import 'widgets/booking_summary_bar.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/booking_wizard_steps.dart';
 import 'widgets/master_strip.dart' show MasterRatingReadout, masterRoleLabel;
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/salon_booking_wizard_steps.dart';
+import 'widgets/service_catalogue_accordion.dart'
+    show CatalogueSelectionController;
 import 'widgets/selected_services_shelf.dart' show salonServiceForShelf;
 
 export '../application/master_create_booking_notifier.dart'
@@ -157,11 +205,20 @@ class _SalonCreateBookingScreenState
   final TextEditingController _lastNameCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
 
-  MasterService? _service;
+  // PHASE 253 — multi-select service state, the SAME shape the master
+  // wizard now owns (its own, separate instance — see this file's header).
+  final CatalogueSelectionController _selectionController =
+      CatalogueSelectionController();
+  final List<MasterService> _selectedServices = <MasterService>[];
   DateTime? _date;
   SalonMasterSummary? _master;
   String? _assignmentId;
   DateTime? _startAt;
+
+  /// TEMPORARY single-service shim — see
+  /// `master_create_booking_screen.dart`'s identical getter doc.
+  MasterService? get _primaryService =>
+      _selectedServices.isEmpty ? null : _selectedServices.first;
 
   late final ScreenProtectionManager _screenProtection;
 
@@ -180,7 +237,31 @@ class _SalonCreateBookingScreenState
     _firstNameCtrl.dispose();
     _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
+    _selectionController.dispose();
     super.dispose();
+  }
+
+  /// Toggles [service] in/out of the visit selection, capped at
+  /// [maxServicesPerVisit] — see `master_create_booking_screen.dart`'s
+  /// identical method doc (same pattern, same cap, own instance).
+  void _onToggleService(MasterService service) {
+    final bool willAdd = !_selectionController.isSelected(service.id);
+    if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
+      final l10n = AppLocalizations.of(context);
+      showWarningSnack(
+        context,
+        l10n.bookingMaxServicesReached(maxServicesPerVisit),
+      );
+      return;
+    }
+    setState(() {
+      if (willAdd) {
+        _selectedServices.add(service);
+      } else {
+        _selectedServices.removeWhere((MasterService s) => s.id == service.id);
+      }
+    });
+    _selectionController.toggleService(service.id);
   }
 
   void _goTo(_BookingStep s) => setState(() => _step = s);
@@ -199,7 +280,7 @@ class _SalonCreateBookingScreenState
   }
 
   Future<void> _submit() async {
-    final MasterService? service = _service;
+    final MasterService? service = _primaryService;
     final DateTime? startAt = _startAt;
     final SalonMasterSummary? master = _master;
     final String? assignmentId = _assignmentId;
@@ -219,7 +300,12 @@ class _SalonCreateBookingScreenState
       // The chosen master's OWN per-master assignment id — NEVER
       // `service.id`/`service.serviceDefId` (the salon-catalog id). See
       // `SalonMastersStep.onPick`'s own doc.
-      masterServiceId: assignmentId,
+      //
+      // Phase 252 mechanical adaptation: the domain field widened from a
+      // scalar to an ORDERED list (the backend now creates a visit, not a
+      // single booking). This screen still selects exactly ONE service —
+      // Phase 253 is what lets the wizard build a real multi-element list.
+      masterServiceIds: <String>[assignmentId],
       startsAt: startAt,
       guest: WalkInGuest(
         name: _firstNameCtrl.text.trim(),
@@ -271,16 +357,16 @@ class _SalonCreateBookingScreenState
       case _BookingStep.service:
         return ServiceStep(
           key: const ValueKey<_BookingStep>(_BookingStep.service),
-          selectedServiceId: _service?.id,
+          // PHASE 253 — multi-select path, SELECT ONLY (see this file's
+          // header). Advancing is the pinned [BookingSummaryBar] CTA's job
+          // (`_buildBottomBar`), same as the master wizard.
+          selectedServiceIds: _selectionController,
+          onToggleService: _onToggleService,
           servicesOverride: _salonServicesAsync(ref),
           onRetryOverride: () =>
               ref.invalidate(salonServiceCatalogProvider(widget.salonId)),
           emptyTitleOverride: l10n.salonCreateBookingServiceEmptyTitle,
           emptyBodyOverride: l10n.salonCreateBookingServiceEmptyBody,
-          onSelect: (MasterService s) {
-            setState(() => _service = s);
-            _goTo(_BookingStep.dateTime);
-          },
         );
       case _BookingStep.dateTime:
         return SalonDateStep(
@@ -293,7 +379,7 @@ class _SalonCreateBookingScreenState
         return SalonMastersStep(
           key: const ValueKey<_BookingStep>(_BookingStep.masters),
           salonId: widget.salonId,
-          service: _service!,
+          service: _primaryService!,
           date: _date!,
           onPick:
               (
@@ -312,7 +398,7 @@ class _SalonCreateBookingScreenState
       case _BookingStep.confirm:
         return ConfirmStep(
           key: const ValueKey<_BookingStep>(_BookingStep.confirm),
-          service: _service!,
+          service: _primaryService!,
           startAt: _startAt!,
           firstName: _firstNameCtrl.text.trim(),
           lastName: _lastNameCtrl.text.trim(),
@@ -340,7 +426,7 @@ class _SalonCreateBookingScreenState
     final l10n = AppLocalizations.of(context);
 
     if (_step == _BookingStep.done) {
-      final MasterService? service = _service;
+      final MasterService? service = _primaryService;
       final DateTime? startAt = _startAt;
       if (service == null || startAt == null) {
         // Defensive — unreachable via the normal flow (see `_buildStep`).
@@ -360,9 +446,22 @@ class _SalonCreateBookingScreenState
     // never reaching this branch at all.
     return Scaffold(
       backgroundColor: BrandColors.base,
-      bottomNavigationBar: (_step == _BookingStep.confirm)
-          ? _SalonConfirmCtaFooter(onSubmit: _submit)
-          : null,
+      bottomNavigationBar: switch (_step) {
+        // PHASE 253 — [BookingSummaryBar] REUSED as the `service` step's
+        // pinned footer (same widget, same wiring as the master wizard's
+        // `_buildBottomBar` — see this file's header). Previously this step
+        // had no footer at all: `onSelect` navigated straight through.
+        _BookingStep.service => BookingSummaryBar(
+          services: _selectedServices,
+          ctaLabel: l10n.bookingNextCta,
+          ctaIcon: Icons.arrow_forward_rounded,
+          enabled: _selectedServices.isNotEmpty,
+          onAction: () => _goTo(_BookingStep.dateTime),
+          onRemove: _onToggleService,
+        ),
+        _BookingStep.confirm => _SalonConfirmCtaFooter(onSubmit: _submit),
+        _ => null,
+      },
       body: SafeArea(
         bottom: false,
         child: Column(

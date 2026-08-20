@@ -51,6 +51,7 @@ import 'package:beautica_mobile/features/booking/application/salon_masters_roste
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
@@ -153,7 +154,7 @@ class _FakeSlotRepository implements SlotRepository {
 
 class _FakeBookingRepository implements BookingRepository {
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError();

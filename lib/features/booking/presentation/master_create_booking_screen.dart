@@ -81,7 +81,7 @@
 //   5. No «Коментар для майстра» field. `CreateMasterBookingRequest` (Phase
 //      246) carries no `clientComment` — the ACTUAL shipped
 //      `CreateStaffBookingRequest` wire schema has exactly three properties
-//      (`masterServiceId`, `startsAt`, `guest`) — see that file's own doc for
+//      (`masterServiceIds`, `startsAt`, `guest`) — see that file's own doc for
 //      the ground-truth OpenAPI note. A field this repository cannot
 //      transmit has no business on this screen.
 //   6. No «Додати в календар» link on `done`. The design's own version is
@@ -117,6 +117,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
@@ -125,15 +126,19 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../application/salon_booking_schedule_notifier.dart';
+import '../data/slot_repository.dart' show maxServicesPerVisit;
 import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
+import 'widgets/booking_summary_bar.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/labelled_row.dart';
 import 'widgets/booking_wizard_steps.dart';
+import 'widgets/service_catalogue_accordion.dart'
+    show CatalogueSelectionController;
 
 export '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
@@ -165,8 +170,55 @@ class _MasterCreateBookingScreenState
   final TextEditingController _lastNameCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
 
-  MasterService? _service;
+  // PHASE 253 — multi-select service state. [_selectionController] is the
+  // REUSED `CatalogueSelectionController` (`service_catalogue_accordion
+  // .dart`) driving [ServiceStep]'s new multi-select path; [_selectedServices]
+  // is the ordered (tap-order, NOT catalogue-order — see D4 of the phase
+  // doc) list [ServiceStep.onToggleService] appends to / removes from on
+  // every callback, so this screen never needs to re-derive order from a
+  // `Set`.
+  //
+  // PHASES 254/255 — `dateTime` and `confirm` now take [_selectedServices]
+  // directly (the widened `services:` params on [DateTimeStep] /
+  // [ConfirmStep]), and `_submit` sends the FULL ordered list. `_primaryService`
+  // (below) is now a NARROWER shim than before: its only remaining use is the
+  // `done` step, which still renders exactly one service — Phase 256's
+  // territory (the done step, the submit guard, the duplicate-409 copy).
+  final CatalogueSelectionController _selectionController =
+      CatalogueSelectionController();
+  final List<MasterService> _selectedServices = <MasterService>[];
   DateTime? _startAt;
+
+  /// TEMPORARY single-service shim, now scoped to the `done` step ONLY
+  /// (Phase 256 territory) — the first tap-ordered selection, or `null` when
+  /// nothing is selected yet. See the field doc above.
+  MasterService? get _primaryService =>
+      _selectedServices.isEmpty ? null : _selectedServices.first;
+
+  /// Toggles [service] in/out of the visit selection, capped at
+  /// [maxServicesPerVisit] — the SAME pattern `service_selector_sheet.dart`'s
+  /// `_onToggleService` already uses for the client flow: an ADD that would
+  /// exceed the cap is refused with a friendly snack; a REMOVE is never
+  /// blocked, even while already at the cap.
+  void _onToggleService(MasterService service) {
+    final bool willAdd = !_selectionController.isSelected(service.id);
+    if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
+      final l10n = AppLocalizations.of(context);
+      showWarningSnack(
+        context,
+        l10n.bookingMaxServicesReached(maxServicesPerVisit),
+      );
+      return;
+    }
+    setState(() {
+      if (willAdd) {
+        _selectedServices.add(service);
+      } else {
+        _selectedServices.removeWhere((MasterService s) => s.id == service.id);
+      }
+    });
+    _selectionController.toggleService(service.id);
+  }
 
   /// The calendar day tapped on the `dateTime` step but NOT yet committed.
   ///
@@ -205,6 +257,7 @@ class _MasterCreateBookingScreenState
     _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
     _stagedDate.dispose();
+    _selectionController.dispose();
     super.dispose();
   }
 
@@ -228,16 +281,23 @@ class _MasterCreateBookingScreenState
   }
 
   Future<void> _submit(String masterId) async {
-    final MasterService? service = _service;
     final DateTime? startAt = _startAt;
     final String? phone = toE164UaPhone(_phoneCtrl.text);
     // Defensive — unreachable via the normal flow: `confirm` is only reached
-    // once `_service`/`_startAt` are set, and `client`'s Next is disabled
-    // until the phone normalizes (see `ClientStep._canAdvance`).
-    if (service == null || startAt == null || phone == null) return;
+    // once at least one service is selected and `_startAt` is set, and
+    // `client`'s Next is disabled until the phone normalizes (see
+    // `ClientStep._canAdvance`).
+    if (_selectedServices.isEmpty || startAt == null || phone == null) return;
 
     final CreateMasterBookingRequest request = CreateMasterBookingRequest(
-      masterServiceId: service.id,
+      // PHASE 254/255 — the FULL ordered visit, not the `_primaryService`
+      // shim's one-element list. `MasterService.id` IS the master's own
+      // per-master assignment id already (see that field's doc), so no
+      // further id resolution is needed — the tap-order `_selectedServices`
+      // list maps straight onto the wire's ORDERED `masterServiceIds`.
+      masterServiceIds: <String>[
+        for (final MasterService s in _selectedServices) s.id,
+      ],
       startsAt: startAt,
       guest: WalkInGuest(
         name: _firstNameCtrl.text.trim(),
@@ -277,18 +337,20 @@ class _MasterCreateBookingScreenState
       case _BookingStep.service:
         return ServiceStep(
           key: const ValueKey<_BookingStep>(_BookingStep.service),
-          selectedServiceId: _service?.id,
-          // SELECT ONLY — no navigation. Advancing is the pinned «Далі»
-          // footer's job (see [_NextCtaFooter]); a tap that jumped straight to
-          // the next step gave the user no chance to see, or change, what they
-          // had picked.
-          onSelect: (MasterService s) => setState(() => _service = s),
+          // PHASE 253 — multi-select path. SELECT ONLY — no navigation.
+          // Advancing is the pinned [BookingSummaryBar] CTA's job (see
+          // `_buildBottomBar`); a tap that jumped straight to the next step
+          // gave the user no chance to see, or change, what they had picked.
+          selectedServiceIds: _selectionController,
+          onToggleService: _onToggleService,
         );
       case _BookingStep.dateTime:
         return DateTimeStep(
           key: const ValueKey<_BookingStep>(_BookingStep.dateTime),
           master: master,
-          service: _service!,
+          // PHASE 254 — the full ordered chain, not `_primaryService!`. See
+          // [DateTimeStep.services]' doc.
+          services: _selectedServices,
           stagedDate: _stagedDate,
           // SELECT ONLY — same reasoning as the service step above. No
           // `setState`: see [_stagedDate]'s doc for why the staged day is
@@ -298,7 +360,9 @@ class _MasterCreateBookingScreenState
       case _BookingStep.confirm:
         return ConfirmStep(
           key: const ValueKey<_BookingStep>(_BookingStep.confirm),
-          service: _service!,
+          // PHASE 255 — the full ordered chain, not `_primaryService!`. See
+          // [ConfirmStep.services]' doc.
+          services: _selectedServices,
           startAt: _startAt!,
           firstName: _firstNameCtrl.text.trim(),
           lastName: _lastNameCtrl.text.trim(),
@@ -373,11 +437,21 @@ class _MasterCreateBookingScreenState
   }) {
     switch (_step) {
       case _BookingStep.service:
-        return _NextCtaFooter(
-          buttonKey: const Key('master-create-booking-service-next'),
-          label: l10n.bookingNextCta,
-          enabled: _service != null,
-          onPressed: () => _goTo(_BookingStep.dateTime),
+        // PHASE 253 — [BookingSummaryBar] REUSED as this step's pinned
+        // footer (D5 of the phase doc): it renders the itemized selection +
+        // running «Разом» total AND the CTA together, which a bare
+        // `_NextCtaFooter` (the pre-phase footer) had no way to show. Same
+        // widget the client-facing `ServiceSelectorSheet` pins.
+        return BookingSummaryBar(
+          services: _selectedServices,
+          ctaLabel: l10n.bookingNextCta,
+          ctaIcon: Icons.arrow_forward_rounded,
+          enabled: _selectedServices.isNotEmpty,
+          onAction: () => _goTo(_BookingStep.dateTime),
+          // Same toggle the catalogue card uses, so both removal paths
+          // converge on identical end-state (mirrors
+          // `service_selector_sheet.dart`'s `onRemove` wiring).
+          onRemove: _onToggleService,
         );
       case _BookingStep.dateTime:
         if (inTimeSubPhase) {
@@ -417,7 +491,7 @@ class _MasterCreateBookingScreenState
     final AsyncValue<Master> masterAsync = ref.watch(masterProfileProvider);
 
     if (_step == _BookingStep.done) {
-      final MasterService? service = _service;
+      final MasterService? service = _primaryService;
       final DateTime? startAt = _startAt;
       if (service == null || startAt == null) {
         // Defensive — unreachable via the normal flow (see `_buildStep`).

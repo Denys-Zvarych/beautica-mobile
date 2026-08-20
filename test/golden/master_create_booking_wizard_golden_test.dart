@@ -67,6 +67,7 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
@@ -166,23 +167,33 @@ class _FakeSlotRepository implements SlotRepository {
 
 class _FakeBookingRepository implements BookingRepository {
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
-  ) async => Booking(
-    id: 'booking-1',
+  ) async => Appointment(
+    id: 'appt-1',
+    status: BookingStatus.confirmed,
     masterId: masterId,
     masterFirstName: _kMaster.firstName,
     masterLastName: _kMaster.lastName,
     masterType: 'INDEPENDENT_MASTER',
-    serviceId: request.masterServiceId,
-    serviceName: _kService.name,
-    durationMinutes: _kService.durationMinutes,
-    price: _kService.priceMin,
     startAt: request.startsAt,
     endAt: request.startsAt.add(Duration(minutes: _kService.durationMinutes)),
-    status: BookingStatus.confirmed,
-    canReview: false,
+    totalDurationMinutes: _kService.durationMinutes,
+    totalPrice: _kService.priceMin,
+    items: <AppointmentItem>[
+      AppointmentItem(
+        bookingId: 'booking-1',
+        masterServiceId: request.masterServiceIds.first,
+        serviceName: _kService.name,
+        startAt: request.startsAt,
+        endAt: request.startsAt.add(
+          Duration(minutes: _kService.durationMinutes),
+        ),
+        durationMinutes: _kService.durationMinutes,
+        price: _kService.priceMin,
+      ),
+    ],
   );
 
   @override
@@ -279,11 +290,16 @@ Future<void> _driveToService(WidgetTester tester) async {
 // Selection never navigates on this wizard (2026-08-20 UX fix) — every step
 // transition below is an explicit pinned-«Далі» press, matching
 // `master_create_booking_screen_test.dart`'s own helpers.
+//
+// PHASE 253 — the service step's footer is now the shared
+// [BookingSummaryBar] (key `booking-summary-cta`), not the bespoke
+// `master-create-booking-service-next` footer this wizard used before
+// multi-select.
 Future<void> _driveToDateTime(WidgetTester tester) async {
   await _driveToService(tester);
   await tester.tap(find.byKey(const Key('mcb_service_card_svc-1')));
   await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('master-create-booking-service-next')));
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
   await tester.pumpAndSettle();
 }
 

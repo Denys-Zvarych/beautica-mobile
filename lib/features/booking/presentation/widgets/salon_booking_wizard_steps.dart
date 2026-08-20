@@ -298,8 +298,8 @@ class SalonMastersStep extends ConsumerWidget {
 
   /// Fires once a slot is picked — [String] is the chosen master's OWN
   /// per-master `MasterServiceAssignment` id (`assignmentId`), the exact id
-  /// `CreateMasterBookingRequest.masterServiceId` needs — NEVER
-  /// `service.id`/`service.serviceDefId` (the salon-catalog id; see
+  /// `CreateMasterBookingRequest.masterServiceIds` needs one element of —
+  /// NEVER `service.id`/`service.serviceDefId` (the salon-catalog id; see
   /// `salon_master_schedule.dart`'s "ID-SPACE NOTE" for why the two id
   /// spaces must never be conflated).
   final void Function(

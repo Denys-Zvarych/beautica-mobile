@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/booking/application/salon_masters_roste
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
@@ -41,9 +42,12 @@ import 'package:beautica_mobile/features/salon/application/salon_service_catalog
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart'
+    show ServiceCard;
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_cta_footer.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart';
@@ -52,6 +56,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -93,6 +98,62 @@ const List<SalonServiceCategoryEntry> _kCatalog = <SalonServiceCategoryEntry>[
     services: <SalonCatalogService>[_kCatalogService],
   ),
 ];
+
+// PHASE 253 — multi-select fixtures: two more catalogue services in the
+// SAME category (three services marked / deselect / order-preservation), and
+// an 11-service catalogue (visit-selection cap).
+const SalonCatalogService _kCatalogService2 = SalonCatalogService(
+  id: 'salon-svc-2',
+  name: 'Педикюр',
+  durationLabel: '45 хв',
+  priceDisplay: '400 ₴',
+  durationMinutes: 45,
+  priceType: ServicePriceType.fixed,
+  priceMin: 400,
+);
+const SalonCatalogService _kCatalogService3 = SalonCatalogService(
+  id: 'salon-svc-3',
+  name: 'Покриття гель-лак',
+  durationLabel: '30 хв',
+  priceDisplay: '300 ₴',
+  durationMinutes: 30,
+  priceType: ServicePriceType.fixed,
+  priceMin: 300,
+);
+const List<SalonServiceCategoryEntry> _kMultiCatalog =
+    <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'NAILS',
+        displayName: 'Манікюр',
+        count: 3,
+        services: <SalonCatalogService>[
+          _kCatalogService,
+          _kCatalogService2,
+          _kCatalogService3,
+        ],
+      ),
+    ];
+
+List<SalonServiceCategoryEntry> _manySalonServicesCatalog(int n) =>
+    <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'NAILS',
+        displayName: 'Манікюр',
+        count: n,
+        services: <SalonCatalogService>[
+          for (int i = 0; i < n; i++)
+            SalonCatalogService(
+              id: 'salon-svc-cap-$i',
+              name: 'Послуга $i',
+              durationLabel: '30 хв',
+              priceDisplay: '100 ₴',
+              durationMinutes: 30,
+              priceType: ServicePriceType.fixed,
+              priceMin: 100,
+            ),
+        ],
+      ),
+    ];
 
 /// Master A offers the catalogue service (assignment id `assignment-a`);
 /// master B does not appear in the map at all — mirrors
@@ -168,29 +229,39 @@ class _FakeBookingRepository implements BookingRepository {
       <(String, CreateMasterBookingRequest)>[];
 
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) async {
     calls.add((masterId, request));
     final Object? err = errorToThrow;
     if (err != null) throw err;
-    return Booking(
-      id: 'booking-1',
+    return Appointment(
+      id: 'appt-1',
+      status: BookingStatus.confirmed,
       masterId: masterId,
       masterFirstName: _kMasterA.firstName,
       masterLastName: _kMasterA.lastName,
       masterType: 'SALON_MASTER',
-      serviceId: request.masterServiceId,
-      serviceName: _kCatalogService.name,
-      durationMinutes: _kCatalogService.durationMinutes!,
-      price: _kCatalogService.priceMin!,
       startAt: request.startsAt,
       endAt: request.startsAt.add(
         Duration(minutes: _kCatalogService.durationMinutes!),
       ),
-      status: BookingStatus.confirmed,
-      canReview: false,
+      totalDurationMinutes: _kCatalogService.durationMinutes!,
+      totalPrice: _kCatalogService.priceMin!,
+      items: <AppointmentItem>[
+        AppointmentItem(
+          bookingId: 'booking-1',
+          masterServiceId: request.masterServiceIds.first,
+          serviceName: _kCatalogService.name,
+          startAt: request.startsAt,
+          endAt: request.startsAt.add(
+            Duration(minutes: _kCatalogService.durationMinutes!),
+          ),
+          durationMinutes: _kCatalogService.durationMinutes!,
+          price: _kCatalogService.priceMin!,
+        ),
+      ],
     );
   }
 
@@ -319,8 +390,14 @@ Future<void> _fillClientStepAndAdvance(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// PHASE 253 — `service` is now multi-select, SELECT ONLY (no more
+/// auto-navigate on tap — see `salon_create_booking_screen.dart`'s file
+/// header). The card tap only marks the service selected; the pinned
+/// [BookingSummaryBar] CTA (key `booking-summary-cta`) is what advances.
 Future<void> _pickService(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-1')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
   await tester.pumpAndSettle();
 }
 
@@ -400,6 +477,180 @@ void main() {
         expect(
           find.text(l10n.salonCreateBookingServiceEmptyTitle),
           findsOneWidget,
+        );
+      },
+    );
+  });
+
+  // PHASE 253 — the salon wizard shares [ServiceStep]'s widened multi-select
+  // path with the master wizard (`master_create_booking_screen_test.dart`
+  // proves the exhaustive behaviour against the SAME shared widget). This
+  // group proves the SAME four cases wire correctly on this screen too.
+  group('SalonCreateBookingScreen — service step (PHASE 253 multi-select)', () {
+    testWidgets(
+      'tapping three services marks three cards; tapping one again unmarks '
+      'it; the CTA is disabled at zero selections',
+      (tester) async {
+        await _pump(tester, catalog: _kMultiCatalog);
+        await _fillClientStepAndAdvance(tester);
+
+        final Finder next = find.byKey(const Key('booking-summary-cta'));
+        expect(tester.widget<NeumorphicButton>(next).onPressed, isNull);
+
+        for (final String id in <String>[
+          'salon-svc-1',
+          'salon-svc-2',
+          'salon-svc-3',
+        ]) {
+          await tester.tap(find.byKey(Key('mcb_service_card_$id')));
+          await tester.pump();
+        }
+        for (final String id in <String>[
+          'salon-svc-1',
+          'salon-svc-2',
+          'salon-svc-3',
+        ]) {
+          expect(
+            tester
+                .widget<ServiceCard>(find.byKey(Key('mcb_service_card_$id')))
+                .selected,
+            isTrue,
+          );
+        }
+        expect(tester.widget<NeumorphicButton>(next).onPressed, isNotNull);
+
+        await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-2')));
+        await tester.pump();
+        expect(
+          tester
+              .widget<ServiceCard>(
+                find.byKey(const Key('mcb_service_card_salon-svc-2')),
+              )
+              .selected,
+          isFalse,
+        );
+
+        await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-1')));
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-3')));
+        await tester.pump();
+        expect(tester.widget<NeumorphicButton>(next).onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      'the visit-selection cap: an 11th add is refused with a friendly '
+      'VelvetSnack and the selection stays at maxServicesPerVisit',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 8000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await _pump(tester, catalog: _manySalonServicesCatalog(11));
+        await _fillClientStepAndAdvance(tester);
+
+        for (int i = 0; i < 11; i++) {
+          await tester.tap(
+            find.byKey(Key('mcb_service_card_salon-svc-cap-$i')),
+          );
+          await tester.pump();
+        }
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonCreateBookingScreen)),
+        );
+        expectVelvetSnack(
+          l10n.bookingMaxServicesReached(maxServicesPerVisit),
+          variant: VelvetSnackVariant.warning,
+        );
+        await pumpPastVelvetSnack(tester);
+
+        int selectedCount = 0;
+        for (int i = 0; i < 11; i++) {
+          if (tester
+              .widget<ServiceCard>(
+                find.byKey(Key('mcb_service_card_salon-svc-cap-$i')),
+              )
+              .selected) {
+            selectedCount++;
+          }
+        }
+        expect(selectedCount, maxServicesPerVisit);
+      },
+    );
+
+    testWidgets(
+      'de-selecting still works while at the cap (the guard only fires on '
+      'an ADD)',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 8000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await _pump(tester, catalog: _manySalonServicesCatalog(11));
+        await _fillClientStepAndAdvance(tester);
+
+        for (int i = 0; i < 10; i++) {
+          await tester.tap(
+            find.byKey(Key('mcb_service_card_salon-svc-cap-$i')),
+          );
+          await tester.pump();
+        }
+        await tester.tap(
+          find.byKey(const Key('mcb_service_card_salon-svc-cap-0')),
+        );
+        await tester.pump();
+
+        expect(
+          tester
+              .widget<ServiceCard>(
+                find.byKey(const Key('mcb_service_card_salon-svc-cap-0')),
+              )
+              .selected,
+          isFalse,
+        );
+        expect(find.byType(VelvetSnack), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'selection order is TAP order, not catalogue order, and survives into '
+      'the BookingSummaryBar itemized shelf',
+      (tester) async {
+        await _pump(tester, catalog: _kMultiCatalog);
+        await _fillClientStepAndAdvance(tester);
+
+        for (final String id in <String>[
+          'salon-svc-3',
+          'salon-svc-1',
+          'salon-svc-2',
+        ]) {
+          await tester.tap(find.byKey(Key('mcb_service_card_$id')));
+          await tester.pump();
+        }
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-expand-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        final double y3 = tester
+            .getTopLeft(find.byKey(const ValueKey<String>('salon-svc-3')))
+            .dy;
+        final double y1 = tester
+            .getTopLeft(find.byKey(const ValueKey<String>('salon-svc-1')))
+            .dy;
+        final double y2 = tester
+            .getTopLeft(find.byKey(const ValueKey<String>('salon-svc-2')))
+            .dy;
+        expect(
+          y3 < y1 && y1 < y2,
+          isTrue,
+          reason:
+              'the itemized shelf must render in TAP order (3, 1, 2), got '
+              'y3=$y3 y1=$y1 y2=$y2',
         );
       },
     );
@@ -886,8 +1137,8 @@ void main() {
       final (String masterId, CreateMasterBookingRequest sent) =
           fakeBookings.calls.single;
       expect(masterId, 'master-a');
-      expect(sent.masterServiceId, 'assignment-a');
-      expect(sent.masterServiceId, isNot('salon-svc-1'));
+      expect(sent.masterServiceIds, ['assignment-a']);
+      expect(sent.masterServiceIds, isNot(contains('salon-svc-1')));
       expect(sent.startsAt, _kSlot.startAt);
       expect(sent.guest.name, 'Марина');
       expect(sent.guest.surname, 'Кравчук');

@@ -33,6 +33,42 @@
 // model it feeds. Add it back the moment a backend phase actually ships it on
 // the wire — see `HttpBookingRepository.createMasterBooking`'s doc.
 //
+// ## Phase 252 — `masterServiceId` (scalar) → `masterServiceIds` (ordered list)
+//
+// The backend contract for `POST /api/v1/masters/{masterId}/bookings` became
+// visit-shaped (backend track 22.8–22.16, `263afe5`): the request now carries
+// an ORDERED, non-empty `masterServiceIds` array (`maxItems: 10`, mirroring
+// `MAX_SERVICES_PER_VISIT`), and the 201 response is the full
+// `AppointmentDetailResponse` (one visit header + N chained bookings) rather
+// than a single lean `BookingResponse` — see `HttpBookingRepository
+// .createMasterBooking`'s doc for the response-side change.
+//
+// [masterServiceIds] preserves this exact order and DUPLICATES are legal (the
+// same service twice is a valid visit) — mirrors the CLIENT multi-service
+// analogue, `CreateAppointmentRequest.masterServiceIds`
+// (`create_appointment_request.dart`). Never sort or de-duplicate it anywhere
+// on this request's path.
+//
+// ## Emptiness/cap validation lives in the REPOSITORY, not here
+//
+// The backend caps this list at 10 (`maxServicesPerVisit`,
+// `data/slot_repository.dart:41`) and rejects an empty one. The obvious place
+// to fail fast on both is right here, at construction — but
+// `maxServicesPerVisit` lives in a `data/` file that imports
+// `package:flutter/foundation.dart` (for `kDebugMode`), and this file is pure
+// Dart with no Flutter dependency, deliberately (see the file's closing
+// paragraph) — `domain/` never imports `data/` of the same feature (the
+// layering is one-directional: `data/` → `domain/`, never the reverse).
+// Duplicating the cap as a second walk-in-specific constant would drift from
+// the canonical one the phase doc explicitly forbids introducing. So the
+// guard lives at `HttpBookingRepository.createMasterBooking`'s wire boundary
+// instead — BEFORE the HTTP call, using the SAME canonical
+// `maxServicesPerVisit` (a `data/`→`data/` import, which is legal) — which
+// gives the identical practical guarantee the phase doc's rationale asks for
+// ("a malformed request cannot reach the wire and come back as an opaque
+// 400"), without breaking this file's pure-Dart contract. See that method's
+// doc for the exact guard.
+//
 // ## Why plain `freezed`, not `freezed` + `json_serializable`
 //
 // The phase doc's model section says "freezed + json_serializable", matching
@@ -82,8 +118,15 @@ const int kWalkInGuestNameMaxLength = 100;
 @freezed
 abstract class CreateMasterBookingRequest with _$CreateMasterBookingRequest {
   const factory CreateMasterBookingRequest({
-    /// The `MasterService` (assignment) id the master performs — required.
-    required String masterServiceId,
+    /// The ordered `MasterService` (assignment) ids the master performs, back
+    /// to back, in this visit — required, non-empty, capped at
+    /// [maxServicesPerVisit] (`data/slot_repository.dart`). ORDER IS THE
+    /// PERFORMANCE ORDER the backend chains the visit's bookings on, starting
+    /// at [startsAt]; duplicates are legal (the same service twice is a valid
+    /// visit) — never sort or de-duplicate. See the file header's "Phase 252"
+    /// section for the emptiness/cap validation, which lives in
+    /// `HttpBookingRepository.createMasterBooking`, not here.
+    required List<String> masterServiceIds,
 
     /// The chosen appointment start.
     ///

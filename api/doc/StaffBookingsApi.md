@@ -9,15 +9,15 @@ All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**createStaffBooking**](StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in booking on a master&#39;s calendar
+[**createStaffBooking**](StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 
 
 # **createStaffBooking**
-> ApiResponseBookingResponse createStaffBooking(masterId, createStaffBookingRequest)
+> ApiResponseAppointmentDetailResponse createStaffBooking(masterId, createStaffBookingRequest)
 
-Create a walk-in booking on a master's calendar
+Create a walk-in visit on a master's calendar
 
-Salon owners and admins may book any master of the salon they manage; an independent master may book only themselves. The salon the booking is scoped to is derived from the caller, never from the request. The booking is created CONFIRMED with source STAFF, no cancel token, and created_by_user_id set to the caller. The guest phone is normalised to E.164 server-side; non-Ukrainian numbers are rejected.  A confirmation SMS is dispatched to that phone number after the booking is committed, subject to the platform-wide app.booking.sms.enabled switch. Delivery is best-effort: it never changes the response, and no field here reports whether a message was sent. No push or email notification is sent by this endpoint.
+Salon owners and admins may book any master of the salon they manage; an independent master may book only themselves. The salon the booking is scoped to is derived from the caller, never from the request. The visit is created as ONE appointment header plus ONE booking per selected service, all CONFIRMED, source STAFF, no cancel token, and created_by_user_id set to the caller on the header AND every booking. Each service is cancelled, rescheduled, declined and reviewed INDEPENDENTLY of its siblings — creating a visit never implies a whole-visit cascade for any later transition. The guest phone is normalised to E.164 server-side; non-Ukrainian numbers are rejected.  Exactly ONE confirmation SMS is dispatched to that phone number after the visit is committed, regardless of how many services it contains, subject to the platform-wide app.booking.sms.enabled switch. Delivery is best-effort: it never changes the response, and no field here reports whether a message was sent. No push or email notification is sent by this endpoint.
 
 ### Example
 ```dart
@@ -44,7 +44,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**ApiResponseBookingResponse**](ApiResponseBookingResponse.md)
+[**ApiResponseAppointmentDetailResponse**](ApiResponseAppointmentDetailResponse.md)
 
 ### Authorization
 

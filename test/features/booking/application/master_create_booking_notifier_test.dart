@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/booking/application/master_create_booki
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
@@ -40,41 +41,36 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
-/// A minimal enriched [Booking] fixture — [MasterCreateBookingNotifier]
-/// never reads any field off the result (submit state is `void`), so only
-/// the shape needs to satisfy the return type.
-Booking _bookingFixture() => Booking(
-  id: 'booking-1',
+/// A minimal enriched [Appointment] fixture (Phase 252 — the endpoint's
+/// response widened from a lean `Booking` to the full visit) —
+/// [MasterCreateBookingNotifier] never reads any field off the result (submit
+/// state is `void`), so only the shape needs to satisfy the return type.
+Appointment _appointmentFixture() => Appointment(
+  id: 'appt-1',
+  status: BookingStatus.confirmed,
   masterId: 'master-1',
   masterFirstName: 'Марія',
   masterLastName: 'Іванюк',
-  masterAvatarUrl: null,
   masterType: 'INDEPENDENT_MASTER',
-  salonName: null,
-  serviceId: 'service-1',
-  serviceName: 'Манікюр',
-  categoryName: 'Манікюр',
-  cityLabel: 'Львів',
-  districtLabel: null,
-  street: null,
-  buildingNo: null,
-  durationMinutes: 60,
-  price: 500,
   startAt: DateTime.utc(2000, 1, 1, 11),
   endAt: DateTime.utc(2000, 1, 1, 12),
-  status: BookingStatus.confirmed,
-  canReview: false,
-  providerCanReviewClient: false,
-  clientComment: null,
-  providerComment: null,
-  clientCancellationNote: null,
-  masterProfessionalTitle: null,
-  locationNote: null,
-  awaitingClosure: false,
+  totalDurationMinutes: 60,
+  totalPrice: 500,
+  items: <AppointmentItem>[
+    AppointmentItem(
+      bookingId: 'booking-1',
+      masterServiceId: 'service-1',
+      serviceName: 'Манікюр',
+      startAt: DateTime.utc(2000, 1, 1, 11),
+      endAt: DateTime.utc(2000, 1, 1, 12),
+      durationMinutes: 60,
+      price: 500,
+    ),
+  ],
 );
 
 final CreateMasterBookingRequest _request = CreateMasterBookingRequest(
-  masterServiceId: 'service-1',
+  masterServiceIds: <String>['service-1'],
   startsAt: DateTime.utc(2000, 1, 1, 11),
   guest: const WalkInGuest(
     name: 'Іван',
@@ -158,7 +154,7 @@ void main() {
     _stubDayFetch(repo);
     when(
       () => repo.createMasterBooking(any(), any()),
-    ).thenAnswer((_) async => _bookingFixture());
+    ).thenAnswer((_) async => _appointmentFixture());
 
     int bookedDaysFetches = 0;
     final ProviderContainer c = ProviderContainer(
@@ -209,7 +205,7 @@ void main() {
     _stubDayFetch(repo);
     when(
       () => repo.createMasterBooking(any(), any()),
-    ).thenAnswer((_) async => _bookingFixture());
+    ).thenAnswer((_) async => _appointmentFixture());
 
     // Instantiate + subscribe to a LIVE bookingsDayProvider member BEFORE
     // submit — invalidating a family with no active listener is a
@@ -271,7 +267,7 @@ void main() {
     'submit(): a second call while the first is still in flight is a NO-OP '
     '— the repository is called exactly ONCE, not merely "no exception"',
     () async {
-      final completer = Completer<Booking>();
+      final completer = Completer<Appointment>();
       when(
         () => repo.createMasterBooking(any(), any()),
       ).thenAnswer((_) => completer.future);
@@ -294,7 +290,7 @@ void main() {
         request: _request,
       );
 
-      completer.complete(_bookingFixture());
+      completer.complete(_appointmentFixture());
       await first;
       await second;
 

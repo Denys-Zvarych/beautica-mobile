@@ -248,7 +248,7 @@ void main() {
     registerFallbackValue(
       CreateStaffBookingRequest(
         (b) => b
-          ..masterServiceId = 'fallback-service'
+          ..masterServiceIds.replace(<String>['fallback-service'])
           ..startsAt = DateTime.utc(2026, 1, 1)
           ..guest.name = 'fallback-name'
           ..guest.surname = 'fallback-surname'
@@ -586,17 +586,72 @@ void main() {
     // `.toUtc()` under `TZ=UTC`, masking exactly that bug.
     final DateTime kyivStart = tz.TZDateTime(beauticaZone, 2026, 7, 10, 14);
 
-    final req = CreateMasterBookingRequest(
-      masterServiceId: 'service-1',
-      startsAt: kyivStart,
-      guest: const WalkInGuest(
-        name: 'Іван',
-        surname: 'Петренко',
-        phone: '+380501234567',
+    CreateMasterBookingRequest buildReq({List<String>? masterServiceIds}) =>
+        CreateMasterBookingRequest(
+          masterServiceIds: masterServiceIds ?? const <String>['service-1'],
+          startsAt: kyivStart,
+          guest: const WalkInGuest(
+            name: 'Іван',
+            surname: 'Петренко',
+            phone: '+380501234567',
+          ),
+        );
+
+    final req = buildReq();
+
+    // Phase 252 — the 201 body is now the full `AppointmentDetailResponse`
+    // (one visit header + N items), not the lean `BookingResponse` a
+    // follow-up `getBookingById` used to enrich. Fixture shape mirrors
+    // `appointment_repository_test.dart`'s `_buildItem`/`_buildDetail` —
+    // REUSED pattern, not reinvented.
+    AppointmentItemResponse buildStaffItem({
+      String bookingId = 'booking-1',
+      String masterServiceId = 'service-1',
+    }) =>
+        (AppointmentItemResponseBuilder()
+              ..bookingId = bookingId
+              ..masterServiceId = masterServiceId
+              ..serviceName = 'Манікюр'
+              ..startsAt = DateTime.utc(2026, 7, 10, 11)
+              ..endsAt = DateTime.utc(2026, 7, 10, 12)
+              ..durationMinutesAtBooking = 60
+              ..priceAtBooking = 500)
+            .build();
+
+    AppointmentDetailResponse buildStaffAppointment({
+      String id = 'appt-1',
+      List<AppointmentItemResponse>? items,
+    }) =>
+        (AppointmentDetailResponseBuilder()
+              ..id = id
+              ..status = AppointmentDetailResponseStatusEnum.CONFIRMED
+              ..masterId = 'master-1'
+              ..masterFirstName = 'Оля'
+              ..masterLastName = 'Коваль'
+              ..masterType =
+                  AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+              ..startsAt = DateTime.utc(2026, 7, 10, 11)
+              ..endsAt = DateTime.utc(2026, 7, 10, 12)
+              ..totalDurationMinutes = 60
+              ..totalPrice = 500
+              ..items = ListBuilder<AppointmentItemResponse>(
+                items ?? <AppointmentItemResponse>[buildStaffItem()],
+              ))
+            .build();
+
+    Response<ApiResponseAppointmentDetailResponse> staffDetailResponse(
+      AppointmentDetailResponse dto,
+    ) => Response<ApiResponseAppointmentDetailResponse>(
+      data: ApiResponseAppointmentDetailResponse(
+        (b) => b
+          ..data.replace(dto)
+          ..success = true,
       ),
+      requestOptions: RequestOptions(path: staffBookingPath),
+      statusCode: 201,
     );
 
-    void stubCreate(Response<ApiResponseBookingResponse> response) {
+    void stubCreate(Response<ApiResponseAppointmentDetailResponse> response) {
       when(
         () => staffBookingsApi.createStaffBooking(
           masterId: any(named: 'masterId'),
@@ -625,67 +680,155 @@ void main() {
           ),
         );
 
-    test(
-      'success: creates then fetches the enriched detail via getBookingById, '
-      'and normalises startsAt to a correct UTC offset on the wire',
-      () async {
-        stubCreate(
-          Response<ApiResponseBookingResponse>(
-            data: ApiResponseBookingResponse(
-              (b) => b
-                ..data.replace(BookingResponse((br) => br..id = 'booking-1'))
-                ..success = true,
-            ),
-            requestOptions: RequestOptions(path: staffBookingPath),
-            statusCode: 201,
+    test('success: maps the AppointmentDetailResponse directly (no follow-up '
+        'getBookingById), and normalises startsAt to a correct UTC offset on '
+        'the wire', () async {
+      stubCreate(staffDetailResponse(buildStaffAppointment()));
+
+      final appointment = await repository.createMasterBooking('master-1', req);
+
+      expect(appointment.id, 'appt-1');
+      expect(appointment.status, BookingStatus.confirmed);
+      expect(appointment.items, hasLength(1));
+      expect(appointment.items.single.masterServiceId, 'service-1');
+
+      final captured = verify(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: captureAny(named: 'masterId'),
+          createStaffBookingRequest: captureAny(
+            named: 'createStaffBookingRequest',
           ),
-        );
-        when(
-          () => bookingApi.getBooking(bookingId: 'booking-1'),
-        ).thenAnswer((_) async => _detailResponse(_buildDetailDto()));
+        ),
+      ).captured;
+      expect(captured[0], 'master-1');
+      final capturedBody = captured[1] as CreateStaffBookingRequest;
+      expect(capturedBody.masterServiceIds, <String>['service-1']);
+      expect(capturedBody.guest.name, 'Іван');
+      expect(capturedBody.guest.surname, 'Петренко');
+      expect(capturedBody.guest.phone, '+380501234567');
+      // The generated Iso8601DateTimeSerializer THROWS on a non-UTC
+      // DateTime at real serialization time, so a captured value at all
+      // already proves `.isUtc` — asserted explicitly anyway, plus the
+      // actual instant, to also catch a wrong-DIRECTION offset shift
+      // (e.g. adding instead of subtracting the +3 offset).
+      expect(capturedBody.startsAt.isUtc, isTrue);
+      expect(capturedBody.startsAt, DateTime.utc(2026, 7, 10, 11));
 
-        final booking = await repository.createMasterBooking('master-1', req);
+      // No enrichment follow-up any more — the 201 body IS the enriched
+      // shape.
+      verifyNever(
+        () => bookingApi.getBooking(bookingId: any(named: 'bookingId')),
+      );
+    });
 
-        expect(booking.id, 'booking-1');
-        expect(booking.status, BookingStatus.confirmed);
-
-        final captured = verify(
-          () => staffBookingsApi.createStaffBooking(
-            masterId: captureAny(named: 'masterId'),
-            createStaffBookingRequest: captureAny(
-              named: 'createStaffBookingRequest',
-            ),
+    // mutation-check RED: swap the mapper's `..masterServiceIds.replace(...)`
+    // for `..masterServiceIds.replace(req.masterServiceIds.toSet().toList())`
+    // (or add a `..sort()`) and this goes red — proves the wire body
+    // preserves ORDER and DUPLICATES rather than silently de-duplicating or
+    // re-sorting them.
+    test('sends masterServiceIds on the wire in the EXACT given order, '
+        'duplicates included — never sorted or de-duplicated', () async {
+      final multiReq = buildReq(
+        masterServiceIds: const <String>[
+          'service-c',
+          'service-a',
+          'service-a',
+          'service-b',
+        ],
+      );
+      stubCreate(
+        staffDetailResponse(
+          buildStaffAppointment(
+            items: <AppointmentItemResponse>[
+              buildStaffItem(bookingId: 'b-1', masterServiceId: 'service-c'),
+              buildStaffItem(bookingId: 'b-2', masterServiceId: 'service-a'),
+              buildStaffItem(bookingId: 'b-3', masterServiceId: 'service-a'),
+              buildStaffItem(bookingId: 'b-4', masterServiceId: 'service-b'),
+            ],
           ),
-        ).captured;
-        expect(captured[0], 'master-1');
-        final capturedBody = captured[1] as CreateStaffBookingRequest;
-        expect(capturedBody.masterServiceId, 'service-1');
-        expect(capturedBody.guest.name, 'Іван');
-        expect(capturedBody.guest.surname, 'Петренко');
-        expect(capturedBody.guest.phone, '+380501234567');
-        // The generated Iso8601DateTimeSerializer THROWS on a non-UTC
-        // DateTime at real serialization time, so a captured value at all
-        // already proves `.isUtc` — asserted explicitly anyway, plus the
-        // actual instant, to also catch a wrong-DIRECTION offset shift
-        // (e.g. adding instead of subtracting the +3 offset).
-        expect(capturedBody.startsAt.isUtc, isTrue);
-        expect(capturedBody.startsAt, DateTime.utc(2026, 7, 10, 11));
+        ),
+      );
 
-        verify(() => bookingApi.getBooking(bookingId: 'booking-1')).called(1);
-      },
-    );
+      await repository.createMasterBooking('master-1', multiReq);
 
-    test('403 → MasterBookingNotPermittedFailure — the follow-up detail '
-        'fetch never runs', () async {
+      final capturedBody =
+          verify(
+                () => staffBookingsApi.createStaffBooking(
+                  masterId: any(named: 'masterId'),
+                  createStaffBookingRequest: captureAny(
+                    named: 'createStaffBookingRequest',
+                  ),
+                ),
+              ).captured.single
+              as CreateStaffBookingRequest;
+      expect(capturedBody.masterServiceIds, <String>[
+        'service-c',
+        'service-a',
+        'service-a',
+        'service-b',
+      ]);
+    });
+
+    test('empty masterServiceIds → ArgumentError, no HTTP call made (spec-'
+        'fidelity guard: the published schema renders minItems: 0 even though '
+        'the backend enforces @NotEmpty server-side)', () async {
+      final emptyReq = buildReq(masterServiceIds: const <String>[]);
+
+      expect(
+        () => repository.createMasterBooking('master-1', emptyReq),
+        throwsArgumentError,
+      );
+
+      verifyNever(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      );
+    });
+
+    test('11 masterServiceIds (over the maxServicesPerVisit=10 cap) → '
+        'ArgumentError, no HTTP call made', () async {
+      final overCapReq = buildReq(
+        masterServiceIds: List<String>.generate(11, (i) => 'service-$i'),
+      );
+
+      expect(
+        () => repository.createMasterBooking('master-1', overCapReq),
+        throwsArgumentError,
+      );
+
+      verifyNever(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      );
+    });
+
+    test('exactly 10 masterServiceIds (at the cap) → accepted, HTTP call '
+        'made', () async {
+      final atCapReq = buildReq(
+        masterServiceIds: List<String>.generate(10, (i) => 'service-$i'),
+      );
+      stubCreate(staffDetailResponse(buildStaffAppointment()));
+
+      await repository.createMasterBooking('master-1', atCapReq);
+
+      verify(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      ).called(1);
+    });
+
+    test('403 → MasterBookingNotPermittedFailure', () async {
       stubCreateThrows(badResponse(403));
 
       await expectLater(
         repository.createMasterBooking('master-1', req),
         throwsA(isA<MasterBookingNotPermittedFailure>()),
-      );
-
-      verifyNever(
-        () => bookingApi.getBooking(bookingId: any(named: 'bookingId')),
       );
     });
 
@@ -765,10 +908,10 @@ void main() {
       );
     });
 
-    test('response with null id → ServerFailure(null)', () async {
+    test('response with null data → ServerFailure(null)', () async {
       stubCreate(
-        Response<ApiResponseBookingResponse>(
-          data: ApiResponseBookingResponse((b) => b..success = true),
+        Response<ApiResponseAppointmentDetailResponse>(
+          data: ApiResponseAppointmentDetailResponse((b) => b..success = true),
           requestOptions: RequestOptions(path: staffBookingPath),
           statusCode: 201,
         ),

@@ -76,6 +76,7 @@ import 'package:beautica_mobile/features/booking/application/booked_days_notifie
 import 'package:beautica_mobile/features/booking/application/master_create_booking_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -151,8 +152,41 @@ Booking _walkIn() {
   );
 }
 
+/// The `createMasterBooking` mock's return value — its contents are never
+/// asserted (the notifier discards the result; see
+/// `master_create_booking_notifier.dart`'s "`value == null`" section), only
+/// [dayRows] (rebuilt from [_walkIn]) is. A minimal, internally-consistent
+/// [Appointment] is enough.
+Appointment _walkInAppointment() {
+  final DateTime start = _kyivAtUtc(11);
+  final DateTime end = start.add(const Duration(minutes: 60));
+  return Appointment(
+    id: 'appt-$_kWalkInId',
+    status: BookingStatus.confirmed,
+    masterId: 'master-1',
+    masterFirstName: 'Оля',
+    masterLastName: 'Коваль',
+    masterType: 'INDEPENDENT_MASTER',
+    startAt: start,
+    endAt: end,
+    totalDurationMinutes: 60,
+    totalPrice: 500,
+    items: <AppointmentItem>[
+      AppointmentItem(
+        bookingId: _kWalkInId,
+        masterServiceId: 'svc-1',
+        serviceName: 'Манікюр',
+        startAt: start,
+        endAt: end,
+        durationMinutes: 60,
+        price: 500,
+      ),
+    ],
+  );
+}
+
 final CreateMasterBookingRequest _request = CreateMasterBookingRequest(
-  masterServiceId: 'svc-1',
+  masterServiceIds: <String>['svc-1'],
   startsAt: _kyivAtUtc(11),
   guest: const WalkInGuest(
     name: 'Ірина',
@@ -232,7 +266,7 @@ void main() {
     when(() => repo.createMasterBooking(any(), any())).thenAnswer((_) async {
       // The server-side effect the master is waiting to see reflected.
       dayRows = <Booking>[_walkIn()];
-      return _walkIn();
+      return _walkInAppointment();
     });
   });
 

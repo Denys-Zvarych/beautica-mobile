@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
@@ -149,7 +150,7 @@ class _FakeBookingRepository implements BookingRepository {
   );
 
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError();

@@ -327,7 +327,7 @@ class _RecordingRescheduleRepository implements BookingRepository {
       throw UnimplementedError();
 
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError();

@@ -20,7 +20,6 @@ import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
-import 'package:beautica_api/src/model/api_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_category_request_response.dart';
 import 'package:beautica_api/src/model/api_response_client_review_response.dart';
 import 'package:beautica_api/src/model/api_response_contact_support_response.dart';
@@ -236,7 +235,6 @@ part 'serializers.g.dart';
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
   ApiResponseBookingDetailResponse,
-  ApiResponseBookingResponse,
   ApiResponseCategoryRequestResponse,
   ApiResponseClientReviewResponse,
   ApiResponseContactSupportResponse,

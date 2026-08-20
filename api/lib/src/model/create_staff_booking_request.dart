@@ -4,6 +4,7 @@
 
 // ignore_for_file: unused_element
 import 'package:beautica_api/src/model/guest_client_dto.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -12,16 +13,16 @@ part 'create_staff_booking_request.g.dart';
 /// Creates a CONFIRMED, STAFF-sourced booking for a walk-in client on a master's calendar.
 ///
 /// Properties:
-/// * [masterServiceId] - MasterService (assignment) id the master performs.
+/// * [masterServiceIds] - Ordered services performed back-to-back by this master, in the order they are performed. Duplicates are permitted — the same service twice is a valid visit. The chain starts at startsAt; each subsequent service begins when the previous one's effective duration plus its own after-buffer has elapsed.
 /// * [startsAt] - ISO-8601 start instant; must land on the master's real slot grid.
 /// * [guest]
 @BuiltValue()
 abstract class CreateStaffBookingRequest
     implements
         Built<CreateStaffBookingRequest, CreateStaffBookingRequestBuilder> {
-  /// MasterService (assignment) id the master performs.
-  @BuiltValueField(wireName: r'masterServiceId')
-  String get masterServiceId;
+  /// Ordered services performed back-to-back by this master, in the order they are performed. Duplicates are permitted — the same service twice is a valid visit. The chain starts at startsAt; each subsequent service begins when the previous one's effective duration plus its own after-buffer has elapsed.
+  @BuiltValueField(wireName: r'masterServiceIds')
+  BuiltList<String> get masterServiceIds;
 
   /// ISO-8601 start instant; must land on the master's real slot grid.
   @BuiltValueField(wireName: r'startsAt')
@@ -60,10 +61,10 @@ class _$CreateStaffBookingRequestSerializer
     CreateStaffBookingRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'masterServiceId';
+    yield r'masterServiceIds';
     yield serializers.serialize(
-      object.masterServiceId,
-      specifiedType: const FullType(String),
+      object.masterServiceIds,
+      specifiedType: const FullType(BuiltList, [FullType(String)]),
     );
     yield r'startsAt';
     yield serializers.serialize(
@@ -100,12 +101,12 @@ class _$CreateStaffBookingRequestSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'masterServiceId':
+        case r'masterServiceIds':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.masterServiceId = valueDes;
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.masterServiceIds.replace(valueDes);
           break;
         case r'startsAt':
           final valueDes = serializers.deserialize(

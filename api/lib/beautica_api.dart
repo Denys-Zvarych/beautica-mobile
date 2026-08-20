@@ -42,7 +42,6 @@ export 'package:beautica_api/src/model/api_response_auth_response.dart';
 export 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 export 'package:beautica_api/src/model/api_response_avatar_response.dart';
 export 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
-export 'package:beautica_api/src/model/api_response_booking_response.dart';
 export 'package:beautica_api/src/model/api_response_category_request_response.dart';
 export 'package:beautica_api/src/model/api_response_client_review_response.dart';
 export 'package:beautica_api/src/model/api_response_contact_support_response.dart';

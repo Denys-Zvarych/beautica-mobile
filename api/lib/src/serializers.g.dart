@@ -14,7 +14,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseAvailableSlotsResponse.serializer)
       ..add(ApiResponseAvatarResponse.serializer)
       ..add(ApiResponseBookingDetailResponse.serializer)
-      ..add(ApiResponseBookingResponse.serializer)
       ..add(ApiResponseCategoryRequestResponse.serializer)
       ..add(ApiResponseClientReviewResponse.serializer)
       ..add(ApiResponseContactSupportResponse.serializer)
@@ -486,6 +485,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(TimelineItemResponse)]),
           () => ListBuilder<TimelineItemResponse>())
@@ -549,10 +551,6 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
-      ..addBuilderFactory(
-          const FullType(
-              BuiltMap, const [const FullType(String), const FullType(String)]),
-          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
