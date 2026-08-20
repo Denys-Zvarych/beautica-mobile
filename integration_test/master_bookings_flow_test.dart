@@ -72,6 +72,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_create_booking_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
@@ -80,7 +81,6 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_boo
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
@@ -97,7 +97,6 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
-import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 import 'support/pager_drag.dart';
 
@@ -108,14 +107,6 @@ import 'support/pager_drag.dart';
 /// ancestor any more — see the R3 fix in `bookings_timeline_grid.dart`).
 Rect _masterCardRect(WidgetTester tester, String bookingId) =>
     tester.getRect(find.byKey(ValueKey<String>('timeline-card-$bookingId')));
-
-/// Resolves the localisation instance off a MOUNTED screen's own element —
-/// mirrors `client_leave_review_flow_test.dart`'s identically-named helper.
-/// Lets a flow assert against `l10n.<key>` (locale-invariant, rename-proof)
-/// instead of a Cyrillic literal, without threading a `BuildContext` through
-/// every test body.
-AppLocalizations _l10nOf(WidgetTester tester, Type screen) =>
-    AppLocalizations.of(tester.element(find.byType(screen)));
 
 /// Kyiv "today" **as the app under test computes it** — derived from the
 /// harness's INJECTED clock (`kFixedNow`, 2026-06-14 12:00 UTC), never from
@@ -1991,43 +1982,41 @@ void main() {
     },
   );
 
-  // ── 2026-07-22 — the header's «+» add-booking affordance ───────────────────
+  // ── Phase 248 — the header's «+» add-booking affordance ─────────────────────
   //
-  // Step 2.7 Rule 3b: `_showAddComingSoon` (`bookings_discovery_view.dart`)
-  // reads `AppLocalizations` off a REAL `BuildContext` and shows through the
-  // REAL root `Overlay` — the widget tier can prove the callback fires
-  // against a mocked notifier, but not that the real chrome (a real
-  // `MaterialApp`-hosted `Overlay`, behind a real login) actually surfaces
-  // the VelvetSnack.
-  testWidgets(
-    'the «+» add-booking affordance shows a coming-soon VelvetSnack',
-    (tester) async {
-      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
-      final GoRouter router = await AppHarness.boot(tester, fb);
-      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-      await AppHarness.settle(tester);
-      expect(find.byType(MasterBookingsScreen), findsOneWidget);
-      expect(
-        AppHarness.location(router),
-        startsWith(RouteNames.masterBookings),
-      );
+  // Used to show a "coming soon" VelvetSnack (`_showAddComingSoon`) — Phase
+  // 248 replaced that placeholder with a real
+  // `context.push(RouteNames.masterBookingNew)` into the Phase 247 walk-in
+  // wizard. This test now pins reachability only (a real `MaterialApp`-hosted
+  // `GoRouter`, behind a real login, behind the real `master-bookings-add`
+  // key — none of which the widget tier can prove). The FULL round trip
+  // (fill client → pick service → pick date/slot → confirm → done → pop →
+  // the new booking visible in the refetched list, including the
+  // paused-consumer Riverpod invalidation trap) is covered end to end by
+  // `master_create_booking_test.dart`, registered as its own standalone
+  // integration file rather than folded in here.
+  testWidgets('the «+» add-booking affordance opens the walk-in wizard', (
+    tester,
+  ) async {
+    final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+    await AppHarness.settle(tester);
+    expect(find.byType(MasterBookingsScreen), findsOneWidget);
+    expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
 
-      final AppLocalizations l10n = _l10nOf(tester, MasterBookingsScreen);
+    await tester.tap(find.byKey(const Key('master-bookings-add')));
+    await AppHarness.settle(tester);
 
-      await tester.tap(find.byKey(const Key('master-bookings-add')));
-      await AppHarness.settle(tester);
-
-      expectVelvetSnack(
-        l10n.masterBookingsAddComingSoon,
-        variant: VelvetSnackVariant.info,
-      );
-
-      // Drain the dwell Timer so none is pending at teardown (mirrors
-      // `client_leave_review_flow_test.dart`'s identical drain).
-      await pumpPastVelvetSnack(tester);
-    },
-  );
+    // `context.push`, not `router.go` — read through the same
+    // `matches`-based nested-push resolver every other push-navigation flow
+    // in this suite uses (a pushed leaf collapses to its PARENT `fullPath`
+    // under this repo's go_router setup).
+    AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
+    expect(find.byType(MasterCreateBookingScreen), findsOneWidget);
+    expect(find.byType(VelvetSnack), findsNothing);
+  });
 
   // ── 2026-07-22 — the day-scoped SKELETON, while the first fetch is pending ─
   //

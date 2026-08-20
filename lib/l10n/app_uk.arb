@@ -4008,6 +4008,106 @@
   "@bookingSalonLabel": {
     "description": "Label for the salon-name row shown on the salon booking confirm, success, and detail summary cards."
   },
+  "masterCreateBookingTitle": "Новий запис",
+  "@masterCreateBookingTitle": {
+    "description": "Header title on the master booking wizard's client-details (first) step."
+  },
+  "masterCreateBookingServiceTitle": "Оберіть послугу",
+  "@masterCreateBookingServiceTitle": {
+    "description": "Header title on the master booking wizard's service-picker step."
+  },
+  "masterCreateBookingDateTimeTitle": "Дата і час",
+  "@masterCreateBookingDateTimeTitle": {
+    "description": "Header title on the master booking wizard's combined date+time step."
+  },
+  "masterCreateBookingClientHeading": "Дані клієнта",
+  "@masterCreateBookingClientHeading": {
+    "description": "Sub-heading on the master booking wizard's client-details step."
+  },
+  "masterCreateBookingClientIntro": "Вкажіть ім'я, прізвище клієнта та номер телефону.",
+  "@masterCreateBookingClientIntro": {
+    "description": "Explanatory copy under the heading on the master booking wizard's client-details step."
+  },
+  "masterCreateBookingFirstNameLabel": "Ім'я",
+  "@masterCreateBookingFirstNameLabel": {
+    "description": "Field label for the walk-in guest's first name on the master booking wizard."
+  },
+  "masterCreateBookingFirstNameHint": "Наприклад, Марина",
+  "@masterCreateBookingFirstNameHint": {
+    "description": "Hint text for the walk-in guest's first name field."
+  },
+  "masterCreateBookingLastNameLabel": "Прізвище",
+  "@masterCreateBookingLastNameLabel": {
+    "description": "Field label for the walk-in guest's last name on the master booking wizard."
+  },
+  "masterCreateBookingLastNameHint": "Наприклад, Кравчук",
+  "@masterCreateBookingLastNameHint": {
+    "description": "Hint text for the walk-in guest's last name field."
+  },
+  "masterCreateBookingPhoneLabel": "Телефон",
+  "@masterCreateBookingPhoneLabel": {
+    "description": "Field label for the walk-in guest's phone number on the master booking wizard."
+  },
+  "masterCreateBookingPhoneHint": "+380 __ ___ __ __",
+  "@masterCreateBookingPhoneHint": {
+    "description": "Hint text for the walk-in guest's phone number field."
+  },
+  "masterCreateBookingServiceEmptyTitle": "У вас ще немає жодної послуги",
+  "@masterCreateBookingServiceEmptyTitle": {
+    "description": "Empty-state title on the master booking wizard's service step when the master has no services yet."
+  },
+  "masterCreateBookingServiceEmptyBody": "Додайте послугу в розділі «Мої послуги», щоб створити запис.",
+  "@masterCreateBookingServiceEmptyBody": {
+    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet."
+  },
+  "masterCreateBookingGuestLabel": "Клієнт",
+  "@masterCreateBookingGuestLabel": {
+    "description": "Label for the walk-in guest identity row on the master booking wizard's confirm step."
+  },
+  "masterCreateBookingDoneSubline": "Клієнта додано до вашого розкладу.",
+  "@masterCreateBookingDoneSubline": {
+    "description": "Sub-line under the success headline on the master booking wizard's done step. Must never claim an SMS/notification was sent — the backend's confirmation SMS is gated off by default."
+  },
+  "masterCreateBookingDoneCta": "Готово",
+  "@masterCreateBookingDoneCta": {
+    "description": "Sole onward action on the master booking wizard's done step; pops back to «Мої записи»."
+  },
+  "salonCreateBookingDateTitle": "Дата",
+  "@salonCreateBookingDateTitle": {
+    "description": "Header title for the salon booking wizard's date-only step."
+  },
+  "salonCreateBookingDateHeading": "Оберіть зручну дату",
+  "@salonCreateBookingDateHeading": {
+    "description": "Body heading above the calendar on the salon booking wizard's date step."
+  },
+  "salonCreateBookingDateNextCta": "Далі — Майстри",
+  "@salonCreateBookingDateNextCta": {
+    "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
+  },
+  "salonCreateBookingMastersStepTitle": "Вільні майстри",
+  "@salonCreateBookingMastersStepTitle": {
+    "description": "Header title for the salon booking wizard's masters step."
+  },
+  "salonCreateBookingMasterOffers": "Виконує",
+  "@salonCreateBookingMasterOffers": {
+    "description": "Status pill on a salon booking wizard master tile: this master performs the selected service."
+  },
+  "salonCreateBookingMasterNotOffered": "Не виконує",
+  "@salonCreateBookingMasterNotOffered": {
+    "description": "Status pill on a salon booking wizard master tile: this master does not perform the selected service."
+  },
+  "salonCreateBookingDoneSubline": "Клієнта додано до розкладу майстра.",
+  "@salonCreateBookingDoneSubline": {
+    "description": "Sub-line under the success headline on the salon booking wizard's done step. Must never claim an SMS/notification was sent — the backend's confirmation SMS is gated off by default."
+  },
+  "salonCreateBookingServiceEmptyTitle": "У салоні ще немає жодної послуги",
+  "@salonCreateBookingServiceEmptyTitle": {
+    "description": "Empty-state title on the salon booking wizard's service step when the salon's masters have no services yet."
+  },
+  "salonCreateBookingServiceEmptyBody": "Додайте послугу майстру, щоб створити запис.",
+  "@salonCreateBookingServiceEmptyBody": {
+    "description": "Empty-state body on the salon booking wizard's service step when the salon's masters have no services yet."
+  },
   "bookingArrivalNoteSemantics": "Як знайти: {text}",
   "@bookingArrivalNoteSemantics": {
     "description": "Accessibility label for the provider's arrival-hint line on the booking detail address block.",
@@ -5180,10 +5280,6 @@
   "masterBookingsAddSemantics": "Додати запис",
   "@masterBookingsAddSemantics": {
     "description": "Accessibility label for the master bookings header's '+' add-booking button (design-parity finding #6)."
-  },
-  "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
-  "@masterBookingsAddComingSoon": {
-    "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
   },
   "masterArchiveOpenSemantics": "Відкрити архів записів",
   "@masterArchiveOpenSemantics": {

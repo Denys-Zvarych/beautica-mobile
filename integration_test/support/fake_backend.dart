@@ -94,6 +94,13 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 // future-date-ok: the injected fixed clock itself — see the note above.
 final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
 
+/// Phase 248 — the fixed id `POST /api/v1/masters/{masterId}/bookings`
+/// mints for a walk-in booking created through the wizard. Fixed (not
+/// generated) because this fake serves exactly one flow that submits this
+/// endpoint per test; a second submit in the same test would overwrite the
+/// same dataset row rather than appending a second one.
+const String kWalkInBookingId = 'walkin-booking-1';
+
 /// The REAL device clock, captured once per process, as the anchor for every
 /// "upcoming booking" fixture instant.
 ///
@@ -2635,6 +2642,34 @@ final class FakeBackend {
   int getBookingDetailCalls = 0;
   int getMyBookingsCalls = 0;
 
+  /// Phase 248 — `POST /api/v1/masters/{masterId}/bookings` call count (the
+  /// INDEPENDENT_MASTER walk-in «Новий запис» wizard's own submit,
+  /// `BookingRepository.createMasterBooking`, backend 22.4
+  /// `StaffBookingsApi.createStaffBooking`). Distinct from every other create
+  /// counter in this file — this endpoint is provider-scoped, not the CLIENT
+  /// `POST /bookings` write.
+  int createStaffBookingCalls = 0;
+
+  /// The most recent walk-in submit's decoded JSON body — `masterServiceId` /
+  /// `startsAt` / `guest.{name,surname,phone}` — so a flow can assert exactly
+  /// what went on the wire without re-deriving it from UI state.
+  Map<String, dynamic>? lastStaffBookingRequestBody;
+
+  /// `GET /api/v1/bookings/$kWalkInBookingId` call count — the enriched-
+  /// detail follow-up [BookingRepository.createMasterBooking] makes right
+  /// after the POST above succeeds (see that method's own doc: "return
+  /// getBookingById(bookingId)"). The wizard screen never reads the result
+  /// (only `AsyncValue.hasError` gates the step advance — see
+  /// `MasterCreateBookingScreen._submit`), but a missing route here would
+  /// still strand the wizard on `confirm` behind a mapped [Failure].
+  int getWalkInBookingDetailCalls = 0;
+
+  /// The row [kWalkInBookingId]'s POST handler most recently built — served
+  /// back by the `GET /api/v1/bookings/$kWalkInBookingId` route above so the
+  /// detail follow-up sees the SAME booking it just created, not a stale
+  /// placeholder.
+  Map<String, dynamic>? _lastWalkInBookingRow;
+
   /// When non-null, `GET /api/v1/bookings/booking-1` replies with THIS HTTP
   /// status (and a plain error envelope) instead of `200` + the seeded booking.
   ///
@@ -4016,6 +4051,94 @@ final class FakeBackend {
         getMasterSlotsCalls++;
         lastMasterDddSlotsServiceId = _serviceIdFrom(req.queryParameters);
         return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 248 — the INDEPENDENT_MASTER walk-in wizard's OWN date/time
+    // picker (`MasterCreateBookingScreen`'s `_DateTimeStep`, embedding the
+    // SAME `MasterSchedulePage` the salon flow above uses). `master.id`
+    // there resolves to `masterRowId` (`GET /masters/me`'s own id), so this
+    // mirrors the `master-ccc`/`master-ddd` pair one level up: the master
+    // books THEMSELVES, not a roster colleague. Reuses the shared
+    // `_workingDaysEnvelope()`/`_availableSlotsEnvelope()` fixtures — every
+    // day across a wide window is working, and the slots land on
+    // `kyivDayOf(serverNow)` — so the wizard's calendar/time step needs no
+    // fixture of its own beyond this registration.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/slots',
+      (server) => server.replyCallback(200, (_) {
+        getMasterSlotsCalls++;
+        return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 248 — `POST /api/v1/masters/{masterId}/bookings`, the walk-in
+    // wizard's own submit (`BookingRepository.createMasterBooking`, backend
+    // 22.4 `StaffBookingsApi.createStaffBooking`). Mints the FIXED
+    // [kWalkInBookingId] and APPENDS the new row to [_bookingsDataset] —
+    // lazily initialising it if the test never called
+    // [seedManyBookingsDataset] — so the very next day-scoped
+    // `GET /bookings/me` the wizard's own success invalidation triggers
+    // (`MasterCreateBookingNotifier.submit`'s `ref.invalidate
+    // (bookingsDayProvider)`) actually shows it. `guest.name`/`guest.surname`
+    // map onto `clientFirstName`/`clientLastName` — the fields the MASTER'S
+    // OWN card reads (see `datasetBookingRow`'s doc: it seeds the
+    // counterparty-identity fields empty on purpose, spread in by the
+    // caller).
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/bookings',
+      (server) => server.replyCallback(201, (req) {
+        createStaffBookingCalls++;
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        lastStaffBookingRequestBody = body;
+        final DateTime startsAt = DateTime.parse(body['startsAt'] as String);
+        final Map<String, dynamic> guest = (body['guest'] as Map)
+            .cast<String, dynamic>();
+        final Map<String, dynamic> row = <String, dynamic>{
+          ...datasetBookingRow(
+            id: kWalkInBookingId,
+            status: 'CONFIRMED',
+            startsAt: startsAt,
+          ),
+          'masterServiceId': body['masterServiceId'],
+          'clientId': null,
+          'clientFirstName': guest['name'],
+          'clientLastName': guest['surname'],
+        };
+        (_bookingsDataset ??= <Map<String, dynamic>>[]).add(row);
+        _lastWalkInBookingRow = row;
+        return _ok(row);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // GET /api/v1/bookings/$kWalkInBookingId — the enriched-detail follow-up
+    // [createMasterBooking] makes right after the POST above (see that
+    // method's own doc). See [getWalkInBookingDetailCalls]'s doc for why a
+    // missing route here — not just a missing assertion — would strand the
+    // wizard on `confirm`.
+    _adapter.onRoute(
+      '/api/v1/bookings/$kWalkInBookingId',
+      (server) => server.replyCallback(200, (_) {
+        getWalkInBookingDetailCalls++;
+        return _ok(
+          _lastWalkInBookingRow ??
+              datasetBookingRow(
+                id: kWalkInBookingId,
+                status: 'CONFIRMED',
+                startsAt: serverNow,
+              ),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );

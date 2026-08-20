@@ -274,6 +274,7 @@ class MasterRatingReadout extends StatelessWidget {
     super.key,
     required this.avgRating,
     required this.reviewCount,
+    this.opacity = 1.0,
   });
 
   /// `null` renders [MasterStrip.noRatingLabel] — never a `0.0`.
@@ -283,24 +284,42 @@ class MasterRatingReadout extends StatelessWidget {
   /// beside an em-dash would be noise, and the em-dash already says it.
   final int reviewCount;
 
+  /// Alpha multiplier applied to every color in this readout — 1.0 (default)
+  /// renders identically to before this param existed. Additive: lets
+  /// `salon_booking_wizard_steps.dart`'s `_SalonMasterTile` dim a
+  /// non-covering master's rating without wrapping the whole tile subtree in
+  /// `Opacity` (mobile-perf P1, Phase 250 — a subtree `Opacity` forces a
+  /// `saveLayer` per non-covering tile on screen).
+  final double opacity;
+
   @override
   Widget build(BuildContext context) {
     final double? rating = avgRating;
+    final bool dimmed = opacity != 1.0;
+    Color fade(Color color) =>
+        dimmed ? color.withValues(alpha: color.a * opacity) : color;
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        const Icon(Icons.star_rounded, size: 16, color: BrandColors.accent),
+        Icon(Icons.star_rounded, size: 16, color: fade(BrandColors.accent)),
         const SizedBox(width: 2),
         Text(
           rating == null
               ? MasterStrip.noRatingLabel
               : rating.toStringAsFixed(1),
-          style: VelvetText.bodyStrong14,
+          style: VelvetText.bodyStrong14.copyWith(
+            color: fade(BrandColors.text),
+          ),
         ),
         if (reviewCount > 0) ...<Widget>[
           const SizedBox(width: 3),
-          Text('($reviewCount)', style: VelvetText.bookFeedbackMuted115),
+          Text(
+            '($reviewCount)',
+            style: VelvetText.bookFeedbackMuted115.copyWith(
+              color: fade(BrandColors.muted),
+            ),
+          ),
         ],
       ],
     );
