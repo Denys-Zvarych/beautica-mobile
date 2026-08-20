@@ -84,6 +84,7 @@
 //     threads it through from [ConfirmStep]'s own constructor. `null` (the
 //     master wizard's call site) renders no card, exactly as before.
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -111,7 +112,8 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
-import '../../application/salon_booking_schedule_notifier.dart';
+import '../../domain/create_master_booking_request.dart'
+    show kWalkInGuestNameMaxLength;
 import '../../domain/salon_master_schedule.dart';
 import 'booking_recap.dart';
 import 'booking_summary_cards.dart';
@@ -281,6 +283,16 @@ class _ClientStepState extends State<ClientStep> {
               color: BrandColors.accent,
             ),
             textInputAction: TextInputAction.next,
+            // Mirrors the backend column EXACTLY —
+            // `StaffClientRef.Guest.MAX_NAME_LENGTH` = 100, itself mirroring
+            // `bookings.guest_name VARCHAR(100)`. Anything longer is a clean
+            // 400 from the server, so refusing the 101st character here turns
+            // a round-trip rejection into a keystroke that simply does not
+            // land — and bounds what the confirm/done recap cards have to
+            // render (audit-fix cycle 1, FINDING 4). `NeumorphicTextField`
+            // pins `counterText: ''`, so no counter appears and no layout
+            // moves.
+            maxLength: kWalkInGuestNameMaxLength,
             // SEC MEDIUM fix — this collects a WALK-IN GUEST's name, a third
             // party who never installed the app and never consented in it.
             // Mirrors register_step_1_screen.dart:209,236 /
@@ -302,6 +314,8 @@ class _ClientStepState extends State<ClientStep> {
               color: BrandColors.accent,
             ),
             textInputAction: TextInputAction.next,
+            // Same backend ceiling as the first-name field above.
+            maxLength: kWalkInGuestNameMaxLength,
             // SEC MEDIUM fix — see the first-name field above.
             enableIMEPersonalizedLearning: false,
             onChanged: (_) => setState(() {}),
@@ -568,30 +582,41 @@ class DateTimeStep extends ConsumerWidget {
     super.key,
     required this.master,
     required this.service,
-    required this.onSlotChosen,
+    this.stagedDate,
+    this.onDateStaged,
   });
 
   final Master master;
   final MasterService service;
-  final ValueChanged<DateTime> onSlotChosen;
+
+  /// Forwarded verbatim to [MasterSchedulePage.stagedDate] /
+  /// [MasterSchedulePage.onDateStaged] — see those params. Both `null` (the
+  /// default, and every pre-2026-08-20 call site) leaves the embedded page on
+  /// its original tap-to-advance calendar behaviour.
+  final ValueListenable<DateTime?>? stagedDate;
+  final ValueChanged<DateTime>? onDateStaged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Auto-advance the wizard the instant a slot is picked inside
-    // [MasterSchedulePage] — that widget has no "on slot chosen" callback of
-    // its own (it is a self-contained salon-flow step body), so this listens
-    // to the SAME [salonBookingScheduleProvider] state it writes to instead
-    // of adding one. Fires once per date→slot transition (never on a bare
-    // date pick, which only sets `date`).
-    ref.listen(salonBookingScheduleProvider, (
-      SalonBookingScheduleState? previous,
-      SalonBookingScheduleState next,
-    ) {
-      if (previous?.slot == null && next.slot != null) {
-        onSlotChosen(next.slot!.startAt);
-      }
-    });
-
+    // NO `onSlotChosen` MIRROR (audit-fix cycle 1, FINDING 1 — CRITICAL,
+    // 2026-08-20). This step used to `ref.listen` the shared
+    // [salonBookingScheduleProvider] and push the newly-picked slot's
+    // `startAt` out to the owner, which cached it in its own `_startAt` field.
+    // The guard was EDGE-triggered (`previous?.slot == null && next.slot !=
+    // null`), but `SalonBookingSchedule.selectSlot` writes slot A → slot B
+    // directly, never back through `null`, so a RE-PICK never re-fired: the
+    // owner kept the FIRST slot and submitted a third party's appointment at a
+    // time the master had moved away from.
+    //
+    // Fixed by DELETING the mirror rather than by widening its guard to a
+    // value comparison. A cached copy of provider state that only the listener
+    // keeps in step is a desync waiting to happen; the provider is already the
+    // single source of truth for both `date` and `slot`, and the owner's
+    // «Далі» CTA — the only thing that can leave this step — is free to read
+    // it at the instant it is pressed (see
+    // `master_create_booking_screen.dart`'s `_commitSlotAndAdvance`). Pinned
+    // by `master_create_booking_screen_test.dart`'s "re-picking a slot submits
+    // the SECOND slot" test, which was RED against the mirrored version.
     final SalonMasterSchedule schedule = SalonMasterSchedule(
       masterId: master.id,
       firstName: master.firstName,
@@ -623,6 +648,16 @@ class DateTimeStep extends ConsumerWidget {
     return MasterSchedulePage(
       schedule: schedule,
       avatarGradient: salonAvatarGradient(0),
+      // The wizard's master IS the signed-in user booking on their own
+      // calendar, so both the identity strip and the "…для цього майстра"
+      // intro name the reader back to themselves — the same reasoning
+      // [ConfirmStep] already uses to omit its master card. `false` here (not
+      // a default flip on [MasterSchedulePage]) so `salon_time_screen.dart`,
+      // where the booker really did choose among several masters, keeps both.
+      showMasterStrip: false,
+      showDateIntro: false,
+      stagedDate: stagedDate,
+      onDateStaged: onDateStaged,
     );
   }
 }
@@ -692,6 +727,18 @@ class ConfirmStep extends ConsumerWidget {
               label: l10n.masterCreateBookingGuestLabel,
               value: '$firstName $lastName'.trim(),
               detail: phone.isEmpty ? null : phone,
+              // THIRD-PARTY FREE TEXT (audit-fix cycle 1, FINDING 4 —
+              // mobile-security LOW, 2026-08-20). The guest's name is typed
+              // in by the master, not formatted by the backend, and the
+              // backend's own ceiling is 100 characters PER field
+              // (`StaffClientRef.Guest.MAX_NAME_LENGTH`) — 200 across the two.
+              // Unbounded, a pasted 200-character name flooded this recap card
+              // and pushed the booking details it exists to confirm off the
+              // step. `labelled_row.dart:37-47` prescribes exactly this pair
+              // for the case; two lines keeps a genuinely long-but-real
+              // Ukrainian double-barrelled name readable.
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),

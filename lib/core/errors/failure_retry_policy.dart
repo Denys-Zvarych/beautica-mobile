@@ -71,6 +71,42 @@
 //     them is a behaviour change with its own pinned tests. Belt and braces
 //     either way; neither predicate alone can let a limiter loop.
 //
+// …AND HOW MANY TIMES
+// -------------------
+// Classifying WHICH failures retry removed most of the damage, but not all of
+// it: a TRANSIENT failure still fell through to `defaultRetry`'s full curve —
+// **10 attempts, ~38 s of backoff**, and every one of those attempts may
+// additionally burn `dioProvider`'s `connectTimeout` (15 s) or
+// `receiveTimeout` (30 s) first. For a provider BUILD that gates a whole
+// screen (`bookingsDayProvider` gates «Мої записи»), minutes of
+// `AsyncLoading` is indistinguishable from a hang: `AsyncValue.when` routes
+// `AsyncLoading(retrying: true)` to `loading:`, so every re-attempt renders
+// the same skeleton as the first, with no error surface, nothing in the
+// backend log and nothing to tap. A master hit exactly this after creating a
+// manual walk-in booking (2026-08-20).
+//
+// So the transient path is now BOUNDED by [_kMaxTransientRetries] as well as
+// classified. The split this file exists for is untouched:
+//
+//   - deterministic → `null` on retryCount 0, exactly as before. The bound
+//     is checked AFTER the classification, so it can only ever make a
+//     retryable failure stop SOONER; it can never make a stopped one retry.
+//   - transient → still retried, still on `defaultRetry`'s own curve and
+//     still delegated to it (so Riverpod's `Error` / `ProviderException`
+//     refusals stay authoritative), just not ten times.
+//
+// The bound covers non-[Failure] errors too. That is deliberate: anything
+// that escaped the repository layer unmapped is, by definition, unclassified,
+// and an unclassified error is the last thing that should get 38 s of hidden
+// backoff.
+//
+// A bounded automatic retry is not the user's only recourse — it is the one
+// that runs BEFORE the UI can offer anything. Both loading and error states
+// on «Мої записи» now carry a manual retry affordance
+// (`MyBookingsSlowLoadNotice`, `MyBookingsErrorState`), and a user-driven
+// retry is strictly better than a hidden one: it is visible, instant, and
+// bounded by the user's patience.
+//
 // EXHAUSTIVENESS IS THE POINT
 // ---------------------------
 // [isTransientFailure] switches over the SEALED [Failure] hierarchy with no
@@ -94,14 +130,36 @@ import 'failures.dart';
 /// [Failure]. Anything else — a transient [Failure], or a non-[Failure] error
 /// that escaped the repository layer — is delegated to
 /// [ProviderContainer.defaultRetry] so Riverpod's own `Error` /
-/// `ProviderException` handling and its backoff curve stay untouched.
+/// `ProviderException` handling and its backoff curve stay untouched, up to
+/// [_kMaxTransientRetries] re-attempts.
 Duration? beauticaProviderRetry(int retryCount, Object error) {
   if (error is Failure &&
       (isThrottleFailure(error) || !isTransientFailure(error))) {
     return null;
   }
+  // AFTER the classification, never before — see "…AND HOW MANY TIMES" in
+  // this file's header. This arm can only shorten a retry sequence the
+  // classification above already allowed; it can never start one.
+  if (retryCount >= _kMaxTransientRetries) return null;
   return ProviderContainer.defaultRetry(retryCount, error);
 }
+
+/// How many automatic re-attempts a transient failure gets, on top of the
+/// first attempt.
+///
+/// One — so **two attempts in total**, with `defaultRetry`'s own 200 ms
+/// between them, down from ten attempts and ~38 s of backoff.
+///
+/// Why one and not "a few": the backoff is not what costs the time here. Each
+/// attempt independently burns up to `dioProvider`'s `connectTimeout` (15 s)
+/// or `receiveTimeout` (30 s) before it even fails, so the attempt COUNT — not
+/// the delay curve — is what turns a bad network into a screen that looks
+/// hung. A second attempt still catches the case the classification exists to
+/// serve (a dropped packet, a Wi-Fi→LTE handover, a backend mid-restart);
+/// attempts three through ten only ever added wall-clock behind a spinner.
+/// Anything past that is the user's call, through the visible retry
+/// affordances the screens now carry.
+const int _kMaxTransientRetries = 1;
 
 /// Whether [failure] is an HTTP **429** — a server-side rate limit.
 ///

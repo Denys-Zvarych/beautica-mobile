@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/booking/domain/create_master_booking_re
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_create_booking_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_top_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -46,6 +47,7 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart'
     show CategorySection, ServiceCard;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -88,6 +90,17 @@ final DateTime _kSlotStart = DateTime.utc(2026, 8, 10, 10); // 13:00 Kyiv.
 final BookingSlot _kSlot = BookingSlot(
   startAt: _kSlotStart,
   endAt: _kSlotStart.add(const Duration(minutes: 60)),
+  available: true,
+);
+// A SECOND bookable slot on the same fixture day — exists so a test can pick
+// one slot and then RE-pick another (audit-fix cycle 1, FINDING 1). Same
+// afternoon bucket as [_kSlot] (13:00 / 15:00 Kyiv, both `< 17`), so both
+// chips render in one group and neither tap needs a scroll.
+// future-date-ok: fixed twin of _kNow — the same clock-override day, see above.
+final DateTime _kSlotLateStart = DateTime.utc(2026, 8, 10, 12); // 15:00 Kyiv.
+final BookingSlot _kSlotLate = BookingSlot(
+  startAt: _kSlotLateStart,
+  endAt: _kSlotLateStart.add(const Duration(minutes: 60)),
   available: true,
 );
 
@@ -146,6 +159,31 @@ class _ForeverLoadingServicesList extends ServicesList {
 class _FailingServicesList extends ServicesList {
   @override
   Future<List<MasterService>> build() async => throw const NetworkFailure();
+}
+
+/// Counts `acquire`/`release` so a test can prove the wizard actually touches
+/// the app-wide screen-protection manager.
+///
+/// mobile-security finding (2026-08-20): NOTHING asserted that
+/// `MasterCreateBookingScreen.initState` acquires it, so deleting that line
+/// left the whole suite green — while this wizard is a HEAVY third-party PII
+/// surface (a walk-in guest's full name and phone number, typed by the master
+/// and re-displayed on the confirm and done steps). The task-switcher snapshot
+/// of that data is exactly what the retained app-switcher blur exists to stop
+/// here. (It is NOT a screenshot or screen-recording block — that was removed
+/// app-wide on 2026-08-20 by product decision; see the header of
+/// `lib/core/security/screen_protection.dart`. The `reason:` strings on this
+/// group's expects still say FLAG_SECURE and are stale for the same reason,
+/// left untouched because they are assertion arguments, not comments.)
+class _CountingScreenProtection extends ScreenProtectionManager {
+  int acquires = 0;
+  int releases = 0;
+
+  @override
+  void acquire() => acquires++;
+
+  @override
+  void release() => releases++;
 }
 
 /// Reports every requested date as working (isolating the assertions from
@@ -299,6 +337,7 @@ Future<GoRouter> _pump(
   _FakeBookingRepository? bookingRepository,
   MasterProfile Function() masterProfileOverride = _FakeMasterProfile.new,
   ServicesList Function()? servicesListOverride,
+  ScreenProtectionManager? screenProtection,
 }) async {
   final GoRouter router = _router();
   await tester.pumpRoutedApp(
@@ -318,6 +357,11 @@ Future<GoRouter> _pump(
         (_) => bookingRepository ?? _FakeBookingRepository(),
       ),
       clockProvider.overrideWithValue(() => _kNow),
+      // Only overridden when a test asks for it: the default (real, no-op on
+      // the test platform channel) manager keeps every other test in this
+      // file exercising the production wiring.
+      if (screenProtection != null)
+        screenProtectionProvider.overrideWithValue(screenProtection),
     ],
   );
   unawaited(router.push(RouteNames.masterBookingNew));
@@ -325,43 +369,63 @@ Future<GoRouter> _pump(
   return router;
 }
 
+/// The walk-in guest [_fillClientStepAndAdvance] types in. Named constants
+/// rather than inline literals so the done-step guest-card assertions can
+/// check the rendered values against the SAME source the form was filled
+/// from — and so those assertions interpolate instead of hard-coding a
+/// Cyrillic literal (`scripts/forbid_cyrillic_finder.sh`).
+const String _kGuestFirstName = 'Марина';
+const String _kGuestLastName = 'Кравчук';
+const String _kGuestPhone = '0501234567';
+
 /// Fills the client step with valid data and taps «Далі» — the shared first
 /// leg of every test that needs to reach a later step.
 Future<void> _fillClientStepAndAdvance(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const Key('master-create-booking-first-name')),
-    'Марина',
+    _kGuestFirstName,
   );
   await tester.enterText(
     find.byKey(const Key('master-create-booking-last-name')),
-    'Кравчук',
+    _kGuestLastName,
   );
   await tester.enterText(
     find.byKey(const Key('master-create-booking-phone')),
-    '0501234567',
+    _kGuestPhone,
   );
   await tester.pump();
   await tester.tap(find.byKey(const Key('master-create-booking-client-next')));
   await tester.pumpAndSettle();
 }
 
-/// Taps the (only) fixture service card — auto-advances to `dateTime`.
+/// Taps the (only) fixture service card, then the pinned «Далі» footer.
+///
+/// SELECTION NO LONGER NAVIGATES (2026-08-20 UX fix): the card tap only marks
+/// the service selected — the footer is what moves to `dateTime`. Both halves
+/// live here so every caller exercises the real two-step interaction.
 Future<void> _pickService(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('mcb_service_card_svc-1')));
   await tester.pumpAndSettle();
-}
-
-/// Picks Aug 10 (== [_kNow]'s Kyiv "today") on the calendar.
-Future<void> _pickDate(WidgetTester tester) async {
-  await tester.tapCalendarDay(10);
+  await tester.tap(find.byKey(const Key('master-create-booking-service-next')));
   await tester.pumpAndSettle();
 }
 
-/// Taps the [_kSlot] chip — auto-advances to `confirm`.
+/// Picks Aug 10 (== [_kNow]'s Kyiv "today") on the calendar, then presses the
+/// pinned «Далі» footer to move to the time sub-phase — see [_pickService].
+Future<void> _pickDate(WidgetTester tester) async {
+  await tester.tapCalendarDay(10);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('master-create-booking-date-next')));
+  await tester.pumpAndSettle();
+}
+
+/// Taps the [_kSlot] chip, then the pinned «Далі» footer — see [_pickService].
 Future<void> _pickSlot(WidgetTester tester) async {
   await tester.tap(
     find.byKey(Key('salon-slot-chip-${_kSlot.startAt.toIso8601String()}')),
   );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('master-create-booking-time-next')));
   await tester.pumpAndSettle();
 }
 
@@ -617,17 +681,46 @@ void main() {
   });
 
   group('MasterCreateBookingScreen — service step', () {
-    testWidgets('tapping a service auto-advances to dateTime', (tester) async {
+    testWidgets('tapping a service SELECTS it without navigating; only «Далі» '
+        'advances to dateTime', (tester) async {
       await _pump(tester);
       await _fillClientStepAndAdvance(tester);
 
       expect(find.byKey(const Key('mcb_service_card_svc-1')), findsOneWidget);
-      await _pickService(tester);
+
+      // The CTA is dead until something is selected.
+      final Finder next = find.byKey(
+        const Key('master-create-booking-service-next'),
+      );
+      expect(next, findsOneWidget);
+      expect(tester.widget<NeumorphicButton>(next).onPressed, isNull);
+
+      await tester.tap(find.byKey(const Key('mcb_service_card_svc-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('booking-month-calendar')),
+        findsNothing,
+        reason: 'a service tap must SELECT, never navigate',
+      );
+      expect(
+        tester
+            .widget<ServiceCard>(
+              find.byKey(const Key('mcb_service_card_svc-1')),
+            )
+            .selected,
+        isTrue,
+        reason: 'the tapped card must render its selected state',
+      );
+      expect(tester.widget<NeumorphicButton>(next).onPressed, isNotNull);
+
+      await tester.tap(next);
+      await tester.pumpAndSettle();
 
       expect(
         find.byKey(const Key('booking-month-calendar')),
         findsOneWidget,
-        reason: 'picking the service must land on the dateTime step',
+        reason: '«Далі» is what lands on the dateTime step',
       );
     });
 
@@ -726,17 +819,56 @@ void main() {
       );
     });
 
-    testWidgets('picking a date then a slot auto-advances to confirm', (
-      tester,
-    ) async {
+    testWidgets('neither a date nor a slot tap navigates — each «Далі» press '
+        'is what advances', (tester) async {
       final fakeSlots = _FakeSlotRepository(
         slotsToReturn: <BookingSlot>[_kSlot],
       );
       await _pump(tester, slotRepository: fakeSlots);
       await _fillClientStepAndAdvance(tester);
       await _pickService(tester);
-      await _pickDate(tester);
-      await _pickSlot(tester);
+
+      // --- date sub-phase: CTA dead until a day is tapped ---------------
+      final Finder dateNext = find.byKey(
+        const Key('master-create-booking-date-next'),
+      );
+      expect(dateNext, findsOneWidget);
+      expect(tester.widget<NeumorphicButton>(dateNext).onPressed, isNull);
+
+      await tester.tapCalendarDay(10);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('booking-month-calendar')),
+        findsOneWidget,
+        reason: 'a day tap must stage the date, never flip to the time chips',
+      );
+      expect(tester.widget<NeumorphicButton>(dateNext).onPressed, isNotNull);
+
+      await tester.tap(dateNext);
+      await tester.pumpAndSettle();
+
+      // --- time sub-phase: CTA dead until a slot is tapped --------------
+      final Finder timeNext = find.byKey(
+        const Key('master-create-booking-time-next'),
+      );
+      expect(timeNext, findsOneWidget);
+      expect(tester.widget<NeumorphicButton>(timeNext).onPressed, isNull);
+
+      await tester.tap(
+        find.byKey(Key('salon-slot-chip-${_kSlot.startAt.toIso8601String()}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-create-booking-confirm-card')),
+        findsNothing,
+        reason: 'a slot tap must SELECT, never navigate',
+      );
+      expect(tester.widget<NeumorphicButton>(timeNext).onPressed, isNotNull);
+
+      await tester.tap(timeNext);
+      await tester.pumpAndSettle();
 
       expect(
         find.byKey(const Key('master-create-booking-confirm-card')),
@@ -745,6 +877,93 @@ void main() {
       expect(
         find.byKey(const Key('master-create-booking-submit-cta')),
         findsOneWidget,
+      );
+    });
+
+    // ------------------------------------------------------------------
+    // FINDING 1 (CRITICAL — audit-fix cycle 1, 2026-08-20). The wizard used
+    // to mirror the provider's slot into its own `_startAt` from a
+    // `ref.listen` guarded EDGE-wise (`previous?.slot == null && next.slot !=
+    // null`). `SalonBookingSchedule.selectSlot` writes slot A → slot B
+    // directly, never through `null`, so a RE-PICK never re-fired and the
+    // wizard confirmed and submitted the FIRST slot tapped — a third party's
+    // appointment written at a time the master did not choose.
+    //
+    // Latent until the 2026-08-20 UX fix: before it, a slot tap navigated away
+    // instantly, so a second tap was unreachable. This test is what makes the
+    // re-pick reachable in the suite too — every other test here picks exactly
+    // one slot, which is why the whole file stayed GREEN with the bug live.
+    //
+    // Asserts on the SUBMITTED request, not on the confirm card's label: the
+    // wire value is what actually books someone else's time.
+    // ------------------------------------------------------------------
+    testWidgets('re-picking a slot submits the SECOND slot — the wizard must '
+        'never confirm a time the master moved away from', (tester) async {
+      final fakeSlots = _FakeSlotRepository(
+        slotsToReturn: <BookingSlot>[_kSlot, _kSlotLate],
+      );
+      final fakeBookings = _FakeBookingRepository();
+      await _pump(
+        tester,
+        slotRepository: fakeSlots,
+        bookingRepository: fakeBookings,
+      );
+      await _fillClientStepAndAdvance(tester);
+      await _pickService(tester);
+      await _pickDate(tester);
+
+      await tester.tap(
+        find.byKey(Key('salon-slot-chip-${_kSlot.startAt.toIso8601String()}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          Key('salon-slot-chip-${_kSlotLate.startAt.toIso8601String()}'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-time-next')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-submit-cta')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fakeBookings.calls, hasLength(1));
+      expect(
+        fakeBookings.calls.single.$2.startsAt,
+        _kSlotLate.startAt,
+        reason: 'the LAST slot tapped is the one that gets booked',
+      );
+    });
+
+    testWidgets('the date & time step drops the self-referential master strip '
+        'and the «…для цього майстра» intro', (tester) async {
+      final fakeSlots = _FakeSlotRepository(
+        slotsToReturn: <BookingSlot>[_kSlot],
+      );
+      await _pump(tester, slotRepository: fakeSlots);
+      await _fillClientStepAndAdvance(tester);
+      await _pickService(tester);
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('booking-month-calendar'))),
+      );
+      expect(find.byType(MasterStrip), findsNothing);
+      expect(find.text(l10n.salonScheduleDateIntro), findsNothing);
+
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-date-next')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(MasterStrip),
+        findsNothing,
+        reason: 'the time sub-phase must not reintroduce it either',
       );
     });
   });
@@ -951,6 +1170,143 @@ void main() {
         router.routerDelegate.currentConfiguration.matches.last.matchedLocation,
         '/root',
       );
+    });
+
+    // ----------------------------------------------------------------------
+    // FINDING F7 (mobile-security, 2026-08-20). The done step re-displays the
+    // guest card — the master's one chance to notice they typed the wrong
+    // client BEFORE walking away from the screen. It shipped with no test:
+    // deleting the whole `NeumorphicCard` from `_DoneStep.recapCards` left
+    // every assertion in this file green.
+    // ----------------------------------------------------------------------
+    testWidgets('renders the guest card, carrying the name and phone the '
+        'master typed, ABOVE the booking summary', (tester) async {
+      await reachDone(tester);
+
+      final Finder guestCard = find.byKey(
+        const Key('master-create-booking-done-guest-card'),
+      );
+      expect(guestCard, findsOneWidget);
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterCreateBookingScreen)),
+      );
+      expect(
+        find.descendant(
+          of: guestCard,
+          matching: find.text(l10n.masterCreateBookingGuestLabel),
+        ),
+        findsOneWidget,
+      );
+      // The VALUES, not just the label — this card exists to be double-checked,
+      // so an empty or mis-bound one is the same defect as a missing one.
+      // Interpolated rather than a Cyrillic literal (forbid_cyrillic_finder).
+      expect(
+        find.descendant(
+          of: guestCard,
+          matching: find.text('$_kGuestFirstName $_kGuestLastName'),
+        ),
+        findsOneWidget,
+      );
+      // The DISPLAYED phone, not the raw keystrokes: the field runs
+      // `UaPhoneInputFormatter`, so the controller holds the formatted text
+      // and that is what the card echoes. Asserting the digits survive the
+      // round trip is the point — a mis-bound card would show blank or the
+      // service name here.
+      expect(
+        find.descendant(
+          of: guestCard,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Text &&
+                (w.data ?? '')
+                    .replaceAll(RegExp(r'[^0-9]'), '')
+                    .endsWith(_kGuestPhone.replaceAll(RegExp(r'[^0-9]'), '')),
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      // Guest first, booking details second — the same order [ConfirmStep]
+      // uses, so the payoff screen reads as a continuation of the step the
+      // master just confirmed rather than a different layout.
+      final double guestY = tester.getTopLeft(guestCard).dy;
+      final double summaryY = tester
+          .getTopLeft(find.byKey(const Key('master-create-booking-done-card')))
+          .dy;
+      expect(guestY, lessThan(summaryY));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // mobile-security, 2026-08-20 — the wizard's PII surface.
+  // -------------------------------------------------------------------------
+  group('MasterCreateBookingScreen — screen protection', () {
+    testWidgets('acquires the app-wide screen protection on mount and releases '
+        'it when the wizard is popped', (tester) async {
+      final protection = _CountingScreenProtection();
+      final GoRouter router = await _pump(tester, screenProtection: protection);
+
+      expect(
+        protection.acquires,
+        1,
+        reason:
+            'the wizard collects a third party\'s full name and phone number '
+            'the moment it opens — FLAG_SECURE / the app-switcher blur must be '
+            'on for the WHOLE flow, from the first keystroke on the client '
+            'step, not from the confirm step onward',
+      );
+      expect(
+        protection.releases,
+        0,
+        reason: 'still on screen — releasing here would drop protection early',
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(MasterCreateBookingScreen), findsNothing);
+
+      expect(
+        protection.releases,
+        1,
+        reason:
+            'the RELEASE half matters as much: a leaked acquire latches '
+            'FLAG_SECURE on for the rest of the session and screenshots '
+            'silently stop working app-wide',
+      );
+      expect(
+        protection.acquires,
+        1,
+        reason:
+            'acquired exactly once, not per '
+            'step — the acquire lives in initState, not in a step builder',
+      );
+    });
+
+    testWidgets('protection is still held on the DONE step, where the guest '
+        'name and phone are re-displayed', (tester) async {
+      final protection = _CountingScreenProtection();
+      final fakeSlots = _FakeSlotRepository(
+        slotsToReturn: <BookingSlot>[_kSlot],
+      );
+      await _pump(
+        tester,
+        slotRepository: fakeSlots,
+        screenProtection: protection,
+      );
+      await _driveToConfirm(tester);
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-submit-cta')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-create-booking-done-guest-card')),
+        findsOneWidget,
+        reason: 'sanity: the PII really is on screen at this point',
+      );
+      expect(protection.releases, 0);
+      expect(protection.acquires, 1);
     });
   });
 }

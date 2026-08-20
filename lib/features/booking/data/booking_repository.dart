@@ -45,6 +45,7 @@
 // All raw-Dio paths here must include the full `/api/v1/` segment explicitly.
 
 import 'dart:developer';
+import 'dart:math' as math;
 
 import 'package:beautica_api/beautica_api.dart' hide CreateBookingRequest;
 import 'package:beautica_api/beautica_api.dart'
@@ -885,6 +886,34 @@ final class HttpBookingRepository implements BookingRepository {
   /// dropped row would shorten the list AND convince the pager it had reached
   /// the end.
   ///
+  /// ## A DROPPED ROW IS NOT A TRUNCATED DAY (mobile-debugger MEDIUM,
+  /// 2026-08-20)
+  ///
+  /// `BookingsDayNotifier` derives `BookingsDayState.isTruncated` from
+  /// `page.totalElements > page.items.length` — "the day reports more bookings
+  /// than fit in one page". Left alone, EVERY decode drop satisfied that
+  /// inequality too, so a broken row rendered the master a soothing "day too
+  /// dense" notice instead of anything resembling a failure. That is worse
+  /// than silent: it actively disguises a decode bug as a capacity condition,
+  /// and it disguises it on the exact screen where such a bug shows up.
+  ///
+  /// Two things fix that, and NEITHER weakens the drop-don't-throw resilience
+  /// above — a broken row is still skipped, its siblings still render, and
+  /// nothing here throws:
+  ///
+  ///   1. The drop is LOGGED unconditionally (not `kDebugMode`-gated, unlike
+  ///      [_deserialize]'s own line, so it survives into a release build's
+  ///      crash reporter). Count and page index only — a bookings envelope is
+  ///      full of client PII and none of it belongs in a log line.
+  ///   2. `totalElements` is reduced by the number of rows THIS page dropped,
+  ///      so the inequality above once again means only what it says: the
+  ///      SERVER withheld rows. This is not the "recompute from the surviving
+  ///      rows" the paragraph above forbids — `totalPages` is untouched, and
+  ///      `PageResponse.hasMore` reads `totalPages`, never `totalElements`, so
+  ///      no pager can be talked into believing it reached the end. A
+  ///      genuinely over-full day still truncates (150 elements, 100 rows, one
+  ///      of them broken → `149 > 99`).
+  ///
   /// ROW tolerance is NOT envelope tolerance. The row loop's leniency stops at
   /// the row boundary: an absent or wrong-shaped `data` / `data.data` throws
   /// [UnknownFailure], exactly as the old whole-envelope decode did. Degrading
@@ -928,11 +957,35 @@ final class HttpBookingRepository implements BookingRepository {
       }
     }
 
+    // BOTH drop layers, counted against what the server actually SENT in this
+    // page: the row loop above skips undeserializable JSON, and
+    // [BookingMapper.fromDtoList] independently skips any DTO it cannot map
+    // (`on Failure { continue; }`). Either one shrinks `items` without the
+    // server having withheld anything.
+    final List<Booking> items = BookingMapper.fromDtoList(rows);
+    final int droppedRows = rowsJson.length - items.length;
+    if (droppedRows > 0) {
+      // Unconditional (see this method's doc, point 1). Counts only — never a
+      // row's contents, which are client PII.
+      log(
+        'getMyBookings: dropped $droppedRows of ${rowsJson.length} row(s) on '
+        'page $requestedPage — undeserializable or unmappable',
+        name: _tag,
+        level: 1000,
+      );
+    }
+
+    final int serverTotal = _intOr(pageMap['totalElements'], 0);
     return PageResponse<Booking>(
-      items: BookingMapper.fromDtoList(rows),
+      items: items,
       page: _intOr(pageMap['page'], requestedPage),
       totalPages: _intOr(pageMap['totalPages'], 0),
-      totalElements: _intOr(pageMap['totalElements'], 0),
+      // See this method's doc, point 2 — a drop must not read as truncation.
+      // Clamped at 0 so a malformed `totalElements` smaller than the rows it
+      // shipped can never produce a negative count.
+      totalElements: droppedRows > 0
+          ? math.max(0, serverTotal - droppedRows)
+          : serverTotal,
     );
   }
 

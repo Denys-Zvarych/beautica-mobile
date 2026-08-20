@@ -169,6 +169,10 @@
   "@retryLabel": {
     "description": "Label for the retry button shown in error states."
   },
+  "bookingsStillLoadingBody": "This is taking longer than usual. Wait a moment or try again.",
+  "@bookingsStillLoadingBody": {
+    "description": "Body copy of the slow-load notice on «Мої записи», shown below the loading skeleton once a day's fetch has been pending for kMyBookingsSlowLoadThreshold (8 s). Deliberately NOT an error message — the request is still in flight and may still succeed; it accompanies the retry button (retryLabel) purely as an escape hatch."
+  },
   "loginTitle": "Sign In",
   "@loginTitle": {
     "description": "Title of the login screen."
@@ -4067,6 +4071,10 @@
   "masterCreateBookingDoneSubline": "The client has been added to your schedule.",
   "@masterCreateBookingDoneSubline": {
     "description": "Sub-line under the success headline on the master booking wizard's done step. Must never claim an SMS/notification was sent — the backend's confirmation SMS is gated off by default."
+  },
+  "masterCreateBookingSubmitCta": "Book",
+  "@masterCreateBookingSubmitCta": {
+    "description": "Primary CTA on the master «Новий запис» wizard's confirm step; submits the walk-in booking the MASTER creates FOR a guest. Deliberately NOT the shared `bookingSubmitCta`, which is the client-facing reflexive \"book myself in\" and reads wrong when the actor is booking someone else."
   },
   "masterCreateBookingDoneCta": "Done",
   "@masterCreateBookingDoneCta": {

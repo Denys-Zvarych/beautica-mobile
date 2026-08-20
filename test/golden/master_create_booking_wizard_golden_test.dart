@@ -19,13 +19,22 @@
 //   • `service`  — after filling + advancing past `client`; the one-service
 //                  picker (via the Phase 247 part-1 promoted category/card
 //                  widgets).
-//   • `dateTime` — after tapping the service card (auto-advance); the
-//                  embedded `MasterSchedulePage` calendar sub-phase.
-//   • `confirm`  — after picking the fixed date (Aug 10) then the one slot
-//                  (auto-advance); guest card + booking summary card.
-//   • `done`     — after tapping «Записатись» and a successful submit; the
+//   • `dateTime` — after selecting the service and pressing the pinned «Далі»
+//                  footer; the embedded `MasterSchedulePage` calendar
+//                  sub-phase, with NO master strip and NO date intro (both are
+//                  self-referential in this wizard) and its own «Далі» footer
+//                  sitting disabled until a day is staged.
+//   • `confirm`  — after staging the fixed date (Aug 10) + «Далі», then the
+//                  one slot + «Далі»; guest card + booking summary card.
+//   • `done`     — after tapping «Записати» and a successful submit; the
 //                  standalone success scaffold (own Scaffold, header/step
-//                  indicator hidden).
+//                  indicator hidden), guest recap card + booking summary card.
+//
+// BASELINES REGENERATED 2026-08-20 for the seven-defect UX fix (selection no
+// longer auto-navigates; the dateTime step drops the master strip + intro; the
+// submit CTA is «Записати»; the done step regains the guest card). The
+// `client` step's six cells are byte-identical and were NOT regenerated —
+// nothing on that step changed.
 //
 // Matrix: {320, 360, 414} dp x {textScale 1.0, 1.3} x 5 steps = 30 PNGs.
 //
@@ -267,9 +276,14 @@ Future<void> _driveToService(WidgetTester tester) async {
   await _fillClientAndAdvance(tester);
 }
 
+// Selection never navigates on this wizard (2026-08-20 UX fix) — every step
+// transition below is an explicit pinned-«Далі» press, matching
+// `master_create_booking_screen_test.dart`'s own helpers.
 Future<void> _driveToDateTime(WidgetTester tester) async {
   await _driveToService(tester);
   await tester.tap(find.byKey(const Key('mcb_service_card_svc-1')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('master-create-booking-service-next')));
   await tester.pumpAndSettle();
 }
 
@@ -277,9 +291,13 @@ Future<void> _driveToConfirm(WidgetTester tester) async {
   await _driveToDateTime(tester);
   await tester.tapCalendarDay(10);
   await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('master-create-booking-date-next')));
+  await tester.pumpAndSettle();
   await tester.tap(
     find.byKey(Key('salon-slot-chip-${_kSlot.startAt.toIso8601String()}')),
   );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('master-create-booking-time-next')));
   await tester.pumpAndSettle();
 }
 

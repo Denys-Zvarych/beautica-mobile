@@ -60,6 +60,18 @@ part 'create_master_booking_request.freezed.dart';
 /// re-deriving the pattern.
 const String kWalkInGuestPhonePattern = r'^\+[0-9]{6,18}$';
 
+/// The per-field ceiling the backend enforces on [WalkInGuest.name] and
+/// [WalkInGuest.surname] — `StaffClientRef.Guest.MAX_NAME_LENGTH`, itself
+/// mirroring `bookings.guest_name` / `guest_surname VARCHAR(100)`.
+///
+/// Exposed for the same reason [kWalkInGuestPhonePattern] is: so the wizard's
+/// form has ONE canonical source instead of re-deriving the number. Over-long
+/// input is a clean 400 from the server, so bounding the field turns a
+/// round-trip rejection into a keystroke that never lands — and bounds what
+/// the confirm/done recap cards have to render for a name authored by
+/// someone other than the app's own user.
+const int kWalkInGuestNameMaxLength = 100;
+
 /// Write payload for `POST /api/v1/masters/{masterId}/bookings` — creates a
 /// CONFIRMED, `STAFF`-sourced walk-in booking on a master's calendar.
 ///

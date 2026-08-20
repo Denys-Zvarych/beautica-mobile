@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/master_create_booking_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -138,6 +139,68 @@ void main() {
   setUp(() {
     repo = _MockBookingRepository();
     container = _container(repo);
+  });
+
+  // The OTHER half of `invalidateBookingViewsAfterBookingCreated`'s fan-out
+  // (2026-08-20). `bookedDaysProvider` is a filter-independent `keepAlive()`
+  // SINGLETON with a THIRTY-MINUTE TTL, so it is not a member of the
+  // `bookingsDayProvider` family the test below covers and nothing else drops
+  // it. Without this invalidation the day the master had just booked carried
+  // no rail/month dot for up to half an hour — a brand-new booking on a day
+  // that had none is precisely a change to a booking's EXISTENCE, which is the
+  // condition `booked_days_notifier.dart`'s header names as requiring an
+  // explicit invalidation.
+  //
+  // Asserted by REFETCH COUNT: `ref.invalidate` reloads seamlessly and retains
+  // the previous `.value`, so no value-shape assertion could ever fail here.
+  test('submit(): a successful create also invalidates bookedDaysProvider — '
+      'the rail/month dot for the newly-booked day', () async {
+    _stubDayFetch(repo);
+    when(
+      () => repo.createMasterBooking(any(), any()),
+    ).thenAnswer((_) async => _bookingFixture());
+
+    int bookedDaysFetches = 0;
+    final ProviderContainer c = ProviderContainer(
+      retry: beauticaProviderRetry,
+      // ignore: avoid_dynamic_calls
+      overrides: <Object>[
+        bookingRepositoryProvider.overrideWithValue(repo),
+        // Overridden rather than real: the production provider parks its own
+        // 30-minute keepAlive `Timer`, and a counting closure is the only way
+        // to observe a seamless invalidate at all.
+        bookedDaysProvider.overrideWith((ref) async {
+          bookedDaysFetches++;
+          return <DateTime>{};
+        }),
+      ].cast(),
+    );
+    addTearDown(c.dispose);
+
+    // A LIVE subscription — invalidating a provider with no active listener
+    // DROPS it instead of refetching, which would make this unobservable.
+    final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = c.listen(
+      bookedDaysProvider,
+      (_, _) {},
+      fireImmediately: true,
+    );
+    addTearDown(sub.close);
+    await c.read(bookedDaysProvider.future);
+    expect(bookedDaysFetches, 1, reason: 'sanity: one fetch for the watcher');
+
+    await c.read(masterCreateBookingProvider.future);
+    await c
+        .read(masterCreateBookingProvider.notifier)
+        .submit(masterId: 'master-1', request: _request);
+
+    await c.read(bookedDaysProvider.future);
+    expect(
+      bookedDaysFetches,
+      2,
+      reason:
+          'the dot set must be dropped alongside the day list — it is a '
+          '30-minute-TTL singleton that nothing else here invalidates',
+    );
   });
 
   test('submit(): happy path calls createMasterBooking with the exact args, '

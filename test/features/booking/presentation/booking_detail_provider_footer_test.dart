@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -722,6 +723,163 @@ void main() {
   // the shared `invalidateBookingViewsAfterProviderClose` — see that
   // function's doc.
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Day-rail / month-grid DOT SET (2026-08-20 fan-out fix). A decline
+  // performed from this screen must also drop `bookedDaysProvider`: it is a
+  // filter-independent `keepAlive()` SINGLETON with a THIRTY-MINUTE TTL, not
+  // a member of the `bookingsDayProvider` family this screen already
+  // invalidates, and `BookingRepository#findBookedDatesByMasterId` allow-lists
+  // CONFIRMED/COMPLETED/NOT_COMPLETED — so a CONFIRMED -> DECLINED transition
+  // CROSSES that boundary and can take a day's last dotted booking away. Left
+  // stale, «Мої записи» keeps a dot on a day whose list now renders empty.
+  //
+  // Asserted by REFETCH COUNT, never by inspecting the value:
+  // `ref.invalidate` reloads seamlessly and RETAINS the previous `.value`, so
+  // a value-shape assertion here could never fail.
+  // -------------------------------------------------------------------------
+  group('bookedDaysProvider invalidation on decline (2026-08-20 fan-out fix)', () {
+    testWidgets('a successful decline refetches an actively-watched '
+        'bookedDaysProvider', (tester) async {
+      final Booking booking = _booking(
+        status: BookingStatus.confirmed,
+        startAt: futureBookingStart(),
+      );
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.declineBooking(any(), comment: any(named: 'comment')),
+      ).thenAnswer((_) async {});
+
+      int bookedDaysFetches = 0;
+      await tester.pumpApp(
+        BookingDetailScreen(bookingId: booking.id),
+        overrides: <Object>[
+          ..._overrides(booking, repo),
+          // Overridden rather than left real: the production provider parks
+          // its own 30-minute keepAlive `Timer`, which would fail this test at
+          // teardown as a pending timer.
+          bookedDaysProvider.overrideWith((ref) async {
+            bookedDaysFetches++;
+            return <DateTime>{};
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // Mirrors what «Мої записи» keeps warm underneath this pushed detail
+      // screen in the real navigation stack.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingDetailScreen)),
+      );
+      final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+          .listen(bookedDaysProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(bookedDaysProvider.future);
+
+      final int before = bookedDaysFetches;
+      expect(before, 1, reason: 'sanity: fetched once for the live watcher');
+
+      await tester.tap(find.byKey(const Key('booking-detail-decline')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      await container.read(bookedDaysProvider.future);
+      expect(
+        bookedDaysFetches,
+        greaterThan(before),
+        reason:
+            'the declined booking may have been the last one on its day — the '
+            'rail dot has to go with it, and only this invalidation drops the '
+            '30-minute-TTL singleton that holds it',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The SAME dot-set fan-out on the COMPLETE arm (audit cycle 2, 2026-08-20).
+  //
+  // ⚠ THIS ONE PINS A DELIBERATE NO-OP — do not "optimise" it away. ⚠
+  //
+  // Unlike the decline above, a complete CANNOT change dot membership:
+  // `BookingRepository#findBookedDatesByMasterId`
+  // (`beautica-backend/.../BookingRepository.java:185-195`) allow-lists
+  // CONFIRMED/COMPLETED/NOT_COMPLETED, and CONFIRMED → COMPLETED stays inside
+  // that list. The refetch is therefore redundant BY DESIGN and kept on
+  // purpose, because `invalidateBookingViewsAfterProviderClose` is the ONE
+  // shared answer to "which caches does a provider-initiated close drop?" —
+  // and re-splitting that answer per transition is precisely the
+  // hand-rolled-fan-out drift that caused the 2026-08-16 archive staleness
+  // bug (two independent fan-outs for one contract; one silently missed a
+  // target). See that helper's own doc, and the block comment on
+  // `test/features/booking/application/booking_calendar_invalidation_test
+  // .dart`'s matching helper-level test.
+  //
+  // What THIS test adds over that helper-level one: it drives the real
+  // «Завершити» confirm dialog, so it fails if `_confirmComplete` is ever
+  // rewired to a per-transition fan-out that omits `bookedDaysProvider` —
+  // which the helper-level test, calling the helper directly, could not see.
+  //
+  // Refetch COUNT, never value: `ref.invalidate` reloads seamlessly and
+  // retains the previous `.value`, so a value assertion could never fail.
+  // -------------------------------------------------------------------------
+  group('bookedDaysProvider invalidation on COMPLETE (deliberate no-op)', () {
+    testWidgets('a successful complete still refetches an actively-watched '
+        'bookedDaysProvider — proving the complete path routes through the '
+        'SHARED close fan-out, not a per-transition one', (tester) async {
+      // Started, so «Завершити» is offered at all.
+      final Booking booking = _booking(
+        status: BookingStatus.confirmed,
+        startAt: DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
+      );
+      final repo = _MockBookingRepository();
+      when(() => repo.completeBooking(booking.id)).thenAnswer((_) async {});
+
+      int bookedDaysFetches = 0;
+      await tester.pumpApp(
+        BookingDetailScreen(bookingId: booking.id),
+        overrides: <Object>[
+          ..._overrides(booking, repo),
+          bookedDaysProvider.overrideWith((ref) async {
+            bookedDaysFetches++;
+            return <DateTime>{};
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingDetailScreen)),
+      );
+      final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+          .listen(bookedDaysProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(bookedDaysProvider.future);
+
+      final int before = bookedDaysFetches;
+      expect(before, 1, reason: 'sanity: fetched once for the live watcher');
+
+      await tester.tap(find.byKey(const Key('booking-detail-complete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await tester.pumpAndSettle();
+
+      // Fixture sanity: the write actually happened, so a green assertion
+      // below cannot come from a dialog that silently did nothing.
+      verify(() => repo.completeBooking(booking.id)).called(1);
+
+      await container.read(bookedDaysProvider.future);
+      expect(
+        bookedDaysFetches,
+        greaterThan(before),
+        reason:
+            'CONFIRMED -> COMPLETED cannot change dot membership, so this '
+            'refetch changes nothing on screen — and that is the point: it '
+            'proves the complete path is still the SHARED fan-out. A per-'
+            'transition split would leave this at 1 and look like a win.',
+      );
+    });
+  });
 
   group('archive invalidation on success (2026-08-16 fix)', () {
     /// Stubs `getMyBookings` in the SHAPE `MasterArchiveNotifier._fetchFirstPage`

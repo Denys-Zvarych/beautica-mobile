@@ -45,8 +45,11 @@
 // NO PATROL FLOW NEEDED: this journey involves no native interaction (no OS
 // permission dialog, deep link, FCM, WebView, biometric) — only in-app
 // navigation and Riverpod state — so a standard integration_test flow is the
-// correct and sufficient tier. The FLAG_SECURE acquire/release contract is
-// covered at the widget tier, where the native plugin is kDebugMode-guarded.
+// correct and sufficient tier. The screen-protection acquire/release contract
+// is covered at the widget tier, where the native plugin is kDebugMode-guarded.
+// (That contract is the app-switcher blur plus the shared reference count — it
+// stopped involving FLAG_SECURE on 2026-08-20; see the header of
+// `lib/core/security/screen_protection.dart`.)
 //
 // KEY POLICY (from AppHarness): all TAPS use key-based finders. Raw Ukrainian
 // text appears in CONTENT ASSERTIONS only.

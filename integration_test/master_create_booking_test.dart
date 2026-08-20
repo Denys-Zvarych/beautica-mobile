@@ -174,13 +174,24 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('mcb_service_card_assign-1')));
       await AppHarness.settle(tester);
+      // SELECTION NEVER NAVIGATES (2026-08-20 UX fix) — the card tap only
+      // marks the service chosen; the pinned «Далі» footer is what advances.
+      // Same for the date and the slot below.
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-service-next')),
+      );
+      await AppHarness.settle(tester);
 
-      // ── Step 3 — date + slot (auto-advances to `confirm` on slot pick) ───
+      // ── Step 3 — date + slot, each committed by its own «Далі» ──────────
       await AppHarness.pumpUntilFound(
         tester,
         find.byKey(Key('booking-calendar-day-${_kyivToday.day}')),
       );
       await tester.tapCalendarDay(_kyivToday.day);
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-date-next')),
+      );
       await AppHarness.settle(tester);
 
       final Finder availableChip = find
@@ -190,12 +201,16 @@ void main() {
       await AppHarness.settle(tester);
       await tester.tap(availableChip);
       await AppHarness.settle(tester);
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-time-next')),
+      );
+      await AppHarness.settle(tester);
 
       // ── Step 4 — confirm → submit ─────────────────────────────────────
       expect(
         find.byKey(const Key('master-create-booking-confirm-card')),
         findsOneWidget,
-        reason: 'a slot pick must auto-advance the wizard to `confirm`',
+        reason: 'the time step\'s «Далі» must land the wizard on `confirm`',
       );
       await tester.tap(
         find.byKey(const Key('master-create-booking-submit-cta')),
@@ -226,6 +241,23 @@ void main() {
       await AppHarness.pumpUntilFound(
         tester,
         find.byKey(const Key('master-create-booking-done-card')),
+      );
+      // The done step re-shows WHO was booked (2026-08-20, mobile-security
+      // F7's PII surface): the master's one chance to catch a mistyped client
+      // before walking away. Asserted here rather than only at the widget tier
+      // because the values come from the wizard's own controllers, and this is
+      // the only tier that types them through the real keyboard path.
+      expect(
+        find.byKey(const Key('master-create-booking-done-guest-card')),
+        findsOneWidget,
+        reason: 'the done screen must name the guest just booked',
+      );
+      expect(
+        find.text('$guestFirst $guestLast'),
+        findsWidgets,
+        reason:
+            'and name the RIGHT one — the same guest the confirm step showed '
+            'and the POST above carried',
       );
       await tester.tap(find.byKey(const Key('master-create-booking-done-cta')));
       await AppHarness.settle(tester);

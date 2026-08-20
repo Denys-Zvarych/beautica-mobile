@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart
 
 import '../domain/booking_tab.dart';
 import '../domain/bookings_day_query.dart';
+import 'booked_days_notifier.dart';
 import 'booking_detail_notifier.dart';
 import 'bookings_day_notifier.dart';
 import 'master_archive_notifier.dart';
@@ -103,11 +104,35 @@ import 'my_bookings_notifier.dart';
 ///     only watches `bookingRepositoryProvider` (the data layer) — it never
 ///     watches anything in this file or anything that watches back to it —
 ///     so invalidating it here cannot loop back into this function.
+///   • [bookedDaysProvider] — the day-rail's and month panel's dot set
+///     (2026-08-20 fix, matching [invalidateBookingViewsAfterBookingCreated]'s
+///     own). This site's ONLY transition is CONFIRMED → DECLINED (the backend
+///     declines every conflicting booking atomically with the day-off write),
+///     and that CROSSES the rail query's allow-list boundary:
+///     `BookingRepository#findBookedDatesByMasterId`
+///     (`BookingRepository.java:175-195`) allow-lists
+///     `CONFIRMED / COMPLETED / NOT_COMPLETED`, so a decline can take the
+///     LAST dotted booking off a day and the dot must go with it — otherwise
+///     the rail points at a day whose list now renders empty, which that
+///     query's own header calls "a user-visible lie". Nothing else here drops
+///     it: it is a filter-independent `keepAlive()` SINGLETON with a
+///     thirty-minute TTL (`booked_days_notifier.dart`), not a member of the
+///     [bookingsDayProvider] family invalidated above, so without this call
+///     the stale dot survives for up to half an hour and across screen
+///     disposal.
 ///
 /// Cost: one refetch per LIVE subscriber (Riverpod drops an invalidated
 /// `autoDispose`/`keepAlive` provider with no listeners instead of refetching
 /// eagerly), so calling this while none of these screens are on-screen costs
 /// nothing.
+///
+/// The consequence for callers — the SAME contract all three helpers in this
+/// file carry: this guarantees the caches are DROPPED, never that they have
+/// been REFILLED by the time it returns. A covered consumer's subscription is
+/// paused (Riverpod 3), so the queued refresh may be dropped and the refetch
+/// land only on resume. Anything that needs the new data in hand must read the
+/// provider itself. See [invalidateBookingViewsAfterBookingCreated]'s doc for
+/// the full mechanism.
 void invalidateBookingViewsAfterExternalDecline(
   WidgetRef ref,
   Iterable<String> declinedBookingIds, {
@@ -125,6 +150,7 @@ void invalidateBookingViewsAfterExternalDecline(
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
   ref.invalidate(nextAppointmentProvider);
+  ref.invalidate(bookedDaysProvider);
 }
 
 /// Invalidates every master-facing booking cache a PROVIDER-INITIATED close
@@ -170,12 +196,105 @@ void invalidateBookingViewsAfterExternalDecline(
 ///     master may have applied) — the fix. `MasterArchiveNotifier` is
 ///     `autoDispose` per filter combination (its own file header), so this is
 ///     a no-op for any combination the master isn't currently viewing.
+///   • [bookedDaysProvider] — the day-rail's and month panel's dot set
+///     (2026-08-20 fix). Added for the DECLINE arm specifically, and only
+///     after checking each arm against the rail query's allow-list
+///     (`BookingRepository#findBookedDatesByMasterId`,
+///     `BookingRepository.java:175-195`, allow-lists
+///     `CONFIRMED / COMPLETED / NOT_COMPLETED`):
+///
+///       – DECLINE (`BookingDetailScreen._confirmDecline`) — CONFIRMED →
+///         DECLINED. CROSSES the boundary: the booking leaves the allow-list,
+///         so if it was the day's last one the dot must go. This is the whole
+///         reason the call is here.
+///       – COMPLETE (`BookingDetailScreen._confirmComplete`,
+///         `MasterArchiveScreen._confirmComplete`) — CONFIRMED → COMPLETED.
+///         BOTH statuses are allow-listed, so the day's dot set is
+///         mathematically unchanged and this invalidation is redundant on
+///         those two paths. It is kept anyway rather than being pushed down
+///         into the decline call site: the whole point of this file is that
+///         "which caches does a status close drop?" has ONE answer per
+///         helper, and re-splitting it per transition is exactly the
+///         hand-rolled-fan-out drift the 2026-08-16 archive-staleness bug
+///         came from. The redundant cost is bounded and small — ONE extra
+///         refetch of a singleton, and only while «Мої записи» is actually
+///         mounted (a no-op otherwise), on a user-initiated confirm-dialog
+///         action, not a scroll or a rebuild.
+///
+///     Nothing else here would drop it: it is a filter-independent
+///     `keepAlive()` SINGLETON with a thirty-minute TTL
+///     (`booked_days_notifier.dart`), not a member of the
+///     [bookingsDayProvider] family invalidated above.
 ///
 /// Cost: one refetch per LIVE subscriber, same accounting as
 /// [invalidateBookingViewsAfterExternalDecline] — calling this while none of
 /// these screens are on-screen costs nothing.
+///
+/// The consequence for callers — the SAME contract all three helpers in this
+/// file carry: this guarantees the caches are DROPPED, never that they have
+/// been REFILLED by the time it returns. Anything that needs the new data in
+/// hand must read the provider itself. See
+/// [invalidateBookingViewsAfterBookingCreated]'s doc for the full mechanism.
 void invalidateBookingViewsAfterProviderClose(WidgetRef ref, String bookingId) {
   ref.invalidate(bookingDetailProvider(bookingId));
   ref.invalidate(bookingsDayProvider);
   ref.invalidate(masterArchiveProvider);
+  ref.invalidate(bookedDaysProvider);
+}
+
+/// Invalidates every master-facing booking cache the CREATION of a booking on
+/// the master's own calendar must drop.
+///
+/// Takes a provider-side [Ref], not a [WidgetRef], because its caller is a
+/// Notifier (`MasterCreateBookingNotifier.submit`) rather than a widget — the
+/// two `WidgetRef` helpers above are called from widgets after a write
+/// settles. That is the ONLY difference; this exists in the same file for the
+/// same reason they do: so "which caches does a booking write drop?" has one
+/// answer, in the feature that owns those caches, instead of being re-derived
+/// inline at each call site (see this file's header).
+///
+///   • [bookingsDayProvider] — the BARE family. Same reasoning as
+///     [invalidateBookingViewsAfterProviderClose]'s: this helper's caller does
+///     not know which day the master's «Мої записи» is currently viewing, and
+///     Riverpod only EAGERLY recomputes the members with an active listener
+///     (at most the bounded ≤3-day keepAlive LRU) — every other cached day
+///     refetches lazily when next watched.
+///   • [bookedDaysProvider] — THE FIX (mobile-debugger MEDIUM, 2026-08-20).
+///     The day-rail's and month panel's dot set. A brand-new booking on a day
+///     that had none is precisely a change to a booking's EXISTENCE, which is
+///     the condition `booked_days_notifier.dart`'s own header names as
+///     requiring an explicit invalidation — and that provider is a
+///     `keepAlive()` singleton with a THIRTY-MINUTE TTL, so without this the
+///     day the master just booked stayed undotted for up to half an hour on
+///     both the rail and the month grid. Nothing else would have dropped it:
+///     it is filter-independent, so it is not a member of any family the day
+///     list invalidates.
+///
+/// Cost: one refetch per LIVE subscriber, same accounting as the two helpers
+/// above — calling this while «Мої записи» is not on screen costs nothing.
+/// **When the refetch actually happens.** The wizard is a full-screen route,
+/// so in practice the day list underneath it is COVERED for the whole submit,
+/// and Riverpod 3 pauses a covered consumer's subscriptions. A paused listener
+/// does not make an element active
+/// (`element.dart`: `isActive => (listenerCount -
+/// pausedActiveSubscriptionCount) > 0`), and the scheduler only flushes active
+/// elements (`scheduler.dart::_performRefresh`) before clearing its queue
+/// unconditionally — so the refresh this call queues is DROPPED rather than
+/// run while the wizard is on top. That is not a leak: `invalidateSelf()` has
+/// already severed the element's `KeepAliveLink`s and left
+/// `_mustRecomputeState = true`, so the member is either disposed outright or
+/// recomputed by the first READ after the wizard pops. Either way the day list
+/// refetches on resume.
+///
+/// The consequence for callers: this helper guarantees the caches are DROPPED,
+/// never that they have been REFILLED by the time it returns. Anything that
+/// needs the new data in hand must read the provider itself. See
+/// `bookings_day_notifier.dart`'s header ("What the queued refresh does and
+/// does NOT guarantee") for the full mechanism.
+///
+/// Cycle-safe: neither target watches, even transitively,
+/// `masterCreateBookingProvider`, so this closes no back-edge.
+void invalidateBookingViewsAfterBookingCreated(Ref ref) {
+  ref.invalidate(bookingsDayProvider);
+  ref.invalidate(bookedDaysProvider);
 }

@@ -205,7 +205,7 @@ final List<WishlistService> _kFiveFavourites = <WishlistService>[
   ),
 ];
 
-/// The native FLAG_SECURE plugin must never fire under `flutter test`.
+/// The native `screen_protector` plugin must never fire under `flutter test`.
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
   void acquire() {}
@@ -941,7 +941,11 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // 6. FLAG_SECURE lifecycle — the PII contract.
+  // 6. Screen-protection lifecycle — the PII contract. (The group NAME below
+  //    still says FLAG_SECURE; that is historical. Since 2026-08-20 the guard
+  //    is the app-switcher blur plus the reference count — see the header of
+  //    `lib/core/security/screen_protection.dart`. The refcount asserted here
+  //    is unchanged, so the test name is left alone rather than churned.)
   // -------------------------------------------------------------------------
   group('PassportScreen — FLAG_SECURE lifecycle', () {
     testWidgets('acquires screen protection on mount, releases on dispose', (

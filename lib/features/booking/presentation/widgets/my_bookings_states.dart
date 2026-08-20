@@ -3,6 +3,8 @@
 // `AlwaysScrollableScrollPhysics` ListView so pull-to-refresh keeps working
 // no matter which state is showing.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -166,6 +168,67 @@ class _Well extends StatelessWidget {
   }
 }
 
+/// The panel shell BOTH centred notices on this surface are built from —
+/// [MyBookingsErrorState] and [MyBookingsSlowLoadNotice].
+///
+/// Extracted (not forked) when the slow-load escape hatch was added, so the
+/// two read as one component with two messages rather than two hand-copied
+/// columns that drift apart. Geometry is byte-for-byte what
+/// [MyBookingsErrorState] shipped before the extraction — `Center` >
+/// `ConstrainedBox(320)` > `Padding(lg)` > `Column`[icon 48 muted, `md` gap,
+/// centred body, `lg` gap, full-width [NeumorphicButton]] — so the error
+/// state's goldens are unchanged by construction.
+class _MyBookingsNoticePanel extends StatelessWidget {
+  const _MyBookingsNoticePanel({
+    super.key,
+    required this.icon,
+    required this.message,
+    required this.actionKey,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String message;
+  final Key actionKey;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(icon, size: 48, color: BrandColors.muted),
+              const SizedBox(height: VelvetSpacing.md),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: VelvetText.body(),
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+              SizedBox(
+                width: double.infinity,
+                child: NeumorphicButton(
+                  key: actionKey,
+                  label: actionLabel,
+                  icon: Icons.refresh_rounded,
+                  onPressed: onAction,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The error state — the failure message + a retry button.
 class MyBookingsErrorState extends StatelessWidget {
   const MyBookingsErrorState({
@@ -184,40 +247,137 @@ class MyBookingsErrorState extends StatelessWidget {
         ? (error as Failure).userMessage(context)
         : l10n.errUnknown;
 
-    return Center(
+    return _MyBookingsNoticePanel(
       key: const Key('my_bookings_error'),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 320),
-        child: Padding(
-          padding: const EdgeInsets.all(VelvetSpacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.cloud_off_rounded,
-                size: 48,
-                color: BrandColors.muted,
-              ),
-              const SizedBox(height: VelvetSpacing.md),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: VelvetText.body(),
-              ),
-              const SizedBox(height: VelvetSpacing.lg),
-              SizedBox(
-                width: double.infinity,
-                child: NeumorphicButton(
-                  key: const Key('my_bookings_error_retry'),
-                  label: l10n.retryLabel,
-                  icon: Icons.refresh_rounded,
-                  onPressed: onRetry,
-                ),
-              ),
-            ],
-          ),
+      icon: Icons.cloud_off_rounded,
+      message: message,
+      actionKey: const Key('my_bookings_error_retry'),
+      actionLabel: l10n.retryLabel,
+      onAction: onRetry,
+    );
+  }
+}
+
+/// How long a fetch may stay pending before [MyBookingsSlowLoadNotice] offers
+/// the master a way out.
+///
+/// Eight seconds, chosen against the two clocks that actually bound a stuck
+/// day fetch: `dioProvider`'s `connectTimeout` (15 s) / `receiveTimeout`
+/// (30 s), and `beauticaProviderRetry`'s bounded re-attempt. Both are longer
+/// than any healthy round trip on this screen, so 8 s lands well clear of a
+/// normal load and well inside the first attempt's own timeout — the master
+/// sees an escape hatch before the platform has even given up once.
+const Duration kMyBookingsSlowLoadThreshold = Duration(seconds: 8);
+
+/// The escape hatch layered ON TOP of [BookingsSkeleton] when a day fetch is
+/// still pending after [kMyBookingsSlowLoadThreshold].
+///
+/// ## The defect this exists for
+///
+/// `bookingsDayProvider` parked in `AsyncLoading` renders the skeleton and
+/// NOTHING else: no message, no action, no timer. `AsyncValue.when` routes
+/// `AsyncLoading(retrying: true)` to `loading:` as well, so a transient
+/// failure being re-attempted looks identical to a first attempt — the
+/// master watched an indefinite shimmer after creating a walk-in booking,
+/// with no way to ask for the fetch again short of leaving the screen. The
+/// `error:` branch has always had a retry button; `loading:` had none.
+///
+/// ## Why this is NOT "show an error after 8 seconds"
+///
+/// The fetch is genuinely still in flight and may still succeed — turning it
+/// into an `AsyncError` would be a lie, and would throw away an in-flight
+/// response that is about to land. This widget changes no state at all: the
+/// skeleton keeps shimmering above it, the provider keeps loading, and the
+/// notice simply offers `onRetry` (an `invalidate`, which restarts the
+/// request from a fresh attempt counter). Copy and iconography say "still
+/// working", not "broken" — an hourglass, not a severed cloud.
+///
+/// ## Why it cannot flash on a fast load
+///
+/// The widget renders `SizedBox.shrink()` — zero-size, no paint — until its
+/// [Timer] fires at [delay]. A load that resolves before then replaces the
+/// whole `loading:` subtree, [dispose] cancels the timer, and the notice is
+/// never made visible. There is no build in which it is briefly laid out and
+/// then removed, so no layout shift and no flash exists to debounce. The
+/// entry animation is deliberately driven off the `_elapsed` flag rather
+/// than off mount for the same reason.
+class MyBookingsSlowLoadNotice extends StatefulWidget {
+  const MyBookingsSlowLoadNotice({
+    super.key,
+    required this.onRetry,
+    this.delay = kMyBookingsSlowLoadThreshold,
+  });
+
+  final VoidCallback onRetry;
+
+  /// Overridable so widget tests can drive the threshold without a real
+  /// 8-second `pump`. Production always takes the default.
+  final Duration delay;
+
+  @override
+  State<MyBookingsSlowLoadNotice> createState() =>
+      _MyBookingsSlowLoadNoticeState();
+}
+
+class _MyBookingsSlowLoadNoticeState extends State<MyBookingsSlowLoadNotice> {
+  Timer? _timer;
+  bool _elapsed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(widget.delay, () {
+      if (!mounted) return;
+      setState(() => _elapsed = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_elapsed) return const SizedBox.shrink();
+
+    final l10n = AppLocalizations.of(context);
+    final Widget panel = _MyBookingsNoticePanel(
+      icon: Icons.hourglass_bottom_rounded,
+      message: l10n.bookingsStillLoadingBody,
+      actionKey: const Key('my_bookings_slow_load_retry'),
+      actionLabel: l10n.retryLabel,
+      onAction: widget.onRetry,
+    );
+
+    // Reduced motion: no rise, no fade — the panel is simply there. Honoured
+    // rather than shortened; a vestibular-sensitive user asked for none.
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return KeyedSubtree(
+        key: const Key('my_bookings_slow_load'),
+        child: panel,
+      );
+    }
+
+    // A single settle-in: 8dp rise + fade over 260ms. It arrives ONCE, from
+    // `_elapsed` flipping — `TweenAnimationBuilder` runs its tween on first
+    // build with a non-null `duration`, and every later rebuild sees the same
+    // `end: 1`, so a parent rebuild (a retry re-entering `loading:`) does not
+    // replay it.
+    return TweenAnimationBuilder<double>(
+      key: const Key('my_bookings_slow_load'),
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      builder: (BuildContext context, double t, Widget? child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * VelvetSpacing.sm),
+          child: child,
         ),
       ),
+      child: panel,
     );
   }
 }

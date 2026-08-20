@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -264,6 +265,116 @@ void main() {
           'the external decline must invalidate BookingsDayQuery.dayList(day:) '
           '— invalidating only BookingsDayQuery.of(day:) leaves the kept-alive '
           'default member serving the declined booking as CONFIRMED',
+    );
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // THE DELIBERATE NO-OP (audit cycle 2, 2026-08-20 — LOW gap)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // ⚠ READ THIS BEFORE "FIXING" THE TEST BELOW BY DELETING IT. ⚠
+  //
+  // `invalidateBookingViewsAfterProviderClose` serves BOTH provider-initiated
+  // closes — DECLINE (CONFIRMED → DECLINED) and COMPLETE (CONFIRMED →
+  // COMPLETED) — and invalidates `bookedDaysProvider` on both. On the COMPLETE
+  // arm that invalidation is **mathematically redundant, and deliberately kept
+  // anyway**:
+  //
+  //   The day-rail / month-grid dot set comes from
+  //   `BookingRepository#findBookedDatesByMasterId`
+  //   (`beautica-backend/.../BookingRepository.java:185-195`), whose query
+  //   ALLOW-LISTS `CONFIRMED / COMPLETED / NOT_COMPLETED`. A complete moves a
+  //   booking from one allow-listed status to another, so the day's dot
+  //   membership cannot change. Only DECLINE crosses the boundary.
+  //
+  // So this test is asserting a refetch that changes nothing on screen. That
+  // is the POINT, and it is why the assertion needs its own explanation: the
+  // reason the redundant call stays is that this file's entire purpose is that
+  // "which caches does a status close drop?" has ONE answer per helper.
+  // Re-splitting it per transition — the plausible "optimisation" — is exactly
+  // the hand-rolled-fan-out drift that produced the 2026-08-16 archive
+  // staleness bug, where two independent fan-outs implementing the same
+  // contract silently disagreed about one target. The cost being optimised
+  // away is ONE refetch of a singleton, only while «Мої записи» is mounted, on
+  // a user-initiated confirm-dialog tap.
+  //
+  // Removing this assertion therefore removes the only thing standing between
+  // that documented decision and a future split. If it ever fails, the
+  // question to answer is "did someone split the helper per transition?", not
+  // "is this refetch necessary?" — it never was.
+  //
+  // Counterpart at the CALL SITE: `booking_detail_provider_footer_test.dart`'s
+  // "bookedDaysProvider invalidation on COMPLETE" group drives the real
+  // «Завершити» confirm dialog, which is what pins that the complete path
+  // routes through THIS helper rather than a per-transition replacement.
+  //
+  // Asserted by refetch COUNT, never by value: `ref.invalidate` reloads
+  // seamlessly and RETAINS the previous `.value` (Riverpod 3.x), so a
+  // value-shape assertion here could never fail.
+  //
+  // MUTATION: deleted `ref.invalidate(bookedDaysProvider);` from
+  // `invalidateBookingViewsAfterProviderClose`
+  // (`booking_calendar_invalidation.dart:242`) → this test failed (1 fetch,
+  // not 2). Restored.
+  testWidgets('invalidateBookingViewsAfterProviderClose drops '
+      'bookedDaysProvider — redundant on the COMPLETE arm BY DESIGN, and '
+      'kept so the helper is never split per transition', (tester) async {
+    int bookedDaysFetches = 0;
+
+    await tester.pumpApp(
+      Scaffold(
+        body: Consumer(
+          builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+            key: const Key('close'),
+            // The id is inconsequential: `bookingDetailProvider('booking-1')`
+            // has no listener here, so that arm of the fan-out is a documented
+            // no-op, as are the two bare families (`bookingsDayProvider`,
+            // `masterArchiveProvider`) with nothing watching them.
+            onPressed: () =>
+                invalidateBookingViewsAfterProviderClose(ref, 'booking-1'),
+            child: const Text('close'),
+          ),
+        ),
+      ),
+      overrides: <Object>[
+        // Overridden rather than left real: the production provider parks a
+        // 30-minute keepAlive `Timer` that `flutter_test` would fail on at
+        // teardown.
+        bookedDaysProvider.overrideWith((ref) async {
+          bookedDaysFetches++;
+          return <DateTime>{};
+        }),
+      ],
+    );
+
+    // A LIVE subscription — mirrors «Мої записи» sitting warm underneath the
+    // pushed detail screen. Without it Riverpod simply drops the invalidated
+    // provider instead of refetching, and the count assertion goes vacuous.
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('close'))),
+      listen: false,
+    );
+    final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+        .listen(bookedDaysProvider, (_, _) {}, fireImmediately: true);
+    addTearDown(sub.close);
+    await container.read(bookedDaysProvider.future);
+    expect(
+      bookedDaysFetches,
+      1,
+      reason: 'sanity: fetched once for the live watcher before any tap',
+    );
+
+    await tester.tap(find.byKey(const Key('close')));
+    await tester.pumpAndSettle();
+
+    await container.read(bookedDaysProvider.future);
+    expect(
+      bookedDaysFetches,
+      2,
+      reason:
+          'the ONE shared provider-close fan-out must drop the dot-set '
+          'singleton — see the block comment above for why this stays on the '
+          'COMPLETE arm even though a complete cannot change dot membership',
     );
   });
 }

@@ -505,6 +505,14 @@ void main() {
   });
 
   // ── 4. ScreenProtector acquire/release on mount/dispose ──────────────────
+  //
+  // What the acquire buys is the iOS app-switcher blur plus the shared
+  // reference count — NOT a screenshot block: FLAG_SECURE was removed app-wide
+  // on 2026-08-20 by product decision, see the header of
+  // `lib/core/security/screen_protection.dart`. The `reason:` strings in this
+  // group still name FLAG_SECURE and are stale; they are left untouched because
+  // they are assertion arguments, not comments. The refcount contract they pin
+  // is unchanged.
 
   group('HomeHubScreen — ScreenProtectionManager lifecycle', () {
     testWidgets('acquire() is called once when HomeHubScreen mounts', (

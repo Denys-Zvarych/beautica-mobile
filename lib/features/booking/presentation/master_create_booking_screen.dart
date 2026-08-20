@@ -111,6 +111,8 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -123,12 +125,14 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../application/salon_booking_schedule_notifier.dart';
+import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/labelled_row.dart';
 import 'widgets/booking_wizard_steps.dart';
 
 export '../application/master_create_booking_notifier.dart'
@@ -164,6 +168,28 @@ class _MasterCreateBookingScreenState
   MasterService? _service;
   DateTime? _startAt;
 
+  /// The calendar day tapped on the `dateTime` step but NOT yet committed.
+  ///
+  /// Selection no longer navigates anywhere on this wizard (user-reported UX
+  /// defect, 2026-08-20): the embedded [MasterSchedulePage] runs in staging
+  /// mode, so tapping a day parks it here instead of writing
+  /// `salonBookingScheduleProvider.date` — the write that flips that page into
+  /// its time sub-phase. The «Далі» footer performs that commit
+  /// ([_commitStagedDate]).
+  ///
+  /// A [ValueNotifier], NOT a plain field mutated through `setState`
+  /// (mobile-perf MEDIUM, 2026-08-20). Only TWO things in the tree depend on
+  /// the staged day — the month grid's selection ring and this step's «Далі»
+  /// footer — but a `setState` here reconstructed the whole wizard: 683 of the
+  /// tree's 921 elements per day tap, 146 of them chrome ABOVE
+  /// [MasterSchedulePage] (`BookingTopBar`, `StepIndicator` + its
+  /// `AnimatedContainer`s, the step `AnimatedSwitcher`, the `Scaffold`) that
+  /// cannot depend on it — and the user can browse days indefinitely. Handed
+  /// to both dependents as a listenable, a day tap rebuilds exactly those two
+  /// subtrees and nothing else. (Same rebuild-scoping primitive this codebase
+  /// already uses in ~58 places, e.g. `service_form.dart`'s `_dirtyNotifier`.)
+  final ValueNotifier<DateTime?> _stagedDate = ValueNotifier<DateTime?>(null);
+
   late final ScreenProtectionManager _screenProtection;
 
   @override
@@ -178,6 +204,7 @@ class _MasterCreateBookingScreenState
     _firstNameCtrl.dispose();
     _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
+    _stagedDate.dispose();
     super.dispose();
   }
 
@@ -251,20 +278,22 @@ class _MasterCreateBookingScreenState
         return ServiceStep(
           key: const ValueKey<_BookingStep>(_BookingStep.service),
           selectedServiceId: _service?.id,
-          onSelect: (MasterService s) {
-            setState(() => _service = s);
-            _goTo(_BookingStep.dateTime);
-          },
+          // SELECT ONLY — no navigation. Advancing is the pinned «Далі»
+          // footer's job (see [_NextCtaFooter]); a tap that jumped straight to
+          // the next step gave the user no chance to see, or change, what they
+          // had picked.
+          onSelect: (MasterService s) => setState(() => _service = s),
         );
       case _BookingStep.dateTime:
         return DateTimeStep(
           key: const ValueKey<_BookingStep>(_BookingStep.dateTime),
           master: master,
           service: _service!,
-          onSlotChosen: (DateTime startAt) {
-            setState(() => _startAt = startAt);
-            _goTo(_BookingStep.confirm);
-          },
+          stagedDate: _stagedDate,
+          // SELECT ONLY — same reasoning as the service step above. No
+          // `setState`: see [_stagedDate]'s doc for why the staged day is
+          // published through the notifier instead.
+          onDateStaged: (DateTime day) => _stagedDate.value = day,
         );
       case _BookingStep.confirm:
         return ConfirmStep(
@@ -280,6 +309,105 @@ class _MasterCreateBookingScreenState
         // never through `AnimatedSwitcher`/`_buildStep` (see that method's
         // doc for why).
         return const SizedBox.shrink();
+    }
+  }
+
+  /// Commits the staged calendar day to `salonBookingScheduleProvider`, which
+  /// IS the move to the time sub-phase — the embedded [MasterSchedulePage]
+  /// renders its chips off `date != null`. See that widget's `onDateStaged`
+  /// doc.
+  ///
+  /// Reads [_stagedDate] at PRESS time rather than closing over a value
+  /// captured when the footer was built: the notifier is the single source of
+  /// truth for the staged day, so there is nothing here that can go stale
+  /// (same reasoning as [_commitSlotAndAdvance] below, one step later in the
+  /// flow). The `null` branch is defensive only — the CTA is disabled without
+  /// a staged day — and replaces the unreachable `() {}` this used to hand
+  /// [BookingCtaFooter] for the disabled case (mobile-perf LOW, 2026-08-20:
+  /// that footer already collapses `enabled ? onPressed : null` itself, so the
+  /// empty closure was allocated on every root build and never called).
+  void _commitStagedDate() {
+    final DateTime? staged = _stagedDate.value;
+    if (staged == null) return;
+    ref.read(salonBookingScheduleProvider.notifier).selectDate(staged);
+  }
+
+  /// Snapshots the slot the master has settled on and advances to `confirm`.
+  ///
+  /// THE ONLY place `_startAt` is ever written (audit-fix cycle 1, FINDING 1 —
+  /// CRITICAL). It used to be mirrored out of a `ref.listen` inside
+  /// [DateTimeStep] whose guard was edge-triggered on `null → non-null`;
+  /// because `SalonBookingSchedule.selectSlot` writes slot A → slot B
+  /// directly, a RE-PICK never re-fired and the wizard confirmed and submitted
+  /// the FIRST slot tapped. Reading `salonBookingScheduleProvider` at the
+  /// instant «Далі» is pressed removes the mirror — and with it the whole
+  /// class of desync — rather than patching the guard. See [DateTimeStep]'s
+  /// own note.
+  ///
+  /// `ref.read`, not `ref.watch`: a one-shot read inside an action handler.
+  /// The `null` branch is defensive — the CTA is gated on the SAME provider
+  /// field (`slotPicked` in [build]), so it cannot be pressed without one.
+  void _commitSlotAndAdvance() {
+    final BookingSlot? slot = ref.read(salonBookingScheduleProvider).slot;
+    if (slot == null) return;
+    setState(() {
+      _startAt = slot.startAt;
+      _step = _BookingStep.confirm;
+    });
+  }
+
+  /// The pinned footer for the current step, or `null` where the step carries
+  /// its own inline CTA (`client`) or none at all.
+  ///
+  /// Every mid-flow footer here exists because SELECTION MUST NOT NAVIGATE
+  /// (user-reported UX defect, 2026-08-20): tapping a service used to jump
+  /// straight to `dateTime`, tapping a day used to flip to the time chips, and
+  /// tapping a slot used to jump to `confirm` — three moves the user never
+  /// asked for, with no chance to review or revise the pick. Each now only
+  /// records the choice; «Далі» is what advances.
+  Widget? _buildBottomBar(
+    AppLocalizations l10n,
+    AsyncValue<Master> masterAsync, {
+    required bool inTimeSubPhase,
+    required bool slotPicked,
+  }) {
+    switch (_step) {
+      case _BookingStep.service:
+        return _NextCtaFooter(
+          buttonKey: const Key('master-create-booking-service-next'),
+          label: l10n.bookingNextCta,
+          enabled: _service != null,
+          onPressed: () => _goTo(_BookingStep.dateTime),
+        );
+      case _BookingStep.dateTime:
+        if (inTimeSubPhase) {
+          return _NextCtaFooter(
+            buttonKey: const Key('master-create-booking-time-next'),
+            label: l10n.bookingNextCta,
+            enabled: slotPicked,
+            onPressed: _commitSlotAndAdvance,
+          );
+        }
+        // Only this footer depends on the staged day — see [_stagedDate].
+        return ValueListenableBuilder<DateTime?>(
+          valueListenable: _stagedDate,
+          builder: (BuildContext context, DateTime? staged, Widget? child) =>
+              _NextCtaFooter(
+                buttonKey: const Key('master-create-booking-date-next'),
+                label: l10n.bookingNextCta,
+                enabled: staged != null,
+                onPressed: _commitStagedDate,
+              ),
+        );
+      case _BookingStep.confirm:
+        return masterAsync.maybeWhen(
+          data: (Master master) =>
+              _ConfirmCtaFooter(onSubmit: () => _submit(master.id)),
+          orElse: () => null,
+        );
+      case _BookingStep.client:
+      case _BookingStep.done:
+        return null;
     }
   }
 
@@ -303,6 +431,9 @@ class _MasterCreateBookingScreenState
       return _DoneStep(
         service: service,
         startAt: startAt,
+        firstName: _firstNameCtrl.text.trim(),
+        lastName: _lastNameCtrl.text.trim(),
+        phone: _phoneCtrl.text.trim(),
         onClose: () => context.pop(),
       );
     }
@@ -315,6 +446,16 @@ class _MasterCreateBookingScreenState
         _step == _BookingStep.dateTime &&
         ref.watch(salonBookingScheduleProvider.select((s) => s.date != null));
 
+    // Gated on the PROVIDER's slot, never on `_startAt` alone: every route
+    // back to the calendar (`clearDate` from the header chevron, the system
+    // back gesture, the time phase's edge-swipe, the «Змінити дату» empty
+    // state) clears the provider's slot, and `selectDate` clears it too. A
+    // footer keyed off the wizard's own `_startAt` would stay enabled over a
+    // slot the user has already dropped.
+    final bool slotPicked =
+        _step == _BookingStep.dateTime &&
+        ref.watch(salonBookingScheduleProvider.select((s) => s.slot != null));
+
     return PopScope(
       canPop: !inTimeSubPhase,
       onPopInvokedWithResult: (bool didPop, Object? result) {
@@ -323,13 +464,12 @@ class _MasterCreateBookingScreenState
       },
       child: Scaffold(
         backgroundColor: BrandColors.base,
-        bottomNavigationBar: (_step == _BookingStep.confirm)
-            ? masterAsync.maybeWhen(
-                data: (Master master) =>
-                    _ConfirmCtaFooter(onSubmit: () => _submit(master.id)),
-                orElse: () => null,
-              )
-            : null,
+        bottomNavigationBar: _buildBottomBar(
+          l10n,
+          masterAsync,
+          inTimeSubPhase: inTimeSubPhase,
+          slotPicked: slotPicked,
+        ),
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -376,7 +516,39 @@ class _MasterCreateBookingScreenState
 // promotion rationale and the one additive parameter it introduced.
 // ---------------------------------------------------------------------------
 
-/// Pinned bottom footer carrying the «Записатись» CTA — thin wrapper over the
+/// Pinned bottom footer carrying a mid-flow «Далі» CTA — the same shared
+/// [BookingCtaFooter] chrome as the submit footer below, so the wizard's
+/// bottom edge does not change shape between steps. Never in flight (nothing
+/// is submitted mid-flow), and carries the forward arrow rather than the
+/// footer's default check: a check would read as "booked".
+class _NextCtaFooter extends StatelessWidget {
+  const _NextCtaFooter({
+    required this.buttonKey,
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final Key buttonKey;
+  final String label;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return BookingCtaFooter(
+      key: const Key('master-create-booking-next-footer'),
+      buttonKey: buttonKey,
+      label: label,
+      icon: Icons.arrow_forward_rounded,
+      enabled: enabled,
+      loading: false,
+      onPressed: onPressed,
+    );
+  }
+}
+
+/// Pinned bottom footer carrying the «Записати» CTA — thin wrapper over the
 /// shared [BookingCtaFooter] so this step gets the exact same pinned-footer
 /// chrome the client-facing confirm screens use.
 class _ConfirmCtaFooter extends ConsumerWidget {
@@ -393,7 +565,14 @@ class _ConfirmCtaFooter extends ConsumerWidget {
     return BookingCtaFooter(
       key: const Key('master-create-booking-cta-footer'),
       buttonKey: const Key('master-create-booking-submit-cta'),
-      label: inFlight ? l10n.bookingSubmitCtaLoading : l10n.bookingSubmitCta,
+      // NOT the shared `bookingSubmitCta` («Записатись»): that label is the
+      // CLIENT's reflexive "book myself in", and four other screens depend on
+      // it reading exactly that way. Here the actor is the master booking
+      // SOMEONE ELSE in, so the wizard carries its own transitive label. The
+      // in-flight caption («Надсилаємо…») is actor-neutral and stays shared.
+      label: inFlight
+          ? l10n.bookingSubmitCtaLoading
+          : l10n.masterCreateBookingSubmitCta,
       enabled: true,
       loading: inFlight,
       onPressed: onSubmit,
@@ -414,11 +593,17 @@ class _DoneStep extends StatelessWidget {
   const _DoneStep({
     required this.service,
     required this.startAt,
+    required this.firstName,
+    required this.lastName,
+    required this.phone,
     required this.onClose,
   });
 
   final MasterService service;
   final DateTime startAt;
+  final String firstName;
+  final String lastName;
+  final String phone;
   final VoidCallback onClose;
 
   @override
@@ -447,6 +632,32 @@ class _DoneStep extends StatelessWidget {
         ),
       ],
       recapCards: <Widget>[
+        // WHO — the same guest card [ConfirmStep] renders, in the same
+        // position (guest first, booking details second). The step the master
+        // just confirmed showed them who they were booking; dropping that on
+        // the payoff screen left the one fact they most need to double-check
+        // (did I type the right client?) visible only on the screen they had
+        // already left.
+        NeumorphicCard(
+          key: const Key('master-create-booking-done-guest-card'),
+          showBorder: true,
+          padding: const EdgeInsets.all(VelvetSpacing.md),
+          child: LabelledRow(
+            label: l10n.masterCreateBookingGuestLabel,
+            value: '$firstName $lastName'.trim(),
+            detail: phone.isEmpty ? null : phone,
+            // Bounded for the same reason, and to the same pair of values, as
+            // [ConfirmStep]'s copy of this card — see that call site in
+            // `widgets/booking_wizard_steps.dart` (audit-fix cycle 1,
+            // FINDING 4). The two must stay in step: they render the same
+            // third-party free text either side of the submit.
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        // No manual spacer — [BookingSuccessScaffold] already separates every
+        // `recapCards` entry with an `md` gap (see its file header).
+        // WHEN / WHAT.
         BookingSummaryCards(
           key: const Key('master-create-booking-done-card'),
           showBorder: true,

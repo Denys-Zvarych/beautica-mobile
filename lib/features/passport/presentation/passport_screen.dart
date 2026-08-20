@@ -59,9 +59,12 @@
 // ## PII
 //
 // The profile block renders real client name / phone / city, so this screen
-// acquires the app-wide [ScreenProtectionManager] (FLAG_SECURE / iOS
-// app-switcher blur) on mount and releases it on unmount — same pattern as
-// HomeHubScreen (§ CRITICAL-4). Hence ConsumerStatefulWidget.
+// acquires the app-wide [ScreenProtectionManager] on mount and releases it on
+// unmount — same pattern as HomeHubScreen (§ CRITICAL-4). Hence
+// ConsumerStatefulWidget. That acquire drives the iOS app-switcher blur and the
+// shared reference count ONLY; it does NOT block screenshots — capture is
+// allowed by product decision 2026-08-20, see the header of
+// `lib/core/security/screen_protection.dart`.
 //
 // ## THE ASYNC BRANCH ORDER IS EXPLICIT AND LOAD-BEARING
 //
@@ -125,7 +128,8 @@ class _PassportScreenState extends ConsumerState<PassportScreen>
   void initState() {
     super.initState();
     // PII: the profile block shows name / phone / city — acquire screen
-    // protection so FLAG_SECURE / iOS app-switcher blur is active while mounted.
+    // protection so the iOS app-switcher blur is active while mounted (this
+    // does not block screenshots; see the file header).
     _protection.acquire();
     if (kDebugMode) {
       log(

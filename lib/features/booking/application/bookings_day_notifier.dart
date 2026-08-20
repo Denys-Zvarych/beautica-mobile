@@ -113,8 +113,10 @@
 //       reclaims an unwatched member's PII.
 //
 // **Ground truth on what (a) actually does** (verified against Riverpod
-// 3.2.1's own source, `package:riverpod/src/core/element.dart` —
-// mobile-qa, 2026-07-19, after an earlier version of this comment described
+// 3.1.0's own source — `package:riverpod/src/core/element.dart` and
+// `.../core/scheduler.dart`; 3.1.0 is what `pubspec.lock` pins, an earlier
+// version of this note cited 3.2.1, which is not the version this app builds
+// against — mobile-qa, 2026-07-19, after an earlier version of this comment described
 // the wrong mechanism and an outcome-based regression test built against
 // that wrong description could not be made to fail): the `authProvider
 // .select` watch above triggers `invalidateSelf()` on an id change.
@@ -130,11 +132,37 @@
 // event-loop turn regardless of whether anything ever reads the provider
 // again. For an ACTIVELY WATCHED member (a `Consumer` on screen at the
 // moment of logout), `mayNeedDispose()` does NOT queue disposal — but
-// `invalidateSelf()` also unconditionally queues a REFRESH, and the
-// scheduler only flushes ACTIVE elements, which forces `build()` to re-run
-// with the new identity on that same next turn. So (a) alone already covers
-// BOTH cases; see `bookings_day_notifier_test.dart`'s "session-boundary PII"
-// group for the regression coverage, including the actively-watched case.
+// `invalidateSelf()` also unconditionally queues a REFRESH, and
+// `invalidateSelf()` sets `_mustRecomputeState = true` on the element. So (a)
+// alone already covers BOTH cases; see `bookings_day_notifier_test.dart`'s
+// "session-boundary PII" group for the regression coverage, including the
+// actively-watched case.
+//
+// **What the queued refresh does and does NOT guarantee.** An earlier version
+// of this note said the scheduler "forces `build()` to re-run". That is only
+// true when the element is ACTIVE, and it is worth spelling out because the
+// «Мої записи» surface routinely is not. `scheduler.dart::_performRefresh`
+// reads `if (element.isActive) element.flush();` — a queued refresh for a
+// NON-active element is SKIPPED — and `scheduler.dart::_task` then calls
+// `stateToRefresh.clear()` UNCONDITIONALLY, so the skipped refresh is
+// DROPPED, never re-queued. `element.dart`'s
+// `isActive => (listenerCount - pausedActiveSubscriptionCount) > 0` is the
+// catch: Riverpod 3 PAUSES the subscriptions of a covered consumer, so a day
+// list sitting under a pushed full-screen route (the create-booking wizard,
+// a booking detail) is watched but NOT active, and its queued refresh is
+// discarded.
+//
+// Recovery in that case is therefore NOT scheduler-driven. It works because
+// `invalidateSelf()` left `_mustRecomputeState = true`, and the next READ —
+// the resumed consumer's `ref.watch` on pop-back — recomputes on the spot. A
+// lifecycle probe confirmed the ordinary pop-back path does recover, so this
+// is latent fragility rather than a live defect. But it means "an
+// `invalidate` while the screen is covered lands on RESUME, not immediately",
+// and nothing about that is guaranteed by the scheduler. Any caller that
+// needs the refetch to have HAPPENED must read the provider, not merely
+// invalidate it and assume — see
+// `booking_calendar_invalidation.dart`'s `invalidateBookingViewsAfterBookingCreated`,
+// whose call site is exactly this covered case.
 //
 // So what does (b) still buy, if (a) alone already reclaims the PII either
 // way? `runOnDispose()` only detaches a link from the Riverpod element's own

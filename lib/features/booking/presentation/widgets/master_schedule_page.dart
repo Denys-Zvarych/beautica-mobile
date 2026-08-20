@@ -21,6 +21,7 @@
 // and a left-edge swipe-back affordance local to the TIME phase (restoring the
 // swipe-back feel the route-level `PopScope(canPop: false)` otherwise disarms).
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -51,12 +52,63 @@ class MasterSchedulePage extends ConsumerStatefulWidget {
     super.key,
     required this.schedule,
     required this.avatarGradient,
+    this.showMasterStrip = true,
+    this.showDateIntro = true,
+    this.stagedDate,
+    this.onDateStaged,
   });
 
   /// The chosen master's fully-resolved visit (identity + ordered services +
   /// per-master assignment ids).
   final SalonMasterSchedule schedule;
   final List<Color> avatarGradient;
+
+  /// Whether to render the [MasterStrip] identity header above the picker.
+  ///
+  /// Defaults to `true` — `salon_time_screen.dart`, where the booker picked
+  /// this master out of several and needs to see WHO they are booking with,
+  /// renders exactly as before. The master «Новий запис» wizard passes `false`:
+  /// there the master IS the logged-in user creating a booking on their own
+  /// calendar, so the strip names the reader back to themselves. That is the
+  /// same reasoning the wizard's confirm step already uses to omit its own
+  /// master card (see `booking_wizard_steps.dart`'s [ConfirmStep] and
+  /// `master_create_booking_screen.dart`'s file-header deviation #4).
+  final bool showMasterStrip;
+
+  /// Whether to render the `salonScheduleDateIntro` line above the calendar
+  /// («Оберіть зручну дату для цього майстра…»).
+  ///
+  /// Defaults to `true` (salon flow unchanged). The wizard passes `false` — its
+  /// own step header already says «Дата та час», so the intro only repeats it,
+  /// and its "для цього майстра" phrasing is self-referential there for the
+  /// same reason [showMasterStrip] is.
+  final bool showDateIntro;
+
+  /// Wizard opt-out of the calendar's tap-to-ADVANCE behaviour.
+  ///
+  /// By default (both `null`) a day tap writes straight through to
+  /// `salonBookingScheduleProvider.selectDate(...)`, which flips this page into
+  /// its time sub-phase in the same frame — `salon_time_screen.dart`'s shipped
+  /// behaviour, unchanged. With [stagedDate] `null` the calendar is built
+  /// DIRECTLY, with no [ValueListenableBuilder] wrapper at all, so the salon
+  /// flow's element tree is byte-identical to before this parameter existed.
+  ///
+  /// When [onDateStaged] is non-null the tap does NOT touch the provider: it is
+  /// reported to the owner, which holds the pending day and paints it back via
+  /// [stagedDate] (rendered as the calendar's `selected` day). Committing —
+  /// and therefore the sub-phase flip — is then the owner's call, made from its
+  /// own pinned «Далі» CTA.
+  ///
+  /// A [ValueListenable], NOT a plain `DateTime?` (mobile-perf MEDIUM,
+  /// 2026-08-20): a staged day passed as a plain value forces the OWNER to
+  /// `setState`, which reconstructed the whole wizard — 683 of the tree's 921
+  /// elements per day tap, 146 of them chrome ABOVE this page (`BookingTopBar`,
+  /// `StepIndicator` + its `AnimatedContainer`s, the step `AnimatedSwitcher`,
+  /// the `Scaffold`, the footer) that cannot depend on the staged day. Handed
+  /// down as a listenable, the tap rebuilds only [MonthCalendar] (which must
+  /// repaint its selection) and the owner's own footer.
+  final ValueListenable<DateTime?>? stagedDate;
+  final ValueChanged<DateTime>? onDateStaged;
 
   @override
   ConsumerState<MasterSchedulePage> createState() => _MasterSchedulePageState();
@@ -208,6 +260,15 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
   }
 
   void _selectDay(DateTime day) {
+    final ValueChanged<DateTime>? stage = widget.onDateStaged;
+    if (stage != null) {
+      // Staging mode — see [MasterSchedulePage.onDateStaged]. Deliberately does
+      // NOT touch `salonBookingScheduleProvider`: writing `date` there is what
+      // flips this page into its time sub-phase, and in staging mode that flip
+      // belongs to the owner's «Далі» CTA, not to the tap.
+      stage(day);
+      return;
+    }
     ref.read(salonBookingScheduleProvider.notifier).selectDate(day);
   }
 
@@ -259,17 +320,22 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: MasterStrip.fromSchedule(
-              widget.schedule,
-              showRole: true,
-              showRating: true,
-              avatarGradient: widget.avatarGradient,
-              avatarBordered: true,
+          if (widget.showMasterStrip) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+              child: MasterStrip.fromSchedule(
+                widget.schedule,
+                showRole: true,
+                showRating: true,
+                avatarGradient: widget.avatarGradient,
+                avatarBordered: true,
+              ),
             ),
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
+            // Spacing belongs to the strip, not to the picker below it —
+            // dropping both together is what keeps the wizard from opening on
+            // an orphan gap.
+            const SizedBox(height: VelvetSpacing.lg),
+          ],
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
             switchInCurve: Curves.easeOutCubic,
@@ -325,12 +391,22 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
           ),
         );
       } else {
-        final Widget calendar = MonthCalendar(
+        // Hoisted out of the builder below: it materialises a ~31-42 entry
+        // lookup map, and re-running it on every staged-day change would
+        // rebuild that map for a value it does not depend on.
+        final bool Function(DateTime) isAvailable = _availabilityFrom(
+          daysToRender,
+          today,
+        );
+        MonthCalendar buildCalendar(DateTime? selected) => MonthCalendar(
           key: const Key('booking-month-calendar'),
           visibleMonth: visibleMonth,
           today: today,
-          selected: null,
-          isAvailable: _availabilityFrom(daysToRender, today),
+          // `null` in the salon flow (a tap advances instantly, so there is
+          // never a selected-but-uncommitted day to paint) — the staged day in
+          // the wizard. See [MasterSchedulePage.stagedDate].
+          selected: selected,
+          isAvailable: isAvailable,
           onSelectDay: _selectDay,
           onPrevMonth: visibleMonth.isAfter(_firstMonth(today))
               ? _prevMonth
@@ -339,6 +415,18 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
               ? _nextMonth
               : null,
         );
+
+        final ValueListenable<DateTime?>? staged = widget.stagedDate;
+        // The salon flow takes the FIRST branch — no wrapper element, so its
+        // tree is unchanged. The wizard's staged day rebuilds the calendar and
+        // NOTHING above it (see [MasterSchedulePage.stagedDate]).
+        final Widget calendar = staged == null
+            ? buildCalendar(null)
+            : ValueListenableBuilder<DateTime?>(
+                valueListenable: staged,
+                builder: (BuildContext context, DateTime? day, Widget? child) =>
+                    buildCalendar(day),
+              );
         calendarBody = loading
             ? Stack(
                 key: const ValueKey<String>('salon-schedule-calendar-stale'),
@@ -369,14 +457,18 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage> {
       key: const ValueKey<String>('date'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-          child: Text(
-            l10n.salonScheduleDateIntro,
-            style: VelvetText.scheduleDateIntro,
+        if (widget.showDateIntro) ...<Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+            child: Text(
+              l10n.salonScheduleDateIntro,
+              style: VelvetText.scheduleDateIntro,
+            ),
           ),
-        ),
-        const SizedBox(height: VelvetSpacing.md),
+          // Paired with the line above — see the [MasterStrip] block in
+          // `build` for why the spacer goes with the widget it separates.
+          const SizedBox(height: VelvetSpacing.md),
+        ],
         // `CalendarWeekdayBar` renders no horizontal padding of its own
         // (mobile-backlog D4/D5 — see `calendar_grid.dart`'s file header):
         // every caller wraps it in whatever inset its own sibling grid uses.

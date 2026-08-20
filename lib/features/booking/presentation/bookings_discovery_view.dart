@@ -920,7 +920,29 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                 VelvetSpacing.lg,
                 VelvetSpacing.xxl,
               ),
-              children: const <Widget>[BookingsSkeleton()],
+              children: <Widget>[
+                const BookingsSkeleton(),
+                // The escape hatch for an indefinite `AsyncLoading`, added
+                // after a master reported the skeleton shimmering forever on
+                // the one day a manual walk-in booking had just been created
+                // for. That day is by construction the ONE day not in
+                // `bookings_day_notifier.dart`'s ≤3-day keepAlive LRU, so it
+                // is the only one that must hit the network — and
+                // `AsyncValue.when` routes `AsyncLoading(retrying: true)`
+                // here too, so every automatic re-attempt looked identical to
+                // a first attempt. The `error:` branch below has always had a
+                // retry button; this gives `loading:` a bounded one.
+                //
+                // Renders nothing at all until
+                // [kMyBookingsSlowLoadThreshold] elapses, so a healthy load —
+                // which replaces this whole subtree long before then — never
+                // shows it. See the widget's own doc for why no flash is
+                // possible.
+                MyBookingsSlowLoadNotice(
+                  onRetry: () =>
+                      ref.invalidate(bookingsDayProvider(_liveQuery)),
+                ),
+              ],
             ),
             error: (Object e, StackTrace _) => ListView(
               physics: const AlwaysScrollableScrollPhysics(),

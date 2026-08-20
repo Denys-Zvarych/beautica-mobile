@@ -39,6 +39,14 @@
 //
 // ## Success invalidation
 //
+// Routed through `booking_calendar_invalidation.dart`'s
+// `invalidateBookingViewsAfterBookingCreated`, this feature's ONE fan-out
+// point for "which master-facing booking caches does this write drop?" —
+// rather than enumerated inline here. That is what caught the 2026-08-20
+// mobile-debugger MEDIUM: this notifier dropped `bookingsDayProvider` but not
+// `bookedDaysProvider`, so a day the master had just booked carried no
+// rail/month dot until that 30-minute-TTL singleton happened to refetch.
+//
 // On success, invalidates the WHOLE [bookingsDayProvider] family (every
 // day/query combination the master's «Мої записи» screen may have cached) —
 // not one specific family member — because this notifier does not know
@@ -57,7 +65,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../data/booking_providers.dart';
 import '../domain/create_master_booking_request.dart';
-import 'bookings_day_notifier.dart';
+import 'booking_calendar_invalidation.dart';
 
 part 'master_create_booking_notifier.g.dart';
 
@@ -88,12 +96,10 @@ class MasterCreateBookingNotifier extends _$MasterCreateBookingNotifier {
           .read(bookingRepositoryProvider)
           .createMasterBooking(masterId, request);
       // See the file header's "Success invalidation" section for why this
-      // invalidates the WHOLE family rather than one query member.
-      // cycle-safe: BookingsDayNotifier.build only watches
-      // bookingRepositoryProvider / clockProvider — it never watches (even
-      // transitively) masterCreateBookingProvider, so there is no back-edge
-      // for this to close.
-      ref.invalidate(bookingsDayProvider);
+      // invalidates the WHOLE `bookingsDayProvider` family rather than one
+      // query member, and `booking_calendar_invalidation.dart` for why the
+      // day-rail/month dot set (`bookedDaysProvider`) must drop alongside it.
+      invalidateBookingViewsAfterBookingCreated(ref);
     });
   }
 }

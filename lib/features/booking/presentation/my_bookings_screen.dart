@@ -22,6 +22,10 @@
 // in this app uses (`HomeHubScreen`, `PassportScreen`, `PublicMasterProfileScreen`,
 // …). Closes the mobile-backlog "client_shell has no FLAG_SECURE" row's THIRD
 // and final trigger (14.3, after 13.7/13.8) — see that row for the other two.
+// That row's NAME is now historical: FLAG_SECURE was removed app-wide on
+// 2026-08-20 by product decision (screenshots are allowed). The acquire here
+// still stands, but what it buys is the iOS app-switcher blur and the shared
+// reference count — see the header of `lib/core/security/screen_protection.dart`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

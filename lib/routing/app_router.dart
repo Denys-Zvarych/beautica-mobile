@@ -347,9 +347,14 @@ GoRouter appRouter(Ref ref) {
         ],
       ),
       GoRoute(
-        // Phase 2.19 MEDIUM-2 (screenshot/FLAG_SECURE PII coverage):
+        // Phase 2.19 MEDIUM-2 (PII screen-protection coverage; the finding's
+        // FLAG_SECURE half was REVERSED on 2026-08-20 by product decision —
+        // screenshots are allowed, see the header of
+        // `lib/core/security/screen_protection.dart`. What the manager still
+        // drives is the iOS app-switcher blur plus the shared reference count,
+        // and the coverage argument below is unchanged for that):
         // /verification renders OUTSIDE the RegisterFlowShell, so it is NOT
-        // covered by the shell's screenshot guard. It instead acquires the
+        // covered by the shell's acquire. It instead acquires the
         // app-wide ScreenProtectionManager in VerificationScreen.initState and
         // releases it in dispose (the manager is internally !kDebugMode-guarded
         // and ref-counts a single native toggle). The three wizard steps

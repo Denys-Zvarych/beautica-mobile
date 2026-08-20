@@ -1696,14 +1696,26 @@ void main() {
       expect(page.items.single.status, BookingStatus.unknown);
     });
 
-    test('ONE structurally broken row is skipped; its siblings still render '
-        'and the SERVER page counters are preserved', () async {
+    test('ONE structurally broken row is skipped; its siblings still render, '
+        'totalPages stays the SERVER\'s and totalElements drops by exactly '
+        'the number of rows lost', () async {
       // The page is decoded ROW BY ROW, so a row that cannot be parsed at all
       // (here: a non-date `startsAt`) is dropped on its own instead of taking
-      // the page down with it. `totalElements`/`totalPages` deliberately stay
-      // the SERVER's values — they are the pager's cursor state, and
-      // recomputing them from the surviving rows would convince the pager it
-      // had reached the end of the list.
+      // the page down with it.
+      //
+      // `totalPages` is the pager's cursor state and stays the SERVER's value
+      // verbatim — `PageResponse.hasMore` reads it, and recomputing it from
+      // the surviving rows would convince the pager it had reached the end.
+      //
+      // `totalElements` is DEBITED by the drop count (mobile-debugger MEDIUM,
+      // 2026-08-20 — see `_decodeBookingsPage`'s doc, point 2). It is not
+      // "recomputed from the survivors": with 2 rows sent and 1 lost, a
+      // recompute would give 1, not 41. The debit exists because
+      // `BookingsDayNotifier` derives `isTruncated` from `totalElements >
+      // items.length`, so leaving the server's 42 over a shortened `items`
+      // made EVERY decode failure render as the "day too dense" notice —
+      // disguising a decode bug as a capacity condition on the one screen
+      // where it shows up.
       final envelope = _serializeMyBookingsEnvelope(
         [_buildDetailDto(id: 'booking-1'), _buildDetailDto(id: 'booking-2')],
         totalPages: 3,
@@ -1740,7 +1752,74 @@ void main() {
       expect(page.items, hasLength(1));
       expect(page.items.single.id, 'booking-2');
       expect(page.totalPages, 3);
-      expect(page.totalElements, 42);
+      expect(
+        page.totalElements,
+        41,
+        reason:
+            '42 sent minus the 1 row lost — NOT 1 (a recompute from the '
+            'survivors) and NOT 42 (which would read as truncation)',
+      );
+      expect(
+        page.totalElements > page.items.length,
+        isTrue,
+        reason:
+            'this page IS genuinely truncated (42 elements, 2 rows on the '
+            'page) and must still say so after the debit',
+      );
+      expect(page.hasMore, isTrue);
+    });
+
+    // The counterpart to the test above: a SHORT page (every element fits) in
+    // which a row is lost. Before the debit this produced `totalElements(2) >
+    // items.length(1)` — indistinguishable from a genuinely over-full day, so
+    // «Мої записи» rendered the "day too dense" notice instead of surfacing
+    // the decode failure. This is the case the fix exists for; the test above
+    // only proves it did not break real truncation.
+    test('a dropped row on a SHORT page does NOT read as truncation — the '
+        'decode failure must not masquerade as a too-dense day', () async {
+      final envelope = _serializeMyBookingsEnvelope(
+        [_buildDetailDto(id: 'booking-1'), _buildDetailDto(id: 'booking-2')],
+        totalPages: 1,
+        totalElements: 2,
+      );
+      final pageMap = envelope['data'] as Map<String, dynamic>;
+      final items = pageMap['data'] as List<dynamic>;
+      final broken = Map<String, dynamic>.from(
+        items.first as Map<String, dynamic>,
+      );
+      broken['startsAt'] = 'not-a-timestamp';
+      pageMap['data'] = <dynamic>[broken, items.last];
+
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      expect(page.items, hasLength(1));
+      expect(page.totalElements, 1, reason: '2 sent minus the 1 row lost');
+      expect(
+        page.totalElements > page.items.length,
+        isFalse,
+        reason:
+            "this is BookingsDayNotifier's `isTruncated` predicate verbatim — "
+            'a decode drop must not satisfy it',
+      );
+      expect(page.totalPages, 1, reason: 'the pager cursor is untouched');
     });
 
     // ------------------------------------------------------------------
@@ -1886,10 +1965,15 @@ void main() {
       );
 
       expect(page.items, isEmpty);
-      // The SERVER's counters survive: the pager must not conclude it reached
+      // `totalPages` survives verbatim: the pager must not conclude it reached
       // the end just because this page happened to decode to nothing.
       expect(page.totalPages, 3);
-      expect(page.totalElements, 42);
+      // `totalElements` is debited by BOTH lost rows (42 - 2) — see the
+      // "ONE structurally broken row" test above for why the debit exists.
+      // Still far above `items.length` (0), so this page reads as genuinely
+      // truncated, which it is: 42 elements exist and none of them rendered.
+      expect(page.totalElements, 40);
+      expect(page.hasMore, isTrue);
     });
 
     // The test ABOVE breaks rows at the DESERIALIZATION boundary
@@ -1908,12 +1992,15 @@ void main() {
     // The counters are deliberately values that CANNOT be produced by
     // recomputing from the 2 survivors (totalElements 57, totalPages 3). If a
     // future refactor "helpfully" derives the counters from `items.length`,
-    // this fails — and it must, because shortening totalElements would also
-    // convince the pager it had reached the end and silently strand the rest
-    // of the user's history.
+    // this fails — and it must, because `totalPages` is what
+    // `PageResponse.hasMore` reads, so shortening it would convince the pager
+    // it had reached the end and silently strand the rest of the user's
+    // history. `totalElements` is debited by the ONE lost row (57 → 56, not
+    // 2) for the separate reason documented on the "ONE structurally broken
+    // row" test above.
     test('a row that DESERIALIZES but fails MAPPING is skipped mid-page — the '
-        'siblings survive and the SERVER page counters are preserved, not '
-        'recomputed from the survivors', () async {
+        'siblings survive, totalPages stays the SERVER\'s and totalElements '
+        'drops by exactly the one row lost', () async {
       final envelope = _serializeMyBookingsEnvelope(
         [
           _buildDetailDto(id: 'booking-1'),
@@ -1969,10 +2056,10 @@ void main() {
       );
       expect(
         page.totalElements,
-        57,
+        56,
         reason:
-            'the SERVER cursor state is authoritative — never recomputed '
-            'from the 2 surviving rows',
+            '57 sent minus the 1 row lost to the MAPPING loop — never '
+            'recomputed from the 2 surviving rows (which would give 2)',
       );
       expect(page.totalPages, 3);
       expect(page.page, 1);
