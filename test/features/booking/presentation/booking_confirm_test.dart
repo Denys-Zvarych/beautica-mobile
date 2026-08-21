@@ -403,6 +403,23 @@ class _StubAuth extends AuthNotifier {
   );
 }
 
+/// Role-parameterised auth session — the input under test for
+/// `BookingSuccessScreen`'s «На головну» CTA, which resolves its landing via
+/// `roleHomePath(session.user.role)` (Phase 27.2 follow-up). [_StubAuth] above
+/// is hard-wired to INDEPENDENT_MASTER for the `bookingsDayProvider` guard and
+/// is deliberately left alone.
+class _RoleAuth extends AuthNotifier {
+  _RoleAuth(this.role);
+
+  final UserRole role;
+
+  @override
+  Future<AuthSession> build() async => AuthSession.authenticated(
+    user: User(id: 'user-1', email: 'user@e.com', role: role),
+    accessToken: 't',
+  );
+}
+
 /// Minimal fake [SlotRepository] for the Date→Time→Confirm push-chain test.
 class _FakeChainSlotRepository implements SlotRepository {
   _FakeChainSlotRepository(this.slotsToReturn);
@@ -487,6 +504,12 @@ GoRouter _router() => GoRouter(
     ),
     GoRoute(
       path: RouteNames.clientHome,
+      builder: (context, state) => const SizedBox.shrink(),
+    ),
+    // Phase 27.2 follow-up — the PROVIDER landing the success screen's
+    // «На головну» CTA now resolves to for an INDEPENDENT_MASTER.
+    GoRoute(
+      path: RouteNames.masterProfile,
       builder: (context, state) => const SizedBox.shrink(),
     ),
     GoRoute(
@@ -1547,14 +1570,104 @@ void main() {
       },
     );
 
-    testWidgets('«На головну» navigates to /home', (tester) async {
+    // ── «На головну» — the landing is resolved from the SESSION ROLE. ───────
+    //
+    // Phase 27.2 follow-up. This CTA used to be a hard-coded
+    // `context.go(RouteNames.clientHome)`, which was invisible while the
+    // success screen was CLIENT-only — but the same screen is now the last
+    // step of a PROVIDER reschedule, so a hard-coded client landing would
+    // strand an INDEPENDENT_MASTER inside the CLIENT shell. All three branches
+    // of the new expression are pinned below; the pre-existing test (now the
+    // first of the three) was covering only the no-session FALLBACK, since
+    // this group's `pump` installs no `authProvider` override at all — under
+    // the real notifier the session never resolves in a widget test, so
+    // `.value` is null and the `clientHome` it asserted came from the `else`
+    // arm, not from a CLIENT session. That is worth keeping as its own case,
+    // but it is not the CLIENT case, and it could never have caught the
+    // provider bug.
+    Future<GoRouter> pumpAs(WidgetTester tester, UserRole role) async {
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[authProvider.overrideWith(() => _RoleAuth(role))],
+      );
+      router.go(RouteNames.bookingSuccess, extra: successArgs());
+      await tester.pumpAndSettle();
+
+      // PRE-WARM the session. Nothing on `BookingSuccessScreen` WATCHES
+      // `authProvider` — the CTA `ref.read`s it in its `onPressed` — so
+      // without this the provider is still un-built at tap time, resolves as
+      // `AsyncLoading`, and `.value` is null. Every role would then take the
+      // `clientHome` fallback arm and the master case below could never fail.
+      // (Discovered by this very test going red on `/home`: the pre-existing
+      // «На головну» case had exactly this shape.) `authProvider` is resolved
+      // long before this screen in the real app, so pre-warming restores the
+      // production precondition rather than papering over it.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingSuccessScreen)),
+        listen: false,
+      );
+      await container.read(authProvider.future);
+      await tester.pumpAndSettle();
+      expect(container.read(authProvider).value, isA<Authenticated>());
+      return router;
+    }
+
+    testWidgets('«На головну» falls back to /home when no session resolved', (
+      tester,
+    ) async {
       final router = await pump(tester);
+
+      // Pin the PRECONDITION, so this stays the fallback case even if a
+      // default auth override is ever added to `pumpRoutedApp`.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingSuccessScreen)),
+        listen: false,
+      );
+      expect(
+        container.read(authProvider).value,
+        isNull,
+        reason:
+            'this case exercises the unauthenticated ELSE arm — see the CLIENT '
+            'case below for the resolved-session one',
+      );
 
       await tester.tap(find.byKey(const Key('booking-success-home-cta')));
       await tester.pumpAndSettle();
 
       expect(locationOf(router), equals(RouteNames.clientHome));
     });
+
+    testWidgets('«На головну» navigates a CLIENT session to /home', (
+      tester,
+    ) async {
+      final router = await pumpAs(tester, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+      await tester.pumpAndSettle();
+
+      expect(locationOf(router), equals(RouteNames.clientHome));
+    });
+
+    testWidgets(
+      '«На головну» navigates an INDEPENDENT_MASTER session to /master/profile '
+      '— a provider that just rescheduled must NOT land in the CLIENT shell',
+      (tester) async {
+        final router = await pumpAs(tester, UserRole.independentMaster);
+
+        await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.masterProfile));
+        expect(
+          locationOf(router),
+          isNot(equals(RouteNames.clientHome)),
+          reason:
+              'the negative half — a hard-coded clientHome would satisfy the '
+              'CLIENT and fallback cases above and still be wrong here',
+        );
+      },
+    );
   });
 
   // MO-3 — the real Date → Time → Confirm push chain (single-visit): pushing

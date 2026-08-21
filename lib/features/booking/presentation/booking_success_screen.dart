@@ -24,8 +24,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
@@ -123,7 +126,19 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           buttonKey: const Key('booking-success-home-cta'),
           label: l10n.bookingSuccessHomeCta,
           icon: Icons.home_outlined,
-          onPressed: () => context.go(RouteNames.clientHome),
+          // Phase 27.2 follow-up — this screen is now also reached by an
+          // INDEPENDENT_MASTER that just RESCHEDULED its own booking, so a
+          // hard-coded `clientHome` would strand a provider in the CLIENT
+          // shell. Resolve the landing from the session through the shared
+          // `roleHomePath` dispatch, same shape as `done_screen.dart`.
+          onPressed: () {
+            final session = ref.read(authProvider).value;
+            context.go(
+              session is Authenticated
+                  ? roleHomePath(session.user.role)
+                  : RouteNames.clientHome,
+            );
+          },
         ),
       ],
       recapCards: <Widget>[

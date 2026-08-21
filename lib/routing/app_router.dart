@@ -98,6 +98,7 @@ import '../features/services/domain/category_slug.dart';
 import '../shared/formatters/api_date.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
+import 'booking_reschedule_seed.dart';
 import 'role_home.dart';
 import 'route_names.dart';
 
@@ -690,8 +691,15 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingSlots,
         redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
+          // Phase 27.2 follow-up — a PROVIDER rescheduling its own booking
+          // re-enters this CLIENT picker rather than forking a provider-only
+          // copy of it, so the role bounce is skipped for a reschedule-shaped
+          // seed only. A CREATE-shaped `BookingSlotPickerArgs` still bounces.
+          // See `booking_reschedule_seed.dart` for the SEC rationale.
+          if (!isBookingRescheduleSeed(state.extra)) {
+            final roleRedirect = clientOnlyGuard(context, state);
+            if (roleRedirect != null) return roleRedirect;
+          }
           if (state.extra is! BookingSlotPickerArgs) {
             return RouteNames.bookingNew;
           }
@@ -703,8 +711,11 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: 'time',
             redirect: (context, state) {
-              final roleRedirect = clientOnlyGuard(context, state);
-              if (roleRedirect != null) return roleRedirect;
+              // Same Phase 27.2 reschedule admission as the parent route.
+              if (!isBookingRescheduleSeed(state.extra)) {
+                final roleRedirect = clientOnlyGuard(context, state);
+                if (roleRedirect != null) return roleRedirect;
+              }
               if (state.extra is! BookingSlotPickerArgs) {
                 return RouteNames.bookingNew;
               }
@@ -724,8 +735,11 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingConfirm,
         redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
+          // Same Phase 27.2 reschedule admission as `bookingSlots` above.
+          if (!isBookingRescheduleSeed(state.extra)) {
+            final roleRedirect = clientOnlyGuard(context, state);
+            if (roleRedirect != null) return roleRedirect;
+          }
           if (state.extra is! BookingConfirmArgs) {
             return RouteNames.bookingNew;
           }
@@ -752,8 +766,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingSuccess,
         redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
+          // Same Phase 27.2 reschedule admission as `bookingSlots` above —
+          // keyed off `BookingSuccessArgs.isReschedule` here.
+          if (!isBookingRescheduleSeed(state.extra)) {
+            final roleRedirect = clientOnlyGuard(context, state);
+            if (roleRedirect != null) return roleRedirect;
+          }
           if (state.extra is! BookingSuccessArgs) {
             return RouteNames.clientHome;
           }

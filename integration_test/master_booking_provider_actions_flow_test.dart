@@ -45,12 +45,22 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -58,6 +68,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -94,6 +105,50 @@ void main() {
     await container.read(bookingsDayProvider(dayQuery).future);
 
     return fb.getMyBookingsCalls;
+  }
+
+  /// STALE-ASSERTION FIX (found while adding the reschedule journey below —
+  /// this file failed 2/3 at HEAD, independently of that work).
+  ///
+  /// Both underway/elapsed tests used to assert
+  /// `find.byKey('booking-detail-provider-reschedule')` `findsNothing`,
+  /// matching a version of `_providerActions` that OMITTED the button once
+  /// `hasStartedAt(now)` was true. `booking_detail_screen.dart:798-826` has
+  /// since deliberately reversed that: silently vanishing read as "the app
+  /// can't reschedule this" rather than "this booking can't be moved anymore",
+  /// so the button now STAYS visible with `onPressed: null` plus a permanent
+  /// caption naming the reason. The old assertion could therefore only ever
+  /// fail — the E2E tier simply had not been re-run since.
+  ///
+  /// Asserting the INERT shape (present + null handler + caption) instead of
+  /// absence is also strictly stronger: absence was equally satisfied by the
+  /// button being dropped for the WRONG reason, whereas this pins the exact
+  /// three-part state the UX fix specifies.
+  void expectRescheduleVisibleButInert(WidgetTester tester) {
+    final Finder reschedule = find.byKey(
+      const Key('booking-detail-provider-reschedule'),
+    );
+    expect(
+      reschedule,
+      findsOneWidget,
+      reason:
+          'an underway booking keeps «Перенести» VISIBLE — omitting it reads '
+          'as an app limitation rather than a fact about this booking',
+    );
+    expect(
+      tester.widget<NeumorphicButton>(reschedule).onPressed,
+      isNull,
+      reason:
+          '…but INERT: the backend still rejects a reschedule once the '
+          'booking has started',
+    );
+    expect(
+      find.byKey(const Key('booking-detail-reschedule-unavailable-reason')),
+      findsOneWidget,
+      reason:
+          'the reason renders as a permanent caption — a hidden explanation '
+          'is the same silent-omission bug in a new costume',
+    );
   }
 
   testWidgets(
@@ -234,10 +289,7 @@ void main() {
             'decline stays offered on an underway booking too — the backend '
             'allows a provider decline at any time',
       );
-      expect(
-        find.byKey(const Key('booking-detail-provider-reschedule')),
-        findsNothing,
-      );
+      expectRescheduleVisibleButInert(tester);
 
       await tester.tap(find.byKey(const Key('booking-detail-complete')));
       await AppHarness.settle(tester);
@@ -323,10 +375,7 @@ void main() {
           'backend allows a provider decline at any time; a client no-show '
           'is recorded as a decline with a free-text reason',
     );
-    expect(
-      find.byKey(const Key('booking-detail-provider-reschedule')),
-      findsNothing,
-    );
+    expectRescheduleVisibleButInert(tester);
 
     await tester.tap(find.byKey(const Key('booking-detail-decline')));
     await AppHarness.settle(tester);
@@ -386,4 +435,257 @@ void main() {
           'GET /bookings/me',
     );
   });
+
+  // ==========================================================================
+  // Phase 27.2 follow-up — the PROVIDER RESCHEDULE journey.
+  //
+  // WHY THESE TWO TESTS EXIST
+  // -------------------------
+  // Provider-side reschedule shipped BROKEN and every tier stayed green.
+  // `clientOnlyGuard` bounced an INDEPENDENT_MASTER off all four routes the
+  // reschedule flow traverses (`/booking/slots`, `/booking/slots/time`,
+  // `/booking/confirm`, `/booking/success`), so tapping «Перенести» landed the
+  // master back on `/master/profile` and the slot picker was unreachable — the
+  // feature had never worked once. It went unnoticed because:
+  //
+  //   * `test/routing/booking_route_guard_test.dart` PINNED the bounce as
+  //     intended behaviour;
+  //   * `booking_detail_provider_footer_test.dart`,
+  //     `reschedule_navigation_test.dart` and `reschedule_in_flight_test.dart`
+  //     all build a synthetic 2-route `GoRouter` with NO `clientOnlyGuard` and
+  //     no session, so the tap "navigates" perfectly;
+  //   * this very file, and
+  //     `master_appointment_child_booking_actions_flow_test.dart`, asserted the
+  //     button `findsOneWidget` and NEVER TAPPED IT.
+  //
+  // The transferable lesson: a test that never taps the CTA, or that taps it
+  // against a stubbed router, cannot catch a route-guard regression. Test 4
+  // below is the only tier in the repo that taps «Перенести» as a real
+  // INDEPENDENT_MASTER against the REAL `appRouterProvider` (`AppHarness.boot`
+  // reads the production router out of the live container) and follows the
+  // journey to its end. Test 5 is its mandatory NEGATIVE sibling: a
+  // CREATE-shaped seed must STILL bounce, so the narrowed guard cannot later
+  // be deleted outright and stay green.
+  //
+  // Assertions are on the resolved PAGE TYPE (`SlotDateScreen`,
+  // `BookingConfirmScreen`, `BookingSuccessScreen`, `MasterProfileScreen`),
+  // never on the router location alone — literal-vs-dynamic route shadowing
+  // keeps a path assertion green while the WRONG page resolves. The
+  // navigations are all `push`-shaped (`startBookingReschedule` calls
+  // `context.push`; Test 5 uses `router.push`) because a pushed leaf collapses
+  // to its PARENT path in `RouteMatchList.uri` — a `router.go` reproduction
+  // false-passes, which is why `AppHarness.location` exists at all.
+  // ==========================================================================
+
+  /// Drives the REAL slot picker (SlotDateScreen → SlotTimeScreen): taps the
+  /// pinned-clock "today" cell, advances to the time step, picks the first
+  /// available chip and confirms. Mirrors `client_reschedule_flow_test.dart`'s
+  /// `pickNewDateAndTime` — including its `kyivToday(() => kFixedNow)` fix:
+  /// the fixture clock and the app clock MUST be the same clock, or the tap
+  /// lands on a PAST cell that renders with no `GestureDetector` at all and
+  /// silently no-ops.
+  Future<void> pickNewDateAndTime(WidgetTester tester) async {
+    expect(find.byType(SlotDateScreen), findsOneWidget);
+    await AppHarness.settle(tester);
+
+    final DateTime today = kyivToday(() => kFixedNow);
+    await tester.tapCalendarDay(today.day);
+    await AppHarness.settle(tester);
+
+    await tester.tap(find.byKey(const Key('booking-summary-cta')));
+    await AppHarness.settle(tester);
+    expect(find.byType(SlotTimeScreen), findsOneWidget);
+
+    final Finder availableChip = find.byWidgetPredicate(
+      (Widget w) => w is SlotChip && w.available,
+    );
+    expect(availableChip, findsWidgets);
+    await tester.tap(availableChip.first);
+    await AppHarness.settle(tester);
+
+    await tester.tap(find.byKey(const Key('booking-summary-cta')));
+    await AppHarness.settle(tester);
+  }
+
+  testWidgets(
+    'INDEPENDENT_MASTER TAPS «Перенести» on its own CONFIRMED booking and '
+    'reaches the REAL slot picker (never bounced to /master/profile), then '
+    'walks the whole reschedule journey — date → time → confirm → submit → '
+    'success — across all four clientOnlyGuard-ed routes, and «На головну» '
+    'lands on the MASTER home, not the CLIENT shell',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Default seed: CONFIRMED, ~7 days out, so `hasStartedAt(kFixedNow)` is
+      // false and the footer offers the LIVE (tappable) «Перенести».
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      // The master's own landing is on screen before anything is pushed.
+      expect(find.byType(MasterProfileScreen), findsOneWidget);
+
+      unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      final Finder reschedule = find.byKey(
+        const Key('booking-detail-provider-reschedule'),
+      );
+      expect(
+        reschedule,
+        findsOneWidget,
+        reason:
+            'a not-yet-started CONFIRMED provider booking must offer the LIVE '
+            '«Перенести» CTA',
+      );
+
+      // ── THE TAP THE OLD COVERAGE NEVER MADE. ──────────────────────────────
+      await tester.tap(reschedule);
+      await AppHarness.settle(tester);
+
+      // ── /booking/slots — guard route 1 of 4. ──────────────────────────────
+      expect(
+        find.byType(SlotDateScreen),
+        findsOneWidget,
+        reason:
+            'the reschedule-shaped seed must be ADMITTED past clientOnlyGuard '
+            '— this is the assertion the shipped bug failed',
+      );
+      expect(
+        find.byType(MasterProfileScreen),
+        findsNothing,
+        reason:
+            'the master must NOT have been bounced back to /master/profile; a '
+            'bounce pushes a second MasterProfileScreen ONSTAGE, while a '
+            'successful push leaves the original OFFSTAGE (and therefore '
+            'invisible to the default finder)',
+      );
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
+
+      // ── /booking/slots/time + /booking/confirm — guard routes 2 and 3. ────
+      await pickNewDateAndTime(tester);
+      expect(
+        find.byType(BookingConfirmScreen),
+        findsOneWidget,
+        reason:
+            'the nested time step AND the confirm step carry the same guard — '
+            'either one still bouncing would strand the flow here',
+      );
+      expect(find.byType(MasterProfileScreen), findsNothing);
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+
+      // ── Submit → the REAL PATCH /bookings/{id}/reschedule, as a PROVIDER. ─
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await AppHarness.settle(tester);
+
+      // ── /booking/success — guard route 4 of 4. ────────────────────────────
+      expect(
+        find.byType(BookingSuccessScreen),
+        findsOneWidget,
+        reason: 'the success step carries the same guard',
+      );
+      expect(find.byType(MasterProfileScreen), findsNothing);
+      AppHarness.expectLocation(router, RouteNames.bookingSuccess);
+      expect(tester.takeException(), isNull);
+
+      expect(
+        fb.rescheduleBookingCalls,
+        1,
+        reason:
+            'a PROVIDER reschedule must reach the SAME per-booking endpoint '
+            'the client uses — track 27.2 widened it, it was never forked',
+      );
+      expect(fb.lastRescheduleNewStartsAt, isNotNull);
+
+      // ── The journey ENDS with the master back on its own home. ────────────
+      //
+      // MUTATION-PROBED, AND HONEST ABOUT WHAT IT PROVES (M14). Reverting
+      // `booking_success_screen.dart` to its old hard-coded
+      // `context.go(RouteNames.clientHome)` leaves THIS assertion GREEN: the
+      // global `authRedirect` prefix gate bounces an INDEPENDENT_MASTER off
+      // `/home` to `/master/profile` anyway, so the two implementations are
+      // indistinguishable from the end of the journey. So this pins the
+      // user-visible outcome — a provider is never left stranded in the CLIENT
+      // shell — but it is NOT the discriminating test for the `roleHomePath`
+      // change itself. That one lives at the widget tier
+      // (`booking_confirm_test.dart` → «На головну» navigates an
+      // INDEPENDENT_MASTER session to /master/profile), where the synthetic
+      // router has no `authRedirect` to mask the difference; it was verified
+      // to go RED against the reverted CTA. Do not delete that test on the
+      // grounds that "the E2E covers it" — it does not.
+      await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+      await AppHarness.settle(tester);
+      expect(
+        find.byType(MasterProfileScreen),
+        findsOneWidget,
+        reason:
+            'the provider must end the journey on its OWN home, never parked '
+            'inside the CLIENT shell',
+      );
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  testWidgets(
+    'NEGATIVE SIBLING — the same INDEPENDENT_MASTER pushing /booking/slots '
+    'with a CREATE-shaped seed (no rescheduleBookingId) is STILL bounced to '
+    '/master/profile: the guard was NARROWED, not deleted',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      expect(find.byType(MasterProfileScreen), findsOneWidget);
+
+      // Byte-for-byte the seed Test 4's tap produces, MINUS
+      // `rescheduleBookingId` — i.e. exactly what step 2 of the CLIENT CREATE
+      // flow hands the picker. Nothing else about the navigation differs, so
+      // this pins the discriminator itself and not some incidental difference.
+      unawaited(
+        router.push(
+          RouteNames.bookingSlots,
+          extra: const BookingSlotPickerArgs(
+            masterId: 'master-aaa',
+            master: Master(
+              id: 'master-aaa',
+              firstName: 'Софія',
+              lastName: 'Бондар',
+              avgRating: 0,
+              reviewCount: 0,
+              type: MasterType.independentMaster,
+            ),
+            services: <MasterService>[
+              MasterService(
+                id: 'pub-assign-1',
+                serviceDefId: 'def-1',
+                name: 'Манікюр з покриттям',
+                durationMinutes: 90,
+                priceMin: 650,
+                priceDisplay: '650 ₴',
+                category: 'NAILS',
+              ),
+            ],
+          ),
+        ),
+      );
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byType(SlotDateScreen),
+        findsNothing,
+        reason:
+            'a CREATE-shaped seed must never admit a provider into the CLIENT '
+            'booking flow',
+      );
+      expect(
+        find.byType(MasterProfileScreen),
+        findsOneWidget,
+        reason: 'clientOnlyGuard → roleHomePath still bounces the master home',
+      );
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 }
