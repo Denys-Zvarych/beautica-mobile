@@ -4363,10 +4363,6 @@
   "@bookingDetailCompleteCta": {
     "description": "Track 27.x Wave A — PROVIDER footer primary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted), shown alongside bookingDetailDeclineCta; opens the complete confirmation."
   },
-  "bookingDetailRescheduleUnavailableStarted": "The booking has already started — it can no longer be rescheduled.",
-  "@bookingDetailRescheduleUnavailableStarted": {
-    "description": "Track 27.x Wave A follow-up — visible caption under a DISABLED «Reschedule» button in the PROVIDER footer once the booking's appointment has started (Booking.hasStartedAt), mirroring the backend's BookingTemporalGuard.assertCurrentNotElapsedForReschedule (server-authoritative — always in the future). Replaces the earlier silent omission of the button; the button itself stays visible but non-interactive so the reason is legible, not hidden behind a tooltip/snack. Wording mirrors bookingErrorProviderDeclineWindowClosed's construction."
-  },
   "bookingDetailReviewCta": "Leave a review",
   "@bookingDetailReviewCta": {
     "description": "Pinned action on a COMPLETED booking's detail screen, shown only when canReview is true; opens the leave-review screen (Phase 14.6)."

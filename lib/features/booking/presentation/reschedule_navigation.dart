@@ -72,6 +72,7 @@ import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
+import '../application/booking_viewer_role.dart';
 import '../domain/booking.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/booking_status.dart';
@@ -158,6 +159,20 @@ Future<void> startBookingReschedule({
     }
 
     if (!context.mounted) return;
+    // FIX 3 (audit-fix cycle 3, 2026-08-21) — hide the master identity card
+    // (+ its Hero + the address block) through the picker/confirm chain when
+    // the RESCHEDULE VIEWER is the provider: a master rescheduling their own
+    // booking has no use for a card of themselves. Derived from the SAME
+    // session-backed `bookingViewerRoleProvider` `booking_detail_screen.dart`
+    // already watches for its footer split (never a caller-supplied flag —
+    // see that provider's own "derived from the session" rationale) — a
+    // CLIENT rescheduling their own booking resolves `BookingViewerRole
+    // .client` here exactly as it always has, so `hideMasterIdentity` stays
+    // `false` and that path is UNCHANGED (the pre-existing default every
+    // other `BookingSlotPickerArgs` call site relies on).
+    final bool hideMasterIdentity = ref
+        .read(bookingViewerRoleProvider)
+        .isProvider;
     unawaited(
       context.push(
         RouteNames.bookingSlots,
@@ -167,6 +182,7 @@ Future<void> startBookingReschedule({
           services: <MasterService>[service],
           rescheduleBookingId: booking.id,
           rescheduleAppointmentId: booking.appointmentId,
+          hideMasterIdentity: hideMasterIdentity,
         ),
       ),
     );

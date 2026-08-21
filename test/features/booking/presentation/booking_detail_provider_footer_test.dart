@@ -5,15 +5,16 @@
 // covers what Wave A fills it WITH:
 //   • CONFIRMED, not yet started → «Перенести» + «Скасувати» (decline), no
 //     «Завершити»;
-//   • CONFIRMED, [Booking.hasStarted] → «Завершити» AND «Скасувати»
-//     (decline), PLUS a DISABLED «Перенести» (onPressed: null) with a visible
-//     caption underneath explaining why — it would still 409 server-side
-//     (Phase 27.1's `BookingTemporalGuard`), but the button is kept visible-
-//     but-inert rather than silently omitted (2026-08-20 fix — see
-//     `booking_detail_screen.dart`'s `_providerActions` doc). Decline itself
-//     is NOT time-gated — the backend now allows a provider decline at any
-//     time, so it stays offered on an elapsed booking too («Клієнт не
-//     прийшов» is recorded as a decline reason, not a separate action);
+//   • CONFIRMED, [Booking.hasStarted] (covers BOTH underway and fully
+//     elapsed — `hasStartedAt` doesn't distinguish them) → «Завершити» AND
+//     «Скасувати» (decline) ONLY — «Перенести» is OMITTED, not merely
+//     disabled: it would still 409 server-side (Phase 27.1's
+//     `BookingTemporalGuard`), and 2026-08-20's `ef521cace` briefly kept it
+//     visible-but-inert with a caption, but the user reversed that this
+//     session — a button that can never be tapped is never shown. Decline
+//     itself is NOT time-gated — the backend now allows a provider decline
+//     at any time, so it stays offered on an elapsed booking too («Клієнт
+//     не прийшов» is recorded as a decline reason, not a separate action);
 //   • every terminal status → nothing;
 //   • the decline dialog (reused `cancel_booking_dialog.dart` chrome) wires
 //     to `BookingRepository.declineBooking` with the optional comment (empty
@@ -208,9 +209,9 @@ void main() {
 
     testWidgets(
       'CONFIRMED, underway (started but not yet ended): complete + decline '
-      'ENABLED, «Перенести» present but DISABLED — hasStarted is a DIFFERENT '
-      'gate than isPast (see the dedicated pinned-clock group below for the '
-      'falsifiable disabled/caption assertions)',
+      'ENABLED, «Перенести» ABSENT — hasStarted is a DIFFERENT gate than '
+      'isPast (see the dedicated pinned-clock group below for the '
+      'falsifiable absence assertion)',
       (tester) async {
         final DateTime start = DateTime.now().toUtc().subtract(
           const Duration(minutes: 10),
@@ -232,13 +233,13 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
-        // 2026-08-20 fix — the button is no longer silently omitted once
-        // started; it stays visible but non-interactive. See the
-        // 'reschedule availability (hasStartedAt gate)' group below for the
-        // assertion proving it is genuinely DISABLED, not merely present.
+        // USER-LOCKED REVERSAL (this session) of the 2026-08-20 fix: the
+        // button is omitted entirely once started, not merely disabled. See
+        // the 'reschedule availability (hasStartedAt gate)' group below for
+        // the pinned-clock falsifiable assertion.
         expect(
           find.byKey(const Key('booking-detail-provider-reschedule')),
-          findsOneWidget,
+          findsNothing,
         );
       },
     );
@@ -260,6 +261,12 @@ void main() {
 
       expect(find.byKey(const Key('booking-detail-complete')), findsOneWidget);
       expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+      // The user-reported case: a fully-past booking must not show a
+      // reschedule CTA it can never honour.
+      expect(
+        find.byKey(const Key('booking-detail-provider-reschedule')),
+        findsNothing,
+      );
     });
 
     testWidgets('every terminal status renders no provider action', (
@@ -353,11 +360,10 @@ void main() {
     ];
 
     testWidgets(
-      'started (hasStartedAt is TRUE at the pinned clock): «Перенести» '
-      'renders but is genuinely DISABLED (onPressed: null, not merely '
-      'present), with the unavailable-reason caption visible; «Завершити»/'
-      '«Скасувати» stay ENABLED — the fix must not have collaterally '
-      'disabled the live actions',
+      'started (hasStartedAt is TRUE at the pinned clock): «Перенести» is '
+      'ABSENT entirely — no button, no caption; «Завершити»/«Скасувати» '
+      'stay ENABLED — the fix must not have collaterally disabled the live '
+      'actions',
       (tester) async {
         final Booking booking = _booking(
           status: BookingStatus.confirmed,
@@ -375,28 +381,19 @@ void main() {
           overrides: overridesWithClock(booking, repo),
         );
         await tester.pumpAndSettle();
-        final AppLocalizations l10n = _l10n(tester);
 
-        final Finder rescheduleFinder = find.byKey(
-          const Key('booking-detail-provider-reschedule'),
-        );
-        expect(rescheduleFinder, findsOneWidget);
         expect(
-          tester.widget<NeumorphicButton>(rescheduleFinder).onPressed,
-          isNull,
+          find.byKey(const Key('booking-detail-provider-reschedule')),
+          findsNothing,
           reason:
-              'NeumorphicButton\'s disabled state IS onPressed: null — no '
-              'GestureDetector callback is wired and the label/icon dim to '
-              '55% alpha off this same flag (core/widgets/neumorphic.dart)',
+              'USER-LOCKED REVERSAL: a reschedule that can never succeed on '
+              'this booking must not be offered at all',
         );
-
-        final Finder captionFinder = find.byKey(
-          const Key('booking-detail-reschedule-unavailable-reason'),
-        );
-        expect(captionFinder, findsOneWidget);
         expect(
-          find.text(l10n.bookingDetailRescheduleUnavailableStarted),
-          findsOneWidget,
+          find.byKey(const Key('booking-detail-reschedule-unavailable-reason')),
+          findsNothing,
+          reason:
+              'the caption is pointless once the button it explains is gone',
         );
 
         final Finder completeFinder = find.byKey(
@@ -1222,6 +1219,15 @@ void main() {
         expect(captured!.rescheduleBookingId, booking.id);
         expect(captured!.masterId, booking.masterId);
         expect(captured!.services.single.id, booking.serviceId);
+        // AUDIT-FIX CYCLE 3 (FIX 3, 2026-08-21) — this file's session is
+        // ALWAYS a PROVIDER (`_providerUser()`, wired into every test via
+        // `_overrides`), so the seeded args must hide the master identity
+        // card through the picker/confirm chain — the master must not see a
+        // card of themselves. The mirror-image CLIENT assertion (must stay
+        // VISIBLE) lives in `client_reschedule_flow_test.dart`, the only file
+        // in this suite that drives a CLIENT session through this same
+        // `startBookingReschedule` helper.
+        expect(captured!.hideMasterIdentity, isTrue);
       },
     );
   });

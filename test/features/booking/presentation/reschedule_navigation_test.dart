@@ -27,8 +27,13 @@
 // absence of an exception.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/reschedule_navigation.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
@@ -44,6 +49,29 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+
+/// A fixed-session auth stub — mirrors `booking_detail_provider_footer_test
+/// .dart`'s `_StubAuth`.
+class _StubAuth extends AuthNotifier {
+  _StubAuth(this._session);
+
+  final AuthSession _session;
+
+  @override
+  Future<AuthSession> build() async => _session;
+}
+
+const User _kProviderUser = User(
+  id: 'u1',
+  email: 'master@e.com',
+  role: UserRole.independentMaster,
+);
+
+const User _kClientUser = User(
+  id: 'c1',
+  email: 'client@e.com',
+  role: UserRole.client,
+);
 
 const String _bookingId = 'booking-1';
 const String _masterId = 'master-aaa';
@@ -220,4 +248,156 @@ void main() {
       await pumpPastVelvetSnack(tester);
     },
   );
+
+  // ---------------------------------------------------------------------
+  // Audit-fix cycle 3 (FIX 3, 2026-08-21) — `hideMasterIdentity` is now
+  // seeded from the RESCHEDULE VIEWER's role (`bookingViewerRoleProvider`),
+  // not left at its `false` default. A PROVIDER rescheduling their own
+  // booking must not see their own identity card echoed back on the
+  // slot/confirm chain; a CLIENT rescheduling their own booking is the
+  // user-locked path this fix must NEVER touch — it must keep seeing the
+  // master card exactly as before.
+  // ---------------------------------------------------------------------
+  group('hideMasterIdentity seeded by viewer role (FIX 3)', () {
+    /// Drives [startBookingReschedule] and captures the
+    /// [BookingSlotPickerArgs] the slot picker was pushed with — unlike
+    /// [_drive] above, which only observes whether navigation happened.
+    Future<BookingSlotPickerArgs?> driveCaptured(
+      WidgetTester tester, {
+      required List<Object> overrides,
+    }) async {
+      BookingSlotPickerArgs? captured;
+      final GoRouter router = GoRouter(
+        initialLocation: '/start',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/start',
+            builder: (BuildContext context, _) => Scaffold(
+              body: Consumer(
+                builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+                  key: const Key('go'),
+                  onPressed: () => startBookingReschedule(
+                    context: context,
+                    ref: ref,
+                    bookingId: _bookingId,
+                  ),
+                  child: const Text('go'),
+                ),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.bookingSlots,
+            builder: (BuildContext context, GoRouterState state) {
+              captured = state.extra as BookingSlotPickerArgs?;
+              return const Scaffold(key: Key('slots_stub'));
+            },
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          bookingDetailProvider(_bookingId).overrideWith(
+            (ref) async => _booking(status: BookingStatus.confirmed),
+          ),
+          publicMasterProfileProvider(_masterId).overrideWith(
+            (ref) async => (_master, const <MasterService>[_bookedService]),
+          ),
+          ...overrides,
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // Warm `authProvider` BEFORE tapping — nothing in this bare `/start`
+      // fixture (unlike the real app's router guards / shell screens, which
+      // watch the session from the moment it boots) watches it otherwise, so
+      // the very first read would land mid-flight inside the tap handler
+      // itself. In the real app the session is already resolved long before
+      // a user can reach «Перенести» (they had to be logged in to get here),
+      // so this warm-up reproduces that realistic precondition rather than
+      // masking a genuine race.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('go'))),
+      );
+      await container.read(authProvider.future);
+
+      await tester.tap(find.byKey(const Key('go')));
+      await tester.pumpAndSettle();
+      return captured;
+    }
+
+    testWidgets(
+      'a PROVIDER-initiated reschedule seeds hideMasterIdentity: true — a '
+      'master must not see their own identity card echoed back',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await driveCaptured(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kProviderUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.hideMasterIdentity, isTrue);
+      },
+    );
+
+    testWidgets(
+      'a CLIENT-initiated reschedule keeps hideMasterIdentity: false — the '
+      'LOCKED client path must still SHOW the master card and address',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await driveCaptured(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kClientUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.hideMasterIdentity, isFalse);
+      },
+    );
+
+    testWidgets(
+      'an UNAUTHENTICATED viewer fails CLOSED onto hideMasterIdentity: false '
+      // Explicitly stubbed to `Unauthenticated` rather than leaving
+      // `authProvider` on its REAL notifier (the three guard tests above
+      // never reach the `hideMasterIdentity` line at all — they short-
+      // circuit before it — so they never trigger the real `AuthNotifier`'s
+      // own boot sequence, which needs platform-channel mocks (secure
+      // storage / a live refresh call) this bare fixture does not set up and
+      // would otherwise hang the test).
+      '— session-not-yet-resolved and never-logged-in both degrade the same '
+      'way as any other non-provider session',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await driveCaptured(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(const AuthSession.unauthenticated()),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.hideMasterIdentity, isFalse);
+      },
+    );
+  });
 }

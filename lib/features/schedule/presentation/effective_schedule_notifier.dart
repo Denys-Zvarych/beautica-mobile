@@ -91,6 +91,59 @@ part 'effective_schedule_notifier.g.dart';
 /// each window releases once it has been unwatched for this duration.
 const Duration _kRangeCacheTtl = Duration(minutes: 5);
 
+/// Tracks every [ScheduleRange] whose [EffectiveScheduleNotifier] element
+/// currently exists (built at least once this session, not yet disposed) —
+/// i.e. every range a bare-family cross-file invalidate of
+/// [effectiveScheduleProvider] (`WeeklyScheduleNotifier.save`/`delete`, a
+/// DIFFERENT screen's write) could reach.
+///
+/// FIX D (mobile-debugger, this track) — the SAME `ProviderSubscription`-
+/// closed race `booking_calendar_invalidation.dart` fixes for
+/// `bookingsDayProvider`: `MasterScheduleScreen` watches
+/// `effectiveScheduleProvider(_range)` where `_range` is derived from LOCAL
+/// mutable state (`_weekStart`/`_visibleMonth`); paging a week/month re-keys
+/// that SAME `ref.watch` on the SAME still-mounted screen, so the OLD range's
+/// element drops to zero listeners the instant the page changes — kept alive
+/// only by its own `_pinForTtl()` 5-minute `ref.keepAlive()`, i.e.
+/// pinned-but-unwatched. `WeeklyScheduleNotifier.save`/`delete` (a template
+/// edit, from a DIFFERENT, pushed-on-top screen) then invalidates the WHOLE
+/// family — every resolved window IS genuinely stale, so this cannot become a
+/// per-range invalidate the way `bookingsDayProvider`'s callers scope to
+/// `affectedDate`(s) — which races that pinned-but-unwatched OLD range exactly
+/// like the calendar bug, if the master pages back to it before the queued
+/// disposal fires.
+///
+/// Unlike `bookingsDayProvider`'s bounded ≤3-day `DayKeepAliveLru`, a
+/// [ScheduleRange] is open-ended (any month/week ever visited this session),
+/// and `EffectiveScheduleNotifier` already owns its TTL bookkeeping privately
+/// via `_pinForTtl()` — this class holds NO links of its own. Its only job is
+/// enumeration: giving `WeeklyScheduleNotifier` the candidate key SET so it
+/// can run the exact same `wasPinned`-gated invalidate+eager-read idiom
+/// `booking_calendar_invalidation.dart` uses, once per candidate, instead of
+/// the bare family invalidate. A range this session never built is never
+/// remembered, so it costs nothing extra to enumerate.
+class EffectiveScheduleRangeTracker {
+  final Set<ScheduleRange> _ranges = <ScheduleRange>{};
+
+  /// Every range with a currently-existing element, snapshotted into a
+  /// `List` — safe to iterate while a caller invalidates/reads members of the
+  /// family, which can synchronously mutate this set via [_forget]
+  /// (`ref.onDispose` firing mid-iteration).
+  List<ScheduleRange> get liveRanges => _ranges.toList(growable: false);
+
+  void _remember(ScheduleRange range) => _ranges.add(range);
+  void _forget(ScheduleRange range) => _ranges.remove(range);
+}
+
+/// Container-scoped home for [EffectiveScheduleRangeTracker] — same
+/// `keepAlive: true` reasoning as `bookings_day_notifier.dart`'s
+/// `dayKeepAliveLruProvider`: the TRACKER outlives any single range it
+/// tracks, but still dies with its `ProviderContainer`, so two containers
+/// (e.g. two tests) never share bookkeeping.
+@Riverpod(keepAlive: true)
+EffectiveScheduleRangeTracker effectiveScheduleRangeTracker(Ref ref) =>
+    EffectiveScheduleRangeTracker();
+
 /// Resolves the effective schedule for the dates in [range] (date-only,
 /// inclusive). The range MUST be bounded (≤ `kMaxScheduleRangeDays`); the
 /// repository asserts and rejects an over-wide window before any network call.
@@ -173,6 +226,21 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
   @override
   Future<List<EffectiveDay>> build(ScheduleRange range) async {
     final int myGen = ++_buildGen;
+
+    // FIX D — see [EffectiveScheduleRangeTracker]'s doc. Registered
+    // unconditionally on EVERY build (mirrors [_pinForTtl]'s own "both the
+    // cache-hit short-circuit and the real-fetch path" reasoning): this
+    // element now exists for `range`, so it is a candidate the tracker must
+    // report; `onDispose` fires the moment this specific build is superseded
+    // (by a rebuild OR a genuine disposal) — a superseding rebuild
+    // immediately re-remembers `range` on its own next line here, so the net
+    // effect is a no-op; a genuine disposal (evicted, TTL lapsed, no rebuild
+    // follows) correctly drops `range` out of the candidate set.
+    final EffectiveScheduleRangeTracker tracker = ref.read(
+      effectiveScheduleRangeTrackerProvider,
+    );
+    tracker._remember(range);
+    ref.onDispose(() => tracker._forget(range));
 
     // Reactive dependency (the core save-refresh fix): the effective schedule is
     // a server-side composition of the weekly template + the per-date overrides.

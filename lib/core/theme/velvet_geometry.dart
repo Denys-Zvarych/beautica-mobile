@@ -106,6 +106,38 @@ abstract final class VelvetShadows {
     ),
   ];
 
+  /// [extrudedCard], DIMMED for a pressed/tapped state — SAME offsets and
+  /// blur, alpha cut to 45% on both the dark and light shadow (mirrors
+  /// [borderedCard]/[borderedButton]'s own `.withValues(alpha: 0.45)`
+  /// convention).
+  ///
+  /// FIX B (mobile-debugger, this session) — `ServiceCard`
+  /// (`service_category_list.dart`) used to swap straight to `null`
+  /// (`boxShadow: _pressed ? null : extrudedCard`) on `onTapDown`, animated
+  /// over `AnimatedContainer`'s 150ms. A normal tap's down→up gap is far
+  /// under 150ms, so the shadow transition reverses mid-flight — a REAL
+  /// visual pulse (full shadow → briefly toward none → back to full),
+  /// timed exactly like the user-reported "background flicker for a few
+  /// milliseconds" on the walk-in service-selection page. This constant is
+  /// the fix: the pressed state DIMS instead of fully removing the shadow,
+  /// so no frame in the transition is ever shadowless — the two states
+  /// interpolate smoothly between "full" and "dim", never "full" and "off".
+  /// `ServiceCard` is SHARED with the services list page
+  /// (`services_list_screen.dart`), so this propagates to every consumer —
+  /// intended per this repo's REUSE-FIRST rule.
+  static final List<BoxShadow> extrudedCardPressed = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.45),
+      offset: const Offset(8, 8),
+      blurRadius: 18,
+    ),
+    BoxShadow(
+      color: BrandColors.shadowLightStrong.withValues(alpha: 0.45),
+      offset: const Offset(-8, -8),
+      blurRadius: 18,
+    ),
+  ];
+
   /// Raised button — tighter than the card.
   static const List<BoxShadow> extrudedButton = <BoxShadow>[
     BoxShadow(

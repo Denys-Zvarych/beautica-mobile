@@ -141,11 +141,29 @@ void invalidateBookingViewsAfterExternalDecline(
   for (final String id in declinedBookingIds) {
     ref.invalidate(bookingDetailProvider(id));
   }
+  // FIX B mirror (mobile-debugger, this track — found via
+  // `scripts/forbid_bare_keepalive_family_invalidation.sh`, not in the
+  // original named item list, fixed with the identical idiom rather than
+  // allow-listed away: this site is structurally the SAME
+  // `ProviderSubscription`-closed precondition as
+  // [invalidateBookingViewsAfterProviderClose]'s FIX B — per-date-SCOPED
+  // already protects it from the "every other cached day" blast radius, but
+  // scoping alone never closed the disposal race; only the wasPinned gate
+  // does).
+  final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final DateTime day in affectedDates.toSet()) {
     // BOTH members — see the doc above. `.dayList` is the one the master's own
     // «Мої записи» watches by default; `.of` is the plain one other hosts use.
-    ref.invalidate(bookingsDayProvider(BookingsDayQuery.dayList(day: day)));
-    ref.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: day)));
+    for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
+      BookingsDayQuery.dayList(day: day),
+      BookingsDayQuery.of(day: day),
+    ]) {
+      final bool wasPinned = lru.contains(affectedQuery);
+      ref.invalidate(bookingsDayProvider(affectedQuery));
+      if (wasPinned) {
+        ref.read(bookingsDayProvider(affectedQuery));
+      }
+    }
   }
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
@@ -178,20 +196,33 @@ void invalidateBookingViewsAfterExternalDecline(
 ///     no-op for any id nobody is currently viewing — including a call from
 ///     the archive screen, which never has this booking's detail warm to
 ///     begin with, so this is free there, not merely harmless).
-///   • [bookingsDayProvider] — the BARE family (no query argument), not a
-///     per-date target: unlike [invalidateBookingViewsAfterExternalDecline]
-///     (whose caller always knows every affected date from its own
-///     conflict-check response), a manual decline/complete from the detail
-///     screen or the archive is always exactly ONE booking with no separate
-///     "which calendar day(s) changed" signal reaching this helper — the
-///     booking's own `startAt` is available at both call sites, but deriving
-///     "the affected date" from it would still be one date, and passing the
-///     bare family costs nothing extra: Riverpod only EAGERLY recomputes the
-///     family members that currently have an active listener (at most the
-///     bounded ≤3-day keepAlive LRU's worth, `bookings_day_notifier.dart`'s
-///     `_kMaxKeptDays`); every other cached day refetches lazily the next
-///     time it's watched. Same reasoning `BookingDetailScreen` documented at
-///     its own former call site before this helper existed.
+///   • [bookingsDayProvider] — scoped to [affectedDate] (the booking's own
+///     `startAt`, Kyiv-classified via `kyivDayOf` by the caller), BOTH family
+///     members (`.dayList` + `.of`, same "TWO members" reasoning as
+///     [invalidateBookingViewsAfterExternalDecline]'s doc), each gated on
+///     [DayKeepAliveLru.contains] with an eager `ref.read` back when pinned —
+///     the EXACT idiom
+///     [invalidateBookingsDayAfterAppointmentItemReschedule] below uses, and
+///     for the identical reason.
+///
+///     FIX B (mobile-debugger, this track) — the SAME `ProviderSubscription`-
+///     closed crash [invalidateBookingsDayAfterAppointmentItemReschedule]'s
+///     "FIX A" fixes, reachable through THIS helper instead: view day X → view
+///     day Y (X is now pinned-but-unwatched via the bounded keepAlive LRU,
+///     zero listeners) → open a booking on Y → decline/complete it (this
+///     helper's old bare-family `ref.invalidate(bookingsDayProvider)` ran
+///     `invalidateSelf()` on EVERY existing family member, including X) →
+///     rail-tap back to X. If the scheduler's queued disposal for X's element
+///     fired at (or interleaved with) the moment the rail's `ref.watch`
+///     re-subscribed, the watcher observed an element mid-teardown and threw.
+///     A bare family invalidate used to be safe-by-cost-accounting here (see
+///     the paragraph FIX A's doc structure replaces) but was never safe
+///     against THIS race — the race does not care how many members get
+///     invalidated, only whether any zero-listener, keepAlive-pinned one does.
+///     Scoping to [affectedDate] the way [invalidateBookingViewsAfterExternalDecline]
+///     already does removes the "every other cached day" blast radius for
+///     free, and the `wasPinned`-gated eager read is what actually closes the
+///     race for the ONE day this write really did affect.
 ///   • [masterArchiveProvider] — the BARE family (every filter combination a
 ///     master may have applied) — the fix. `MasterArchiveNotifier` is
 ///     `autoDispose` per filter combination (its own file header), so this is
@@ -235,9 +266,30 @@ void invalidateBookingViewsAfterExternalDecline(
 /// been REFILLED by the time it returns. Anything that needs the new data in
 /// hand must read the provider itself. See
 /// [invalidateBookingViewsAfterBookingCreated]'s doc for the full mechanism.
-void invalidateBookingViewsAfterProviderClose(WidgetRef ref, String bookingId) {
+void invalidateBookingViewsAfterProviderClose(
+  WidgetRef ref,
+  String bookingId, {
+  required DateTime affectedDate,
+}) {
   ref.invalidate(bookingDetailProvider(bookingId));
-  ref.invalidate(bookingsDayProvider);
+
+  // FIX B — see the doc above. Same gated idiom as
+  // [invalidateBookingsDayAfterAppointmentItemReschedule]: only a query this
+  // session has actually built (and is therefore at risk of the disposal
+  // race) pays for the eager read-back; an untouched query is a genuine no-op
+  // either way.
+  final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
+  for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
+    BookingsDayQuery.dayList(day: affectedDate),
+    BookingsDayQuery.of(day: affectedDate),
+  ]) {
+    final bool wasPinned = lru.contains(affectedQuery);
+    ref.invalidate(bookingsDayProvider(affectedQuery));
+    if (wasPinned) {
+      ref.read(bookingsDayProvider(affectedQuery));
+    }
+  }
+
   ref.invalidate(masterArchiveProvider);
   ref.invalidate(bookedDaysProvider);
 }
@@ -297,4 +349,92 @@ void invalidateBookingViewsAfterProviderClose(WidgetRef ref, String bookingId) {
 void invalidateBookingViewsAfterBookingCreated(Ref ref) {
   ref.invalidate(bookingsDayProvider);
   ref.invalidate(bookedDaysProvider);
+}
+
+/// Drops the master's own «Мої записи» day-calendar cache for
+/// [affectedDays] after a per-item VISIT reschedule
+/// (`booking_confirm_screen.dart`'s `rescheduleAppointmentId != null`
+/// branch) — the NEW day the item moved to and, if resolvable, the OLD day
+/// it moved from.
+///
+/// Extracted into its own named, independently-testable function (rather
+/// than left inline at its one call site) for two reasons: it is the ONE
+/// place a PER-ITEM VISIT reschedule's calendar fan-out is decided, mirroring
+/// this file's other helpers; and FIX A below needs a regression test that
+/// exercises the EXACT production invalidation, not a hand-copied
+/// approximation of it that could quietly drift from the real thing.
+///
+/// BOTH day-list family members per affected date — see
+/// [invalidateBookingViewsAfterExternalDecline]'s doc for why `.dayList`
+/// (what `BookingsDiscoveryView` actually watches) and `.of` (what the SAME
+/// screen resolves to once every filter is ticked) are both required, not
+/// belt-and-braces. Invalidating a family member with no live listener, and
+/// that was never built this session, is a documented no-op — safe to call
+/// unconditionally even for a CLIENT viewer who has no day-calendar screen.
+///
+/// ## FIX A (mobile-debugger, this session) — the crash this fixes
+///
+/// **Symptom**: after rescheduling a walk-in to a day with no other
+/// bookings, opening that day sometimes threw "Bad state:
+/// ProviderSubscription.read on a subscription that was closed" inside
+/// `bookings_discovery_view.dart`'s `Consumer`; more often the SAME throw was
+/// silently absorbed by Flutter's per-`Element` error boundary, leaving the
+/// day's skeleton stuck forever (one mechanism, two visible symptoms).
+///
+/// **Mechanism** (verified against `package:riverpod` 3.1.0's own
+/// `element.dart`/`scheduler.dart` — the version this repo's `pubspec.lock`
+/// pins): a bare `ref.invalidate(bookingsDayProvider(q))` on a query
+/// [DayKeepAliveLru] pins ONLY via its bounded keepAlive (the master glanced
+/// at that day earlier this session, then scrubbed the rail away —
+/// "pinned-but-unwatched") calls `invalidateSelf()`, which unconditionally
+/// `runOnDispose()`s FIRST — nulling the element's own keepAlive-link
+/// reference — THEN calls `mayNeedDispose()`, which (finding zero listeners
+/// AND, because of the reference it just cleared, zero links)
+/// unconditionally queues the element for disposal via the scheduler. That
+/// queued disposal races whatever widget rebuild next `ref.watch`es the SAME
+/// query (a rail re-tap, a pop) — if the scheduler's task fires first, or
+/// interleaves mid-rebuild, the watcher's fresh subscription can observe an
+/// element mid-teardown and throw.
+///
+/// **Fix**: `ProviderScheduler._performDispose` RE-CHECKS the element's
+/// keepAlive links at TASK-FIRE time, not at schedule time — so
+/// re-establishing a link SYNCHRONOUSLY, before that task ever runs,
+/// reliably cancels the disposal already queued against it.
+/// `ref.read(bookingsDayProvider(q))` right after the invalidate does exactly
+/// that: `container.read` creates a THROWAWAY subscription (`listen` →
+/// `readSafe` → `close`), and `readSafe` calls `element.flush()`, which —
+/// because `invalidateSelf` left `_mustRecomputeState = true` — synchronously
+/// re-runs `build()`, which re-touches [DayKeepAliveLru] (a fresh
+/// `ref.keepAlive()` link) BEFORE the throwaway subscription's own `close()`
+/// (and long before the scheduler's queued task) ever gets a chance to
+/// dispose it. This is a genuine EAGER refetch, not a workaround that merely
+/// dodges the crash by doing less — it cannot silently swallow the refresh
+/// the way a dropped queued-refresh legitimately can for a COVERED-but-
+/// still-watched consumer (contrast [invalidateBookingViewsAfterExternalDecline]'s
+/// documented "drop is fine, the next read recomputes" contract — a
+/// DIFFERENT, non-crashing path: an actively-watched, merely-paused element
+/// never hits the zero-listener disposal branch at all).
+///
+/// Gated on [DayKeepAliveLru.contains] so a query nobody has ever built this
+/// session (a CLIENT rescheduling their own booking, or a master who never
+/// opened the day-calendar) keeps costing exactly nothing; only a query that
+/// genuinely IS pinned — and therefore genuinely at risk of this race —
+/// pays for the eager read.
+void invalidateBookingsDayAfterAppointmentItemReschedule(
+  WidgetRef ref, {
+  required Set<DateTime> affectedDays,
+}) {
+  final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
+  for (final DateTime day in affectedDays) {
+    for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
+      BookingsDayQuery.dayList(day: day),
+      BookingsDayQuery.of(day: day),
+    ]) {
+      final bool wasPinned = lru.contains(affectedQuery);
+      ref.invalidate(bookingsDayProvider(affectedQuery));
+      if (wasPinned) {
+        ref.read(bookingsDayProvider(affectedQuery));
+      }
+    }
+  }
 }

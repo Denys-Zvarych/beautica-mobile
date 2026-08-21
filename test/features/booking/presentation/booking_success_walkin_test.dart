@@ -223,15 +223,42 @@ void main() {
       expect(find.textContaining('вул.'), findsNothing);
     });
 
-    testWidgets('should_keepCalendarButton_when_isWalkInTrue', (tester) async {
+    // AUDIT-FIX CYCLE 3 (FIX 2, 2026-08-21) — inverted. Was
+    // `should_keepCalendarButton_when_isWalkInTrue`: the walk-in done screen
+    // used to keep the SAME «Додати в календар» pill the client path shows.
+    // User-reported (2026-08-21): remove it on the walk-in path — the master
+    // is standing with the client right there, "add to MY calendar" doesn't
+    // apply the way it does for a client booking their own future visit.
+    // Gated on `isWalkIn` ONLY (never touches `booking_success_calendar_test
+    // .dart`'s CLIENT-path assertions, which never set `isWalkIn: true`).
+    testWidgets('should_hideCalendarButton_when_isWalkInTrue', (tester) async {
       await _pump(tester, _args(isWalkIn: true));
 
-      expect(find.byType(CalendarButton), findsOneWidget);
+      expect(find.byType(CalendarButton), findsNothing);
       expect(
         find.byKey(const Key('booking-success-add-calendar')),
-        findsOneWidget,
+        findsNothing,
       );
     });
+
+    testWidgets(
+      'should_keepCalendarButton_when_isWalkInFalse — the CLIENT/reschedule '
+      'paths are completely unaffected by FIX 2',
+      (tester) async {
+        for (final BookingSuccessArgs args in <BookingSuccessArgs>[
+          _args(),
+          _args(isReschedule: true),
+        ]) {
+          await _pump(tester, args);
+
+          expect(find.byType(CalendarButton), findsOneWidget);
+          expect(
+            find.byKey(const Key('booking-success-add-calendar')),
+            findsOneWidget,
+          );
+        }
+      },
+    );
 
     testWidgets('should_offerNoReviewCta_when_isWalkInTrue — no leave-review / '
         'rate-client entry point on ANY variant', (tester) async {

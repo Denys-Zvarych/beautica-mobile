@@ -24,8 +24,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -44,7 +42,7 @@ import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
-import 'widgets/labelled_row.dart';
+import 'widgets/guest_identity_card.dart';
 
 /// Booking flow — the post-submit celebration screen (one confirmed visit).
 class BookingSuccessScreen extends ConsumerStatefulWidget {
@@ -182,35 +180,25 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         // FIX 1 (audit-fix cycle 2, 2026-08-21) — WHO: the walk-in guest
         // identity card, restored from the retired wizard's `_DoneStep`
         // (`git show HEAD:.../master_create_booking_screen.dart`), which this
-        // screen's port dropped. REUSE-FIRST: the SAME `LabelledRow` +
-        // `masterCreateBookingGuestLabel` the wizard used — no new widget, no
-        // new ARB key. Gated on `isWalkIn && guest != null` (not `isWalkIn`
-        // alone) so a walk-in seed that somehow omits the guest degrades to
-        // "no card" rather than a null-check crash, and so the CLIENT path
-        // (`guest` always `null`) is unaffected either way. SEC: the guest's
-        // name+phone here was raised as a security MEDIUM and DISMISSED BY
-        // USER DECISION 2026-08-20 (`docs/mobile-phases/mobile-backlog.md`) —
-        // this screen already acquires `ScreenProtectionManager` above.
+        // screen's port dropped. Gated on `isWalkIn && guest != null` (not
+        // `isWalkIn` alone) so a walk-in seed that somehow omits the guest
+        // degrades to "no card" rather than a null-check crash, and so the
+        // CLIENT path (`guest` always `null`) is unaffected either way. SEC:
+        // the guest's name+phone here was raised as a security MEDIUM and
+        // DISMISSED BY USER DECISION 2026-08-20
+        // (`docs/mobile-phases/mobile-backlog.md`) — this screen already
+        // acquires `ScreenProtectionManager` above.
+        //
+        // AUDIT-FIX CYCLE 3 (FIX 1) — PROMOTED to `GuestIdentityCard`
+        // (`widgets/guest_identity_card.dart`): `BookingConfirmScreen` needed
+        // the identical card and REUSE-FIRST forbids a second hand-copied
+        // `NeumorphicCard`+`LabelledRow` block. Byte-identical render (same
+        // key, same padding, same `LabelledRow` args) — proven by this
+        // screen's own goldens/widget tests, unmodified by the extraction.
         if (widget.args.isWalkIn && widget.args.guest != null)
-          NeumorphicCard(
+          GuestIdentityCard(
             key: const Key('booking-success-guest-card'),
-            showBorder: true,
-            padding: const EdgeInsets.all(VelvetSpacing.md),
-            child: LabelledRow(
-              label: l10n.masterCreateBookingGuestLabel,
-              value:
-                  '${widget.args.guest!.name} '
-                          '${widget.args.guest!.surname}'
-                      .trim(),
-              detail: widget.args.guest!.phone.isEmpty
-                  ? null
-                  : widget.args.guest!.phone,
-              // THIRD-PARTY FREE TEXT — same bound as the wizard's own two
-              // copies of this card (`booking_wizard_steps.dart`,
-              // mobile-security LOW audit-fix cycle 1, 2026-08-20).
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            guest: widget.args.guest!,
           ),
         // ONE visit recap: the shared address, the single window, the ordered
         // service list + «Разом» total, with the whole-visit calendar export as
@@ -227,11 +215,22 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           dateLabel: formatFullDate(startAt),
           timeLabel: formatTimeRange(startAt, _totalDurationMinutes),
           selections: _selections,
-          trailingAction: CalendarButton(
-            buttonKey: const Key('booking-success-add-calendar'),
-            semanticsLabel: l10n.bookingAddCalendarSemantics,
-            onTap: () => _onAddToCalendar(context),
-          ),
+          // AUDIT-FIX CYCLE 3 (FIX 2) — no OS-calendar export on the walk-in
+          // path: the master is standing at the chair with the client right
+          // there, so "add to MY calendar" doesn't apply the way it does for
+          // a client booking their own future visit. `null` (not an empty
+          // widget) so `BookingSummaryCards` renders no trailing rule/action
+          // block at all, exactly as the pre-existing salon/detail call sites
+          // that also pass no `trailingAction` do. The CLIENT path
+          // (`isWalkIn` always `false`) is UNCHANGED — this ternary's other
+          // arm is byte-for-byte the pre-existing unconditional call.
+          trailingAction: widget.args.isWalkIn
+              ? null
+              : CalendarButton(
+                  buttonKey: const Key('booking-success-add-calendar'),
+                  semanticsLabel: l10n.bookingAddCalendarSemantics,
+                  onTap: () => _onAddToCalendar(context),
+                ),
         ),
       ],
     );

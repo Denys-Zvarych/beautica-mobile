@@ -245,7 +245,7 @@ void main() {
             'decline stays offered on an underway booking too — the backend '
             'allows a provider decline at any time',
       );
-      expectRescheduleVisibleButInert(tester);
+      expectRescheduleAbsent(tester);
 
       await tester.tap(find.byKey(const Key('booking-detail-complete')));
       await AppHarness.settle(tester);
@@ -331,7 +331,7 @@ void main() {
           'backend allows a provider decline at any time; a client no-show '
           'is recorded as a decline with a free-text reason',
     );
-    expectRescheduleVisibleButInert(tester);
+    expectRescheduleAbsent(tester);
 
     await tester.tap(find.byKey(const Key('booking-detail-decline')));
     await AppHarness.settle(tester);

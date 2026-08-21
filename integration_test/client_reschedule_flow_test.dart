@@ -100,6 +100,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_success_sc
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -312,12 +313,42 @@ void main() {
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.bookingSlots);
 
+      // AUDIT-FIX CYCLE 3 (FIX 3, 2026-08-21) — the LOCKED regression guard:
+      // a CLIENT rescheduling their OWN booking must still SEE the master
+      // identity card on the date-picker step. FIX 3 hides this card ONLY
+      // when the reschedule VIEWER is the provider
+      // (`reschedule_navigation.dart`'s `bookingViewerRoleProvider`-derived
+      // `hideMasterIdentity`); this CLIENT session must be completely
+      // unaffected. `client_reschedule_flow_test.dart` is the ONE E2E flow
+      // that drives a CLIENT through this exact `startBookingReschedule`
+      // seeding path — the provider-side mirror-image assertion
+      // (hideMasterIdentity: true) lives in
+      // `booking_detail_provider_footer_test.dart`'s "provider reschedule"
+      // group, which always drives a PROVIDER session.
+      expect(
+        find.byType(MasterStrip),
+        findsOneWidget,
+        reason:
+            'a CLIENT reschedule must still show the master card on the date '
+            'step — FIX 3 must only hide it for a PROVIDER-initiated '
+            'reschedule',
+      );
+
       // ── Pick a NEW date + time through the real picker. ───────────────────
       await pickNewDateAndTime(tester);
 
       // ── The confirm screen is in RESCHEDULE mode. ─────────────────────────
       AppHarness.expectLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      // Same regression guard, now on the confirm screen (master card +
+      // address block, both gated by the SAME `hideMasterIdentity`).
+      expect(
+        find.byType(MasterStrip),
+        findsOneWidget,
+        reason:
+            'a CLIENT reschedule must still show the master card on the '
+            'confirm screen too',
+      );
       final AppLocalizations confirmL10n = l10nOf(tester, BookingConfirmScreen);
       // CTA reads «Перенести запис» (never «Записатись»).
       expect(find.text(confirmL10n.bookingRescheduleSubmitCta), findsOneWidget);

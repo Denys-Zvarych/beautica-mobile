@@ -281,6 +281,33 @@ class DayKeepAliveLru {
   final LinkedHashMap<BookingsDayQuery, KeepAliveLink> _links =
       LinkedHashMap<BookingsDayQuery, KeepAliveLink>();
 
+  /// Whether [query] currently holds one of the [_kMaxKeptDays] budget
+  /// slots — i.e. its [BookingsDayNotifier] element has built at least once
+  /// this session and has not (yet) been evicted.
+  ///
+  /// FIX A (mobile-debugger, this session) — the ONLY cheap, correct signal
+  /// callers outside this file have for "is this family member the kind of
+  /// PINNED-BUT-UNWATCHED element a bare `ref.invalidate` can race Riverpod's
+  /// own disposal scheduler on". See `booking_confirm_screen.dart`'s per-item
+  /// reschedule invalidation for the call site this exists for, and that
+  /// call site's doc for the full mechanism (verified against
+  /// `package:riverpod` 3.1.0's own `element.dart`/`scheduler.dart` source —
+  /// `ProviderScheduler._performDispose` RE-CHECKS `ref._keepAliveLinks` at
+  /// task-FIRE time, not at schedule time, so re-establishing a link
+  /// synchronously — before the scheduler's queued task ever runs — reliably
+  /// cancels a disposal already queued against this element).
+  ///
+  /// `true` does NOT distinguish "actively watched right now" from "pinned
+  /// but nobody is currently watching it" — [touch] runs unconditionally on
+  /// every [BookingsDayNotifier.build], regardless of whether anyone is
+  /// watching, so both states are indistinguishable from here and a caller
+  /// does not need to tell them apart: either way, an element that has built
+  /// at least once is exactly the case a bare invalidate can leave mid-
+  /// disposal. `false` means the query was never built this session (or was
+  /// already evicted-and-disposed) — invalidating THAT is a genuine no-op,
+  /// nothing to race.
+  bool contains(BookingsDayQuery query) => _links.containsKey(query);
+
   void touch(BookingsDayQuery query, KeepAliveLink link) {
     // A rebuild of a query already tracked (e.g. the error state's «retry»
     // invalidating the SAME query) replaces the link instead of leaking a

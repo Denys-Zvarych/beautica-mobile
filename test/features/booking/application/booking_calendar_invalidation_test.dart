@@ -42,8 +42,42 @@ import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+
+/// Mocktail double for the `getMyBookings` call-count assertions below — a
+/// DIFFERENT technique from `_CountingBookingRepository` above (which predates
+/// this group): mocktail's `verify(...).called(n)` is what
+/// `booking_detail_provider_footer_test.dart`'s own "day-list invalidation on
+/// success" group already uses for the SAME call, so this mirrors that
+/// existing convention rather than inventing a third counting mechanism.
+class _MockBookingRepository extends Mock implements BookingRepository {}
+
+/// Stubs `getMyBookings` (whatever the exact args) to return an empty page —
+/// only the invocation COUNT matters to the tests below, read back via
+/// `verify(...).called(n)` on the mock itself.
+void _stubGetMyBookings(_MockBookingRepository repo) {
+  when(
+    () => repo.getMyBookings(
+      statuses: any(named: 'statuses'),
+      serviceIds: any(named: 'serviceIds'),
+      from: any(named: 'from'),
+      to: any(named: 'to'),
+      sort: any(named: 'sort'),
+      page: any(named: 'page'),
+      size: any(named: 'size'),
+      cancelToken: any(named: 'cancelToken'),
+    ),
+  ).thenAnswer(
+    (_) async => const PageResponse<Booking>(
+      items: <Booking>[],
+      page: 0,
+      totalPages: 1,
+      totalElements: 0,
+    ),
+  );
+}
 
 /// Minimal authenticated identity — `BookingsDayNotifier.build` watches
 /// `authProvider.select(...)`, so an unauthenticated container would rebuild it
@@ -101,6 +135,12 @@ class _CountingBookingRepository implements BookingRepository {
 }
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(BookingStatus.confirmed);
+    registerFallbackValue(<BookingStatus>{});
+    registerFallbackValue(BookingSort.oldest);
+  });
+
   testWidgets('invalidateBookingViewsAfterExternalDecline invalidates '
       'nextAppointmentProvider — a declined booking may have been the '
       "client's soonest upcoming appointment", (tester) async {
@@ -328,10 +368,19 @@ void main() {
             key: const Key('close'),
             // The id is inconsequential: `bookingDetailProvider('booking-1')`
             // has no listener here, so that arm of the fan-out is a documented
-            // no-op, as are the two bare families (`bookingsDayProvider`,
-            // `masterArchiveProvider`) with nothing watching them.
-            onPressed: () =>
-                invalidateBookingViewsAfterProviderClose(ref, 'booking-1'),
+            // no-op, as is `masterArchiveProvider` (bare family, nothing
+            // watching it) and the per-date `bookingsDayProvider` members
+            // (nothing built this session for this date, so
+            // `DayKeepAliveLru.contains` is false and no eager read fires).
+            onPressed: () => invalidateBookingViewsAfterProviderClose(
+              ref,
+              'booking-1',
+              // arbitrary bookingsDayProvider invalidation target, never read
+              // through BookingDisplayX.isPast — this test only counts
+              // bookedDaysProvider refetches.
+              // future-date-ok: see comment block above
+              affectedDate: DateTime.utc(2026, 7, 20),
+            ),
             child: const Text('close'),
           ),
         ),
@@ -376,5 +425,283 @@ void main() {
           'singleton — see the block comment above for why this stays on the '
           'COMPLETE arm even though a complete cannot change dot membership',
     );
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ITEM 6 (this track) — pin the wasPinned GATE's invocation count.
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Every test above proves the FIX exists (a decline/complete/reschedule
+  // drops the right caches). None of them distinguish "the eager read fired
+  // because the query was genuinely pinned" from "the eager read fires
+  // unconditionally" — a bare `ref.invalidate` + a bare `ref.read` right
+  // after it would ALSO make every test above pass, since `ref.read` on a
+  // family member CREATES it if absent. If a future edit drops the
+  // `if (wasPinned)` guard in `invalidateBookingViewsAfterProviderClose` or
+  // `invalidateBookingsDayAfterAppointmentItemReschedule`, every call —
+  // including one for a date NOBODY is viewing — silently starts an
+  // unconditional `getMyBookings` round trip (mobile-perf's own "≤4 eager
+  // GETs per reschedule, typically 1–2" ceases to be a ceiling at all), with
+  // nothing above going red: those tests only ever exercise the PINNED path.
+  //
+  // These two groups exercise BOTH branches of the gate directly, via
+  // mocktail `verify(...).called(n)` — the UNPINNED case asserting exactly
+  // ZERO calls is the one that actually pins the guard: a dropped `if
+  // (wasPinned)` cannot make a PINNED-case count wrong (an unconditional
+  // eager read is a no-op extra flush on an already-flushed element — see
+  // `booking_calendar_invalidation.dart`'s FIX A doc), but it unconditionally
+  // BUILDS a previously-nonexistent element in the UNPINNED case, which
+  // `verify(...).called(0)` catches immediately.
+  group('ITEM 6 — wasPinned gate call-count', () {
+    // arbitrary bookingsDayProvider key, never read through
+    // BookingDisplayX.isPast — these tests only count getMyBookings calls.
+    // future-date-ok: see comment above
+    final DateTime affected = DateTime.utc(2026, 7, 20);
+
+    group('invalidateBookingViewsAfterProviderClose', () {
+      testWidgets(
+        'PINNED — both day-list members already built this session refetch '
+        'exactly once each (2 initial + 2 eager reads = 4)',
+        (tester) async {
+          final repo = _MockBookingRepository();
+          _stubGetMyBookings(repo);
+
+          await tester.pumpApp(
+            Scaffold(
+              body: Consumer(
+                builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+                  key: const Key('close'),
+                  onPressed: () => invalidateBookingViewsAfterProviderClose(
+                    ref,
+                    'booking-1',
+                    affectedDate: affected,
+                  ),
+                  child: const Text('close'),
+                ),
+              ),
+            ),
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
+              bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+            ],
+          );
+
+          final ProviderContainer container = ProviderScope.containerOf(
+            tester.element(find.byKey(const Key('close'))),
+            listen: false,
+          );
+          await container.read(authProvider.future);
+
+          // PIN both members via a live subscription + await — this is what
+          // `DayKeepAliveLru.contains` reads back as `wasPinned`.
+          for (final BookingsDayQuery q in <BookingsDayQuery>[
+            BookingsDayQuery.dayList(day: affected),
+            BookingsDayQuery.of(day: affected),
+          ]) {
+            final ProviderSubscription<AsyncValue<BookingsDayState>> sub =
+                container.listen(bookingsDayProvider(q), (_, _) {});
+            addTearDown(sub.close);
+            await container.read(bookingsDayProvider(q).future);
+          }
+          verify(
+            () => repo.getMyBookings(
+              statuses: any(named: 'statuses'),
+              serviceIds: any(named: 'serviceIds'),
+              from: any(named: 'from'),
+              to: any(named: 'to'),
+              sort: any(named: 'sort'),
+              page: any(named: 'page'),
+              size: any(named: 'size'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          ).called(2); // sanity: one fetch per member before any tap.
+
+          await tester.tap(find.byKey(const Key('close')));
+          await tester.pumpAndSettle();
+
+          verify(
+            () => repo.getMyBookings(
+              statuses: any(named: 'statuses'),
+              serviceIds: any(named: 'serviceIds'),
+              from: any(named: 'from'),
+              to: any(named: 'to'),
+              sort: any(named: 'sort'),
+              page: any(named: 'page'),
+              size: any(named: 'size'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          ).called(
+            2,
+          ); // ONE eager read-back per pinned member, not zero, not two.
+        },
+      );
+
+      testWidgets('UNPINNED — a date nobody built this session triggers ZERO '
+          'getMyBookings calls (proves the eager read is GATED, not '
+          'unconditional)', (tester) async {
+        final repo = _MockBookingRepository();
+        _stubGetMyBookings(repo);
+
+        await tester.pumpApp(
+          Scaffold(
+            body: Consumer(
+              builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+                key: const Key('close'),
+                onPressed: () => invalidateBookingViewsAfterProviderClose(
+                  ref,
+                  'booking-1',
+                  affectedDate: affected,
+                ),
+                child: const Text('close'),
+              ),
+            ),
+          ),
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
+            bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+          ],
+        );
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('close'))),
+          listen: false,
+        );
+        await container.read(authProvider.future);
+
+        // Deliberately NO subscription/read for `affected`'s queries before
+        // tapping — neither member has ever been built this session, so
+        // `DayKeepAliveLru.contains` must read `false` for both.
+        await tester.tap(find.byKey(const Key('close')));
+        await tester.pumpAndSettle();
+
+        verifyNever(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        );
+      });
+    });
+
+    group('invalidateBookingsDayAfterAppointmentItemReschedule', () {
+      testWidgets(
+        'PINNED — an already-built day-list member refetches exactly once '
+        '(1 initial + 1 eager read = 2)',
+        (tester) async {
+          final repo = _MockBookingRepository();
+          _stubGetMyBookings(repo);
+
+          await tester.pumpApp(
+            Scaffold(
+              body: Consumer(
+                builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+                  key: const Key('reschedule'),
+                  onPressed: () =>
+                      invalidateBookingsDayAfterAppointmentItemReschedule(
+                        ref,
+                        affectedDays: <DateTime>{affected},
+                      ),
+                  child: const Text('reschedule'),
+                ),
+              ),
+            ),
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
+            ],
+          );
+
+          final ProviderContainer container = ProviderScope.containerOf(
+            tester.element(find.byKey(const Key('reschedule'))),
+            listen: false,
+          );
+          await container.read(authProvider.future);
+
+          final BookingsDayQuery dayListQuery = BookingsDayQuery.dayList(
+            day: affected,
+          );
+          final ProviderSubscription<AsyncValue<BookingsDayState>> sub =
+              container.listen(bookingsDayProvider(dayListQuery), (_, _) {});
+          addTearDown(sub.close);
+          await container.read(bookingsDayProvider(dayListQuery).future);
+
+          await tester.tap(find.byKey(const Key('reschedule')));
+          await tester.pumpAndSettle();
+
+          verify(
+            () => repo.getMyBookings(
+              statuses: any(named: 'statuses'),
+              serviceIds: any(named: 'serviceIds'),
+              from: any(named: 'from'),
+              to: any(named: 'to'),
+              sort: any(named: 'sort'),
+              page: any(named: 'page'),
+              size: any(named: 'size'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          ).called(
+            2,
+          ); // 1 initial fetch + 1 eager read-back, never 0, never 2 extra.
+        },
+      );
+
+      testWidgets(
+        'UNPINNED — an untouched date triggers ZERO getMyBookings calls',
+        (tester) async {
+          final repo = _MockBookingRepository();
+          _stubGetMyBookings(repo);
+
+          await tester.pumpApp(
+            Scaffold(
+              body: Consumer(
+                builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+                  key: const Key('reschedule'),
+                  onPressed: () =>
+                      invalidateBookingsDayAfterAppointmentItemReschedule(
+                        ref,
+                        affectedDays: <DateTime>{affected},
+                      ),
+                  child: const Text('reschedule'),
+                ),
+              ),
+            ),
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
+            ],
+          );
+
+          final ProviderContainer container = ProviderScope.containerOf(
+            tester.element(find.byKey(const Key('reschedule'))),
+            listen: false,
+          );
+          await container.read(authProvider.future);
+
+          await tester.tap(find.byKey(const Key('reschedule')));
+          await tester.pumpAndSettle();
+
+          verifyNever(
+            () => repo.getMyBookings(
+              statuses: any(named: 'statuses'),
+              serviceIds: any(named: 'serviceIds'),
+              from: any(named: 'from'),
+              to: any(named: 'to'),
+              sort: any(named: 'sort'),
+              page: any(named: 'page'),
+              size: any(named: 'size'),
+              cancelToken: any(named: 'cancelToken'),
+            ),
+          );
+        },
+      );
+    });
   });
 }

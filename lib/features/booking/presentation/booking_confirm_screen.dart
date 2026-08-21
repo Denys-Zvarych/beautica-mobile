@@ -92,16 +92,15 @@ import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_notifier.dart';
-import '../application/bookings_day_notifier.dart';
 import '../application/master_create_booking_notifier.dart';
 import '../application/my_bookings_notifier.dart';
 import '../domain/appointment.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
 import '../domain/booking_tab.dart';
-import '../domain/bookings_day_query.dart';
 import '../domain/create_appointment_request.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_comment_field.dart';
@@ -109,6 +108,7 @@ import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/guest_identity_card.dart';
 import 'widgets/master_strip.dart';
 
 /// Booking flow final review — the single-visit confirm-and-submit screen.
@@ -297,31 +297,25 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // Invalidating a family MEMBER with no live listener is still a
           // documented no-op, so this is safe to run unconditionally even for
           // a CLIENT viewer who has no day-calendar screen at all.
-          final Set<DateTime> affectedDays = <DateTime>{
-            dateOnly(toBeauticaTime(widget.args.startAt)),
-            if (oldStartAt != null) dateOnly(toBeauticaTime(oldStartAt)),
-          };
-          // BOTH day-list family members per affected date, mirroring
-          // `booking_calendar_invalidation.dart` (mobile-perf HIGH,
-          // 2026-08-13): `.dayList` is the member `BookingsDiscoveryView`
-          // watches on an untouched «Мої записи» (CANCELLED/DECLINED hidden by
-          // default, locked 2026-08-13), `.of` the plain empty-status one the
-          // SAME list resolves to once the master ticks EVERY filter group —
-          // `BookingStatus.dayListWireStatuses` maps the maximal selection to
-          // `const {}`, i.e. no `status` param, which IS that key. No other
-          // `lib/` host reads `.of` today, so the select-all path is the whole
-          // justification for the second call. Invalidating only the latter —
-          // which this loop did until the day list gained its default — left
-          // the master's own screen showing the moved item at its OLD slot,
-          // pinned across disposal by the ≤3-day keepAlive LRU. Built through
-          // `BookingsDayQuery.dayList`, never a hand-written status literal,
-          // so the two can never drift.
-          for (final DateTime day in affectedDays) {
-            ref.invalidate(
-              bookingsDayProvider(BookingsDayQuery.dayList(day: day)),
-            );
-            ref.invalidate(bookingsDayProvider(BookingsDayQuery.of(day: day)));
-          }
+          //
+          // FIX A (mobile-debugger, this session) — a bare `ref.invalidate`
+          // loop here used to be able to crash `bookings_discovery_view.dart`
+          // ("Bad state: ProviderSubscription.read on a subscription that was
+          // closed") or leave its skeleton stuck forever, whenever the
+          // invalidated day was pinned-but-unwatched. See
+          // `invalidateBookingsDayAfterAppointmentItemReschedule`'s doc in
+          // `booking_calendar_invalidation.dart` for the full mechanism and
+          // fix — extracted there (not left inline) so the exact same
+          // invalidation this call site performs is independently testable
+          // and reusable, mirroring that file's other "one fan-out point"
+          // helpers.
+          invalidateBookingsDayAfterAppointmentItemReschedule(
+            ref,
+            affectedDays: <DateTime>{
+              dateOnly(toBeauticaTime(widget.args.startAt)),
+              if (oldStartAt != null) dateOnly(toBeauticaTime(oldStartAt)),
+            },
+          );
         }
       } else if (guest != null) {
         // Phase 262 D2/D3 — the WALK-IN branch. An `else if` hanging off the
@@ -535,6 +529,11 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     totalDurationMinutes: _totalDurationMinutes,
                     comment: _comment,
                     maxComment: _maxComment,
+                    // FIX 1 (audit-fix cycle 3) — the walk-in guest identity,
+                    // `null` on every client/reschedule call site (they never
+                    // set `BookingConfirmArgs.guest`), so this is a purely
+                    // additive read.
+                    guest: widget.args.guest,
                     // The reschedule endpoint takes only the new start — a
                     // note-to-master input would be silently ignored, so it is
                     // hidden on the reschedule path. Also hidden on the
@@ -580,6 +579,7 @@ class _ConfirmBody extends StatelessWidget {
     required this.failure,
     this.hideMasterIdentity = false,
     this.onDuplicateRefresh,
+    this.guest,
   });
 
   final Master master;
@@ -610,6 +610,16 @@ class _ConfirmBody extends StatelessWidget {
   /// banner renders exactly as it did before this phase.
   final VoidCallback? onDuplicateRefresh;
 
+  /// FIX 1 (audit-fix cycle 3, 2026-08-21) — the walk-in guest identity to
+  /// echo back on this last-review screen, mirroring the terminal success
+  /// screen's own restored guest card (audit-fix cycle 2). `null` on every
+  /// client/reschedule call site (`BookingConfirmArgs.guest` is `null`
+  /// there), so those paths render byte-identically — the card is gated on
+  /// this field being non-null, never on [hideMasterIdentity] alone, so a
+  /// hypothetical future `hideMasterIdentity: true` seed with no guest still
+  /// renders no card rather than a null-check crash.
+  final WalkInGuest? guest;
+
   @override
   Widget build(BuildContext context) {
     final String? addressLine = formatStreetCityLine(
@@ -633,6 +643,21 @@ class _ConfirmBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // FIX 1 (audit-fix cycle 3, 2026-08-21) — the walk-in guest
+          // identity, occupying the visual slot the hidden master card would
+          // otherwise take. REUSE-FIRST: the SAME `GuestIdentityCard` the
+          // terminal success screen renders (promoted from that screen's own
+          // inline card — see that widget's file header) — no second
+          // hand-copied implementation. `null` on every client/reschedule
+          // call site, so those paths render byte-identically (no extra
+          // card, no extra gap).
+          if (guest != null) ...<Widget>[
+            GuestIdentityCard(
+              key: const Key('booking-confirm-guest-card'),
+              guest: guest!,
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+          ],
           // ONE visit recap: the master identity card, the shared address, the
           // single visit window (start → start + summed duration), the ordered
           // service list and the «Разом» total — all in one card stack.

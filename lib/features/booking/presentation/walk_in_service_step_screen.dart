@@ -73,6 +73,32 @@ class _WalkInServiceStepScreenState
   /// client flow): an ADD that would exceed the cap is refused with a
   /// friendly snack; a REMOVE is never blocked, even while already at the
   /// cap.
+  ///
+  /// FIX B (mobile-debugger, this session) — this used to ALSO wrap the
+  /// `_selected` mutation in a screen-root `setState()`, redundantly
+  /// alongside `_selectionController.toggleService(...)` below, which
+  /// already drives [ServiceStep]'s narrowly-scoped `ValueListenableBuilder`
+  /// AND (since this fix) [BookingSummaryBar]'s own, in [build]. A
+  /// rebuild-identity probe confirmed the screen-root `setState` was
+  /// reconstructing `BookingTopBar` and the `Scaffold` on every single tap —
+  /// pure waste, since NOTHING in that subtree reads `_selected`. Dropped in
+  /// favour of the SAME narrow-rebuild pattern
+  /// `service_selector_sheet.dart`'s `_onToggleService` already uses for the
+  /// client flow (see that file's `bottomNavigationBar` for the precedent):
+  /// mutate the plain field synchronously, then let the listenable notify —
+  /// no `setState` call needed on THIS screen at all, since every widget
+  /// that reads selection state now reaches it through
+  /// `_selectionController`, not a rebuild of this `State`.
+  ///
+  /// `_selected` still has to be a locally-owned ORDERED list (not derived
+  /// by filtering the catalogue against `_selectionController.value`, the
+  /// way the client flow's Set-only derivation does) — D7 requires TAP
+  /// order, not catalogue order, and `CatalogueSelectionController` itself
+  /// only tracks a `Set<String>` of ids. Safe to mutate outside `setState`
+  /// because [_onNext] and [build]'s `ValueListenableBuilder` both read it
+  /// only at rebuild time, by which point this synchronous mutation has
+  /// already landed — the exact ordering `ValueListenableBuilder` itself
+  /// relies on for its own `valueListenable` reads.
   void _onToggleService(MasterService service) {
     final bool willAdd = !_selectionController.isSelected(service.id);
     if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
@@ -83,13 +109,11 @@ class _WalkInServiceStepScreenState
       );
       return;
     }
-    setState(() {
-      if (willAdd) {
-        _selected.add(service);
-      } else {
-        _selected.removeWhere((MasterService s) => s.id == service.id);
-      }
-    });
+    if (willAdd) {
+      _selected.add(service);
+    } else {
+      _selected.removeWhere((MasterService s) => s.id == service.id);
+    }
     _selectionController.toggleService(service.id);
   }
 
@@ -114,17 +138,29 @@ class _WalkInServiceStepScreenState
 
     return Scaffold(
       backgroundColor: BrandColors.base,
+      // FIX B (mobile-debugger, this session) — narrow `ValueListenableBuilder`
+      // watch, mirroring `service_selector_sheet.dart`'s own
+      // `bottomNavigationBar` (mobile-perf finding #2 there): only this shelf
+      // rebuilds on a tap now, never the `Scaffold`/`BookingTopBar` above it.
+      // `_selected` (read inside the builder, not watched by it) is always
+      // current by the time this rebuilds — `_onToggleService` mutates it
+      // BEFORE notifying `_selectionController`, the same ordering
+      // `ValueListenableBuilder` itself relies on for its own reads.
       bottomNavigationBar: masterAsync.maybeWhen(
-        data: (Master master) => BookingSummaryBar(
-          services: _selected,
-          ctaLabel: l10n.bookingNextCta,
-          ctaIcon: Icons.arrow_forward_rounded,
-          enabled: _selected.isNotEmpty,
-          onAction: () => _onNext(master),
-          // Same toggle the catalogue card uses, so both removal paths
-          // converge on identical end-state (mirrors
-          // `service_selector_sheet.dart`'s `onRemove` wiring).
-          onRemove: _onToggleService,
+        data: (Master master) => ValueListenableBuilder<Set<String>>(
+          valueListenable: _selectionController,
+          builder: (BuildContext context, Set<String> _, _) =>
+              BookingSummaryBar(
+                services: _selected,
+                ctaLabel: l10n.bookingNextCta,
+                ctaIcon: Icons.arrow_forward_rounded,
+                enabled: _selected.isNotEmpty,
+                onAction: () => _onNext(master),
+                // Same toggle the catalogue card uses, so both removal paths
+                // converge on identical end-state (mirrors
+                // `service_selector_sheet.dart`'s `onRemove` wiring).
+                onRemove: _onToggleService,
+              ),
         ),
         orElse: () => null,
       ),

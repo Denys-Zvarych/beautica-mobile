@@ -1728,6 +1728,81 @@ void main() {
       });
     });
 
+    // Audit-fix cycle 3 (FIX 1, 2026-08-21) — the walk-in GUEST identity
+    // card. REUSE-FIRST: `GuestIdentityCard` (`widgets/guest_identity_card
+    // .dart`), promoted from `BookingSuccessScreen`'s own inline card (audit-
+    // fix cycle 2) — same key naming convention (`booking-confirm-guest-card`
+    // mirrors `booking-success-guest-card`), same `LabelledRow` +
+    // `masterCreateBookingGuestLabel`.
+    group('guest identity card (audit-fix cycle 3, FIX 1)', () {
+      testWidgets(
+        'should_showGuestCard_when_guestNonNull — walk-in confirm echoes the '
+        'guest name+phone',
+        (tester) async {
+          final fake = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          );
+          await pump(tester, fake, args: _walkInConfirmArgs());
+
+          final l10n = AppLocalizations.of(
+            tester.element(find.byType(BookingConfirmScreen)),
+          );
+          expect(
+            find.byKey(const Key('booking-confirm-guest-card')),
+            findsOneWidget,
+          );
+          expect(find.text(l10n.masterCreateBookingGuestLabel), findsOneWidget);
+          // i18n-finder-ok: guest name/phone are fixture data (_kGuest), not
+          // localized copy.
+          expect(find.text('Іван Петренко'), findsOneWidget);
+          expect(find.text('+380501234567'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'should_hideGuestCard_when_clientCreatePath — the CLIENT path is '
+        'completely unaffected',
+        (tester) async {
+          final fake = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          );
+          await pump(tester, fake);
+
+          expect(
+            find.byKey(const Key('booking-confirm-guest-card')),
+            findsNothing,
+          );
+        },
+      );
+
+      testWidgets(
+        'should_hideGuestCard_when_reschedulePath — a plain reschedule seed '
+        'never carries a guest',
+        (tester) async {
+          final fake = _RecordingRescheduleRepository();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => fake),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+            ],
+          );
+          unawaited(
+            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('booking-confirm-guest-card')),
+            findsNothing,
+          );
+        },
+      );
+    });
+
     // Phase 262 — the FOURTH `_submit` branch: the walk-in guest visit.
     // Branch order is safety-critical (HARD CONSTRAINT 3): per-item visit
     // reschedule → per-booking reschedule → walk-in guest → client create,

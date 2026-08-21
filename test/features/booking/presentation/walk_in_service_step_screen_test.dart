@@ -37,6 +37,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -381,6 +382,83 @@ void main() {
       await tester.tap(retryBtn);
       await tester.pumpAndSettle();
       expect(find.byType(ErrorState), findsOneWidget);
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // FIX B (mobile-debugger, this session) — background flicker regression.
+  // ---------------------------------------------------------------------
+  //
+  // `_onToggleService` used to wrap its `_selected` mutation in a
+  // screen-root `setState()`, ALONGSIDE `_selectionController.toggleService`
+  // — redundant, since `ServiceStep`'s own `ValueListenableBuilder` already
+  // reacts to the controller. A rebuild-identity probe (this test) proved
+  // the screen-root `setState` reconstructed `BookingTopBar` (and therefore
+  // the `Scaffold` above it) on every single tap, even though neither reads
+  // `_selected`. Fixed by dropping the `setState` entirely and moving
+  // `BookingSummaryBar` behind its OWN narrow `ValueListenableBuilder`,
+  // mirroring `service_selector_sheet.dart`'s established pattern.
+  //
+  // Technique: `debugPrintRebuildDirtyWidgets` makes the framework log every
+  // widget rebuilt in a frame; capturing those lines via a `debugPrint`
+  // override needs no changes to production code and directly answers "did
+  // this widget rebuild", which a `find.byType` presence check cannot (a
+  // stable-position widget's `Element` survives a parent rebuild either way
+  // via `Widget.canUpdate`, so an identity/type check alone would pass even
+  // under the OLD, buggy code).
+  //
+  // MUTATION (documented, not left as dead commentary): reintroducing the
+  // old `setState(() { _selected.add/remove... })` wrapper around the
+  // mutation made this test's `BookingTopBar` assertion fail (it started
+  // appearing in the per-frame rebuild log on every tap) — see this PR's
+  // description for the run. Restored to the narrow-rebuild version below.
+  testWidgets(
+    'tapping a service does NOT rebuild BookingTopBar/the Scaffold above it '
+    '— only the narrow BookingSummaryBar shelf reacts',
+    (tester) async {
+      await _pump(tester);
+
+      final DebugPrintCallback originalDebugPrint = debugPrint;
+      final List<String> rebuiltWidgetLog = <String>[];
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) rebuiltWidgetLog.add(message);
+      };
+      debugPrintRebuildDirtyWidgets = true;
+      addTearDown(() {
+        debugPrintRebuildDirtyWidgets = false;
+        debugPrint = originalDebugPrint;
+      });
+
+      await tester.tap(find.text(_kService1.name));
+      await tester.pump();
+
+      debugPrintRebuildDirtyWidgets = false;
+      debugPrint = originalDebugPrint;
+
+      final bool topBarRebuilt = rebuiltWidgetLog.any(
+        (String line) => line.contains('BookingTopBar'),
+      );
+      expect(
+        topBarRebuilt,
+        isFalse,
+        reason:
+            'THE DEFECT: a screen-root setState reconstructed BookingTopBar '
+            '(and the Scaffold) on every tap, which is what produced the '
+            'visible background flicker — nothing in that subtree reads '
+            'selection state',
+      );
+
+      final bool summaryBarRebuilt = rebuiltWidgetLog.any(
+        (String line) => line.contains('BookingSummaryBar'),
+      );
+      expect(
+        summaryBarRebuilt,
+        isTrue,
+        reason:
+            'sanity: the summary shelf DOES need to react to a toggle — a '
+            'log with neither name would falsely pass the assertion above '
+            'by proving nothing rebuilt at all',
+      );
     },
   );
 }

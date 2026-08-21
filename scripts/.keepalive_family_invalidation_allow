@@ -1,0 +1,47 @@
+# Allowlist for scripts/forbid_bare_keepalive_family_invalidation.sh — every
+# site where PASS 2 finds a cross-file `ref.invalidate(<keepAlive family>`
+# that is NOT flagged as unsafe: either it IS the proven wasPinned-gated
+# idiom's own `ref.invalidate` half (the eager `ref.read` half never matches
+# PASS 2's pattern, so only the invalidate line needs listing), or it is
+# self-key invalidation from the SAME still-mounted widget that is, at the
+# moment it can fire, the family member's own ACTIVE watcher (listener count
+# > 0, so `invalidateSelf()`'s `mayNeedDispose()` never queues disposal — the
+# zero-listener precondition this whole bug class needs never occurs).
+#
+# Format: <repo-relative-path>:<line>   # reason
+# Line-level (not file-level) on purpose — same reasoning as
+# `.inline_fontsize_allow`: a whole-file exemption would let a genuinely new,
+# unprotected cross-file invalidate slip in beside a reviewed one.
+#
+# --- Gated by the wasPinned + eager-read idiom (this track's fixes) ---------
+lib/features/booking/application/booking_calendar_invalidation.dart:162  # invalidateBookingViewsAfterExternalDecline — wasPinned-gated (mirror of FIX B, this track, found via this gate and fixed with the identical idiom)
+lib/features/booking/application/booking_calendar_invalidation.dart:287  # invalidateBookingViewsAfterProviderClose — FIX B (ITEM 1), wasPinned-gated via DayKeepAliveLru.contains
+lib/features/booking/application/booking_calendar_invalidation.dart:434  # invalidateBookingsDayAfterAppointmentItemReschedule — pre-existing FIX A, wasPinned-gated via DayKeepAliveLru.contains
+lib/features/schedule/presentation/weekly_schedule_notifier.dart:134     # _invalidateEffectiveScheduleWindows — FIX D (ITEM 4), wasPinned-gated via WidgetRef.exists + EffectiveScheduleRangeTracker enumeration
+#
+# --- Bare-family invalidate, but the caller is PROVABLY always covered -----
+# `invalidateBookingViewsAfterBookingCreated`'s own doc (same file, directly
+# above) already proves its ONE call site (`MasterCreateBookingNotifier
+# .submit`) always fires while the day-calendar screen is COVERED by the
+# full-screen booking wizard — Riverpod 3 PAUSES a covered consumer rather
+# than dropping its listener to zero, so `mayNeedDispose()` never queues
+# disposal here; the queued refresh is dropped and picked up on resume
+# instead (a different, non-crashing path — see that doc's "What the queued
+# refresh does and does NOT guarantee").
+lib/features/booking/application/booking_calendar_invalidation.dart:350  # invalidateBookingViewsAfterBookingCreated — caller always covered, see this file's own doc; not the zero-listener precondition
+#
+# --- Self-key retry / refresh, invalidating the SAME instance the SAME ------
+# --- still-mounted widget is ACTIVELY watching in the SAME build -----------
+# Each of these fires from inside the identical `Consumer`/`State.build` that
+# `ref.watch`es this EXACT family member on the line(s) directly above it —
+# the widget IS that member's live listener at the moment the button can be
+# tapped, so listener count is never zero and the disposal race this gate
+# exists for cannot occur. None of these swap to a DIFFERENT key first (that
+# swap — a rail tap, a sort toggle, a week page — is what creates the
+# pinned-but-unwatched element the fixes above protect).
+lib/features/booking/presentation/bookings_discovery_view.dart:943  # MyBookingsSlowLoadNotice onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 875
+lib/features/booking/presentation/bookings_discovery_view.dart:959  # MyBookingsErrorState onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 875
+lib/features/master/presentation/widgets/master_reviews_body.dart:190  # ErrorState onRetry — self-key, same _SortableReviewList actively watches masterReviewsProvider(masterId, _sort) at line 127
+lib/features/salon/presentation/widgets/salon_reviews_section.dart:135  # ErrorState onRetry — self-key, same _SalonReviewsSectionState actively watches salonReviewsProvider(widget.salonId, _sort) at line 68
+lib/features/schedule/presentation/master_schedule_screen.dart:500  # ErrorState onRetry — self-key, same widget actively watches effectiveScheduleProvider(_range) at line 446
+lib/features/schedule/presentation/master_schedule_screen.dart:648  # AppRefreshIndicator.onRefresh — pre-existing invalidate-then-immediate-read idiom (self-key, invalidate followed by ref.read(...future) at line 652); predates this track, left alone per instruction
