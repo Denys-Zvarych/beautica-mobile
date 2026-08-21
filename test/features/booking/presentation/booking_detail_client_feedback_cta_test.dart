@@ -173,6 +173,47 @@ void main() {
     },
   );
 
+  // PHASE 256 D4 — should_notOfferClientRating_when_bookingIsWalkIn.
+  //
+  // **DECIDED 2026-08-20** — user decision, verbatim: "for manual bookings
+  // restrict reviews and hide this button". This is now LOCKED product
+  // behaviour: a walk-in booking has no client ACCOUNT to write a rating
+  // onto (`POST /client-reviews` returns 400, "Cannot review a guest
+  // booking" — `ClientReviewService.java:83-86`), so the provider→client
+  // feedback affordance must never render for one.
+  //
+  // Phase 256 adds NO new UI here — the test above this one already pins the
+  // exact mechanism a walk-in booking rides: the mobile tier gates the CTA
+  // on `Booking.providerCanReviewClient` ALONE, and the server sends that
+  // flag as `false` for a walk-in (its `hasClient` conjunct — see backend
+  // `phase-262` D4). This test is the SAME assertion, reframed to name the
+  // walk-in scenario explicitly and cite the decision date, so a future
+  // reader does not mistake the generic flag test above for a coincidence.
+  // What this test actually pins is flag-handling, not walk-in-ness itself —
+  // the real guarantee that a walk-in's flag is `false` lives in the backend
+  // conjunct, not here.
+  testWidgets(
+    'should_notOfferClientRating_when_bookingIsWalkIn — a COMPLETED walk-in '
+    'booking (providerCanReviewClient: false, the flag a guest booking with '
+    'no client account always carries) never shows the client-feedback CTA',
+    (tester) async {
+      await _pumpDetail(
+        tester,
+        _booking(
+          status: BookingStatus.completed,
+          providerCanReviewClient: false,
+        ),
+      );
+
+      expect(
+        find.byKey(const Key('booking-detail-client-strip')),
+        findsOneWidget,
+        reason: 'the provider view did not render',
+      );
+      expect(find.byKey(ctaKey), findsNothing);
+    },
+  );
+
   testWidgets('tapping it PUSHES the leave-client-feedback route', (
     tester,
   ) async {

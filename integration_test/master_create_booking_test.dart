@@ -54,6 +54,8 @@ import 'package:beautica_mobile/features/booking/presentation/master_bookings_sc
 import 'package:beautica_mobile/features/booking/presentation/master_create_booking_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart'
+    show formatSlotTimeRange;
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,6 +71,14 @@ import 'support/fake_backend.dart';
 /// Mirrors `master_bookings_flow_test.dart`'s identically-derived
 /// `_kyivToday` — see that file's doc for the full rationale.
 final DateTime _kyivToday = kyivToday(() => kFixedNow);
+
+// PHASE 256 — the three seeded `_services` fixture names (`fake_backend
+// .dart`) the 3-service walk-in run below asserts render on `done`. Named
+// constants, not inline literals in `find.text(...)` — a raw Cyrillic
+// literal there trips `scripts/forbid_cyrillic_finder.sh`.
+const String _kSvc1Name = 'Манікюр класичний'; // assign-1
+const String _kSvc2Name = 'Брови корекція'; // assign-2
+const String _kSvcTypedName = 'Класичний манікюр'; // assign-typed
 
 /// Publishes a wide 09:00–21:00 Kyiv working window for [day].
 ///
@@ -175,11 +185,18 @@ void main() {
       await tester.tap(find.byKey(const Key('mcb_service_card_assign-1')));
       await AppHarness.settle(tester);
       // SELECTION NEVER NAVIGATES (2026-08-20 UX fix) — the card tap only
-      // marks the service chosen; the pinned «Далі» footer is what advances.
-      // Same for the date and the slot below.
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-service-next')),
-      );
+      // marks the service chosen; the pinned footer is what advances. Same
+      // for the date and the slot below.
+      //
+      // PHASE 256 mobile-qa fix — this was `master-create-booking-service
+      // -next`, a key Phase 253's multi-select rework RETIRED in favour of
+      // the shared `BookingSummaryBar` CTA (key `booking-summary-cta`,
+      // `master_create_booking_screen.dart`'s widened `_buildBottomBar` —
+      // mirrors `master_create_booking_screen_test.dart`'s own
+      // `_pickService` helper). Nothing since Phase 253 had run this file
+      // against the real key, and it failed at exactly this tap before this
+      // fix — see mobile-qa's Phase 256 audit for the reproduction.
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await AppHarness.settle(tester);
 
       // ── Step 3 — date + slot, each committed by its own «Далі» ──────────
@@ -222,7 +239,13 @@ void main() {
         1,
         reason: 'the confirm CTA must submit exactly one walk-in booking',
       );
-      expect(fb.lastStaffBookingRequestBody?['masterServiceId'], 'assign-1');
+      // PHASE 256 mobile-qa fix — the wire body key is `masterServiceIds`
+      // (plural, ordered — Phase 252 widened the scalar `masterServiceId`
+      // this assertion used to read; it had gone stale and silently
+      // asserted against an absent key).
+      expect(fb.lastStaffBookingRequestBody?['masterServiceIds'], <String>[
+        'assign-1',
+      ]);
       final Map<String, dynamic>? guest =
           (fb.lastStaffBookingRequestBody?['guest'] as Map<String, dynamic>?);
       expect(
@@ -288,6 +311,197 @@ void main() {
             'submitted — proving the card is the NEW booking, not a stale '
             'coincidence',
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  // PHASE 256 — a THREE-service walk-in run, end to end through the REAL
+  // `BookingRepository.createMasterBooking` → `AppointmentMapper.fromDto`
+  // path (never the widget tier's hand-written fakes). Proves what the
+  // widget-tier `should_renderServerVisitWindow_when
+  // _multiServiceVisitCreated` test cannot on its own: that the ACTUAL wire
+  // contract (`masterServiceIds`, a real `AppointmentDetailResponse` body)
+  // round-trips correctly, not just a fake repository shaped to match it.
+  //
+  // `FakeBackend`'s `/masters/{id}/bookings` handler (own doc, `fake_backend
+  // .dart`) chains the three requested items with a fixed 10-minute buffer
+  // between them — 60 + 10 + 45 + 10 + 60 = 185 minutes total — deliberately
+  // DIFFERENT from the naive local sum of durations alone (60 + 45 + 60 =
+  // 165 minutes), so a regression back to rendering the done step from local
+  // state (D3) is directly visible here, not just plausible.
+  testWidgets(
+    'Phase 256: a 3-service walk-in visit renders the SERVER-chained window '
+    'and every service on `done`, not the local selection',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      fb.seedManyBookingsDataset(const <Map<String, dynamic>>[]);
+      fb.availableSlotUtcStarts = const <(int, int)>[(7, 0)];
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      _seedWorkingHours(fb, _kyivToday);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('master-bookings-add')));
+      await AppHarness.settle(tester);
+      AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
+      expect(find.byType(MasterCreateBookingScreen), findsOneWidget);
+
+      // ── Step 1 — client ─────────────────────────────────────────────────
+      const String guestFirst = 'Оксана';
+      const String guestLast = 'Мельник';
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-first-name')),
+        guestFirst,
+      );
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-last-name')),
+        guestLast,
+      );
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-phone')),
+        '0501234567',
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await AppHarness.settle(tester);
+
+      // ── Step 2 — THREE services, tapped in a fixed order ──────────────
+      // `assign-1` (Манікюр класичний, 60 min), `assign-2` (Брови корекція,
+      // RANGE 200-350, 45 min), `assign-typed` (Класичний манікюр, 60 min) —
+      // three DISTINCT seeded assignments (`fake_backend.dart`'s `_services`
+      // fixture), tapped in this order so [lastStaffBookingRequestBody]'s
+      // `masterServiceIds` order is pinned, not incidental.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('mcb_service_card_assign-1')),
+      );
+      await tester.tap(find.byKey(const Key('mcb_service_card_assign-1')));
+      await AppHarness.settle(tester);
+      final Finder assign2Card = find.byKey(
+        const Key('mcb_service_card_assign-2'),
+      );
+      await tester.ensureVisible(assign2Card);
+      await AppHarness.settle(tester);
+      await tester.tap(assign2Card);
+      await AppHarness.settle(tester);
+      final Finder assignTypedCard = find.byKey(
+        const Key('mcb_service_card_assign-typed'),
+      );
+      await tester.ensureVisible(assignTypedCard);
+      await AppHarness.settle(tester);
+      await tester.tap(assignTypedCard);
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
+
+      // ── Step 3 — date + slot ────────────────────────────────────────────
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(Key('booking-calendar-day-${_kyivToday.day}')),
+      );
+      await tester.tapCalendarDay(_kyivToday.day);
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-date-next')),
+      );
+      await AppHarness.settle(tester);
+
+      final Finder availableChip = find
+          .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
+          .first;
+      await tester.ensureVisible(availableChip);
+      await AppHarness.settle(tester);
+      await tester.tap(availableChip);
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-time-next')),
+      );
+      await AppHarness.settle(tester);
+
+      // ── Step 4 — confirm → submit ───────────────────────────────────────
+      expect(
+        find.byKey(const Key('master-create-booking-confirm-card')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-submit-cta')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.createStaffBookingCalls,
+        1,
+        reason:
+            'the confirm CTA must submit exactly ONE visit for all 3 '
+            'services, never one call per service',
+      );
+      expect(
+        fb.lastStaffBookingRequestBody?['masterServiceIds'],
+        <String>['assign-1', 'assign-2', 'assign-typed'],
+        reason:
+            'the ORDERED list the master actually tapped, on the wire '
+            'key Phase 252 widened `masterServiceId` into',
+      );
+
+      // ── Step 5 — done renders the SERVER's chained window, not the '
+      // local naive sum ──────────────────────────────────────────────────
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-create-booking-done-card')),
+      );
+
+      // `_kyivToday` at 07:00Z, the SAME slot start `_availableSlotsEnvelope`
+      // emits for `availableSlotUtcStarts = [(7, 0)]` — see that fixture's
+      // own doc.
+      final DateTime slotStart = DateTime.utc(
+        _kyivToday.year,
+        _kyivToday.month,
+        _kyivToday.day,
+        7,
+        0,
+      );
+      // The fake backend's own chaining (own doc, `fake_backend.dart`):
+      // 60 + 10-buffer + 45 + 10-buffer + 60 = 185 minutes.
+      final DateTime serverChainedEnd = slotStart.add(
+        const Duration(minutes: 185),
+      );
+      // What a REGRESSED local-state render would show instead — the naive
+      // sum of durations alone, no buffer.
+      final DateTime naiveLocalSumEnd = slotStart.add(
+        const Duration(minutes: 165),
+      );
+
+      expect(
+        find.text(formatSlotTimeRange(slotStart, serverChainedEnd)),
+        findsOneWidget,
+        reason:
+            'must render the SERVER-chained end time (with the '
+            "backend's own inter-service buffer), not a client re-derived "
+            'one',
+      );
+      expect(
+        find.text(formatSlotTimeRange(slotStart, naiveLocalSumEnd)),
+        findsNothing,
+        reason:
+            'the naive local sum of durations (no buffer) is exactly '
+            "the D3 regression this test exists to catch — it must NOT be "
+            'what renders',
+      );
+
+      // Every service in the visit, not just the first tap-ordered pick.
+      // Named constants (mirrors `_kGuestFirstName`/`_kGuestLastName`'s own
+      // pattern above) rather than inline literals — `find.text('<Cyrillic
+      // literal>')` trips `scripts/forbid_cyrillic_finder.sh`.
+      expect(find.text(_kSvc1Name), findsOneWidget);
+      expect(find.text(_kSvc2Name), findsOneWidget);
+      expect(find.text(_kSvcTypedName), findsOneWidget);
+
       expect(tester.takeException(), isNull);
     },
   );

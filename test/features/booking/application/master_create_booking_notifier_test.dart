@@ -263,6 +263,40 @@ void main() {
     );
   });
 
+  // PHASE 256 — submit() now RETURNS the created Appointment (see the
+  // notifier file's own "PHASE 256" doc section for why `state` itself stays
+  // `void`). Pinned separately from the happy-path test above: that test
+  // never inspects the return value, only `state`.
+  test('submit(): returns the SERVER Appointment on success, and null on both '
+      'the double-submit no-op and a mapped Failure', () async {
+    _stubDayFetch(repo);
+    final Appointment fixture = _appointmentFixture();
+    when(
+      () => repo.createMasterBooking(any(), any()),
+    ).thenAnswer((_) async => fixture);
+
+    await container.read(masterCreateBookingProvider.future);
+    final Appointment? created = await container
+        .read(masterCreateBookingProvider.notifier)
+        .submit(masterId: 'master-1', request: _request);
+    expect(created, same(fixture));
+
+    // A second call — this time on a rejecting repo, via a FRESH
+    // container/notifier so it is not still gated by the first call's own
+    // AsyncLoading window.
+    final _MockBookingRepository failingRepo = _MockBookingRepository();
+    _stubDayFetch(failingRepo);
+    when(
+      () => failingRepo.createMasterBooking(any(), any()),
+    ).thenAnswer((_) async => throw const ConflictFailure());
+    final ProviderContainer failingContainer = _container(failingRepo);
+    await failingContainer.read(masterCreateBookingProvider.future);
+    final Appointment? onFailure = await failingContainer
+        .read(masterCreateBookingProvider.notifier)
+        .submit(masterId: 'master-1', request: _request);
+    expect(onFailure, isNull);
+  });
+
   test(
     'submit(): a second call while the first is still in flight is a NO-OP '
     '— the repository is called exactly ONCE, not merely "no exception"',
@@ -281,18 +315,27 @@ void main() {
       // SYNCHRONOUSLY (state is written to AsyncLoading before any `await`),
       // so the second call sees it immediately, before the event loop gets a
       // chance to interleave anything else.
-      final Future<void> first = notifier.submit(
+      final Future<Appointment?> first = notifier.submit(
         masterId: 'master-1',
         request: _request,
       );
-      final Future<void> second = notifier.submit(
+      final Future<Appointment?> second = notifier.submit(
         masterId: 'master-1',
         request: _request,
       );
 
       completer.complete(_appointmentFixture());
-      await first;
-      await second;
+      final Appointment? firstResult = await first;
+      final Appointment? secondResult = await second;
+
+      expect(firstResult, isNotNull, reason: 'the real call succeeded');
+      expect(
+        secondResult,
+        isNull,
+        reason:
+            'PHASE 256 — the no-op call returns null, never the '
+            "in-flight call's eventual result",
+      );
 
       verify(() => repo.createMasterBooking(any(), any())).called(1);
     },
@@ -317,6 +360,18 @@ void main() {
       final AsyncValue<void> state = container.read(
         masterCreateBookingProvider,
       );
+      // mobile-qa Phase 256 audit gap-fill (M12 — `mobile-backlog.md`):
+      // `hasError` alone is ALSO satisfied by a mid-retry `AsyncLoading
+      // (retrying: true)`, so it cannot on its own pin a TERMINAL error.
+      // [MasterBookingNotPermittedFailure] is non-transient
+      // (`isTransientFailure` → `false`, `failure_retry_policy_test.dart`),
+      // so this particular failure is never retried and the trap cannot
+      // concretely bite THIS test — the assertion below is added for
+      // consistency with the pattern the rest of this suite (and
+      // `master_create_booking_screen_test.dart`) is expected to follow, not
+      // because a mutation here is provable against a currently-reachable
+      // retrying state.
+      expect(state, isA<AsyncError<void>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<MasterBookingNotPermittedFailure>());
     },

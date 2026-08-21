@@ -832,18 +832,21 @@ void main() {
       );
     });
 
-    test('409 → ConflictFailure', () async {
+    test('409 → MasterBookingDuplicateFailure (Phase 256 — the create path '
+        'has no idempotency key because the overlap check already makes a '
+        'duplicate impossible to persist, so a 409 here reads as "already '
+        'created", not the generic slot-unavailable copy)', () async {
       stubCreateThrows(badResponse(409));
 
       await expectLater(
         repository.createMasterBooking('master-1', req),
-        throwsA(isA<ConflictFailure>()),
+        throwsA(isA<MasterBookingDuplicateFailure>()),
       );
     });
 
     test('422 → ConflictFailure (slot outside working hours / day-off / past '
-        'time / service not offered — this endpoint groups 409 and 422 under '
-        'the same slot-conflict copy, per backend Phase 22.4)', () async {
+        'time / service not offered — UNLIKE 409, this status keeps the '
+        'generic slot-conflict copy)', () async {
       stubCreateThrows(badResponse(422));
 
       await expectLater(

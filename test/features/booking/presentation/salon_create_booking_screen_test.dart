@@ -222,9 +222,29 @@ class _FakeSlotRepository implements SlotRepository {
 }
 
 class _FakeBookingRepository implements BookingRepository {
-  _FakeBookingRepository({this.errorToThrow});
+  _FakeBookingRepository({this.errorToThrow, this.hold, this.responseOverride});
 
   Object? errorToThrow;
+
+  /// PHASE 256 — mirrors `master_create_booking_screen_test.dart`'s
+  /// identical field (own doc there): when set, [createMasterBooking] awaits
+  /// it before resolving, so a test can observe the CTA's disabled state
+  /// mid-flight. `null` (every pre-256 call site) resolves immediately.
+  final Completer<void>? hold;
+
+  /// PHASE 256 mobile-qa — mirrors `master_create_booking_screen_test.dart`'s
+  /// identical field (own doc there): a full-response override for the
+  /// `should_renderServerWindow_when_visitCreated` test, whose whole point is
+  /// a response `endAt` that genuinely DIFFERS from `request.startsAt + the
+  /// local service duration` — the default fixture below cannot prove that
+  /// distinction because it derives `endAt` FROM the local duration. `null`
+  /// (every other call site) keeps the default fixture unchanged.
+  final Appointment Function(
+    String masterId,
+    CreateMasterBookingRequest request,
+  )?
+  responseOverride;
+
   final List<(String, CreateMasterBookingRequest)> calls =
       <(String, CreateMasterBookingRequest)>[];
 
@@ -234,8 +254,13 @@ class _FakeBookingRepository implements BookingRepository {
     CreateMasterBookingRequest request,
   ) async {
     calls.add((masterId, request));
+    final Completer<void>? h = hold;
+    if (h != null) await h.future;
     final Object? err = errorToThrow;
     if (err != null) throw err;
+    final Appointment Function(String, CreateMasterBookingRequest)? override =
+        responseOverride;
+    if (override != null) return override(masterId, request);
     return Appointment(
       id: 'appt-1',
       status: BookingStatus.confirmed,
@@ -1023,7 +1048,8 @@ void main() {
     }
 
     testWidgets(
-      'a 409 conflict keeps the user on confirm and does NOT advance to done',
+      'a 422 (genuine slot-unavailable) keeps the user on confirm with the '
+      'GENERIC conflict message and does NOT advance to done',
       (tester) async {
         final fakeSlots = _FakeSlotRepository(
           slotsByMaster: <String, List<BookingSlot>>{
@@ -1055,6 +1081,266 @@ void main() {
         );
         expect(
           find.byKey(const Key('master-create-booking-submit-error')),
+          findsOneWidget,
+        );
+        expect(find.byType(VelvetSnack), findsNothing);
+      },
+    );
+
+    // PHASE 256 — mirrors `master_create_booking_screen_test.dart`'s
+    // `should_showAlreadyCreatedMessage_when_409` (own doc there).
+    testWidgets(
+      'should_showAlreadyCreatedMessage_when_409 — a duplicate-409 keeps the '
+      'user on confirm with the "already created" message AND a recoverable '
+      'snack, and does NOT advance to done',
+      (tester) async {
+        final fakeSlots = _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        );
+        final fakeBookings = _FakeBookingRepository(
+          errorToThrow: const MasterBookingDuplicateFailure(),
+        );
+        await driveToConfirm(
+          tester,
+          slotRepository: fakeSlots,
+          bookingRepository: fakeBookings,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('salon-create-booking-submit-cta')),
+        );
+        await pumpVelvetSnackIn(tester);
+
+        expect(fakeBookings.calls, hasLength(1));
+        expect(
+          find.byKey(const Key('master-create-booking-confirm-card')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-create-booking-done-cta')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-create-booking-submit-error')),
+          findsOneWidget,
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonCreateBookingScreen)),
+        );
+        // Two renders of the SAME message: the inline banner (ConfirmStep)
+        // AND the recovery snack. `expectVelvetSnack`'s unscoped `find.text`
+        // assumes exactly ONE render app-wide, so it cannot be used as-is
+        // here — assert the snack's own subtree directly instead.
+        expect(find.text(l10n.errMasterBookingDuplicate), findsNWidgets(2));
+        final Finder snackFinder = find.byType(VelvetSnack);
+        expect(snackFinder, findsOneWidget);
+        expect(
+          (snackFinder.evaluate().single.widget as VelvetSnack).variant,
+          VelvetSnackVariant.error,
+        );
+        expect(
+          find.descendant(
+            of: snackFinder,
+            matching: find.text(l10n.errMasterBookingDuplicate),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: snackFinder,
+            matching: find.text(l10n.masterCreateBookingDuplicateRefreshAction),
+          ),
+          findsOneWidget,
+        );
+
+        await pumpPastVelvetSnack(tester, hasAction: true);
+      },
+    );
+
+    // PHASE 256 — mirrors the master wizard's identical test, EXCEPT the
+    // recovery step: THIS wizard's slot picker is `masters` (date-only
+    // `dateTime` never fetches a slot), so «Оновити» returns there — see
+    // `salon_create_booking_screen.dart`'s `_handleDuplicateRefresh` doc.
+    testWidgets(
+      'should_returnToDateTimeStep_when_refreshTappedOnConflictSnack — the '
+      "409 snack's «Оновити» returns to `masters` and genuinely re-fetches "
+      'the slot list on re-pick, not a cached hit',
+      (tester) async {
+        final fakeSlots = _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        );
+        final fakeBookings = _FakeBookingRepository(
+          errorToThrow: const MasterBookingDuplicateFailure(),
+        );
+        await driveToConfirm(
+          tester,
+          slotRepository: fakeSlots,
+          bookingRepository: fakeBookings,
+        );
+        final int slotFetchesBeforeSubmit =
+            fakeSlots.getMasterSlotsCalls.length;
+
+        await tester.tap(
+          find.byKey(const Key('salon-create-booking-submit-cta')),
+        );
+        await pumpVelvetSnackIn(tester);
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('velvet_snack_action')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-create-booking-confirm-card')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-master-tile-master-a')),
+          findsOneWidget,
+          reason: 'must land back on the `masters` step, the slot picker',
+        );
+
+        await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(
+            Key(
+              'salon-tile-slot-chip-master-a-${_kSlot.startAt.toIso8601String()}',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          fakeSlots.getMasterSlotsCalls.length,
+          greaterThan(slotFetchesBeforeSubmit),
+          reason:
+              '«Оновити» must drop the cached slot fetch, not just navigate '
+              'back to a stale one',
+        );
+      },
+    );
+
+    // PHASE 256 — mirrors the master wizard's identical mobile-debugger
+    // regression test (own doc there). This screen has NO `PopScope` at all
+    // (file header: "No `PopScope` needed here"), so the system back gesture
+    // pops `confirm` even more directly.
+    testWidgets('should_notCrash_when_snackActionTappedAfterWizardPopped — the '
+        'duplicate-409 snack survives a system-back pop of the wizard, and '
+        'tapping «Оновити» afterwards is a silent no-op, not a crash', (
+      tester,
+    ) async {
+      final fakeSlots = _FakeSlotRepository(
+        slotsByMaster: <String, List<BookingSlot>>{
+          _kMasterA.masterId: <BookingSlot>[_kSlot],
+        },
+      );
+      final fakeBookings = _FakeBookingRepository(
+        errorToThrow: const MasterBookingDuplicateFailure(),
+      );
+      await driveToConfirm(
+        tester,
+        slotRepository: fakeSlots,
+        bookingRepository: fakeBookings,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('salon-create-booking-submit-cta')),
+      );
+      await pumpVelvetSnackIn(tester);
+      expect(find.byType(VelvetSnack), findsOneWidget);
+
+      final bool handled = await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(handled, isTrue);
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+
+      expect(find.byType(VelvetSnack), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('velvet_snack_action')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'a disposed State must not receive ref.invalidate/setState '
+            'from the late snack-action tap',
+      );
+
+      await pumpPastVelvetSnack(tester, hasAction: true);
+    });
+
+    // PHASE 256 D1 — mirrors the master wizard's identical mutation-checked
+    // test.
+    testWidgets(
+      'should_disableCta_when_submitInFlight — the CTA is disabled for the '
+      'WHOLE outstanding submit',
+      (tester) async {
+        final fakeSlots = _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        );
+        final hold = Completer<void>();
+        final fakeBookings = _FakeBookingRepository(hold: hold);
+        await driveToConfirm(
+          tester,
+          slotRepository: fakeSlots,
+          bookingRepository: fakeBookings,
+        );
+
+        final Finder cta = find.byKey(
+          const Key('salon-create-booking-submit-cta'),
+        );
+        expect(tester.widget<NeumorphicButton>(cta).onPressed, isNotNull);
+
+        await tester.tap(cta);
+        await tester.pump();
+
+        expect(tester.widget<NeumorphicButton>(cta).onPressed, isNull);
+
+        hold.complete();
+        await tester.pumpAndSettle();
+
+        expect(fakeBookings.calls, hasLength(1));
+      },
+    );
+
+    // PHASE 256 — mirrors the master wizard's identical empirically-proven
+    // test (own doc there).
+    testWidgets(
+      'should_submitOnce_when_ctaDoubleTapped — two fast taps with no pump '
+      'between them issue exactly ONE createMasterBooking call',
+      (tester) async {
+        final fakeSlots = _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        );
+        final fakeBookings = _FakeBookingRepository();
+        await driveToConfirm(
+          tester,
+          slotRepository: fakeSlots,
+          bookingRepository: fakeBookings,
+        );
+
+        final Finder cta = find.byKey(
+          const Key('salon-create-booking-submit-cta'),
+        );
+        await tester.tap(cta);
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+
+        expect(fakeBookings.calls, hasLength(1));
+        expect(
+          find.byKey(const Key('salon-create-booking-done-cta')),
           findsOneWidget,
         );
       },
@@ -1216,6 +1502,106 @@ void main() {
       expect(find.textContaining('SMS'), findsNothing);
       expect(find.textContaining('Сповіщення'), findsNothing);
     });
+
+    // PHASE 256 mobile-qa gap-fill — `_SalonDoneStep` (mirrors the master
+    // wizard's `_DoneStep`, own doc there) switched to `formatSlotTimeRange
+    // (appointment.startAt, appointment.endAt)` — the SERVER's window — but
+    // no test here proved it: the default `reachDone` fixture derives
+    // `endAt` FROM `request.startsAt + _kCatalogService.durationMinutes`, so
+    // it renders IDENTICALLY whether the done step reads the response or
+    // re-derives locally. This test uses [_FakeBookingRepository
+    // .responseOverride] to make the response's window genuinely diverge
+    // (+20 minutes) from the local duration alone — MUTATION-CHECK RED by
+    // reverting `_SalonDoneStep` to a local-derived render, same as the
+    // master wizard's own `should_renderServerVisitWindow_when
+    // _multiServiceVisitCreated`.
+    testWidgets(
+      'should_renderServerWindow_when_visitCreated — the done step\'s time '
+      'range comes from the SERVER endAt, not a local re-derivation of the '
+      'picked service\'s duration',
+      (tester) async {
+        // The ITEM keeps its own real service duration (60 min, matching
+        // `_kCatalogService`) — a local re-derivation reads exactly this
+        // field (`item.durationMinutes`). The VISIT-level `endAt` carries a
+        // 20-minute post-service buffer on top of it (the same "chained
+        // window ≠ naive local sum" shape the master wizard's buffered
+        // multi-service fixtures use), so the two renders are only
+        // distinguishable if the done step reads `appointment.endAt` rather
+        // than re-deriving from the item's own duration.
+        const int itemDurationMinutes = 60;
+        const int bufferedTotalMinutes = itemDurationMinutes + 20;
+        final fakeSlots = _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        );
+        final fakeBookings = _FakeBookingRepository(
+          responseOverride:
+              (String masterId, CreateMasterBookingRequest request) =>
+                  Appointment(
+                    id: 'appt-buffered',
+                    status: BookingStatus.confirmed,
+                    masterId: masterId,
+                    masterFirstName: _kMasterA.firstName,
+                    masterLastName: _kMasterA.lastName,
+                    masterType: 'SALON_MASTER',
+                    startAt: request.startsAt,
+                    endAt: request.startsAt.add(
+                      const Duration(minutes: bufferedTotalMinutes),
+                    ),
+                    totalDurationMinutes: bufferedTotalMinutes,
+                    totalPrice: _kCatalogService.priceMin!,
+                    items: <AppointmentItem>[
+                      AppointmentItem(
+                        bookingId: 'booking-1',
+                        masterServiceId: request.masterServiceIds.first,
+                        serviceName: _kCatalogService.name,
+                        startAt: request.startsAt,
+                        endAt: request.startsAt.add(
+                          const Duration(minutes: itemDurationMinutes),
+                        ),
+                        durationMinutes: itemDurationMinutes,
+                        price: _kCatalogService.priceMin!,
+                      ),
+                    ],
+                  ),
+        );
+        await _pump(
+          tester,
+          slotRepository: fakeSlots,
+          bookingRepository: fakeBookings,
+        );
+        await _driveToMasters(tester);
+        await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(
+            Key(
+              'salon-tile-slot-chip-master-a-${_kSlot.startAt.toIso8601String()}',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('salon-create-booking-submit-cta')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            formatSlotTimeRange(
+              _kSlot.startAt,
+              _kSlot.startAt.add(const Duration(minutes: bufferedTotalMinutes)),
+            ),
+          ),
+          findsOneWidget,
+          reason:
+              'must render the SERVER endAt (with the +20 buffer), not '
+              "the local re-derivation from the picked service's own "
+              'duration',
+        );
+      },
+    );
 
     testWidgets('«Готово» pops back to the previous screen', (tester) async {
       final router = await () async {

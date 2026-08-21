@@ -1156,12 +1156,18 @@ final class HttpBookingRepository implements BookingRepository {
   ///     caller) AND "unknown/inactive master" into this ONE status — a
   ///     probe defence, not a real 404. Never surface "майстра не знайдено"
   ///     for this — see that failure's doc.
-  ///   - **409 / 422** → [ConflictFailure] — overlapping booking, outside
-  ///     working hours, day-off, past time, service not offered. This
-  ///     endpoint has no typed `data.code` 409/422 envelope documented (no
-  ///     `CLIENT_BOOKING_CONFLICT`-style sub-type the way [createBooking]'s
-  ///     mapper needs one), so both statuses share the one generic
-  ///     slot-conflict copy.
+  ///   - **409** → [MasterBookingDuplicateFailure] (mobile Phase 256 — see
+  ///     that failure's own doc). Backend Phase 258 D5 decided against an
+  ///     idempotency key on this write BECAUSE the overlap check already
+  ///     makes a duplicate visit impossible to persist, so a 409 here reads
+  ///     as "already created" (a double-tap / retry-after-timeout), not as
+  ///     "slot unavailable" — a genuinely-taken-slot race shares the same
+  ///     status/body and is indistinguishable, but is the rarer case on THIS
+  ///     path, so the copy is worded for the common one.
+  ///   - **422** → [ConflictFailure] — outside working hours, day-off, past
+  ///     time, service not offered. This endpoint has no typed `data.code`
+  ///     422 envelope documented (no `CLIENT_BOOKING_CONFLICT`-style
+  ///     sub-type the way [createBooking]'s mapper needs one).
   ///   - everything else (notably **400**) defers to [_mapDioException] —
   ///     which already returns the [ErrorMapperInterceptor]'s
   ///     [ValidationFailure] for 400/422 via its `e.error is Failure` check.
@@ -1172,15 +1178,13 @@ final class HttpBookingRepository implements BookingRepository {
   ///     [ServerFailure] with no slot-conflict copy), mirroring the
   ///     [_mapBookingWriteException] precedent above. 422 is deliberately
   ///     NOT deferred to the interceptor's own 422 → [ValidationFailure]
-  ///     branch: on THIS endpoint a 422 is a slot-availability rejection
-  ///     (backend Phase 22.4's contract groups 409/422 together), not a
-  ///     per-field validation error.
+  ///     branch: on THIS endpoint a 422 is a slot-availability rejection, not
+  ///     a per-field validation error.
   Failure _mapMasterBookingWriteException(DioException e) {
     final int? statusCode = e.response?.statusCode;
     if (statusCode == 403) return MasterBookingNotPermittedFailure(cause: e);
-    if (statusCode == 409 || statusCode == 422) {
-      return ConflictFailure(cause: e);
-    }
+    if (statusCode == 409) return MasterBookingDuplicateFailure(cause: e);
+    if (statusCode == 422) return ConflictFailure(cause: e);
     return _mapDioException(e);
   }
 

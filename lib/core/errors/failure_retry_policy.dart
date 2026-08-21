@@ -225,6 +225,13 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // master's existence/active state. Neither can change by re-issuing the
   // identical request (Phase 246).
   MasterBookingNotPermittedFailure() => false,
+  // 409 on the walk-in create path (Phase 256) — deterministic in the exact
+  // same sense [ConflictFailure] is: an automatic retry of the IDENTICAL
+  // request would just 409 again (the overlap check that produced this
+  // failure does not change on its own). Recovery here is a deliberate user
+  // action (the confirm step's «Оновити» snack, which changes what gets
+  // sent), never an automatic retry.
+  MasterBookingDuplicateFailure() => false,
   DuplicateServiceFailure() => false,
   ServiceDuplicateFailure() => false,
   ClientBookingConflictFailure() => false,

@@ -2655,13 +2655,17 @@ final class FakeBackend {
   /// what went on the wire without re-deriving it from UI state.
   Map<String, dynamic>? lastStaffBookingRequestBody;
 
-  /// `GET /api/v1/bookings/$kWalkInBookingId` call count — the enriched-
-  /// detail follow-up [BookingRepository.createMasterBooking] makes right
-  /// after the POST above succeeds (see that method's own doc: "return
-  /// getBookingById(bookingId)"). The wizard screen never reads the result
-  /// (only `AsyncValue.hasError` gates the step advance — see
-  /// `MasterCreateBookingScreen._submit`), but a missing route here would
-  /// still strand the wizard on `confirm` behind a mapped [Failure].
+  /// `GET /api/v1/bookings/$kWalkInBookingId` call count.
+  ///
+  /// STALE as a description of [BookingRepository.createMasterBooking] as of
+  /// Phase 256 (mobile-qa audit) — that method no longer makes a follow-up
+  /// GET at all: since the response widened to the full
+  /// `AppointmentDetailResponse` (`items[]`, totals, a real `endAt`), the
+  /// POST's own response body is parsed directly via `AppointmentMapper
+  /// .fromDto` and returned. This counter and its route (below) are dead
+  /// for THAT call path today; the route itself is harmless to keep — other
+  /// booking-detail fetches for [kWalkInBookingId] may still hit it — but a
+  /// zero count here no longer signals anything about `createMasterBooking`.
   int getWalkInBookingDetailCalls = 0;
 
   /// The row [kWalkInBookingId]'s POST handler most recently built — served
@@ -4095,6 +4099,22 @@ final class FakeBackend {
     // OWN card reads (see `datasetBookingRow`'s doc: it seeds the
     // counterparty-identity fields empty on purpose, spread in by the
     // caller).
+    //
+    // PHASE 256 — the wire request body carries `masterServiceIds` (plural,
+    // ORDERED — Phase 252 widened the scalar `masterServiceId` this handler
+    // used to read), and the response must be a real
+    // `AppointmentDetailResponse` shape (`items[]`, `totalPrice`,
+    // `totalDurationMinutes`, a real `endsAt`) — `AppointmentMapper.fromDto`
+    // tolerates an absent `items` as an EMPTY list rather than throwing, so a
+    // stale single-`Booking`-shaped reply here would silently render a
+    // done step with NO services instead of failing loudly. Each id is
+    // chained onto the previous item with a fixed 10-minute buffer — NOT
+    // back-to-back — so a multi-service run genuinely proves the done step
+    // renders the SERVER's window/totals, not a re-derived local sum (the
+    // same D3 regression `should_renderServerVisitWindow_when_
+    // multiServiceVisitCreated` pins at the widget tier, proven here end to
+    // end through the real repository/mapper/wire path instead of a fake
+    // repository).
     _adapter.onRoute(
       '/api/v1/masters/$masterRowId/bookings',
       (server) => server.replyCallback(201, (req) {
@@ -4104,16 +4124,73 @@ final class FakeBackend {
         final DateTime startsAt = DateTime.parse(body['startsAt'] as String);
         final Map<String, dynamic> guest = (body['guest'] as Map)
             .cast<String, dynamic>();
+        final List<dynamic> serviceIds =
+            (body['masterServiceIds'] as List?) ?? const <dynamic>[];
+
+        const Duration itemBuffer = Duration(minutes: 10);
+        DateTime cursor = startsAt;
+        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+        double totalPrice = 0;
+        double totalPriceMaxSum = 0;
+        bool anyRange = false;
+        for (final dynamic rawId in serviceIds) {
+          final String assignId = rawId as String;
+          final Map<String, dynamic> assignment = _services.firstWhere(
+            (Map<String, dynamic> s) => s['id'] == assignId,
+            orElse: () => throw StateError(
+              'FakeBackend: unknown masterServiceId "$assignId" in a '
+              'walk-in create — seed it in _services first',
+            ),
+          );
+          final Map<String, dynamic> def =
+              (assignment['serviceDefinition'] as Map).cast<String, dynamic>();
+          final int duration = assignment['effectiveDurationMinutes'] as int;
+          final double priceMin = (assignment['priceMin'] as num).toDouble();
+          final double? priceMax = (assignment['priceMax'] as num?)?.toDouble();
+          final DateTime itemStart = cursor;
+          final DateTime itemEnd = itemStart.add(Duration(minutes: duration));
+          items.add(<String, dynamic>{
+            'bookingId': 'walkin-booking-${items.length + 1}',
+            'masterServiceId': assignId,
+            'serviceName': def['name'],
+            'status': 'CONFIRMED',
+            'startsAt': itemStart.toIso8601String(),
+            'endsAt': itemEnd.toIso8601String(),
+            'durationMinutesAtBooking': duration,
+            'priceAtBooking': priceMin,
+            'priceMaxAtBooking': priceMax,
+          });
+          totalPrice += priceMin;
+          totalPriceMaxSum += priceMax ?? priceMin;
+          if (priceMax != null) anyRange = true;
+          cursor = itemEnd.add(itemBuffer);
+        }
+        // No trailing buffer past the LAST item — the buffer only ever sits
+        // BETWEEN items.
+        final DateTime visitEnd = items.isEmpty
+            ? startsAt
+            : cursor.subtract(itemBuffer);
+
         final Map<String, dynamic> row = <String, dynamic>{
           ...datasetBookingRow(
             id: kWalkInBookingId,
             status: 'CONFIRMED',
             startsAt: startsAt,
+            duration: visitEnd.difference(startsAt),
           ),
-          'masterServiceId': body['masterServiceId'],
+          'masterServiceId': serviceIds.isNotEmpty ? serviceIds.first : null,
           'clientId': null,
           'clientFirstName': guest['name'],
           'clientLastName': guest['surname'],
+          // Overrides `datasetBookingRow`'s single-service defaults with the
+          // REAL chained visit shape (`AppointmentDetailResponse` fields) —
+          // see this route's own doc above for why an absent `items` here
+          // would fail silently rather than loudly.
+          'endsAt': visitEnd.toIso8601String(),
+          'totalDurationMinutes': visitEnd.difference(startsAt).inMinutes,
+          'totalPrice': totalPrice,
+          'totalPriceMax': anyRange ? totalPriceMaxSum : null,
+          'items': items,
         };
         (_bookingsDataset ??= <Map<String, dynamic>>[]).add(row);
         _lastWalkInBookingRow = row;
@@ -4122,11 +4199,11 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
-    // GET /api/v1/bookings/$kWalkInBookingId — the enriched-detail follow-up
-    // [createMasterBooking] makes right after the POST above (see that
-    // method's own doc). See [getWalkInBookingDetailCalls]'s doc for why a
-    // missing route here — not just a missing assertion — would strand the
-    // wizard on `confirm`.
+    // GET /api/v1/bookings/$kWalkInBookingId — kept registered for any OTHER
+    // flow that looks up this fixed id by detail fetch. NOT a follow-up
+    // `createMasterBooking` itself makes any more — see
+    // [getWalkInBookingDetailCalls]'s doc (mobile-qa Phase 256 audit) for why
+    // that used to be true and no longer is.
     _adapter.onRoute(
       '/api/v1/bookings/$kWalkInBookingId',
       (server) => server.replyCallback(200, (_) {

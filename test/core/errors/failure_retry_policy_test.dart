@@ -98,6 +98,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // a transient network condition — retrying re-sends a request that fails
   // identically.
   'MasterBookingNotPermittedFailure': false,
+  // A 409 on the walk-in create path (Phase 256) is deterministic in the
+  // same sense ConflictFailure is — the overlap check that produced it does
+  // not change on its own, so an automatic retry just 409s again.
+  'MasterBookingDuplicateFailure': false,
   'ScheduleOverrideRateLimitedFailure': false,
   'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
@@ -164,6 +168,7 @@ Map<String, Failure> _instances() {
     'BookingRateLimitedFailure': const BookingRateLimitedFailure(),
     'MasterBookingNotPermittedFailure':
         const MasterBookingNotPermittedFailure(),
+    'MasterBookingDuplicateFailure': const MasterBookingDuplicateFailure(),
     'ScheduleOverrideRateLimitedFailure':
         const ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
     'OverrideSpanPartialFailure': OverrideSpanPartialFailure(

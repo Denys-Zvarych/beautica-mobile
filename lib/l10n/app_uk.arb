@@ -106,6 +106,10 @@
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
   },
+  "errMasterBookingDuplicate": "Цей запис уже створено",
+  "@errMasterBookingDuplicate": {
+    "description": "Error message shown when the master \"Новий запис\" wizard's submit returns HTTP 409 (MasterBookingDuplicateFailure) — the create path has no idempotency key because the overlap check already makes a duplicate visit impossible to persist, so a 409 here almost always means the master's own double-tap/retry already succeeded, not that the slot was taken by someone else."
+  },
   "bookingErrClientConflict": "У вас вже є запис на цей час: {serviceName}, {masterName}, {window}",
   "@bookingErrClientConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 with data.code == CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own (ClientBookingConflictFailure).",
@@ -4079,6 +4083,10 @@
   "masterCreateBookingDoneCta": "Готово",
   "@masterCreateBookingDoneCta": {
     "description": "Sole onward action on the master booking wizard's done step; pops back to «Мої записи»."
+  },
+  "masterCreateBookingDuplicateRefreshAction": "Оновити",
+  "@masterCreateBookingDuplicateRefreshAction": {
+    "description": "Action label on the snack shown for errMasterBookingDuplicate. Returns the master booking wizard to the dateTime step and re-fetches the schedule, so a genuine slot collision self-corrects in one tap."
   },
   "salonCreateBookingDateTitle": "Дата",
   "@salonCreateBookingDateTitle": {

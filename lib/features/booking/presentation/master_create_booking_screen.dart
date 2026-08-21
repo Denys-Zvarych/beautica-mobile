@@ -127,6 +127,7 @@ import '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../application/salon_booking_schedule_notifier.dart';
 import '../data/slot_repository.dart' show maxServicesPerVisit;
+import '../domain/appointment.dart';
 import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_cta_footer.dart';
@@ -180,20 +181,15 @@ class _MasterCreateBookingScreenState
   //
   // PHASES 254/255 — `dateTime` and `confirm` now take [_selectedServices]
   // directly (the widened `services:` params on [DateTimeStep] /
-  // [ConfirmStep]), and `_submit` sends the FULL ordered list. `_primaryService`
-  // (below) is now a NARROWER shim than before: its only remaining use is the
-  // `done` step, which still renders exactly one service — Phase 256's
-  // territory (the done step, the submit guard, the duplicate-409 copy).
+  // [ConfirmStep]), and `_submit` sends the FULL ordered list. PHASE 256
+  // retired the `_primaryService` single-service shim that used to live here:
+  // its only remaining caller was `done`, which now renders every service in
+  // the SERVER's created [Appointment] (`_createdAppointment.items`) rather
+  // than one locally-selected service — see `_DoneStep`'s doc.
   final CatalogueSelectionController _selectionController =
       CatalogueSelectionController();
   final List<MasterService> _selectedServices = <MasterService>[];
   DateTime? _startAt;
-
-  /// TEMPORARY single-service shim, now scoped to the `done` step ONLY
-  /// (Phase 256 territory) — the first tap-ordered selection, or `null` when
-  /// nothing is selected yet. See the field doc above.
-  MasterService? get _primaryService =>
-      _selectedServices.isEmpty ? null : _selectedServices.first;
 
   /// Toggles [service] in/out of the visit selection, capped at
   /// [maxServicesPerVisit] — the SAME pattern `service_selector_sheet.dart`'s
@@ -242,6 +238,55 @@ class _MasterCreateBookingScreenState
   /// already uses in ~58 places, e.g. `service_form.dart`'s `_dirtyNotifier`.)
   final ValueNotifier<DateTime?> _stagedDate = ValueNotifier<DateTime?>(null);
 
+  // Audit-fix cycle 1 (mobile-perf MEDIUM, 2026-08-21) — `_submitting` was
+  // ORIGINALLY a plain `bool` mutated through `setState`, i.e. the exact
+  // pattern flagged above for `_stagedDate`: it is read by exactly ONE
+  // widget (`_ConfirmCtaFooter`, only reachable on the `confirm` step), yet
+  // a `setState` here reconstructed the whole wizard subtree — the same 146
+  // chrome elements above the confirm footer (`BookingTopBar`,
+  // `StepIndicator`, the `AnimatedSwitcher`) that cannot possibly depend on
+  // this flag. Fixed the same way, for the same reason: see [_stagedDate]'s
+  // doc immediately above for the measured rebuild cost this avoids.
+
+  /// PHASE 256 — screen-owned double-submit guard, covering a window the
+  /// notifier's own `state.isLoading` guard (`master_create_booking_notifier
+  /// .dart`) structurally CANNOT cover.
+  ///
+  /// Empirically proven (not assumed) with a two-`tester.tap()`-no-pump
+  /// probe against the fake repository: `state.isLoading` flips back to
+  /// `false` the instant `AsyncValue.guard` resolves — a single microtask
+  /// turn after the (near-instant, in tests; sub-100ms on a fast network in
+  /// production) fake/real POST completes — but THIS widget's own
+  /// `await ref.read(...).submit(...)` continuation (the `mounted`/
+  /// `hasError` checks, then `setState(() => _step = done)`) needs its OWN
+  /// separate turn to run. A second real tap landing in exactly that gap —
+  /// after the notifier is done, before the screen has navigated away from
+  /// `confirm` — sails past the notifier's guard (it is no longer loading)
+  /// and fires a genuine second `createMasterBooking` POST. Proven RED: the
+  /// probe called `createMasterBooking` twice with ONLY the notifier guard
+  /// in place. See `master_create_booking_screen_test.dart`'s
+  /// `should_submitOnce_when_ctaDoubleTapped`.
+  ///
+  /// A [ValueNotifier], NOT a plain field mutated through `setState` (see the
+  /// audit-fix note above) — writes to `.value` are just as SYNCHRONOUS as a
+  /// plain field write, so the guard's core property is unchanged: it is set
+  /// `true` at the top of [_submit] BEFORE any `await` (same discipline as
+  /// the notifier's own guard) and only ever cleared on the error path — a
+  /// success never clears it, because success means navigating to `done`,
+  /// where the CTA no longer exists. Consumed by a [ValueListenableBuilder]
+  /// scoped to just the confirm footer (`_buildBottomBar`'s `confirm` case),
+  /// which reads it OR'd with the notifier's own `isLoading` so the CTA is
+  /// disabled for the UNION of both windows: the network round-trip AND this
+  /// screen's own post-completion turn.
+  final ValueNotifier<bool> _submitting = ValueNotifier<bool>(false);
+
+  /// PHASE 256 — the server's created visit, set the instant [_submit]
+  /// succeeds. `null` until then; the `done` branch in [build] treats a
+  /// `null` here as unreachable/defensive, mirroring [_startAt]'s own
+  /// pattern. See `_DoneStep`'s doc for why it renders THIS, not the local
+  /// selection.
+  Appointment? _createdAppointment;
+
   late final ScreenProtectionManager _screenProtection;
 
   @override
@@ -257,6 +302,7 @@ class _MasterCreateBookingScreenState
     _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
     _stagedDate.dispose();
+    _submitting.dispose();
     _selectionController.dispose();
     super.dispose();
   }
@@ -281,6 +327,15 @@ class _MasterCreateBookingScreenState
   }
 
   Future<void> _submit(String masterId) async {
+    // PHASE 256 — the screen-owned reentrancy guard. See [_submitting]'s own
+    // doc for why the notifier's `state.isLoading` guard alone is NOT
+    // sufficient: it protects only the network round-trip, not the turn
+    // between that future resolving and this method's own `setState` to
+    // `done`. Checked and flipped SYNCHRONOUSLY, before any `await`, same
+    // discipline as the notifier's own guard — a direct `ValueNotifier.value`
+    // write is exactly as synchronous as the plain-field write it replaced,
+    // so this property survives the audit-fix cycle 1 refactor unchanged.
+    if (_submitting.value) return;
     final DateTime? startAt = _startAt;
     final String? phone = toE164UaPhone(_phoneCtrl.text);
     // Defensive — unreachable via the normal flow: `confirm` is only reached
@@ -288,6 +343,9 @@ class _MasterCreateBookingScreenState
     // `client`'s Next is disabled until the phone normalizes (see
     // `ClientStep._canAdvance`).
     if (_selectedServices.isEmpty || startAt == null || phone == null) return;
+    // No `setState` — only the [ValueListenableBuilder] scoped around
+    // [_ConfirmCtaFooter] depends on this flag (see [_submitting]'s doc).
+    _submitting.value = true;
 
     final CreateMasterBookingRequest request = CreateMasterBookingRequest(
       // PHASE 254/255 — the FULL ordered visit, not the `_primaryService`
@@ -305,15 +363,71 @@ class _MasterCreateBookingScreenState
         phone: phone,
       ),
     );
-    await ref
+    // PHASE 256 — the notifier now returns the SERVER's created [Appointment]
+    // (see that file's own doc); stored locally so `done` can render the
+    // server's window/totals/items instead of the local selection.
+    final Appointment? created = await ref
         .read(masterCreateBookingProvider.notifier)
         .submit(masterId: masterId, request: request);
     if (!mounted) return;
     // A submit failure keeps the notifier's AsyncError state, which the
     // confirm step's own `ref.watch` renders as an inline banner — do NOT
-    // advance past it.
-    if (ref.read(masterCreateBookingProvider).hasError) return;
-    setState(() => _step = _BookingStep.done);
+    // advance past it. Re-enable the CTA (a success never does — see
+    // [_submitting]'s doc) and, for the specific duplicate-409 case, offer
+    // the recoverable snack (D1.2 of the phase doc).
+    final AsyncValue<void> result = ref.read(masterCreateBookingProvider);
+    if (result.hasError) {
+      // No `setState` here either — clearing the flag only needs to notify
+      // the scoped [ValueListenableBuilder]; nothing else in this build
+      // depends on it (the inline error banner is driven by `ref.watch` on
+      // the provider itself, inside `ConfirmStep`).
+      _submitting.value = false;
+      _maybeShowDuplicateSnack(result.error);
+      return;
+    }
+    if (created == null) return; // defensive — unreachable when !hasError
+    setState(() {
+      _createdAppointment = created;
+      _step = _BookingStep.done;
+    });
+  }
+
+  /// Shows the «Цей запис уже створено» snack with its «Оновити» recovery
+  /// action when [error] is the create path's 409
+  /// ([MasterBookingDuplicateFailure]) — a no-op for every other [Failure]
+  /// (those already surface via [ConfirmStep]'s inline banner alone). See
+  /// the phase doc's D1.2 and [MasterBookingDuplicateFailure]'s own doc for
+  /// why this status gets a dedicated, recoverable affordance instead of the
+  /// generic slot-conflict copy.
+  void _maybeShowDuplicateSnack(Object? error) {
+    if (error is! MasterBookingDuplicateFailure) return;
+    final l10n = AppLocalizations.of(context);
+    showErrorSnack(
+      context,
+      l10n.errMasterBookingDuplicate,
+      actionLabel: l10n.masterCreateBookingDuplicateRefreshAction,
+      onAction: _handleDuplicateRefresh,
+    );
+  }
+
+  /// «Оновити» on the duplicate-409 snack — returns to `dateTime` and drops
+  /// every cached slot fetch so a re-pick genuinely re-fetches from the
+  /// server (a real collision self-corrects in one tap; a false-alarm
+  /// duplicate simply shows the master their already-created visit on the
+  /// calendar once they leave the wizard).
+  void _handleDuplicateRefresh() {
+    // The snack dwells 6s on the app's ROOT overlay (independent of this
+    // screen's subtree — `velvet_snack_host.dart`'s own doc), and `confirm`
+    // is NOT the `inTimeSubPhase` special case `PopScope` guards, so the
+    // system back gesture CAN pop this whole wizard while the snack is still
+    // showing. A tap on its action after that would otherwise touch `ref`/
+    // `setState` on an already-disposed State (mobile-debugger finding,
+    // 2026-08-21) — guard exactly like every other post-await continuation
+    // in this file.
+    if (!mounted) return;
+    ref.invalidate(salonMasterDaySlotsProvider);
+    ref.read(salonBookingScheduleProvider.notifier).clearDate();
+    setState(() => _step = _BookingStep.dateTime);
   }
 
   String _titleFor(AppLocalizations l10n, _BookingStep step) => switch (step) {
@@ -475,8 +589,18 @@ class _MasterCreateBookingScreenState
         );
       case _BookingStep.confirm:
         return masterAsync.maybeWhen(
-          data: (Master master) =>
-              _ConfirmCtaFooter(onSubmit: () => _submit(master.id)),
+          // Only this footer depends on `_submitting` — same scoping
+          // primitive as the `dateTime` step's `ValueListenableBuilder`
+          // above (audit-fix cycle 1, mobile-perf MEDIUM: see [_submitting]'s
+          // own doc).
+          data: (Master master) => ValueListenableBuilder<bool>(
+            valueListenable: _submitting,
+            builder: (BuildContext context, bool submitting, Widget? child) =>
+                _ConfirmCtaFooter(
+                  onSubmit: () => _submit(master.id),
+                  submitting: submitting,
+                ),
+          ),
           orElse: () => null,
         );
       case _BookingStep.client:
@@ -491,9 +615,8 @@ class _MasterCreateBookingScreenState
     final AsyncValue<Master> masterAsync = ref.watch(masterProfileProvider);
 
     if (_step == _BookingStep.done) {
-      final MasterService? service = _primaryService;
-      final DateTime? startAt = _startAt;
-      if (service == null || startAt == null) {
+      final Appointment? appointment = _createdAppointment;
+      if (appointment == null) {
         // Defensive — unreachable via the normal flow (see `_buildStep`).
         return const Scaffold(body: SizedBox.shrink());
       }
@@ -503,8 +626,7 @@ class _MasterCreateBookingScreenState
       // (header, step indicator, outer Scaffold) is fully replaced, not
       // double-wrapped, on the terminal step.
       return _DoneStep(
-        service: service,
-        startAt: startAt,
+        appointment: appointment,
         firstName: _firstNameCtrl.text.trim(),
         lastName: _lastNameCtrl.text.trim(),
         phone: _phoneCtrl.text.trim(),
@@ -626,9 +748,20 @@ class _NextCtaFooter extends StatelessWidget {
 /// shared [BookingCtaFooter] so this step gets the exact same pinned-footer
 /// chrome the client-facing confirm screens use.
 class _ConfirmCtaFooter extends ConsumerWidget {
-  const _ConfirmCtaFooter({required this.onSubmit});
+  const _ConfirmCtaFooter({required this.onSubmit, required this.submitting});
 
   final VoidCallback onSubmit;
+
+  /// PHASE 256 — the screen's OWN reentrancy guard
+  /// (`_MasterCreateBookingScreenState._submitting`), OR'd below with the
+  /// notifier's `isLoading`. `isLoading` alone is NOT sufficient — see
+  /// `_submitting`'s own doc: it flips back to `false` the instant the
+  /// network call resolves, a turn BEFORE the screen has actually navigated
+  /// off `confirm`, and a second real tap landing in exactly that gap fires
+  /// a genuine second POST. Proven empirically (RED before this param
+  /// existed) by `master_create_booking_screen_test.dart`'s
+  /// `should_submitOnce_when_ctaDoubleTapped`.
+  final bool submitting;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -636,6 +769,7 @@ class _ConfirmCtaFooter extends ConsumerWidget {
     final bool inFlight = ref.watch(
       masterCreateBookingProvider.select((AsyncValue<void> s) => s.isLoading),
     );
+    final bool busy = submitting || inFlight;
     return BookingCtaFooter(
       key: const Key('master-create-booking-cta-footer'),
       buttonKey: const Key('master-create-booking-submit-cta'),
@@ -644,11 +778,18 @@ class _ConfirmCtaFooter extends ConsumerWidget {
       // it reading exactly that way. Here the actor is the master booking
       // SOMEONE ELSE in, so the wizard carries its own transitive label. The
       // in-flight caption («Надсилаємо…») is actor-neutral and stays shared.
-      label: inFlight
+      label: busy
           ? l10n.bookingSubmitCtaLoading
           : l10n.masterCreateBookingSubmitCta,
-      enabled: true,
-      loading: inFlight,
+      // PHASE 256 (D1) — explicitly gated on `busy`, not hardcoded `true`.
+      // `NeumorphicButton` ALSO refuses a tap while `loading: true`
+      // (`!widget.loading` folds into its own `_enabled`), so this is
+      // belt-and-braces with that widget — the ACTUAL empirically-proven gap
+      // this phase closes is [submitting] itself, not this line — but an
+      // `enabled:` that ignores the busy state entirely was misleading to
+      // read regardless of whether `NeumorphicButton` covered for it.
+      enabled: !busy,
+      loading: busy,
       onPressed: onSubmit,
     );
   }
@@ -663,18 +804,29 @@ class _ConfirmCtaFooter extends ConsumerWidget {
 /// bespoke port of the design's `_DoneStep`. Rendered standalone by
 /// [MasterCreateBookingScreen.build] (not through the wizard's own
 /// Scaffold/AnimatedSwitcher) — see that method's doc for why.
+///
+/// PHASE 256 (D3) — renders the SERVER's [appointment], not the wizard's
+/// local selection. The local selection is what was *asked for*; the
+/// response is what was *created* — after a chain is laid out with buffers
+/// they are not the same window, so a done screen built from local state
+/// showed the wrong end time for every multi-service visit. [appointment]
+/// carries every service in the visit ([Appointment.items], ordered), so ALL
+/// of them render here now, not just the first tap-ordered pick.
+///
+/// [firstName]/[lastName]/[phone] stay local-state inputs — the response's
+/// `AppointmentDetailResponse` shape carries no guest identity to echo back
+/// (see `Appointment`'s own file header), so there is nothing server-side to
+/// prefer here.
 class _DoneStep extends StatelessWidget {
   const _DoneStep({
-    required this.service,
-    required this.startAt,
+    required this.appointment,
     required this.firstName,
     required this.lastName,
     required this.phone,
     required this.onClose,
   });
 
-  final MasterService service;
-  final DateTime startAt;
+  final Appointment appointment;
   final String firstName;
   final String lastName;
   final String phone;
@@ -684,14 +836,22 @@ class _DoneStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
-    final BookingSelection selection = BookingSelection(
-      name: service.name,
-      price: ServicePriceDisplay.format(service),
-      duration: DurationMinutes.format(service.durationMinutes),
-      durationMinutes: service.durationMinutes,
-      priceMin: service.priceMin,
-      priceMax: service.priceMax,
-    );
+    // Every service the visit was actually CREATED with, in server order —
+    // REUSES [BookingSelection] and [BookingSummaryCards]' existing
+    // `selections:` (multi) mode, the SAME shape [ConfirmStep] already
+    // renders through for this same wizard (`isMultiPath`, always true on
+    // this screen post-Phase-255) — no bespoke multi-item card written here.
+    final List<BookingSelection> selections = <BookingSelection>[
+      for (final AppointmentItem item in appointment.items)
+        BookingSelection(
+          name: item.serviceName,
+          price: ServicePriceDisplay.formatRange(item.price, item.priceMax),
+          duration: DurationMinutes.format(item.durationMinutes),
+          durationMinutes: item.durationMinutes,
+          priceMin: item.price,
+          priceMax: item.priceMax,
+        ),
+    ];
 
     return BookingSuccessScaffold(
       title: l10n.bookingSuccessTitle,
@@ -731,16 +891,26 @@ class _DoneStep extends StatelessWidget {
         ),
         // No manual spacer — [BookingSuccessScaffold] already separates every
         // `recapCards` entry with an `md` gap (see its file header).
-        // WHEN / WHAT.
+        // WHEN / WHAT — the SERVER's window (D3): `formatSlotTimeRange`, not
+        // `formatTimeRange`, because [appointment.endAt] is now a REAL
+        // persisted end instant, not one derived from a duration — see that
+        // formatter's own doc for the derived-vs-persisted split it exists
+        // for. Mutation-verified: rendering from `startAt +
+        // service.durationMinutes` instead goes RED the moment the visit's
+        // buffers push the real end past the naive sum — see
+        // `should_renderServerVisitWindow_when_multiServiceVisitCreated`.
         BookingSummaryCards(
           key: const Key('master-create-booking-done-card'),
           showBorder: true,
           compactText: true,
           dense: true,
           showAddress: false,
-          dateLabel: formatFullDate(startAt),
-          timeLabel: formatTimeRange(startAt, service.durationMinutes),
-          singleSelection: selection,
+          dateLabel: formatFullDate(appointment.startAt),
+          timeLabel: formatSlotTimeRange(
+            appointment.startAt,
+            appointment.endAt,
+          ),
+          selections: selections,
         ),
       ],
     );

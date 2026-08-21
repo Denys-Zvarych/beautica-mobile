@@ -137,6 +137,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -153,7 +154,10 @@ import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import '../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
+import '../application/salon_booking_schedule_notifier.dart'
+    show salonMasterDaySlotsProvider;
 import '../data/slot_repository.dart' show maxServicesPerVisit;
+import '../domain/appointment.dart';
 import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_cta_footer.dart';
@@ -215,10 +219,32 @@ class _SalonCreateBookingScreenState
   String? _assignmentId;
   DateTime? _startAt;
 
-  /// TEMPORARY single-service shim — see
-  /// `master_create_booking_screen.dart`'s identical getter doc.
+  /// TEMPORARY single-service shim — see this file's header (D5's "confirm
+  /// stays on the legacy `service:` path" note) for why this screen, unlike
+  /// the master wizard, still keeps it: `SalonMastersStep`/`ConfirmStep`/
+  /// `_submit` all still key off exactly one service.
   MasterService? get _primaryService =>
       _selectedServices.isEmpty ? null : _selectedServices.first;
+
+  /// PHASE 256 — mirrors `master_create_booking_screen.dart`'s identical
+  /// field (own doc there) — the screen-owned reentrancy guard covering the
+  /// gap the notifier's own `isLoading` guard cannot: the turn between the
+  /// submit future resolving and this screen's own `setState` to `done`.
+  ///
+  /// Audit-fix cycle 1 (mobile-perf MEDIUM, 2026-08-21) — a [ValueNotifier],
+  /// NOT a plain field mutated through `setState`, mirroring the master
+  /// wizard's identical fix (own doc there): the flag is read by exactly one
+  /// widget (`_SalonConfirmCtaFooter`, only reachable on `confirm`), so a
+  /// `setState` here reconstructed the whole six-step wizard subtree for a
+  /// change only one leaf cares about. `.value` writes are exactly as
+  /// synchronous as the plain-field write they replace — the guard is set
+  /// `true` at the top of [_submit] BEFORE any `await` and only ever cleared
+  /// on the error path.
+  final ValueNotifier<bool> _submitting = ValueNotifier<bool>(false);
+
+  /// PHASE 256 — mirrors `master_create_booking_screen.dart`'s identical
+  /// field — the server's created visit, set the instant [_submit] succeeds.
+  Appointment? _createdAppointment;
 
   late final ScreenProtectionManager _screenProtection;
 
@@ -237,6 +263,7 @@ class _SalonCreateBookingScreenState
     _firstNameCtrl.dispose();
     _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
+    _submitting.dispose();
     _selectionController.dispose();
     super.dispose();
   }
@@ -280,6 +307,11 @@ class _SalonCreateBookingScreenState
   }
 
   Future<void> _submit() async {
+    // PHASE 256 — mirrors `master_create_booking_screen.dart`'s identical
+    // guard (own doc there). Checked/flipped SYNCHRONOUSLY, before any
+    // `await` — a `ValueNotifier.value` read/write is exactly as synchronous
+    // as the plain-field version it replaced (audit-fix cycle 1).
+    if (_submitting.value) return;
     final MasterService? service = _primaryService;
     final DateTime? startAt = _startAt;
     final SalonMasterSummary? master = _master;
@@ -295,6 +327,10 @@ class _SalonCreateBookingScreenState
         phone == null) {
       return;
     }
+    // No `setState` — only the [ValueListenableBuilder] scoped around
+    // [_SalonConfirmCtaFooter] depends on this flag (see [_submitting]'s
+    // doc).
+    _submitting.value = true;
 
     final CreateMasterBookingRequest request = CreateMasterBookingRequest(
       // The chosen master's OWN per-master assignment id — NEVER
@@ -313,12 +349,55 @@ class _SalonCreateBookingScreenState
         phone: phone,
       ),
     );
-    await ref
+    // PHASE 256 — the notifier now returns the SERVER's created [Appointment]
+    // — see `master_create_booking_notifier.dart`'s doc.
+    final Appointment? created = await ref
         .read(masterCreateBookingProvider.notifier)
         .submit(masterId: master.masterId, request: request);
     if (!mounted) return;
-    if (ref.read(masterCreateBookingProvider).hasError) return;
-    setState(() => _step = _BookingStep.done);
+    final AsyncValue<void> result = ref.read(masterCreateBookingProvider);
+    if (result.hasError) {
+      // No `setState` here either — see the analogous note in the master
+      // wizard's `_submit`.
+      _submitting.value = false;
+      _maybeShowDuplicateSnack(result.error);
+      return;
+    }
+    if (created == null) return; // defensive — unreachable when !hasError
+    setState(() {
+      _createdAppointment = created;
+      _step = _BookingStep.done;
+    });
+  }
+
+  /// Mirrors `master_create_booking_screen.dart`'s identical method (own
+  /// doc there) — the ONE deliberate deviation is the recovery step: THIS
+  /// wizard picks its slot on `masters` (via [SalonMastersStep]), not
+  /// `dateTime` (date-only here), so «Оновити» returns there instead.
+  void _maybeShowDuplicateSnack(Object? error) {
+    if (error is! MasterBookingDuplicateFailure) return;
+    final l10n = AppLocalizations.of(context);
+    showErrorSnack(
+      context,
+      l10n.errMasterBookingDuplicate,
+      actionLabel: l10n.masterCreateBookingDuplicateRefreshAction,
+      onAction: _handleDuplicateRefresh,
+    );
+  }
+
+  /// «Оновити» on the duplicate-409 snack — returns to `masters` (where THIS
+  /// wizard's slot picker lives — see [_maybeShowDuplicateSnack]) and drops
+  /// every cached slot fetch so re-picking genuinely re-fetches.
+  void _handleDuplicateRefresh() {
+    // Mirrors `master_create_booking_screen.dart`'s identical guard (own
+    // doc there) — this screen has NO `PopScope` at all (file header: "No
+    // `PopScope` needed here"), so the system back gesture pops `confirm`
+    // even more readily than the master wizard's. The 6s-dwelling snack
+    // outlives that pop (root overlay, independent subtree), so a tap on
+    // its action must not touch `ref`/`setState` on a disposed State.
+    if (!mounted) return;
+    ref.invalidate(salonMasterDaySlotsProvider);
+    setState(() => _step = _BookingStep.masters);
   }
 
   String _titleFor(AppLocalizations l10n, _BookingStep step) => switch (step) {
@@ -426,15 +505,13 @@ class _SalonCreateBookingScreenState
     final l10n = AppLocalizations.of(context);
 
     if (_step == _BookingStep.done) {
-      final MasterService? service = _primaryService;
-      final DateTime? startAt = _startAt;
-      if (service == null || startAt == null) {
+      final Appointment? appointment = _createdAppointment;
+      if (appointment == null) {
         // Defensive — unreachable via the normal flow (see `_buildStep`).
         return const Scaffold(body: SizedBox.shrink());
       }
       return _SalonDoneStep(
-        service: service,
-        startAt: startAt,
+        appointment: appointment,
         onClose: () => context.pop(),
       );
     }
@@ -459,7 +536,14 @@ class _SalonCreateBookingScreenState
           onAction: () => _goTo(_BookingStep.dateTime),
           onRemove: _onToggleService,
         ),
-        _BookingStep.confirm => _SalonConfirmCtaFooter(onSubmit: _submit),
+        // Only this footer depends on `_submitting` — same scoping primitive
+        // as the master wizard's confirm-step footer (audit-fix cycle 1,
+        // mobile-perf MEDIUM: see [_submitting]'s own doc).
+        _BookingStep.confirm => ValueListenableBuilder<bool>(
+          valueListenable: _submitting,
+          builder: (BuildContext context, bool submitting, Widget? child) =>
+              _SalonConfirmCtaFooter(onSubmit: _submit, submitting: submitting),
+        ),
         _ => null,
       },
       body: SafeArea(
@@ -596,9 +680,16 @@ class _SalonConfirmMasterCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _SalonConfirmCtaFooter extends ConsumerWidget {
-  const _SalonConfirmCtaFooter({required this.onSubmit});
+  const _SalonConfirmCtaFooter({
+    required this.onSubmit,
+    required this.submitting,
+  });
 
   final VoidCallback onSubmit;
+
+  /// PHASE 256 — mirrors `master_create_booking_screen.dart`'s
+  /// `_ConfirmCtaFooter.submitting` (own doc there).
+  final bool submitting;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -606,12 +697,13 @@ class _SalonConfirmCtaFooter extends ConsumerWidget {
     final bool inFlight = ref.watch(
       masterCreateBookingProvider.select((AsyncValue<void> s) => s.isLoading),
     );
+    final bool busy = submitting || inFlight;
     return BookingCtaFooter(
       key: const Key('salon-create-booking-cta-footer'),
       buttonKey: const Key('salon-create-booking-submit-cta'),
-      label: inFlight ? l10n.bookingSubmitCtaLoading : l10n.bookingSubmitCta,
-      enabled: true,
-      loading: inFlight,
+      label: busy ? l10n.bookingSubmitCtaLoading : l10n.bookingSubmitCta,
+      enabled: !busy,
+      loading: busy,
       onPressed: onSubmit,
     );
   }
@@ -621,28 +713,32 @@ class _SalonConfirmCtaFooter extends ConsumerWidget {
 // Done — success payoff, reuses BookingSuccessScaffold (see file header).
 // ---------------------------------------------------------------------------
 
+/// PHASE 256 (D3/D5) — mirrors `master_create_booking_screen.dart`'s
+/// `_DoneStep` (own doc there): renders the SERVER's [appointment], not the
+/// wizard's local selection. This wizard still only ever books ONE service
+/// per visit (D5 of the file header — `ConfirmStep` stays on the legacy
+/// `service:` path here), so [appointment.items] always has exactly one
+/// entry and the card keeps the `singleSelection:` (not `selections:`)
+/// rendering — matching what `ConfirmStep` already shows one step earlier,
+/// byte-for-byte, for the SAME visit.
 class _SalonDoneStep extends StatelessWidget {
-  const _SalonDoneStep({
-    required this.service,
-    required this.startAt,
-    required this.onClose,
-  });
+  const _SalonDoneStep({required this.appointment, required this.onClose});
 
-  final MasterService service;
-  final DateTime startAt;
+  final Appointment appointment;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
+    final AppointmentItem item = appointment.items.single;
     final BookingSelection selection = BookingSelection(
-      name: service.name,
-      price: ServicePriceDisplay.format(service),
-      duration: DurationMinutes.format(service.durationMinutes),
-      durationMinutes: service.durationMinutes,
-      priceMin: service.priceMin,
-      priceMax: service.priceMax,
+      name: item.serviceName,
+      price: ServicePriceDisplay.formatRange(item.price, item.priceMax),
+      duration: DurationMinutes.format(item.durationMinutes),
+      durationMinutes: item.durationMinutes,
+      priceMin: item.price,
+      priceMax: item.priceMax,
     );
 
     return BookingSuccessScaffold(
@@ -664,8 +760,14 @@ class _SalonDoneStep extends StatelessWidget {
           compactText: true,
           dense: true,
           showAddress: false,
-          dateLabel: formatFullDate(startAt),
-          timeLabel: formatTimeRange(startAt, service.durationMinutes),
+          // D3 — the SERVER's window (`formatSlotTimeRange`, a real
+          // persisted `endAt` — see `_DoneStep`'s identical note in the
+          // master wizard for the derived-vs-persisted split).
+          dateLabel: formatFullDate(appointment.startAt),
+          timeLabel: formatSlotTimeRange(
+            appointment.startAt,
+            appointment.endAt,
+          ),
           singleSelection: selection,
         ),
       ],
