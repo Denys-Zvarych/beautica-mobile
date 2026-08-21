@@ -258,6 +258,23 @@ BookingConfirmArgs _rescheduleArgsWithGuest() => BookingConfirmArgs(
   guest: _kGuest,
 );
 
+/// [_rescheduleArgs] with `rescheduleTargetIsWalkIn: true` — the shape
+/// `reschedule_navigation.dart` seeds when a master reschedules an existing
+/// WALK-IN booking (`Booking.isGuestBooking`). Drives `_submit`'s reschedule
+/// branch end to end, unlike `booking_success_walkin_test.dart`'s fixtures
+/// (which construct `BookingSuccessArgs` directly and never exercise
+/// `_submit`'s `isWalkIn: guest != null || widget.args
+/// .rescheduleTargetIsWalkIn` line at all).
+BookingConfirmArgs _rescheduleArgsWalkInTarget() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService],
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
+  rescheduleBookingId: 'booking-1',
+  rescheduleTargetIsWalkIn: true,
+);
+
 /// Same shape again, but for a track 30.x per-item VISIT reschedule — both
 /// `rescheduleBookingId` (the ONE service being moved) AND
 /// `rescheduleAppointmentId` (the visit it belongs to — the routing
@@ -1725,6 +1742,78 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(MasterStrip), findsOneWidget);
+      });
+    });
+
+    // «Додати в календар» removal on WALK-IN RESCHEDULE (2026-08-21) — an
+    // END-TO-END pin, driven through the REAL `_submit` (not a hand-built
+    // `BookingSuccessArgs`, which `booking_success_walkin_test.dart` already
+    // covers but which never exercises this line). Confirms the
+    // `rescheduleTargetIsWalkIn` OR-gate in `_submit`'s `BookingSuccessArgs`
+    // construction actually wires up end to end.
+    group('rescheduleTargetIsWalkIn end-to-end (calendar-button fix)', () {
+      testWidgets(
+        'should_hideCalendarButton_when_rescheduleTargetIsWalkInTrue — a '
+        'real reschedule submit of a walk-in-target booking hides the '
+        'terminal calendar button',
+        (tester) async {
+          final fake = _RecordingRescheduleRepository();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => fake),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+            ],
+          );
+          unawaited(
+            router.push(
+              RouteNames.bookingConfirm,
+              extra: _rescheduleArgsWalkInTarget(),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+          expect(
+            find.byKey(const Key('booking-success-add-calendar')),
+            findsNothing,
+          );
+        },
+      );
+
+      testWidgets('REGRESSION GUARD — should_keepCalendarButton_when_'
+          'rescheduleTargetIsWalkInFalse — an ordinary (real client) reschedule '
+          'submit STILL SHOWS the terminal calendar button', (tester) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-success-add-calendar')),
+          findsOneWidget,
+        );
       });
     });
 

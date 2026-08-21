@@ -550,6 +550,7 @@ class SlotTimeScreen extends ConsumerWidget {
         rescheduleAppointmentId: args.rescheduleAppointmentId,
         guest: args.guest,
         hideMasterIdentity: args.hideMasterIdentity,
+        rescheduleTargetIsWalkIn: args.rescheduleTargetIsWalkIn,
       ),
     );
   }

@@ -99,5 +99,15 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// D4. Defaults to `false` so every existing call site renders
     /// unchanged.
     @Default(false) bool hideMasterIdentity,
+
+    /// Forwarded unchanged from [BookingSlotPickerArgs.rescheduleTargetIsWalkIn]
+    /// by `SlotTimeScreen._confirm` — see that field's doc for the full
+    /// rationale. `_submit` folds this into `BookingSuccessArgs.isWalkIn`
+    /// alongside `guest != null`, so a walk-in RESCHEDULE hides the terminal
+    /// screen's «Додати в календар» exactly like a walk-in CREATE, without
+    /// disturbing the reschedule copy/CTA precedence (`isReschedule` is
+    /// still checked FIRST wherever the two could otherwise conflict).
+    /// Defaults to `false` so every existing call site is unaffected.
+    @Default(false) bool rescheduleTargetIsWalkIn,
   }) = _BookingConfirmArgs;
 }

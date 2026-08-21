@@ -114,14 +114,21 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         : null;
 
     // Phase 263 D1 — three-way copy switch. Precedence is reschedule > walk-in
-    // > client create, matched in that ORDER: `isReschedule` and `isWalkIn`
-    // are mutually exclusive by construction (`BookingConfirmScreen._submit`
-    // sets `isReschedule: rescheduleId != null` and `isWalkIn: guest != null`,
-    // and `BookingConfirmScreen._submit`'s reschedule `if` is checked BEFORE
-    // its walk-in `else if`, so a seed can never reach that branch with both
-    // set — see phase-262's recorded deviation for why this is a structural
-    // guarantee rather than a runtime assert), but
-    // ordering makes that structural rather than assumed.
+    // > client create, matched in that ORDER.
+    //
+    // Originally `isReschedule` and `isWalkIn` were mutually exclusive by
+    // construction (`BookingConfirmScreen._submit` sets `isReschedule:
+    // rescheduleId != null` and `isWalkIn: guest != null`, and its reschedule
+    // `if` is checked BEFORE its walk-in `else if`, so a seed could never
+    // reach that branch with both set — see phase-262's recorded deviation).
+    // «Додати в календар» removal (2026-08-21) broke that exclusivity on
+    // PURPOSE: `isWalkIn` now ALSO folds in `widget.args
+    // .rescheduleTargetIsWalkIn` (a master rescheduling an existing WALK-IN
+    // booking), so both flags CAN be `true` together. This switch's explicit
+    // `isReschedule` arm — checked first — is what keeps that combination
+    // showing reschedule copy; ordering is now load-bearing, not merely
+    // structural. [doneLabel]/`onPressed` below were widened the same way
+    // for the same reason.
     final (String title, String subline) = switch (widget.args) {
       BookingSuccessArgs(isReschedule: true) => (
         l10n.bookingRescheduleSuccessTitle,
@@ -134,11 +141,21 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
       _ => (l10n.bookingSuccessTitle, l10n.bookingSuccessSubline),
     };
 
-    // Phase 263 D4 — same three-way precedence, walk-in arm last after the
+    // Phase 263 D4 — same three-way precedence, walk-in arm after the
     // reschedule arm. Reschedule and client-create both keep the existing
     // «На головну» label — only the walk-in arm differs. Reuses the shipped
     // `masterCreateBookingDoneCta` («Готово») — no new ARB key.
+    //
+    // «Додати в календар» removal (2026-08-21) — the `isReschedule` arm is now
+    // load-bearing, not merely documented: a walk-in RESCHEDULE seeds BOTH
+    // `isReschedule: true` AND `isWalkIn: true` (see `BookingConfirmScreen
+    // ._submit`), so without an explicit reschedule arm here this switch would
+    // fall into the walk-in arm and swap the CTA label — a change this fix
+    // does not intend. Checking `isReschedule` FIRST keeps every reschedule
+    // (walk-in-target or not) on the ordinary «На головну» label, matching the
+    // title/subline switch above.
     final String doneLabel = switch (widget.args) {
+      BookingSuccessArgs(isReschedule: true) => l10n.bookingSuccessHomeCta,
       BookingSuccessArgs(isWalkIn: true) => l10n.masterCreateBookingDoneCta,
       _ => l10n.bookingSuccessHomeCta,
     };
@@ -162,8 +179,19 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           // calendar (the wizard's retired done CTA did the same), rather
           // than `roleHomePath`'s generic landing surface. The lines below
           // are untouched.
+          //
+          // «Додати в календар» removal (2026-08-21) — `!widget.args
+          // .isReschedule` guards this early return too, for the same reason
+          // as [doneLabel] above: a walk-in RESCHEDULE now sets `isWalkIn:
+          // true` alongside `isReschedule: true`, and that combination must
+          // keep landing on `roleHomePath` like every other reschedule, not
+          // divert to «Мої записи». Every PRE-EXISTING call site had
+          // `isReschedule` and `isWalkIn` mutually exclusive, so
+          // `!isReschedule && isWalkIn` is byte-identical to the old bare
+          // `isWalkIn` check for all of them — only the new co-occurring case
+          // changes, and only in the intended direction.
           onPressed: () {
-            if (widget.args.isWalkIn) {
+            if (!widget.args.isReschedule && widget.args.isWalkIn) {
               context.go(RouteNames.masterBookings);
               return;
             }

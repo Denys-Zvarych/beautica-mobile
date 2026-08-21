@@ -428,6 +428,103 @@ void main() {
   });
 
   // ══════════════════════════════════════════════════════════════════════
+  // mobile-debugger fix (this track) — `invalidateBookingsDayAfterAppointmentItemReschedule`
+  // was missing the `bookedDaysProvider` drop its three siblings
+  // (`invalidateBookingViewsAfterExternalDecline`,
+  // `invalidateBookingViewsAfterProviderClose`,
+  // `invalidateBookingViewsAfterBookingCreated`) all carry.
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // User-reported symptom this closes: "in the date rail there is no dot
+  // under the date number in case the day has only 1 booking and it's a
+  // manual booking" — every walk-in reschedule takes this helper's ONLY call
+  // site (`booking_confirm_screen.dart`'s `rescheduleAppointmentId != null`
+  // branch), and without this invalidation the day-rail/month-panel dot set
+  // (a filter-independent `keepAlive()` singleton with a 30-minute TTL) kept
+  // serving its stale pre-reschedule membership.
+  //
+  // Same technique as the `invalidateBookingViewsAfterProviderClose` group
+  // above: refetch COUNT via a counting override, never a value assertion
+  // (`ref.invalidate` reloads seamlessly and retains the previous `.value`,
+  // Riverpod 3.x), with a LIVE subscription held so Riverpod actually
+  // refetches instead of just dropping the unwatched provider.
+  //
+  // MUTATION: deleted `ref.invalidate(bookedDaysProvider);` from
+  // `invalidateBookingsDayAfterAppointmentItemReschedule`
+  // (`booking_calendar_invalidation.dart:503`) → this test failed (1 fetch,
+  // not 2, matching the debugger's throwaway probe exactly). Restored.
+  group('invalidateBookingsDayAfterAppointmentItemReschedule drops '
+      'bookedDaysProvider', () {
+    testWidgets('a per-item VISIT reschedule refetches the day-rail dot set', (
+      tester,
+    ) async {
+      int bookedDaysFetches = 0;
+
+      await tester.pumpApp(
+        Scaffold(
+          body: Consumer(
+            builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+              key: const Key('reschedule'),
+              // The date is inconsequential: `bookingsDayProvider` has no
+              // listener here, so that half of the fan-out is a documented
+              // no-op (DayKeepAliveLru.contains is false, no eager read
+              // fires) — this test only counts bookedDaysProvider
+              // refetches.
+              onPressed: () =>
+                  invalidateBookingsDayAfterAppointmentItemReschedule(
+                    ref,
+                    // future-date-ok: see comment above
+                    affectedDays: <DateTime>{DateTime.utc(2026, 7, 20)},
+                  ),
+              child: const Text('reschedule'),
+            ),
+          ),
+        ),
+        overrides: <Object>[
+          // Overridden rather than left real: the production provider
+          // parks a 30-minute keepAlive `Timer` that `flutter_test` would
+          // fail on at teardown.
+          bookedDaysProvider.overrideWith((ref) async {
+            bookedDaysFetches++;
+            return <DateTime>{};
+          }),
+        ],
+      );
+
+      // A LIVE subscription — mirrors «Мої записи» sitting warm underneath
+      // the reschedule flow. Without it Riverpod simply drops the
+      // invalidated provider instead of refetching, and the count
+      // assertion goes vacuous.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('reschedule'))),
+        listen: false,
+      );
+      final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+          .listen(bookedDaysProvider, (_, _) {}, fireImmediately: true);
+      addTearDown(sub.close);
+      await container.read(bookedDaysProvider.future);
+      expect(
+        bookedDaysFetches,
+        1,
+        reason: 'sanity: fetched once for the live watcher before any tap',
+      );
+
+      await tester.tap(find.byKey(const Key('reschedule')));
+      await tester.pumpAndSettle();
+
+      await container.read(bookedDaysProvider.future);
+      expect(
+        bookedDaysFetches,
+        2,
+        reason:
+            'a per-item VISIT reschedule must drop the dot-set singleton '
+            '— a day whose ONLY booking just moved on/off it must not keep '
+            'showing its stale dot state',
+      );
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
   // ITEM 6 (this track) — pin the wasPinned GATE's invocation count.
   // ══════════════════════════════════════════════════════════════════════
   //

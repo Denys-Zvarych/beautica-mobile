@@ -96,7 +96,12 @@ const MasterService _bookedService = MasterService(
   category: 'NAILS',
 );
 
-Booking _booking({required BookingStatus status}) {
+/// [clientId] defaults to `null` (unset) — every PRE-EXISTING call site in
+/// this file relies on that, so [Booking.isGuestBooking] (`booking_display_x
+/// .dart`) is `true` by default here, same as before this parameter existed.
+/// Callers that need a REAL client's booking (the calendar-button regression
+/// guard below) pass a non-null [clientId] explicitly.
+Booking _booking({required BookingStatus status, String? clientId}) {
   final DateTime start = DateTime.utc(2026, 7, 20, 15);
   return Booking(
     id: _bookingId,
@@ -112,6 +117,7 @@ Booking _booking({required BookingStatus status}) {
     endAt: start.add(const Duration(minutes: 90)),
     status: status,
     canReview: false,
+    clientId: clientId,
   );
 }
 
@@ -176,6 +182,75 @@ Future<_NavProbe> _drive(
 
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byKey(const Key('go'))));
+
+/// Drives [startBookingReschedule] and captures the [BookingSlotPickerArgs]
+/// the slot picker was pushed with — unlike [_drive] above, which only
+/// observes whether navigation happened. [detail] overrides the
+/// booking-detail load so callers can vary the fetched [Booking] shape (e.g.
+/// `clientId` set vs. unset) without duplicating this driver. Hoisted to file
+/// scope (REUSE-FIRST) — originally a local function inside the
+/// `hideMasterIdentity` group; the `rescheduleTargetIsWalkIn` group below
+/// needs the identical driver rather than a hand-copied sibling.
+Future<BookingSlotPickerArgs?> _driveCaptured(
+  WidgetTester tester, {
+  required Future<Booking> Function() detail,
+  required List<Object> overrides,
+}) async {
+  BookingSlotPickerArgs? captured;
+  final GoRouter router = GoRouter(
+    initialLocation: '/start',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/start',
+        builder: (BuildContext context, _) => Scaffold(
+          body: Consumer(
+            builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+              key: const Key('go'),
+              onPressed: () => startBookingReschedule(
+                context: context,
+                ref: ref,
+                bookingId: _bookingId,
+              ),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: RouteNames.bookingSlots,
+        builder: (BuildContext context, GoRouterState state) {
+          captured = state.extra as BookingSlotPickerArgs?;
+          return const Scaffold(key: Key('slots_stub'));
+        },
+      ),
+    ],
+  );
+
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      bookingDetailProvider(_bookingId).overrideWith((ref) => detail()),
+      publicMasterProfileProvider(_masterId).overrideWith(
+        (ref) async => (_master, const <MasterService>[_bookedService]),
+      ),
+      ...overrides,
+    ],
+  );
+  await tester.pumpAndSettle();
+
+  // Warm `authProvider` BEFORE tapping — see the original call site's own
+  // comment (still true here: nothing in this bare `/start` fixture watches
+  // it otherwise, so the very first read would land mid-flight inside the
+  // tap handler).
+  final ProviderContainer container = ProviderScope.containerOf(
+    tester.element(find.byKey(const Key('go'))),
+  );
+  await container.read(authProvider.future);
+
+  await tester.tap(find.byKey(const Key('go')));
+  await tester.pumpAndSettle();
+  return captured;
+}
 
 void main() {
   testWidgets(
@@ -259,81 +334,13 @@ void main() {
   // master card exactly as before.
   // ---------------------------------------------------------------------
   group('hideMasterIdentity seeded by viewer role (FIX 3)', () {
-    /// Drives [startBookingReschedule] and captures the
-    /// [BookingSlotPickerArgs] the slot picker was pushed with — unlike
-    /// [_drive] above, which only observes whether navigation happened.
-    Future<BookingSlotPickerArgs?> driveCaptured(
-      WidgetTester tester, {
-      required List<Object> overrides,
-    }) async {
-      BookingSlotPickerArgs? captured;
-      final GoRouter router = GoRouter(
-        initialLocation: '/start',
-        routes: <RouteBase>[
-          GoRoute(
-            path: '/start',
-            builder: (BuildContext context, _) => Scaffold(
-              body: Consumer(
-                builder: (BuildContext context, WidgetRef ref, _) => TextButton(
-                  key: const Key('go'),
-                  onPressed: () => startBookingReschedule(
-                    context: context,
-                    ref: ref,
-                    bookingId: _bookingId,
-                  ),
-                  child: const Text('go'),
-                ),
-              ),
-            ),
-          ),
-          GoRoute(
-            path: RouteNames.bookingSlots,
-            builder: (BuildContext context, GoRouterState state) {
-              captured = state.extra as BookingSlotPickerArgs?;
-              return const Scaffold(key: Key('slots_stub'));
-            },
-          ),
-        ],
-      );
-
-      await tester.pumpRoutedApp(
-        router,
-        overrides: <Object>[
-          bookingDetailProvider(_bookingId).overrideWith(
-            (ref) async => _booking(status: BookingStatus.confirmed),
-          ),
-          publicMasterProfileProvider(_masterId).overrideWith(
-            (ref) async => (_master, const <MasterService>[_bookedService]),
-          ),
-          ...overrides,
-        ],
-      );
-      await tester.pumpAndSettle();
-
-      // Warm `authProvider` BEFORE tapping — nothing in this bare `/start`
-      // fixture (unlike the real app's router guards / shell screens, which
-      // watch the session from the moment it boots) watches it otherwise, so
-      // the very first read would land mid-flight inside the tap handler
-      // itself. In the real app the session is already resolved long before
-      // a user can reach «Перенести» (they had to be logged in to get here),
-      // so this warm-up reproduces that realistic precondition rather than
-      // masking a genuine race.
-      final ProviderContainer container = ProviderScope.containerOf(
-        tester.element(find.byKey(const Key('go'))),
-      );
-      await container.read(authProvider.future);
-
-      await tester.tap(find.byKey(const Key('go')));
-      await tester.pumpAndSettle();
-      return captured;
-    }
-
     testWidgets(
       'a PROVIDER-initiated reschedule seeds hideMasterIdentity: true — a '
       'master must not see their own identity card echoed back',
       (tester) async {
-        final BookingSlotPickerArgs? captured = await driveCaptured(
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
           tester,
+          detail: () async => _booking(status: BookingStatus.confirmed),
           overrides: <Object>[
             authProvider.overrideWith(
               () => _StubAuth(
@@ -355,8 +362,9 @@ void main() {
       'a CLIENT-initiated reschedule keeps hideMasterIdentity: false — the '
       'LOCKED client path must still SHOW the master card and address',
       (tester) async {
-        final BookingSlotPickerArgs? captured = await driveCaptured(
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
           tester,
+          detail: () async => _booking(status: BookingStatus.confirmed),
           overrides: <Object>[
             authProvider.overrideWith(
               () => _StubAuth(
@@ -386,8 +394,9 @@ void main() {
       '— session-not-yet-resolved and never-logged-in both degrade the same '
       'way as any other non-provider session',
       (tester) async {
-        final BookingSlotPickerArgs? captured = await driveCaptured(
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
           tester,
+          detail: () async => _booking(status: BookingStatus.confirmed),
           overrides: <Object>[
             authProvider.overrideWith(
               () => _StubAuth(const AuthSession.unauthenticated()),
@@ -397,6 +406,94 @@ void main() {
 
         expect(captured, isNotNull);
         expect(captured!.hideMasterIdentity, isFalse);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // «Додати в календар» removal (2026-08-21) — [rescheduleTargetIsWalkIn]
+  // must mirror `booking.isGuestBooking` (`clientId == null`) off the SAME
+  // fresh fetch this helper already uses for `rescheduleAppointmentId` /
+  // `hideMasterIdentity`. The regression guard that matters MORE than the
+  // new assertion: a booking WITH a registered client (`clientId` set) —
+  // whether the reschedule viewer is the CLIENT themselves or a PROVIDER
+  // moving that client's booking — must keep `rescheduleTargetIsWalkIn:
+  // false`, so `BookingSuccessScreen`'s calendar button stays visible.
+  // ---------------------------------------------------------------------
+  group('rescheduleTargetIsWalkIn seeded by booking.isGuestBooking', () {
+    testWidgets(
+      'a WALK-IN booking (no clientId) seeds rescheduleTargetIsWalkIn: true',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
+          tester,
+          detail: () async =>
+              _booking(status: BookingStatus.confirmed, clientId: null),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kProviderUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.rescheduleTargetIsWalkIn, isTrue);
+      },
+    );
+
+    testWidgets(
+      'REGRESSION GUARD — a CLIENT rescheduling their OWN booking (clientId '
+      'set) keeps rescheduleTargetIsWalkIn: false — the calendar button must '
+      'stay visible on the locked client path',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
+          tester,
+          detail: () async =>
+              _booking(status: BookingStatus.confirmed, clientId: 'c1'),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kClientUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.rescheduleTargetIsWalkIn, isFalse);
+      },
+    );
+
+    testWidgets(
+      'a PROVIDER rescheduling a REAL CLIENT\'s booking (clientId set) also '
+      'keeps rescheduleTargetIsWalkIn: false — only a true walk-in target '
+      'hides the calendar button',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
+          tester,
+          detail: () async =>
+              _booking(status: BookingStatus.confirmed, clientId: 'c1'),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kProviderUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.rescheduleTargetIsWalkIn, isFalse);
       },
     );
   });

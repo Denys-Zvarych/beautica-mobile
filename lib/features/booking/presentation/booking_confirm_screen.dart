@@ -407,7 +407,18 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           services: services,
           startAt: widget.args.startAt,
           isReschedule: rescheduleId != null,
-          isWalkIn: guest != null,
+          // «Додати в календар» removal (2026-08-21) — `guest != null` is the
+          // CREATE-path walk-in signal; `widget.args.rescheduleTargetIsWalkIn`
+          // is the RESCHEDULE-path counterpart (seeded in
+          // `reschedule_navigation.dart` from `Booking.isGuestBooking`, the
+          // SAME "no registered client" fact). The two are mutually exclusive
+          // by construction (`guest` is always `null` on a reschedule seed —
+          // no guest step exists there), so this OR never double-counts; it
+          // just recovers the fact on whichever path actually has it. A CLIENT
+          // reschedule or a PROVIDER reschedule of a real client's booking
+          // both keep `rescheduleTargetIsWalkIn == false`, so `isWalkIn` stays
+          // `false` there exactly as before.
+          isWalkIn: guest != null || widget.args.rescheduleTargetIsWalkIn,
           // FIX 1 (audit-fix cycle 2) — mirrors `guest` already threaded onto
           // `BookingConfirmArgs`, so the terminal done screen can restore the
           // retired wizard's guest-identity card. `null` on the reschedule/

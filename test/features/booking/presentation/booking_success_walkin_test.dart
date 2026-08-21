@@ -260,6 +260,74 @@ void main() {
       },
     );
 
+    // «Додати в календар» removal on WALK-IN RESCHEDULE (2026-08-21) —
+    // `reschedule_navigation.dart` now seeds `rescheduleTargetIsWalkIn` from
+    // `Booking.isGuestBooking`, and `BookingConfirmScreen._submit` folds it
+    // into this screen's existing `isWalkIn` gate. A walk-in reschedule seed
+    // therefore reaches THIS screen with BOTH `isReschedule: true` AND
+    // `isWalkIn: true` — this is the shape that flag combination now takes.
+    testWidgets('should_hideCalendarButton_when_walkInReschedule — a master '
+        'rescheduling an existing WALK-IN booking hides the calendar button '
+        'too, via the SAME isWalkIn gate as walk-in CREATE', (tester) async {
+      await _pump(tester, _args(isReschedule: true, isWalkIn: true));
+
+      expect(find.byType(CalendarButton), findsNothing);
+      expect(
+        find.byKey(const Key('booking-success-add-calendar')),
+        findsNothing,
+      );
+    });
+
+    // THE REGRESSION GUARD FOR THE LOCKED CLIENT PATH — matters more than
+    // the new assertion above. A CLIENT rescheduling their own booking (or a
+    // provider rescheduling a real client's booking) reaches this screen with
+    // `isReschedule: true, isWalkIn: false` — `rescheduleTargetIsWalkIn` only
+    // ever becomes `true` for a booking with no registered client
+    // (`booking.isGuestBooking`), so a real client's reschedule is COMPLETELY
+    // UNAFFECTED by this fix.
+    testWidgets(
+      'REGRESSION GUARD — should_keepCalendarButton_when_clientReschedule — '
+      'a CLIENT (or provider-on-behalf-of-a-client) reschedule STILL SHOWS '
+      'the calendar button; only the walk-in-target case above is hidden',
+      (tester) async {
+        await _pump(tester, _args(isReschedule: true));
+
+        expect(find.byType(CalendarButton), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-success-add-calendar')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // The doneLabel/onPressed switches were widened alongside `isWalkIn`
+    // (see `booking_success_screen.dart`'s "«Додати в календар» removal"
+    // comments) so this new co-occurring flag combination does not ALSO
+    // change the CTA label or destination — only the calendar button changes.
+    testWidgets(
+      'should_keepRescheduleCtaAndDestination_when_walkInReschedule — the '
+      'CTA label and «На головну» destination are UNCHANGED for a walk-in '
+      'reschedule; only the calendar button is affected',
+      (tester) async {
+        await _pump(tester, _args(isReschedule: true, isWalkIn: true));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingSuccessScreen)),
+        );
+        expect(find.text(l10n.bookingSuccessHomeCta), findsOneWidget);
+        expect(find.text(l10n.masterCreateBookingDoneCta), findsNothing);
+
+        await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+        await tester.pumpAndSettle();
+
+        // No session resolved in this bare fixture → falls to the
+        // `roleHomePath`/`clientHome` branch, NOT `RouteNames.masterBookings`
+        // — same as the ordinary (non-walk-in) reschedule destination.
+        expect(find.byType(_ClientHomeStub), findsOneWidget);
+        expect(find.byType(_MasterBookingsStub), findsNothing);
+      },
+    );
+
     testWidgets('should_offerNoReviewCta_when_isWalkInTrue — no leave-review / '
         'rate-client entry point on ANY variant', (tester) async {
       for (final BookingSuccessArgs args in <BookingSuccessArgs>[

@@ -56,6 +56,19 @@
 // [BookingConfirmArgs.rescheduleAppointmentId]) to swap the endpoint to
 // `AppointmentSubmit.rescheduleAppointmentItem` instead of the per-booking
 // [AppointmentSubmit.reschedule].
+//
+// WALK-IN TARGET («Додати в календар» removal, 2026-08-21): the same fresh
+// [Booking] fetch is also the source of
+// [BookingSlotPickerArgs.rescheduleTargetIsWalkIn] — `booking.isGuestBooking`
+// (`clientId == null`, `booking_display_x.dart`), the existing signal that
+// already marks a booking as a walk-in elsewhere (non-reviewable). Threaded
+// through to `BookingConfirmArgs` and folded into `BookingSuccessArgs
+// .isWalkIn` by `BookingConfirmScreen._submit`, so a master rescheduling a
+// WALK-IN booking hides the terminal screen's calendar button the same way a
+// walk-in CREATE does — reusing the SAME `isWalkIn` gate, no parallel flag.
+// Mirrors [rescheduleAppointmentId]'s own reasoning: derived from the ONE
+// fresh read, never a caller-supplied value, so it can never disagree with
+// the booking's actual shape.
 
 import 'dart:async';
 
@@ -74,6 +87,7 @@ import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
 import '../domain/booking.dart';
+import '../domain/booking_display_x.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/booking_status.dart';
 
@@ -173,6 +187,17 @@ Future<void> startBookingReschedule({
     final bool hideMasterIdentity = ref
         .read(bookingViewerRoleProvider)
         .isProvider;
+    // «Додати в календар» removal (2026-08-21) — a master rescheduling a
+    // WALK-IN booking must still hide the terminal screen's calendar button,
+    // same as walk-in CREATE. Read off the SAME fresh [booking] fetch above
+    // (never re-derived elsewhere) so it can never disagree with
+    // [rescheduleAppointmentId]'s own reasoning just above it. `isGuestBooking`
+    // (`clientId == null`) is the existing signal that already gates
+    // walk-ins as non-reviewable — reused here rather than inventing a new
+    // one. A CLIENT rescheduling their own booking, or a PROVIDER
+    // rescheduling a real client's booking, both keep `clientId` set, so
+    // this stays `false` and those paths are byte-for-byte unaffected.
+    final bool rescheduleTargetIsWalkIn = booking.isGuestBooking;
     unawaited(
       context.push(
         RouteNames.bookingSlots,
@@ -183,6 +208,7 @@ Future<void> startBookingReschedule({
           rescheduleBookingId: booking.id,
           rescheduleAppointmentId: booking.appointmentId,
           hideMasterIdentity: hideMasterIdentity,
+          rescheduleTargetIsWalkIn: rescheduleTargetIsWalkIn,
         ),
       ),
     );

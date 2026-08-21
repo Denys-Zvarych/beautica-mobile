@@ -84,5 +84,26 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// phase-258 D4. Defaults to `false` so every existing call site renders
     /// unchanged.
     @Default(false) bool hideMasterIdentity,
+
+    /// `true` when this flow was entered from the RESCHEDULE surface AND the
+    /// booking being moved is itself a WALK-IN — the existing booking carries
+    /// no registered client (`Booking.isGuestBooking`, `booking_display_x
+    /// .dart`). [reschedule_navigation.dart]'s `startBookingReschedule` reads
+    /// this off the SAME fresh `Booking` fetch it already uses for
+    /// [rescheduleAppointmentId] and `hideMasterIdentity`, so it can never
+    /// disagree with the booking's actual shape.
+    ///
+    /// This is NOT the same signal as [guest]: [guest] carries the identity
+    /// a WALK-IN CREATE flow is about to submit, and is always `null` on
+    /// reschedule (no guest step exists there). This field exists only to
+    /// recover, on the reschedule path, the same "no registered client" fact
+    /// [guest] carries on the create path — both are folded together by
+    /// `BookingConfirmScreen._submit` into one `BookingSuccessArgs.isWalkIn`,
+    /// so the terminal screen's existing `isWalkIn` gate (including its
+    /// «Додати в календар» suppression) applies uniformly regardless of WHY
+    /// the visit has no client. Defaults to `false` so every existing call
+    /// site (create, and every reschedule of a real client's booking) is
+    /// unaffected.
+    @Default(false) bool rescheduleTargetIsWalkIn,
   }) = _BookingSlotPickerArgs;
 }

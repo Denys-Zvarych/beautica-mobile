@@ -427,13 +427,34 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref) {
 /// exercises the EXACT production invalidation, not a hand-copied
 /// approximation of it that could quietly drift from the real thing.
 ///
-/// BOTH day-list family members per affected date — see
-/// [invalidateBookingViewsAfterExternalDecline]'s doc for why `.dayList`
-/// (what `BookingsDiscoveryView` actually watches) and `.of` (what the SAME
-/// screen resolves to once every filter is ticked) are both required, not
-/// belt-and-braces. Invalidating a family member with no live listener, and
-/// that was never built this session, is a documented no-op — safe to call
-/// unconditionally even for a CLIENT viewer who has no day-calendar screen.
+///   • [bookingsDayProvider] — BOTH day-list family members per affected
+///     date — see [invalidateBookingViewsAfterExternalDecline]'s doc for why
+///     `.dayList` (what `BookingsDiscoveryView` actually watches) and `.of`
+///     (what the SAME screen resolves to once every filter is ticked) are
+///     both required, not belt-and-braces. Invalidating a family member with
+///     no live listener, and that was never built this session, is a
+///     documented no-op — safe to call unconditionally even for a CLIENT
+///     viewer who has no day-calendar screen.
+///   • [bookedDaysProvider] — the day-rail's and month panel's dot set
+///     (mobile-debugger fix, this track, matching
+///     [invalidateBookingViewsAfterBookingCreated]'s own 2026-08-20 fix,
+///     which this helper had missed). A per-item VISIT reschedule moves a
+///     booking's `startAt` onto the NEW day in [affectedDays] and, for the
+///     OLD day it moved off of, changes that day's booking membership too —
+///     exactly the "a booking's EXISTENCE at a date changed" trigger
+///     `booked_days_notifier.dart`'s own header names as requiring an
+///     explicit invalidation. It is a filter-independent `keepAlive()`
+///     SINGLETON with a thirty-minute TTL, not a member of the
+///     [bookingsDayProvider] family invalidated above, so without this call
+///     a day whose ONLY booking just moved onto (or off of) it kept showing
+///     its stale dot state — undotted, or wrongly still dotted — for up to
+///     half an hour: this is the "day rail shows no dot when the day has
+///     only 1 booking and it's a manual [walk-in] booking" bug. No
+///     `wasPinned` gating needed for this one call (unlike the family
+///     members above): it is a singleton, not a keyed family member with
+///     pinned-but-unwatched elements, so it is not subject to FIX A's
+///     disposal race below — a bare `ref.invalidate` is correct here, exactly
+///     as in this file's other three helpers.
 ///
 /// ## FIX A (mobile-debugger, this session) — the crash this fixes
 ///
@@ -500,4 +521,5 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
       }
     }
   }
+  ref.invalidate(bookedDaysProvider);
 }
