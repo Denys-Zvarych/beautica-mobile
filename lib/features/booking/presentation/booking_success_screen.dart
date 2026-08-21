@@ -24,6 +24,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -42,6 +44,7 @@ import 'widgets/booking_recap.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
+import 'widgets/labelled_row.dart';
 
 /// Booking flow — the post-submit celebration screen (one confirmed visit).
 class BookingSuccessScreen extends ConsumerStatefulWidget {
@@ -112,26 +115,60 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         ? master.locationNote!.trim()
         : null;
 
-    final bool isReschedule = widget.args.isReschedule;
+    // Phase 263 D1 — three-way copy switch. Precedence is reschedule > walk-in
+    // > client create, matched in that ORDER: `isReschedule` and `isWalkIn`
+    // are mutually exclusive by construction (`BookingConfirmScreen._submit`
+    // sets `isReschedule: rescheduleId != null` and `isWalkIn: guest != null`,
+    // and `BookingConfirmScreen._submit`'s reschedule `if` is checked BEFORE
+    // its walk-in `else if`, so a seed can never reach that branch with both
+    // set — see phase-262's recorded deviation for why this is a structural
+    // guarantee rather than a runtime assert), but
+    // ordering makes that structural rather than assumed.
+    final (String title, String subline) = switch (widget.args) {
+      BookingSuccessArgs(isReschedule: true) => (
+        l10n.bookingRescheduleSuccessTitle,
+        l10n.bookingRescheduleSuccessSubline,
+      ),
+      BookingSuccessArgs(isWalkIn: true) => (
+        l10n.bookingSuccessTitle,
+        l10n.masterCreateBookingDoneSubline,
+      ),
+      _ => (l10n.bookingSuccessTitle, l10n.bookingSuccessSubline),
+    };
+
+    // Phase 263 D4 — same three-way precedence, walk-in arm last after the
+    // reschedule arm. Reschedule and client-create both keep the existing
+    // «На головну» label — only the walk-in arm differs. Reuses the shipped
+    // `masterCreateBookingDoneCta` («Готово») — no new ARB key.
+    final String doneLabel = switch (widget.args) {
+      BookingSuccessArgs(isWalkIn: true) => l10n.masterCreateBookingDoneCta,
+      _ => l10n.bookingSuccessHomeCta,
+    };
 
     return BookingSuccessScaffold(
-      title: isReschedule
-          ? l10n.bookingRescheduleSuccessTitle
-          : l10n.bookingSuccessTitle,
-      subline: isReschedule
-          ? l10n.bookingRescheduleSuccessSubline
-          : l10n.bookingSuccessSubline,
+      title: title,
+      subline: subline,
       actions: <Widget>[
         SuccessSecondaryButton(
           buttonKey: const Key('booking-success-home-cta'),
-          label: l10n.bookingSuccessHomeCta,
+          label: doneLabel,
           icon: Icons.home_outlined,
           // Phase 27.2 follow-up — this screen is now also reached by an
           // INDEPENDENT_MASTER that just RESCHEDULED its own booking, so a
           // hard-coded `clientHome` would strand a provider in the CLIENT
           // shell. Resolve the landing from the session through the shared
           // `roleHomePath` dispatch, same shape as `done_screen.dart`.
+          //
+          // Phase 263 D3 — an early return ABOVE the existing block, for the
+          // walk-in path only: returns the master to their own «Мої записи»
+          // calendar (the wizard's retired done CTA did the same), rather
+          // than `roleHomePath`'s generic landing surface. The lines below
+          // are untouched.
           onPressed: () {
+            if (widget.args.isWalkIn) {
+              context.go(RouteNames.masterBookings);
+              return;
+            }
             final session = ref.read(authProvider).value;
             context.go(
               session is Authenticated
@@ -142,6 +179,39 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         ),
       ],
       recapCards: <Widget>[
+        // FIX 1 (audit-fix cycle 2, 2026-08-21) — WHO: the walk-in guest
+        // identity card, restored from the retired wizard's `_DoneStep`
+        // (`git show HEAD:.../master_create_booking_screen.dart`), which this
+        // screen's port dropped. REUSE-FIRST: the SAME `LabelledRow` +
+        // `masterCreateBookingGuestLabel` the wizard used — no new widget, no
+        // new ARB key. Gated on `isWalkIn && guest != null` (not `isWalkIn`
+        // alone) so a walk-in seed that somehow omits the guest degrades to
+        // "no card" rather than a null-check crash, and so the CLIENT path
+        // (`guest` always `null`) is unaffected either way. SEC: the guest's
+        // name+phone here was raised as a security MEDIUM and DISMISSED BY
+        // USER DECISION 2026-08-20 (`docs/mobile-phases/mobile-backlog.md`) —
+        // this screen already acquires `ScreenProtectionManager` above.
+        if (widget.args.isWalkIn && widget.args.guest != null)
+          NeumorphicCard(
+            key: const Key('booking-success-guest-card'),
+            showBorder: true,
+            padding: const EdgeInsets.all(VelvetSpacing.md),
+            child: LabelledRow(
+              label: l10n.masterCreateBookingGuestLabel,
+              value:
+                  '${widget.args.guest!.name} '
+                          '${widget.args.guest!.surname}'
+                      .trim(),
+              detail: widget.args.guest!.phone.isEmpty
+                  ? null
+                  : widget.args.guest!.phone,
+              // THIRD-PARTY FREE TEXT — same bound as the wizard's own two
+              // copies of this card (`booking_wizard_steps.dart`,
+              // mobile-security LOW audit-fix cycle 1, 2026-08-20).
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         // ONE visit recap: the shared address, the single window, the ordered
         // service list + «Разом» total, with the whole-visit calendar export as
         // the card's trailing action. No master card — the celebration badge +

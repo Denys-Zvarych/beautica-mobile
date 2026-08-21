@@ -25,6 +25,34 @@
 //
 // Pure function: no Flutter, no Riverpod, no side effects — trivially testable,
 // mirroring `role_home.dart`.
+//
+// Phase 259 — a SECOND provider-minted seed, the master's own WALK-IN
+// («Новий запис») entry point, needs the exact same admission onto the four
+// CLIENT booking routes, for the exact same reason: reuse the one slot
+// picker rather than forking a provider-only copy of it. [isBookingWalkInSeed]
+// is added as a SIBLING predicate — [isBookingRescheduleSeed] above keeps its
+// exact name, signature and behaviour unchanged — and [isBookingProviderSeed]
+// is the single OR of the two that the four route guards now consult.
+//
+// SEC (restated, not superseded): `state.extra` remains in-app-only and
+// unreachable from a deep link — `extra == null` is `false` in both new
+// predicates and falls straight through to the unchanged `clientOnlyGuard`
+// bounce. Audit-fix cycle 2 (FIX 3, 2026-08-21) — CORRECTED CITATION:
+// `unauthenticated_deeplink_redirect_test.dart` contains no reference to any
+// `/booking/*` route and does not pin this. The actual coverage is
+// `test/routing/booking_walkin_seed_test.dart`'s null-/wrong-typed-`extra`
+// unit tests on `isBookingWalkInSeed` / `isBookingProviderSeed` (the "is
+// false for a null extra (the deep-link case)" cases) plus
+// `test/routing/booking_route_guard_test.dart`'s "malformed extra guard"
+// group. Server authorization is unchanged and authoritative: `POST
+// /bookings/staff` is
+// role-gated on the backend (track 22.4,
+// `phase-171-22.4-staff-booking-endpoint-and-authz`). The only new exposure
+// is that a CLIENT-role session carrying a (never constructible in practice)
+// guest-seeded `BookingSlotPickerArgs` would also skip the bounce — but
+// `clientOnlyGuard` only ever bounced NON-clients, so this changes nothing
+// for a client. Net role surface added: provider roles only. Flagged for
+// `mobile-security` review — see phase-259.
 
 import '../features/booking/domain/booking_confirm_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
@@ -45,3 +73,17 @@ bool isBookingRescheduleSeed(Object? extra) => switch (extra) {
   BookingSuccessArgs(:final isReschedule) => isReschedule,
   _ => false,
 };
+
+/// Whether [extra] is a booking-flow seed minted by the master's own WALK-IN
+/// («Новий запис») entry point.
+bool isBookingWalkInSeed(Object? extra) => switch (extra) {
+  BookingSlotPickerArgs(:final guest) => guest != null,
+  BookingConfirmArgs(:final guest) => guest != null,
+  BookingSuccessArgs(:final isWalkIn) => isWalkIn,
+  _ => false,
+};
+
+/// Whether [extra] is any PROVIDER-minted booking-flow seed — reschedule or
+/// walk-in. The single predicate the four CLIENT booking routes consult.
+bool isBookingProviderSeed(Object? extra) =>
+    isBookingRescheduleSeed(extra) || isBookingWalkInSeed(extra);

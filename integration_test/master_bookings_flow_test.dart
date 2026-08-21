@@ -72,7 +72,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/master_create_booking_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
@@ -1986,16 +1986,17 @@ void main() {
   //
   // Used to show a "coming soon" VelvetSnack (`_showAddComingSoon`) — Phase
   // 248 replaced that placeholder with a real
-  // `context.push(RouteNames.masterBookingNew)` into the Phase 247 walk-in
-  // wizard. This test now pins reachability only (a real `MaterialApp`-hosted
+  // `context.push(RouteNames.masterBookingNew)`. Phase 264 swapped that
+  // route's builder onto the routed walk-in chain's first screen
+  // ([WalkInGuestStepScreen]), replacing the retired single-screen wizard.
+  // This test now pins reachability only (a real `MaterialApp`-hosted
   // `GoRouter`, behind a real login, behind the real `master-bookings-add`
   // key — none of which the widget tier can prove). The FULL round trip
-  // (fill client → pick service → pick date/slot → confirm → done → pop →
-  // the new booking visible in the refetched list, including the
-  // paused-consumer Riverpod invalidation trap) is covered end to end by
-  // `master_create_booking_test.dart`, registered as its own standalone
-  // integration file rather than folded in here.
-  testWidgets('the «+» add-booking affordance opens the walk-in wizard', (
+  // (fill guest → pick service(s) → pick date/slot → confirm → success →
+  // «Готово» → the new booking visible in the refetched list) is covered end
+  // to end by `master_create_booking_test.dart`, registered as its own
+  // standalone integration file rather than folded in here.
+  testWidgets('the «+» add-booking affordance opens the walk-in chain', (
     tester,
   ) async {
     final fb = FakeBackend()..currentRole = UserRole.independentMaster;
@@ -2014,7 +2015,7 @@ void main() {
     // in this suite uses (a pushed leaf collapses to its PARENT `fullPath`
     // under this repo's go_router setup).
     AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
-    expect(find.byType(MasterCreateBookingScreen), findsOneWidget);
+    expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
     expect(find.byType(VelvetSnack), findsNothing);
   });
 

@@ -44,6 +44,8 @@
 // restoring the original order turns them back GREEN. A pin that would not
 // fail on that reorder would be worthless — this one does.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -63,7 +65,8 @@ import 'package:beautica_mobile/features/booking/domain/create_booking_request.d
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/master_create_booking_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -252,8 +255,9 @@ void main() {
     }
 
     testWidgets(
-      '/master/bookings/new resolves MasterCreateBookingScreen, never '
-      'BookingDetailScreen',
+      'should_resolveWalkInGuestStepScreen_when_masterBookingNewPushed — '
+      '/master/bookings/new resolves WalkInGuestStepScreen (Phase 264 D4), '
+      'never BookingDetailScreen',
       (tester) async {
         final container = makeContainer();
         final router = container.read(appRouterProvider);
@@ -271,18 +275,104 @@ void main() {
         await tester.pump();
 
         expect(
-          find.byType(MasterCreateBookingScreen),
+          find.byType(WalkInGuestStepScreen),
           findsOneWidget,
           reason:
               'If :bookingId (declared AFTER new/archive) ever moves ahead '
               'of them, go_router absorbs "new" as bookingId and the '
-              'wizard becomes unreachable — this must catch that.',
+              'walk-in chain becomes unreachable — this must catch that.',
         );
         expect(find.byType(BookingDetailScreen), findsNothing);
       },
     );
 
-    testWidgets('/master/bookings/archive resolves MasterArchiveScreen, never '
+    testWidgets(
+      'should_resolveWalkInServiceStepScreen_when_servicesChildPushed — '
+      '/master/bookings/new/services resolves WalkInServiceStepScreen, '
+      'given a well-formed WalkInGuest extra',
+      (tester) async {
+        final container = makeContainer();
+        final router = container.read(appRouterProvider);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _RouterApp(router: router),
+          ),
+        );
+        await tester.pump();
+
+        unawaited(
+          router.push(
+            RouteNames.masterBookingNewServices,
+            extra: const WalkInGuest(
+              name: 'Марина',
+              surname: 'Кравчук',
+              phone: '+380501234567',
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(WalkInServiceStepScreen), findsOneWidget);
+        expect(find.byType(BookingDetailScreen), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'should_bounceToNew_when_servicesChildPushedWithoutGuestExtra — a '
+      'missing/wrong-typed extra on the services child redirects back to '
+      '[RouteNames.masterBookingNew] rather than crashing on a bad cast '
+      '(phase-264 D9)',
+      (tester) async {
+        final container = makeContainer();
+        final router = container.read(appRouterProvider);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _RouterApp(router: router),
+          ),
+        );
+        await tester.pump();
+
+        unawaited(router.push(RouteNames.masterBookingNewServices));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
+        expect(find.byType(WalkInServiceStepScreen), findsNothing);
+      },
+    );
+
+    testWidgets('should_stillResolveBookingDetail_when_uuidPushed — '
+        '/master/bookings/<uuid> still resolves BookingDetailScreen, not '
+        'either walk-in chain screen', (tester) async {
+      final container = makeContainer();
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(
+        RouteNames.masterBookingDetail('11111111-2222-4333-8444-555555555555'),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(find.byType(WalkInGuestStepScreen), findsNothing);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
+    });
+
+    testWidgets('should_stillResolveArchive_when_archivePushed — '
+        '/master/bookings/archive resolves MasterArchiveScreen, never '
         'BookingDetailScreen', (tester) async {
       final container = makeContainer();
       final router = container.read(appRouterProvider);

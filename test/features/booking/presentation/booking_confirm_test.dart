@@ -55,6 +55,7 @@ import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_cta_footer.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
@@ -64,6 +65,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -110,6 +112,18 @@ const _kService2 = MasterService(
   category: 'NAILS',
 );
 
+/// Phase 262 — a third fixture service purely for the multi-service walk-in
+/// submit pin (`should_postAllThreeServiceIds_when_walkInSubmits`).
+const _kService3 = MasterService(
+  id: 'svc-3',
+  serviceDefId: 'def-3',
+  name: 'Брови',
+  durationMinutes: 30,
+  priceMin: 300,
+  priceDisplay: '300 ₴',
+  category: 'BROWS',
+);
+
 // A STABLE idempotency key generated once when the args were built (in
 // production by `SlotTimeScreen._confirm`) — reused verbatim on every retry so
 // an ambiguously-failed visit create de-duplicates rather than duplicates.
@@ -152,13 +166,32 @@ final DateTime _kEndAt = DateTime.utc(2026, 7, 20, 12, 30);
 
 BookingConfirmArgs _confirmArgs({
   List<MasterService> services = const <MasterService>[_kService],
+  WalkInGuest? guest,
+  bool hideMasterIdentity = false,
 }) => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
   services: services,
   startAt: _kStartAt,
   idempotencyKey: _kIdemKey,
+  guest: guest,
+  hideMasterIdentity: hideMasterIdentity,
 );
+
+/// A walk-in-shaped confirm seed — the master's own «Новий запис» entry
+/// point (phase-258/261). `guest` selects the SUBMIT branch (phase-262, not
+/// this phase); `hideMasterIdentity` selects the RENDERING this phase tests
+/// — both are set together by the one call site that mints a walk-in seed.
+const WalkInGuest _kGuest = WalkInGuest(
+  name: 'Іван',
+  surname: 'Петренко',
+  phone: '+380501234567',
+);
+
+BookingConfirmArgs _walkInConfirmArgs({
+  List<MasterService> services = const <MasterService>[_kService],
+}) =>
+    _confirmArgs(services: services, guest: _kGuest, hideMasterIdentity: true);
 
 Appointment _appointmentFixture() => Appointment(
   id: 'appt-1',
@@ -212,6 +245,19 @@ BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
   rescheduleBookingId: 'booking-1',
 );
 
+/// [_rescheduleArgs] with a (never-produced-in-practice) `guest` ALSO set —
+/// the CTA label precedence pin (phase-261 D6/case 7): reschedule copy must
+/// win even when a walk-in-shaped `guest` is present.
+BookingConfirmArgs _rescheduleArgsWithGuest() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService],
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
+  rescheduleBookingId: 'booking-1',
+  guest: _kGuest,
+);
+
 /// Same shape again, but for a track 30.x per-item VISIT reschedule — both
 /// `rescheduleBookingId` (the ONE service being moved) AND
 /// `rescheduleAppointmentId` (the visit it belongs to — the routing
@@ -235,6 +281,22 @@ BookingConfirmArgs _appointmentItemRescheduleArgs() => BookingConfirmArgs(
   rescheduleAppointmentId: 'appt-1',
 );
 
+/// [_appointmentItemRescheduleArgs] with a (never-produced-in-practice)
+/// `guest` ALSO set — phase-262 case 1: the per-item reschedule branch must
+/// still win at TAP time, not just at CTA-label render time (mirrors
+/// [_rescheduleArgsWithGuest]'s role for the plain reschedule branch).
+BookingConfirmArgs _appointmentItemRescheduleArgsWithGuest() =>
+    BookingConfirmArgs(
+      masterId: _kMaster.id,
+      master: _kMaster,
+      services: const <MasterService>[_kService],
+      startAt: _kStartAt,
+      idempotencyKey: _kIdemKey,
+      rescheduleBookingId: 'booking-1',
+      rescheduleAppointmentId: 'appt-1',
+      guest: _kGuest,
+    );
+
 /// Records every [createAppointment] call so the "single call, stable key"
 /// criteria can be asserted directly, and either returns [appointmentToReturn]
 /// or throws [errorToThrow] when set.
@@ -253,6 +315,10 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Object? rescheduleItemErrorToThrow;
   final List<CreateAppointmentRequest> requests = <CreateAppointmentRequest>[];
 
+  /// When set, [createAppointment] suspends on this gate before resolving —
+  /// lets a test observe the CTA's in-flight (loading) state.
+  Completer<void>? gate;
+
   /// Records every per-item reschedule call so the "single call, correct
   /// appointment id / booking id / time" criteria can be asserted directly —
   /// mirrors `_RecordingRescheduleRepository.rescheduleCalls` for the
@@ -263,6 +329,8 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
     requests.add(req);
+    final Completer<void>? g = gate;
+    if (g != null) await g.future;
     final Object? err = errorToThrow;
     if (err != null) throw err;
     return appointmentToReturn!;
@@ -316,6 +384,17 @@ class _RecordingRescheduleRepository implements BookingRepository {
   int getBookingByIdCalls = 0;
   int getMyBookingsCalls = 0;
 
+  /// Phase 262 — records every walk-in create call so the branch-order tests
+  /// can assert this stayed at ZERO whenever a reschedule branch should have
+  /// won instead, and can inspect the exact request the walk-in branch built
+  /// when it IS expected to fire.
+  final List<(String, CreateMasterBookingRequest)> createMasterBookingCalls =
+      <(String, CreateMasterBookingRequest)>[];
+
+  /// When set, [createMasterBooking] throws this instead of returning a
+  /// fixture — the 409-duplicate test case (D6).
+  Object? createMasterBookingErrorToThrow;
+
   @override
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
     rescheduleCalls.add((id, newStartAt));
@@ -330,7 +409,12 @@ class _RecordingRescheduleRepository implements BookingRepository {
   Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
-  ) => throw UnimplementedError();
+  ) async {
+    createMasterBookingCalls.add((masterId, request));
+    final Object? err = createMasterBookingErrorToThrow;
+    if (err != null) throw err;
+    return _appointmentFixture();
+  }
 
   @override
   Future<List<DateTime>> getMyBookedDays({
@@ -1432,6 +1516,586 @@ void main() {
             'a successful CREATE must invalidate nextAppointmentProvider — '
             'the Home Hub card must never show a stale booking after this '
             'write',
+      );
+    });
+
+    // ── Phase 261 — the walk-in path hides the master card + address ──────
+    group('hideMasterIdentity (phase-261)', () {
+      testWidgets(
+        'should_renderMasterCardAndAddress_when_hideMasterIdentityIsFalse',
+        (tester) async {
+          final fake = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          );
+          await pump(tester, fake);
+
+          final l10n = AppLocalizations.of(
+            tester.element(find.byType(BookingConfirmScreen)),
+          );
+          expect(find.byType(MasterStrip), findsOneWidget);
+          expect(find.text(l10n.bookingAddressLabel), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'should_hideMasterCardAndAddress_when_hideMasterIdentityIsTrue',
+        (tester) async {
+          final fake = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          );
+          await pump(tester, fake, args: _walkInConfirmArgs());
+
+          final l10n = AppLocalizations.of(
+            tester.element(find.byType(BookingConfirmScreen)),
+          );
+          expect(find.byType(MasterStrip), findsNothing);
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) => w is Hero && w.tag == 'master-strip-${_kMaster.id}',
+            ),
+            findsNothing,
+          );
+          expect(find.text(l10n.bookingAddressLabel), findsNothing);
+          final String? addressLine = formatStreetCityLine(
+            street: _kMaster.street,
+            buildingNo: _kMaster.buildingNo,
+            city: _kMaster.city,
+          );
+          expect(addressLine, isNotNull);
+          expect(find.text(addressLine!), findsNothing);
+        },
+      );
+
+      testWidgets('should_hideCommentField_when_hideMasterIdentityIsTrue', (
+        tester,
+      ) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake, args: _walkInConfirmArgs());
+
+        expect(
+          find.byKey(const Key('booking-confirm-comment-field')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('should_keepCommentField_when_clientCreatePath', (
+        tester,
+      ) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake);
+
+        expect(
+          find.byKey(const Key('booking-confirm-comment-field')),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('should_hideCommentField_when_reschedulePath', (
+        tester,
+      ) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('booking-confirm-comment-field')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('should_renderZapysatyCta_when_guestIsNonNull', (
+        tester,
+      ) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake, args: _walkInConfirmArgs());
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        final BookingCtaFooter footer = tester.widget<BookingCtaFooter>(
+          find.byType(BookingCtaFooter),
+        );
+        expect(footer.label, l10n.masterCreateBookingSubmitCta);
+      });
+
+      testWidgets(
+        'should_renderRescheduleCta_when_bothRescheduleIdAndGuestSet',
+        (tester) async {
+          final fake = _RecordingRescheduleRepository();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => fake),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+            ],
+          );
+          unawaited(
+            router.push(
+              RouteNames.bookingConfirm,
+              extra: _rescheduleArgsWithGuest(),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final l10n = AppLocalizations.of(
+            tester.element(find.byType(BookingConfirmScreen)),
+          );
+          final BookingCtaFooter footer = tester.widget<BookingCtaFooter>(
+            find.byType(BookingCtaFooter),
+          );
+          expect(footer.label, l10n.bookingRescheduleSubmitCta);
+        },
+      );
+
+      testWidgets('should_renderLoadingCta_when_inFlight', (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        )..gate = Completer<void>();
+        await pump(tester, fake, args: _walkInConfirmArgs());
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pump();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        final BookingCtaFooter footer = tester.widget<BookingCtaFooter>(
+          find.byType(BookingCtaFooter),
+        );
+        expect(footer.label, l10n.bookingSubmitCtaLoading);
+
+        fake.gate!.complete();
+        await tester.pumpAndSettle();
+      });
+
+      testWidgets('should_stillFetchMasterProfile_when_hidden', (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake, args: _walkInConfirmArgs());
+
+        // The CTA footer only appears once publicMasterProfileProvider
+        // resolves — its presence here proves the fetch was NOT skipped
+        // despite the card being hidden (phase-261 D4).
+        expect(find.byType(BookingCtaFooter), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-confirm-submit-cta')),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('should_keepMasterCard_when_seedIsReschedule', (
+        tester,
+      ) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(MasterStrip), findsOneWidget);
+      });
+    });
+
+    // Phase 262 — the FOURTH `_submit` branch: the walk-in guest visit.
+    // Branch order is safety-critical (HARD CONSTRAINT 3): per-item visit
+    // reschedule → per-booking reschedule → walk-in guest → client create,
+    // with the walk-in arm an `else if` of the reschedule `if` so it can
+    // NEVER pre-empt either reschedule mode. Cases 1/2 below pin that
+    // precedence directly, including the case where a walk-in-shaped arg
+    // ALSO carries a reschedule id (reschedule must win).
+    //
+    // Phase 262 D5 (user-locked narrowing) — the screen-owned double-submit
+    // guard (`_submitting`) is scoped to ONLY the walk-in branch; the
+    // client-create path is approved/retested and must not change
+    // behaviour. `should_notAddScreenOwnedGuard_when_clientCreatePath`
+    // below pins that the client path still fires TWO calls on a
+    // no-pump double tap — i.e. it is UNCHANGED, not fixed.
+    group('walk-in submit branch (phase-262)', () {
+      Future<GoRouter> pumpConfirm(
+        WidgetTester tester,
+        BookingConfirmArgs args, {
+        required _FakeAppointmentRepository appointments,
+        required _RecordingRescheduleRepository bookings,
+      }) async {
+        final GoRouter router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            appointmentRepositoryProvider.overrideWith((_) => appointments),
+            bookingRepositoryProvider.overrideWith((_) => bookings),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(router.push(RouteNames.bookingConfirm, extra: args));
+        await tester.pumpAndSettle();
+        return router;
+      }
+
+      testWidgets(
+        'should_callPerItemReschedule_when_bothRescheduleIdsAndGuestSet — '
+        'reschedule wins at TAP time even when the seed ALSO carries a '
+        'walk-in guest',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          );
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _appointmentItemRescheduleArgsWithGuest(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(appointments.rescheduleItemCalls, hasLength(1));
+          expect(bookings.createMasterBookingCalls, isEmpty);
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'should_callPlainReschedule_when_rescheduleIdAndGuestSet — plain '
+        'reschedule wins at TAP time even when the seed ALSO carries a '
+        'walk-in guest',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _rescheduleArgsWithGuest(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(bookings.rescheduleCalls, hasLength(1));
+          expect(bookings.createMasterBookingCalls, isEmpty);
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'should_callCreateMasterBooking_when_guestSetAndNoRescheduleId',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _walkInConfirmArgs(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(bookings.createMasterBookingCalls, hasLength(1));
+          expect(bookings.createMasterBookingCalls.single.$1, _kMaster.id);
+          expect(
+            appointments.requests,
+            isEmpty,
+            reason:
+                'the walk-in branch must never touch the CLIENT create '
+                'endpoint',
+          );
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets('should_notCallCreateMasterBooking_when_clientCreatePath', (
+        tester,
+      ) async {
+        final appointments = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        final bookings = _RecordingRescheduleRepository();
+        await pumpConfirm(
+          tester,
+          _confirmArgs(),
+          appointments: appointments,
+          bookings: bookings,
+        );
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(appointments.requests, hasLength(1));
+        expect(bookings.createMasterBookingCalls, isEmpty);
+      });
+
+      testWidgets(
+        'should_postAllThreeServiceIds_when_walkInSubmits — order-preserving, '
+        'never services.first',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _walkInConfirmArgs(
+              services: const <MasterService>[
+                _kService,
+                _kService2,
+                _kService3,
+              ],
+            ),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(bookings.createMasterBookingCalls, hasLength(1));
+          final CreateMasterBookingRequest sent =
+              bookings.createMasterBookingCalls.single.$2;
+          expect(sent.masterServiceIds, <String>[
+            _kService.id,
+            _kService2.id,
+            _kService3.id,
+          ]);
+          expect(sent.guest, _kGuest);
+        },
+      );
+
+      testWidgets(
+        'should_submitOnce_when_ctaDoubleTapped_onWalkInPath — two taps with '
+        'NO pump between them issue exactly ONE createMasterBooking call',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _walkInConfirmArgs(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          final Finder cta = find.byKey(
+            const Key('booking-confirm-submit-cta'),
+          );
+          await tester.tap(cta);
+          await tester.tap(cta);
+          await tester.pumpAndSettle();
+
+          expect(bookings.createMasterBookingCalls, hasLength(1));
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'should_notAddScreenOwnedGuard_when_clientCreatePath — user-locked: '
+        'the client path is UNCHANGED by this phase, so a double tap with '
+        'no pump between still fires TWO createAppointment calls (the same '
+        'pre-existing window phase-262 D5 documents but does not close '
+        'here)',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          );
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _confirmArgs(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          final Finder cta = find.byKey(
+            const Key('booking-confirm-submit-cta'),
+          );
+          await tester.tap(cta);
+          await tester.tap(cta);
+          await tester.pumpAndSettle();
+
+          expect(
+            appointments.requests,
+            hasLength(2),
+            reason:
+                'pins the ABSENCE of a screen-owned guard on the client '
+                'path — the user locked this behaviour as unchanged; if '
+                'this ever drops to 1, a guard leaked onto the client path',
+          );
+        },
+      );
+
+      testWidgets(
+        'should_reEnableCta_when_submitFails — the walk-in guard clears on '
+        'the error path so a retry after a failure is possible',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository()
+            ..createMasterBookingErrorToThrow = const NetworkFailure();
+          await pumpConfirm(
+            tester,
+            _walkInConfirmArgs(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+
+          final Finder cta = find.byKey(
+            const Key('booking-confirm-submit-cta'),
+          );
+          await tester.tap(cta);
+          await tester.pumpAndSettle();
+
+          expect(bookings.createMasterBookingCalls, hasLength(1));
+          expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+          bookings.createMasterBookingErrorToThrow = null;
+          await tester.tap(cta);
+          await tester.pumpAndSettle();
+
+          expect(
+            bookings.createMasterBookingCalls,
+            hasLength(2),
+            reason:
+                'a second tap after the failure must reach the notifier '
+                'again — the guard must have cleared on the error path',
+          );
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets('should_showDuplicateCopy_when_walkInSubmitReturns409', (
+        tester,
+      ) async {
+        final appointments = _FakeAppointmentRepository();
+        final bookings = _RecordingRescheduleRepository()
+          ..createMasterBookingErrorToThrow =
+              const MasterBookingDuplicateFailure();
+        await pumpConfirm(
+          tester,
+          _walkInConfirmArgs(),
+          appointments: appointments,
+          bookings: bookings,
+        );
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        final BuildContext ctx = tester.element(
+          find.byType(BookingConfirmScreen),
+        );
+        expect(
+          find.text(AppLocalizations.of(ctx).errMasterBookingDuplicate),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('booking-confirm-duplicate-refresh')),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets(
+        'should_popToTimeScreen_when_duplicateRefreshTapped — «Оновити» pops '
+        'back to the real SlotTimeScreen already on the stack (page TYPE '
+        'pin, not path)',
+        (tester) async {
+          final BookingSlot slot = BookingSlot(
+            // future-date-ok: fixed slot fixture; twin of _kStartAt's rationale
+            startAt: DateTime.utc(2026, 7, 20, 7),
+            // future-date-ok: fixed slot fixture; twin of _kStartAt's rationale
+            endAt: DateTime.utc(2026, 7, 20, 8),
+            available: true,
+          );
+          final fakeSlots = _FakeChainSlotRepository(<BookingSlot>[slot]);
+          final bookings = _RecordingRescheduleRepository()
+            ..createMasterBookingErrorToThrow =
+                const MasterBookingDuplicateFailure();
+          final router = _slotToConfirmRouter();
+          final args = BookingSlotPickerArgs(
+            masterId: _kMaster.id,
+            master: _kMaster,
+            services: const <MasterService>[_kService],
+            guest: _kGuest,
+            hideMasterIdentity: true,
+          );
+
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              slotRepositoryProvider.overrideWith((_) => fakeSlots),
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+            ],
+          );
+          unawaited(router.push(RouteNames.bookingSlots, extra: args));
+          await tester.pumpAndSettle();
+
+          final DateTime today = kyivToday(DateTime.now);
+          await tester.tapCalendarDay(today.day);
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('booking-summary-cta')));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SlotTimeScreen), findsOneWidget);
+          final Finder availableChip = find.byWidgetPredicate(
+            (Widget w) => w is SlotChip && w.available,
+          );
+          expect(availableChip, findsOneWidget);
+          await tester.tap(availableChip);
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('booking-summary-cta')));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('booking-confirm-duplicate-refresh')),
+            findsOneWidget,
+          );
+
+          await tester.tap(
+            find.byKey(const Key('booking-confirm-duplicate-refresh')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SlotTimeScreen), findsOneWidget);
+          expect(find.byType(BookingConfirmScreen), findsNothing);
+        },
       );
     });
   });

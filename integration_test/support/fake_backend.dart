@@ -829,6 +829,15 @@ final class FakeBackend {
   /// keeps only the first.
   List<String>? lastMasterAaaWorkingDaysServiceIds;
 
+  /// Phase 264 — the FULL, ordered `serviceId` list the most recent
+  /// `/masters/$masterRowId/slots` request carried (the routed walk-in
+  /// chain's OWN date/time step — `SlotDateScreen`/`SlotTimeScreen`, not the
+  /// retired wizard's embedded `MasterSchedulePage`). `null` when the param
+  /// was absent. Proves HARD CONSTRAINT 4: a 3-service walk-in visit
+  /// requests availability for the WHOLE chained selection
+  /// (`getMasterSlots(serviceIds: ordered)`), never `services.first` alone.
+  List<String>? lastMasterOwnSlotsServiceIds;
+
   /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
   /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
   /// `salonMasterServiceCoverageProvider` now calls this ONCE PER SELECTED
@@ -3835,6 +3844,46 @@ final class FakeBackend {
       );
     }
 
+    // Phase 264 — GET /api/v1/masters/{masterRowId}, the PUBLIC master-detail
+    // endpoint keyed on the master's OWN row id. The routed walk-in chain's
+    // `BookingConfirmScreen` (a REUSED CLIENT screen, `publicMasterProfile
+    // Provider(masterId)`) always re-resolves the target master through this
+    // public endpoint — even when the target IS the signed-in master
+    // themselves — unlike the retired wizard, which only ever read
+    // `masterProfileProvider` (`GET /masters/me`, registered above). Reuses
+    // [_masterDetailEnvelope] verbatim (REUSE-FIRST) rather than a second,
+    // possibly-drifting envelope shape: the public view of "my own profile"
+    // is the same identity `GET /masters/me` already returns. Registered
+    // AFTER the more-specific `.../reviews`/`.../reviews/summary` routes
+    // above (same "more specific path first" ordering those routes'
+    // own comment establishes) so this bare-id route can never shadow them.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterCalls++;
+        lastGetPublicMasterId = masterRowId;
+        return _masterDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 264 — GET /api/v1/masters/{masterRowId}/services, the PUBLIC
+    // active-services counterpart `publicMasterProfileProvider` fetches
+    // alongside the detail route just above. Reuses [_services] verbatim
+    // (REUSE-FIRST) — the SAME wire shape `_publicMasterServices`'s own doc
+    // already notes ("Shapes match the generated `MasterServiceResponse`,
+    // the same envelope `_services` uses"), so this is not a new fixture,
+    // just a new route onto an existing one.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = masterRowId;
+        return _okList(_services);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // GET /api/v1/masters/master-aaa — PUBLIC master detail (Phase 13.5). The
     // client-facing public profile resolves the target master by its Master-row
     // UUID through the generated MasterControllerApi.getMasterDetail. Wired as a
@@ -4059,12 +4108,15 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // Phase 248 — the INDEPENDENT_MASTER walk-in wizard's OWN date/time
-    // picker (`MasterCreateBookingScreen`'s `_DateTimeStep`, embedding the
-    // SAME `MasterSchedulePage` the salon flow above uses). `master.id`
-    // there resolves to `masterRowId` (`GET /masters/me`'s own id), so this
-    // mirrors the `master-ccc`/`master-ddd` pair one level up: the master
-    // books THEMSELVES, not a roster colleague. Reuses the shared
+    // Phase 248 — the INDEPENDENT_MASTER walk-in flow's OWN date/time
+    // picker. Originally the retired single-screen wizard's embedded
+    // `MasterSchedulePage`; Phase 264 repointed the SAME masterId at the
+    // routed chain's `SlotDateScreen`/`SlotTimeScreen` instead (the CLIENT
+    // screens' own `SlotRepository.getMasterSlots` call) — this route
+    // registration did not need to change, only its consumer did.
+    // `master.id` there resolves to `masterRowId` (`GET /masters/me`'s own
+    // id), so this mirrors the `master-ccc`/`master-ddd` pair one level up:
+    // the master books THEMSELVES, not a roster colleague. Reuses the shared
     // `_workingDaysEnvelope()`/`_availableSlotsEnvelope()` fixtures — every
     // day across a wide window is working, and the slots land on
     // `kyivDayOf(serverNow)` — so the wizard's calendar/time step needs no
@@ -4079,8 +4131,16 @@ final class FakeBackend {
     );
     _adapter.onRoute(
       '/api/v1/masters/$masterRowId/slots',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
+        // Phase 264 — the walk-in chain's OWN slot-availability request
+        // (the client's `SlotDateScreen`/`SlotTimeScreen`, not the retired
+        // wizard's embedded `MasterSchedulePage`). See
+        // [lastMasterOwnSlotsServiceIds]'s own doc.
+        lastMasterOwnSlotsServiceIds = _multiQueryParam(
+          req.queryParameters,
+          'serviceId',
+        );
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),

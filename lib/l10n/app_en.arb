@@ -4024,10 +4024,6 @@
   "@masterCreateBookingServiceTitle": {
     "description": "Header title on the master booking wizard's service-picker step."
   },
-  "masterCreateBookingDateTimeTitle": "Date and time",
-  "@masterCreateBookingDateTimeTitle": {
-    "description": "Header title on the master booking wizard's combined date+time step."
-  },
   "masterCreateBookingClientHeading": "Client details",
   "@masterCreateBookingClientHeading": {
     "description": "Sub-heading on the master booking wizard's client-details step."

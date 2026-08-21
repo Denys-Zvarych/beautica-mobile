@@ -23,9 +23,11 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/month_calendar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -63,13 +65,47 @@ const _kService = MasterService(
   category: 'MANICURE',
 );
 
-BookingSlotPickerArgs _args({String? rescheduleBookingId}) =>
-    BookingSlotPickerArgs(
-      masterId: _kMaster.id,
-      master: _kMaster,
-      services: const <MasterService>[_kService],
-      rescheduleBookingId: rescheduleBookingId,
-    );
+/// Phase 262 D1 — two more fixture services purely for the multi-service
+/// walk-in availability pin (a walk-in visit is ONE ordered selection, never
+/// `services.first`).
+const _kService2 = MasterService(
+  id: 'svc-2',
+  serviceDefId: 'def-2',
+  name: 'Педикюр',
+  durationMinutes: 60,
+  priceMin: 400,
+  priceDisplay: '400 ₴',
+  category: 'PEDICURE',
+);
+
+const _kService3 = MasterService(
+  id: 'svc-3',
+  serviceDefId: 'def-3',
+  name: 'Брови',
+  durationMinutes: 30,
+  priceMin: 300,
+  priceDisplay: '300 ₴',
+  category: 'BROWS',
+);
+
+BookingSlotPickerArgs _args({
+  String? rescheduleBookingId,
+  WalkInGuest? guest,
+  bool hideMasterIdentity = false,
+}) => BookingSlotPickerArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService],
+  rescheduleBookingId: rescheduleBookingId,
+  guest: guest,
+  hideMasterIdentity: hideMasterIdentity,
+);
+
+const WalkInGuest _kGuest = WalkInGuest(
+  name: 'Іван',
+  surname: 'Петренко',
+  phone: '+380501234567',
+);
 
 /// Records every call so the "loads slots on date change" criterion can be
 /// asserted directly, and returns whatever [slotsToReturn] is configured —
@@ -96,6 +132,13 @@ class _FakeSlotRepository implements SlotRepository {
   String? lastMasterId;
   String? lastServiceId;
   DateTime? lastDate;
+
+  /// Phase 262 D1 — the FULL ordered `serviceIds` the most recent
+  /// [getMasterSlots] call carried, additive alongside [lastServiceId]
+  /// (which only ever captured the first). Lets a multi-service walk-in
+  /// test assert the whole ordered list reached the wire, not just that
+  /// SOME service id did.
+  List<String>? lastServiceIds;
 
   /// Per-date override for [getWorkingDays]; `null` (the default) means
   /// every requested date resolves `working: true`. The callback also receives
@@ -147,6 +190,7 @@ class _FakeSlotRepository implements SlotRepository {
     // first (only) id is captured into the existing single-String? field —
     // every assertion (`expect(fake.lastServiceId, _kService.id)`) is unchanged.
     lastServiceId = serviceIds.isEmpty ? null : serviceIds.first;
+    lastServiceIds = List<String>.of(serviceIds);
     lastDate = date;
     final Object? err = errorToThrow;
     if (err != null) throw err;
@@ -218,7 +262,9 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
         return Scaffold(
           body: Text(
             'confirm-stub:${args.masterId}:${args.services.first.id}:'
-            '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}',
+            '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}:'
+            'guest=${args.guest?.phone}:hideMasterIdentity='
+            '${args.hideMasterIdentity}',
           ),
         );
       },
@@ -254,6 +300,90 @@ void main() {
       expect(fake.lastServiceId, _kService.id);
       expect(fake.lastDate, DateTime(today.year, today.month, today.day));
     });
+
+    // Phase 262 D1 — the chained-duration availability the walk-in path
+    // (Phase 264's guest/service steps, out of scope here) will feed through
+    // THIS exact screen: verified already-correct in source (no code change
+    // needed, see the phase doc), pinned here as a behavioural test so a
+    // future edit can't silently regress it back to `services.first`.
+    testWidgets(
+      'should_requestAllThreeServiceIds_when_walkInVisitHasThreeServices',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(
+          dateScreen: SlotDateScreen(
+            args: BookingSlotPickerArgs(
+              masterId: _kMaster.id,
+              master: _kMaster,
+              services: const <MasterService>[
+                _kService,
+                _kService2,
+                _kService3,
+              ],
+              guest: _kGuest,
+              hideMasterIdentity: true,
+            ),
+          ),
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        final DateTime today = kyivToday(DateTime.now);
+        await tester.tapCalendarDay(today.day);
+        await tester.pumpAndSettle();
+
+        expect(fake.callCount, 1);
+        expect(
+          fake.lastServiceIds,
+          <String>[_kService.id, _kService2.id, _kService3.id],
+          reason:
+              'the WHOLE ordered selection must reach getMasterSlots, '
+              'in tap order — the visit is chained back-to-back from it',
+        );
+      },
+    );
+
+    testWidgets(
+      'should_neverRequestOnlyFirstService_when_visitIsMultiService',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(
+          dateScreen: SlotDateScreen(
+            args: BookingSlotPickerArgs(
+              masterId: _kMaster.id,
+              master: _kMaster,
+              services: const <MasterService>[_kService, _kService2],
+              guest: _kGuest,
+              hideMasterIdentity: true,
+            ),
+          ),
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        final DateTime today = kyivToday(DateTime.now);
+        await tester.tapCalendarDay(today.day);
+        await tester.pumpAndSettle();
+
+        expect(
+          fake.lastServiceIds,
+          isNot(equals(<String>[_kService.id])),
+          reason:
+              'the explicit services.first negative pin — a slot that '
+              'fits only the FIRST of several services must never be offered '
+              'as if it fit the whole visit',
+        );
+        expect(fake.lastServiceIds, hasLength(2));
+      },
+    );
 
     // Phase 14.14 — real end-to-end wiring test: a day the WORKING-DAYS
     // provider marks non-working must be untappable, distinct from
@@ -1041,6 +1171,82 @@ void main() {
 
       expect(find.byType(SlotTimeScreen), findsOneWidget);
     });
+
+    // ── Phase 260 — walk-in path hides the master identity card ───────────
+    group('hideMasterIdentity (phase-260)', () {
+      Future<void> pumpDateScreen(
+        WidgetTester tester, {
+        required BookingSlotPickerArgs args,
+      }) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(dateScreen: SlotDateScreen(args: args));
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('should_renderMasterStrip_when_hideMasterIdentityIsFalse', (
+        tester,
+      ) async {
+        await pumpDateScreen(tester, args: _args());
+
+        expect(find.byType(MasterStrip), findsOneWidget);
+      });
+
+      testWidgets('should_hideMasterStrip_when_hideMasterIdentityIsTrue', (
+        tester,
+      ) async {
+        await pumpDateScreen(
+          tester,
+          args: _args(guest: _kGuest, hideMasterIdentity: true),
+        );
+
+        expect(find.byType(MasterStrip), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is Hero && w.tag == 'master-strip-${_kMaster.id}',
+          ),
+          findsNothing,
+        );
+      });
+
+      testWidgets('should_removeTheGapAbove_when_hidden', (tester) async {
+        await pumpDateScreen(tester, args: _args());
+        final double shownDy = tester
+            .getTopLeft(find.byType(CalendarWeekdayBar))
+            .dy;
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await pumpDateScreen(
+          tester,
+          args: _args(guest: _kGuest, hideMasterIdentity: true),
+        );
+        final double hiddenDy = tester
+            .getTopLeft(find.byType(CalendarWeekdayBar))
+            .dy;
+
+        expect(
+          hiddenDy,
+          lessThan(shownDy),
+          reason:
+              'hiding MasterStrip must also remove the SizedBox gap it '
+              'sat above, or the walk-in date screen opens with dead space',
+        );
+      });
+
+      testWidgets('should_keepMasterStrip_when_seedIsReschedule', (
+        tester,
+      ) async {
+        await pumpDateScreen(
+          tester,
+          args: _args(rescheduleBookingId: 'booking-99'),
+        );
+
+        expect(find.byType(MasterStrip), findsOneWidget);
+      });
+    });
   });
 
   // ── mobile-qa (2026-08-02, backlog :226) — Kyiv-anchored `_today` ──────────
@@ -1541,6 +1747,95 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining(':booking-99'), findsOneWidget);
+    });
+
+    // ── Phase 258 — the confirm args forward the guest seed verbatim ──────
+    testWidgets('should_forwardGuestAndHideFlag_when_slotTimeScreenConfirms', (
+      tester,
+    ) async {
+      await pumpTimeScreen(
+        tester,
+        args: _args(guest: _kGuest, hideMasterIdentity: true),
+      );
+
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('guest=${_kGuest.phone}'), findsOneWidget);
+      expect(find.textContaining('hideMasterIdentity=true'), findsOneWidget);
+    });
+
+    testWidgets('should_forwardNulls_when_clientPathConfirms', (tester) async {
+      await pumpTimeScreen(tester, args: _args());
+
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('guest=null'), findsOneWidget);
+      expect(find.textContaining('hideMasterIdentity=false'), findsOneWidget);
+    });
+
+    // ── Phase 260 — walk-in path hides the master identity card ───────────
+    testWidgets(
+      'should_renderMasterStrip_when_hideMasterIdentityIsFalse_onTimeScreen',
+      (tester) async {
+        await pumpTimeScreen(tester, args: _args());
+
+        final Finder timeScreen = find.byType(SlotTimeScreen);
+        expect(
+          find.descendant(of: timeScreen, matching: find.byType(MasterStrip)),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'should_hideMasterStrip_when_hideMasterIdentityIsTrue_onTimeScreen',
+      (tester) async {
+        await pumpTimeScreen(
+          tester,
+          args: _args(guest: _kGuest, hideMasterIdentity: true),
+        );
+
+        expect(find.byType(MasterStrip), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is Hero && w.tag == 'master-strip-${_kMaster.id}',
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('should_keepHeroPairSymmetric_when_hidden', (tester) async {
+      // Pump the date screen hidden, push to the time screen hidden — both
+      // ends of the shared 'master-strip-<id>' Hero tag must be absent
+      // together, never just one (phase-260 D2's one-endpoint-flight
+      // hazard).
+      await pumpTimeScreen(
+        tester,
+        args: _args(guest: _kGuest, hideMasterIdentity: true),
+      );
+
+      expect(find.byType(MasterStrip), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is Hero && w.tag == 'master-strip-${_kMaster.id}',
+        ),
+        findsNothing,
+      );
+      // No exception was thrown reaching here — a stranded Hero flight
+      // would have thrown during the push transition's settle above.
     });
   });
 }

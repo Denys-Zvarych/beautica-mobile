@@ -18,8 +18,16 @@
 //   [ServiceStep]      — the picker over the promoted
 //                        `service_category_list.dart` widgets.
 //   [ServiceStepEmpty] — the required empty state.
-//   [DateTimeStep]     — wraps `MasterSchedulePage`.
 //   [ConfirmStep]      — the summary + submit-error banner.
+//
+// Phase 265 D2 — `DateTimeStep` (which used to be promoted here, wrapping
+// `MasterSchedulePage`) is DELETED. It was the only ORPHANED step widget
+// once Phase 264 swapped `/master/bookings/new` onto the routed walk-in
+// chain (which uses the client's own `SlotDateScreen`/`SlotTimeScreen`
+// instead) and the salon wizard NEVER called it (see
+// `salon_create_booking_screen.dart`'s own file header). Verified by an
+// exact-count grep before deletion, not by eye — see this phase's own
+// hand-off notes.
 //
 // Also promoted — a private helper [ClientStep]/[ConfirmStep]'s own
 // `_submit` boundary depend on, which would otherwise fail to compile from a
@@ -49,9 +57,15 @@
 // `4`, the master variant's value, so the master screen's call site does not
 // need to pass it. Phase 250's salon wizard (5 steps) passes `totalSteps: 5`.
 //
-// `master_create_booking_screen.dart` is the only current caller. Phase 250
-// adds the salon wizard as an ADDITIVE second consumer of these same public
-// types — nothing else in this file changes to enable that.
+// `master_create_booking_screen.dart` was the ORIGINAL sole caller; Phase 250
+// added the salon wizard as an ADDITIVE second consumer of these same public
+// types. Phase 265 deleted the master wizard outright (its route now renders
+// the routed walk-in chain instead — [WalkInGuestStepScreen] /
+// [WalkInServiceStepScreen], `presentation/walk_in_*_step_screen.dart`, which
+// reuse [ClientStep] / [ServiceStep] / [ServiceStepEmpty] verbatim), so
+// `salon_create_booking_screen.dart` is now this file's only [StepIndicator]/
+// [ConfirmStep] caller — [ClientStep]/[ServiceStep]/[ServiceStepEmpty] gained
+// the two new walk-in-chain callers alongside it.
 //
 // PHASE 250 — two more additive params, both defaulting to `null` so
 // `master_create_booking_screen.dart`'s existing call sites take the exact
@@ -134,8 +148,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart'
     show approvedCategoriesProvider;
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -154,12 +166,9 @@ import '../../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../../domain/create_master_booking_request.dart'
     show kWalkInGuestNameMaxLength;
-import '../../domain/salon_master_schedule.dart';
 import 'booking_recap.dart';
 import 'booking_summary_cards.dart';
 import 'labelled_row.dart';
-import 'master_schedule_page.dart';
-import 'salon_avatar_gradients.dart';
 
 // ---------------------------------------------------------------------------
 // Phone normalization
@@ -665,135 +674,6 @@ class ServiceStepEmpty extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Step — Date & Time (reuses MasterSchedulePage unmodified)
-// ---------------------------------------------------------------------------
-
-class DateTimeStep extends ConsumerWidget {
-  const DateTimeStep({
-    super.key,
-    required this.master,
-    this.service,
-    this.services,
-    this.stagedDate,
-    this.onDateStaged,
-  }) : assert(
-         (service == null) != (services == null),
-         'DateTimeStep needs exactly one of service (legacy single) or '
-         'services (Phase 254 ordered multi) — never both, never neither.',
-       );
-
-  final Master master;
-
-  /// Legacy single-service path. `null` when [services] is provided instead
-  /// — see this constructor's assert and [services]' own doc.
-  final MasterService? service;
-
-  /// PHASE 254 — the visit's full ordered service selection (1..n). `null`
-  /// preserves the pre-254 single-service rendering exactly (every call site
-  /// until this phase passed [service] alone). When non-null, this wins and
-  /// [service] is ignored.
-  ///
-  /// Fed straight through to [SalonMasterSchedule.orderedMasterServiceIds] —
-  /// the SAME plural field the salon flow's `SalonMasterSchedule` already
-  /// used for its own N-service visit (see that field's own "ID-SPACE NOTE").
-  /// [MasterSchedulePage] keys BOTH its availability-aware calendar
-  /// (`workingDaysProvider`) and its slot fetch (`salonMasterDaySlotsProvider`)
-  /// off this exact list, so the backend — which chains item *i* to item
-  /// *i-1*'s end (effective duration + that item's own `bufferMinutesAfter`,
-  /// `VisitPlanner`) and validates the whole block against the working
-  /// window — is the one deciding which slots are legal for the CHAINED
-  /// visit. This widget never sums a duration itself: see the file's D1 note
-  /// at the top of this class for why a client-side sum would omit buffers
-  /// and drift from the backend's own chaining rule.
-  final List<MasterService>? services;
-
-  /// Forwarded verbatim to [MasterSchedulePage.stagedDate] /
-  /// [MasterSchedulePage.onDateStaged] — see those params. Both `null` (the
-  /// default, and every pre-2026-08-20 call site) leaves the embedded page on
-  /// its original tap-to-advance calendar behaviour.
-  final ValueListenable<DateTime?>? stagedDate;
-  final ValueChanged<DateTime>? onDateStaged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Single normalisation point (D2 of the phase doc) — every use below
-    // reads `ordered`, never `service`/`services` directly.
-    final List<MasterService> ordered = services ?? <MasterService>[service!];
-
-    // NO `onSlotChosen` MIRROR (audit-fix cycle 1, FINDING 1 — CRITICAL,
-    // 2026-08-20). This step used to `ref.listen` the shared
-    // [salonBookingScheduleProvider] and push the newly-picked slot's
-    // `startAt` out to the owner, which cached it in its own `_startAt` field.
-    // The guard was EDGE-triggered (`previous?.slot == null && next.slot !=
-    // null`), but `SalonBookingSchedule.selectSlot` writes slot A → slot B
-    // directly, never back through `null`, so a RE-PICK never re-fired: the
-    // owner kept the FIRST slot and submitted a third party's appointment at a
-    // time the master had moved away from.
-    //
-    // Fixed by DELETING the mirror rather than by widening its guard to a
-    // value comparison. A cached copy of provider state that only the listener
-    // keeps in step is a desync waiting to happen; the provider is already the
-    // single source of truth for both `date` and `slot`, and the owner's
-    // «Далі» CTA — the only thing that can leave this step — is free to read
-    // it at the instant it is pressed (see
-    // `master_create_booking_screen.dart`'s `_commitSlotAndAdvance`). Pinned
-    // by `master_create_booking_screen_test.dart`'s "re-picking a slot submits
-    // the SECOND slot" test, which was RED against the mirrored version.
-    final SalonMasterSchedule schedule = SalonMasterSchedule(
-      masterId: master.id,
-      firstName: master.firstName,
-      lastName: master.lastName,
-      type: master.type,
-      professionalTitle: master.professionalTitle,
-      avgRating: master.displayRating,
-      reviewCount: master.reviewCount,
-      services: <SalonCatalogService>[
-        for (final MasterService s in ordered)
-          SalonCatalogService(
-            id: s.id,
-            name: s.name,
-            durationLabel: DurationMinutes.format(s.durationMinutes),
-            priceDisplay: s.priceDisplay,
-            category: s.category,
-            serviceTypeSlug: s.serviceTypeSlug,
-            serviceTypeNameUk: s.serviceTypeNameUk,
-            durationMinutes: s.durationMinutes,
-            priceType: s.priceType,
-            priceMin: s.priceMin,
-            priceMax: s.priceMax,
-          ),
-      ],
-      // The master's own per-master assignment ids, in selection order — the
-      // SAME id space `MasterService.id` already represents (see that
-      // field's doc). PHASE 254 — this is now the FULL chained visit, not a
-      // one-element list: [MasterSchedulePage] keys both its availability
-      // calendar and its slot fetch off this exact list (see `ordered`'s
-      // own doc above), so a changed selection (a different ids list) is
-      // structurally a DIFFERENT query to those family providers and
-      // refetches on its own — no manual invalidation needed here.
-      orderedMasterServiceIds: <String>[
-        for (final MasterService s in ordered) s.id,
-      ],
-    );
-
-    return MasterSchedulePage(
-      schedule: schedule,
-      avatarGradient: salonAvatarGradient(0),
-      // The wizard's master IS the signed-in user booking on their own
-      // calendar, so both the identity strip and the "…для цього майстра"
-      // intro name the reader back to themselves — the same reasoning
-      // [ConfirmStep] already uses to omit its master card. `false` here (not
-      // a default flip on [MasterSchedulePage]) so `salon_time_screen.dart`,
-      // where the booker really did choose among several masters, keeps both.
-      showMasterStrip: false,
-      showDateIntro: false,
-      stagedDate: stagedDate,
-      onDateStaged: onDateStaged,
     );
   }
 }

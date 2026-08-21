@@ -293,35 +293,42 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               onBack: () => context.pop(),
               backKey: const Key('slot-picker-back'),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                VelvetSpacing.md,
-                VelvetSpacing.lg,
-                0,
-              ),
-              // Hero (jank fix): `SlotTimeScreen` renders its own `MasterStrip`
-              // for the exact same master, and both screens are mounted on the
-              // SAME `go_router` Navigator (see `app_router.dart`'s nested
-              // `bookingSlots` / `bookingSlots/time` routes) via a real
-              // `CupertinoPageTransitionsBuilder` push — so a shared `Hero` tag
-              // lets the framework fly/hold this card across the transition
-              // instead of the two independently-laid-out instances swapping
-              // at mismatched y-offsets the instant the push settles.
-              child: Hero(
-                tag: 'master-strip-${widget.args.master.id}',
-                // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
-                // an in-flight wizard step. It is also the Hero SOURCE of the
-                // flight into «Час» — a tap that pushed a third route
-                // mid-gesture would strand that flight.
-                child: MasterStrip.fromMaster(
-                  widget.args.master,
-                  showRole: true,
-                  showRating: true,
+            // Walk-in path (phase-260): the viewer IS the master, so the
+            // identity card that would otherwise show them their own strip
+            // is not built at all — collection-`if`, never `Opacity`/
+            // `Visibility`, so the `Hero` is genuinely not registered (see
+            // the file header rationale below and phase-260 D2/D3).
+            if (!widget.args.hideMasterIdentity) ...<Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                  VelvetSpacing.lg,
+                  0,
+                ),
+                // Hero (jank fix): `SlotTimeScreen` renders its own `MasterStrip`
+                // for the exact same master, and both screens are mounted on the
+                // SAME `go_router` Navigator (see `app_router.dart`'s nested
+                // `bookingSlots` / `bookingSlots/time` routes) via a real
+                // `CupertinoPageTransitionsBuilder` push — so a shared `Hero` tag
+                // lets the framework fly/hold this card across the transition
+                // instead of the two independently-laid-out instances swapping
+                // at mismatched y-offsets the instant the push settles.
+                child: Hero(
+                  tag: 'master-strip-${widget.args.master.id}',
+                  // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
+                  // an in-flight wizard step. It is also the Hero SOURCE of the
+                  // flight into «Час» — a tap that pushed a third route
+                  // mid-gesture would strand that flight.
+                  child: MasterStrip.fromMaster(
+                    widget.args.master,
+                    showRole: true,
+                    showRating: true,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: VelvetSpacing.lg),
+              const SizedBox(height: VelvetSpacing.lg),
+            ],
             // `_calendarBody`'s `MonthCalendar` self-pads horizontally by
             // `VelvetSpacing.lg` (its own outer `Padding`), so this explicit
             // wrap matches it exactly — mobile-backlog D4/D5:
@@ -541,6 +548,8 @@ class SlotTimeScreen extends ConsumerWidget {
         idempotencyKey: _uuid.v4(),
         rescheduleBookingId: args.rescheduleBookingId,
         rescheduleAppointmentId: args.rescheduleAppointmentId,
+        guest: args.guest,
+        hideMasterIdentity: args.hideMasterIdentity,
       ),
     );
   }
@@ -666,19 +675,24 @@ class SlotTimeScreen extends ConsumerWidget {
                     // context.pop()`) already pops back to `SlotDateScreen`,
                     // which is the exact same action the removed chip's
                     // `onChange` performed.
-                    Hero(
-                      tag: 'master-strip-${args.master.id}',
-                      // INERT (no `onTap`) per the policy on
-                      // `MasterStrip.onTap`: the last in-flight wizard step
-                      // before «Підтвердження», where the strip becomes
-                      // tappable.
-                      child: MasterStrip.fromMaster(
-                        args.master,
-                        showRole: true,
-                        showRating: true,
+                    // Walk-in path (phase-260): mirrors the date screen's
+                    // guard — the viewer IS the master, so this card and its
+                    // `Hero` are not built at all (collection-`if`, D2/D3).
+                    if (!args.hideMasterIdentity) ...<Widget>[
+                      Hero(
+                        tag: 'master-strip-${args.master.id}',
+                        // INERT (no `onTap`) per the policy on
+                        // `MasterStrip.onTap`: the last in-flight wizard step
+                        // before «Підтвердження», where the strip becomes
+                        // tappable.
+                        child: MasterStrip.fromMaster(
+                          args.master,
+                          showRole: true,
+                          showRating: true,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: VelvetSpacing.lg),
+                      const SizedBox(height: VelvetSpacing.lg),
+                    ],
                     _SlotsSection(
                       slotsAsync: slotsAsync,
                       selectedSlot: selectedSlot,

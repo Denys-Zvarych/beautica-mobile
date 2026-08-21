@@ -45,6 +45,8 @@ import '../features/booking/domain/booking_confirm_args.dart';
 import '../features/booking/domain/booking_entry_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
+import '../features/booking/domain/create_master_booking_request.dart'
+    show WalkInGuest;
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
@@ -53,7 +55,6 @@ import '../features/booking/presentation/leave_client_feedback_screen.dart';
 import '../features/booking/presentation/leave_review_screen.dart';
 import '../features/booking/presentation/master_archive_screen.dart';
 import '../features/booking/presentation/master_bookings_screen.dart';
-import '../features/booking/presentation/master_create_booking_screen.dart';
 import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
@@ -64,6 +65,8 @@ import '../features/booking/presentation/salon_service_selection_screen.dart';
 import '../features/booking/presentation/salon_time_screen.dart';
 import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
+import '../features/booking/presentation/walk_in_guest_step_screen.dart';
+import '../features/booking/presentation/walk_in_service_step_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -696,7 +699,7 @@ GoRouter appRouter(Ref ref) {
           // copy of it, so the role bounce is skipped for a reschedule-shaped
           // seed only. A CREATE-shaped `BookingSlotPickerArgs` still bounces.
           // See `booking_reschedule_seed.dart` for the SEC rationale.
-          if (!isBookingRescheduleSeed(state.extra)) {
+          if (!isBookingProviderSeed(state.extra)) {
             final roleRedirect = clientOnlyGuard(context, state);
             if (roleRedirect != null) return roleRedirect;
           }
@@ -712,7 +715,7 @@ GoRouter appRouter(Ref ref) {
             path: 'time',
             redirect: (context, state) {
               // Same Phase 27.2 reschedule admission as the parent route.
-              if (!isBookingRescheduleSeed(state.extra)) {
+              if (!isBookingProviderSeed(state.extra)) {
                 final roleRedirect = clientOnlyGuard(context, state);
                 if (roleRedirect != null) return roleRedirect;
               }
@@ -736,7 +739,7 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.bookingConfirm,
         redirect: (context, state) {
           // Same Phase 27.2 reschedule admission as `bookingSlots` above.
-          if (!isBookingRescheduleSeed(state.extra)) {
+          if (!isBookingProviderSeed(state.extra)) {
             final roleRedirect = clientOnlyGuard(context, state);
             if (roleRedirect != null) return roleRedirect;
           }
@@ -768,7 +771,7 @@ GoRouter appRouter(Ref ref) {
         redirect: (context, state) {
           // Same Phase 27.2 reschedule admission as `bookingSlots` above —
           // keyed off `BookingSuccessArgs.isReschedule` here.
-          if (!isBookingRescheduleSeed(state.extra)) {
+          if (!isBookingProviderSeed(state.extra)) {
             final roleRedirect = clientOnlyGuard(context, state);
             if (roleRedirect != null) return roleRedirect;
           }
@@ -938,18 +941,51 @@ GoRouter appRouter(Ref ref) {
             builder: (context, state) => const MasterArchiveScreen(),
           ),
           // Phase 247 — /master/bookings/new, the master «Новий запис» walk-in
-          // booking wizard. Registered BEFORE the `:bookingId` sibling below
-          // for the same reason `archive` is (go_router matches literal
-          // segments before dynamic ones only by declaration order among
-          // siblings) — `new` must never be shadowed by `:bookingId`.
+          // booking entry point. Registered BEFORE the `:bookingId` sibling
+          // below for the same reason `archive` is (go_router matches
+          // literal segments before dynamic ones only by declaration order
+          // among siblings) — `new` must never be shadowed by `:bookingId`.
           // `pageBuilder` + `MaterialPage(fullscreenDialog: true)` per the
           // phase doc; reached via `context.push` (never `Navigator`).
+          //
+          // Phase 264 — builder swapped from the retired single-screen
+          // walk-in wizard to [WalkInGuestStepScreen], the first thin screen
+          // of the ROUTED walk-in chain (see `route_names.dart`'s
+          // [RouteNames.masterBookingNewServices] doc and phase-264's D4).
+          // The old wizard screen was deleted outright in Phase 265.
           GoRoute(
             path: 'new',
             pageBuilder: (context, state) => const MaterialPage<void>(
               fullscreenDialog: true,
-              child: MasterCreateBookingScreen(),
+              child: WalkInGuestStepScreen(),
             ),
+            routes: [
+              // Phase 264 — /master/bookings/new/services, the walk-in
+              // chain's service multi-select step. A NESTED child of `new`,
+              // never a second top-level literal — this introduces no new
+              // sibling under [masterBookings], so the `archive` / `new` /
+              // `:bookingId` literal-before-dynamic ordering above is
+              // untouched (mirrors how `time` nests under [bookingSlots]
+              // elsewhere in this file). Reached with `context.push` from
+              // [WalkInGuestStepScreen]'s «Далі», carrying the minted
+              // [WalkInGuest] in `extra`. A missing/wrong-typed `extra`
+              // (e.g. a direct deep link) bounces back to
+              // [RouteNames.masterBookingNew] — a two-hop bounce to a safe
+              // place once that screen's own guard sends a non-master
+              // there too (phase-264 D9, pinned by test).
+              GoRoute(
+                path: 'services',
+                redirect: (context, state) => state.extra is WalkInGuest
+                    ? null
+                    : RouteNames.masterBookingNew,
+                // `builder:` (MaterialPage, not fullscreenDialog) — mirrors
+                // how `time` nests under [bookingSlots] elsewhere in this
+                // file: a normal forward push within the already-modal
+                // chain, carrying the theme's swipe-back gesture.
+                builder: (context, state) =>
+                    WalkInServiceStepScreen(guest: state.extra! as WalkInGuest),
+              ),
+            ],
           ),
           // /master/bookings/:bookingId — the PROVIDER view of «Деталі
           // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client

@@ -1,57 +1,62 @@
-// Phase 248 — the master «Мої записи» «+» add-booking entry point, end to
-// end.
+// Phase 248 (originally) — the master «Мої записи» «+» add-booking entry
+// point, end to end.
 //
-// WHY THIS FILE EXISTS
-// --------------------
-// Phase 247 built the wizard (`MasterCreateBookingScreen`) and Phase 246 its
-// data layer, but neither shipped an integration test — both were proven
-// only at the widget tier, against hand-written mocktail fakes
-// (`test/features/booking/presentation/master_create_booking_screen_test
-// .dart`). Phase 248 wires the «+» button that was still a "coming soon"
-// VelvetSnack to `context.push(RouteNames.masterBookingNew)`, which makes
-// this the FIRST journey that proves:
-//   • the button genuinely reaches the wizard through a REAL `context.push`
-//     (never `router.go` — a pushed leaf collapses to its PARENT `fullPath`
-//     in this repo's go_router setup, the locked trap every other push-nav
-//     flow in this suite guards against);
-//   • the wizard's OWN date/time picker resolves against the MASTER'S OWN
-//     `masters/{masterId}/{working-days,slots}` — a route pair this fake
-//     backend did not carry before this phase (see `fake_backend.dart`'s
-//     Phase 248 section, mirroring the pre-existing `master-ccc`/`master-ddd`
-//     salon-flow pair one level up: the master here books THEMSELVES, not a
-//     roster colleague);
-//   • `POST /api/v1/masters/{masterId}/bookings` round-trips through the REAL
-//     `BookingRepository.createMasterBooking` → the follow-up
-//     `GET /bookings/{id}` it makes before returning — a route this fake
-//     backend also did not carry before this phase;
-//   • the wizard's own Phase 246 success invalidation
-//     (`ref.invalidate(bookingsDayProvider)`) actually refreshes the list —
-//     THE PAUSED-CONSUMER RIVERPOD TRAP: the wizard is a fullscreen route
-//     COVERING the list, so the list's `bookingsDayProvider` consumer is
-//     PAUSED for the whole submit. Invalidating an autoDispose provider whose
-//     only listener is paused DISPOSES it outright rather than refetching —
-//     the refetch only fires once the consumer RESUMES on pop. This flow
-//     therefore asserts the new card ONLY after the pop has fully settled,
-//     never at the moment of invalidation/pop — see the inline comment at
-//     that assertion for why asserting earlier would be a race, not a proof.
+// Phase 264 — REWRITTEN onto the ROUTED walk-in chain. The single-screen
+// wizard was made unreachable (its route builder was swapped in Phase 264
+// D4) and deleted outright in Phase 265; this file drives the same
+// end-to-end journey through the chain that replaced it:
+//
+//   /master/bookings/new           → WalkInGuestStepScreen
+//   /master/bookings/new/services  → WalkInServiceStepScreen
+//   /booking/slots                 → SlotDateScreen   (CLIENT screen, reused)
+//   /booking/slots/time            → SlotTimeScreen    (CLIENT screen, reused)
+//   /booking/confirm               → BookingConfirmScreen (walk-in branch)
+//   /booking/success               → BookingSuccessScreen (walk-in variant)
+//
+// WHY THIS FILE STILL EXISTS
+// --------------------------
+// It is the only tier that proves the WHOLE routed chain together, through
+// REAL `context.push` hops (never `router.go` — a pushed leaf collapses to
+// its PARENT `fullPath` under this repo's go_router setup, the locked trap
+// every other push-nav flow in this suite guards against) and the REAL
+// `BookingRepository`/`SlotRepository` wire path (never the widget tier's
+// hand-written fakes):
+//   • the «+» button reaches [WalkInGuestStepScreen] through a real push;
+//   • the guest step's «Далі» reaches [WalkInServiceStepScreen] through a
+//     SECOND real push, carrying the minted `WalkInGuest` as `extra`;
+//   • the service step's «Далі» reaches the CLIENT's own `SlotDateScreen` /
+//     `SlotTimeScreen`, with the master identity hidden throughout
+//     (`hideMasterIdentity: true`) and the availability request carrying
+//     ALL selected service ids (HARD CONSTRAINT 4) — never `services.first`;
+//   • `SlotTimeScreen`'s CTA reaches `BookingConfirmScreen`, whose walk-in
+//     branch (Phase 262 D2/D3) submits through the SAME
+//     `masterCreateBookingProvider` the retired wizard used;
+//   • `POST /api/v1/masters/{masterId}/bookings` round-trips through the
+//     REAL `BookingRepository.createMasterBooking`;
+//   • the success screen's walk-in variant (Phase 263) returns the master to
+//     their own «Мої записи» calendar via `context.go`, which mounts a
+//     FRESH `MasterBookingsScreen` — no paused-consumer Riverpod trap here
+//     (unlike the retired wizard's `context.pop()`-based return): a
+//     `context.go` off a flat top-level route tears down the whole pushed
+//     stack and builds a brand-new list screen, whose `bookingsDayProvider`
+//     fetches fresh rather than resuming a disposed-while-covered one.
 //
 // For a STANDALONE local run (`flutter test
 // integration_test/master_create_booking_test.dart -d flutter-tester`) this
 // file is never batched with another integration_test file in the same
 // invocation — this repo/toolchain kills the second file with a bogus "log
 // reader failed" (see other flow files' headers for the same note). It IS
-// still registered in `all_tests.dart` and `all_tests_part2.dart` (beside
-// `master_bookings_flow`, whose login/router scaffolding it shares —
-// `master_bookings_flow` itself is not in `all_tests_part1.dart` either, so
-// this mirrors that split rather than deviating from it) — those aggregators
-// run every flow's `main()` as its own `testWidgets` inside ONE
-// `flutter test` process/isolate, which is the supported re-launch model
-// those files document, not the one-file-per-process split this note is
-// about.
+// still registered in `all_tests.dart` (or its part-2 sibling) as its own
+// `testWidgets` inside ONE `flutter test` process/isolate.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/master_create_booking_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart'
@@ -99,13 +104,105 @@ void _seedWorkingHours(FakeBackend fb, DateTime day) {
   ]);
 }
 
+/// Drives «+» → guest step → «Далі» — the shared first leg of every walk-in
+/// run below. Asserts each of the two real `context.push` hops lands on the
+/// right screen TYPE (never just a path string —
+/// `project_gorouter_literal_before_dynamic_shadowing`).
+Future<void> _openWizardAndFillGuest(
+  WidgetTester tester,
+  GoRouter router, {
+  required String firstName,
+  required String lastName,
+}) async {
+  await tester.tap(find.byKey(const Key('master-bookings-add')));
+  await AppHarness.settle(tester);
+  AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
+  expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
+
+  await tester.enterText(
+    find.byKey(const Key('master-create-booking-first-name')),
+    firstName,
+  );
+  await tester.enterText(
+    find.byKey(const Key('master-create-booking-last-name')),
+    lastName,
+  );
+  await tester.enterText(
+    find.byKey(const Key('master-create-booking-phone')),
+    '0501234567',
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(const Key('master-create-booking-client-next')));
+  await AppHarness.settle(tester);
+
+  AppHarness.expectNestedPushLocation(
+    router,
+    RouteNames.masterBookingNewServices,
+  );
+  expect(find.byType(WalkInServiceStepScreen), findsOneWidget);
+  expect(
+    find.byType(WalkInGuestStepScreen),
+    findsNothing,
+    reason:
+        'a real push mounts a NEW screen — the guest step is no longer '
+        'the topmost route',
+  );
+}
+
+/// Drives date → slot on the CLIENT's own `SlotDateScreen`/`SlotTimeScreen`
+/// (reused unchanged by the walk-in chain), ending on `BookingConfirmScreen`.
+/// Asserts the master identity is hidden on both intermediate screens
+/// (test case 17 — `hideMasterIdentity`).
+Future<void> _pickDateAndSlot(WidgetTester tester) async {
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byKey(Key('booking-calendar-day-${_kyivToday.day}')),
+  );
+  expect(
+    find.byType(MasterStrip),
+    findsNothing,
+    reason:
+        'the walk-in date screen must hide the master identity card — '
+        'the viewer IS the master',
+  );
+  await tester.tapCalendarDay(_kyivToday.day);
+  await AppHarness.settle(tester);
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
+  await AppHarness.settle(tester);
+
+  expect(find.byType(SlotTimeScreen), findsOneWidget);
+  expect(
+    find.byType(MasterStrip),
+    findsNothing,
+    reason: 'the walk-in time screen must hide the master identity card too',
+  );
+  final Finder availableChip = find
+      .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
+      .first;
+  await tester.ensureVisible(availableChip);
+  await AppHarness.settle(tester);
+  await tester.tap(availableChip);
+  await AppHarness.settle(tester);
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
+  await AppHarness.settle(tester);
+
+  expect(find.byType(BookingConfirmScreen), findsOneWidget);
+  expect(
+    find.byType(MasterStrip),
+    findsNothing,
+    reason:
+        'the walk-in confirm screen must hide the master identity card '
+        'too (Phase 261)',
+  );
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'Phase 248: «+» → fill client → pick service → pick date/slot → confirm '
-    '→ done → pop → the walk-in booking is visible in «Мої записи» — '
-    'asserted AFTER the pop settles',
+    'Phase 264: «+» → guest step → service step → date/slot (CLIENT screens) '
+    '→ confirm → success → «Готово» → the walk-in booking is visible in '
+    '«Мої записи»',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
@@ -120,7 +217,7 @@ void main() {
       // `_availableSlotsEnvelope` always dates its slots on
       // `kyivDayOf(serverNow)` — i.e. the SAME Kyiv day the timeline lands
       // on — so picking this slot needs no rail/day navigation before the
-      // post-pop assertion.
+      // post-navigation assertion.
       fb.availableSlotUtcStarts = const <(int, int)>[(7, 0)];
 
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -131,12 +228,7 @@ void main() {
       // (`e2e_boot_policy.dart`'s own doc), and `_kyivToday` reads through
       // `kyivToday` → `toBeauticaTime` → `beauticaZone`, which THROWS
       // ("initBeauticaTimeZones() must be called... before beauticaZone is
-      // read") if evaluated first. `master_bookings_flow_test.dart`'s own
-      // identically-shaped `_kyivToday` gets away with a bare top-level read
-      // because SOME earlier test in that large aggregated file has already
-      // booted the harness (the tz-db init is a one-time, process-global side
-      // effect); this file has exactly one test, so the ordering has to be
-      // explicit rather than inherited.
+      // read") if evaluated first.
       _seedWorkingHours(fb, _kyivToday);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -145,39 +237,17 @@ void main() {
       await AppHarness.settle(tester);
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
 
-      // ── «+» → the wizard ────────────────────────────────────────────────
-      await tester.tap(find.byKey(const Key('master-bookings-add')));
-      await AppHarness.settle(tester);
-
-      // `context.push`, not `router.go` — read through the SAME
-      // `matches`-based nested-push resolver every other push-navigation
-      // flow in this suite uses, because a pushed leaf collapses to its
-      // PARENT `fullPath` under this repo's go_router setup.
-      AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
-      expect(find.byType(MasterCreateBookingScreen), findsOneWidget);
-
-      // ── Step 1 — client ─────────────────────────────────────────────────
+      // ── «+» → guest step → «Далі» → service step ────────────────────────
       const String guestFirst = 'Ірина';
       const String guestLast = 'Шевченко';
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-first-name')),
-        guestFirst,
+      await _openWizardAndFillGuest(
+        tester,
+        router,
+        firstName: guestFirst,
+        lastName: guestLast,
       );
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-last-name')),
-        guestLast,
-      );
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-phone')),
-        '0501234567',
-      );
-      await tester.pump();
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-client-next')),
-      );
-      await AppHarness.settle(tester);
 
-      // ── Step 2 — service (the FakeBackend's default fixture assignment) ──
+      // ── service step — ONE fixture service, the FakeBackend's default ───
       await AppHarness.pumpUntilFound(
         tester,
         find.byKey(const Key('mcb_service_card_assign-1')),
@@ -185,53 +255,23 @@ void main() {
       await tester.tap(find.byKey(const Key('mcb_service_card_assign-1')));
       await AppHarness.settle(tester);
       // SELECTION NEVER NAVIGATES (2026-08-20 UX fix) — the card tap only
-      // marks the service chosen; the pinned footer is what advances. Same
-      // for the date and the slot below.
-      //
-      // PHASE 256 mobile-qa fix — this was `master-create-booking-service
-      // -next`, a key Phase 253's multi-select rework RETIRED in favour of
-      // the shared `BookingSummaryBar` CTA (key `booking-summary-cta`,
-      // `master_create_booking_screen.dart`'s widened `_buildBottomBar` —
-      // mirrors `master_create_booking_screen_test.dart`'s own
-      // `_pickService` helper). Nothing since Phase 253 had run this file
-      // against the real key, and it failed at exactly this tap before this
-      // fix — see mobile-qa's Phase 256 audit for the reproduction.
+      // marks the service chosen; the pinned `BookingSummaryBar` footer
+      // (`booking-summary-cta`) is what advances, exactly as it does one
+      // step later on `SlotDateScreen`/`SlotTimeScreen` — the routed chain
+      // now uses the SAME shared footer at every step.
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await AppHarness.settle(tester);
 
-      // ── Step 3 — date + slot, each committed by its own «Далі» ──────────
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byKey(Key('booking-calendar-day-${_kyivToday.day}')),
-      );
-      await tester.tapCalendarDay(_kyivToday.day);
-      await AppHarness.settle(tester);
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-date-next')),
-      );
-      await AppHarness.settle(tester);
+      // ── date + slot, on the CLIENT's own screens ────────────────────────
+      await _pickDateAndSlot(tester);
 
-      final Finder availableChip = find
-          .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
-          .first;
-      await tester.ensureVisible(availableChip);
-      await AppHarness.settle(tester);
-      await tester.tap(availableChip);
-      await AppHarness.settle(tester);
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-time-next')),
-      );
-      await AppHarness.settle(tester);
-
-      // ── Step 4 — confirm → submit ─────────────────────────────────────
+      // ── confirm → submit ─────────────────────────────────────────────
       expect(
-        find.byKey(const Key('master-create-booking-confirm-card')),
+        find.byKey(const Key('booking-confirm-visit-card')),
         findsOneWidget,
-        reason: 'the time step\'s «Далі» must land the wizard on `confirm`',
+        reason: "the time step's «Далі» must land on BookingConfirmScreen",
       );
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-submit-cta')),
-      );
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
       expect(
@@ -239,10 +279,6 @@ void main() {
         1,
         reason: 'the confirm CTA must submit exactly one walk-in booking',
       );
-      // PHASE 256 mobile-qa fix — the wire body key is `masterServiceIds`
-      // (plural, ordered — Phase 252 widened the scalar `masterServiceId`
-      // this assertion used to read; it had gone stale and silently
-      // asserted against an absent key).
       expect(fb.lastStaffBookingRequestBody?['masterServiceIds'], <String>[
         'assign-1',
       ]);
@@ -260,45 +296,24 @@ void main() {
             'normalised to E.164',
       );
 
-      // ── Step 5 — done → «Готово» pops the wizard ──────────────────────
+      // ── success → «Готово» returns to «Мої записи» ─────────────────────
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(const Key('master-create-booking-done-card')),
+        find.byKey(const Key('booking-success-visit-card')),
       );
-      // The done step re-shows WHO was booked (2026-08-20, mobile-security
-      // F7's PII surface): the master's one chance to catch a mistyped client
-      // before walking away. Asserted here rather than only at the widget tier
-      // because the values come from the wizard's own controllers, and this is
-      // the only tier that types them through the real keyboard path.
-      expect(
-        find.byKey(const Key('master-create-booking-done-guest-card')),
-        findsOneWidget,
-        reason: 'the done screen must name the guest just booked',
-      );
-      expect(
-        find.text('$guestFirst $guestLast'),
-        findsWidgets,
-        reason:
-            'and name the RIGHT one — the same guest the confirm step showed '
-            'and the POST above carried',
-      );
-      await tester.tap(find.byKey(const Key('master-create-booking-done-cta')));
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      await tester.tap(find.byKey(const Key('booking-success-home-cta')));
       await AppHarness.settle(tester);
 
-      // ── The paused-consumer Riverpod trap — Phase 248's own point ──────
-      //
-      // `AppHarness.settle` above pumps every frame the pop itself produces,
-      // which is what lets the covered list's `bookingsDayProvider` consumer
-      // RESUME and the disposed-then-rebuilt provider actually refetch. Only
-      // AFTER that settle has returned is the refreshed card guaranteed to
-      // exist — asserting any earlier (e.g. right after the invalidation
-      // that `MasterCreateBookingNotifier.submit` fires on success, before
-      // the pop) would be racing the resume: it could false-pass on a slow
-      // CI runner that happens to finish the refetch inside the same pump
-      // burst, or false-fail on a fast one that genuinely hasn't resumed
-      // yet. This is deliberately checked here, once, after the fact.
+      // `context.go(RouteNames.masterBookings)` (Phase 263 D3) tears down
+      // the whole pushed walk-in chain and mounts a FRESH
+      // `MasterBookingsScreen` — no paused-consumer Riverpod trap here
+      // (unlike the retired wizard's `context.pop()`-based return): a fresh
+      // mount's `bookingsDayProvider` fetches on build, it is never
+      // resuming a disposed-while-covered instance.
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
-      expect(find.byType(MasterCreateBookingScreen), findsNothing);
+      expect(find.byType(WalkInGuestStepScreen), findsNothing);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
       await AppHarness.pumpUntilFound(
         tester,
         find.byKey(const Key('master-booking-card-$kWalkInBookingId')),
@@ -307,15 +322,16 @@ void main() {
         find.text('$guestFirst $guestLast'),
         findsOneWidget,
         reason:
-            'the refetched day list must name the guest the wizard just '
-            'submitted — proving the card is the NEW booking, not a stale '
-            'coincidence',
+            'the refetched day list must name the guest the routed chain '
+            'just submitted — proving the card is the NEW booking, not a '
+            'stale coincidence',
       );
       expect(tester.takeException(), isNull);
     },
   );
 
-  // PHASE 256 — a THREE-service walk-in run, end to end through the REAL
+  // PHASE 256 (rewritten Phase 264 onto the routed chain) — a THREE-service
+  // walk-in run, end to end through the REAL
   // `BookingRepository.createMasterBooking` → `AppointmentMapper.fromDto`
   // path (never the widget tier's hand-written fakes). Proves what the
   // widget-tier `should_renderServerVisitWindow_when
@@ -323,15 +339,22 @@ void main() {
   // contract (`masterServiceIds`, a real `AppointmentDetailResponse` body)
   // round-trips correctly, not just a fake repository shaped to match it.
   //
+  // HARD CONSTRAINT 4 — also proves the slot-AVAILABILITY request itself
+  // carries all three ordered ids (`serviceId=` repeated N times), not just
+  // the eventual POST: [FakeBackend.lastMasterOwnSlotsServiceIds].
+  //
   // `FakeBackend`'s `/masters/{id}/bookings` handler (own doc, `fake_backend
-  // .dart`) chains the three requested items with a fixed 10-minute buffer
-  // between them — 60 + 10 + 45 + 10 + 60 = 185 minutes total — deliberately
-  // DIFFERENT from the naive local sum of durations alone (60 + 45 + 60 =
-  // 165 minutes), so a regression back to rendering the done step from local
-  // state (D3) is directly visible here, not just plausible.
+  // .dart`) still chains the three requested items with a fixed 10-minute
+  // buffer between them server-side (60 + 10 + 45 + 10 + 60 = 185 minutes
+  // total, vs. the naive local sum of 165) — that server chaining is still
+  // exercised and still the correct wire behaviour, but (Phase 264
+  // deviation, see the assertion below) the routed chain's shared
+  // `BookingSuccessScreen` no longer has the created `Appointment` in hand
+  // to render it from, so this run asserts the ordering/id-fidelity
+  // guarantees the wire round-trip proves, not a rendered server window.
   testWidgets(
-    'Phase 256: a 3-service walk-in visit renders the SERVER-chained window '
-    'and every service on `done`, not the local selection',
+    'Phase 256/264: a 3-service walk-in visit requests availability for ALL '
+    'three services and submits all three ordered ids in ONE POST',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       fb.seedManyBookingsDataset(const <Map<String, dynamic>>[]);
@@ -345,38 +368,22 @@ void main() {
       await AppHarness.settle(tester);
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('master-bookings-add')));
-      await AppHarness.settle(tester);
-      AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
-      expect(find.byType(MasterCreateBookingScreen), findsOneWidget);
-
-      // ── Step 1 — client ─────────────────────────────────────────────────
       const String guestFirst = 'Оксана';
       const String guestLast = 'Мельник';
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-first-name')),
-        guestFirst,
+      await _openWizardAndFillGuest(
+        tester,
+        router,
+        firstName: guestFirst,
+        lastName: guestLast,
       );
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-last-name')),
-        guestLast,
-      );
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-phone')),
-        '0501234567',
-      );
-      await tester.pump();
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-client-next')),
-      );
-      await AppHarness.settle(tester);
 
-      // ── Step 2 — THREE services, tapped in a fixed order ──────────────
+      // ── service step — THREE services, tapped in a fixed order ─────────
       // `assign-1` (Манікюр класичний, 60 min), `assign-2` (Брови корекція,
       // RANGE 200-350, 45 min), `assign-typed` (Класичний манікюр, 60 min) —
       // three DISTINCT seeded assignments (`fake_backend.dart`'s `_services`
-      // fixture), tapped in this order so [lastStaffBookingRequestBody]'s
-      // `masterServiceIds` order is pinned, not incidental.
+      // fixture), tapped in this order so every downstream ordered
+      // assertion (`lastMasterOwnSlotsServiceIds`, `masterServiceIds`) is
+      // pinned, not incidental.
       await AppHarness.pumpUntilFound(
         tester,
         find.byKey(const Key('mcb_service_card_assign-1')),
@@ -400,38 +407,27 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-summary-cta')));
       await AppHarness.settle(tester);
 
-      // ── Step 3 — date + slot ────────────────────────────────────────────
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byKey(Key('booking-calendar-day-${_kyivToday.day}')),
-      );
-      await tester.tapCalendarDay(_kyivToday.day);
-      await AppHarness.settle(tester);
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-date-next')),
-      );
-      await AppHarness.settle(tester);
+      // ── date + slot ──────────────────────────────────────────────────
+      await _pickDateAndSlot(tester);
 
-      final Finder availableChip = find
-          .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
-          .first;
-      await tester.ensureVisible(availableChip);
-      await AppHarness.settle(tester);
-      await tester.tap(availableChip);
-      await AppHarness.settle(tester);
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-time-next')),
-      );
-      await AppHarness.settle(tester);
-
-      // ── Step 4 — confirm → submit ───────────────────────────────────────
+      // HARD CONSTRAINT 4 — the availability request the date/time screens
+      // fired against `SlotRepository.getMasterSlots` carried ALL three
+      // ordered ids as repeated `serviceId=` params, never `services.first`
+      // alone.
       expect(
-        find.byKey(const Key('master-create-booking-confirm-card')),
+        fb.lastMasterOwnSlotsServiceIds,
+        <String>['assign-1', 'assign-2', 'assign-typed'],
+        reason:
+            'the slot-availability request must be computed against the '
+            'WHOLE chained visit, not just the first tapped service',
+      );
+
+      // ── confirm → submit ─────────────────────────────────────────────
+      expect(
+        find.byKey(const Key('booking-confirm-visit-card')),
         findsOneWidget,
       );
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-submit-cta')),
-      );
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
       expect(
@@ -446,14 +442,28 @@ void main() {
         <String>['assign-1', 'assign-2', 'assign-typed'],
         reason:
             'the ORDERED list the master actually tapped, on the wire '
-            'key Phase 252 widened `masterServiceId` into',
+            'key `masterServiceIds`',
       );
 
-      // ── Step 5 — done renders the SERVER's chained window, not the '
-      // local naive sum ──────────────────────────────────────────────────
+      // ── success renders every service in the visit ──────────────────
+      //
+      // Phase 264 DEVIATION from the retired wizard's own `_DoneStep`: that
+      // widget rendered the SERVER's created `Appointment.endAt` (a real
+      // chained/buffered window), because it had the POST response in hand.
+      // The routed chain's `BookingSuccessScreen` is the SAME CLIENT screen
+      // the MO-3 client flow uses (`booking_success_screen.dart`'s
+      // `_totalDurationMinutes` — a plain fold over `widget.args.services`,
+      // `formatTimeRange(startAt, _totalDurationMinutes)`), and per HARD
+      // CONSTRAINT 1 it must render byte-identically for the client, so it
+      // is not special-cased for the walk-in path either. This is therefore
+      // a NAIVE LOCAL SUM window (no backend inter-service buffer) on
+      // purpose — the D3 "server window, not local sum" guarantee the
+      // retired wizard's own test pinned no longer has a screen to hold it
+      // on this path; see this file's own header and the phase-264/265
+      // hand-off notes for the recorded deviation.
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(const Key('master-create-booking-done-card')),
+        find.byKey(const Key('booking-success-visit-card')),
       );
 
       // `_kyivToday` at 07:00Z, the SAME slot start `_availableSlotsEnvelope`
@@ -466,32 +476,19 @@ void main() {
         7,
         0,
       );
-      // The fake backend's own chaining (own doc, `fake_backend.dart`):
-      // 60 + 10-buffer + 45 + 10-buffer + 60 = 185 minutes.
-      final DateTime serverChainedEnd = slotStart.add(
-        const Duration(minutes: 185),
-      );
-      // What a REGRESSED local-state render would show instead — the naive
-      // sum of durations alone, no buffer.
+      // The client-computed naive sum: 60 + 45 + 60 = 165 minutes, no
+      // backend inter-service buffer — see the deviation note above.
       final DateTime naiveLocalSumEnd = slotStart.add(
         const Duration(minutes: 165),
       );
 
       expect(
-        find.text(formatSlotTimeRange(slotStart, serverChainedEnd)),
+        find.text(formatSlotTimeRange(slotStart, naiveLocalSumEnd)),
         findsOneWidget,
         reason:
-            'must render the SERVER-chained end time (with the '
-            "backend's own inter-service buffer), not a client re-derived "
-            'one',
-      );
-      expect(
-        find.text(formatSlotTimeRange(slotStart, naiveLocalSumEnd)),
-        findsNothing,
-        reason:
-            'the naive local sum of durations (no buffer) is exactly '
-            "the D3 regression this test exists to catch — it must NOT be "
-            'what renders',
+            'BookingSuccessScreen renders startAt + Σ(local durations) — '
+            'the same computation the CLIENT flow uses on this shared '
+            'screen (HARD CONSTRAINT 1)',
       );
 
       // Every service in the visit, not just the first tap-ordered pick.

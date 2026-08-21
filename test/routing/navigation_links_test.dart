@@ -317,6 +317,7 @@ void main() {
       'masterProfile': RouteNames.masterProfile,
       'masterBookings': RouteNames.masterBookings,
       'masterBookingNew': RouteNames.masterBookingNew,
+      'masterBookingNewServices': RouteNames.masterBookingNewServices,
       'masterBookingDetail()': RouteNames.masterBookingDetail(kSampleId),
       'masterBookingsArchive': RouteNames.masterBookingsArchive,
       'clientReview()': RouteNames.clientReview(kSampleId),

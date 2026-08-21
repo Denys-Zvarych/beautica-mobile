@@ -50,6 +50,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
+import 'create_master_booking_request.dart';
 
 part 'booking_confirm_args.freezed.dart';
 
@@ -86,5 +87,17 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// Non-null only for a track 27.x/MO-6 whole-VISIT reschedule — see the
     /// file header.
     String? rescheduleAppointmentId,
+
+    /// Non-null only when this flow was entered from the master's own
+    /// WALK-IN («Новий запис») entry point — the guest identity to submit
+    /// with `CreateMasterBookingRequest`. See phase-258.
+    WalkInGuest? guest,
+
+    /// `true` when the viewer IS the master being booked (the walk-in path),
+    /// so this screen must not render the master identity card back at
+    /// them. Deliberately NOT derived from `guest != null` — see phase-258
+    /// D4. Defaults to `false` so every existing call site renders
+    /// unchanged.
+    @Default(false) bool hideMasterIdentity,
   }) = _BookingConfirmArgs;
 }
