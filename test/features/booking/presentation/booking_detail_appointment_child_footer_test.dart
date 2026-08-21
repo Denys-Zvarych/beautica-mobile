@@ -57,6 +57,7 @@
 // Cyrillic literal (CI no-raw-string gate).
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -642,6 +643,29 @@ void main() {
       // Both actions are offered on an elapsed CONFIRMED visit.
       expect(find.byKey(const Key('booking-detail-complete')), findsOneWidget);
       expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+      // «Перенести» stays visible but INERT on an elapsed appointment-child
+      // booking too — `_providerActions`' `hasStartedAt(now)` branch gates on
+      // the booking alone, never on `appointmentId`, mirroring the
+      // plain-booking underway case asserted in
+      // `booking_detail_provider_footer_test.dart`. This was the missing
+      // assertion that let `master_appointment_child_booking_actions_flow_test
+      // .dart` carry a stale `findsNothing` for a full commit cycle without
+      // the widget tier noticing.
+      final Finder rescheduleFinder = find.byKey(
+        const Key('booking-detail-provider-reschedule'),
+      );
+      expect(rescheduleFinder, findsOneWidget);
+      expect(
+        tester.widget<NeumorphicButton>(rescheduleFinder).onPressed,
+        isNull,
+        reason:
+            'the backend still rejects a reschedule once the booking has '
+            'started',
+      );
+      expect(
+        find.byKey(const Key('booking-detail-reschedule-unavailable-reason')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await tester.pumpAndSettle();

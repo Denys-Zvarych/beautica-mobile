@@ -45,7 +45,6 @@
 
 import 'dart:async';
 
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
@@ -70,6 +69,7 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
+import 'support/reschedule_assertions.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -105,50 +105,6 @@ void main() {
     await container.read(bookingsDayProvider(dayQuery).future);
 
     return fb.getMyBookingsCalls;
-  }
-
-  /// STALE-ASSERTION FIX (found while adding the reschedule journey below —
-  /// this file failed 2/3 at HEAD, independently of that work).
-  ///
-  /// Both underway/elapsed tests used to assert
-  /// `find.byKey('booking-detail-provider-reschedule')` `findsNothing`,
-  /// matching a version of `_providerActions` that OMITTED the button once
-  /// `hasStartedAt(now)` was true. `booking_detail_screen.dart:798-826` has
-  /// since deliberately reversed that: silently vanishing read as "the app
-  /// can't reschedule this" rather than "this booking can't be moved anymore",
-  /// so the button now STAYS visible with `onPressed: null` plus a permanent
-  /// caption naming the reason. The old assertion could therefore only ever
-  /// fail — the E2E tier simply had not been re-run since.
-  ///
-  /// Asserting the INERT shape (present + null handler + caption) instead of
-  /// absence is also strictly stronger: absence was equally satisfied by the
-  /// button being dropped for the WRONG reason, whereas this pins the exact
-  /// three-part state the UX fix specifies.
-  void expectRescheduleVisibleButInert(WidgetTester tester) {
-    final Finder reschedule = find.byKey(
-      const Key('booking-detail-provider-reschedule'),
-    );
-    expect(
-      reschedule,
-      findsOneWidget,
-      reason:
-          'an underway booking keeps «Перенести» VISIBLE — omitting it reads '
-          'as an app limitation rather than a fact about this booking',
-    );
-    expect(
-      tester.widget<NeumorphicButton>(reschedule).onPressed,
-      isNull,
-      reason:
-          '…but INERT: the backend still rejects a reschedule once the '
-          'booking has started',
-    );
-    expect(
-      find.byKey(const Key('booking-detail-reschedule-unavailable-reason')),
-      findsOneWidget,
-      reason:
-          'the reason renders as a permanent caption — a hidden explanation '
-          'is the same silent-omission bug in a new costume',
-    );
   }
 
   testWidgets(
