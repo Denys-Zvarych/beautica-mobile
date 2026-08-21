@@ -16,19 +16,9 @@
 # --- Gated by the wasPinned + eager-read idiom (this track's fixes) ---------
 lib/features/booking/application/booking_calendar_invalidation.dart:162  # invalidateBookingViewsAfterExternalDecline — wasPinned-gated (mirror of FIX B, this track, found via this gate and fixed with the identical idiom)
 lib/features/booking/application/booking_calendar_invalidation.dart:287  # invalidateBookingViewsAfterProviderClose — FIX B (ITEM 1), wasPinned-gated via DayKeepAliveLru.contains
-lib/features/booking/application/booking_calendar_invalidation.dart:434  # invalidateBookingsDayAfterAppointmentItemReschedule — pre-existing FIX A, wasPinned-gated via DayKeepAliveLru.contains
+lib/features/booking/application/booking_calendar_invalidation.dart:409  # invalidateBookingViewsAfterBookingCreated — FIX (this track): USED TO be allow-listed here under "caller always covered by the wizard" reasoning, which is true only for the ONE day the rail shows at submit time and FALSE for every other day pinned-but-unwatched in DayKeepAliveLru — that reasoning missed the real crash (mobile-debugger, this track). Now wasPinned-gated via DayKeepAliveLru.liveQueries enumeration + .contains, the SAME idiom as every other site in this file — no longer a bare family invalidate, so the exemption is gone, not merely re-justified.
+lib/features/booking/application/booking_calendar_invalidation.dart:497  # invalidateBookingsDayAfterAppointmentItemReschedule — pre-existing FIX A, wasPinned-gated via DayKeepAliveLru.contains
 lib/features/schedule/presentation/weekly_schedule_notifier.dart:134     # _invalidateEffectiveScheduleWindows — FIX D (ITEM 4), wasPinned-gated via WidgetRef.exists + EffectiveScheduleRangeTracker enumeration
-#
-# --- Bare-family invalidate, but the caller is PROVABLY always covered -----
-# `invalidateBookingViewsAfterBookingCreated`'s own doc (same file, directly
-# above) already proves its ONE call site (`MasterCreateBookingNotifier
-# .submit`) always fires while the day-calendar screen is COVERED by the
-# full-screen booking wizard — Riverpod 3 PAUSES a covered consumer rather
-# than dropping its listener to zero, so `mayNeedDispose()` never queues
-# disposal here; the queued refresh is dropped and picked up on resume
-# instead (a different, non-crashing path — see that doc's "What the queued
-# refresh does and does NOT guarantee").
-lib/features/booking/application/booking_calendar_invalidation.dart:350  # invalidateBookingViewsAfterBookingCreated — caller always covered, see this file's own doc; not the zero-listener precondition
 #
 # --- Self-key retry / refresh, invalidating the SAME instance the SAME ------
 # --- still-mounted widget is ACTIVELY watching in the SAME build -----------

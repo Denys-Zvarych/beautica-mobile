@@ -305,12 +305,54 @@ void invalidateBookingViewsAfterProviderClose(
 /// answer, in the feature that owns those caches, instead of being re-derived
 /// inline at each call site (see this file's header).
 ///
-///   • [bookingsDayProvider] — the BARE family. Same reasoning as
-///     [invalidateBookingViewsAfterProviderClose]'s: this helper's caller does
-///     not know which day the master's «Мої записи» is currently viewing, and
-///     Riverpod only EAGERLY recomputes the members with an active listener
-///     (at most the bounded ≤3-day keepAlive LRU) — every other cached day
-///     refetches lazily when next watched.
+///   • [bookingsDayProvider] — every currently-built family member (this
+///     helper's caller does not know which day the master's «Мої записи» is
+///     currently viewing), reached by enumerating [DayKeepAliveLru
+///     .liveQueries] rather than a bare `ref.invalidate(bookingsDayProvider)`
+///     — see "FIX (mobile-debugger, this track)" below for why the bare form
+///     was unsafe and why enumerating is scope-IDENTICAL to it, not
+///     narrower: [DayKeepAliveLru.touch] runs unconditionally on every
+///     [BookingsDayNotifier.build] regardless of listener state, so every
+///     member that currently exists — watched or pinned-but-unwatched — is
+///     tracked there, and nothing outside that bounded ≤3-day set can exist
+///     (an evicted query's [KeepAliveLink] closing is what lets Riverpod
+///     dispose it in the first place). Every other cached day (i.e. every day
+///     NOT in that bounded set) was already disposed before this call runs,
+///     so there is nothing further for this helper to reach.
+///
+///     ## FIX (mobile-debugger, this track) — the MISSED site
+///
+///     This function used to read `ref.invalidate(bookingsDayProvider);` —
+///     no query argument, the family's OWN bare invalidate. That was
+///     allow-listed (`scripts/.keepalive_family_invalidation_allow`) rather
+///     than fixed, on the reasoning that its one caller
+///     (`MasterCreateBookingNotifier.submit`) always fires while the
+///     day-calendar screen is COVERED by the full-screen «Новий запис»
+///     wizard, and Riverpod 3 PAUSES a covered consumer instead of dropping
+///     its listener to zero. That reasoning is true ONLY for the ONE day the
+///     rail happens to be showing at submit time. It is FALSE for every
+///     OTHER day still sitting in [DayKeepAliveLru] — a day the master
+///     glanced at earlier this session, then scrubbed the rail away from,
+///     which is pinned via a [KeepAliveLink] with genuinely ZERO listeners,
+///     not merely paused. A bare family invalidate calls `invalidateSelf()`
+///     on THAT element too, which is the EXACT `ProviderSubscription`-closed
+///     precondition [invalidateBookingsDayAfterAppointmentItemReschedule]'s
+///     "FIX A" doc (below) and [invalidateBookingViewsAfterProviderClose]'s
+///     "FIX B" doc already fixed at their own sites — this function was the
+///     one place that class of bug survived the original sweep, because its
+///     caller shape ("always covered") looked safe for the single watched
+///     member and nobody separately checked the OTHER, merely-pinned ones.
+///
+///     Fixed with the IDENTICAL idiom every other site in this file uses:
+///     gate each candidate on [DayKeepAliveLru.contains] (trivially `true`
+///     for every member [liveQueries] itself just enumerated, but checked
+///     the same way regardless, so this stays visually and structurally
+///     identical to the other three sites — no second mechanism to audit),
+///     `ref.invalidate`, then an eager `ref.read` back to re-touch the
+///     keepAlive link before the scheduler's queued disposal task can fire.
+///     At most 3 extra eager reads (`bookings_day_notifier.dart`'s
+///     `_kMaxKeptDays`), bounded by the same cap that already bounds this
+///     LRU everywhere else.
 ///   • [bookedDaysProvider] — THE FIX (mobile-debugger MEDIUM, 2026-08-20).
 ///     The day-rail's and month panel's dot set. A brand-new booking on a day
 ///     that had none is precisely a change to a booking's EXISTENCE, which is
@@ -323,31 +365,52 @@ void invalidateBookingViewsAfterProviderClose(
 ///     list invalidates.
 ///
 /// Cost: one refetch per LIVE subscriber, same accounting as the two helpers
-/// above — calling this while «Мої записи» is not on screen costs nothing.
-/// **When the refetch actually happens.** The wizard is a full-screen route,
-/// so in practice the day list underneath it is COVERED for the whole submit,
-/// and Riverpod 3 pauses a covered consumer's subscriptions. A paused listener
-/// does not make an element active
-/// (`element.dart`: `isActive => (listenerCount -
-/// pausedActiveSubscriptionCount) > 0`), and the scheduler only flushes active
-/// elements (`scheduler.dart::_performRefresh`) before clearing its queue
-/// unconditionally — so the refresh this call queues is DROPPED rather than
-/// run while the wizard is on top. That is not a leak: `invalidateSelf()` has
-/// already severed the element's `KeepAliveLink`s and left
-/// `_mustRecomputeState = true`, so the member is either disposed outright or
-/// recomputed by the first READ after the wizard pops. Either way the day list
-/// refetches on resume.
+/// above, PLUS at most 3 eager reads for pinned-but-unwatched members (the
+/// FIX above) — calling this while «Мої записи» is not on screen costs
+/// nothing.
 ///
-/// The consequence for callers: this helper guarantees the caches are DROPPED,
-/// never that they have been REFILLED by the time it returns. Anything that
-/// needs the new data in hand must read the provider itself. See
+/// **When the refetch actually happens.** Two different members, two
+/// different answers:
+///
+///   - The ONE day the rail happens to be showing at submit time: the wizard
+///     is a full-screen route, so in practice that day's `Consumer` is
+///     COVERED for the whole submit, and Riverpod 3 pauses a covered
+///     consumer's subscriptions. A paused listener does not make an element
+///     active (`element.dart`: `isActive => (listenerCount -
+///     pausedActiveSubscriptionCount) > 0`), and the scheduler only flushes
+///     active elements (`scheduler.dart::_performRefresh`) before clearing
+///     its queue unconditionally — so the refresh this call queues for THAT
+///     member is DROPPED rather than run while the wizard is on top. That is
+///     not a leak: `invalidateSelf()` has already severed the element's
+///     `KeepAliveLink`s and left `_mustRecomputeState = true`, so the member
+///     is recomputed by the first READ after the wizard pops.
+///   - Every OTHER member [DayKeepAliveLru.liveQueries] enumerates (pinned
+///     but genuinely zero-listener): the FIX's eager `ref.read` forces a
+///     SYNCHRONOUS refetch right here, before this function returns — the
+///     same "genuine eager refetch, not a workaround" contract
+///     [invalidateBookingsDayAfterAppointmentItemReschedule]'s own doc
+///     describes, for the identical reason (re-touching the keepAlive link
+///     is what cancels the queued disposal).
+///
+/// The consequence for callers: this helper guarantees the caches are
+/// DROPPED, and the pinned-but-unwatched ones are additionally REFILLED
+/// before it returns — but the one actively-covered member is not
+/// guaranteed refilled by the time it returns. Anything that needs the new
+/// data in hand must read the provider itself. See
 /// `bookings_day_notifier.dart`'s header ("What the queued refresh does and
 /// does NOT guarantee") for the full mechanism.
 ///
 /// Cycle-safe: neither target watches, even transitively,
 /// `masterCreateBookingProvider`, so this closes no back-edge.
 void invalidateBookingViewsAfterBookingCreated(Ref ref) {
-  ref.invalidate(bookingsDayProvider);
+  final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
+  for (final BookingsDayQuery query in lru.liveQueries) {
+    final bool wasPinned = lru.contains(query);
+    ref.invalidate(bookingsDayProvider(query));
+    if (wasPinned) {
+      ref.read(bookingsDayProvider(query));
+    }
+  }
   ref.invalidate(bookedDaysProvider);
 }
 

@@ -308,6 +308,30 @@ class DayKeepAliveLru {
   /// nothing to race.
   bool contains(BookingsDayQuery query) => _links.containsKey(query);
 
+  /// Every query currently holding one of the [_kMaxKeptDays] budget slots —
+  /// i.e. every candidate [contains] would answer `true` for — snapshotted
+  /// into a `List` at call time.
+  ///
+  /// FIX (mobile-debugger, this track) — the ONE gap the FIX A signal above
+  /// left open: [contains] answers "is THIS ONE query pinned", which is
+  /// enough for a caller that already knows which date(s) it touched
+  /// (`invalidateBookingViewsAfterExternalDecline`,
+  /// `invalidateBookingViewsAfterProviderClose`,
+  /// `invalidateBookingsDayAfterAppointmentItemReschedule`). A caller doing a
+  /// BARE FAMILY invalidate — `invalidateBookingViewsAfterBookingCreated`,
+  /// which does not know which Kyiv day the rail is currently showing —
+  /// cannot name a query to check `contains` against; it needs the whole set
+  /// of currently-at-risk candidates, mirroring
+  /// `EffectiveScheduleRangeTracker.liveRanges`'s identical role for
+  /// `weekly_schedule_notifier.dart`'s own bare-family fan-out.
+  ///
+  /// Snapshotted (not a live view) for the same reason `liveRanges` is:
+  /// callers iterate this list while invalidating/reading members of the
+  /// family, and an eager `ref.read` back re-touches [touch] on the SAME
+  /// query — replacing, not adding, an entry — so the underlying map can
+  /// mutate mid-iteration if a caller iterated it directly.
+  List<BookingsDayQuery> get liveQueries => _links.keys.toList(growable: false);
+
   void touch(BookingsDayQuery query, KeepAliveLink link) {
     // A rebuild of a query already tracked (e.g. the error state's «retry»
     // invalidating the SAME query) replaces the link instead of leaking a
