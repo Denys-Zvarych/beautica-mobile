@@ -424,6 +424,14 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // retired wizard's guest-identity card. `null` on the reschedule/
           // client-create branches, same as `guest` itself.
           guest: guest,
+          // CLIENT IDENTITY PARITY (2026-08-22) — the reschedule-path
+          // counterpart of `guest`, forwarded unchanged from
+          // `BookingConfirmArgs.rescheduleClientName`/`rescheduleClientPhone`
+          // so the terminal done screen can render the same
+          // `GuestIdentityCard.identity` this screen renders below. `null` on
+          // every non-reschedule-provider path, same as those args fields.
+          rescheduleClientName: widget.args.rescheduleClientName,
+          rescheduleClientPhone: widget.args.rescheduleClientPhone,
         ),
       );
     } on Failure catch (failure) {
@@ -545,6 +553,13 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     // set `BookingConfirmArgs.guest`), so this is a purely
                     // additive read.
                     guest: widget.args.guest,
+                    // CLIENT IDENTITY PARITY (2026-08-22) — the reschedule
+                    // counterpart of `guest` just above; `null` on every
+                    // call site except a PROVIDER rescheduling a booking
+                    // with a registered client (see
+                    // `reschedule_navigation.dart`).
+                    rescheduleClientName: widget.args.rescheduleClientName,
+                    rescheduleClientPhone: widget.args.rescheduleClientPhone,
                     // The reschedule endpoint takes only the new start — a
                     // note-to-master input would be silently ignored, so it is
                     // hidden on the reschedule path. Also hidden on the
@@ -591,6 +606,8 @@ class _ConfirmBody extends StatelessWidget {
     this.hideMasterIdentity = false,
     this.onDuplicateRefresh,
     this.guest,
+    this.rescheduleClientName,
+    this.rescheduleClientPhone,
   });
 
   final Master master;
@@ -631,8 +648,17 @@ class _ConfirmBody extends StatelessWidget {
   /// renders no card rather than a null-check crash.
   final WalkInGuest? guest;
 
+  /// CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path counterpart of
+  /// [guest]: forwarded from `BookingConfirmArgs.rescheduleClientName`/
+  /// `rescheduleClientPhone`, populated ONLY when a PROVIDER is rescheduling
+  /// a booking with a registered client (see `reschedule_navigation.dart`).
+  /// `null` on every other call site, so those paths render byte-identically.
+  final String? rescheduleClientName;
+  final String? rescheduleClientPhone;
+
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final String? addressLine = formatStreetCityLine(
       street: master.street,
       buildingNo: master.buildingNo,
@@ -666,6 +692,21 @@ class _ConfirmBody extends StatelessWidget {
             GuestIdentityCard(
               key: const Key('booking-confirm-guest-card'),
               guest: guest!,
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+          ] else if (rescheduleClientName != null) ...<Widget>[
+            // CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path
+            // counterpart of the walk-in card just above: a PROVIDER
+            // rescheduling a booking with a registered client sees the SAME
+            // `GuestIdentityCard` (via `.identity`) in the same visual slot,
+            // rather than an empty gap where the hidden master card would
+            // otherwise sit. `null` on every client-viewer reschedule and
+            // every create path, so those render byte-identically.
+            GuestIdentityCard.identity(
+              key: const Key('booking-confirm-client-card'),
+              name: rescheduleClientName!,
+              phone: rescheduleClientPhone,
+              label: l10n.bookingClientLabel,
             ),
             const SizedBox(height: VelvetSpacing.md),
           ],

@@ -468,7 +468,18 @@ void main() {
     'reaches the REAL slot picker (never bounced to /master/profile), then '
     'walks the whole reschedule journey — date → time → confirm → submit → '
     'success — across all four clientOnlyGuard-ed routes, and «На головну» '
-    'lands on the MASTER home, not the CLIENT shell',
+    'lands on the MASTER home, not the CLIENT shell. mobile-qa '
+    '(client-identity parity, 2026-08-22) additionally asserts the '
+    'registered-client identity card (`booking-confirm-client-card` / '
+    '`booking-success-client-card`) renders with the REAL seeded client '
+    'name (`booking-1`\'s FakeBackend fixture — clientId `client-1`, '
+    'firstName «Дмитро», lastName «Клієнт») on BOTH the confirm and done '
+    'steps — the end-to-end proof that `reschedule_navigation.dart` seeds '
+    'the field off a REAL `GET /bookings/booking-1` response, not merely a '
+    'synthetic widget-tier fixture (`reschedule_navigation_test.dart` and '
+    '`booking_confirm_test.dart`/`booking_success_walkin_test.dart` already '
+    'prove the wiring against hand-built fixtures; this is the one place '
+    'that proves it survives a real GET + real JSON deserialization).',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       // Default seed: CONFIRMED, ~7 days out, so `hasStartedAt(kFixedNow)` is
@@ -529,6 +540,24 @@ void main() {
       expect(find.byType(MasterProfileScreen), findsNothing);
       AppHarness.expectLocation(router, RouteNames.bookingConfirm);
 
+      // ── Client identity card (client-identity parity, 2026-08-22). ────────
+      // A PROVIDER rescheduling a REAL client's booking (`booking-1`'s
+      // FakeBackend fixture is seeded with clientId `client-1`, never a
+      // guest) must see the client's name in the same visual slot the
+      // walk-in guest card occupies on the CREATE path.
+      expect(
+        find.byKey(const Key('booking-confirm-client-card')),
+        findsOneWidget,
+        reason:
+            'a PROVIDER rescheduling a REAL client\'s booking must see the '
+            'registered client\'s identity card on the confirm step',
+      );
+      // i18n-finder-ok: client name is FakeBackend fixture data
+      // (`clientFirstName`/`clientLastName`), not localized UI copy.
+      expect(find.text('Дмитро Клієнт'), findsOneWidget);
+      // Mutually exclusive with the walk-in guest card on THIS screen.
+      expect(find.byKey(const Key('booking-confirm-guest-card')), findsNothing);
+
       // ── Submit → the REAL PATCH /bookings/{id}/reschedule, as a PROVIDER. ─
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
@@ -551,6 +580,19 @@ void main() {
             'the client uses — track 27.2 widened it, it was never forked',
       );
       expect(fb.lastRescheduleNewStartsAt, isNotNull);
+
+      // ── Client identity card carries through onto the DONE screen too. ────
+      expect(
+        find.byKey(const Key('booking-success-client-card')),
+        findsOneWidget,
+        reason:
+            'BookingConfirmScreen._submit forwards rescheduleClientName/'
+            '-Phone unchanged onto BookingSuccessArgs — the done screen '
+            'renders its own copy of the card',
+      );
+      // i18n-finder-ok: client name is FakeBackend fixture data, not
+      // localized UI copy.
+      expect(find.text('Дмитро Клієнт'), findsOneWidget);
 
       // ── The journey ENDS with the master back on its own home. ────────────
       //

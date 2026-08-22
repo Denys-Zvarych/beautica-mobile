@@ -101,7 +101,17 @@ const MasterService _bookedService = MasterService(
 /// .dart`) is `true` by default here, same as before this parameter existed.
 /// Callers that need a REAL client's booking (the calendar-button regression
 /// guard below) pass a non-null [clientId] explicitly.
-Booking _booking({required BookingStatus status, String? clientId}) {
+///
+/// [clientFirstName]/[clientLastName] default to `null` (unset) — every
+/// PRE-EXISTING call site relies on that too, so `Booking.clientName`
+/// (`booking_display_x.dart`) stays `null` by default. The `rescheduleClientName`
+/// group below (mobile-qa, 2026-08-22) passes both explicitly.
+Booking _booking({
+  required BookingStatus status,
+  String? clientId,
+  String? clientFirstName,
+  String? clientLastName,
+}) {
   final DateTime start = DateTime.utc(2026, 7, 20, 15);
   return Booking(
     id: _bookingId,
@@ -118,6 +128,8 @@ Booking _booking({required BookingStatus status, String? clientId}) {
     status: status,
     canReview: false,
     clientId: clientId,
+    clientFirstName: clientFirstName,
+    clientLastName: clientLastName,
   );
 }
 
@@ -497,4 +509,111 @@ void main() {
       },
     );
   });
+
+  // ---------------------------------------------------------------------
+  // mobile-qa (client-identity parity, 2026-08-22) — `rescheduleClientName`
+  // is seeded off the SAME `hideMasterIdentity` boolean just above (not a
+  // second `bookingViewerRoleProvider` read), from `booking.clientName`
+  // (`BookingDisplayX`). THE GATE THIS CHANGE RESTS ON: a CLIENT
+  // rescheduling their OWN booking must NEVER be shown an identity card of
+  // themselves — that is the exact "your own strip staring back at you"
+  // problem the walk-in guest card was introduced to solve on the PROVIDER
+  // side, and reusing `hideMasterIdentity` verbatim for this new field means
+  // a future edit that weakens that gate on ONE side weakens it on the
+  // other too. So the CLIENT-viewer case below is the load-bearing
+  // assertion in this whole group, not a symmetry filler.
+  // ---------------------------------------------------------------------
+  group(
+    'rescheduleClientName seeded by viewer role (client-identity parity)',
+    () {
+      testWidgets(
+        'a PROVIDER-initiated reschedule of a booking WITH a registered client '
+        'seeds rescheduleClientName from booking.clientName',
+        (tester) async {
+          final BookingSlotPickerArgs? captured = await _driveCaptured(
+            tester,
+            detail: () async => _booking(
+              status: BookingStatus.confirmed,
+              clientId: 'c1',
+              clientFirstName: 'Олена',
+              clientLastName: 'Ковальчук',
+            ),
+            overrides: <Object>[
+              authProvider.overrideWith(
+                () => _StubAuth(
+                  const AuthSession.authenticated(
+                    user: _kProviderUser,
+                    accessToken: 't',
+                  ),
+                ),
+              ),
+            ],
+          );
+
+          expect(captured, isNotNull);
+          expect(captured!.rescheduleClientName, 'Олена Ковальчук');
+          // `Booking` carries no client phone field — always null today (see
+          // `BookingSlotPickerArgs.rescheduleClientPhone`'s doc).
+          expect(captured.rescheduleClientPhone, isNull);
+        },
+      );
+
+      testWidgets(
+        'THE LOAD-BEARING ASSERTION — a CLIENT rescheduling their OWN booking '
+        'keeps rescheduleClientName NULL even though booking.clientName is '
+        'non-null — a client must never see an identity card of themselves',
+        (tester) async {
+          final BookingSlotPickerArgs? captured = await _driveCaptured(
+            tester,
+            detail: () async => _booking(
+              status: BookingStatus.confirmed,
+              clientId: 'c1',
+              clientFirstName: 'Олена',
+              clientLastName: 'Ковальчук',
+            ),
+            overrides: <Object>[
+              authProvider.overrideWith(
+                () => _StubAuth(
+                  const AuthSession.authenticated(
+                    user: _kClientUser,
+                    accessToken: 't',
+                  ),
+                ),
+              ),
+            ],
+          );
+
+          expect(captured, isNotNull);
+          expect(captured!.rescheduleClientName, isNull);
+          expect(captured.rescheduleClientPhone, isNull);
+        },
+      );
+
+      testWidgets(
+        'a PROVIDER-initiated reschedule of a WALK-IN (guest) booking keeps '
+        'rescheduleClientName null — there is no registered client name to '
+        'show',
+        (tester) async {
+          final BookingSlotPickerArgs? captured = await _driveCaptured(
+            tester,
+            detail: () async =>
+                _booking(status: BookingStatus.confirmed, clientId: null),
+            overrides: <Object>[
+              authProvider.overrideWith(
+                () => _StubAuth(
+                  const AuthSession.authenticated(
+                    user: _kProviderUser,
+                    accessToken: 't',
+                  ),
+                ),
+              ),
+            ],
+          );
+
+          expect(captured, isNotNull);
+          expect(captured!.rescheduleClientName, isNull);
+        },
+      );
+    },
+  );
 }

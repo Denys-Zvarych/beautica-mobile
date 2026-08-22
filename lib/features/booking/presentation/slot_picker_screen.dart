@@ -551,6 +551,8 @@ class SlotTimeScreen extends ConsumerWidget {
         guest: args.guest,
         hideMasterIdentity: args.hideMasterIdentity,
         rescheduleTargetIsWalkIn: args.rescheduleTargetIsWalkIn,
+        rescheduleClientName: args.rescheduleClientName,
+        rescheduleClientPhone: args.rescheduleClientPhone,
       ),
     );
   }

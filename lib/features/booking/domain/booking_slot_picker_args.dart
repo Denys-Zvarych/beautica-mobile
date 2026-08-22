@@ -105,5 +105,22 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// site (create, and every reschedule of a real client's booking) is
     /// unaffected.
     @Default(false) bool rescheduleTargetIsWalkIn,
+
+    /// RESCHEDULE-ONLY, client-identity parity fields (2026-08-22). `null` on
+    /// every CREATE path (client or walk-in) — populated ONLY by
+    /// `reschedule_navigation.dart`'s `startBookingReschedule`, and ONLY when
+    /// the reschedule VIEWER is the PROVIDER (the same `hideMasterIdentity`
+    /// gate), from the freshly-fetched `Booking`'s
+    /// `BookingDisplayX.clientName`. A CLIENT rescheduling their own booking
+    /// must not see an identity card of themselves, so both stay `null` on
+    /// that path. Threaded unchanged onto [BookingConfirmArgs] /
+    /// [BookingSuccessArgs] so the confirm/done screens can render the SAME
+    /// [GuestIdentityCard] the walk-in CREATE path already renders (via
+    /// [GuestIdentityCard.identity]) instead of leaving that visual slot
+    /// empty. `Booking` carries no client phone field, so
+    /// [rescheduleClientPhone] is always `null` today — kept nullable rather
+    /// than dropped so a future phone field needs no new plumbing.
+    String? rescheduleClientName,
+    String? rescheduleClientPhone,
   }) = _BookingSlotPickerArgs;
 }

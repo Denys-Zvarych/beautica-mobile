@@ -1568,7 +1568,7 @@ class _Header extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: VelvetText.masterBookingsTitle,
+                style: VelvetText.pageTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),

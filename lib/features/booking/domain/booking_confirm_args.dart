@@ -109,5 +109,18 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// still checked FIRST wherever the two could otherwise conflict).
     /// Defaults to `false` so every existing call site is unaffected.
     @Default(false) bool rescheduleTargetIsWalkIn,
+
+    /// RESCHEDULE-ONLY, client-identity parity fields (2026-08-22). Forwarded
+    /// unchanged from [BookingSlotPickerArgs.rescheduleClientName] /
+    /// [BookingSlotPickerArgs.rescheduleClientPhone] by `SlotTimeScreen
+    /// ._confirm` — see that field's doc for the full rationale. `null` on
+    /// every CREATE call site (client or walk-in) and on a CLIENT's own
+    /// reschedule; non-null only when a PROVIDER rescheduled a booking with a
+    /// registered client identity to show. Consumed by this screen to render
+    /// [GuestIdentityCard.identity] in the same visual slot the walk-in
+    /// [guest] card occupies, then forwarded onto [BookingSuccessArgs] for
+    /// the terminal done screen.
+    String? rescheduleClientName,
+    String? rescheduleClientPhone,
   }) = _BookingConfirmArgs;
 }

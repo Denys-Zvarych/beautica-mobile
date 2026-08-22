@@ -265,6 +265,32 @@ BookingConfirmArgs _rescheduleArgsWithGuest() => BookingConfirmArgs(
 /// (which construct `BookingSuccessArgs` directly and never exercise
 /// `_submit`'s `isWalkIn: guest != null || widget.args
 /// .rescheduleTargetIsWalkIn` line at all).
+/// [_rescheduleArgs] with [rescheduleClientName] (and optionally
+/// [rescheduleClientPhone]) ALSO set — the shape `reschedule_navigation
+/// .dart` seeds when a PROVIDER reschedules a booking with a registered
+/// client. `hideMasterIdentity: true` too — in production
+/// `rescheduleClientName` is seeded off the SAME boolean (see
+/// `reschedule_navigation.dart`), so the two are never independently
+/// toggled; this also keeps the master card (and its OWN name text) off
+/// screen, which matters here because the client fixture below
+/// deliberately reuses a DIFFERENT name than `_kMaster`'s to avoid a
+/// same-text collision even when both cards could theoretically coexist.
+/// mobile-qa (client-identity parity, 2026-08-22).
+BookingConfirmArgs _rescheduleArgsWithClientName({
+  String clientName = 'Марта Дяченко',
+  String? phone,
+}) => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService],
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
+  rescheduleBookingId: 'booking-1',
+  hideMasterIdentity: true,
+  rescheduleClientName: clientName,
+  rescheduleClientPhone: phone,
+);
+
 BookingConfirmArgs _rescheduleArgsWalkInTarget() => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
@@ -1888,6 +1914,146 @@ void main() {
             find.byKey(const Key('booking-confirm-guest-card')),
             findsNothing,
           );
+        },
+      );
+    });
+
+    // mobile-qa (client-identity parity, 2026-08-22) — the RESCHEDULE-path
+    // counterpart of the guest-identity-card group above. REUSE-FIRST: same
+    // `GuestIdentityCard` widget (via its new `.identity` constructor), same
+    // key-naming convention (`booking-confirm-client-card` mirrors
+    // `booking-confirm-guest-card`). Mutually exclusive with the guest card
+    // on THIS screen — `_ConfirmBody`'s `if (guest != null) ... else if
+    // (rescheduleClientName != null)` — unlike the success screen's two
+    // independent `if`s (see `booking_success_walkin_test.dart`'s own
+    // group), so no "both cards" probe is meaningful here.
+    group('client identity card (client-identity parity, 2026-08-22)', () {
+      testWidgets('should_showClientCard_when_rescheduleClientNameNonNull — a '
+          'PROVIDER rescheduling a real client\'s booking echoes the client '
+          'name in the same visual slot the walk-in guest card occupies', (
+        tester,
+      ) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _rescheduleArgsWithClientName(phone: '+380671112233'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        expect(
+          find.byKey(const Key('booking-confirm-client-card')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.bookingClientLabel), findsOneWidget);
+        // i18n-finder-ok: client name/phone are fixture data, not
+        // localized copy.
+        expect(find.text('Марта Дяченко'), findsOneWidget);
+        expect(find.text('+380671112233'), findsOneWidget);
+        // The walk-in guest card slot stays empty — mutually exclusive.
+        expect(
+          find.byKey(const Key('booking-confirm-guest-card')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('should_hideClientCard_when_clientCreatePath — the ordinary '
+          'client-create path is completely unaffected', (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake);
+
+        expect(
+          find.byKey(const Key('booking-confirm-client-card')),
+          findsNothing,
+        );
+      });
+
+      testWidgets(
+        'should_hideClientCard_when_rescheduleClientNameNull — THE GATE '
+        'THIS CHANGE RESTS ON: a CLIENT rescheduling their OWN booking (or '
+        'any plain reschedule where rescheduleClientName was never '
+        'populated) never renders the client card',
+        (tester) async {
+          final fake = _RecordingRescheduleRepository();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => fake),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+            ],
+          );
+          unawaited(
+            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('booking-confirm-client-card')),
+            findsNothing,
+          );
+        },
+      );
+
+      testWidgets(
+        'should_forwardRescheduleClientNameOntoSuccessArgs_when_submitted — '
+        'the confirm screen forwards rescheduleClientName/-Phone unchanged '
+        'onto BookingSuccessArgs so the done screen can render its own '
+        'copy of the card',
+        (tester) async {
+          final fake = _RecordingRescheduleRepository();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => fake),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+            ],
+          );
+          unawaited(
+            router.push(
+              RouteNames.bookingConfirm,
+              extra: _rescheduleArgsWithClientName(phone: '+380671112233'),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+          final l10n = AppLocalizations.of(
+            tester.element(find.byType(BookingSuccessScreen)),
+          );
+          expect(
+            find.byKey(const Key('booking-success-client-card')),
+            findsOneWidget,
+          );
+          expect(find.text(l10n.bookingClientLabel), findsOneWidget);
+          // i18n-finder-ok: client name/phone are fixture data, not
+          // localized copy.
+          expect(find.text('Марта Дяченко'), findsOneWidget);
+          expect(find.text('+380671112233'), findsOneWidget);
         },
       );
     });

@@ -106,6 +106,11 @@ BookingSuccessArgs _args({
   bool isReschedule = false,
   bool isWalkIn = false,
   WalkInGuest? guest,
+  // mobile-qa (client-identity parity, 2026-08-22) — RESCHEDULE-only
+  // counterpart of [guest]. Defaults to `null` so every PRE-EXISTING call
+  // site above is unaffected.
+  String? rescheduleClientName,
+  String? rescheduleClientPhone,
 }) => BookingSuccessArgs(
   master: _kMaster,
   services: const <MasterService>[_kService],
@@ -113,6 +118,8 @@ BookingSuccessArgs _args({
   isReschedule: isReschedule,
   isWalkIn: isWalkIn,
   guest: guest,
+  rescheduleClientName: rescheduleClientName,
+  rescheduleClientPhone: rescheduleClientPhone,
 );
 
 Future<GoRouter> _pump(WidgetTester tester, BookingSuccessArgs args) async {
@@ -444,5 +451,108 @@ void main() {
         );
       },
     );
+
+    // mobile-qa (client-identity parity, 2026-08-22) — the RESCHEDULE-path
+    // counterpart of the guest-identity-card group above. REUSE-FIRST: same
+    // `GuestIdentityCard` widget (via its new `.identity` constructor), same
+    // key-naming convention (`booking-success-client-card` mirrors
+    // `booking-success-guest-card`), gated the same way (present only when
+    // its own arg is non-null). Both groups are independent `if`s on the
+    // production screen (not else-if — see `booking_success_screen.dart`),
+    // so they are tested independently too; a walk-in card and a client
+    // card never legitimately co-occur in practice (a guest booking never
+    // carries a registered client name), but nothing in the widget itself
+    // enforces that — it is `reschedule_navigation.dart`'s job, covered by
+    // `reschedule_navigation_test.dart`'s own `rescheduleClientName` group.
+    group('client identity card (client-identity parity, 2026-08-22)', () {
+      testWidgets('should_showClientCard_when_rescheduleClientNamePresent — a '
+          'PROVIDER-initiated reschedule of a real client\'s booking echoes '
+          'the client name on the done screen', (tester) async {
+        await _pump(
+          tester,
+          _args(isReschedule: true, rescheduleClientName: 'Олена Ковальчук'),
+        );
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingSuccessScreen)),
+        );
+        expect(
+          find.byKey(const Key('booking-success-client-card')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.bookingClientLabel), findsOneWidget);
+        // i18n-finder-ok: client name is fixture data, not localized copy.
+        expect(find.text('Олена Ковальчук'), findsOneWidget);
+      });
+
+      testWidgets('should_showClientPhone_when_rescheduleClientPhonePresent', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          _args(
+            isReschedule: true,
+            rescheduleClientName: 'Олена Ковальчук',
+            rescheduleClientPhone: '+380671112233',
+          ),
+        );
+
+        // i18n-finder-ok: phone is fixture data, not localized copy.
+        expect(find.text('+380671112233'), findsOneWidget);
+      });
+
+      testWidgets(
+        'should_hideClientCard_when_rescheduleClientNameNull — the ordinary '
+        'client-create path is completely unaffected',
+        (tester) async {
+          await _pump(tester, _args());
+
+          expect(
+            find.byKey(const Key('booking-success-client-card')),
+            findsNothing,
+          );
+        },
+      );
+
+      testWidgets(
+        'should_hideClientCard_when_plainReschedule — a CLIENT rescheduling '
+        'their own booking (rescheduleClientName stays null all the way '
+        'through — see reschedule_navigation_test.dart) never renders the '
+        'client card either',
+        (tester) async {
+          await _pump(tester, _args(isReschedule: true));
+
+          expect(
+            find.byKey(const Key('booking-success-client-card')),
+            findsNothing,
+          );
+        },
+      );
+
+      testWidgets(
+        'should_showBothCards_never — walk-in guest card and reschedule '
+        'client card are independent `if`s; probing the (never-produced-in-'
+        'practice) combination proves neither gates on the other',
+        (tester) async {
+          await _pump(
+            tester,
+            _args(
+              isWalkIn: true,
+              guest: _kGuest,
+              rescheduleClientName: 'Олена Ковальчук',
+            ),
+          );
+
+          expect(
+            find.byKey(const Key('booking-success-guest-card')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('booking-success-client-card')),
+            findsOneWidget,
+          );
+        },
+      );
+    });
   });
 }

@@ -58,5 +58,19 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// [isWalkIn] alone, so those paths render byte-identically. Defaults to
     /// `null`.
     WalkInGuest? guest,
+
+    /// RESCHEDULE-ONLY, client-identity parity fields (2026-08-22) — the
+    /// reschedule-path counterpart of [guest]: forwarded unchanged from
+    /// [BookingConfirmArgs.rescheduleClientName] /
+    /// [BookingConfirmArgs.rescheduleClientPhone] by `BookingConfirmScreen
+    /// ._submit`. `null` on every CREATE call site (client or walk-in) and on
+    /// a CLIENT's own reschedule; non-null only when a PROVIDER rescheduled a
+    /// booking with a registered client identity to show. The done screen
+    /// gates its [GuestIdentityCard.identity] recap card on
+    /// [rescheduleClientName] non-null, mirroring how it gates the walk-in
+    /// card on `isWalkIn && guest != null`, so those paths render
+    /// byte-identically.
+    String? rescheduleClientName,
+    String? rescheduleClientPhone,
   }) = _BookingSuccessArgs;
 }

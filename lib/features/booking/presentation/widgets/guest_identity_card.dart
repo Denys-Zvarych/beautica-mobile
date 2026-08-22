@@ -1,4 +1,4 @@
-// Shared walk-in GUEST identity card.
+// Shared walk-in / reschedule CLIENT identity card.
 //
 // A bordered neumorphic card wrapping a single [LabelledRow] (name + phone),
 // shown on the master's own walk-in («Новий запис») entry point wherever the
@@ -15,6 +15,21 @@
 // `booking_confirm_test.dart` for the tests pinning both screens render this
 // card identically (present when a guest is carried, absent otherwise).
 //
+// WIDENED (RESCHEDULE parity, 2026-08-22): the RESCHEDULE path has no guest
+// step (`WalkInGuest` is always `null` there — see `booking_confirm_args
+// .dart`'s header), so it could never populate the original [GuestIdentityCard]
+// constructor. Rather than hand-copy a second `NeumorphicCard`+`LabelledRow`
+// block, this file now exposes a second entry point,
+// [GuestIdentityCard.identity], that takes a plain `name`/`phone` pair (as
+// recovered from `Booking.clientFirstName`/`clientLastName` via
+// `BookingDisplayX.clientName` — `Booking` carries no client phone field, so
+// the reschedule path always passes `phone: null`) and builds the IDENTICAL
+// `NeumorphicCard` + `LabelledRow` tree — ONE `build()` method, branching only
+// on which constructor supplied the name/detail. Both constructors keep the
+// same
+// `maxLines: 2, overflow: TextOverflow.ellipsis` third-party-free-text bound
+// (mobile-security LOW, audit-fix cycle 1, 2026-08-20).
+//
 // REUSE, not a NEW atom: this is a thin composition of two already-shared
 // primitives ([NeumorphicCard], [LabelledRow]) — no bespoke layout of its own.
 
@@ -27,28 +42,64 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import '../../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'labelled_row.dart';
 
-/// The walk-in guest's identity — name + phone — in a bordered neumorphic
-/// card, occupying the visual slot the master's own [MasterStrip] identity
-/// card would otherwise take on this screen.
+/// The counterparty's identity — name + optional phone — in a bordered
+/// neumorphic card, occupying the visual slot the master's own [MasterStrip]
+/// identity card would otherwise take on this screen.
+///
+/// Two entry points share one render:
+///   * the default constructor — the walk-in [WalkInGuest] (name + phone,
+///     both always present).
+///   * [GuestIdentityCard.identity] — the RESCHEDULE path's plain
+///     name/optional-phone pair (see the file header).
 class GuestIdentityCard extends StatelessWidget {
-  const GuestIdentityCard({super.key, required this.guest});
+  const GuestIdentityCard({super.key, required this.guest})
+    : _name = null,
+      _phone = null,
+      _label = null;
+
+  /// RESCHEDULE entry point — see the file header. [label] defaults to the
+  /// shipped «Клієнт» label (`AppLocalizations.bookingClientLabel`) when
+  /// omitted.
+  const GuestIdentityCard.identity({
+    super.key,
+    required String name,
+    String? phone,
+    String? label,
+  }) : _name = name,
+       _phone = phone,
+       _label = label,
+       guest = null;
 
   /// The walk-in guest carried on this flow's args. [WalkInGuest.name] /
   /// [WalkInGuest.surname] are two separate required fields on the domain
   /// model (never a single combined name) — joined here exactly as the
-  /// retired wizard's own guest card did.
-  final WalkInGuest guest;
+  /// retired wizard's own guest card did. `null` when built via
+  /// [GuestIdentityCard.identity].
+  final WalkInGuest? guest;
+
+  /// Set only by [GuestIdentityCard.identity].
+  final String? _name;
+  final String? _phone;
+  final String? _label;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final WalkInGuest? g = guest;
+    final String label = _label ?? l10n.masterCreateBookingGuestLabel;
+    final String value = g != null
+        ? '${g.name} ${g.surname}'.trim()
+        : (_name ?? '');
+    final String? detail = g != null
+        ? (g.phone.isEmpty ? null : g.phone)
+        : _phone;
     return NeumorphicCard(
       showBorder: true,
       padding: const EdgeInsets.all(VelvetSpacing.md),
       child: LabelledRow(
-        label: l10n.masterCreateBookingGuestLabel,
-        value: '${guest.name} ${guest.surname}'.trim(),
-        detail: guest.phone.isEmpty ? null : guest.phone,
+        label: label,
+        value: value,
+        detail: detail,
         // THIRD-PARTY FREE TEXT — same bound as the wizard's own two copies
         // of this card (`booking_wizard_steps.dart`, mobile-security LOW
         // audit-fix cycle 1, 2026-08-20).

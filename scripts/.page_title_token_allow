@@ -1,0 +1,20 @@
+# Baseline allow-list for scripts/forbid_page_title_token_fork.sh Rule A.
+#
+# Every *Title-suffixed static TextStyle token on VelvetText that legitimately
+# exists for something OTHER than a bottom-nav tab-root page title (card
+# titles, calendar nav titles, passport section titles, ...). One name per
+# line; `#` starts a reason comment. `pageTitle` itself is the canonical
+# token and is always implicitly allowed — do not list it here.
+#
+# A NEW name appearing on this list is a signal to double-check: is this
+# really a distinct concern, or is it the same "per-screen one-off" shape
+# that caused the original divergence (masterBookingsTitle, now deleted)? If
+# it is genuinely a page title, point it at VelvetText.pageTitle instead of
+# adding a new token here.
+
+cardTitle          # per-card heading inside a list item, not a screen title
+monthNavTitle      # calendar month-nav header, not a screen title
+dayHeaderTitle     # day-group header inside a booking list, not a screen title
+homePassportPreviewTitle  # Beauty Passport home-card preview heading
+passportSectionTitle      # Beauty Passport section heading
+passportFooterTitle       # Beauty Passport footer heading

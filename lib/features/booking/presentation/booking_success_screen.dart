@@ -228,6 +228,21 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
             key: const Key('booking-success-guest-card'),
             guest: widget.args.guest!,
           ),
+        // CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path
+        // counterpart of the walk-in guest card just above: a PROVIDER
+        // rescheduling a booking with a registered client sees the SAME
+        // `GuestIdentityCard` (via `.identity`) on the terminal done screen,
+        // rather than an empty gap. `rescheduleClientName` is `null` on
+        // every CREATE path and on a CLIENT's own reschedule (see
+        // `BookingSuccessArgs.rescheduleClientName`'s doc), so those paths
+        // render byte-identically.
+        if (widget.args.rescheduleClientName != null)
+          GuestIdentityCard.identity(
+            key: const Key('booking-success-client-card'),
+            name: widget.args.rescheduleClientName!,
+            phone: widget.args.rescheduleClientPhone,
+            label: l10n.bookingClientLabel,
+          ),
         // ONE visit recap: the shared address, the single window, the ordered
         // service list + «Разом» total, with the whole-visit calendar export as
         // the card's trailing action. No master card — the celebration badge +

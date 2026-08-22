@@ -399,6 +399,20 @@ jobs:
         shell: bash
         run: ./scripts/forbid_missing_client_branch_key.sh
 
+      # 2026-08-22 — the page-title typography unification (mobile-qa)
+      # consolidated the four INDEPENDENT_MASTER tab-root titles (which had
+      # silently diverged onto three different sizes — heading() 21sp, the
+      # deleted one-off masterBookingsTitle 22sp, subheading() 14sp) onto ONE
+      # token, VelvetText.pageTitle. Nothing stopped a future edit from
+      # repointing one screen at a different token, or reintroducing a new
+      # one-off title token, so this gate makes both mechanical. Rule A: no
+      # new *Title-shaped VelvetText token outside the baselined allow-list
+      # (scripts/.page_title_token_allow). Rule B: each of the four known
+      # title call sites stays on VelvetText.pageTitle.
+      - name: Forbid a page-title VelvetText token fork
+        shell: bash
+        run: ./scripts/forbid_page_title_token_fork.sh
+
       # 2026-08-14 — the calendar-consolidation change (mobile-backlog D5)
       # collapsed every month/week calendar surface onto ONE shared file
       # (`lib/shared/widgets/calendar_grid.dart`) precisely so a future D1–D4-

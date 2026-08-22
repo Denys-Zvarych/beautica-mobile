@@ -198,6 +198,22 @@ Future<void> startBookingReschedule({
     // rescheduling a real client's booking, both keep `clientId` set, so
     // this stays `false` and those paths are byte-for-byte unaffected.
     final bool rescheduleTargetIsWalkIn = booking.isGuestBooking;
+    // CLIENT IDENTITY PARITY (2026-08-22): the walk-in CREATE flow renders a
+    // `GuestIdentityCard` on the confirm/done screens so the master always
+    // sees WHO the visit is for instead of their own (hidden) identity strip
+    // staring back at them; the RESCHEDULE flow left that same slot EMPTY
+    // because it has no guest step to source a `WalkInGuest` from. Reused
+    // here off the SAME `hideMasterIdentity` boolean just above (not a second
+    // `bookingViewerRoleProvider` read) — a CLIENT rescheduling their own
+    // booking must NOT be shown an identity card of themselves (the exact
+    // "your own strip staring back at you" problem the walk-in card was
+    // introduced to solve), so only the PROVIDER arm populates these fields.
+    // `BookingDisplayX.clientName` is the SAME name-joining logic every other
+    // provider-facing surface uses — never re-implemented here. `Booking`
+    // carries no client phone field, so `rescheduleClientPhone` stays `null`.
+    final String? rescheduleClientName = hideMasterIdentity
+        ? booking.clientName
+        : null;
     unawaited(
       context.push(
         RouteNames.bookingSlots,
@@ -209,6 +225,7 @@ Future<void> startBookingReschedule({
           rescheduleAppointmentId: booking.appointmentId,
           hideMasterIdentity: hideMasterIdentity,
           rescheduleTargetIsWalkIn: rescheduleTargetIsWalkIn,
+          rescheduleClientName: rescheduleClientName,
         ),
       ),
     );
