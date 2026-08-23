@@ -116,7 +116,6 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_d
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
-import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/keepalive_pin_race_harness.dart';
 import '../../../helpers/pump_app.dart';
 
@@ -144,7 +143,24 @@ class _StubAuth extends AuthNotifier {
 // Same pinned-clock convention as both siblings — mixing a bare
 // `DateTime.now()` fixture with a pinned `clockProvider` is the recurring
 // timezone defect in this repo (invisible on a Kyiv-zoned dev host).
-final DateTime _fixedNow = futureBookingStart();
+//
+// FIXED, not `futureBookingStart()` (mobile-debugger, this track,
+// 2026-08-24). `futureBookingStart()` is `DateTime.now().toUtc().add(30
+// days)`, so `_dayD` — and therefore `dayChipKey(_dayD)`'s render geometry —
+// silently changed every calendar day the suite happened to run on. That
+// went CI-red on 2026-08-23 for a date-shaped reason having nothing to do
+// with this file's own code: `reselectD`'s tap landed on a chip whose
+// GestureDetector had not yet repainted to its settled post-pop position
+// (see `reselectD`'s own doc for the mechanism) — `getCenter` derived an
+// off-screen offset purely because that day's rail geometry happened to
+// place D's chip near enough the viewport's left edge. A fixed PAST literal
+// (unlike a future one) never needs `// future-date-ok:` — this file's own
+// bookings are never read through `BookingDisplayX.isPast` (day D is stubbed
+// with ZERO bookings throughout), so there is no "elapses and flips a
+// real assertion" hazard `scripts/forbid_stale_future_date_fixture.sh`
+// exists to catch; only [_dayD]'s CALENDAR identity matters here, not its
+// distance from the real clock.
+final DateTime _fixedNow = DateTime.utc(2024, 3, 12, 9);
 final DateTime _dayD = kyivToday(() => _fixedNow);
 final DateTime _dayE = () {
   final DateTime monday = mondayOf(_dayD);
@@ -271,7 +287,29 @@ void main() {
   }
 
   /// Step 6: re-tap D's rail chip and wait out the real debounce.
+  ///
+  /// The leading `pump(300ms)` (mobile-debugger, this track, 2026-08-24) is
+  /// NOT a debounce wait — it settles the POP itself before touching
+  /// anything. `expectKeepAlivePinRaceClosed`'s step 5 pops with exactly ONE
+  /// zero-duration `pump()` (deliberately, to avoid ever pumping while the
+  /// day list's skeleton might be up), which is not enough real time for the
+  /// revealed route's own transition (go_router's default `MaterialPage`,
+  /// platform default 300ms) to finish — the day rail's `PageView` was still
+  /// mid-transition, painted at a stale scroll offset, when `tap()` computed
+  /// the chip's hit-test centre from that stale geometry. Confirmed
+  /// empirically: with this pump absent, `dayChipKey(_dayD)` resolved to an
+  /// off-screen `Offset` for a chip sitting on the LEFT edge of its rail week
+  /// (Monday/Tuesday) — a small, otherwise-easy-to-miss geometry error, since
+  /// every chip further right just landed a few dozen px off centre and
+  /// still hit-tested fine. Safe to pump here specifically (unlike almost
+  /// everywhere else in this recipe): the day list is showing E's already-
+  /// resolved EMPTY state at this point, not a skeleton, so there is no
+  /// repeating shimmer animation for a longer pump to get stuck behind.
   Future<void> reselectD(WidgetTester tester) async {
+    // fixed-wait-ok: waits out go_router's default MaterialPage pop
+    // transition (platform default 300ms) so the day rail settles to its
+    // real post-pop geometry before this tap computes a hit-test centre.
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(dayChipKey(_dayD)));
     // fixed-wait-ok: waits out the same real 220ms rail-tap debounce.
     await tester.pump(const Duration(milliseconds: 260));

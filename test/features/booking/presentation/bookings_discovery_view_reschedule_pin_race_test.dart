@@ -84,7 +84,6 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_d
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
-import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/keepalive_pin_race_harness.dart';
 import '../../../helpers/pump_app.dart';
 
@@ -112,7 +111,18 @@ class _StubAuth extends AuthNotifier {
 // ONE clock, pinned, shared by the fixtures and the widget — mixing a bare
 // `DateTime.now()` fixture with a pinned `clockProvider` is the recurring
 // timezone defect in this repo (invisible on a Kyiv-zoned dev host).
-final DateTime _fixedNow = futureBookingStart();
+//
+// FIXED, not `futureBookingStart()` (mobile-debugger, this track,
+// 2026-08-24) — see `master_create_booking_pin_race_test.dart`'s identical
+// note for the full mechanism: `futureBookingStart()` re-derives `_dayD`
+// from the REAL host clock every run, so the rail's chip geometry — and
+// therefore whether `reselectD`'s tap lands on-screen — silently varied by
+// the calendar date the suite happened to run on (CI red on 2026-08-23, 2 of
+// this file's 2 tests). A fixed PAST literal needs no `// future-date-ok:`:
+// [_dayD] is only used for CALENDAR identity here (this file's bookings
+// never go through `BookingDisplayX.isPast`), never as an "upcoming"
+// fixture.
+final DateTime _fixedNow = DateTime.utc(2024, 3, 12, 9);
 final DateTime _dayD = kyivToday(() => _fixedNow);
 // Guaranteed to share D's Monday-first rail week (unlike a bare `+1 day`,
 // which silently crosses into the NEXT page whenever D lands on a Sunday —
@@ -242,7 +252,22 @@ void main() {
 
   /// Step 6, family-specific: re-tap D's rail chip and wait out the real
   /// 220ms debounce.
+  ///
+  /// The leading `pump(300ms)` (mobile-debugger, this track, 2026-08-24) —
+  /// see `master_create_booking_pin_race_test.dart`'s identical note for the
+  /// full mechanism — settles the POP's own route transition (go_router's
+  /// default `MaterialPage`, platform default 300ms) before touching
+  /// anything: `expectKeepAlivePinRaceClosed`'s step 5 pops with exactly ONE
+  /// zero-duration `pump()`, which left the day rail's `PageView` painted at
+  /// a stale scroll offset when `tap()` computed the chip's hit-test centre.
+  /// Safe here specifically: the day list shows E's already-resolved EMPTY
+  /// state at this point, never a skeleton, so there is no repeating
+  /// animation a longer pump could get stuck behind.
   Future<void> reselectD(WidgetTester tester) async {
+    // fixed-wait-ok: waits out go_router's default MaterialPage pop
+    // transition (platform default 300ms) so the day rail settles to its
+    // real post-pop geometry before this tap computes a hit-test centre.
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(dayChipKey(_dayD)));
     // fixed-wait-ok: waits out the same real 220ms rail-tap debounce.
     await tester.pump(const Duration(milliseconds: 260));
@@ -284,6 +309,13 @@ void main() {
         invalidate: () =>
             tester.tap(find.byKey(const Key('run-reschedule-invalidation'))),
         reestablishWatch: () async {
+          // fixed-wait-ok: settles the pop's own route transition (go_router's
+          // default MaterialPage, platform default 300ms) BEFORE either tap —
+          // see `reselectD`'s doc above for why this is needed and safe here.
+          // The "no settle BETWEEN the two taps" property this test exists
+          // to prove is unaffected: this pump runs once, before both taps,
+          // not between them.
+          await tester.pump(const Duration(milliseconds: 300));
           // Two taps with no settle between them.
           await tester.tap(find.byKey(dayChipKey(_dayD)));
           // fixed-wait-ok: a deliberately UNSETTLED gap between the two taps

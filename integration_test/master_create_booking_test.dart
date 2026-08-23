@@ -237,6 +237,21 @@ void main() {
       await AppHarness.settle(tester);
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
 
+      // mobile-qa regression guard (this track) — `getMyBookingsCalls` is a
+      // GLOBAL `/bookings/me` counter, but `BookingsDiscoveryView` holds
+      // exactly ONE `bookingsDayProvider` `Consumer` in production
+      // (`bookings_discovery_view.dart:876`) and this run never scrubs the
+      // day rail, so every hit below is for the SAME single tracked day —
+      // this counter is a clean proxy for
+      // `invalidateBookingViewsAfterBookingCreated`'s eager-read gate.
+      // Landing here is the ONE fetch that must have already happened.
+      final int callsAtLanding = fb.getMyBookingsCalls;
+      expect(
+        callsAtLanding,
+        1,
+        reason: 'the initial day-list mount must have fetched exactly once',
+      );
+
       // ── «+» → guest step → «Далі» → service step ────────────────────────
       const String guestFirst = 'Ірина';
       const String guestLast = 'Шевченко';
@@ -296,6 +311,27 @@ void main() {
             'normalised to E.164',
       );
 
+      // THE FIX THIS RUN GUARDS — `invalidateBookingViewsAfterBookingCreated`
+      // (`booking_calendar_invalidation.dart:405-430`). At this exact point
+      // the day-list route is still COVERED by the whole pushed wizard
+      // chain (guest → service → date → time → confirm, all still on the
+      // stack) — Riverpod 3 PAUSES that Consumer's subscription rather than
+      // dropping it, so its listener count stays > 0 and `isWatched` reads
+      // `true`. The fix's gate (`!lru.isWatched(query)`) must therefore SKIP
+      // the eager `ref.read` for this one day — the tautological pre-fix
+      // `lru.contains(query)` check could never do that (every `liveQueries`
+      // member is trivially `contains`-true), so it fired an extra
+      // synchronous `/bookings/me` GET here, one call this assertion would
+      // catch as `callsAtLanding + 1`.
+      expect(
+        fb.getMyBookingsCalls,
+        callsAtLanding,
+        reason:
+            'submitting while the day list is COVERED (paused, not '
+            'unwatched) must NOT eagerly refetch it — that day recovers on '
+            'its own resume/remount, not here',
+      );
+
       // ── success → «Готово» returns to «Мої записи» ─────────────────────
       await AppHarness.pumpUntilFound(
         tester,
@@ -325,6 +361,20 @@ void main() {
             'the refetched day list must name the guest the routed chain '
             'just submitted — proving the card is the NEW booking, not a '
             'stale coincidence',
+      );
+      // Exactly ONE genuine refetch happened overall — the fresh
+      // `MasterBookingsScreen` mount's own `ref.watch`, picking up the
+      // `_mustRecomputeState` flag `ref.invalidate` left behind. NOT two:
+      // that would mean the eager read the assertion above already proved
+      // absent fired anyway and this is merely re-fetching a SECOND time on
+      // top of it — a spurious-refetch regression the skeleton could show
+      // as a flicker even if the final data ends up correct either way.
+      expect(
+        fb.getMyBookingsCalls,
+        callsAtLanding + 1,
+        reason:
+            'the covered day must be refetched exactly ONCE — on the fresh '
+            'post-`context.go` mount — never twice',
       );
       expect(tester.takeException(), isNull);
     },

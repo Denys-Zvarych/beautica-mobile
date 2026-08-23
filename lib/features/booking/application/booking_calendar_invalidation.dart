@@ -405,9 +405,26 @@ void invalidateBookingViewsAfterProviderClose(
 void invalidateBookingViewsAfterBookingCreated(Ref ref) {
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final BookingsDayQuery query in lru.liveQueries) {
-    final bool wasPinned = lru.contains(query);
+    // FIX (mobile-debugger, this track) — `lru.contains(query)` here was
+    // TAUTOLOGICAL: every `query` in `liveQueries` is drawn from the exact
+    // same `_links` key set `contains` checks, so it could never read
+    // `false`. That fired the eager `ref.read` below for EVERY pinned
+    // member unconditionally — including the ONE day the rail happens to be
+    // showing at submit time (covered by the wizard, PAUSED, listener count
+    // still > 0), which contradicts this function's own doc contract above:
+    // that member's refetch is supposed to land on RESUME, not be forced
+    // here. `DayKeepAliveLru.isWatched` is the real signal — backed by
+    // `ref.onAddListener`/`onRemoveListener` in `BookingsDayNotifier.build`,
+    // which track raw listener-count changes and are unaffected by
+    // pause/resume — so it correctly separates "paused but still watched"
+    // (skip the eager read; Riverpod's own recovery handles it) from
+    // "genuinely zero-listener, pinned only by this LRU's keepAlive link"
+    // (still needs the eager read to cancel a queued disposal — the crash
+    // class this function exists to close, see
+    // `master_create_booking_pin_race_test.dart`).
+    final bool isGenuinelyOrphaned = !lru.isWatched(query);
     ref.invalidate(bookingsDayProvider(query));
-    if (wasPinned) {
+    if (isGenuinelyOrphaned) {
       ref.read(bookingsDayProvider(query));
     }
   }
