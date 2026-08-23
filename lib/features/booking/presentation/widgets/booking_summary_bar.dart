@@ -34,7 +34,6 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 
-import 'schedule_progress_hint.dart';
 import 'selected_services_shelf.dart';
 
 /// The pinned booking-summary shelf shared by every screen of the booking
@@ -58,8 +57,6 @@ class BookingSummaryBar extends StatelessWidget {
     this.chosenWindowLabel,
     this.showChosenWindow = false,
     this.onRemove,
-    this.progressScheduled,
-    this.progressTotal,
   });
 
   /// The client's selected service(s) (0..n). Empty renders the muted
@@ -97,21 +94,6 @@ class BookingSummaryBar extends StatelessWidget {
   /// Whether to render the chosen-window block above the CTA (the time
   /// screen only).
   final bool showChosenWindow;
-
-  /// Phase 275 — additive progress-well slot for the salon schedule hub's
-  /// footer: how many of [progressTotal] rows are scheduled so far. `null`
-  /// (the default, alongside [progressTotal]) renders nothing extra at all —
-  /// every existing call site (service selector, independent date/time
-  /// screens) is unaffected. Both must be non-null together to render the
-  /// shared [ScheduleProgressHint] well (the same widget
-  /// `ScheduleConfirmBar` renders on the salon per-master "Час" screen —
-  /// promoted out of that file's former private `_ProgressHint`, see
-  /// `schedule_progress_hint.dart`, rather than a second near-duplicate
-  /// progress readout).
-  final int? progressScheduled;
-
-  /// See [progressScheduled].
-  final int? progressTotal;
 
   static const Color _shelfSurface = Color(0xFFEDE4D5);
 
@@ -224,11 +206,6 @@ class BookingSummaryBar extends StatelessWidget {
       if (showChosenWindow) _ChosenWindow(l10n: l10n, label: chosenWindowLabel),
       if (showChosenWindow && chosenWindowLabel != null)
         const SizedBox(height: VelvetSpacing.md),
-      if (progressScheduled case final int scheduled)
-        if (progressTotal case final int total) ...<Widget>[
-          ScheduleProgressHint(scheduled: scheduled, total: total),
-          const SizedBox(height: VelvetSpacing.md),
-        ],
       NeumorphicButton(
         key: const Key('booking-summary-cta'),
         label: ctaLabel,

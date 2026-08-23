@@ -20,8 +20,10 @@
 // [TextEditingController]s (and their typed text) intact. See this class's
 // own `State` for why the controllers are owned here, not by a provider.
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -32,20 +34,30 @@ import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
 
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
-class WalkInGuestStepScreen extends StatefulWidget {
+class WalkInGuestStepScreen extends ConsumerStatefulWidget {
   const WalkInGuestStepScreen({super.key});
 
   @override
-  State<WalkInGuestStepScreen> createState() => _WalkInGuestStepScreenState();
+  ConsumerState<WalkInGuestStepScreen> createState() =>
+      _WalkInGuestStepScreenState();
 }
 
-class _WalkInGuestStepScreenState extends State<WalkInGuestStepScreen> {
+class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
   final TextEditingController _firstNameCtrl = TextEditingController();
   final TextEditingController _lastNameCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
 
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
+    _screenProtection.release();
     _firstNameCtrl.dispose();
     _lastNameCtrl.dispose();
     _phoneCtrl.dispose();

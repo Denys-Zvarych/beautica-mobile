@@ -1,11 +1,11 @@
 // Phase 274 — the ONE half-open time-window overlap predicate.
 //
-// Shared by the slot picker's client-side conflict exclusion
+// Used by the slot picker's client-side conflict exclusion
 // (`slot_picker_screen.dart`'s `SlotTimeScreen`, via `excludeWindows` on
-// `BookingSlotPickerArgs`) and, per phase-274 D2/the phase-275 file table,
-// the salon multi-service schedule hub's own re-validation across all
-// scheduled drafts. ONE implementation, two call sites — never a second
-// hand-rolled copy (mobile-backlog REUSE-FIRST).
+// `BookingSlotPickerArgs`) to grey out/disallow candidate slots that overlap
+// an already-scheduled window. ONE implementation — never a hand-rolled copy
+// (mobile-backlog REUSE-FIRST) — should any future call site need the same
+// half-open overlap check.
 //
 // THE COMPARISON IS HALF-OPEN. Strict inequality on BOTH sides: a window
 // ending exactly when another begins is NOT a conflict. This mirrors the
