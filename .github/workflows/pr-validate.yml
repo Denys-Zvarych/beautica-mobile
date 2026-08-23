@@ -439,6 +439,23 @@ jobs:
         shell: bash
         run: ./scripts/forbid_salon_booking_submit_notifier.sh
 
+      # 2026-08-21 — this track closed a `ProviderSubscription`-closed crash
+      # class: a keepAlive family member drops to ZERO listeners not because
+      # its screen was popped, but because the SAME still-mounted screen
+      # swapped which family key it watches via local state (a rail tap, a
+      # sort toggle, a week page). `invalidateSelf()` then severs the
+      # keepAlive link and queues disposal on a zero-duration Timer, racing
+      # the next frame's re-subscribe to the SAME key. The proven remedy —
+      # gate on "was this key pinned?", invalidate, THEN eagerly re-read so
+      # the keepAlive link is re-touched before the queued disposal fires —
+      # is applied at four sites (bookingsDay, master/salon reviews,
+      # effectiveSchedule). This gate makes a bare cross-file family
+      # invalidation fail CI instead of silently reintroducing the race.
+      # Allow-list: scripts/.keepalive_family_invalidation_allow.
+      - name: Forbid a bare keepalive-family cross-invalidation
+        shell: bash
+        run: ./scripts/forbid_bare_keepalive_family_invalidation.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
