@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_sch
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'dart:ui' show Tristate;
 
 import 'package:dio/dio.dart';
@@ -485,6 +486,106 @@ void main() {
               'copyWith must never reorder the chained-visit execution '
               'order (Phase 270 D5) — a reordered list silently '
               "reschedules the client's services.",
+        );
+      },
+    );
+  });
+
+  group('MasterSchedulePage — FIX 1: date-step intro names the '
+      'service(s) (mobile-qa, 2026-08-23)', () {
+    testWidgets(
+      'should_nameTheSingleService_when_theMasterHasOneAssignedService',
+      (tester) async {
+        final fake = _AlwaysWorkingCountingSlotRepository();
+
+        await tester.pumpApp(
+          const Scaffold(
+            body: MasterSchedulePage(
+              schedule: _kSchedule,
+              avatarGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
+            ),
+          ),
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            clockProvider.overrideWithValue(() => _kClockInstant),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterSchedulePage)),
+        );
+
+        // Built from the fixture's own `.name` field, never a hard-coded
+        // Cyrillic literal in this file — `forbid_cyrillic_finder.sh` flags
+        // any Cyrillic code point nested inside a `find.text(...)` call
+        // regardless of paren depth, so the expected string must be
+        // assembled from source, exactly like
+        // `booking_success_calendar_test.dart`'s `serviceLabel` pattern.
+        expect(
+          find.text(
+            l10n.salonScheduleDateIntroForServices(_kCatalogService.name),
+          ),
+          findsOneWidget,
+          reason:
+              'a single-service master must see their OWN service named in '
+              'the date-step intro, not the generic "for this master" copy',
+        );
+        expect(
+          find.text(l10n.salonScheduleDateIntro),
+          findsNothing,
+          reason:
+              'the old generic per-master intro must not survive on a '
+              'well-formed slide — FIX 1 supersedes it whenever '
+              '`services` is non-empty',
+        );
+      },
+    );
+
+    testWidgets(
+      'should_nameAllServicesCommaJoinedInOrder_when_theMasterHasMultipleAssignedServices',
+      (tester) async {
+        final fake = _AlwaysWorkingCountingSlotRepository();
+
+        await tester.pumpApp(
+          const Scaffold(
+            body: MasterSchedulePage(
+              schedule: _kMultiSchedule,
+              avatarGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
+            ),
+          ),
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            clockProvider.overrideWithValue(() => _kClockInstant),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterSchedulePage)),
+        );
+
+        // `_kMultiSchedule.services` is `[_kCatalogService, _kCatalogServiceB]`
+        // — asserting BOTH names in THAT order, comma-joined, distinguishes
+        // "joined every assigned service in order" from "joined only the
+        // first" the same way the D3 group above distinguishes the slot
+        // query's service-id list (a single-service fixture could never
+        // fail either check).
+        final String joined =
+            '${_kCatalogService.name}, ${_kCatalogServiceB.name}';
+        expect(
+          find.text(l10n.salonScheduleDateIntroForServices(joined)),
+          findsOneWidget,
+          reason:
+              'a multi-service master must see every assigned service '
+              'named, comma-joined, in assignment order',
+        );
+        expect(
+          find.text(l10n.salonScheduleDateIntro),
+          findsNothing,
+          reason:
+              'the old generic per-master intro must not survive on a '
+              'well-formed multi-service slide either',
         );
       },
     );

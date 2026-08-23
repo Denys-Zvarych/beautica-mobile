@@ -14,8 +14,12 @@
 //   2. With exactly ONE master, the pager control is not built at all —
 //      `AppointmentPager._paged` is false, so there is nothing to page
 //      through and no dead chrome should render.
-//   3. Each BOOKING (not each master) gets its own «Додати в календар» pill —
-//      a master with 2 services gets 2 pills, on THAT master's own page only.
+//   3. Each MASTER (not each booking/service) gets exactly ONE «Додати в
+//      календар» button, covering their whole (possibly multi-service)
+//      visit — a master with 2 services still gets exactly ONE button, on
+//      THAT master's own page only (FIX 3, superseding the earlier "one per
+//      booking" decision — see `salon_booking_success_screen.dart`'s file
+//      header).
 //   4. Per-master comment isolation survives paging AND reaches the wire
 //      correctly on submit — the highest-risk regression in this port, since
 //      the two controllers now live at the SCREEN level, outside the pager,
@@ -42,10 +46,10 @@
 // one is a local twin rather than a cross-file import of a private symbol).
 //
 // PATROL — REASONED EXEMPTION: no native surface is touched anywhere in this
-// file. Test 3 asserts the «Додати в календар» pills EXIST and are correctly
-// COUNTED per booking — it never taps one (that would launch a real OS
-// calendar intent, already covered by `independent_multi_service_booking_flow
-// _test.dart`'s channel interception, which is orthogonal to the per-booking
+// file. Test 3 asserts the «Додати в календар» buttons EXIST and are
+// correctly COUNTED per master — it never taps one (that would launch a real
+// OS calendar intent, already covered by `independent_multi_service_booking_flow
+// _test.dart`'s channel interception, which is orthogonal to the per-master
 // COUNT this file exists to prove).
 
 import 'dart:async';
@@ -374,122 +378,107 @@ void main() {
     timeout: const Timeout(Duration(seconds: 120)),
   );
 
-  // ── 3. One «Додати в календар» pill per BOOKING, on the right master's
-  // page — a master with 2 services gets 2 pills. ──────────────────────────
-  testWidgets('CLIENT salon success pager: a 2-service master gets TWO calendar '
-      'pills on its own page; a 1-service master gets exactly one, on a '
-      'DIFFERENT page — never bleeding onto each other', (tester) async {
-    await mockNetworkImagesFor(() async {
-      final fb = FakeBackend()..currentRole = UserRole.client;
-      final GoRouter router = await AppHarness.boot(tester, fb);
+  // ── 3. One «Додати в календар» button per MASTER, covering their whole
+  // visit, on the right master's page (FIX 3). ─────────────────────────────
+  testWidgets(
+    'CLIENT salon success pager: every master gets exactly ONE calendar '
+    'button covering their whole visit — a 2-service master and a '
+    '1-service master both get exactly one, on their OWN page — never '
+    'bleeding onto each other',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        final GoRouter router = await AppHarness.boot(tester, fb);
 
-      await AppHarness.loginAs(tester, fb, UserRole.client);
-      await AppHarness.settle(tester);
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
 
-      // m-multi: TWO services → two bookings → two pills.
-      final SalonBookingAppointment multi = SalonBookingAppointment(
-        schedule: const SalonMasterSchedule(
-          masterId: 'm-multi',
-          firstName: 'Дарина',
-          lastName: 'Майстер',
-          type: MasterType.salonMaster,
-          services: <SalonCatalogService>[
-            SalonCatalogService(
-              id: 'svc-multi-1',
-              name: 'Манікюр',
-              durationLabel: '1 год',
-              priceDisplay: '500 ₴',
-              durationMinutes: 60,
-              priceType: ServicePriceType.fixed,
-              priceMin: 500,
-            ),
-            SalonCatalogService(
-              id: 'svc-multi-2',
-              name: 'Педикюр',
-              durationLabel: '45 хв',
-              priceDisplay: '400 ₴',
-              durationMinutes: 45,
-              priceType: ServicePriceType.fixed,
-              priceMin: 400,
-            ),
-          ],
-          orderedMasterServiceIds: <String>[
-            'assign-m-multi-1',
-            'assign-m-multi-2',
-          ],
-        ),
-        // instant-ok: arbitrary future filler, never compared against a calendar day.
-        startAt: DateTime.now().add(const Duration(days: 1)),
-        idempotencyKey: 'idem-m-multi',
-      );
-      // m-single: ONE service → one booking → one pill.
-      final SalonBookingAppointment single = _oneServiceAppt(
-        'm-single',
-        'Євген',
-      );
-
-      unawaited(
-        router.push(
-          RouteNames.salonBookingSuccess,
-          extra: SalonBookingSuccessArgs(
-            salonId: 'salon-xyz',
-            appointments: <SalonBookingAppointment>[multi, single],
+        // m-multi: TWO services, back-to-back in ONE appointment → still ONE
+        // calendar button (FIX 3 — one button per master, covering the whole
+        // visit, never one per service).
+        final SalonBookingAppointment multi = SalonBookingAppointment(
+          schedule: const SalonMasterSchedule(
+            masterId: 'm-multi',
+            firstName: 'Дарина',
+            lastName: 'Майстер',
+            type: MasterType.salonMaster,
+            services: <SalonCatalogService>[
+              SalonCatalogService(
+                id: 'svc-multi-1',
+                name: 'Манікюр',
+                durationLabel: '1 год',
+                priceDisplay: '500 ₴',
+                durationMinutes: 60,
+                priceType: ServicePriceType.fixed,
+                priceMin: 500,
+              ),
+              SalonCatalogService(
+                id: 'svc-multi-2',
+                name: 'Педикюр',
+                durationLabel: '45 хв',
+                priceDisplay: '400 ₴',
+                durationMinutes: 45,
+                priceType: ServicePriceType.fixed,
+                priceMin: 400,
+              ),
+            ],
+            orderedMasterServiceIds: <String>[
+              'assign-m-multi-1',
+              'assign-m-multi-2',
+            ],
           ),
-        ),
-      );
-      await AppHarness.settle(tester);
-      expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+          // instant-ok: arbitrary future filler, never compared against a calendar day.
+          startAt: DateTime.now().add(const Duration(days: 1)),
+          idempotencyKey: 'idem-m-multi',
+        );
+        // m-single: ONE service → still exactly one calendar button (the
+        // per-master rule doesn't special-case a single-service master).
+        final SalonBookingAppointment single = _oneServiceAppt(
+          'm-single',
+          'Євген',
+        );
 
-      // Page 0 (m-multi, appointmentIndex 0): TWO pills, both on THIS
-      // page's own calendar-actions card.
-      final Finder multiCalendarCard = find.byKey(
-        const ValueKey<String>('salon-success-calendar-0'),
-      );
-      expect(multiCalendarCard, findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-0')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-1')),
-        findsOneWidget,
-      );
-      // m-single's card/pill are not built yet — offstage page.
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-calendar-1')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-0')),
-        findsNothing,
-      );
+        unawaited(
+          router.push(
+            RouteNames.salonBookingSuccess,
+            extra: SalonBookingSuccessArgs(
+              salonId: 'salon-xyz',
+              appointments: <SalonBookingAppointment>[multi, single],
+            ),
+          ),
+        );
+        await AppHarness.settle(tester);
+        expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
 
-      // Page to m-single — its ONE pill, m-multi's two gone.
-      await tester.tap(find.byKey(const Key('appointment-pager-next')));
-      await AppHarness.settle(tester);
+        // Page 0 (m-multi): exactly ONE calendar button, despite 2 services.
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-add-calendar-0')),
+          findsOneWidget,
+        );
+        // m-single's button is not built yet — offstage page.
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-add-calendar-1')),
+          findsNothing,
+        );
 
-      expect(multiCalendarCard, findsNothing);
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-0')),
-        findsNothing,
-      );
-      final Finder singleCalendarCard = find.byKey(
-        const ValueKey<String>('salon-success-calendar-1'),
-      );
-      expect(singleCalendarCard, findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-0')),
-        findsOneWidget,
-      );
-      // Exactly one pill for m-single, never a stray second one.
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-1')),
-        findsNothing,
-      );
+        // Page to m-single — its ONE button, m-multi's gone.
+        await tester.tap(find.byKey(const Key('appointment-pager-next')));
+        await AppHarness.settle(tester);
 
-      expect(tester.takeException(), isNull);
-    });
-  }, timeout: const Timeout(Duration(seconds: 120)));
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-add-calendar-0')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('salon-success-add-calendar-1')),
+          findsOneWidget,
+        );
+
+        expect(tester.takeException(), isNull);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 
   // ── 4. Per-master comment isolation survives paging AND reaches the wire
   // correctly — the highest-risk regression in this port. ──────────────────

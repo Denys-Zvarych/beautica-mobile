@@ -28,10 +28,16 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+
+/// FIX 3 follow-up (mobile-qa, 2026-08-23) — same channel
+/// `booking_success_calendar_test.dart` mocks for the independent flow's
+/// `add_2_calendar` plugin call; no real OS sheet ever opens.
+const MethodChannel _kCalendarChannel = MethodChannel('add_2_calendar');
 
 Future<void> _pumpTall(WidgetTester tester) async {
   tester.view.physicalSize = const Size(900, 2600);
@@ -89,6 +95,54 @@ SalonBookingSuccessArgs _args() => SalonBookingSuccessArgs(
 SalonBookingSuccessArgs _singleAppointmentArgs() => SalonBookingSuccessArgs(
   salonId: _kSalonId,
   appointments: <SalonBookingAppointment>[_appt('m1', 'Олена')],
+);
+
+/// mobile-qa gap fixture (FIX 3 follow-up, 2026-08-23) — TWO services on ONE
+/// master with DIFFERENT durations (60 + 90 = 150), so a calendar export
+/// that computed its end from only the FIRST assigned service (60 min)
+/// is distinguishable from the correct SUMMED duration (150 min) — a
+/// single-service fixture (like `_appt` above) could never fail that
+/// assertion, mirroring `master_schedule_page_test.dart`'s D3 group
+/// rationale.
+SalonBookingAppointment _multiServiceAppt(String masterId, String firstName) =>
+    SalonBookingAppointment(
+      schedule: SalonMasterSchedule(
+        masterId: masterId,
+        firstName: firstName,
+        lastName: 'Ковальчук',
+        type: MasterType.independentMaster,
+        services: <SalonCatalogService>[
+          SalonCatalogService(
+            id: 'svc-$masterId-a',
+            name: 'Манікюр',
+            durationLabel: '1 год',
+            priceDisplay: '500 ₴',
+            durationMinutes: 60,
+            priceType: ServicePriceType.fixed,
+            priceMin: 500,
+          ),
+          SalonCatalogService(
+            id: 'svc-$masterId-b',
+            name: 'Педикюр',
+            durationLabel: '1 год 30 хв',
+            priceDisplay: '700 ₴',
+            durationMinutes: 90,
+            priceType: ServicePriceType.fixed,
+            priceMin: 700,
+          ),
+        ],
+        orderedMasterServiceIds: <String>[
+          'assign-$masterId-a',
+          'assign-$masterId-b',
+        ],
+      ),
+      startAt: _kStart,
+      idempotencyKey: 'key-$masterId',
+    );
+
+SalonBookingSuccessArgs _multiServiceArgs() => SalonBookingSuccessArgs(
+  salonId: _kSalonId,
+  appointments: <SalonBookingAppointment>[_multiServiceAppt('m1', 'Олена')],
 );
 
 /// mobile-qa gap fixture: `_appt`'s inline `SalonMasterSchedule` above carries
@@ -188,6 +242,24 @@ Future<GoRouter> _pump(WidgetTester tester) async {
     ],
   );
   router.go(RouteNames.salonBookingSuccess, extra: _args());
+  await tester.pumpAndSettle();
+  return router;
+}
+
+/// Same wiring as [_pump], but drives [_multiServiceArgs] — the FIX 3
+/// follow-up calendar-event group below needs a master with TWO differently-
+/// durationed services, not the file's default single-service [_args].
+Future<GoRouter> _pumpMultiService(WidgetTester tester) async {
+  final GoRouter router = _router();
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      publicSalonProfileProvider(
+        _kSalonId,
+      ).overrideWith((ref) => (_kSalon, const <SalonMasterSummary>[])),
+    ],
+  );
+  router.go(RouteNames.salonBookingSuccess, extra: _multiServiceArgs());
   await tester.pumpAndSettle();
   return router;
 }
@@ -648,24 +720,27 @@ void main() {
   });
 
   // ===========================================================================
-  // «Додати в календар» — ONE CalendarButton per BOOKING (1 service = 1
-  // booking; owner decision, 2026-08-23). Smoke coverage proving the count
-  // and the reused shared widget; full behavioural coverage (the actual
-  // add_2_calendar call) is a mobile-qa follow-up.
+  // «Додати в календар» — ONE CalendarButton per MASTER, covering that
+  // master's WHOLE (possibly multi-service) visit (owner-reported fix,
+  // superseding the earlier "one per booking" decision — see
+  // `salon_booking_success_screen.dart`'s file header). Smoke coverage
+  // proving the count and the reused shared `BookingSummaryCards
+  // .fromSchedule` `trailingAction` slot; full behavioural coverage (the
+  // actual add_2_calendar call) is pinned by the group below.
   // ===========================================================================
   testWidgets(
-    'shows exactly one CalendarButton per booking, on the master\'s own page',
+    'shows exactly one CalendarButton per master, on that master\'s own page',
     (tester) async {
       await _pumpTall(tester);
       await _pump(tester);
 
-      // m1 (page 0) has exactly ONE service -> exactly ONE calendar button.
+      // m1 (page 0) — exactly ONE calendar button for the whole appointment.
       expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-0')),
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-0')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-1')),
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-1')),
         findsNothing,
       );
 
@@ -674,11 +749,77 @@ void main() {
 
       // m2 (page 1) — its own single button.
       expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-0')),
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-1')),
         findsOneWidget,
       );
     },
   );
+
+  // ===========================================================================
+  // FIX 3 follow-up (mobile-qa, 2026-08-23) — the export is ONE EVENT
+  // spanning the whole visit's SUMMED duration, not a per-service export and
+  // not an export that only accounts for the first service. The button-count
+  // test above proves the BUTTON count; it says nothing about the payload
+  // the tap actually produces — this group closes that gap.
+  // ===========================================================================
+  group('«Додати в календар» — event spans the SUMMED duration', () {
+    late List<MethodCall> calls;
+
+    setUp(() {
+      calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, (MethodCall call) async {
+            calls.add(call);
+            return true;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_kCalendarChannel, null);
+    });
+
+    testWidgets(
+      'invokes add2Cal ONCE with an event from startAt to startAt + the '
+      'SUMMED duration of every assigned service (60 + 90 = 150), not just '
+      'the first service',
+      (tester) async {
+        await _pumpTall(tester);
+        await _pumpMultiService(tester);
+
+        final Finder button = find.byKey(
+          const ValueKey<String>('salon-success-add-calendar-0'),
+        );
+        expect(button, findsOneWidget);
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+
+        expect(
+          calls,
+          hasLength(1),
+          reason:
+              'the whole visit must export as ONE event, never one per '
+              'service',
+        );
+        expect(calls.single.method, 'add2Cal');
+        final Map<Object?, Object?> args =
+            calls.single.arguments as Map<Object?, Object?>;
+
+        expect(args['startDate'], _kStart.millisecondsSinceEpoch);
+        expect(
+          args['endDate'],
+          _kStart.add(const Duration(minutes: 150)).millisecondsSinceEpoch,
+          reason:
+              'end must be start + the SUMMED duration across every '
+              "assigned service (60 + 90 = 150) — a regression that derived "
+              'the end from only the FIRST service would produce start + '
+              '60, which this assertion catches',
+        );
+      },
+    );
+  });
 
   // ===========================================================================
   // ScreenProtectionManager lifecycle (SEC — this screen renders the salon's

@@ -304,86 +304,132 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     );
   }
 
+  /// A `VelvetSpacing.lg` horizontal inset, applied per-SECTION rather than
+  /// once around the whole content column — see [build]'s FIX 2 note for
+  /// why.
+  Widget _hInset({required Widget child}) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+    child: child,
+  );
+
   @override
   Widget build(BuildContext context) {
     final AnimationController? lottieController = _lottieController;
+    final List<Widget> recapContent = _recapContent();
     return PopScope(
       canPop: widget.canPop,
       child: Scaffold(
         backgroundColor: BrandColors.base,
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              VelvetSpacing.lg,
-              VelvetSpacing.lg,
-              VelvetSpacing.lg,
-              VelvetSpacing.md,
+            // FIX 2 (owner-reported, salon booking success screen — 2026-08-23
+            // root-cause fix) — VERTICAL-ONLY here. The horizontal `lg` inset
+            // used to live on THIS one outer `Padding`, wrapping the entire
+            // content column including [pagedRecap]. But [pagedRecap]
+            // (`AppointmentPager`) already self-pads horizontally by its own
+            // `lg` (`appointment_pager.dart`'s `itemBuilder`) — the SAME
+            // single inset the confirm screen's `Expanded(AppointmentPager)`
+            // relies on, since that screen has NO outer horizontal padding
+            // around its pager. Wrapping [pagedRecap] in a SECOND `lg` here
+            // double-padded it (48 dp per side instead of 24), so the salon
+            // success screen's per-master card rendered narrower — and
+            // therefore visibly smaller — than the confirm screen's
+            // identically-configured card. Every OTHER section still needs
+            // exactly one `lg` horizontal inset, so each is now wrapped
+            // individually via [_hInset] instead of sharing this one; the net
+            // padding for every pre-existing (non-paged) caller is
+            // unchanged — same `lg`/`lg`/`lg`/`md` total, just applied by
+            // several sibling `Padding`s instead of one enclosing the whole
+            // column.
+            padding: const EdgeInsets.only(
+              top: VelvetSpacing.lg,
+              bottom: VelvetSpacing.md,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                if (widget.leading != null ||
-                    widget.headerTrailing != null) ...<Widget>[
-                  // Back button pinned left, trailing affordance pinned right,
-                  // sharing one row. The Spacer holds the trailing icon on the
-                  // far edge whether or not `leading` is present, and keeps the
-                  // back button at the left edge when `headerTrailing` is null
-                  // (byte-identical to the old centre-left Align for the
-                  // leading-only states).
-                  Row(
+                _hInset(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      if (widget.leading != null) widget.leading!,
-                      const Spacer(),
-                      if (widget.headerTrailing != null) widget.headerTrailing!,
+                      if (widget.leading != null ||
+                          widget.headerTrailing != null) ...<Widget>[
+                        // Back button pinned left, trailing affordance pinned
+                        // right, sharing one row. The Spacer holds the
+                        // trailing icon on the far edge whether or not
+                        // `leading` is present, and keeps the back button at
+                        // the left edge when `headerTrailing` is null
+                        // (byte-identical to the old centre-left Align for
+                        // the leading-only states).
+                        Row(
+                          children: <Widget>[
+                            if (widget.leading != null) widget.leading!,
+                            const Spacer(),
+                            if (widget.headerTrailing != null)
+                              widget.headerTrailing!,
+                          ],
+                        ),
+                        const SizedBox(height: VelvetSpacing.xs),
+                      ],
+                      if (widget.showHero) ...<Widget>[
+                        Center(
+                          child: widget.heroBuilder != null
+                              ? widget.heroBuilder!(_controller)
+                              : SuccessLottieBadge(
+                                  controller: lottieController,
+                                ),
+                        ),
+                        const SizedBox(height: VelvetSpacing.xs),
+                      ],
+                      if (widget.title != null) ...<Widget>[
+                        _reveal(
+                          start: 0.45,
+                          end: 0.7,
+                          child: Text(
+                            widget.title!,
+                            textAlign: TextAlign.center,
+                            style: VelvetText.headingLg,
+                          ),
+                        ),
+                        const SizedBox(height: VelvetSpacing.xs + 2),
+                      ],
+                      if (widget.subline != null)
+                        _reveal(
+                          start: 0.52,
+                          end: 0.78,
+                          child: Text(
+                            widget.subline!,
+                            textAlign: TextAlign.center,
+                            style: VelvetText.bookSuccessSubline,
+                          ),
+                        ),
                     ],
                   ),
-                  const SizedBox(height: VelvetSpacing.xs),
-                ],
-                if (widget.showHero) ...<Widget>[
-                  Center(
-                    child: widget.heroBuilder != null
-                        ? widget.heroBuilder!(_controller)
-                        : SuccessLottieBadge(controller: lottieController),
-                  ),
-                  const SizedBox(height: VelvetSpacing.xs),
-                ],
-                if (widget.title != null) ...<Widget>[
-                  _reveal(
-                    start: 0.45,
-                    end: 0.7,
-                    child: Text(
-                      widget.title!,
-                      textAlign: TextAlign.center,
-                      style: VelvetText.headingLg,
-                    ),
-                  ),
-                  const SizedBox(height: VelvetSpacing.xs + 2),
-                ],
-                if (widget.subline != null) ...<Widget>[
-                  _reveal(
-                    start: 0.52,
-                    end: 0.78,
-                    child: Text(
-                      widget.subline!,
-                      textAlign: TextAlign.center,
-                      style: VelvetText.bookSuccessSubline,
-                    ),
-                  ),
-                ],
+                ),
                 const SizedBox(height: VelvetSpacing.lg),
                 Flexible(
                   child: widget.pagedRecap == null
-                      ? SingleChildScrollView(
-                          physics: const BouncingScrollPhysics(),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: _recapContent(),
+                      ? _hInset(
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: recapContent,
+                            ),
                           ),
                         )
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: <Widget>[
-                            ..._recapContent(),
+                            _hInset(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: recapContent,
+                              ),
+                            ),
+                            // NO [_hInset] here on purpose — see this
+                            // method's FIX 2 note. [pagedRecap] provides its
+                            // own single `lg` inset.
                             Expanded(
                               child: _reveal(
                                 start: 0.6,
@@ -396,7 +442,13 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
                 ),
                 if (widget.actions.isNotEmpty) ...<Widget>[
                   SizedBox(height: widget.homeGap),
-                  _reveal(start: 0.8, end: 1.0, child: _actionsColumn()),
+                  _hInset(
+                    child: _reveal(
+                      start: 0.8,
+                      end: 1.0,
+                      child: _actionsColumn(),
+                    ),
+                  ),
                 ],
               ],
             ),

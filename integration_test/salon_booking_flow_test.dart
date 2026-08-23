@@ -1232,14 +1232,10 @@ void main() {
         find.descendant(of: successCccCard, matching: find.text('4.6')),
         findsOneWidget,
       );
-      // master-ccc's ONE booking (one service) → ONE calendar pill, on
-      // page 0 — the 1-service-1-booking calendar-button contract.
+      // master-ccc's whole visit → ONE calendar button, on page 0 — the
+      // one-button-per-master contract (FIX 3).
       expect(
-        find.byKey(const ValueKey<String>('salon-success-calendar-0')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-0')),
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-0')),
         findsOneWidget,
       );
 
@@ -1255,11 +1251,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.byKey(const ValueKey<String>('salon-success-calendar-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-0')),
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-1')),
         findsOneWidget,
       );
     });

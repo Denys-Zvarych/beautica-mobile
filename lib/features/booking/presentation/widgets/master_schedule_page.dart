@@ -55,6 +55,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -400,7 +401,28 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
           child: Text(
-            l10n.salonScheduleDateIntro,
+            // FIX 1 (owner-reported) — names the actual service(s) booked
+            // WITH this master on this slide, instead of the generic "for
+            // this master" line: the master is already chosen by this point
+            // in the flow, so what the client needs confirmed here is WHICH
+            // service(s) the date applies to. A master with 2+ assigned
+            // services gets them comma-joined (mirrors the booking-success
+            // calendar export's `serviceLabel` join,
+            // `booking_success_screen.dart`) rather than a bulleted list or a
+            // "N послуг" summary — this is a single intro sentence, not a
+            // recap table (the full per-service breakdown is already shown
+            // later, on the confirm screen's `BookingRecap`). Empty
+            // `services` never happens on a well-formed slide (every
+            // assigned master has >=1 service by construction — see
+            // `SalonMasterSchedule`'s doc) but falls back to the old generic
+            // per-master line rather than rendering "для «»".
+            widget.schedule.services.isEmpty
+                ? l10n.salonScheduleDateIntro
+                : l10n.salonScheduleDateIntroForServices(
+                    widget.schedule.services
+                        .map((SalonCatalogService s) => s.name)
+                        .join(', '),
+                  ),
             style: VelvetText.scheduleDateIntro,
           ),
         ),

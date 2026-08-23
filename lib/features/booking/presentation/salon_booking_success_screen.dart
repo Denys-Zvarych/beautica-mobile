@@ -23,14 +23,19 @@
 // .recapCards] (non-paged, same staggered reveal as before) — it is
 // identical for every appointment (all N masters work at the SAME salon).
 //
-// «Додати в календар» (owner decision, 2026-08-23): ONE [CalendarButton] per
-// BOOKING (1 service = 1 booking — a master with 2 services gets 2 buttons),
-// reusing the SAME shared widget the independent success screen's
-// `trailingAction` uses. `BookingSummaryCards.fromSchedule` has no
-// `trailingAction` passthrough and this port deliberately does not add one
-// for a single caller (see `_SalonCalendarActionsCard`'s own doc) — the
-// buttons render in a second, small card directly below each master's
-// summary card instead, inside that master's own pager page.
+// «Додати в календар» (owner-reported fix, superseding the 2026-08-23
+// decision above): ONE [CalendarButton] per MASTER, covering that master's
+// WHOLE visit (every assigned service, back-to-back, one contiguous
+// arrival) — mirroring the independent-master success screen's
+// `_onAddToCalendar` (`booking_success_screen.dart`), which is the
+// authority this screen now copies. The earlier "ONE per BOOKING" design
+// (1 service = 1 booking = 1 button) was wrong: a master's services in one
+// appointment run back-to-back as a SINGLE arrival, so they belong in ONE
+// OS calendar event, not N overlapping ones. `BookingSummaryCards
+// .fromSchedule` now carries the SAME `trailingAction` passthrough
+// [BookingSummaryCards.fromMaster] already had — REUSE-FIRST forbids the
+// bespoke `_SalonCalendarActionsCard`/`_CalendarActionRow` pair that used to
+// live here (deleted) once the shared slot could carry the button instead.
 //
 // Reached ONLY via `SalonBookingConfirmScreen`'s `pushReplacement` once EVERY
 // appointment's `POST /bookings` succeeded (partial failures keep the client
@@ -50,20 +55,22 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart'
+    show ServicePriceType;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 
 import '../domain/salon_booking_confirm_args.dart';
+import '../domain/salon_master_schedule.dart';
 import 'widgets/appointment_pager.dart';
-import 'widgets/booking_recap.dart' show parseDurationMinutes;
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
@@ -99,10 +106,12 @@ class _SalonBookingSuccessScreenState
   /// `booking_success_screen.dart`'s `_calendarInFlight` (on Android,
   /// `Add2Calendar.addEvent2Cal` resolves as soon as `startActivity`
   /// returns, not when the sheet is dismissed, so a same-gesture double-tap
-  /// could stack two platform activities). Keyed per BOOKING
-  /// (`<appointmentIndex>-<serviceIndex>`) rather than a single bool, since
-  /// this screen can show several buttons at once — a tap on one button must
-  /// never block a DIFFERENT booking's button.
+  /// could stack two platform activities). Keyed per APPOINTMENT
+  /// (`appointmentIndex`, one entry per master — FIX 3 collapsed this
+  /// screen to one `CalendarButton` per master) rather than a single bool,
+  /// since this screen can show several masters' buttons at once (paged, but
+  /// still separately keyed defensively) — a tap on one master's button must
+  /// never block a DIFFERENT master's button.
   final Set<String> _calendarInFlight = <String>{};
 
   @override
@@ -122,18 +131,19 @@ class _SalonBookingSuccessScreenState
     super.dispose();
   }
 
-  /// Opens the OS calendar's "new event" sheet for ONE booking (one master's
-  /// one SERVICE within the appointment) — never the whole appointment, per
-  /// the 1-service-1-booking rule (see the file header). [serviceStart]/
-  /// [serviceEnd] are that service's own chained window, computed by
-  /// [_SalonCalendarActionsCard].
+  /// Opens the OS calendar's "new event" sheet for ONE master's WHOLE
+  /// appointment — every assigned service, back-to-back, from
+  /// `appointment.startAt` to `appointment.startAt + summed duration`
+  /// ([SalonBookingAppointment.durationMinutes], i.e.
+  /// `schedule.summedDurationMinutes`) — mirroring
+  /// `booking_success_screen.dart`'s `_onAddToCalendar` (the independent
+  /// flow's authority for this rework, see the file header). Never one
+  /// event per service: the services in one appointment are a single
+  /// contiguous arrival.
   Future<void> _addToCalendar({
     required BuildContext context,
     required String guardKey,
     required SalonBookingAppointment appointment,
-    required SalonCatalogService service,
-    required DateTime serviceStart,
-    required DateTime serviceEnd,
     required String? salonAddressLine,
     required String? salonNameResolved,
   }) async {
@@ -141,36 +151,60 @@ class _SalonBookingSuccessScreenState
     _calendarInFlight.add(guardKey);
     try {
       final l10n = AppLocalizations.of(context);
-      final String masterName =
-          '${appointment.schedule.firstName} ${appointment.schedule.lastName}'
-              .trim();
+      final SalonMasterSchedule schedule = appointment.schedule;
+      final DateTime start = appointment.startAt;
+      final DateTime end = start.add(
+        Duration(minutes: appointment.durationMinutes),
+      );
+      final String masterName = '${schedule.firstName} ${schedule.lastName}'
+          .trim();
       // A salon booking names the SALON; falls back to the master when the
       // secondary salon-profile read hasn't resolved yet — mirrors
       // `booking_detail_screen.dart`'s `_onAddToCalendar` precedent
       // (`provider = booking.salonName ?? booking.masterName`).
       final String provider = salonNameResolved ?? masterName;
+      final String serviceLabel = schedule.services
+          .map((SalonCatalogService s) => s.name)
+          .join(', ');
+      // Typed price/duration fields, never a re-parsed display string — same
+      // `formatBookingTotalsFromTerms` term-mapping as `_AssignConfirmBar
+      // ._totals` (`salon_master_selection_screen.dart`), the established
+      // precedent for summing this exact [SalonCatalogService] shape.
+      final String priceLabel = formatBookingTotalsFromTerms(
+        schedule.services.map((SalonCatalogService s) {
+          final double lo = s.priceMin ?? 0;
+          return (
+            min: lo,
+            max: s.priceType == ServicePriceType.range
+                ? (s.priceMax ?? lo)
+                : lo,
+            minutes: s.durationMinutes ?? 0,
+          );
+        }),
+      ).priceLabel;
+
       // Structured facts only — NO free-text note fields reach the calendar
       // (see `buildCalendarDescription`'s own privacy boundary doc). A salon
       // appointment is auto-approved CONFIRMED at submit time (domain rules).
       final String? description = buildCalendarDescription(
         l10n: l10n,
-        service: service.name,
+        service: serviceLabel,
         provider: provider,
         providerRole: CalendarProviderRole.salon,
         dateTime:
-            '${formatFullDate(serviceStart)}, '
-            '${formatTimeRange(serviceStart, serviceEnd.difference(serviceStart).inMinutes)}',
+            '${formatFullDate(start)}, '
+            '${formatTimeRange(start, appointment.durationMinutes)}',
         address: salonAddressLine,
-        price: service.priceDisplay,
+        price: priceLabel,
         status: l10n.bookingStatusConfirmed,
       );
 
       await addBookingToCalendar(
         context: context,
-        title: l10n.bookingCalendarEventTitle(service.name, provider),
+        title: l10n.bookingCalendarEventTitle(serviceLabel, provider),
         location: salonAddressLine,
-        start: serviceStart,
-        end: serviceEnd,
+        start: start,
+        end: end,
         description: description,
       );
     } finally {
@@ -258,11 +292,12 @@ class _SalonBookingSuccessScreenState
           ),
         ),
       ],
-      // PAGED — one master's confirmed recap + its own «Додати в календар»
-      // pills on screen at a time (owner decision, 2026-08-23 — see the file
-      // header). No visit-wide total: each card's own «Разом» (inside
-      // `BookingSummaryCards.fromSchedule`, via `BookingRecap`) is the only
-      // total shown.
+      // PAGED — one master's confirmed recap, with its OWN «Додати в
+      // календар» button mounted INSIDE the shared card via
+      // `BookingSummaryCards.fromSchedule`'s `trailingAction` (FIX 3 — see
+      // the file header). No visit-wide total: each card's own «Разом»
+      // (inside `BookingSummaryCards.fromSchedule`, via `BookingRecap`) is
+      // the only total shown.
       pagedRecap: AppointmentPager(
         // Test-support key — mirrors the confirm screen's identical key
         // (`salon_booking_confirm_screen.dart`), enabling
@@ -271,159 +306,33 @@ class _SalonBookingSuccessScreenState
         count: appointments.length,
         pageBuilder: (BuildContext context, int i) {
           final SalonBookingAppointment appointment = appointments[i];
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              BookingSummaryCards.fromSchedule(
-                key: ValueKey<String>(
-                  'salon-success-appt-${appointment.schedule.masterId}',
-                ),
-                schedule: appointment.schedule,
-                start: appointment.startAt,
-                avatarGradient: salonAvatarGradient(i),
-                dense: true,
-                showBorder: true,
-                compactText: true,
-              ),
-              const SizedBox(height: VelvetSpacing.md),
-              _SalonCalendarActionsCard(
+          return BookingSummaryCards.fromSchedule(
+            key: ValueKey<String>(
+              'salon-success-appt-${appointment.schedule.masterId}',
+            ),
+            schedule: appointment.schedule,
+            start: appointment.startAt,
+            avatarGradient: salonAvatarGradient(i),
+            dense: true,
+            showBorder: true,
+            compactText: true,
+            // ONE button for this master's WHOLE visit (every assigned
+            // service, back-to-back) — see `_addToCalendar`'s doc. Keyed per
+            // appointment index, mirroring `_calendarInFlight`'s guard key.
+            trailingAction: CalendarButton(
+              buttonKey: Key('salon-success-add-calendar-$i'),
+              semanticsLabel: l10n.bookingAddCalendarSemantics,
+              onTap: () => _addToCalendar(
+                context: context,
+                guardKey: 'salon-success-add-calendar-$i',
                 appointment: appointment,
-                appointmentIndex: i,
-                onTap: (int serviceIndex, DateTime start, DateTime end) =>
-                    _addToCalendar(
-                      context: context,
-                      guardKey: 'salon-success-add-calendar-$i-$serviceIndex',
-                      appointment: appointment,
-                      service: appointment.schedule.services[serviceIndex],
-                      serviceStart: start,
-                      serviceEnd: end,
-                      salonAddressLine: addressLine,
-                      salonNameResolved: salonName,
-                    ),
+                salonAddressLine: addressLine,
+                salonNameResolved: salonName,
               ),
-            ],
+            ),
           );
         },
       ),
-    );
-  }
-}
-
-/// One card listing every «Додати в календар» pill for a single confirmed
-/// salon appointment — ONE pill per BOOKING (1 service = 1 booking; a master
-/// with 2 assigned services gets 2 buttons), because the OS "new event"
-/// sheet takes exactly one event per invocation and a single per-master
-/// button could only ever seed one of them.
-///
-/// A separate card rather than a `BookingSummaryCards.fromSchedule`
-/// `trailingAction` slot: that factory constructor has no such passthrough,
-/// and `booking_summary_cards.dart` is explicitly off-limits for this port
-/// (single call site here — REUSE-FIRST does not ask for a new parameter on
-/// a widely-shared widget to serve exactly one caller). REUSE-FIRST still
-/// governs the CONTENTS: every piece below is the existing shared
-/// [CalendarButton] / [NeumorphicCard] / [VelvetText]; only the composition
-/// wrapping them is new, because no existing widget renders "N per-booking
-/// calendar pills for one salon appointment". Single call site (this
-/// screen's pager page) — stays private rather than promoted.
-class _SalonCalendarActionsCard extends StatelessWidget {
-  const _SalonCalendarActionsCard({
-    required this.appointment,
-    required this.appointmentIndex,
-    required this.onTap,
-  });
-
-  final SalonBookingAppointment appointment;
-
-  /// This appointment's position in the visit — used for per-booking keys.
-  final int appointmentIndex;
-
-  /// Called with the tapped SERVICE's index within
-  /// `appointment.schedule.services` and its own chained start/end window.
-  final void Function(int serviceIndex, DateTime start, DateTime end) onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final List<SalonCatalogService> services = appointment.schedule.services;
-
-    // Each service runs back-to-back from the appointment's single chosen
-    // start — the same chaining the backend applies server-side. No
-    // per-service start is threaded through the draft args (only the
-    // aggregate window is shown pre-submission), so it is derived here, once
-    // per build, preferring the typed `durationMinutes` and falling back to
-    // parsing `durationLabel` only when it is absent (mirrors
-    // `booking_recap.dart`'s own typed-field-first precedent).
-    DateTime cursor = appointment.startAt;
-    final List<DateTime> starts = <DateTime>[];
-    final List<DateTime> ends = <DateTime>[];
-    for (final SalonCatalogService service in services) {
-      final int minutes =
-          service.durationMinutes ??
-          parseDurationMinutes(service.durationLabel);
-      starts.add(cursor);
-      cursor = cursor.add(Duration(minutes: minutes));
-      ends.add(cursor);
-    }
-
-    return NeumorphicCard(
-      key: ValueKey<String>('salon-success-calendar-$appointmentIndex'),
-      showBorder: true,
-      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          for (int i = 0; i < services.length; i++) ...<Widget>[
-            if (i > 0) const SizedBox(height: VelvetSpacing.sm),
-            _CalendarActionRow(
-              // A single service needs no disambiguation; several do.
-              serviceName: services.length > 1 ? services[i].name : null,
-              button: CalendarButton(
-                buttonKey: ValueKey<String>(
-                  'salon-success-add-calendar-$appointmentIndex-$i',
-                ),
-                semanticsLabel: l10n.bookingAddCalendarServiceSemantics(
-                  services[i].name,
-                ),
-                onTap: () => onTap(i, starts[i], ends[i]),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// One «Додати в календар» pill, optionally preceded by the muted name of
-/// the booking it seeds — mirrors the approved preview's `_CalendarRow`
-/// (`docs/signup-designs/SalonBookingConfirm/lib/widgets/
-/// salon_booking_summary.dart`).
-class _CalendarActionRow extends StatelessWidget {
-  const _CalendarActionRow({required this.serviceName, required this.button});
-
-  final String? serviceName;
-  final Widget button;
-
-  @override
-  Widget build(BuildContext context) {
-    if (serviceName == null) return button;
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Text(
-            serviceName!,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            // `feedbackMutedXs` — the shared small-muted-label token, reused
-            // rather than an inline fontSize (forbid_inline_fontsize.sh).
-            style: VelvetText.feedbackMutedXs,
-          ),
-        ),
-        const SizedBox(width: VelvetSpacing.sm),
-        button,
-      ],
     );
   }
 }
