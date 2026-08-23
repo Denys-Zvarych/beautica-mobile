@@ -102,6 +102,7 @@ import 'package:beautica_mobile/features/booking/presentation/salon_booking_succ
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
@@ -735,6 +736,21 @@ void main() {
         today.day,
         7,
       ).toIso8601String();
+      // The fixture's SECOND slot (`availableSlotUtcStarts`' `(11, 0)`) — 11:00Z
+      // is `kFixedNow`'s June (Kyiv EEST, +3) 14:00 Kyiv, i.e. AFTERNOON
+      // (`hour >= 12`). This is the DISCRIMINATING one for the JOB 2 heading
+      // check below: the raw UTC hour (11) is ALSO `< 12`, so a slot that
+      // merely stayed under 12 either way (like the 07:00Z morning slot above)
+      // would file under «Ранок» whether or not the fix is in place — a
+      // heading assertion pinned to that slot would be vacuous. 11:00Z is the
+      // one instant in this fixture where the pre-fix raw-hour bucket
+      // («Ранок») and the correct Kyiv-hour bucket («День») actually disagree.
+      final String todaysAfternoonSlotIso = DateTime.utc(
+        today.year,
+        today.month,
+        today.day,
+        11,
+      ).toIso8601String();
 
       // ── mobile-qa audit-fix cycle 1: pin the REAL working-days fetch
       // contract instead of the retired per-day-tap assertion below (proven
@@ -916,6 +932,40 @@ void main() {
         find.byKey(Key('salon-slot-chip-$todaysMorningSlotIso')),
       );
       expect(ccdMorningSlot, findsOneWidget);
+      // mobile-qa JOB 2 (2026-08-23) — the ONE place in the corpus that
+      // proves the Ранок/День/Вечір heading bug is fixed over the REAL wire
+      // format, not a hand-built `BookingSlot`. Every other pin
+      // (`slot_bucket_heading_tz_test.dart`, 16 cases) constructs
+      // `BookingSlot` directly in Dart, bypassing the generated built_value
+      // client's `Iso8601DateTimeSerializer.deserialize(...).toUtc()` step —
+      // which is where the shipped bug's raw-UTC-hour instant actually came
+      // from. Here `11:00Z` (`todaysAfternoonSlotIso` — see its own doc
+      // comment for why it, and not the 07:00Z chip above, is the
+      // DISCRIMINATING one) travels through `FakeBackend`'s real JSON
+      // response, the real Dio client, and the real
+      // `salonMasterDaySlotsProvider` before reaching this chip — so this
+      // asserts the FULL pipeline, not just the bucketing function in
+      // isolation.
+      final Finder ccdAfternoonSlot = withinSlide(
+        'master-ccc',
+        find.byKey(Key('salon-slot-chip-$todaysAfternoonSlotIso')),
+      );
+      expect(ccdAfternoonSlot, findsOneWidget);
+      final SlotGroup ccdAfternoonGroup = tester.widget<SlotGroup>(
+        find.ancestor(of: ccdAfternoonSlot, matching: find.byType(SlotGroup)),
+      );
+      final AppLocalizations l10nCcd = AppLocalizations.of(
+        tester.element(ccdAfternoonSlot),
+      );
+      expect(
+        ccdAfternoonGroup.label,
+        l10nCcd.bookingAfternoonLabel,
+        reason:
+            'a 11:00Z slot (14:00 Kyiv, EEST) must file under «День» over '
+            'the real fake-backend -> Dio -> provider pipeline; the raw UTC '
+            'hour (11) is ALSO < 12, so bucketing on it (the shipped bug) '
+            'would wrongly file this same chip under «Ранок» instead',
+      );
       await tester.tap(ccdMorningSlot);
       await AppHarness.settle(tester);
       expect(

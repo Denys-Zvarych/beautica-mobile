@@ -68,7 +68,6 @@ import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dar
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
-import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
@@ -233,26 +232,17 @@ const _kSalonMaster = SalonMasterSummary(
   type: MasterType.salonMaster,
 );
 
+// Retired `visit:` shape carried master `_kSalonMasterId` ('Salon Master')
+// assigned the single 'svc-1' service — expressed directly in the current
+// shape below. `SalonCatalogService`/`orderedMasterServiceIds` detail no
+// longer belongs on this args type (the screen re-resolves it from
+// `salonMasterServiceCoverageProvider`), so only the id survives here.
 SalonBookingTimeArgs _validSalonTimeArgs() => const SalonBookingTimeArgs(
   salonId: _kSalonId,
-  visit: SalonMasterSchedule(
-    masterId: _kSalonMasterId,
-    firstName: 'Salon',
-    lastName: 'Master',
-    type: MasterType.salonMaster,
-    services: <SalonCatalogService>[
-      SalonCatalogService(
-        id: 'svc-1',
-        name: 'Манікюр',
-        durationLabel: '1 год',
-        priceDisplay: '500 ₴',
-        durationMinutes: 60,
-        priceType: ServicePriceType.fixed,
-        priceMin: 500,
-      ),
-    ],
-    orderedMasterServiceIds: <String>['assign-svc-1'],
-  ),
+  selectedServiceIds: <String>['svc-1'],
+  assignedServiceIdsByMaster: <String, List<String>>{
+    _kSalonMasterId: <String>['svc-1'],
+  },
 );
 
 const _clientUser = User(

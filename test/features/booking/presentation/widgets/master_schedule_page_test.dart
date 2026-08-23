@@ -29,9 +29,11 @@ import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_schedule_page.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'dart:ui' show Tristate;
 
 import 'package:dio/dio.dart';
@@ -112,6 +114,51 @@ class _AlwaysWorkingCountingSlotRepository implements SlotRepository {
   }
 }
 
+/// JOB 1 (mobile-qa, 2026-08-23) — a per-DAY slot list, so switching dates on
+/// the SAME live `MasterSchedulePage` State exercises `_bucketsFor`'s
+/// identity-keyed memo (`master_schedule_page.dart:387-416`) across a genuine
+/// cache MISS, not just its warm-cache hit path (every other fixture in this
+/// file returns the identical list every call, which never forces a
+/// recompute).
+///
+/// Every call returns a FRESH `List.of(...)` — never the same object twice —
+/// mirroring what the real `salonMasterDaySlotsProvider` family does: a
+/// different `date` is a different provider instance entirely, so its
+/// `AsyncData` always wraps a new list, never the previous date's.
+class _PerDaySlotRepository implements SlotRepository {
+  _PerDaySlotRepository(this.slotsByDay);
+
+  final Map<int, List<BookingSlot>> slotsByDay;
+
+  @override
+  Future<List<WorkingDay>> getWorkingDays({
+    required String masterId,
+    required DateTime from,
+    required DateTime to,
+    List<String>? serviceIds,
+    CancelToken? cancelToken,
+  }) async {
+    final List<WorkingDay> days = <WorkingDay>[];
+    for (
+      DateTime d = from;
+      !d.isAfter(to);
+      d = d.add(const Duration(days: 1))
+    ) {
+      days.add(WorkingDay(date: d, working: true));
+    }
+    return days;
+  }
+
+  @override
+  Future<List<BookingSlot>> getMasterSlots({
+    required String masterId,
+    required List<String> serviceIds,
+    required DateTime date,
+    CancelToken? cancelToken,
+  }) async =>
+      List<BookingSlot>.of(slotsByDay[date.day] ?? const <BookingSlot>[]);
+}
+
 const _kCatalogService = SalonCatalogService(
   id: 'svc-1',
   name: 'Манікюр з покриттям',
@@ -160,6 +207,37 @@ const _kMultiSchedule = SalonMasterSchedule(
 // (see that group's own header) in every group in this file.
 // future-date-ok: this IS the fake clockProvider "now" (mirrors the identical instant pinned inline in the group above) — the whole point is a fixed instant straddling the Kyiv/UTC day boundary, which a now-relative offset cannot express.
 final DateTime _kClockInstant = DateTime.utc(2026, 8, 1, 22, 30);
+
+// JOB 1 fixtures — one slot on Kyiv "today" (Aug 2, morning), a DIFFERENT
+// slot on Kyiv "tomorrow" (Aug 3, evening). August is Kyiv summer (EEST,
+// UTC+3), so 05:00Z → 08:00 Kyiv (morning, `hour < 12`) and 15:00Z → 18:00
+// Kyiv (evening, `hour >= 17`) — bucketing correctness itself is already
+// pinned exhaustively by `slot_bucket_heading_tz_test.dart`; this file only
+// needs the two buckets to be OBSERVABLY DIFFERENT so a stale-cache hit is
+// distinguishable from a correct recompute.
+final BookingSlot _kDay2MorningSlot = BookingSlot(
+  // future-date-ok: fixed UTC instant, lands in a distinct bucket below.
+  startAt: DateTime.utc(2026, 8, 2, 5),
+  // future-date-ok: fixed UTC instant, lands in a distinct bucket below.
+  endAt: DateTime.utc(2026, 8, 2, 5, 30),
+  available: true,
+);
+final BookingSlot _kDay3EveningSlot = BookingSlot(
+  // future-date-ok: fixed UTC instant, lands in a distinct bucket above.
+  startAt: DateTime.utc(2026, 8, 3, 15),
+  // future-date-ok: fixed UTC instant, lands in a distinct bucket above.
+  endAt: DateTime.utc(2026, 8, 3, 15, 30),
+  available: true,
+);
+
+/// The `label` of every rendered [SlotGroup], in render order — mirrors
+/// `slot_bucket_heading_tz_test.dart`'s identical helper (reading the
+/// widget's own field keeps this off both Cyrillic literals and
+/// `forbid_cyrillic_finder.sh`).
+List<String> _renderedGroupLabels(WidgetTester tester) => tester
+    .widgetList<SlotGroup>(find.byType(SlotGroup))
+    .map((SlotGroup g) => g.label)
+    .toList(growable: false);
 
 void main() {
   group('MasterSchedulePage — Kyiv-anchored "today" (mobile-qa, 2026-08-03, '
@@ -788,6 +866,82 @@ void main() {
           reason:
               'a multi-service master must see every assigned service '
               'named, comma-joined, in assignment order, bare and bold',
+        );
+      },
+    );
+  });
+
+  group('MasterSchedulePage — JOB 1: _bucketsFor recomputes on a genuine '
+      'slot-list identity change (mobile-qa, 2026-08-23)', () {
+    testWidgets(
+      'should_recomputeBuckets_when_switchingDatesOnTheSameLiveState',
+      (tester) async {
+        final repo = _PerDaySlotRepository(<int, List<BookingSlot>>{
+          2: <BookingSlot>[_kDay2MorningSlot],
+          3: <BookingSlot>[_kDay3EveningSlot],
+        });
+        final List<Object> overrides = <Object>[
+          slotRepositoryProvider.overrideWith((_) => repo),
+          clockProvider.overrideWithValue(() => _kClockInstant),
+        ];
+
+        await tester.pumpApp(
+          const Scaffold(
+            body: MasterSchedulePage(
+              schedule: _kSchedule,
+              avatarGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
+            ),
+          ),
+          overrides: overrides,
+        );
+        await tester.pumpAndSettle();
+
+        // Kyiv "today" (Aug 2) — first bucket population. The memo has
+        // nothing cached yet, so this is not itself informative about
+        // invalidation; it only establishes the STARTING state the
+        // date-switch below must move away from.
+        await tester.tapCalendarDay(2);
+        await tester.pumpAndSettle();
+        _enterTimePhase(tester, 'm1');
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterSchedulePage)),
+        );
+        expect(
+          _renderedGroupLabels(tester),
+          <String>[l10n.bookingMorningLabel],
+          reason: 'Aug 2 has a single morning slot and nothing else',
+        );
+
+        // Back to the DATE phase on the SAME live State (no remount — this
+        // file's `_kSchedule.masterId` ('m1') never changes, so
+        // `MasterSchedulePage`'s `State` — and its `_cachedSlots`/
+        // `_cachedBuckets` fields — survive the round trip), then forward
+        // into a DIFFERENT date. `clearDate` is invoked the same way
+        // `_enterTimePhase` above invokes `enterTimePhase` — directly on the
+        // shared notifier, mirroring what the real «Змінити»/edge-swipe/back
+        // affordances do on `_clearDate()`.
+        ProviderScope.containerOf(
+          tester.element(find.byType(MasterSchedulePage)),
+        ).read(salonBookingScheduleProvider.notifier).clearDate('m1');
+        await tester.pumpAndSettle();
+
+        await tester.tapCalendarDay(3);
+        await tester.pumpAndSettle();
+        _enterTimePhase(tester, 'm1');
+        await tester.pumpAndSettle();
+
+        expect(
+          _renderedGroupLabels(tester),
+          <String>[l10n.bookingEveningLabel],
+          reason:
+              'Aug 3 carries a DIFFERENT, freshly-fetched slot list (one '
+              'evening slot, no morning slot at all). `_bucketsFor` must '
+              'recompute off it rather than reuse Aug 2\'s cached '
+              'morning-only split — a stale-cache bug here would silently '
+              'keep showing Aug 2\'s slot under Aug 3\'s headings, or show '
+              'no evening group at all',
         );
       },
     );

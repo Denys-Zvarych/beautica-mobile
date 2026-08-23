@@ -59,6 +59,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../../application/salon_booking_schedule_notifier.dart';
 import '../../application/working_days_notifier.dart';
@@ -124,19 +125,62 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
   /// concept on the backend (`SlotCalculationService`'s
   /// `atStartOfDay(TimeZones.KYIV)`), so the past-day gate below must be the
   /// Kyiv day, not the device's own. See `shared/time/kyiv_day.dart`.
-  /// Captured once here (unlike `SlotDateScreen`, which re-derives per build
-  /// to survive a picker left open across midnight) — this slide is
-  /// recreated whenever `SalonTimeScreen`'s pager rebuilds it, which is
-  /// enough of a re-anchor point for the horizon/past-day gate this widget
-  /// needs.
-  late final DateTime _today;
-  late final DateTime _firstMonth;
-  late final DateTime _lastMonth;
+  ///
+  /// Re-derived on every read (a `get`, not a captured field) — this slide's
+  /// `State` is keyed `ValueKey('salon-schedule-page-$masterId')` and, with
+  /// `keepAlive`, persists across `SalonTimeScreen`'s pager, so a client can
+  /// sit on this step across a Kyiv midnight without the slide ever being
+  /// recreated. A one-time `initState` capture used to leave yesterday
+  /// tappable and the booking horizon frozen for the rest of the slide's
+  /// life — this comment previously argued the pager recreated the slide
+  /// "often enough" to re-anchor it; that defence never held once
+  /// `keepAlive`/the stable per-master key were in play, and the bug shipped
+  /// (fixed 2026-08-23, matching `SlotDateScreen._today` exactly).
+  DateTime get _today => kyivToday(ref.read(clockProvider));
+
+  /// First bookable month. Also a getter, deriving from the live [_today]
+  /// above — a *month*-boundary rollover, not just a day one, must not leave
+  /// the horizon anchored to a [_today] that no longer exists, which a
+  /// frozen `_firstMonth` would silently reintroduce. Kept as a plain getter
+  /// rather than a field for the same reason [_today] is (see that getter's
+  /// doc comment) — [_prevMonth]/[_nextMonth] (the only remaining direct
+  /// callers) each read it at most once, off a fresh `setState` rebuild, so
+  /// there's no per-build fan-out to worry about there. `_datePhase()`'s own
+  /// prev/next-month enablement checks no longer call this getter directly
+  /// (mobile-build-verifier LOW fix) — they compare against a `firstMonth`
+  /// local derived from that build's single [_today] capture instead, so a
+  /// same-frame mismatch between the day-cell gating and the month-arrow
+  /// gating can no longer happen at all, not just be bounded to one frame.
+  /// NOT reclamped against [_visibleMonth]: if this slide survives a Kyiv
+  /// *month* rollover without the user paging, the grid can render a
+  /// fully-past month until the next tap — out of scope for this fix, which
+  /// targets the day-level/per-cell regression described above.
+  DateTime get _firstMonth => DateTime(_today.year, _today.month, 1);
+
+  DateTime get _lastMonth =>
+      DateTime(_today.year, _today.month + _horizonMonths, 1);
+
   late DateTime _visibleMonth;
 
   /// Loading-flash fix, mirroring `SlotDateScreen._lastWorkingDays` — see
   /// that file for the full rationale.
   List<WorkingDay>? _lastWorkingDays;
+
+  /// mobile-perf/mobile-build-verifier LOW fix — memoized time-of-day
+  /// buckets, mirroring `SlotDateScreen`'s `_SlotsSectionState._bucketsFor`
+  /// (`slot_picker_screen.dart:880-909`) verbatim rather than inventing a
+  /// different cache. `_timePhase` rebuilds on EVERY slot tap (see this
+  /// file's own comment at `:169-186` on the identical
+  /// `_serviceNamesHeading` fix), so the Ранок/День/Вечір split — an O(n)
+  /// `toBeauticaTime(...).hour` conversion per slot — used to rerun on every
+  /// tap even though it only ever depends on the fetched `slots` list, never
+  /// on which slot is selected. Cached by LIST IDENTITY: invalidated the
+  /// moment `salonMasterDaySlotsProvider` resolves a genuinely new
+  /// `List<BookingSlot>` (a different date/master, or a refetch) — never
+  /// invalidated by a slot pick, since selecting a slot doesn't touch the
+  /// provider's cached list at all.
+  List<BookingSlot>? _cachedSlots;
+  (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? _cachedBuckets;
 
   /// mobile-perf Finding (LOW) fix — the comma-joined service-name heading
   /// (`_datePhase`/`_timePhase`, both) used to be recomputed with
@@ -193,9 +237,6 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
   @override
   void initState() {
     super.initState();
-    _today = kyivToday(ref.read(clockProvider));
-    _firstMonth = DateTime(_today.year, _today.month, 1);
-    _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
     _visibleMonth = _firstMonth;
     _serviceNamesHeading = _joinServiceNames(widget.schedule);
   }
@@ -228,12 +269,22 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
 
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
-  bool Function(DateTime) _availabilityFrom(List<WorkingDay> days) {
+  /// [today] is threaded in by the caller (a single `_datePhase()`-local
+  /// read of [_today]) rather than re-read here per invocation — this
+  /// closure is called once PER RENDERED DAY CELL by `MonthCalendar`
+  /// (`month_calendar.dart:474`, ~31-42 times per build), so re-deriving
+  /// `_today` (`ref.read(clockProvider)` + a Kyiv conversion) inside it would
+  /// repeat that work N times a build instead of once. See `_datePhase`'s
+  /// own `today` capture for the mobile-build-verifier LOW fix this closes.
+  bool Function(DateTime) _availabilityFrom(
+    List<WorkingDay> days,
+    DateTime today,
+  ) {
     final Map<int, bool> workingByDay = <int, bool>{
       for (final WorkingDay w in days) _dayKey(w.date): w.working,
     };
     return (DateTime day) {
-      if (day.isBefore(_today)) return false;
+      if (day.isBefore(today)) return false;
       return workingByDay[_dayKey(day)] ?? false;
     };
   }
@@ -325,6 +376,45 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
     ref.read(salonBookingScheduleProvider.notifier).selectSlot(_masterId, slot);
   }
 
+  /// Splits [slots] into morning / afternoon / evening on the Kyiv
+  /// wall-clock hour — mirrors `SlotDateScreen`'s own
+  /// `_SlotsSectionState._bucketsFor` (`slot_picker_screen.dart:880-909`)
+  /// verbatim, including the identity-keyed memo (see [_cachedSlots]/
+  /// [_cachedBuckets]'s doc comment). `BookingSlot.startAt` is a canonical
+  /// UTC instant, so `toBeauticaTime(...).hour` — the SAME derivation the
+  /// visible chip label goes through (`formatSlotTime`) — is required here
+  /// too, not the raw UTC hour.
+  (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>) _bucketsFor(
+    List<BookingSlot> slots,
+  ) {
+    final (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? cached =
+        _cachedBuckets;
+    if (cached != null && identical(_cachedSlots, slots)) {
+      return cached;
+    }
+    final List<BookingSlot> morning = <BookingSlot>[];
+    final List<BookingSlot> afternoon = <BookingSlot>[];
+    final List<BookingSlot> evening = <BookingSlot>[];
+    for (final BookingSlot s in slots) {
+      final int hour = toBeauticaTime(s.startAt).hour;
+      if (hour < 12) {
+        morning.add(s);
+      } else if (hour < 17) {
+        afternoon.add(s);
+      } else {
+        evening.add(s);
+      }
+    }
+    final (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>) result = (
+      morning,
+      afternoon,
+      evening,
+    );
+    _cachedSlots = slots;
+    _cachedBuckets = result;
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -390,6 +480,23 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
     final AsyncValue<List<WorkingDay>> workingDaysAsync = ref.watch(
       workingDaysProvider(_workingDaysQuery),
     );
+    // mobile-perf/mobile-build-verifier LOW fix — `_today` (a `get`, see its
+    // own doc comment) is read exactly ONCE per `_datePhase()` build and
+    // threaded down from here, instead of being re-derived by `MonthCalendar`
+    // (`month_calendar.dart:474`) once per rendered day cell (~31-42 times a
+    // build) via the `isAvailable` closure below, plus again for each of the
+    // `_firstMonth`/`_lastMonth` prev/next-month comparisons. `_today`,
+    // `_firstMonth`, `_lastMonth` all STAY getters (2026-08-23 owner
+    // decision — see `_today`'s doc comment): this local is a once-per-BUILD
+    // capture, not a once-per-State-lifetime one, so it still tracks the
+    // live Kyiv day on the very next rebuild.
+    final DateTime today = _today;
+    final DateTime firstMonth = DateTime(today.year, today.month, 1);
+    final DateTime lastMonth = DateTime(
+      today.year,
+      today.month + _horizonMonths,
+      1,
+    );
 
     Widget calendarBody;
     if (workingDaysAsync.hasError) {
@@ -417,12 +524,12 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
         final Widget calendar = MonthCalendar(
           key: const Key('booking-month-calendar'),
           visibleMonth: _visibleMonth,
-          today: _today,
+          today: today,
           selected: selectedDate,
-          isAvailable: _availabilityFrom(daysToRender),
+          isAvailable: _availabilityFrom(daysToRender, today),
           onSelectDay: _selectDay,
-          onPrevMonth: _visibleMonth.isAfter(_firstMonth) ? _prevMonth : null,
-          onNextMonth: _visibleMonth.isBefore(_lastMonth) ? _nextMonth : null,
+          onPrevMonth: _visibleMonth.isAfter(firstMonth) ? _prevMonth : null,
+          onNextMonth: _visibleMonth.isBefore(lastMonth) ? _nextMonth : null,
         );
         calendarBody = loading
             ? Stack(
@@ -635,19 +742,19 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
               if (slots.isEmpty) {
                 return _NoSlotsEmptyState(onChangeDate: _clearDate);
               }
-              final List<BookingSlot> morning = <BookingSlot>[];
-              final List<BookingSlot> afternoon = <BookingSlot>[];
-              final List<BookingSlot> evening = <BookingSlot>[];
-              for (final BookingSlot s in slots) {
-                final int hour = s.startAt.hour;
-                if (hour < 12) {
-                  morning.add(s);
-                } else if (hour < 17) {
-                  afternoon.add(s);
-                } else {
-                  evening.add(s);
-                }
-              }
+              // mobile-perf/mobile-build-verifier LOW fix — memoized by list
+              // identity (see [_bucketsFor]'s doc comment): this rebuilds on
+              // EVERY slot tap (see this file's header + the identical
+              // `_serviceNamesHeading` fix's comment), so the O(n)
+              // `toBeauticaTime` bucketing must not rerun unless `slots`
+              // itself actually changed.
+              final (
+                List<BookingSlot> morning,
+                List<BookingSlot> afternoon,
+                List<BookingSlot> evening,
+              ) = _bucketsFor(
+                slots,
+              );
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
