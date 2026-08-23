@@ -40,8 +40,33 @@
 // the per-item route; see `BookingConfirmScreen._submit`, which checks
 // [rescheduleAppointmentId] FIRST alongside [rescheduleBookingId].
 //
-// Pure Dart: no Flutter imports anywhere in this file.
+// [returnSlotToCaller] (Phase 273) — when `true`, `SlotTimeScreen`'s confirm
+// action calls `context.pop(selectedSlot.start)` instead of pushing
+// `RouteNames.bookingConfirm`. This is the seam the salon multi-service
+// schedule hub (Phase 275) opens the picker through: it awaits
+// `context.push<DateTime?>(...)`, writes the popped value into that
+// service's draft, and never lets the picker itself build a
+// `BookingConfirmArgs` (the hub owns the eventual multi-booking submit).
+// Defaults to `false` so every existing call site (client create, walk-in
+// create, single-booking reschedule, per-item visit reschedule) is
+// unaffected — see phase-273 D2.
+//
+// [excludeWindows] (Phase 274) — windows `SlotTimeScreen` must hide from the
+// candidate slot list, one per OTHER service the client has already
+// scheduled in the same multi-service draft, regardless of which master
+// each is with (the client-conflict rule — `assertNoClientConflict`,
+// `BookingService.java:2069`, `:2240-2244` — is master-agnostic). A
+// candidate slot is hidden iff its own window overlaps ANY window here,
+// using the HALF-OPEN comparison in `time_window_overlap.dart` (so
+// back-to-back stays bookable — see phase-274 D3). Defaults to empty so
+// every existing call site is unaffected — see phase-274 D2.
+//
+// Pure Dart except for [DateTimeRange] (`package:flutter/material.dart`),
+// carried here per phase-274 D2's locked field type rather than a
+// hand-rolled pure-Dart pair — everywhere else in this file stays
+// Flutter-free.
 
+import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
@@ -122,5 +147,25 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// than dropped so a future phone field needs no new plumbing.
     String? rescheduleClientName,
     String? rescheduleClientPhone,
+
+    /// See the file header (phase-273 D2). Defaults to `false` so every
+    /// existing call site is unaffected.
+    @Default(false) bool returnSlotToCaller,
+
+    /// See the file header (phase-274 D2). Defaults to empty so every
+    /// existing call site is unaffected.
+    @Default(<DateTimeRange>[]) List<DateTimeRange> excludeWindows,
+
+    /// Phase 275 D5 — seeds `SlotDateScreen`'s initially-visible calendar
+    /// MONTH (never auto-selects a day — the client still taps a date to
+    /// fetch slots, same as every other entry into this picker). The salon
+    /// schedule hub passes the earliest already-scheduled draft entry's date
+    /// when opening the picker for an UNSCHEDULED row: a client booking
+    /// several services usually wants them close together, so opening on
+    /// "today" when they already picked next Tuesday costs a month of
+    /// scrolling. `null` (the default) leaves `SlotDateScreen` on its
+    /// existing "open on the current Kyiv month" behaviour — every existing
+    /// call site is unaffected.
+    DateTime? initialVisibleDate,
   }) = _BookingSlotPickerArgs;
 }

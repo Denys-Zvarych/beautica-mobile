@@ -1,21 +1,32 @@
-// MO-4 (single-master single-visit rework) — navigation payloads for the salon
-// booking flow's confirmation (`/booking/salon/confirm`) and success
-// (`/booking/salon/success`) screens.
+// Phase 14.18 — navigation payloads for the salon booking flow's step-4
+// confirmation + success screens (`/booking/salon/confirm`,
+// `/booking/salon/success`).
 //
-// The salon flow now schedules ONE visit: the client picks the ONE master who
-// performs ALL selected services, ONE date + ONE start time, submitted as a
-// SINGLE `POST /appointments` — mirroring the independent-master flow
-// (`booking_confirm_args.dart`). This REPLACES the pre-MO-4 "N appointments,
-// one per master" model (and its `SalonBookingAppointment` per-master snapshot
-// / partial-failure machinery, now retired).
+// The salon flow schedules N appointments (one per assigned master) on the
+// step-3 "Час" screen (`SalonTimeScreen`), each with its OWN chosen date +
+// time, tracked LOCALLY in `salonBookingScheduleProvider`. That provider is
+// autoDispose and tied to `SalonTimeScreen`, so its picks must be THREADED
+// FORWARD as concrete nav args rather than re-read on the confirm screen —
+// hence [SalonBookingAppointment] snapshots each master's fully-resolved
+// appointment (who + which services + which primary assignment id + the
+// chosen start) at the moment «Підтвердити» is tapped.
 //
-// The chosen master + ordered services + per-master assignment ids are carried
-// forward in [SalonMasterSchedule.visit] (resolved on the master-selection
-// step). [startAt] is the client's chosen visit start; [idempotencyKey] is a
-// STABLE UUID v4 minted ONCE per submit (in `SalonTimeScreen._confirm`, when
-// these args are built) and reused unchanged on every retry so an
-// ambiguously-failed create de-duplicates server-side — re-picking a time mints
-// a fresh key. Same contract as `BookingConfirmArgs.idempotencyKey`.
+// BOOKING MAPPING: each appointment becomes exactly ONE
+// `POST /appointments` chained-visit call — `masterId` =
+// [SalonMasterSchedule.masterId], `masterServiceIds` =
+// [SalonMasterSchedule.orderedMasterServiceIds] (every assigned service's
+// OWN assignment id, in chained-visit order — never just the first),
+// `startAt` = [startAt]. A master with 2+ assigned services yields ONE
+// multi-service visit (N bookings under one appointment, backend-side), so
+// N masters on this screen → N appointment submissions with no risk of
+// overlapping/duplicate appointments.
+//
+// IDEMPOTENCY: [idempotencyKey] is a STABLE UUID v4 generated once per
+// appointment when these args are built (never regenerated on retry), so a
+// retry of an ambiguously-failed booking (network error where the server may
+// actually have created it) is de-duplicated server-side rather than
+// producing a duplicate — per `create_booking_request.dart`'s "reuse the same
+// key for retries of the SAME submit" contract.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 
@@ -25,21 +36,42 @@ import 'salon_master_schedule.dart';
 
 part 'salon_booking_confirm_args.freezed.dart';
 
+/// One fully-resolved salon appointment: a master's identity + assigned
+/// services (via [schedule]), the client's chosen [startAt], and the stable
+/// [idempotencyKey] that keys its single `POST /bookings` call.
+@freezed
+abstract class SalonBookingAppointment with _$SalonBookingAppointment {
+  const factory SalonBookingAppointment({
+    /// The master + their assigned services + primary assignment id (the
+    /// `SalonTimeScreen` slide's own resolved schedule).
+    required SalonMasterSchedule schedule,
+
+    /// The chosen appointment start (date + clock time) for this master.
+    required DateTime startAt,
+
+    /// Stable UUID v4, one per appointment — reused across retries so an
+    /// ambiguously-failed submit is de-duplicated. See the file header.
+    required String idempotencyKey,
+  }) = _SalonBookingAppointment;
+
+  const SalonBookingAppointment._();
+
+  /// This appointment's summed length across every assigned service — the
+  /// same value the "Час" slide displayed, used for the confirm/success
+  /// window label.
+  int get durationMinutes => schedule.summedDurationMinutes;
+}
+
 /// Navigation extra for `RouteNames.salonBookingConfirm`.
 @freezed
 abstract class SalonBookingConfirmArgs with _$SalonBookingConfirmArgs {
   const factory SalonBookingConfirmArgs({
     required String salonId,
 
-    /// The chosen master + ordered services + per-master assignment ids.
-    required SalonMasterSchedule visit,
-
-    /// The client's chosen start (date + clock time) for the whole visit.
-    required DateTime startAt,
-
-    /// Stable UUID v4 for the visit, minted once per submit and reused on
-    /// retry (fresh on re-pick). See the file header.
-    required String idempotencyKey,
+    /// Every assigned master's fully-resolved appointment, in slider order.
+    /// Never empty on a well-formed push — the «Підтвердити» CTA only enables
+    /// once every master has a date AND a time.
+    required List<SalonBookingAppointment> appointments,
   }) = _SalonBookingConfirmArgs;
 }
 
@@ -49,11 +81,9 @@ abstract class SalonBookingSuccessArgs with _$SalonBookingSuccessArgs {
   const factory SalonBookingSuccessArgs({
     required String salonId,
 
-    /// The visit that was successfully created — rendered as the post-submit
-    /// recap.
-    required SalonMasterSchedule visit,
-
-    /// The confirmed visit start.
-    required DateTime startAt,
+    /// The appointments that were successfully created — rendered as the
+    /// post-submit recap. Always non-empty (the success screen is only
+    /// reached once every appointment succeeded).
+    required List<SalonBookingAppointment> appointments,
   }) = _SalonBookingSuccessArgs;
 }

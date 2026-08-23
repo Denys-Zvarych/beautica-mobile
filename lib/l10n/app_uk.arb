@@ -3791,6 +3791,20 @@
   "@bookingNoSlotsMessage": {
     "description": "Empty-state body copy on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
   },
+  "bookingSlotsConflictTitle": "Час перетинається з іншим записом",
+  "@bookingSlotsConflictTitle": {
+    "description": "Empty-state heading on the time screen (phase-274 D5) when the master DOES have free slots on this day, but every one of them overlaps a window the client already scheduled for another service in the same multi-service draft — distinct from bookingNoSlotsTitle, which means the master has nothing left."
+  },
+  "bookingSlotsConflictMessage": "Усі вільні слоти зайняті часом, який ви вже обрали для «{serviceName}». Оберіть іншу дату або змініть раніше обраний час.",
+  "@bookingSlotsConflictMessage": {
+    "description": "Empty-state body copy for bookingSlotsConflictTitle, naming the service this picker instance is scheduling (BookingSlotPickerArgs.services.first.name) whose slots are all excluded by the client's own other picks.",
+    "placeholders": {
+      "serviceName": {
+        "type": "String",
+        "example": "Педикюр"
+      }
+    }
+  },
   "bookingSelectedState": "обрано",
   "@bookingSelectedState": {
     "description": "Accessibility state word shared by the selected calendar day cell and the selected time-slot chip."
@@ -4015,6 +4029,30 @@
   "bookingSalonLabel": "Салон",
   "@bookingSalonLabel": {
     "description": "Label for the salon-name row shown on the salon booking confirm, success, and detail summary cards."
+  },
+  "salonBookingConflictDialogTitle": "У вас вже є запис на цей час",
+  "@salonBookingConflictDialogTitle": {
+    "description": "Title of the dialog shown on the salon booking confirm screen when a submit returns HTTP 409 CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own."
+  },
+  "salonBookingConflictDialogSubtitle": "Ви можете забронювати обидва — рішення за вами.",
+  "@salonBookingConflictDialogSubtitle": {
+    "description": "Subline under the client-overlap conflict dialog's title, making clear this is the client's own call, not a blocked action."
+  },
+  "salonBookingConflictNewBookingLabel": "Новий запис",
+  "@salonBookingConflictNewBookingLabel": {
+    "description": "Row label on the client-overlap conflict dialog naming the appointment the client is currently trying to book."
+  },
+  "salonBookingConflictExistingBookingLabel": "Уже заброньовано",
+  "@salonBookingConflictExistingBookingLabel": {
+    "description": "Row label on the client-overlap conflict dialog naming the client's existing overlapping booking, from ClientBookingConflictFailure."
+  },
+  "salonBookingConflictProceedCta": "Все одно записатись",
+  "@salonBookingConflictProceedCta": {
+    "description": "Primary action on the client-overlap conflict dialog — resubmits the SAME appointment with allowClientOverlap: true."
+  },
+  "salonBookingConflictDismissCta": "Скасувати",
+  "@salonBookingConflictDismissCta": {
+    "description": "Secondary/back-out action on the client-overlap conflict dialog — closes the dialog, submits nothing, leaves the confirm screen unchanged so the client can go back and change the time."
   },
   "masterCreateBookingTitle": "Новий запис",
   "@masterCreateBookingTitle": {
@@ -5132,10 +5170,6 @@
   "@bookingServiceOverlapError": {
     "description": "Snackbar/error shown when two of the client's selected services are scheduled at overlapping times in the independent-master booking flow (pre-empts the backend CLIENT_BOOKING_CONFLICT 409)."
   },
-  "salonScheduleWindowPrompt": "Оберіть час",
-  "@salonScheduleWindowPrompt": {
-    "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
-  },
   "salonScheduleProgress": "{scheduled} з {total} заплановано",
   "@salonScheduleProgress": {
     "description": "Progress line in the salon booking time screen's pinned confirm bar.",
@@ -5156,7 +5190,6 @@
       "total": { "type": "int", "example": "3" }
     }
   },
-
   "professionalTitleLabel": "Професійне звання",
   "@professionalTitleLabel": {
     "description": "Field label above the professional title input on the master edit screen."

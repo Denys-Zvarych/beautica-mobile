@@ -461,7 +461,7 @@ void main() {
           // MUST resolve `_kSalonMasterId -> 'svc-1'` to a real assignment
           // id here (not an empty map): `SalonTimeScreen._resolveSchedule`
           // now consults this map to build `SalonMasterSchedule
-          // .primaryServiceAssignmentId`, and drops any master it can't
+          // .orderedMasterServiceIds`, and drops any master it can't
           // resolve — an empty map would silently empty out the schedule
           // list and self-pop the `/booking/salon/time` route this file's
           // "CLIENT may reach every booking route" group asserts renders.

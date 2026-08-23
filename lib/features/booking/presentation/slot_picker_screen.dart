@@ -58,6 +58,7 @@ import '../application/working_days_notifier.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
+import '../domain/time_window_overlap.dart';
 import '../domain/working_day.dart';
 import '../domain/working_days_query.dart';
 import 'widgets/booking_summary_bar.dart';
@@ -142,7 +143,15 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   @override
   void initState() {
     super.initState();
-    _pagedMonth = _firstMonth(_today);
+    // Phase 275 D5 — seed the visible month from `args.initialVisibleDate`
+    // when the caller supplied one (the salon schedule hub, opening the
+    // picker for an unscheduled row while another row is already
+    // scheduled). `_visibleMonth`'s own floor-clamp still applies on every
+    // read, so a stale/past seed can never strand the grid before `_today`.
+    final DateTime? seed = widget.args.initialVisibleDate;
+    _pagedMonth = seed != null
+        ? DateTime(seed.year, seed.month, 1)
+        : _firstMonth(_today);
   }
 
   /// Loading-flash fix (mirrors `MasterScheduleScreen`'s `_lastDays` visual
@@ -247,8 +256,49 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     });
   }
 
-  void _goToTime() {
-    context.push(RouteNames.bookingSlotsTime, extra: widget.args);
+  // Phase 273 D2 follow-up — `SlotDateScreen` and `SlotTimeScreen` are TWO
+  // separate `context.push`ed pages on the same Navigator (the nested
+  // `routes: [...]` declaration in `app_router.dart` only expresses the URL
+  // hierarchy; it does not merge them into one poppable unit). So a caller
+  // that awaits THIS screen's own push (the salon hub, per phase-273 D2 —
+  // it awaits `context.push<DateTime?>(RouteNames.bookingSlots, ...)`) is
+  // awaiting the push happening HERE, not the nested 'time' push below.
+  // `SlotTimeScreen`'s confirm branch only pops ITS OWN page (returning to
+  // this screen) — so in return mode this screen must relay a genuinely
+  // CONFIRMED result on up by popping itself too, carrying the same value.
+  //
+  // A `null` result means the client backed out of the time screen with the
+  // ordinary back button — that must land back HERE (to pick a different
+  // date), never auto-exit the picker; only a real `DateTime` propagates.
+  // For every existing (non-return-mode) caller this `if` is dead code: the
+  // confirm path there pushes `/booking/confirm` FORWARD instead of ever
+  // popping this screen's 'time' push, so `result` never resolves during a
+  // normal flow and this branch is simply never reached.
+  //
+  // mobile-perf MEDIUM finding, measured (not speculated) — this `pop(result)`
+  // completes in the SAME microtask drain as `SlotTimeScreen._confirm`'s own
+  // `context.pop(slot.startAt)`, before the first pop's reverse transition
+  // paints a frame, so two Navigator pops land back-to-back inside one
+  // frame-scheduling window. Measured with
+  // `test/features/booking/presentation/slot_picker_test.dart` — group
+  // "Phase 273 — relay pop frame timing (mobile-perf MEDIUM)" — stepping
+  // frames by hand (`tester.pump(16ms)` in a loop, never `pumpAndSettle`)
+  // across the whole relay and counting frames where `SlotDateScreen` painted
+  // alone (unoccluded by `SlotTimeScreen`, hub not yet resolved): **0
+  // frames**. The probe is falsifiable — an artificial 1s delay inserted
+  // before this `pop` (and reverted) made the same test go RED with 33 such
+  // frames, so the 0-count above is a real measurement, not an inert
+  // assertion. Do NOT defer this pop with `SchedulerBinding
+  // .instance.addPostFrameCallback` — that would cost a frame of latency on
+  // every pick for a glitch that does not occur.
+  Future<void> _goToTime() async {
+    final Object? result = await context.push(
+      RouteNames.bookingSlotsTime,
+      extra: widget.args,
+    );
+    if (!widget.args.returnSlotToCaller || result is! DateTime) return;
+    if (!mounted) return;
+    context.pop(result);
   }
 
   @override
@@ -531,6 +581,15 @@ class SlotTimeScreen extends ConsumerWidget {
   static const Uuid _uuid = Uuid();
 
   void _confirm(BuildContext context, BookingSlot slot) {
+    // Phase 273 D2 — the salon schedule hub opens this picker for exactly
+    // ONE service and awaits the popped `DateTime?` instead of the picker
+    // pushing forward to `/booking/confirm` itself (the hub owns the
+    // eventual multi-booking submit). Every existing caller leaves
+    // `returnSlotToCaller` at its default `false` and is unaffected.
+    if (args.returnSlotToCaller) {
+      context.pop(slot.startAt);
+      return;
+    }
     // MO-3: the whole multi-service visit shares ONE start time and ONE
     // idempotency key. The key is minted here ONCE per submit attempt (per tap
     // that reaches confirm) via `Uuid().v4()` (CSPRNG-backed) and carried on the
@@ -703,6 +762,14 @@ class SlotTimeScreen extends ConsumerWidget {
                           .read(slotPickerProvider.notifier)
                           .selectSlot(slot),
                       onChangeDate: () => context.pop(),
+                      excludeWindows: args.excludeWindows,
+                      // Phase 274 D5 — the ONLY service this picker instance
+                      // is scheduling (the salon hub always opens it with a
+                      // one-element `services` list, phase-273 D3); the
+                      // fully-excluded-day empty state names this service so
+                      // the client can see WHICH pick made the day
+                      // unavailable, instead of a lying generic message.
+                      conflictServiceName: args.services.first.name,
                     ),
                   ],
                 ),
@@ -725,6 +792,8 @@ class _SlotsSection extends StatefulWidget {
     required this.selectedSlot,
     required this.onSelectSlot,
     required this.onChangeDate,
+    required this.conflictServiceName,
+    this.excludeWindows = const <DateTimeRange>[],
   });
 
   final AsyncValue<List<BookingSlot>> slotsAsync;
@@ -735,6 +804,16 @@ class _SlotsSection extends StatefulWidget {
   /// state pops back to [SlotDateScreen], mirroring `BookingTopBar`'s own
   /// back-button action on this screen.
   final VoidCallback onChangeDate;
+
+  /// Phase 274 D2 — windows to hide from the candidate list, one per OTHER
+  /// service already scheduled in the same multi-service draft. Defaults to
+  /// empty so every existing caller (which never sets it) renders exactly
+  /// as before.
+  final List<DateTimeRange> excludeWindows;
+
+  /// Phase 274 D5 — the service THIS picker instance is scheduling, used
+  /// only by [_AllSlotsExcludedEmptyState] to name what conflicted.
+  final String conflictServiceName;
 
   @override
   State<_SlotsSection> createState() => _SlotsSectionState();
@@ -750,6 +829,39 @@ class _SlotsSectionState extends State<_SlotsSection> {
   // also saves an O(n) tz conversion per rebuild (see [_bucketsFor]).
   List<BookingSlot>? _cachedSlots;
   (List<BookingSlot>, List<BookingSlot>, List<BookingSlot>)? _cachedBuckets;
+
+  /// Phase 274 D2 — memoized exclusion filter, mirroring [_bucketsFor]'s own
+  /// identity-keyed cache. When [_SlotsSection.excludeWindows] is empty
+  /// (every existing caller) this returns [rawSlots] UNCHANGED (same list
+  /// identity) — the exclusion feature is then a true no-op, including for
+  /// [_bucketsFor]'s downstream cache below.
+  List<BookingSlot>? _cachedRawSlots;
+  List<BookingSlot>? _cachedFilteredSlots;
+
+  List<BookingSlot> _excludeConflicts(List<BookingSlot> rawSlots) {
+    final List<BookingSlot>? cached = _cachedFilteredSlots;
+    if (cached != null && identical(_cachedRawSlots, rawSlots)) {
+      return cached;
+    }
+    final List<DateTimeRange> windows = widget.excludeWindows;
+    final List<BookingSlot> filtered = windows.isEmpty
+        ? rawSlots
+        : <BookingSlot>[
+            for (final BookingSlot s in rawSlots)
+              if (!windows.any(
+                (DateTimeRange w) => timeWindowsOverlap(
+                  aStart: s.startAt,
+                  aEnd: s.endAt,
+                  bStart: w.start,
+                  bEnd: w.end,
+                ),
+              ))
+                s,
+          ];
+    _cachedRawSlots = rawSlots;
+    _cachedFilteredSlots = filtered;
+    return filtered;
+  }
 
   /// Splits [slots] into morning / afternoon / evening on the KYIV wall-clock
   /// hour.
@@ -825,14 +937,26 @@ class _SlotsSectionState extends State<_SlotsSection> {
               style: VelvetText.feedback(BrandColors.muted),
             ),
           ),
-          data: (List<BookingSlot> slots) {
-            if (slots.isEmpty) {
+          data: (List<BookingSlot> rawSlots) {
+            if (rawSlots.isEmpty) {
               // Phase 14.15 — a resolved-but-empty result means the day IS a
               // working day (it passed the Phase 14.14 calendar gate to get
               // here) that happens to be fully booked — distinct from the
               // `error` branch above (a genuine fetch failure), which keeps
               // the older generic "unavailable" copy.
               return _NoSlotsEmptyState(onChangeDate: widget.onChangeDate);
+            }
+            final List<BookingSlot> slots = _excludeConflicts(rawSlots);
+            if (slots.isEmpty) {
+              // Phase 274 D5 — the master genuinely HAS free slots on this
+              // day (rawSlots is non-empty) but every one of them collides
+              // with a window the client already scheduled for another
+              // service — distinct from the fully-booked case above, which
+              // would be a lie about the master's own availability here.
+              return _AllSlotsExcludedEmptyState(
+                conflictServiceName: widget.conflictServiceName,
+                onChangeDate: widget.onChangeDate,
+              );
             }
             final (
               List<BookingSlot> morning,
@@ -927,6 +1051,68 @@ class _NoSlotsEmptyState extends StatelessWidget {
           const SizedBox(height: VelvetSpacing.lg),
           NeumorphicButton(
             key: const Key('booking-no-slots-change-date'),
+            label: l10n.bookingChangeDateCta,
+            icon: Icons.edit_calendar_outlined,
+            onPressed: onChangeDate,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 274 D5 — _AllSlotsExcludedEmptyState: every slot on a genuinely
+// bookable day is hidden by the client's OWN other picks.
+//
+// Distinct from [_NoSlotsEmptyState] above: that state means the MASTER has
+// nothing left on this day (a genuine fetch of zero slots). This one means
+// the master DOES have free slots here — `SlotPickerNotifier.loadSlots`
+// resolved a non-empty list — but every one of them overlaps a window the
+// client already scheduled for another service in the same multi-service
+// draft (`BookingSlotPickerArgs.excludeWindows`, phase-274 D2). Rendering
+// the generic "no free slots" copy here would misrepresent the master's own
+// availability and give the client no way to understand what happened —
+// see phase-274 D5.
+// ---------------------------------------------------------------------------
+class _AllSlotsExcludedEmptyState extends StatelessWidget {
+  const _AllSlotsExcludedEmptyState({
+    required this.conflictServiceName,
+    required this.onChangeDate,
+  });
+
+  final String conflictServiceName;
+  final VoidCallback onChangeDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      key: const Key('booking-all-slots-excluded-empty-state'),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          const Icon(
+            Icons.event_repeat_rounded,
+            size: 32,
+            color: BrandColors.faint,
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          Text(
+            l10n.bookingSlotsConflictTitle,
+            textAlign: TextAlign.center,
+            style: VelvetText.bodyStrong(),
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            l10n.bookingSlotsConflictMessage(conflictServiceName),
+            textAlign: TextAlign.center,
+            style: VelvetText.body().copyWith(color: BrandColors.textSecondary),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          NeumorphicButton(
+            key: const Key('booking-all-slots-excluded-change-date'),
             label: l10n.bookingChangeDateCta,
             icon: Icons.edit_calendar_outlined,
             onPressed: onChangeDate,

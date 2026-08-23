@@ -9,17 +9,17 @@
 // also keyed on [serviceIds]: slot AVAILABILITY (unlike day-level working/
 // non-working gating) genuinely depends on which services are being booked.
 //
-// [serviceIds] (MO-2) is an ORDERED, non-empty list of the master's OWN
-// per-master assignment ids (`MasterServiceResponse.id`) — never the salon-wide
-// catalog id, since `SlotRepository.getMasterSlots` keys on assignment ids
-// (an earlier catalog-id version 404'd; see
-// `salon_master_schedule.dart`'s file header). Today the salon flow still
-// passes the single PRIMARY assigned service
-// (`primaryServiceAssignmentId`) as a one-element list; the multi-service
-// summed-block wiring is MO-3/MO-4. Because [serviceIds] is a freezed
-// collection field it participates in value `==`/`hashCode` (deep equality),
-// so a single-element list keys the SAME family member across re-selections —
-// single-service cache behaviour is unchanged.
+// [serviceIds] is an ORDERED, non-empty list of the master's OWN per-master
+// assignment ids (`MasterServiceResponse.id`) — never the salon-wide catalog
+// id, since `SlotRepository.getMasterSlots` keys on assignment ids (an
+// earlier catalog-id version 404'd; see `salon_master_schedule.dart`'s file
+// header). The salon flow passes EVERY one of the master's assigned
+// services' assignment ids here (`SalonMasterSchedule.orderedMasterServiceIds`
+// verbatim, Phase 270 D3) — the slot query reflects the master's full
+// chained-visit duration, not just the first service's. Because [serviceIds]
+// is a freezed collection field it participates in value `==`/`hashCode`
+// (deep equality), so the SAME ordered list keys the SAME family member
+// across re-selections.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 

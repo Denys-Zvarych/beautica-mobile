@@ -92,6 +92,8 @@ BookingSlotPickerArgs _args({
   String? rescheduleBookingId,
   WalkInGuest? guest,
   bool hideMasterIdentity = false,
+  bool returnSlotToCaller = false,
+  List<DateTimeRange> excludeWindows = const <DateTimeRange>[],
 }) => BookingSlotPickerArgs(
   masterId: _kMaster.id,
   master: _kMaster,
@@ -99,6 +101,8 @@ BookingSlotPickerArgs _args({
   rescheduleBookingId: rescheduleBookingId,
   guest: guest,
   hideMasterIdentity: hideMasterIdentity,
+  returnSlotToCaller: returnSlotToCaller,
+  excludeWindows: excludeWindows,
 );
 
 const WalkInGuest _kGuest = WalkInGuest(
@@ -384,6 +388,43 @@ void main() {
         expect(fake.lastServiceIds, hasLength(2));
       },
     );
+
+    // Phase 273 D3 — the slot query must carry the MasterServiceAssignment
+    // id (`MasterService.id`), never `serviceDefId`. The fixture's
+    // `_kService.id` ('svc-1') and `.serviceDefId` ('def-1') are visibly
+    // distinct so a regression that swapped one for the other cannot pass
+    // vacuously.
+    //
+    // mutation check (phase-273, do not skip): swapping `s.id` for
+    // `s.serviceDefId` in `_SlotDateScreenState._serviceIds`
+    // (`slot_picker_screen.dart`) turns this RED — confirmed by hand during
+    // this phase's implementation, then reverted; see the phase report.
+    testWidgets('should_queryOneAssignmentId_when_openedForASingleService', (
+      tester,
+    ) async {
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+      );
+      await tester.pumpAndSettle();
+
+      final DateTime today = kyivToday(DateTime.now);
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+
+      expect(fake.callCount, 1);
+      expect(fake.lastServiceIds, <String>[_kService.id]);
+      expect(
+        fake.lastServiceIds,
+        isNot(contains(_kService.serviceDefId)),
+        reason:
+            'the slot query must carry the ASSIGNMENT id (svc-1), never '
+            'the service-definition id (def-1) — phase-273 D3',
+      );
+    });
 
     // Phase 14.14 — real end-to-end wiring test: a day the WORKING-DAYS
     // provider marks non-working must be untappable, distinct from
@@ -1836,6 +1877,559 @@ void main() {
       );
       // No exception was thrown reaching here — a stranded Hero flight
       // would have thrown during the push transition's settle above.
+    });
+  });
+
+  // ── Phase 273 — returnSlotToCaller (D2) ──────────────────────────────────
+  //
+  // The salon schedule hub (Phase 275) opens the picker with
+  // `await context.push<DateTime?>(RouteNames.bookingSlots, extra: args)`
+  // instead of navigating in from `ServiceSelectorSheet`. This harness
+  // mirrors exactly that: a stand-in "hub" screen with a button that pushes
+  // the picker via `context.push` (never `router.go` — a pushed leaf
+  // collapses to the parent path under `go` and a pop-value assertion would
+  // pass vacuously) and records whatever value the awaited push resolves
+  // with. Deliberately has NO `bookingConfirm` route registered — the whole
+  // point of return mode is that the picker never reaches for it.
+  group('Phase 273 — returnSlotToCaller (D2)', () {
+    Future<void> pumpHubHarness(
+      WidgetTester tester, {
+      required SlotRepository fake,
+      required BookingSlotPickerArgs args,
+      required void Function(DateTime?) onPopped,
+    }) async {
+      final router = GoRouter(
+        initialLocation: '/hub',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/hub',
+            builder: (context, state) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('open-picker'),
+                  onPressed: () async {
+                    final DateTime? result = await context.push<DateTime?>(
+                      RouteNames.bookingSlots,
+                      extra: args,
+                    );
+                    onPopped(result);
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.bookingSlots,
+            builder: (context, state) =>
+                SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
+            routes: <RouteBase>[
+              GoRoute(
+                path: 'time',
+                builder: (context, state) =>
+                    SlotTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+              ),
+            ],
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_popWithTheChosenStart_when_returnSlotToCallerIsTrue', (
+      tester,
+    ) async {
+      // Used only as the slot's own start/end (bucketing/display/
+      // return-value equality) — never compared to isPast.
+      // future-date-ok: fixed instant, see above.
+      final DateTime start = DateTime.utc(2026, 7, 20, 10);
+      final BookingSlot slot = BookingSlot(
+        startAt: start,
+        endAt: start.add(const Duration(hours: 1)),
+        available: true,
+      );
+      final fake = _FakeSlotRepository(<BookingSlot>[slot]);
+      DateTime? popped;
+      bool resolved = false;
+
+      await pumpHubHarness(
+        tester,
+        fake: fake,
+        args: _args(returnSlotToCaller: true),
+        onPopped: (DateTime? v) {
+          resolved = true;
+          popped = v;
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('open-picker')));
+      await tester.pumpAndSettle();
+
+      final DateTime today = kyivToday(DateTime.now);
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      expect(availableChip, findsOneWidget);
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expect(resolved, isTrue);
+      expect(
+        popped,
+        start,
+        reason: 'the popped value must be the TAPPED slot\'s start instant',
+      );
+      expect(
+        find.byType(SlotTimeScreen),
+        findsNothing,
+        reason: 'the picker popped back to the hub, not pushed forward',
+      );
+      expect(find.byType(SlotDateScreen), findsNothing);
+      expect(
+        find.textContaining('confirm-stub:'),
+        findsNothing,
+        reason:
+            'return mode must never build a BookingConfirmArgs / push '
+            '/booking/confirm — there is no such route registered here',
+      );
+    });
+
+    testWidgets('should_popWithNull_when_theClientBacksOutOfTheTimeScreen', (
+      tester,
+    ) async {
+      final fake = _FakeSlotRepository(const <BookingSlot>[]);
+      DateTime? popped = DateTime.utc(1999);
+      bool resolved = false;
+
+      await pumpHubHarness(
+        tester,
+        fake: fake,
+        args: _args(returnSlotToCaller: true),
+        onPopped: (DateTime? v) {
+          resolved = true;
+          popped = v;
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('open-picker')));
+      await tester.pumpAndSettle();
+
+      final DateTime today = kyivToday(DateTime.now);
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+
+      // Back out of the time screen first — the hub's await must still be
+      // PENDING (this only pops the nested 'time' route back to the date
+      // screen, not the pushed root).
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SlotTimeScreen),
+          matching: find.byKey(const Key('slot-picker-back')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(SlotTimeScreen), findsNothing);
+      expect(find.byType(SlotDateScreen), findsOneWidget);
+      expect(
+        resolved,
+        isFalse,
+        reason:
+            'the hub push only resolves once the PUSHED ROOT (the date '
+            'screen) is popped, not an inner nested route',
+      );
+
+      // Now back out of the date screen — the pushed root — resolving the
+      // hub's await with null.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SlotDateScreen),
+          matching: find.byKey(const Key('slot-picker-back')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(resolved, isTrue);
+      expect(popped, isNull);
+    });
+  });
+
+  // ── mobile-perf MEDIUM finding — relay pop frame timing ──────────────────
+  //
+  // `_goToTime`'s `context.pop(result)` (slot_picker_screen.dart:269-277)
+  // relays `SlotTimeScreen._confirm`'s own `context.pop(slot.startAt)` one
+  // level further up, in the SAME async continuation that resumes the
+  // instant the first pop's `Completer` drains as a microtask — before the
+  // framework schedules the first pop's own reverse-transition frame. The
+  // worry: does `SlotDateScreen` ever actually PAINT, fully revealed and
+  // un-occluded, as the settled top route in between the two pops, or do
+  // both pops resolve within the same frame-scheduling window with nothing
+  // ever composited in between?
+  //
+  // `pumpAndSettle()` fast-forwards every animation to completion in one
+  // call, so it is structurally incapable of observing a single intermediate
+  // frame — this group steps frames by hand (`tester.pump(fixed 16ms)`,
+  // never `pumpAndSettle`) across exactly the relay window and counts how
+  // many frames show `SlotDateScreen` alone (i.e. `SlotTimeScreen` already
+  // fully unmounted — its own reverse transition complete — but the hub's
+  // `await context.push(...)` not yet resolved, so the picker hasn't handed
+  // control back). That is the direct, on-screen definition of "the date
+  // screen painted as a settled intermediate route": if the count is zero,
+  // nothing ever occupied that state for a renderable frame; the framework
+  // pipelines routes and elements from the widget tree, but by the time
+  // rendering the second pop is issued in the same microtask drain that
+  // resolves the first, both un-frame; a nonzero count means a real user
+  // would see it.
+  group('Phase 273 — relay pop frame timing (mobile-perf MEDIUM)', () {
+    testWidgets('should_neverPaintSlotDateScreenAsASettledIntermediateFrame_'
+        'when_relayingThePopBackToTheCaller', (tester) async {
+      // Used only as the slot's own start/end (bucketing/display/return
+      // equality) — never compared to isPast.
+      // future-date-ok: fixed instant, mirrors the pop-relay group above.
+      final DateTime start = DateTime.utc(2026, 7, 20, 10);
+      final BookingSlot slot = BookingSlot(
+        startAt: start,
+        endAt: start.add(const Duration(hours: 1)),
+        available: true,
+      );
+      final fake = _FakeSlotRepository(<BookingSlot>[slot]);
+      DateTime? popped;
+      bool resolved = false;
+
+      final router = GoRouter(
+        initialLocation: '/hub',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/hub',
+            builder: (context, state) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('open-picker'),
+                  onPressed: () async {
+                    final DateTime? result = await context.push<DateTime?>(
+                      RouteNames.bookingSlots,
+                      extra: _args(returnSlotToCaller: true),
+                    );
+                    resolved = true;
+                    popped = result;
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.bookingSlots,
+            builder: (context, state) =>
+                SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
+            routes: <RouteBase>[
+              GoRoute(
+                path: 'time',
+                builder: (context, state) =>
+                    SlotTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open-picker')));
+      await tester.pumpAndSettle();
+
+      final DateTime today = kyivToday(DateTime.now);
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      expect(availableChip, findsOneWidget);
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+
+      // Fire the confirm tap that starts the relay, then step frames by
+      // hand from here — the whole measurement window.
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+
+      int settledDateScreenFrames = 0;
+      for (int i = 0; i < 60 && !resolved; i++) {
+        // fixed-wait-ok: sampling composited frames at a fixed ~16ms cadence
+        // to directly OBSERVE the relay, not waiting on a condition — the
+        // entire point of this test is per-frame inspection across a window
+        // pumpUntilFound's poll-and-stop cannot provide (it would just stop
+        // at the first match and never survey what came before/after).
+        await tester.pump(const Duration(milliseconds: 16));
+        final bool timeGone = find.byType(SlotTimeScreen).evaluate().isEmpty;
+        final bool datePresent = find
+            .byType(SlotDateScreen)
+            .evaluate()
+            .isNotEmpty;
+        if (timeGone && datePresent && !resolved) {
+          settledDateScreenFrames++;
+        }
+      }
+      await tester.pumpAndSettle();
+
+      expect(resolved, isTrue, reason: 'the hub push must eventually resolve');
+      expect(popped, start);
+
+      // THE MEASUREMENT. See slot_picker_screen.dart:269 for the recorded
+      // result and the decision it drove.
+      expect(
+        settledDateScreenFrames,
+        0,
+        reason:
+            'SlotDateScreen must never paint, fully unoccluded, as the '
+            'settled top route during the relay — that would be a real, '
+            'user-visible intermediate flash between SlotTimeScreen and '
+            'the hub. A nonzero count here means _goToTime\'s relay pop '
+            'needs to be deferred a frame (SchedulerBinding '
+            'postFrameCallback), not merely called synchronously.',
+      );
+    });
+  });
+
+  // ── Phase 274 — excludeWindows client-side conflict exclusion ───────────
+  group('Phase 274 — excludeWindows (D2/D3/D4/D5)', () {
+    // Fixed instants (mirrors the SlotTimeScreen group's own fixtures
+    // above) — read only via direct DateTime overlap arithmetic and
+    // `.hour`/`formatSlotTime` (bucketing/display), never `isPast`.
+    // future-date-ok: see the comment above.
+    final DateTime slotAStart = DateTime.utc(2026, 7, 20, 10);
+    // future-date-ok: see the comment above.
+    final DateTime slotAEnd = DateTime.utc(2026, 7, 20, 11);
+    final BookingSlot slotA = BookingSlot(
+      startAt: slotAStart,
+      endAt: slotAEnd,
+      available: true,
+    );
+
+    // Back-to-back with slotA: starts exactly when slotA ends.
+    final DateTime slotBStart = slotAEnd;
+    // future-date-ok: see the comment above.
+    final DateTime slotBEnd = DateTime.utc(2026, 7, 20, 12);
+    final BookingSlot slotB = BookingSlot(
+      startAt: slotBStart,
+      endAt: slotBEnd,
+      available: true,
+    );
+
+    // future-date-ok: see the comment above.
+    final DateTime slotCStart = DateTime.utc(2026, 7, 20, 13);
+    // future-date-ok: see the comment above.
+    final DateTime slotCEnd = DateTime.utc(2026, 7, 20, 14);
+    final BookingSlot slotC = BookingSlot(
+      startAt: slotCStart,
+      endAt: slotCEnd,
+      available: true,
+    );
+
+    Finder chipFor(BookingSlot s) => find.byWidgetPredicate(
+      (Widget w) =>
+          w is SlotChip &&
+          w.key == Key('slot-chip-${s.startAt.toIso8601String()}'),
+    );
+
+    Future<void> pumpTimeScreenWithSlots(
+      WidgetTester tester, {
+      required List<BookingSlot> slots,
+      required BookingSlotPickerArgs args,
+    }) async {
+      final fake = _FakeSlotRepository(slots);
+      final router = _router(dateScreen: SlotDateScreen(args: args));
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+      );
+      await tester.pumpAndSettle();
+      final DateTime today = kyivToday(DateTime.now);
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_showEverySlot_when_excludeWindowsIsEmpty', (
+      tester,
+    ) async {
+      await pumpTimeScreenWithSlots(
+        tester,
+        slots: <BookingSlot>[slotA, slotB, slotC],
+        args: _args(),
+      );
+
+      expect(find.byType(SlotChip), findsNWidgets(3));
+    });
+
+    testWidgets(
+      'should_hideTheOverlappingSlot_when_anotherServiceOccupiesThatWindow',
+      (tester) async {
+        // Squarely inside slotA's [10:00, 11:00) window. Fixed, arbitrary —
+        // compared only via direct DateTime arithmetic, never isPast.
+        final DateTimeRange window = DateTimeRange(
+          // future-date-ok: fixed, arbitrary — see above.
+          start: DateTime.utc(2026, 7, 20, 10, 15),
+          // future-date-ok: fixed, arbitrary — see above.
+          end: DateTime.utc(2026, 7, 20, 10, 45),
+        );
+        await pumpTimeScreenWithSlots(
+          tester,
+          slots: <BookingSlot>[slotA, slotC],
+          args: _args(excludeWindows: <DateTimeRange>[window]),
+        );
+
+        expect(chipFor(slotA), findsNothing);
+        expect(chipFor(slotC), findsOneWidget);
+      },
+    );
+
+    // D3 — the boundary case that matters most: a slot STARTING exactly
+    // when an excluded window ENDS must stay bookable.
+    testWidgets(
+      'should_KEEP_theSlotStartingExactlyAtAnExcludedWindowEnd_when_backToBack',
+      (tester) async {
+        final DateTimeRange window = DateTimeRange(
+          // Compared only via direct DateTime arithmetic, never isPast.
+          // future-date-ok: fixed, arbitrary — see above.
+          start: DateTime.utc(2026, 7, 20, 9),
+          end: slotBStart, // 11:00 — exactly when slotB starts.
+        );
+        await pumpTimeScreenWithSlots(
+          tester,
+          slots: <BookingSlot>[slotB],
+          args: _args(excludeWindows: <DateTimeRange>[window]),
+        );
+
+        expect(
+          chipFor(slotB),
+          findsOneWidget,
+          reason:
+              'the excluded window ends exactly when slotB starts — '
+              'back-to-back, not a conflict (phase-274 D3)',
+        );
+      },
+    );
+
+    // D3's other boundary — a slot ENDING exactly when an excluded window
+    // STARTS must also stay bookable.
+    testWidgets(
+      'should_KEEP_theSlotEndingExactlyAtAnExcludedWindowStart_when_backToBack',
+      (tester) async {
+        final DateTimeRange window = DateTimeRange(
+          start: slotAEnd, // 11:00 — exactly when slotA ends.
+          // Compared only via direct DateTime arithmetic, never isPast.
+          // future-date-ok: fixed, arbitrary — see above.
+          end: DateTime.utc(2026, 7, 20, 13),
+        );
+        await pumpTimeScreenWithSlots(
+          tester,
+          slots: <BookingSlot>[slotA],
+          args: _args(excludeWindows: <DateTimeRange>[window]),
+        );
+
+        expect(
+          chipFor(slotA),
+          findsOneWidget,
+          reason:
+              'slotA ends exactly when the excluded window starts — '
+              'back-to-back, not a conflict (phase-274 D3)',
+        );
+      },
+    );
+
+    // D2 — the picker's exclusion is a uniform, master-agnostic rule: the
+    // filter takes only (start, end) windows, with no master parameter to
+    // special-case on, so a "same master" window and a "cross master"
+    // window are excluded identically. Two independent excluded windows,
+    // covering two different slots, must hide BOTH.
+    testWidgets('should_hideSameMasterOverlap_and_crossMasterOverlap_alike', (
+      tester,
+    ) async {
+      final DateTimeRange windowOverA = DateTimeRange(
+        start: slotAStart,
+        end: slotAEnd,
+      );
+      final DateTimeRange windowOverC = DateTimeRange(
+        start: slotCStart.add(const Duration(minutes: 15)),
+        end: slotCEnd.subtract(const Duration(minutes: 15)),
+      );
+      await pumpTimeScreenWithSlots(
+        tester,
+        slots: <BookingSlot>[slotA, slotB, slotC],
+        args: _args(excludeWindows: <DateTimeRange>[windowOverA, windowOverC]),
+      );
+
+      expect(chipFor(slotA), findsNothing);
+      expect(chipFor(slotC), findsNothing);
+      expect(
+        chipFor(slotB),
+        findsOneWidget,
+        reason: 'slotB overlaps neither excluded window',
+      );
+    });
+
+    // D5 — a fully-excluded day must explain WHY, naming the service this
+    // picker instance is scheduling (the only name available to it —
+    // `args.services.first.name`), not the generic fully-booked copy.
+    testWidgets('should_explainTheConflict_when_everySlotOnTheDayIsExcluded', (
+      tester,
+    ) async {
+      final DateTimeRange window = DateTimeRange(
+        start: slotAStart,
+        end: slotAEnd,
+      );
+      await pumpTimeScreenWithSlots(
+        tester,
+        slots: <BookingSlot>[slotA],
+        args: _args(excludeWindows: <DateTimeRange>[window]),
+      );
+
+      expect(
+        find.byKey(const Key('booking-all-slots-excluded-empty-state')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('booking-no-slots-empty-state')),
+        findsNothing,
+        reason:
+            'the master DOES have a free slot here (slotA) — this must '
+            'never render as the generic fully-booked state',
+      );
+      expect(find.byType(SlotChip), findsNothing);
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SlotTimeScreen)),
+      );
+      expect(find.text(l10n.bookingSlotsConflictTitle), findsOneWidget);
+      expect(
+        find.textContaining(_kService.name),
+        findsWidgets,
+        reason:
+            'the empty state must name the conflicting service, not just '
+            'say "no free slots" — phase-274 D5',
+      );
     });
   });
 }

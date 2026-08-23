@@ -592,7 +592,8 @@ final class HttpAppointmentRepository implements AppointmentRepository {
         ..masterServiceIds.replace(req.masterServiceIds)
         ..startsAt = req.startAt
         ..idempotencyKey = req.idempotencyKey
-        ..clientComment = req.clientComment,
+        ..clientComment = req.clientComment
+        ..allowClientOverlap = req.allowClientOverlap,
     );
   }
 

@@ -428,6 +428,17 @@ jobs:
         shell: bash
         run: ./scripts/forbid_forked_calendar_grid.sh
 
+      # 2026-08-22 (Phase 271 D5) — the per-master salon booking submit
+      # notifier was deleted after being harvested for its pinned test
+      # behaviour (Phase 277's *Test cases*). It had already been deleted
+      # once (MO-4) and come back once via a `git checkout` of an ancestor
+      # commit (Phase 268's restore) — this gate makes a repeat of that same
+      # move fail CI instead of shipping. Zero occurrences under lib/ of the
+      # notifier's filename, its class, or its per-appointment status enum.
+      - name: Forbid the deleted per-master salon booking submit notifier
+        shell: bash
+        run: ./scripts/forbid_salon_booking_submit_notifier.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
