@@ -3974,6 +3974,22 @@
       "service": { "type": "String" }
     }
   },
+  "salonBookingPagerSemantics": "Майстер {index} з {count}",
+  "@salonBookingPagerSemantics": {
+    "description": "Semantics label for the salon booking confirm/success screens' centred pager control, read together with the current page — announces which master's card is on screen and how many the visit has.",
+    "placeholders": {
+      "index": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "salonBookingPagerPrevious": "Попередній майстер",
+  "@salonBookingPagerPrevious": {
+    "description": "Semantics label for the salon booking confirm/success screens' pager left chevron."
+  },
+  "salonBookingPagerNext": "Наступний майстер",
+  "@salonBookingPagerNext": {
+    "description": "Semantics label for the salon booking confirm/success screens' pager right chevron."
+  },
   "bookingCalendarEventTitle": "{service} · {provider}",
   "@bookingCalendarEventTitle": {
     "description": "Title of the OS calendar event created by «Додати в календар» — the booked service and the provider (salon or master) name.",

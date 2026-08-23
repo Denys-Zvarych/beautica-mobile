@@ -79,6 +79,7 @@ class BookingSuccessScaffold extends StatefulWidget {
     this.canPop = false,
     this.leading,
     this.headerTrailing,
+    this.pagedRecap,
   });
 
   /// Headline — "Записано!" for a celebration, the status label for a
@@ -136,6 +137,25 @@ class BookingSuccessScaffold extends StatefulWidget {
   /// reserves no space. Requires nothing of [leading]: either, both, or
   /// neither may be present.
   final Widget? headerTrailing;
+
+  /// Salon booking rework (Phase 273) — an optional widget that NEEDS a
+  /// bounded height, rendered in place of the ordinary scrolling
+  /// [recapCards] column: the salon success screen's [AppointmentPager]
+  /// (`widgets/appointment_pager.dart`), whose inner [PageView] cannot lay
+  /// out inside the unbounded height a [SingleChildScrollView] hands its
+  /// child.
+  ///
+  /// `null` (both the independent success screen and «Деталі запису» — every
+  /// pre-existing caller) renders BYTE-IDENTICALLY to before this addition:
+  /// [recapCards] scrolls in a plain [SingleChildScrollView], unaffected.
+  ///
+  /// When set, [recapCards] is still rendered above it (via the SAME
+  /// [_recapContent] stagger + gap it always used) but WITHOUT its own
+  /// scroll view — the salon screens use this for their one shared,
+  /// non-paged salon-address card — and [pagedRecap] then takes the
+  /// REMAINING space via `Expanded`, wrapped in the same `_reveal(0.6, 0.86)`
+  /// interval [recapCards] itself uses.
+  final Widget? pagedRecap;
 
   @override
   State<BookingSuccessScaffold> createState() => _BookingSuccessScaffoldState();
@@ -352,13 +372,27 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
                 ],
                 const SizedBox(height: VelvetSpacing.lg),
                 Flexible(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: _recapContent(),
-                    ),
-                  ),
+                  child: widget.pagedRecap == null
+                      ? SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: _recapContent(),
+                          ),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            ..._recapContent(),
+                            Expanded(
+                              child: _reveal(
+                                start: 0.6,
+                                end: 0.86,
+                                child: widget.pagedRecap!,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
                 if (widget.actions.isNotEmpty) ...<Widget>[
                   SizedBox(height: widget.homeGap),

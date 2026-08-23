@@ -87,21 +87,14 @@
 
 import 'dart:async';
 
-import 'package:dio/dio.dart';
-
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
-import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
-import 'package:beautica_mobile/features/booking/domain/booking.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
-import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
-import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_appointment_request.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
@@ -115,7 +108,6 @@ import 'package:beautica_mobile/features/salon/presentation/public_salon_profile
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -127,233 +119,140 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
+/// mobile-qa audit-fix cycle 2: taps the pinned step-3 CTA
+/// (`schedule-confirm-cta`) and settles. Commit `92644d2e` retired the old
+/// auto-advance contract (a date tap alone used to swap a slide into its
+/// time chips, and a slot tap alone used to advance the pager to the next
+/// unscheduled master) — both transitions are CTA-driven now (see
+/// `salon_time_screen.dart`'s `_handleNext` and
+/// `salon_booking_schedule_notifier.dart`'s `enterTimePhase`). Mirrors
+/// `salon_time_screen_test.dart`'s identical `_tapNextCta` helper (see that
+/// file's doc comment) rather than inventing a second way to do the same
+/// thing — acts on whichever slide is CURRENTLY ACTIVE in the pager.
+Future<void> _tapNextCta(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('schedule-confirm-cta')));
+  await AppHarness.settle(tester);
+}
+
+/// Locates one appointment [card]'s own «Разом» subtotal ROW — not a bare
+/// price-text finder, which can't tell the subtotal apart from a same-priced
+/// per-service line item above it (a master with exactly one service: the
+/// line item and the summed total legitimately coincide, e.g. master-ccc's
+/// single 400 ₴ service). Scopes via `_TotalRow`'s OWN accessibility label
+/// (`booking_recap.dart`: `Semantics(label: l10n.bookingTotalSemantics(…))`,
+/// which always starts with the same localized `bookingTotalLabel` word as
+/// its visible "Разом" heading) — an existing structural anchor already
+/// shipping in production, reused as-is (REUSE-FIRST: no widget touched).
+Finder _totalRowFinder(WidgetTester tester, Finder card) {
+  final AppLocalizations l10n = AppLocalizations.of(tester.element(card));
+  return find.descendant(
+    of: card,
+    matching: find.bySemanticsLabel(
+      RegExp('^${RegExp.escape(l10n.bookingTotalLabel)}'),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Phase 14.18 — recording fake BookingRepository injected into the harness so
-// the salon confirmation screen's N `POST /bookings` submit runs against an
-// in-memory fake instead of the real generated Dio client. Overriding the
-// repository provider (rather than registering the wire route in the
-// DioAdapter) is deliberate: it avoids the generated booking client's
-// real-Dio timer (backlog #185's timer-leak pattern) while still exercising
-// the REAL `SalonBookingSubmit` notifier + confirm/success screens + router
-// pushReplacement end to end. Each configured master fails EXACTLY ONCE (then
-// succeeds on retry), so the partial-failure/retry path is driveable.
-class _FakeBookingRepository implements BookingRepository {
-  _FakeBookingRepository({Set<String> failOnce = const <String>{}})
-    : _failOnce = <String>{...failOnce};
-
-  final Set<String> _failOnce;
-  // mobile-qa gap-fix — masterId → an arbitrary Failure to throw exactly
-  // once (then clear), for scenarios where the plain `ConflictFailure` the
-  // constructor's `failOnce` set always throws is the WRONG failure shape —
-  // e.g. a CLIENT_BOOKING_CONFLICT test needs a typed
-  // `ClientBookingConflictFailure` with specific field values, not a generic
-  // conflict. Checked BEFORE `_failOnce` so a call site can use either knob.
+// mobile-qa repair (pager port QA pass): the confirm/success screens have not
+// called `bookingRepositoryProvider` since the Phase 271 / CARD RESTORATION
+// rework — each appointment now submits via ONE
+// `AppointmentSubmit.submitVisit` → `appointmentRepositoryProvider
+// .createAppointment` call (see `salon_booking_confirm_screen.dart`'s
+// `_submitOne`). The PRE-EXISTING `_FakeBookingRepository`/
+// `_GatedBookingRepository` this replaces were `BookingRepository`-typed and
+// overridden at `bookingRepositoryProvider` — a provider the production code
+// path never reads any more, so every `repo.callsFor(...)` assertion built on
+// them silently asserted against a fake NOTHING ever called (proven: `flutter
+// test` on the pre-pager-port baseline reproduces the identical `Expected: 1
+// / Actual: 0` failures — this break predates the pager rework and is NOT
+// caused by it). This fake is `AppointmentRepository`-typed and overridden at
+// `appointmentRepositoryProvider`, matching the REAL write path — mirrors
+// `independent_multi_service_booking_flow_test.dart`'s
+// `_FakeAppointmentRepository` precedent.
+class _FakeAppointmentRepository implements AppointmentRepository {
   final Map<String, Failure> _failOnceWith = <String, Failure>{};
-  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
+  final List<CreateAppointmentRequest> requests = <CreateAppointmentRequest>[];
 
-  /// Configures [masterId]'s NEXT `createBooking` call to throw [failure]
-  /// exactly once; every subsequent call for that master succeeds normally.
+  /// Configures [masterId]'s NEXT `createAppointment` call to throw
+  /// [failure] exactly once; every subsequent call for that master succeeds
+  /// normally (including a later resubmit carrying
+  /// `allowClientOverlap: true`).
   void failWith(String masterId, Failure failure) =>
       _failOnceWith[masterId] = failure;
 
-  int callsFor(String masterId) =>
-      requests.where((CreateBookingRequest r) => r.masterId == masterId).length;
+  int callsFor(String masterId) => requests
+      .where((CreateAppointmentRequest r) => r.masterId == masterId)
+      .length;
 
-  List<CreateBookingRequest> requestsFor(String masterId) => requests
-      .where((CreateBookingRequest r) => r.masterId == masterId)
+  List<CreateAppointmentRequest> requestsFor(String masterId) => requests
+      .where((CreateAppointmentRequest r) => r.masterId == masterId)
       .toList(growable: false);
 
   @override
-  Future<Booking> createBooking(CreateBookingRequest req) async {
+  Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
     requests.add(req);
     final Failure? typed = _failOnceWith.remove(req.masterId);
     if (typed != null) throw typed;
-    if (_failOnce.remove(req.masterId)) throw const ConflictFailure();
-    return Booking(
-      id: 'booking-${req.masterId}',
+    final DateTime end = req.startAt.add(const Duration(minutes: 60));
+    return Appointment(
+      id: 'appt-${req.masterId}',
+      status: BookingStatus.confirmed,
       masterId: req.masterId,
       masterFirstName: 'Майстер',
       masterLastName: 'Салону',
       masterType: 'SALON_MASTER',
-      serviceId: req.serviceId,
-      serviceName: 'Послуга',
-      durationMinutes: 60,
-      price: 500,
       startAt: req.startAt,
-      endAt: req.startAt.add(const Duration(minutes: 60)),
-      status: BookingStatus.confirmed,
-      canReview: false,
+      endAt: end,
+      totalDurationMinutes: 60,
+      totalPrice: 500,
+      items: <AppointmentItem>[
+        for (final String id in req.masterServiceIds)
+          AppointmentItem(
+            bookingId: 'booking-$id',
+            masterServiceId: id,
+            serviceName: 'Послуга',
+            startAt: req.startAt,
+            endAt: end,
+            durationMinutes: 60,
+            price: 500,
+          ),
+      ],
     );
   }
 
   @override
-  Future<Appointment> createMasterBooking(
-    String masterId,
-    CreateMasterBookingRequest request,
+  Future<Appointment> getAppointment(String id) => throw UnimplementedError();
+
+  @override
+  Future<Appointment> rescheduleAppointmentItem(
+    String appointmentId,
+    String bookingId,
+    DateTime newStartAt,
   ) => throw UnimplementedError();
 
   @override
-  Future<PageResponse<Booking>> getMyBookings({
-    required Iterable<BookingStatus> statuses,
-    BookingSort? sort,
-    required int page,
-    int size = kBookingsPageSize,
-    Iterable<String>? serviceIds,
-    DateTime? from,
-    DateTime? to,
-    BookingPartition? partition,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<List<DateTime>> getMyBookedDays({
-    required DateTime from,
-    required DateTime to,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Booking> getBookingById(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> createReview({
-    required String bookingId,
-    required int rating,
-    String? comment,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancelBooking(String id, {String? reason}) =>
+  Future<void> cancelAppointment(String id, {String? note}) =>
       throw UnimplementedError();
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
-
+  Future<void> completeAppointment(String id) => throw UnimplementedError();
   @override
-  Future<void> declineBooking(String id, {String? comment}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> completeBooking(String id) => throw UnimplementedError();
-}
-
-// ---------------------------------------------------------------------------
-// mobile-qa regression coverage (Phase 14.18 bugfix follow-up) — Step 2.7
-// Rule 3b: the `showSucceededStatus` gate fix (see
-// `test/features/booking/presentation/widgets/salon_appointment_card_test.dart`'s
-// file header for the full bug narrative) touches a real user journey
-// (salon submit → partial failure → retry), so it needs end-to-end coverage,
-// not only the widget tier.
-//
-// `_FakeBookingRepository` above resolves every call on a plain `async`
-// function with no real `await`, so every request is already settled by the
-// time a single `pump()` looks — it can never hold the retry's in-flight
-// window open long enough to observe it. This gated variant queues a
-// `Completer` per call instead, so the test can resolve master-one and
-// master-two independently and inspect the screen while master-two's retry
-// POST is still pending — the exact window the FIRST (buggy) attempt at this
-// fix got wrong (see `salon_booking_confirm_screen.dart`'s
-// `_AppointmentCardSlot` doc comment).
-// ---------------------------------------------------------------------------
-class _GatedBookingRepository implements BookingRepository {
-  final Map<String, List<Completer<Booking>>> _queue =
-      <String, List<Completer<Booking>>>{};
-  final List<CreateBookingRequest> requests = <CreateBookingRequest>[];
-
-  int callsFor(String masterId) =>
-      requests.where((CreateBookingRequest r) => r.masterId == masterId).length;
-
-  @override
-  Future<Booking> createBooking(CreateBookingRequest req) {
-    requests.add(req);
-    final Completer<Booking> completer = Completer<Booking>();
-    _queue
-        .putIfAbsent(req.masterId, () => <Completer<Booking>>[])
-        .add(completer);
-    return completer.future;
-  }
-
-  /// Resolves the OLDEST not-yet-resolved call for [masterId] as a success.
-  void succeed(String masterId) {
-    final Completer<Booking> completer = _queue[masterId]!.removeAt(0);
-    completer.complete(
-      Booking(
-        id: 'booking-$masterId',
-        masterId: masterId,
-        masterFirstName: 'Майстер',
-        masterLastName: 'Салону',
-        masterType: 'SALON_MASTER',
-        serviceId: 'assign-$masterId',
-        serviceName: 'Послуга',
-        durationMinutes: 60,
-        price: 500,
-        // instant-ok: arbitrary future filler for a resolved Booking fixture, never compared against a calendar day
-        startAt: DateTime.now().add(const Duration(days: 1)),
-        // instant-ok: arbitrary future filler for a resolved Booking fixture, never compared against a calendar day
-        endAt: DateTime.now().add(const Duration(days: 1, minutes: 60)),
-        status: BookingStatus.confirmed,
-        canReview: false,
-      ),
-    );
-  }
-
-  /// Rejects the OLDEST not-yet-resolved call for [masterId] as [failure].
-  void fail(String masterId, Failure failure) {
-    final Completer<Booking> completer = _queue[masterId]!.removeAt(0);
-    completer.completeError(failure);
-  }
-
-  @override
-  Future<Appointment> createMasterBooking(
-    String masterId,
-    CreateMasterBookingRequest request,
+  Future<void> completeAppointmentService(
+    String appointmentId,
+    String bookingId,
   ) => throw UnimplementedError();
 
   @override
-  Future<PageResponse<Booking>> getMyBookings({
-    required Iterable<BookingStatus> statuses,
-    BookingSort? sort,
-    required int page,
-    int size = kBookingsPageSize,
-    Iterable<String>? serviceIds,
-    DateTime? from,
-    DateTime? to,
-    BookingPartition? partition,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  Future<void> declineAppointment(String id, {String? comment}) =>
+      throw UnimplementedError();
 
   @override
-  Future<List<DateTime>> getMyBookedDays({
-    required DateTime from,
-    required DateTime to,
-    CancelToken? cancelToken,
-  }) => throw UnimplementedError();
-
-  @override
-  Future<Booking> getBookingById(String id) => throw UnimplementedError();
-
-  @override
-  Future<void> createReview({
-    required String bookingId,
-    required int rating,
+  Future<void> declineAppointmentService(
+    String appointmentId,
+    String bookingId, {
     String? comment,
   }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancelBooking(String id, {String? reason}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> declineBooking(String id, {String? comment}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> completeBooking(String id) => throw UnimplementedError();
 }
 
 void main() {
@@ -367,12 +266,12 @@ void main() {
       'masters auto-attached) → coming-soon placeholder', (tester) async {
     await mockNetworkImagesFor(() async {
       final fb = FakeBackend()..currentRole = UserRole.client;
-      final repo = _FakeBookingRepository();
+      final repo = _FakeAppointmentRepository();
       final GoRouter router = await AppHarness.boot(
         tester,
         fb,
         extraOverrides: <Object>[
-          bookingRepositoryProvider.overrideWithValue(repo),
+          appointmentRepositoryProvider.overrideWithValue(repo),
         ],
       );
 
@@ -482,6 +381,8 @@ void main() {
         const Key('salon_booking_service_tile_salon-svc-exclusive'),
       );
       expect(exclusiveTile, findsOneWidget);
+      await tester.ensureVisible(exclusiveTile);
+      await AppHarness.settle(tester);
       await tester.tap(exclusiveTile);
       await AppHarness.settle(tester);
 
@@ -821,28 +722,82 @@ void main() {
       );
 
       final DateTime today = kyivToday(() => kFixedNow);
-      final int workingDaysCallsBeforeTime = fb.getWorkingDaysCalls;
       final int slotsCallsBeforeTime = fb.getMasterSlotsCalls;
-      final String todaysMorningSlotIso = DateTime(
+      // `DateTime.utc` — the real chip key is built from the parsed UTC
+      // `startAt.toIso8601String()`, which `_availableSlotsEnvelope` emits at
+      // `availableSlotUtcStarts.first` (07:00Z, the fixture's documented
+      // "morning" slot). A bare local `DateTime(...)` constructor here has no
+      // trailing `Z` and performs no hour conversion, so the string could
+      // never equal the real key on any host timezone.
+      final String todaysMorningSlotIso = DateTime.utc(
         today.year,
         today.month,
         today.day,
-        10,
+        7,
       ).toIso8601String();
 
-      // ── Master-ccc's slide (current, index 0) — pick today's date over
-      // the REAL `GET /masters/master-ccc/working-days` route, then the
-      // fetched 10:00 slot over the REAL
-      // `GET /masters/master-ccc/slots` route ─────────────────────────────
+      // ── mobile-qa audit-fix cycle 1: pin the REAL working-days fetch
+      // contract instead of the retired per-day-tap assertion below (proven
+      // to fail identically with the pager work fully stashed out — a
+      // pre-existing, pager-unrelated break). `MasterSchedulePage` fetches
+      // `workingDaysProvider(_workingDaysQuery)` keyed on the VISIBLE MONTH,
+      // on mount and on month change — never on a same-month day tap (see
+      // `master_schedule_page.dart`'s `_workingDaysQuery`/`build`). Prove
+      // BOTH halves over master-ccc's REAL slide/route pair: (1) navigating
+      // to a different month hits `/masters/master-ccc/working-days` again,
+      // (2) tapping a day already inside the month fetched on mount does
+      // NOT. Half (2) is the one that would have caught the actual
+      // regression this test is meant to guard (a dropped or duplicated
+      // fetch), which the old "every tap increments" premise could not,
+      // since it was never true.
+      final int workingDaysCallsAtMount = fb.getWorkingDaysCalls;
+      await tester.tap(
+        withinSlide(
+          'master-ccc',
+          find.byKey(const Key('booking-calendar-next-month')),
+        ),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        fb.getWorkingDaysCalls,
+        greaterThan(workingDaysCallsAtMount),
+        reason:
+            "navigating master-ccc's calendar to a new month must hit the "
+            'real working-days endpoint for that month — the per-month '
+            'fetch contract `_workingDaysQuery` implements',
+      );
+      await tester.tap(
+        withinSlide(
+          'master-ccc',
+          find.byKey(const Key('booking-calendar-prev-month')),
+        ),
+      );
+      await AppHarness.settle(tester);
+
+      final int workingDaysCallsBeforeTodayTap = fb.getWorkingDaysCalls;
+
+      // ── Master-ccc's slide (current, index 0) — pick today's date, which
+      // is already inside the month fetched on mount, so it must NOT
+      // re-fetch working-days; the FETCHED-state calendar renders today as
+      // tappable straight from that already-resolved data. The slot fetch
+      // below is a genuinely separate `GET /masters/master-ccc/slots`
+      // round-trip triggered by entering the time phase. ──────────────────
       await tester.tapCalendarDay(today.day, within: slideOf('master-ccc'));
       await AppHarness.settle(tester);
       expect(
         fb.getWorkingDaysCalls,
-        greaterThan(workingDaysCallsBeforeTime),
+        equals(workingDaysCallsBeforeTodayTap),
         reason:
-            'picking a date on master-ccc\'s slide must hit the real '
-            'working-days endpoint, not render from stale/absent state',
+            "tapping today's date must NOT trigger a new working-days "
+            'fetch — today is already inside the month fetched on mount; a '
+            'per-day-tap refetch would regress the per-month contract',
       );
+
+      // mobile-qa audit-fix cycle 2: commit master-ccc's picked date into
+      // the TIME phase via the step-3 CTA — commit 92644d2e retired the
+      // old auto-advance-on-date-tap contract, so the date pick alone no
+      // longer swaps this slide to its slot grid.
+      await _tapNextCta(tester);
 
       // ── Phase 14.16/14.17 back-navigation BUGFIX regression guard
       // (Step 2.7 Rule 3b) — end-to-end proof, over the REAL router/
@@ -896,6 +851,11 @@ void main() {
       // exactly as it did before this regression guard was inserted.
       await tester.tapCalendarDay(today.day, within: slideOf('master-ccc'));
       await AppHarness.settle(tester);
+      // mobile-qa audit-fix cycle 2: the swipe-back guard below targets
+      // `salon-schedule-time-edge-back-swipe`, a hit-strip that only exists
+      // in the TIME phase (`master_schedule_page.dart`'s `_timePhase`) — so
+      // this slide must be committed into it via the CTA first.
+      await _tapNextCta(tester);
 
       // ── Left-edge swipe-back regression guard (mobile-qa Rule 3b, salon
       // "Час" swipe-back gap-fix) — end-to-end proof, over the REAL
@@ -947,6 +907,9 @@ void main() {
       // proceeds exactly as it did before this guard was inserted.
       await tester.tapCalendarDay(today.day, within: slideOf('master-ccc'));
       await AppHarness.settle(tester);
+      // mobile-qa audit-fix cycle 2: the slot chip below only mounts once
+      // this slide is committed into its TIME phase.
+      await _tapNextCta(tester);
 
       final Finder ccdMorningSlot = withinSlide(
         'master-ccc',
@@ -981,12 +944,17 @@ void main() {
       );
       expect(fb.lastMasterCccSlotsServiceId, isNot('salon-svc-shared'));
 
-      // ── Auto-advance: completing master-ccc's date+time slides the
-      // PageView onto the next unscheduled master (master-ddd) with NO
-      // manual tap — proving `nextUnscheduledIndex` genuinely drives the
-      // REAL PageController over two independently-fetched masters, not
-      // just the one hardcoded roster master a prior Phase 14.13 bug would
-      // have left this untested against. ──────────────────────────────────
+      // ── CTA-driven pager advance (mobile-qa audit-fix cycle 2 — commit
+      // 92644d2e retired the old auto-advance-off-a-slot-tap contract):
+      // master-ccc now has both a date and a time, so this SECOND CTA
+      // press (the first committed the date into the TIME phase above)
+      // reads `nextUnscheduledIndex` and animates the REAL PageController
+      // onto the next unscheduled master (master-ddd) — proving that
+      // lookup genuinely drives the pager over two independently-fetched
+      // masters, not just the one hardcoded roster master a prior Phase
+      // 14.13 bug would have left this untested against. ─────────────────
+      await _tapNextCta(tester);
+
       final Finder dddCalendarDay = withinSlide(
         'master-ddd',
         find.byKey(Key('booking-calendar-day-${today.day}')),
@@ -995,12 +963,16 @@ void main() {
         dddCalendarDay,
         findsOneWidget,
         reason:
-            'the slider must auto-advance onto master-ddd\'s date phase '
-            'once master-ccc is fully scheduled',
+            'the CTA press above must have advanced the pager onto '
+            "master-ddd's date phase now that master-ccc is fully "
+            'scheduled',
       );
 
       await tester.tapCalendarDay(today.day, within: slideOf('master-ddd'));
       await AppHarness.settle(tester);
+      // mobile-qa audit-fix cycle 2: commit master-ddd's picked date into
+      // the TIME phase the same way master-ccc's was above.
+      await _tapNextCta(tester);
 
       final Finder dddMorningSlot = withinSlide(
         'master-ddd',
@@ -1063,20 +1035,49 @@ void main() {
       // No booking has been written by merely reaching the confirm screen.
       expect(repo.requests, isEmpty);
 
-      // One appointment card per assigned master (master-ccc, master-ddd).
-      expect(
-        find.byKey(const ValueKey<String>('salon-confirm-appt-master-ccc')),
-        findsOneWidget,
+      // ── PAGER REWORK (2026-08-23): one master's card on screen at a time,
+      // paged via the centred `‹ N / M ›` control — NOT both simultaneously
+      // mounted, and no visit-wide grand total anywhere. ───────────────────
+      final Finder confirmCccCard = find.byKey(
+        const ValueKey<String>('salon-confirm-appt-master-ccc'),
       );
-      expect(
-        find.byKey(const ValueKey<String>('salon-confirm-appt-master-ddd')),
-        findsOneWidget,
+      final Finder confirmDddCard = find.byKey(
+        const ValueKey<String>('salon-confirm-appt-master-ddd'),
+      );
+      final Finder confirmPrev = find.byKey(
+        const Key('appointment-pager-prev'),
+      );
+      final Finder confirmNext = find.byKey(
+        const Key('appointment-pager-next'),
       );
 
+      // Page 0: master-ccc mounted, master-ddd NOT (PageView.builder only
+      // builds the current page).
+      expect(confirmCccCard, findsOneWidget);
+      expect(confirmDddCard, findsNothing);
+      // i18n-finder-ok: numeric pager counter, not translated UI copy.
+      expect(find.text('1 / 2'), findsOneWidget);
+      expect(
+        tester.widget<GestureDetector>(confirmPrev).onTapUp,
+        isNull,
+        reason: 'page 0 is the first master — the prev arrow must be inert',
+      );
+      expect(tester.widget<GestureDetector>(confirmNext).onTapUp, isNotNull);
+
+      // The grand-total card is GONE — asserting its key is absent, not just
+      // that a stale value is absent, so a regression that re-adds ANY card
+      // under that key (even with a different total) still fails this.
+      expect(
+        find.byKey(const Key('salon-confirm-grand-total-card')),
+        findsNothing,
+      );
+      // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
+      expect(find.text('700 ₴'), findsNothing);
+
       // ── mobile-qa Rule 3b (KNOWN COVERAGE GAPS): the shared salon-address
-      // card, the grand-total card, and each appointment card's ★rating had
-      // no end-to-end proof against the REAL public-salon-profile response
-      // and the REAL bookable-masters roster. ──────────────────────────────
+      // card and each appointment card's ★rating/subtotal had no end-to-end
+      // proof against the REAL public-salon-profile response and the REAL
+      // bookable-masters roster. ────────────────────────────────────────────
       final Finder confirmAddressCard = find.byKey(
         const Key('salon-confirm-address-card'),
       );
@@ -1095,51 +1096,78 @@ void main() {
             'is street+buildingNo only, no trailing city',
       );
 
-      // Grand total across BOTH masters: salon-svc-shared (400 ₴/60 min,
-      // raw backend `priceDisplay` fixture) + salon-svc-exclusive (300
-      // ₴/45 min) = 700 ₴ / 1 год 45 хв. The sum itself is CLIENT-computed
-      // and CLIENT-formatted (BookingRecap._BookingTotals) — it is not a
-      // pass-through of either fixture string, even though both the fixtures
-      // and the client formatter now render the same "₴" glyph.
-      final Finder confirmGrandTotal = find.byKey(
-        const Key('salon-confirm-grand-total-card'),
-      );
-      expect(confirmGrandTotal, findsOneWidget);
-      expect(
-        find.descendant(
-          of: confirmGrandTotal,
-          // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
-          matching: find.text('700 ₴'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: confirmGrandTotal,
-          // i18n-finder-ok: summed duration is real fixture-derived data, not translated UI copy.
-          matching: find.text('1 год 45 хв'),
-        ),
-        findsOneWidget,
-      );
-
-      final Finder confirmCccCard = find.byKey(
-        const ValueKey<String>('salon-confirm-appt-master-ccc'),
-      );
-      final Finder confirmDddCard = find.byKey(
-        const ValueKey<String>('salon-confirm-appt-master-ddd'),
-      );
+      // master-ccc's OWN subtotal (salon-svc-shared, 400 ₴/60 min raw
+      // backend `priceDisplay` fixture) + rating, on page 0.
       expect(
         find.descendant(of: confirmCccCard, matching: find.text('4.6')),
         findsOneWidget,
       );
+      // Scoped to the «Разом» ROW itself (via its own accessibility label —
+      // see `_totalRowFinder`), not a bare price-text finder — master-ccc has
+      // exactly one 400 ₴ service, so its line-item price and its own
+      // subtotal legitimately COINCIDE at "400 ₴" and a bare `find.text`
+      // matches both (2 widgets), unable to tell a correct render from a
+      // regression that dropped the subtotal and left only the line item.
+      final Finder cccTotalRow = _totalRowFinder(tester, confirmCccCard);
+      expect(
+        cccTotalRow,
+        findsOneWidget,
+        reason:
+            "master-ccc's own «Разом» subtotal row must survive the pager "
+            'rework even with the visit-wide total gone',
+      );
+      expect(
+        find.descendant(of: cccTotalRow, matching: find.text('400 ₴')),
+        findsOneWidget,
+        reason:
+            "master-ccc's «Разом» subtotal must read 400 ₴ — its one "
+            'salon-svc-shared service at that price',
+      );
+
+      // ── Page via the NEXT arrow → master-ddd's page. ─────────────────────
+      await tester.tap(confirmNext);
+      await AppHarness.settle(tester);
+
+      expect(confirmDddCard, findsOneWidget);
+      expect(confirmCccCard, findsNothing);
+      // i18n-finder-ok: numeric pager counter, not translated UI copy.
+      expect(find.text('2 / 2'), findsOneWidget);
+      expect(
+        tester.widget<GestureDetector>(confirmNext).onTapUp,
+        isNull,
+        reason: 'page 1 is the LAST master — the next arrow must be inert',
+      );
+      expect(tester.widget<GestureDetector>(confirmPrev).onTapUp, isNotNull);
+
+      // master-ddd's OWN subtotal (salon-svc-exclusive, 300 ₴/45 min) +
+      // rating, on page 1 — never master-ccc's.
       expect(
         find.descendant(of: confirmDddCard, matching: find.text('4.8')),
         findsOneWidget,
       );
+      // Same finder-scoping as master-ccc's subtotal above: master-ddd also
+      // has exactly one service (salon-svc-exclusive, 300 ₴), so its
+      // line-item price and its own «Разом» subtotal coincide at "300 ₴" —
+      // a bare `find.text` can't tell them apart.
+      final Finder dddTotalRow = _totalRowFinder(tester, confirmDddCard);
+      expect(dddTotalRow, findsOneWidget);
+      expect(
+        find.descendant(of: dddTotalRow, matching: find.text('300 ₴')),
+        findsOneWidget,
+      );
 
-      // ── Submit: one `POST /bookings` per master → all succeed → success
-      // screen. This is the Phase 14.18 booking-WRITE the flow now performs
-      // end to end (Step 2.7 Rule 3b). ────────────────────────────────────
+      // Page back to master-ccc before submitting — proves the prev arrow
+      // round-trips, and leaves the visible page irrelevant to the submit
+      // below (the CTA submits the WHOLE visit regardless of which page is
+      // on screen — `_submit()` iterates `widget.args.appointments`, not
+      // mounted widgets).
+      await tester.tap(confirmPrev);
+      await AppHarness.settle(tester);
+      expect(confirmCccCard, findsOneWidget);
+
+      // ── Submit: one `POST /appointments` per master → all succeed →
+      // success screen. This is the booking-WRITE the flow performs end to
+      // end (Step 2.7 Rule 3b). ─────────────────────────────────────────────
       await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
@@ -1147,33 +1175,46 @@ void main() {
       expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
 
-      // Exactly one booking per master, each carrying that master's OWN
+      // Exactly one `createAppointment` per master, REGARDLESS of which page
+      // was on screen when the CTA was tapped — the pager must never let
+      // only the visible master submit. Each carries that master's OWN
       // service-ASSIGNMENT id (never the salon-wide catalog id) — the same
       // masterService-not-found regression guarded at the slots step, now
-      // proven all the way through the booking write.
+      // proven all the way through the write.
       expect(repo.callsFor('master-ccc'), 1);
       expect(repo.callsFor('master-ddd'), 1);
-      expect(
-        repo.requestsFor('master-ccc').single.serviceId,
+      expect(repo.requestsFor('master-ccc').single.masterServiceIds, <String>[
         'assign-master-ccc-salon-svc-shared',
-      );
-      expect(
-        repo.requestsFor('master-ddd').single.serviceId,
+      ]);
+      expect(repo.requestsFor('master-ddd').single.masterServiceIds, <String>[
         'assign-master-ddd-salon-svc-exclusive',
+      ]);
+
+      // ── Success screen: same pager rework — one master's recap + its OWN
+      // «Додати в календар» pill(s) at a time, no visit-wide grand total. ──
+      final Finder successCccCard = find.byKey(
+        const ValueKey<String>('salon-success-appt-master-ccc'),
+      );
+      final Finder successDddCard = find.byKey(
+        const ValueKey<String>('salon-success-appt-master-ddd'),
+      );
+      final Finder successNext = find.byKey(
+        const Key('appointment-pager-next'),
       );
 
-      // Both created appointments are recapped on the success screen.
+      expect(successCccCard, findsOneWidget);
+      expect(successDddCard, findsNothing);
+      // i18n-finder-ok: numeric pager counter, not translated UI copy.
+      expect(find.text('1 / 2'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey<String>('salon-success-appt-master-ccc')),
-        findsOneWidget,
+        find.byKey(const Key('salon-success-grand-total-card')),
+        findsNothing,
       );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-appt-master-ddd')),
-        findsOneWidget,
-      );
+      // i18n-finder-ok: summed price is real fixture-derived data, not translated UI copy.
+      expect(find.text('700 ₴'), findsNothing);
 
-      // ── mobile-qa Rule 3b: the same shared address/grand-total/rating
-      // info-parity gaps, now proven on the CONFIRMED recap too. ──────────
+      // ── mobile-qa Rule 3b: the same shared address/rating info-parity
+      // gaps, now proven on the CONFIRMED recap too. ───────────────────────
       final Finder successAddressCard = find.byKey(
         const Key('salon-success-address-card'),
       );
@@ -1187,68 +1228,79 @@ void main() {
         findsOneWidget,
       );
 
-      final Finder successGrandTotal = find.byKey(
-        const Key('salon-success-grand-total-card'),
-      );
-      expect(successGrandTotal, findsOneWidget);
-      expect(
-        find.descendant(
-          of: successGrandTotal,
-          // i18n-finder-ok: summed price is real fixture-derived data (client-
-          // computed + client-formatted total, not the raw backend string),
-          // not translated UI copy.
-          matching: find.text('700 ₴'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: successGrandTotal,
-          // i18n-finder-ok: summed duration is real fixture-derived data, not translated UI copy.
-          matching: find.text('1 год 45 хв'),
-        ),
-        findsOneWidget,
-      );
-
-      final Finder successCccCard = find.byKey(
-        const ValueKey<String>('salon-success-appt-master-ccc'),
-      );
-      final Finder successDddCard = find.byKey(
-        const ValueKey<String>('salon-success-appt-master-ddd'),
-      );
       expect(
         find.descendant(of: successCccCard, matching: find.text('4.6')),
         findsOneWidget,
       );
+      // master-ccc's ONE booking (one service) → ONE calendar pill, on
+      // page 0 — the 1-service-1-booking calendar-button contract.
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-calendar-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-0')),
+        findsOneWidget,
+      );
+
+      await tester.tap(successNext);
+      await AppHarness.settle(tester);
+
+      expect(successDddCard, findsOneWidget);
+      expect(successCccCard, findsNothing);
+      // i18n-finder-ok: numeric pager counter, not translated UI copy.
+      expect(find.text('2 / 2'), findsOneWidget);
       expect(
         find.descendant(of: successDddCard, matching: find.text('4.8')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-calendar-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-0')),
         findsOneWidget,
       );
     });
   }, timeout: const Timeout(Duration(seconds: 120)));
 
-  // ── Phase 14.18 partial-failure variant (Step 2.7 Rule 3b) ──────────────
+  // ── Partial-failure variant (Step 2.7 Rule 3b) — mobile-qa repair ────────
   // The full search→salon→services→masters→time journey is already proven end
-  // to end by the flow above; this variant targets the NEW partial-failure
-  // path specifically, reached via a real `router.push` of the confirm route
+  // to end by the flow above; this variant targets the partial-failure path
+  // specifically, reached via a real `router.push` of the confirm route
   // (through the REAL CLIENT route guard) with a fully-resolved two-master
-  // `SalonBookingConfirmArgs`. One master's first `POST /bookings` fails with
-  // a 409 (stale slot) → the confirm screen STAYS, the failed card shows its
-  // error + the CTA flips to «Повторити»; retrying re-submits ONLY the failed
-  // master and reaches success.
+  // `SalonBookingConfirmArgs`. m-two's FIRST `POST /appointments` fails with
+  // a 409 (stale slot) → the confirm screen STAYS with the single inline
+  // error banner; retrying resubmits EVERY appointment from the start
+  // (`_submit()` iterates `widget.args.appointments`, not a per-master
+  // status — see `salon_booking_confirm_screen.dart`'s file header
+  // "INTERIM STATE" note: there is deliberately no retry-only-the-failed-
+  // ones tracking yet) and reaches success. This is a REPAIR, not just a
+  // pager-key fix: the pre-existing `_FakeBookingRepository` this test used
+  // was `BookingRepository`-typed at `bookingRepositoryProvider`, a provider
+  // the confirm screen has not read since before the pager rework — every
+  // `repo.callsFor(...)` below silently asserted 0 against a fake nothing
+  // ever called (reproduced on the pre-pager-port baseline too — PRE-
+  // EXISTING, unrelated to this port). The title's old "retry re-submits
+  // ONLY the failed master" claim was ALSO stale against the current
+  // sequential-full-resubmit contract — corrected below.
   testWidgets(
     'CLIENT salon confirm: a 409 on one master keeps the confirm screen; '
-    'retry re-submits only the failed master and reaches success',
+    'retry resubmits every appointment (including the already-succeeded '
+    'one, deduped server-side by its stable idempotency key) and reaches '
+    'success',
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..currentRole = UserRole.client;
-        // master-ddd's first booking fails (409), then succeeds on retry.
-        final repo = _FakeBookingRepository(failOnce: const <String>{'m-two'});
+        // m-two's first createAppointment fails (409), then succeeds.
+        final repo = _FakeAppointmentRepository()
+          ..failWith('m-two', const ConflictFailure());
         final GoRouter router = await AppHarness.boot(
           tester,
           fb,
           extraOverrides: <Object>[
-            bookingRepositoryProvider.overrideWithValue(repo),
+            appointmentRepositoryProvider.overrideWithValue(repo),
           ],
         );
 
@@ -1315,14 +1367,27 @@ void main() {
 
         AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
         expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
-        // m-one booked once (never re-sent); m-two booked twice (fail + retry),
-        // both reusing its stable idempotency key.
-        expect(repo.callsFor('m-one'), 1);
+        // Current contract (no retry-only-the-failed-ones tracking): the
+        // retry resubmits BOTH appointments from the start — m-one twice
+        // (already succeeded on attempt 1, resubmitted harmlessly on
+        // attempt 2 — the server de-dupes on the reused idempotency key),
+        // m-two twice (fail + retry).
+        expect(repo.callsFor('m-one'), 2);
         expect(repo.callsFor('m-two'), 2);
         expect(
           repo
+              .requestsFor('m-one')
+              .map((CreateAppointmentRequest r) => r.idempotencyKey)
+              .toSet(),
+          <String>{'idem-m-one'},
+          reason:
+              'm-one\'s resubmit must reuse its ORIGINAL idempotency '
+              'key, never mint a new one',
+        );
+        expect(
+          repo
               .requestsFor('m-two')
-              .map((CreateBookingRequest r) => r.idempotencyKey)
+              .map((CreateAppointmentRequest r) => r.idempotencyKey)
               .toSet(),
           <String>{'idem-m-two'},
         );
@@ -1332,16 +1397,26 @@ void main() {
     timeout: const Timeout(Duration(seconds: 120)),
   );
 
-  // ── mobile-qa gap-fix (Step 2.7 Rule 3b) — CLIENT_BOOKING_CONFLICT on ONE
-  // master must surface on that master's card only and must NOT fail the
-  // whole batch, exactly like the generic-409 partial-failure test above.
-  // The client already has an overlapping booking with a THIRD, unrelated
+  // ── mobile-qa repair — CLIENT_BOOKING_CONFLICT on one master opens the
+  // NON-destructive `ClientBookingConflictDialog` (owner decision,
+  // 2026-08-22 — see `salon_booking_confirm_screen.dart`'s file header
+  // CLIENT-SELF-OVERLAP note), never a per-card message — the PRE-EXISTING
+  // version of this test asserted a per-card conflict SENTENCE and a
+  // per-card «Заплановано» success status, neither of which exists any
+  // more (no per-master submit status at all — see that same file header's
+  // INTERIM STATE note); it also overrode the wrong provider
+  // (`bookingRepositoryProvider`, never read by this path — see the repair
+  // note on the 409 test above). Rewritten to drive the REAL dialog: the
+  // client already has an overlapping booking with a THIRD, unrelated
   // master/salon — m-two's own slot is perfectly fine, this is the CLIENT
-  // double-booking themselves, not a slot conflict. ─────────────────────────
+  // double-booking themselves, not a slot conflict. Confirming resubmits
+  // m-two ONLY, with `allowClientOverlap: true`, inside the SAME CTA tap
+  // (the dialog await lives inside `_submitOne`, not a second submit) —
+  // m-one is entirely unaffected. ───────────────────────────────────────────
   testWidgets(
-    'CLIENT salon confirm: a CLIENT_BOOKING_CONFLICT on one master surfaces '
-    'on that master\'s card only — the other master still succeeds and the '
-    'whole batch is not failed',
+    'CLIENT salon confirm: a CLIENT_BOOKING_CONFLICT on one master opens '
+    'the non-destructive conflict dialog; confirming resubmits ONLY that '
+    'master and reaches success, leaving the other master untouched',
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..currentRole = UserRole.client;
@@ -1360,12 +1435,12 @@ void main() {
               startsAt: clashStart,
               endsAt: clashStart.add(const Duration(minutes: 45)),
             );
-        final repo = _FakeBookingRepository();
+        final repo = _FakeAppointmentRepository();
         final GoRouter router = await AppHarness.boot(
           tester,
           fb,
           extraOverrides: <Object>[
-            bookingRepositoryProvider.overrideWithValue(repo),
+            appointmentRepositoryProvider.overrideWithValue(repo),
           ],
         );
 
@@ -1415,218 +1490,123 @@ void main() {
         AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
 
         // m-two's write fails with the CLIENT's own conflict (unrelated
-        // third booking) — swap in the failing behaviour on the recording
-        // fake by throwing per-call via a tiny wrapper.
+        // third booking).
         repo.failWith('m-two', conflict);
 
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(SalonBookingConfirmScreen)),
-        );
-        final Finder mOneCard = find.byKey(
-          const ValueKey<String>('salon-confirm-appt-m-one'),
-        );
-        final Finder mTwoCard = find.byKey(
-          const ValueKey<String>('salon-confirm-appt-m-two'),
-        );
-
+        // ONE tap on the CTA drives the WHOLE journey here: m-one submits
+        // and succeeds, then m-two's conflict opens the dialog INSIDE the
+        // same `_submitOne` call (awaited before `_submit`'s loop can move
+        // on) — unlike the generic-409 test above, there is no separate
+        // "tap again" step; confirming the dialog resubmits m-two in place.
         await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
         await AppHarness.settle(tester);
 
-        // The batch is NOT failed — still on confirm, m-one settled fine.
+        // Still on confirm — the dialog is up, m-one already settled.
         AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
         expect(find.byType(SalonBookingSuccessScreen), findsNothing);
         expect(repo.callsFor('m-one'), 1);
         expect(repo.callsFor('m-two'), 1);
 
-        // The conflict surfaces on m-two's card ONLY, as the SAME composed
-        // sentence the independent-master dialog uses — never a generic
-        // conflict message, and never on m-one's card.
-        final String expectedMessage = l10n.bookingErrClientConflict(
-          'Педикюр апаратний',
-          'Ірина Шевченко',
-          formatBookingWindow(
-            clashStart,
-            clashStart.add(const Duration(minutes: 45)),
-          ),
+        final Finder dialog = find.byKey(
+          const Key('client-booking-conflict-dialog'),
         );
         expect(
-          find.descendant(of: mTwoCard, matching: find.text(expectedMessage)),
+          dialog,
           findsOneWidget,
           reason:
-              'm-two\'s own card must surface the CLIENT_BOOKING_CONFLICT '
-              'sentence naming the THIRD, unrelated clashing booking',
+              'a CLIENT_BOOKING_CONFLICT must open the non-destructive '
+              'dialog, never the bottom error banner',
         );
         expect(
-          find.descendant(
-            of: mOneCard,
-            matching: find.text(l10n.salonBookingAppointmentSucceeded),
-          ),
-          findsOneWidget,
-          reason:
-              'm-one must be entirely unaffected — its own write succeeded '
-              'and its card shows the success line, not m-two\'s conflict',
-        );
-        expect(
-          find.descendant(of: mOneCard, matching: find.text(expectedMessage)),
+          find.byKey(const Key('salon-confirm-submit-error')),
           findsNothing,
-          reason: 'the conflict message must never bleed onto m-one\'s card',
+          reason:
+              'the bottom banner is reserved for every OTHER failure — '
+              'see the CLIENT-SELF-OVERLAP file-header note',
         );
 
-        // Retry: m-two's own slot was always fine — the conflict clears on
-        // retry (the recording fake only fails the ONE configured call) and
-        // the client reaches success.
-        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        // The dialog names m-two's NEW booking and the THIRD, unrelated
+        // clashing booking the server reported — never a generic sentence.
+        final Finder existingRow = find.byKey(
+          const Key('client-booking-conflict-existing'),
+        );
+        expect(
+          find.descendant(
+            of: existingRow,
+            // i18n-finder-ok: fixture-derived clash data, not translated UI copy.
+            matching: find.text('Педикюр апаратний'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: existingRow,
+            matching: find.textContaining('Ірина Шевченко'),
+          ),
+          findsOneWidget,
+        );
+        final Finder newRow = find.byKey(
+          const Key('client-booking-conflict-new'),
+        );
+        expect(
+          find.descendant(of: newRow, matching: find.textContaining('Софія')),
+          findsOneWidget,
+          reason:
+              "the dialog's own booking side must name m-two "
+              '(Софія), never m-one',
+        );
+
+        // Confirm — resubmits ONLY m-two, with allowClientOverlap: true.
+        await tester.tap(
+          find.byKey(const Key('client-booking-conflict-proceed')),
+        );
         await AppHarness.settle(tester);
 
         AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
         expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+        // m-one untouched (never resubmitted); m-two resubmitted exactly
+        // once more (fail + confirmed resubmit).
         expect(repo.callsFor('m-one'), 1);
         expect(repo.callsFor('m-two'), 2);
+        expect(
+          repo.requestsFor('m-two').last.allowClientOverlap,
+          isTrue,
+          reason:
+              "the confirmed resubmit must carry allowClientOverlap: "
+              'true — the ONE-SHOT flag this dialog exists to set',
+        );
+        expect(
+          repo.requestsFor('m-one').single.allowClientOverlap,
+          isFalse,
+          reason:
+              "m-one's own submit must never inherit m-two's overlap "
+              'flag',
+        );
         expect(tester.takeException(), isNull);
       });
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );
 
-  // ── Phase 14.18 showSucceededStatus regression guard (Step 2.7 Rule 3b) ──
-  // No native surface is involved here (no OS permission dialog, no deep
-  // link, no FCM/local notification, no WebView, no biometric) — this is
-  // pure Dart/Riverpod state driving a pure Flutter widget tree, so no
-  // Patrol test is added alongside this one.
-  testWidgets(
-    'CLIENT salon confirm: the already-succeeded master\'s «Заплановано» '
-    'status survives BOTH the settled partial failure AND the retry\'s own '
-    'in-flight window — the regression guard for the showSucceededStatus '
-    'gate (first attempt wrongly gated on live hasFailures alone)',
-    (tester) async {
-      await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()..currentRole = UserRole.client;
-        final repo = _GatedBookingRepository();
-        final GoRouter router = await AppHarness.boot(
-          tester,
-          fb,
-          extraOverrides: <Object>[
-            bookingRepositoryProvider.overrideWithValue(repo),
-          ],
-        );
-
-        await AppHarness.loginAs(tester, fb, UserRole.client);
-        await AppHarness.settle(tester);
-
-        SalonBookingAppointment appt(
-          String masterId,
-          String firstName,
-        ) => SalonBookingAppointment(
-          schedule: SalonMasterSchedule(
-            masterId: masterId,
-            firstName: firstName,
-            lastName: 'Майстер',
-            type: MasterType.salonMaster,
-            services: <SalonCatalogService>[
-              SalonCatalogService(
-                id: 'svc-$masterId',
-                name: 'Манікюр',
-                durationLabel: '1 год',
-                priceDisplay: '500 ₴',
-                durationMinutes: 60,
-                priceType: ServicePriceType.fixed,
-                priceMin: 500,
-              ),
-            ],
-            orderedMasterServiceIds: <String>['assign-$masterId'],
-          ),
-          // instant-ok: arbitrary future filler for a directly-pushed confirm/success fixture, never compared against a calendar day
-          startAt: DateTime.now().add(const Duration(days: 1)),
-          idempotencyKey: 'idem-$masterId',
-        );
-
-        unawaited(
-          router.push(
-            RouteNames.salonBookingConfirm,
-            extra: SalonBookingConfirmArgs(
-              salonId: 'salon-xyz',
-              appointments: <SalonBookingAppointment>[
-                appt('m-one', 'Олена'),
-                appt('m-two', 'Софія'),
-              ],
-            ),
-          ),
-        );
-        await AppHarness.settle(tester);
-
-        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
-        expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
-
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(SalonBookingConfirmScreen)),
-        );
-        final Finder mOneCard = find.byKey(
-          const ValueKey<String>('salon-confirm-appt-m-one'),
-        );
-        final Finder mTwoCard = find.byKey(
-          const ValueKey<String>('salon-confirm-appt-m-two'),
-        );
-
-        // First submit: m-one succeeds, m-two fails (409) — both gated so
-        // the pass only settles once BOTH are resolved.
-        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
-        await tester.pump();
-        repo.succeed('m-one');
-        await tester.pump();
-        repo.fail('m-two', const ConflictFailure());
-        await AppHarness.settle(tester);
-
-        // SETTLED, PARTIAL FAILURE: m-one's checkmark is visible at rest —
-        // hasFailures=true keeps it showing.
-        AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
-        expect(find.byType(SalonBookingSuccessScreen), findsNothing);
-        expect(
-          find.descendant(
-            of: mOneCard,
-            matching: find.text(l10n.salonBookingAppointmentSucceeded),
-          ),
-          findsOneWidget,
-          reason:
-              'settled with a partial failure: m-one\'s already-succeeded '
-              'status must stay visible',
-        );
-        expect(
-          find.descendant(of: mTwoCard, matching: find.text(l10n.errConflict)),
-          findsOneWidget,
-        );
-
-        // Retry: tap «Повторити». The pre-loop reset clears m-two's failure
-        // (hasFailures → false) atomically with inFlight → true — the exact
-        // window the buggy hasFailures-only gate got wrong. m-two's retry
-        // POST is gated (pending) so this in-flight frame is observable.
-        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
-        await tester.pump();
-
-        expect(
-          find.descendant(
-            of: mOneCard,
-            matching: find.text(l10n.salonBookingAppointmentSucceeded),
-          ),
-          findsOneWidget,
-          reason:
-              'MID-RETRY: hasFailures has already been reset to false for '
-              'the new pass and m-two\'s retry POST has not resolved yet — '
-              'inFlight=true must be what keeps m-one\'s checkmark visible '
-              'here, in the REAL end-to-end app, not just an isolated '
-              'widget test',
-        );
-
-        // Resolve the retry → settles all-succeeded → success screen.
-        repo.succeed('m-two');
-        await AppHarness.settle(tester);
-
-        AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
-        expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
-        expect(repo.callsFor('m-one'), 1);
-        expect(repo.callsFor('m-two'), 2);
-        expect(tester.takeException(), isNull);
-      });
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
+  // ── RETIRED (mobile-qa repair, 2026-08-23): the `showSucceededStatus`
+  // regression guard this test protected no longer has a subject. It
+  // asserted an already-succeeded master's «Заплановано» per-card status
+  // survived a partial failure + a mid-retry in-flight window — but
+  // `SalonAppointmentCard`'s own file header (`widgets/salon_appointment_card
+  // .dart`) is explicit that the per-appointment submit-status enum
+  // (`status`/`failure`/`showSucceededStatus`) was NOT restored: "per-master
+  // submit status is a later phase's job". There is no per-card status of
+  // any kind on the current confirm screen — `find.text
+  // (l10n.salonBookingAppointmentSucceeded)` (an ARB key with, as of this
+  // repair, no remaining production consumer — flagged to
+  // `docs/mobile-phases/mobile-backlog.md` for a follow-up ARB-parity
+  // cleanup pass) could never have matched anything, and this test's
+  // `_GatedBookingRepository` was ALSO `BookingRepository`-typed at
+  // `bookingRepositoryProvider` — the same wrong-provider defect as the two
+  // repaired tests above, so it never drove the real write path at all. Not
+  // weakened into a smoke test: DELETED, because its premise is gone, not
+  // because it was inconvenient to fix. The one piece of remaining value —
+  // "the retry resubmits everything and reaches success" — is covered by
+  // the repaired 409-partial-failure test above (`repo.callsFor('m-one'),
+  // 2`). See the QA audit report for the full CRITICAL/pre-existing finding.
 }

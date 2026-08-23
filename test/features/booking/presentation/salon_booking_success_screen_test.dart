@@ -204,10 +204,19 @@ void main() {
       );
 
       expect(find.text(l10n.salonBookingSuccessTitle), findsOneWidget);
+      // Page 0 (m1) is showing; m2's card is on an un-built page.
       expect(
         find.byKey(const ValueKey<String>('salon-success-appt-m1')),
         findsOneWidget,
       );
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-appt-m2')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const Key('appointment-pager-next')));
+      await tester.pumpAndSettle();
+
       expect(
         find.byKey(const ValueKey<String>('salon-success-appt-m2')),
         findsOneWidget,
@@ -304,12 +313,9 @@ void main() {
         ),
         findsOneWidget,
       );
+      // Page 0's (m1's) card is unaffected by the secondary read.
       expect(
         find.byKey(const ValueKey<String>('salon-success-appt-m1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-appt-m2')),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -352,10 +358,6 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
         find.byKey(const ValueKey<String>('salon-success-appt-m1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-success-appt-m2')),
         findsOneWidget,
       );
     });
@@ -471,10 +473,6 @@ void main() {
           find.byKey(const ValueKey<String>('salon-success-appt-m1')),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const ValueKey<String>('salon-success-appt-m2')),
-          findsOneWidget,
-        );
         expect(tester.takeException(), isNull);
       },
     );
@@ -513,64 +511,66 @@ void main() {
     );
   });
 
-  group('grand-total card', () {
+  // ===========================================================================
+  // The visit-wide grand total («Разом за візит») was REMOVED (owner
+  // decision, 2026-08-23) — see `salon_booking_success_screen.dart`'s file
+  // header. This is a regression guard, not the removed feature's coverage.
+  // ===========================================================================
+  group('grand-total card (removed)', () {
     testWidgets(
-      'renders with the correct summed price/duration across BOTH masters '
-      'when N > 1',
+      'never renders — N > 1 shows only each master\'s own «Разом» subtotal, '
+      'paged one master at a time',
       (tester) async {
         await _pumpTall(tester);
         await _pump(tester);
 
-        final Finder grandTotal = find.byKey(
-          const Key('salon-success-grand-total-card'),
-        );
-        expect(grandTotal, findsOneWidget);
-
-        // Both m1 + m2 (`_appt`) carry ONE 500 ₴ / 60 min service each ->
-        // summed total is 1000 ₴ / 2 год.
-        expect(
-          // i18n-finder-ok: summed price is fixture-derived data, not translated UI copy.
-          find.descendant(of: grandTotal, matching: find.text('1000 ₴')),
-          findsOneWidget,
-        );
-        expect(
-          // i18n-finder-ok: summed duration is fixture-derived data, not translated UI copy.
-          find.descendant(of: grandTotal, matching: find.text('2 год')),
-          findsOneWidget,
-        );
-      },
-    );
-
-    testWidgets(
-      'is suppressed entirely when there is only ONE appointment (N == 1) '
-      '— it would just repeat that one card\'s own subtotal',
-      (tester) async {
-        await _pumpTall(tester);
-        final GoRouter router = _router();
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            publicSalonProfileProvider(
-              _kSalonId,
-            ).overrideWith((ref) => (_kSalon, const <SalonMasterSummary>[])),
-          ],
-        );
-        router.go(
-          RouteNames.salonBookingSuccess,
-          extra: _singleAppointmentArgs(),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const ValueKey<String>('salon-success-appt-m1')),
-          findsOneWidget,
-        );
         expect(
           find.byKey(const Key('salon-success-grand-total-card')),
           findsNothing,
         );
+        // m1's own subtotal — one 500 ₴ / 60 min service. Not the 1000 ₴/2
+        // год the removed grand total would have summed across both masters.
+        // i18n-finder-ok: subtotal is fixture-derived data, not translated UI copy.
+        expect(find.text('500 ₴'), findsNWidgets(2)); // service row + Разом
+        expect(find.text('1000 ₴'), findsNothing);
+
+        await tester.tap(find.byKey(const Key('appointment-pager-next')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-success-grand-total-card')),
+          findsNothing,
+        );
+        expect(find.text('500 ₴'), findsNWidgets(2));
       },
     );
+
+    testWidgets('never renders at N == 1 either', (tester) async {
+      await _pumpTall(tester);
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          publicSalonProfileProvider(
+            _kSalonId,
+          ).overrideWith((ref) => (_kSalon, const <SalonMasterSummary>[])),
+        ],
+      );
+      router.go(
+        RouteNames.salonBookingSuccess,
+        extra: _singleAppointmentArgs(),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-appt-m1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-success-grand-total-card')),
+        findsNothing,
+      );
+    });
   });
 
   testWidgets("each confirmed appointment card's shared MasterStrip renders that "
@@ -590,11 +590,9 @@ void main() {
     router.go(RouteNames.salonBookingSuccess, extra: _ratedArgsTwoMasters());
     await tester.pumpAndSettle();
 
+    // Page 0 (m1).
     final Finder m1Card = find.byKey(
       const ValueKey<String>('salon-success-appt-m1'),
-    );
-    final Finder m2Card = find.byKey(
-      const ValueKey<String>('salon-success-appt-m2'),
     );
 
     // ★rating(reviewCount) — the whole point of the card-unification
@@ -605,14 +603,6 @@ void main() {
     );
     expect(
       find.descendant(of: m1Card, matching: find.text('(9)')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: m2Card, matching: find.text('4.8')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: m2Card, matching: find.text('(15)')),
       findsOneWidget,
     );
 
@@ -629,6 +619,22 @@ void main() {
       find.descendant(of: m1Card, matching: find.text('500 ₴')),
       findsNWidgets(2),
     );
+
+    // Page to m2 — same assertions, its own card.
+    await tester.tap(find.byKey(const Key('appointment-pager-next')));
+    await tester.pumpAndSettle();
+
+    final Finder m2Card = find.byKey(
+      const ValueKey<String>('salon-success-appt-m2'),
+    );
+    expect(
+      find.descendant(of: m2Card, matching: find.text('4.8')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: m2Card, matching: find.text('(15)')),
+      findsOneWidget,
+    );
     expect(
       // i18n-finder-ok: service name is fixture data (_ratedAppt), not translated UI copy.
       find.descendant(of: m2Card, matching: find.text('Манікюр')),
@@ -640,6 +646,39 @@ void main() {
       findsNWidgets(2),
     );
   });
+
+  // ===========================================================================
+  // «Додати в календар» — ONE CalendarButton per BOOKING (1 service = 1
+  // booking; owner decision, 2026-08-23). Smoke coverage proving the count
+  // and the reused shared widget; full behavioural coverage (the actual
+  // add_2_calendar call) is a mobile-qa follow-up.
+  // ===========================================================================
+  testWidgets(
+    'shows exactly one CalendarButton per booking, on the master\'s own page',
+    (tester) async {
+      await _pumpTall(tester);
+      await _pump(tester);
+
+      // m1 (page 0) has exactly ONE service -> exactly ONE calendar button.
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-0-1')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const Key('appointment-pager-next')));
+      await tester.pumpAndSettle();
+
+      // m2 (page 1) — its own single button.
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-add-calendar-1-0')),
+        findsOneWidget,
+      );
+    },
+  );
 
   // ===========================================================================
   // ScreenProtectionManager lifecycle (SEC — this screen renders the salon's

@@ -279,9 +279,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final Finder calendar = find.byKey(
-          const Key('booking-month-calendar'),
-        );
+        final Finder calendar = find.byKey(const Key('booking-month-calendar'));
         expect(calendar, findsOneWidget);
 
         // BEFORE any tap, no cell is selected — `MonthCalendar`'s
@@ -304,9 +302,7 @@ void main() {
         // Kyiv "today" under `_kClockInstant` is Aug 2 (see the group
         // above) — tap a later, unambiguously-available day so the cell
         // is real and tappable regardless of the past-day gate.
-        final Finder aug5Cell = find.byKey(
-          const Key('booking-calendar-day-5'),
-        );
+        final Finder aug5Cell = find.byKey(const Key('booking-calendar-day-5'));
         expect(aug5Cell, findsOneWidget);
         await tester.tapCalendarDay(5);
         await tester.pumpAndSettle();

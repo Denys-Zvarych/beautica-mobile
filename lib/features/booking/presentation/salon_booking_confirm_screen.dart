@@ -4,10 +4,22 @@
 // appointment, a pinned CTA — extended to the salon's N-master model: a
 // single shared salon address card, ONE [SalonAppointmentCard] per assigned
 // master (each carrying its own Дата/Час/services/subtotal AND its own
-// comment field — see below), a grand total across every master when N > 1,
-// and each appointment submitted via the SHARED `AppointmentSubmit
-// .submitVisit` — the same submit path, failure mapping, and idempotency
-// contract the independent flow uses (NOT a forked salon submit).
+// comment field — see below), and each appointment submitted via the SHARED
+// `AppointmentSubmit.submitVisit` — the same submit path, failure mapping,
+// and idempotency contract the independent flow uses (NOT a forked salon
+// submit).
+//
+// PAGER REWORK (owner decision, 2026-08-23): the flat stack of N
+// [SalonAppointmentCard]s is now an [AppointmentPager] — one master's card on
+// screen at a time, paged via swipe or the centred `‹ N / M ›` control below
+// the card (not rendered at all when N == 1). The visit-wide grand total
+// («Разом за візит») is REMOVED — each master's own «Разом» subtotal (inside
+// [BookingRecap], via [SalonAppointmentCard]) is the only total on this
+// screen now; see `docs/signup-designs/SalonBookingConfirm/` (the approved
+// preview) for the full rationale. The shared salon address card and the
+// pinned «Записатись» CTA stay OUTSIDE the pager — the address applies to
+// every master, and the CTA submits the whole visit regardless of which page
+// is on screen.
 //
 // CARD RESTORATION (owner-reported regression, 2026-08-22): Phase 271 had
 // replaced the per-master `SalonAppointmentCard` (deleted together with the
@@ -36,8 +48,10 @@
 // controllers' lifecycle: one per appointment, created in `initState` (and
 // reconciled in `didUpdateWidget` if `widget.args` ever changes under the
 // same `State` — defensive; `widget.args.appointments` is otherwise
-// immutable for this screen's life, mirroring `_allSelections` below),
-// disposed in `dispose`.
+// immutable for this screen's life), disposed in `dispose`. The controller
+// map lives at the SCREEN level (not inside a page), so an offstage
+// `AppointmentPager` page unbuilding never loses typed text — see that
+// widget's own doc.
 //
 // CLIENT-SELF-OVERLAP (owner decision, 2026-08-22, verbatim: "remove the
 // bottom error when client already has a booking on same date/time; instead
@@ -94,6 +108,7 @@ import '../application/my_bookings_notifier.dart';
 import '../domain/booking_tab.dart';
 import '../domain/create_appointment_request.dart';
 import '../domain/salon_booking_confirm_args.dart';
+import 'widgets/appointment_pager.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_top_bar.dart';
@@ -136,14 +151,6 @@ class _SalonBookingConfirmScreenState
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
-
-  // `widget.args.appointments` never changes for this screen's lifetime, so
-  // the flattened grand-total selection list is computed once here instead of
-  // on every build() (mobile-perf MEDIUM, Phase 14.18 salon-confirm audit).
-  late final List<BookingSelection> _allSelections = widget.args.appointments
-      .expand((SalonBookingAppointment a) => a.schedule.services)
-      .map(BookingSelection.fromSalonCatalogService)
-      .toList();
 
   @override
   void initState() {
@@ -346,87 +353,84 @@ class _SalonBookingConfirmScreenState
               onBack: () => context.pop(),
               backKey: const Key('salon-confirm-back'),
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(
-                  VelvetSpacing.lg,
-                  VelvetSpacing.md,
-                  VelvetSpacing.lg,
-                  VelvetSpacing.md,
-                ),
+            // The salon identity + address card, shared by every master —
+            // stays OUTSIDE the pager (it applies to the whole visit, not to
+            // whichever page is on screen).
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                VelvetSpacing.md,
+                VelvetSpacing.lg,
+                0,
+              ),
+              child: NeumorphicCard(
+                key: const Key('salon-confirm-address-card'),
+                padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    // The salon identity + address card, above the per-master
-                    // recap cards.
-                    NeumorphicCard(
-                      key: const Key('salon-confirm-address-card'),
-                      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          if (salonName != null) ...<Widget>[
-                            LabelledRow(
-                              key: const Key('salon-confirm-salon-name'),
-                              label: l10n.bookingSalonLabel,
-                              value: salonName,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SectionRule(),
-                          ],
-                          LabelledRow(
-                            label: l10n.bookingAddressLabel,
-                            value: addressLine ?? l10n.bookingAddressUnknown,
-                            detail: addressDetail,
-                          ),
-                        ],
+                    if (salonName != null) ...<Widget>[
+                      LabelledRow(
+                        key: const Key('salon-confirm-salon-name'),
+                        label: l10n.bookingSalonLabel,
+                        value: salonName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
+                      const SectionRule(),
+                    ],
+                    LabelledRow(
+                      label: l10n.bookingAddressLabel,
+                      value: addressLine ?? l10n.bookingAddressUnknown,
+                      detail: addressDetail,
                     ),
-                    const SizedBox(height: VelvetSpacing.md),
-                    // Each master's OWN Дата/Час + ordered services + subtotal
-                    // + comment field — a dedicated [SalonAppointmentCard] per
-                    // assigned master (restored — see the file header).
-                    for (int i = 0; i < appointments.length; i++) ...<Widget>[
-                      SalonAppointmentCard(
-                        key: ValueKey<String>(
-                          'salon-confirm-appt-${appointments[i].schedule.masterId}',
-                        ),
-                        appointment: appointments[i],
-                        selections: appointments[i].schedule.services
-                            .map(BookingSelection.fromSalonCatalogService)
-                            .toList(),
-                        avatarGradient: salonAvatarGradient(i),
-                        commentController: _commentFor(
-                          appointments[i].schedule.masterId,
-                        ),
-                        commentFieldKey: Key(
-                          'salon-confirm-comment-field-'
-                          '${appointments[i].schedule.masterId}',
-                        ),
-                        maxComment: _maxComment,
-                      ),
-                      const SizedBox(height: VelvetSpacing.md),
-                    ],
-                    if (appointments.length > 1) ...<Widget>[
-                      NeumorphicCard(
-                        key: const Key('salon-confirm-grand-total-card'),
-                        showBorder: true,
-                        padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-                        child: BookingRecap(
-                          selections: _allSelections,
-                          totalOnly: true,
-                        ),
-                      ),
-                      const SizedBox(height: VelvetSpacing.md),
-                    ],
-                    if (_failure != null)
-                      _SubmitErrorBanner(failure: _failure!),
                   ],
                 ),
               ),
             ),
+            // Each master's OWN Дата/Час + ordered services + subtotal +
+            // comment field — a dedicated [SalonAppointmentCard] per assigned
+            // master, PAGED one at a time (owner decision, 2026-08-23 — see
+            // the file header). No visit-wide total: each card's own
+            // «Разом» (inside [BookingRecap]) is the only total shown.
+            Expanded(
+              child: AppointmentPager(
+                // Test-support key — lets an integration test drive a real
+                // hand-driven swipe via `pager_drag.dart`'s
+                // `dragPagerByOnePage` in addition to the arrow controls.
+                key: const Key('appointment-pager'),
+                count: appointments.length,
+                pageBuilder: (BuildContext context, int i) =>
+                    SalonAppointmentCard(
+                      key: ValueKey<String>(
+                        'salon-confirm-appt-${appointments[i].schedule.masterId}',
+                      ),
+                      appointment: appointments[i],
+                      selections: appointments[i].schedule.services
+                          .map(BookingSelection.fromSalonCatalogService)
+                          .toList(),
+                      avatarGradient: salonAvatarGradient(i),
+                      commentController: _commentFor(
+                        appointments[i].schedule.masterId,
+                      ),
+                      commentFieldKey: Key(
+                        'salon-confirm-comment-field-'
+                        '${appointments[i].schedule.masterId}',
+                      ),
+                      maxComment: _maxComment,
+                    ),
+              ),
+            ),
+            if (_failure != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  0,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                ),
+                child: _SubmitErrorBanner(failure: _failure!),
+              ),
           ],
         ),
       ),

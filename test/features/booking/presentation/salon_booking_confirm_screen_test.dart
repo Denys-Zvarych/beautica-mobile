@@ -451,8 +451,10 @@ void main() {
 
   testWidgets(
     "typing in one master's comment field updates ONLY that field's x / 500 "
-    "counter — the two masters' fields are isolated from each other and "
-    'from the card list',
+    "counter — the two masters' fields are isolated from each other, and "
+    "paging away and back preserves BOTH masters' text — the comment "
+    'controllers live at the SCREEN level, outside the pager, so an offstage '
+    'page being un-built by AppointmentPager never loses what was typed',
     (tester) async {
       await _pumpTall(tester);
       final _FakeBookingRepository repo = _FakeBookingRepository();
@@ -462,12 +464,21 @@ void main() {
       unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
       await tester.pumpAndSettle();
 
-      // Two masters -> two independent counters, both starting at zero, each
-      // living in its own listenable builder (the isolation boundary).
-      expect(find.text('0 / 500'), findsNWidgets(2));
+      // Page 0 (m1) is showing — its counter starts at zero, in its own
+      // listenable builder (the isolation boundary). m2's card is not built
+      // at all while its page is offstage.
+      expect(find.text('0 / 500'), findsOneWidget);
       expect(
         find.byType(ValueListenableBuilder<TextEditingValue>),
-        findsNWidgets(2),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('salon-confirm-appt-m2')),
+        findsNothing,
       );
 
       await tester.enterText(
@@ -478,17 +489,31 @@ void main() {
 
       // m1's counter reflects the input …
       expect(find.text('5 / 500'), findsOneWidget);
-      // … m2's counter is untouched — still zero, not overwritten.
-      expect(find.text('0 / 500'), findsOneWidget);
-      // … and both appointment cards are still present (never torn down).
-      expect(
-        find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
-        findsOneWidget,
-      );
+
+      // Page to m2 — its counter is untouched, still zero, never overwritten
+      // by m1's text.
+      await tester.tap(find.byKey(const Key('appointment-pager-next')));
+      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey<String>('salon-confirm-appt-m2')),
         findsOneWidget,
       );
+      expect(find.text('0 / 500'), findsOneWidget);
+
+      // Page back to m1 — its text SURVIVED paging away and back (the
+      // controller lives at the screen level, not inside the page).
+      await tester.tap(find.byKey(const Key('appointment-pager-prev')));
+      await tester.pumpAndSettle();
+      expect(find.text('5 / 500'), findsOneWidget);
+      expect(
+        // i18n-finder-ok: this is the test's OWN typed input (via
+        // tester.enterText above), not app-rendered translated UI copy — it
+        // reads back identically regardless of device locale.
+        find.text('Дякую'),
+        findsOneWidget,
+        reason: "m1's typed text must survive paging away and back",
+      );
+
       // No booking was triggered by typing.
       expect(repo.requests, isEmpty);
     },
@@ -570,13 +595,11 @@ void main() {
         ),
         findsOneWidget,
       );
-      // The appointments themselves are unaffected by the secondary read.
+      // The appointments themselves are unaffected by the secondary read —
+      // page 0 (m1) still renders (m2's card is simply on an un-built page,
+      // per the pager rework — not a secondary-read side effect).
       expect(
         find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-confirm-appt-m2')),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -621,10 +644,6 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
         find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('salon-confirm-appt-m2')),
         findsOneWidget,
       );
     });
@@ -751,13 +770,9 @@ void main() {
           ),
           findsOneWidget,
         );
-        // … and the appointment cards are unaffected by the secondary read.
+        // … and page 0's (m1's) card is unaffected by the secondary read.
         expect(
           find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey<String>('salon-confirm-appt-m2')),
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);
@@ -800,10 +815,18 @@ void main() {
     );
   });
 
-  group('grand-total card', () {
+  // ===========================================================================
+  // The visit-wide grand total («Разом за візит») was REMOVED (owner
+  // decision, 2026-08-23) — see `salon_booking_confirm_screen.dart`'s file
+  // header. This is a regression guard, not the removed feature's coverage:
+  // it pins that the key never renders again, on N == 1 AND N > 1, and that
+  // each master's own «Разом» subtotal (inside `SalonAppointmentCard`) is
+  // still there.
+  // ===========================================================================
+  group('grand-total card (removed)', () {
     testWidgets(
-      'renders with the correct summed price/duration across BOTH masters '
-      'when N > 1',
+      'never renders — N > 1 shows only each master\'s own «Разом» subtotal, '
+      'paged one master at a time',
       (tester) async {
         await _pumpTall(tester);
         final _FakeBookingRepository repo = _FakeBookingRepository();
@@ -813,53 +836,51 @@ void main() {
         unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
         await tester.pumpAndSettle();
 
-        final Finder grandTotal = find.byKey(
-          const Key('salon-confirm-grand-total-card'),
-        );
-        expect(grandTotal, findsOneWidget);
-
-        // Both m1 + m2 (`_schedule`) carry ONE 500 ₴ / 60 min service each
-        // -> summed total is 1000 ₴ / 2 год.
-        expect(
-          // i18n-finder-ok: summed price is fixture-derived data, not translated UI copy.
-          find.descendant(of: grandTotal, matching: find.text('1000 ₴')),
-          findsOneWidget,
-        );
-        expect(
-          // i18n-finder-ok: summed duration is fixture-derived data, not translated UI copy.
-          find.descendant(of: grandTotal, matching: find.text('2 год')),
-          findsOneWidget,
-        );
-      },
-    );
-
-    testWidgets(
-      'is suppressed entirely when there is only ONE appointment (N == 1) '
-      '— it would just repeat that one card\'s own subtotal',
-      (tester) async {
-        await _pumpTall(tester);
-        final _FakeBookingRepository repo = _FakeBookingRepository();
-        final GoRouter router = _router();
-
-        await tester.pumpRoutedApp(router, overrides: _baseOverrides(repo));
-        unawaited(
-          router.push(
-            RouteNames.salonBookingConfirm,
-            extra: _singleAppointmentArgs(),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
-          findsOneWidget,
-        );
         expect(
           find.byKey(const Key('salon-confirm-grand-total-card')),
           findsNothing,
         );
+        // m1's own subtotal — one 500 ₴ / 60 min service. Not the 1000 ₴/2
+        // год the removed grand total would have summed across both masters.
+        // i18n-finder-ok: subtotal is fixture-derived data, not translated UI copy.
+        expect(find.text('500 ₴'), findsNWidgets(2)); // service row + Разом
+        expect(find.text('1000 ₴'), findsNothing);
+
+        await tester.tap(find.byKey(const Key('appointment-pager-next')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-confirm-grand-total-card')),
+          findsNothing,
+        );
+        // m2's own subtotal, same shape.
+        expect(find.text('500 ₴'), findsNWidgets(2));
       },
     );
+
+    testWidgets('never renders at N == 1 either', (tester) async {
+      await _pumpTall(tester);
+      final _FakeBookingRepository repo = _FakeBookingRepository();
+      final GoRouter router = _router();
+
+      await tester.pumpRoutedApp(router, overrides: _baseOverrides(repo));
+      unawaited(
+        router.push(
+          RouteNames.salonBookingConfirm,
+          extra: _singleAppointmentArgs(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('salon-confirm-appt-m1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-confirm-grand-total-card')),
+        findsNothing,
+      );
+    });
   });
 
   testWidgets(
@@ -880,11 +901,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Page 0 (m1).
       final Finder m1Card = find.byKey(
         const ValueKey<String>('salon-confirm-appt-m1'),
-      );
-      final Finder m2Card = find.byKey(
-        const ValueKey<String>('salon-confirm-appt-m2'),
       );
 
       // ★rating(reviewCount) — the whole point of the card-unification
@@ -895,14 +914,6 @@ void main() {
       );
       expect(
         find.descendant(of: m1Card, matching: find.text('(9)')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: m2Card, matching: find.text('4.8')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: m2Card, matching: find.text('(15)')),
         findsOneWidget,
       );
 
@@ -918,6 +929,22 @@ void main() {
         // i18n-finder-ok: price is fixture-derived data, not translated UI copy.
         find.descendant(of: m1Card, matching: find.text('500 ₴')),
         findsNWidgets(2),
+      );
+
+      // Page to m2 — same assertions, its own card.
+      await tester.tap(find.byKey(const Key('appointment-pager-next')));
+      await tester.pumpAndSettle();
+
+      final Finder m2Card = find.byKey(
+        const ValueKey<String>('salon-confirm-appt-m2'),
+      );
+      expect(
+        find.descendant(of: m2Card, matching: find.text('4.8')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: m2Card, matching: find.text('(15)')),
+        findsOneWidget,
       );
       expect(
         // i18n-finder-ok: service name is fixture data (_ratedSchedule), not translated UI copy.
@@ -1038,12 +1065,21 @@ void main() {
           find.byKey(const Key('salon-confirm-comment-field-m1')),
           'Для Олени',
         );
+        await tester.pump();
+
+        // m2's field only exists once its page is on screen — the comment
+        // CONTROLLER lives at the screen level regardless, so paging away
+        // from m1 loses nothing already typed (see the isolation test above).
+        await tester.tap(find.byKey(const Key('appointment-pager-next')));
+        await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(const Key('salon-confirm-comment-field-m2')),
           'Для Софії',
         );
         await tester.pump();
 
+        // The submit CTA is reachable from any page — submitting from m2's
+        // page must still send BOTH appointments.
         await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
         await tester.pumpAndSettle();
 
