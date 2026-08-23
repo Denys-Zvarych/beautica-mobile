@@ -5119,17 +5119,6 @@
       "index": { "type": "int", "example": "2" }
     }
   },
-  "salonScheduleDateIntro": "Choose a convenient date for this master — we'll find free time next.",
-  "@salonScheduleDateIntro": {
-    "description": "Intro line above the calendar on each master's slide of the salon booking time screen. Superseded by salonScheduleDateIntroForServices, which names the actual service(s) — kept only as a no-services fallback."
-  },
-  "salonScheduleDateIntroForServices": "Choose a convenient date for «{services}» — we'll find free time next.",
-  "@salonScheduleDateIntroForServices": {
-    "description": "Intro line above the calendar on each master's slide of the salon booking time screen, naming the actual service(s) booked with this master. Multiple services are joined with a comma (mirrors the booking-success calendar export's service label join).",
-    "placeholders": {
-      "services": { "type": "String", "example": "Haircut, Styling" }
-    }
-  },
   "bookingServiceTimeTitle": "Time",
   "@bookingServiceTimeTitle": {
     "description": "Top-bar title of the independent-master per-service booking time screen (a PageView, one slide per selected service)."

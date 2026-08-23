@@ -431,9 +431,6 @@ abstract final class VelvetText {
     fontWeight: FontWeight.w800,
   );
 
-  /// `MasterSchedulePage`'s date-phase intro copy — body at 14 sp.
-  static final TextStyle scheduleDateIntro = _bodyStyle.copyWith(fontSize: 11);
-
   /// `MasterSchedulePage`'s "Вільний час" section heading — subheading at
   /// 16 sp.
   static final TextStyle scheduleTimeHeading = _subheadingStyle.copyWith(

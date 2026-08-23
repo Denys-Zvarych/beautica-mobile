@@ -32,7 +32,6 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_sch
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'dart:ui' show Tristate;
 
 import 'package:dio/dio.dart';
@@ -491,8 +490,226 @@ void main() {
     );
   });
 
-  group('MasterSchedulePage — FIX 1: date-step intro names the '
-      'service(s) (mobile-qa, 2026-08-23)', () {
+  group('MasterSchedulePage — JOB 1: didUpdateWidget refreshes the cached '
+      'heading (mobile-qa, 2026-08-23)', () {
+    testWidgets(
+      'should_refreshCachedHeading_when_theSameStateIsReusedWithADifferentSchedule',
+      (tester) async {
+        final fake = _AlwaysWorkingCountingSlotRepository();
+        final List<Object> overrides = <Object>[
+          slotRepositoryProvider.overrideWith((_) => fake),
+          clockProvider.overrideWithValue(() => _kClockInstant),
+        ];
+
+        // First pump — `initState` caches the SINGLE-service heading.
+        await tester.pumpApp(
+          const Scaffold(
+            body: MasterSchedulePage(
+              schedule: _kSchedule,
+              avatarGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
+            ),
+          ),
+          overrides: overrides,
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(_kCatalogService.name), findsOneWidget);
+
+        // Second pump — SAME tree shape (no explicit `key` on
+        // `MasterSchedulePage`, so Flutter matches by runtimeType+slot) and
+        // the SAME masterId ('m1' on both `_kSchedule` and
+        // `_kMultiSchedule`), so this REUSES the same `State` and drives
+        // `didUpdateWidget`, not `initState`. The pager can never exercise
+        // this path — `salon_time_screen.dart` keys each slide by
+        // `schedule.masterId`, so a different master is always a fresh
+        // State — only an in-place schedule swap on a LIVE State (e.g. a
+        // services refetch) reaches it.
+        await tester.pumpApp(
+          const Scaffold(
+            body: MasterSchedulePage(
+              schedule: _kMultiSchedule,
+              avatarGradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
+            ),
+          ),
+          overrides: overrides,
+        );
+        await tester.pumpAndSettle();
+
+        final String joined =
+            '${_kCatalogService.name}, ${_kCatalogServiceB.name}';
+        expect(
+          find.text(joined),
+          findsOneWidget,
+          reason:
+              'didUpdateWidget must recompute the cached heading when the '
+              'SAME State is reused with a different `schedule` — a stale '
+              'cache would silently show the wrong services on a live '
+              'screen',
+        );
+        expect(
+          find.text(_kCatalogService.name),
+          findsNothing,
+          reason:
+              'the stale single-service heading must not survive the '
+              'schedule swap',
+        );
+      },
+    );
+  });
+
+  group('MasterSchedulePage — JOB 2: _joinServiceNames strips every '
+      'Bidi_Control=Yes character (mobile-qa, 2026-08-23)', () {
+    // The full Unicode `Bidi_Control=Yes` property set — U+061C ALM,
+    // U+200E/U+200F, U+202A-202E, U+2066-2069 — pinned as a PROPERTY, not a
+    // couple of hand-picked characters: a future omission from
+    // `_bidiControlPattern` (`master_schedule_page.dart:179-181`) fails
+    // immediately here instead of silently.
+    //
+    // As flagged by the 2026-08-23 security re-audit, U+061C (ALM) is
+    // CURRENTLY MISSING from that pattern — the "U+061C ALM" case below is
+    // EXPECTED TO FAIL (RED) until a follow-up one-character fix lands. It
+    // is deliberately left failing rather than weakened or skipped, per
+    // that audit's explicit instruction.
+    const Map<String, String> bidiControlChars = <String, String>{
+      'U+061C ALM': '\u061C',
+      'U+200E LRM': '\u200E',
+      'U+200F RLM': '\u200F',
+      'U+202A LRE': '\u202A',
+      'U+202B RLE': '\u202B',
+      'U+202C PDF': '\u202C',
+      'U+202D LRO': '\u202D',
+      'U+202E RLO': '\u202E',
+      'U+2066 LRI': '\u2066',
+      'U+2067 RLI': '\u2067',
+      'U+2068 FSI': '\u2068',
+      'U+2069 PDI': '\u2069',
+    };
+
+    for (final MapEntry<String, String> entry in bidiControlChars.entries) {
+      testWidgets(
+        'should_stripFromHeading_when_theServiceNameContains_${entry.key}',
+        (tester) async {
+          final String dirtyName =
+              '${entry.value}${_kCatalogService.name}${entry.value}';
+          final SalonCatalogService dirtyService = SalonCatalogService(
+            id: 'svc-bidi',
+            name: dirtyName,
+            durationLabel: _kCatalogService.durationLabel,
+            priceDisplay: _kCatalogService.priceDisplay,
+            durationMinutes: _kCatalogService.durationMinutes,
+            priceType: _kCatalogService.priceType,
+            priceMin: _kCatalogService.priceMin,
+          );
+          final SalonMasterSchedule dirtySchedule = SalonMasterSchedule(
+            masterId: _kSchedule.masterId,
+            firstName: _kSchedule.firstName,
+            lastName: _kSchedule.lastName,
+            type: _kSchedule.type,
+            services: <SalonCatalogService>[dirtyService],
+            orderedMasterServiceIds: const <String>['svc-bidi'],
+          );
+          final fake = _AlwaysWorkingCountingSlotRepository();
+
+          await tester.pumpApp(
+            Scaffold(
+              body: MasterSchedulePage(
+                schedule: dirtySchedule,
+                avatarGradient: const <Color>[
+                  Color(0xFFB89A7A),
+                  Color(0xFF6A4A28),
+                ],
+              ),
+            ),
+            overrides: <Object>[
+              slotRepositoryProvider.overrideWith((_) => fake),
+              clockProvider.overrideWithValue(() => _kClockInstant),
+            ],
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.text(_kCatalogService.name),
+            findsOneWidget,
+            reason:
+                '${entry.key} must be stripped from the rendered heading, '
+                'leaving the real service name unchanged',
+          );
+          expect(
+            find.text(dirtyName),
+            findsNothing,
+            reason: 'the raw, un-sanitized name must never reach the screen',
+          );
+        },
+      );
+    }
+  });
+
+  group('MasterSchedulePage — JOB 2: _joinServiceNames collapses embedded '
+      'whitespace to a single space (mobile-qa, 2026-08-23)', () {
+    testWidgets(
+      'should_collapseNewlineAndTabToASingleSpace_when_theServiceNameContainsThem',
+      (tester) async {
+        // Newline + tab embedded between two REAL, unmodified Cyrillic
+        // names (`_kCatalogService.name`/`_kCatalogServiceB.name`, already
+        // declared above — no new Cyrillic literal introduced here) proves
+        // both halves of the collapse in one shot: the whitespace run
+        // becomes exactly ONE space (not zero, not two), and the two real
+        // names survive the strip byte-for-byte either side of it — the
+        // "lossless for real names" half of JOB 2.
+        final String dirtyName =
+            '${_kCatalogService.name}\n\t${_kCatalogServiceB.name}';
+        final SalonCatalogService dirtyService = SalonCatalogService(
+          id: 'svc-ws',
+          name: dirtyName,
+          durationLabel: _kCatalogService.durationLabel,
+          priceDisplay: _kCatalogService.priceDisplay,
+          durationMinutes: _kCatalogService.durationMinutes,
+          priceType: _kCatalogService.priceType,
+          priceMin: _kCatalogService.priceMin,
+        );
+        final SalonMasterSchedule dirtySchedule = SalonMasterSchedule(
+          masterId: _kSchedule.masterId,
+          firstName: _kSchedule.firstName,
+          lastName: _kSchedule.lastName,
+          type: _kSchedule.type,
+          services: <SalonCatalogService>[dirtyService],
+          orderedMasterServiceIds: const <String>['svc-ws'],
+        );
+        final fake = _AlwaysWorkingCountingSlotRepository();
+
+        await tester.pumpApp(
+          Scaffold(
+            body: MasterSchedulePage(
+              schedule: dirtySchedule,
+              avatarGradient: const <Color>[
+                Color(0xFFB89A7A),
+                Color(0xFF6A4A28),
+              ],
+            ),
+          ),
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            clockProvider.overrideWithValue(() => _kClockInstant),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final String collapsed =
+            '${_kCatalogService.name} ${_kCatalogServiceB.name}';
+        expect(
+          find.text(collapsed),
+          findsOneWidget,
+          reason:
+              'an embedded newline+tab run must collapse to exactly ONE '
+              'space, and both real service-name halves must survive '
+              'unchanged either side of it',
+        );
+        expect(find.text(dirtyName), findsNothing);
+      },
+    );
+  });
+
+  group('MasterSchedulePage — FIX 2: date-step heading is the bare, bold '
+      'service name(s), no wrapper sentence (mobile-qa, 2026-08-23)', () {
     testWidgets(
       'should_nameTheSingleService_when_theMasterHasOneAssignedService',
       (tester) async {
@@ -512,32 +729,28 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(MasterSchedulePage)),
-        );
-
         // Built from the fixture's own `.name` field, never a hard-coded
         // Cyrillic literal in this file — `forbid_cyrillic_finder.sh` flags
         // any Cyrillic code point nested inside a `find.text(...)` call
         // regardless of paren depth, so the expected string must be
         // assembled from source, exactly like
         // `booking_success_calendar_test.dart`'s `serviceLabel` pattern.
+        //
+        // `find.text` requires an EXACT match against the rendered `Text`'s
+        // `data`, so this alone also proves the old wrapper sentence
+        // («Оберіть зручну дату для «X» — далі підберемо вільний час.») is
+        // gone — a survival of that sentence would make this `findsNothing`.
+        // The old sentence's ARB keys (`salonScheduleDateIntro`/
+        // `salonScheduleDateIntroForServices`) no longer exist at all (FIX 2
+        // dropped them from both `app_uk.arb`/`app_en.arb` — service names
+        // are data, not translated UI copy), so there is nothing left to
+        // assert their absence against.
         expect(
-          find.text(
-            l10n.salonScheduleDateIntroForServices(_kCatalogService.name),
-          ),
+          find.text(_kCatalogService.name),
           findsOneWidget,
           reason:
-              'a single-service master must see their OWN service named in '
-              'the date-step intro, not the generic "for this master" copy',
-        );
-        expect(
-          find.text(l10n.salonScheduleDateIntro),
-          findsNothing,
-          reason:
-              'the old generic per-master intro must not survive on a '
-              'well-formed slide — FIX 1 supersedes it whenever '
-              '`services` is non-empty',
+              'a single-service master must see their OWN service named, '
+              'bare and bold, on the date-step heading',
         );
       },
     );
@@ -561,10 +774,6 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(MasterSchedulePage)),
-        );
-
         // `_kMultiSchedule.services` is `[_kCatalogService, _kCatalogServiceB]`
         // — asserting BOTH names in THAT order, comma-joined, distinguishes
         // "joined every assigned service in order" from "joined only the
@@ -574,18 +783,11 @@ void main() {
         final String joined =
             '${_kCatalogService.name}, ${_kCatalogServiceB.name}';
         expect(
-          find.text(l10n.salonScheduleDateIntroForServices(joined)),
+          find.text(joined),
           findsOneWidget,
           reason:
               'a multi-service master must see every assigned service '
-              'named, comma-joined, in assignment order',
-        );
-        expect(
-          find.text(l10n.salonScheduleDateIntro),
-          findsNothing,
-          reason:
-              'the old generic per-master intro must not survive on a '
-              'well-formed multi-service slide either',
+              'named, comma-joined, in assignment order, bare and bold',
         );
       },
     );

@@ -138,6 +138,58 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
   /// that file for the full rationale.
   List<WorkingDay>? _lastWorkingDays;
 
+  /// mobile-perf Finding (LOW) fix — the comma-joined service-name heading
+  /// (`_datePhase`/`_timePhase`, both) used to be recomputed with
+  /// `.join(', ')` on every `build()`. That's cheap for `_datePhase` (only
+  /// rebuilds on date pick/clear) but `_timePhase` rebuilds on EVERY slot
+  /// tap (`_selectSlot` → `salonBookingScheduleProvider.notifier
+  /// .selectSlot` → the `entryFor(_masterId)` `select` watched in `build()`
+  /// → re-enters `_timePhase`), so the same string got rebuilt on a much
+  /// hotter path than it needs to. `widget.schedule` is immutable for the
+  /// life of a given slide (see the field's own doc comment / this file's
+  /// header), so the joined string is computed exactly once per slide —
+  /// here in `initState` — and refreshed only in `didUpdateWidget` if this
+  /// State is ever reused for a different `schedule` (e.g. a future pager
+  /// change that reparents an existing Element onto a new master). Also
+  /// collapses any run of whitespace — including a literal `\n` a
+  /// server-controlled service name could contain — to a single space, so
+  /// an adversarial/malformed name can't consume the `maxLines: 2` budget
+  /// below with blank lines. Both phases read this ONE cached value now —
+  /// see `_datePhase`/`_timePhase`.
+  late String _serviceNamesHeading;
+
+  /// mobile-security Finding (LOW) fix — service names are server-controlled
+  /// (a salon owner names their own catalogue), so a comma-joined heading
+  /// could smuggle Unicode bidi *format* controls (category Cf, but NOT
+  /// whitespace — the old `\s+` collapse below never touched them). An
+  /// embedded RLO/RLI etc. can visually reorder the rendered glyphs, e.g.
+  /// making the second service in a two-service heading appear to lead.
+  /// This matches exactly the Unicode `Bidi_Control=Yes` property set (ALM,
+  /// LRM, RLM, the explicit embeddings/overrides LRE/RLE/PDF/LRO/RLO, and
+  /// the isolates LRI/RLI/FSI/PDI) — deliberately narrower than all of Cf,
+  /// which would also catch U+00AD soft hyphen and U+FEFF ZWNBSP/BOM. Those
+  /// two affect line-breaking/byte-order, not left-to-right/right-to-left
+  /// order, so they're a different (out-of-scope) concern from the visual
+  /// reordering this finding is about. Neither Cyrillic nor Latin script
+  /// needs any Bidi_Control character to render correctly, so stripping
+  /// this exact set is lossless for every real Ukrainian, Latin, or
+  /// mixed-script service name — it only ever removes an adversarial or
+  /// accidental control character, never a character load-bearing for a
+  /// legitimate name.
+  static final RegExp _bidiControlPattern = RegExp(
+    '[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]',
+  );
+
+  static final RegExp _whitespacePattern = RegExp(r'\s+');
+
+  static String _joinServiceNames(SalonMasterSchedule schedule) => schedule
+      .services
+      .map((SalonCatalogService s) => s.name)
+      .join(', ')
+      .replaceAll(_bidiControlPattern, '')
+      .replaceAll(_whitespacePattern, ' ')
+      .trim();
+
   @override
   void initState() {
     super.initState();
@@ -145,6 +197,7 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
     _firstMonth = DateTime(_today.year, _today.month, 1);
     _lastMonth = DateTime(_today.year, _today.month + _horizonMonths, 1);
     _visibleMonth = _firstMonth;
+    _serviceNamesHeading = _joinServiceNames(widget.schedule);
   }
 
   @override
@@ -159,6 +212,9 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       // explicitly so it can add/remove this Element's keep-alive bucket
       // (see Finding B fix note on `keepAlive` above).
       updateKeepAlive();
+    }
+    if (oldWidget.schedule != widget.schedule) {
+      _serviceNamesHeading = _joinServiceNames(widget.schedule);
     }
   }
 
@@ -398,35 +454,51 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       key: const ValueKey<String>('date'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-          child: Text(
-            // FIX 1 (owner-reported) — names the actual service(s) booked
-            // WITH this master on this slide, instead of the generic "for
-            // this master" line: the master is already chosen by this point
-            // in the flow, so what the client needs confirmed here is WHICH
-            // service(s) the date applies to. A master with 2+ assigned
-            // services gets them comma-joined (mirrors the booking-success
-            // calendar export's `serviceLabel` join,
-            // `booking_success_screen.dart`) rather than a bulleted list or a
-            // "N послуг" summary — this is a single intro sentence, not a
-            // recap table (the full per-service breakdown is already shown
-            // later, on the confirm screen's `BookingRecap`). Empty
-            // `services` never happens on a well-formed slide (every
-            // assigned master has >=1 service by construction — see
-            // `SalonMasterSchedule`'s doc) but falls back to the old generic
-            // per-master line rather than rendering "для «»".
-            widget.schedule.services.isEmpty
-                ? l10n.salonScheduleDateIntro
-                : l10n.salonScheduleDateIntroForServices(
-                    widget.schedule.services
-                        .map((SalonCatalogService s) => s.name)
-                        .join(', '),
-                  ),
-            style: VelvetText.scheduleDateIntro,
+        // FIX 2 (owner-reported, supersedes FIX 1's intro sentence) — the
+        // wrapper sentence («Оберіть зручну дату для «X» — далі підберемо
+        // вільний час.») is gone entirely; only the bare, bold service
+        // name(s) remain. Service names are DATA, not translated UI copy, so
+        // this reads directly off `widget.schedule.services` with no ARB key
+        // at all (the two keys that used to hold the sentence,
+        // `salonScheduleDateIntro`/`salonScheduleDateIntroForServices`, are
+        // removed from both ARB files — see `app_uk.arb`/`app_en.arb`). A
+        // master with 2+ assigned services still gets them comma-joined
+        // (mirrors the booking-success calendar export's `serviceLabel`
+        // join, `booking_success_screen.dart`) — this is a single heading
+        // line, not a recap table (the full per-service breakdown is already
+        // shown later, on the confirm screen's `BookingRecap`). Style is
+        // `VelvetText.bookName16w800` — the SAME token `BookingRecap` uses
+        // for a service name at regular (non-compact) size
+        // (`booking_recap.dart:446`): reused rather than forked because this
+        // heading is semantically identical ("name a service, boldly") just
+        // in a different screen region. Empty `services` never happens on a
+        // well-formed slide (every assigned master has >=1 service by
+        // construction — see `SalonMasterSchedule`'s doc); rather than
+        // render an empty bold line, the whole block (heading + its trailing
+        // gap) is simply omitted.
+        // mobile-security LOW fix — service names are server-controlled
+        // (a salon owner names their own services), so this heading is
+        // bounded: `maxLines: 2` (a 2-service comma-join is the common
+        // case this heading exists for; anything past that ellipsizes
+        // rather than pushing the calendar/slot list down) with
+        // `TextOverflow.ellipsis`. `_serviceNamesHeading` (cached in
+        // `initState`/`didUpdateWidget` — see that field's doc comment,
+        // also the mobile-perf fix for this same heading) already
+        // collapses embedded whitespace/newlines to single spaces, so a
+        // name containing a literal `\n` can't burn through both lines as
+        // blank space before the ellipsis kicks in.
+        if (widget.schedule.services.isNotEmpty) ...<Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+            child: Text(
+              _serviceNamesHeading,
+              style: VelvetText.bookName16w800,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        ),
-        const SizedBox(height: VelvetSpacing.md),
+          const SizedBox(height: VelvetSpacing.md),
+        ],
         // `CalendarWeekdayBar` and `calendarBody` (which wraps the shared
         // `MonthCalendar`) are deliberately left UNWRAPPED here — both
         // already self-pad horizontally by the same `VelvetSpacing.lg`
@@ -482,13 +554,17 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
     // Ранок/День/Вечір cluster labels don't already give. `_NoSlotsEmptyState`
     // still carries its own change-date button for the zero-slot day.
     //
-    // The slot groups therefore now open the phase directly. No leading
-    // spacer is needed (nor wanted): `build()` already lays a
-    // `VelvetSpacing.lg` gap between the `MasterStrip` identity card and the
-    // `AnimatedSwitcher` this is a child of — the same single section gap
-    // `_datePhase` opens on — so the first `SlotGroup` label lands exactly
-    // where `_datePhase`'s intro line does. Adding another spacer here would
-    // stack a second gap on top of it.
+    // FIX 2 (owner-reported) restores a single leading line — the SAME bare,
+    // bold service-name heading `_datePhase` renders (no sentence, no ARB
+    // key: see that phase's own comment for the full rationale). The client
+    // needs the same "which service is this for" anchor when picking a time
+    // as when picking a date, and this is the same slide/same schedule
+    // object, so it's the identical widget, not a fork. `build()` already
+    // lays a `VelvetSpacing.lg` gap between the `MasterStrip` identity card
+    // and the `AnimatedSwitcher` this is a child of, so no extra leading
+    // spacer is needed above the heading itself; a `VelvetSpacing.md` gap
+    // follows it before the slot groups, mirroring the gap `_datePhase`
+    // places between its own heading and the calendar.
     final Widget content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Column(
@@ -519,6 +595,21 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
         // above.
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // Bounded + cached — same rationale as `_datePhase`'s identical
+          // heading (mobile-security LOW: `maxLines`/`overflow` guard a
+          // server-controlled name; mobile-perf LOW: `_serviceNamesHeading`
+          // is computed once per slide, not on every `slotsAsync`-driven
+          // rebuild this phase gets on every slot tap — see that field's
+          // doc comment on `_MasterSchedulePageState`).
+          if (widget.schedule.services.isNotEmpty) ...<Widget>[
+            Text(
+              _serviceNamesHeading,
+              style: VelvetText.bookName16w800,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+          ],
           slotsAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
