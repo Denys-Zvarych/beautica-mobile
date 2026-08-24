@@ -63,6 +63,8 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -180,6 +182,9 @@ void main() {
     registerFallbackValue(BookingStatus.confirmed);
     registerFallbackValue(<BookingStatus>{});
     registerFallbackValue(BookingSort.oldest);
+    // Idempotent — required by `kyivDayOf` in the day-list invalidation group
+    // below, which classifies a fixture's UTC `startAt` into its Kyiv day.
+    initBeauticaTimeZones();
   });
 
   // -------------------------------------------------------------------------
@@ -779,8 +784,22 @@ void main() {
         // Establish an ACTIVE watcher on the day-list family member for
         // THIS booking's day — mirrors what `bookings_discovery_view.dart`
         // watches underneath the pushed detail screen in the real app.
+        //
+        // `kyivDayOf`, NOT the bare `booking.startAt` (mobile-debugger,
+        // 2026-08-24). `startAt` is a UTC INSTANT; the day this provider is
+        // keyed by is a KYIV CALENDAR DAY, and
+        // `invalidateBookingViewsAfterProviderClose` is now scoped to exactly
+        // that date (`booking_detail_screen.dart` passes
+        // `affectedDate: kyivDayOf(booking.startAt)`) rather than blast-
+        // invalidating the whole family as it did before this track. Keying
+        // the watcher on the raw UTC instant therefore builds a DIFFERENT
+        // family member than the one the fan-out drops whenever the two
+        // calendars disagree — i.e. every run between 21:00 and 24:00 UTC,
+        // when Kyiv is already on the next date. That is not hypothetical:
+        // it turned this group red in CI at 22:57 UTC while staying green on
+        // every daytime local run.
         final BookingsDayQuery dayQuery = BookingsDayQuery.of(
-          day: booking.startAt,
+          day: kyivDayOf(booking.startAt),
         );
         final ProviderContainer container = ProviderScope.containerOf(
           tester.element(find.byType(BookingDetailScreen)),
@@ -833,7 +852,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final BookingsDayQuery dayQuery = BookingsDayQuery.of(
-          day: booking.startAt,
+          day: kyivDayOf(booking.startAt),
         );
         final ProviderContainer container = ProviderScope.containerOf(
           tester.element(find.byType(BookingDetailScreen)),
