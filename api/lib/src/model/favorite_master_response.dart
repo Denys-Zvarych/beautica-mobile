@@ -18,7 +18,9 @@ part 'favorite_master_response.g.dart';
 /// * [cityLabel]
 /// * [districtLabel]
 /// * [avgRating]
-/// * [lastServiceName]
+/// * [street]
+/// * [buildingNo]
+/// * [locationNote]
 @BuiltValue()
 abstract class FavoriteMasterResponse
     implements Built<FavoriteMasterResponse, FavoriteMasterResponseBuilder> {
@@ -43,8 +45,14 @@ abstract class FavoriteMasterResponse
   @BuiltValueField(wireName: r'avgRating')
   double? get avgRating;
 
-  @BuiltValueField(wireName: r'lastServiceName')
-  String? get lastServiceName;
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
 
   FavoriteMasterResponse._();
 
@@ -125,10 +133,24 @@ class _$FavoriteMasterResponseSerializer
         specifiedType: const FullType(double),
       );
     }
-    if (object.lastServiceName != null) {
-      yield r'lastServiceName';
+    if (object.street != null) {
+      yield r'street';
       yield serializers.serialize(
-        object.lastServiceName,
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
         specifiedType: const FullType(String),
       );
     }
@@ -206,12 +228,26 @@ class _$FavoriteMasterResponseSerializer
           ) as double;
           result.avgRating = valueDes;
           break;
-        case r'lastServiceName':
+        case r'street':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.lastServiceName = valueDes;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
           break;
         default:
           unhandled.add(key);

@@ -60,6 +60,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
+import 'client_favorites_flow_test.dart' as client_favorites;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
 import 'client_my_bookings_pagination_sort_flow_test.dart'
     as client_my_bookings_pagination_sort;
@@ -263,6 +264,7 @@ void main() {
   );
 
   group('client_home_hub_flow', client_home_hub.main);
+  group('client_favorites_flow', client_favorites.main);
   group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);

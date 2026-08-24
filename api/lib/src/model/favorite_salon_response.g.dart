@@ -19,6 +19,12 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
   final String? districtLabel;
   @override
   final double? avgRating;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final String? locationNote;
 
   factory _$FavoriteSalonResponse(
           [void Function(FavoriteSalonResponseBuilder)? updates]) =>
@@ -30,7 +36,10 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
       this.avatarUrl,
       this.cityLabel,
       this.districtLabel,
-      this.avgRating})
+      this.avgRating,
+      this.street,
+      this.buildingNo,
+      this.locationNote})
       : super._();
   @override
   FavoriteSalonResponse rebuild(
@@ -50,7 +59,10 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
         avatarUrl == other.avatarUrl &&
         cityLabel == other.cityLabel &&
         districtLabel == other.districtLabel &&
-        avgRating == other.avgRating;
+        avgRating == other.avgRating &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote;
   }
 
   @override
@@ -62,6 +74,9 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
     _$hash = $jc(_$hash, cityLabel.hashCode);
     _$hash = $jc(_$hash, districtLabel.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -74,7 +89,10 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
           ..add('avatarUrl', avatarUrl)
           ..add('cityLabel', cityLabel)
           ..add('districtLabel', districtLabel)
-          ..add('avgRating', avgRating))
+          ..add('avgRating', avgRating)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote))
         .toString();
   }
 }
@@ -108,6 +126,18 @@ class FavoriteSalonResponseBuilder
   double? get avgRating => _$this._avgRating;
   set avgRating(double? avgRating) => _$this._avgRating = avgRating;
 
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
   FavoriteSalonResponseBuilder() {
     FavoriteSalonResponse._defaults(this);
   }
@@ -121,6 +151,9 @@ class FavoriteSalonResponseBuilder
       _cityLabel = $v.cityLabel;
       _districtLabel = $v.districtLabel;
       _avgRating = $v.avgRating;
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
       _$v = null;
     }
     return this;
@@ -148,6 +181,9 @@ class FavoriteSalonResponseBuilder
           cityLabel: cityLabel,
           districtLabel: districtLabel,
           avgRating: avgRating,
+          street: street,
+          buildingNo: buildingNo,
+          locationNote: locationNote,
         );
     replace(_$result);
     return _$result;

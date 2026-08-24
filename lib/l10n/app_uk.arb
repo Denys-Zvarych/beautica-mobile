@@ -78,6 +78,10 @@
   "@errNetwork": {
     "description": "Error message shown when a network request fails due to no connectivity."
   },
+  "errCertificate": "Не вдалося встановити захищене з'єднання. Оновіть застосунок або спробуйте пізніше.",
+  "@errCertificate": {
+    "description": "Error message shown when the server certificate is rejected by the app's pinned trust anchors (TLS pin miss). Deliberately gives no connectivity advice: retrying or switching networks is the wrong action under an intercepting proxy."
+  },
   "errNotFound": "Запис не знайдено.",
   "@errNotFound": {
     "description": "Error message shown when a 404 response is received."
@@ -5409,5 +5413,106 @@
   "velvetSnackDismissSemantic": "Закрити сповіщення",
   "@velvetSnackDismissSemantic": {
     "description": "VelvetSnack (shared/feedback) — semantic label for the optional explicit dismiss (close) affordance."
+  },
+  "favoritesUnlikeLabel": "Прибрати {name} з улюблених",
+  "@favoritesUnlikeLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label on the filled heart of a favourite card. The heart is a REMOVE affordance, never a toggle: every row on this screen is already a favourite.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Марта Гончар"}
+    }
+  },
+  "favoritesUndo": "Повернути",
+  "@favoritesUndo": {
+    "description": "«Улюблені» (Phase 111) — the undo action inside the removed-row dent, restoring the favourite before the 5-second window closes."
+  },
+  "favoritesUndoLabel": "Повернути {name} до улюблених",
+  "@favoritesUndoLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label for the «Повернути» undo action in the removed-row dent.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Марта Гончар"}
+    }
+  },
+  "favoritesRemovedCaption": "Прибрано з улюблених",
+  "@favoritesRemovedCaption": {
+    "description": "«Улюблені» (Phase 111) — caption inside the recessed dent that replaces an unliked row for 5 seconds before the DELETE fires."
+  },
+  "favoritesRatingSpoken": "Рейтинг {rating}",
+  "@favoritesRatingSpoken": {
+    "description": "«Улюблені» (Phase 111) — spoken form of a favourite card's rating readout. The visual readout is wrapped in ExcludeSemantics so a screen reader never receives the bare star + digits; this says it in words.",
+    "placeholders": {
+      "rating": {"type": "double", "format": "decimalPatternDigits", "optionalParameters": {"decimalDigits": 1}, "example": "4.7"}
+    }
+  },
+  "favoritesNoRatingSpoken": "Без оцінок",
+  "@favoritesNoRatingSpoken": {
+    "description": "«Улюблені» (Phase 111) — spoken form for an unrated provider. The card draws «★ –» (an en dash, never 0.0); a screen reader must never be handed the bare dash to announce."
+  },
+  "favoritesMasterCardLabel": "Майстер {name}. {address} {rating}",
+  "@favoritesMasterCardLabel": {
+    "description": "«Улюблені» (Phase 111) — full semantic label of a master favourite card. {address} is the already-composed locality/street/note run (may be empty); {rating} is favoritesRatingSpoken or favoritesNoRatingSpoken.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Марта Гончар"},
+      "address": {"type": "String", "example": "Печерський, Київ. вул. Іоанна Павла II, 4"},
+      "rating": {"type": "String", "example": "Рейтинг 4,9"}
+    }
+  },
+  "favoritesSalonCardLabel": "Салон {name}. {address} {rating}",
+  "@favoritesSalonCardLabel": {
+    "description": "«Улюблені» (Phase 111) — full semantic label of a salon favourite card. Same {address}/{rating} composition as favoritesMasterCardLabel.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Crystal Room №1"},
+      "address": {"type": "String", "example": "Дарницький, Київ. вул. Замарстинівська, 1"},
+      "rating": {"type": "String", "example": "Рейтинг 4,7"}
+    }
+  },
+  "favoritesFilterAll": "Всі",
+  "@favoritesFilterAll": {
+    "description": "«Улюблені» (Phase 111) — the category filter's cleared state, on both the collapsed pill and the first chip in the expanded panel. No count is ever rendered beside it."
+  },
+  "favoritesFilterReset": "Скинути",
+  "@favoritesFilterReset": {
+    "description": "«Улюблені» (Phase 111) — clears the category filter in one tap from the COLLAPSED pill, so the client never has to open the panel to get back to everything."
+  },
+  "favoritesFilterResetLabel": "Скинути фільтр",
+  "@favoritesFilterResetLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label for the «Скинути» filter-clear action."
+  },
+  "favoritesFilterPillLabel": "Категорія: {label}. Показати всі категорії",
+  "@favoritesFilterPillLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label of the collapsed filter pill. States the current filter first, then what tapping does.",
+    "placeholders": {
+      "label": {"type": "String", "example": "Волосся"}
+    }
+  },
+  "favoritesEmptyTitle": "Ще немає улюблених",
+  "@favoritesEmptyTitle": {
+    "description": "«Улюблені» (Phase 111) — empty-state title when the client has saved nothing at all (as opposed to a filter that matches nothing)."
+  },
+  "favoritesEmptyBody": "Збережені майстри й салони збираються тут — щоб записатися до них вдруге за два дотики.",
+  "@favoritesEmptyBody": {
+    "description": "«Улюблені» (Phase 111) — empty-state body. Explains what this tab collects rather than apologising for the emptiness."
+  },
+  "favoritesEmptyCta": "Знайти майстра",
+  "@favoritesEmptyCta": {
+    "description": "«Улюблені» (Phase 111) — empty-state CTA; hops to the «Пошук» branch, the only way to fill this list."
+  },
+  "favoritesCategoryEmptyTitle": "У категорії «{category}» порожньо",
+  "@favoritesCategoryEmptyTitle": {
+    "description": "«Улюблені» (Phase 111) — title when the LIST has rows but the selected category has none. A different situation from favoritesEmptyTitle and it gets a different direction: clear the filter, not search.",
+    "placeholders": {
+      "category": {"type": "String", "example": "Волосся"}
+    }
+  },
+  "favoritesCategoryEmptyBody": "Тут ще немає збережених. Поверніться до повного списку або збережіть когось із цієї категорії.",
+  "@favoritesCategoryEmptyBody": {
+    "description": "«Улюблені» (Phase 111) — body for the empty-category state."
+  },
+  "favoritesShowAll": "Показати всі",
+  "@favoritesShowAll": {
+    "description": "«Улюблені» (Phase 111) — action on the empty-category state; clears the filter back to «Всі»."
+  },
+  "favoritesShowAllLabel": "Показати всі улюблені",
+  "@favoritesShowAllLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label for the «Показати всі» action."
   }
 }

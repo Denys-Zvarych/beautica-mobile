@@ -218,26 +218,10 @@ class ClientHomePlaceholderScreen extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Улюблені — Phase 13.11.
+// Улюблені — SHIPPED (Phase 111). ClientFavoritesPlaceholderScreen was deleted
+// when the real FavoritesScreen took over RouteNames.clientFavorites; it now
+// carries the `client-branch-favorites` Key the placeholder used to expose.
 // ---------------------------------------------------------------------------
-class ClientFavoritesPlaceholderScreen extends StatelessWidget {
-  const ClientFavoritesPlaceholderScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return ClientBranchPlaceholder(
-      key: const Key('client-branch-favorites'),
-      title: l10n.clientPlaceholderFavoritesTitle,
-      blurb: l10n.clientPlaceholderFavoritesBlurb,
-      iconWidget: const AppIcon(
-        BeauticaAssetIcons.heartFilled,
-        size: 40,
-        color: BrandColors.accentDeep,
-      ),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Пошук — Phase 13.3.

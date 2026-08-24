@@ -22,6 +22,12 @@ abstract final class ResultCardText {
   /// precise street reads as supporting detail — same muted tone, no new color.
   static final TextStyle addressDetail = VelvetText.discCaptionMuted;
 
+  /// The provider's free-text arrival note — the third, wrapping row of
+  /// [ResultAddressBlock] (Phase 111, «Улюблені» only). Quieter than
+  /// [addressDetail] and on a looser line-height, so a sentence reads as prose
+  /// rather than as another form field.
+  static final TextStyle addressNote = VelvetText.discAddressNote;
+
   /// Bold numeric rating value (13sp).
   static final TextStyle ratingValue = VelvetText.discRatingValue;
 

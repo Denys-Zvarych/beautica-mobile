@@ -575,6 +575,75 @@ abstract final class VelvetText {
     color: BrandColors.accent,
   );
 
+  /// The provider's free-text arrival note, third row of [ResultAddressBlock]
+  /// (Phase 111 — «Улюблені»). One notch quieter than [discCaptionMuted] and,
+  /// unlike every other row in that block, on a LOOSER line-height (1.3): the
+  /// note is the only line there allowed to wrap, and the extra leading is the
+  /// one typographic signal that it is a sentence someone wrote rather than
+  /// another field off a form.
+  static final TextStyle discAddressNote = _bodyStyle.copyWith(
+    fontSize: 11,
+    height: 1.3,
+    fontWeight: FontWeight.w400,
+    color: BrandColors.muted.withValues(alpha: 0.7),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Favourites («Улюблені», Phase 111) — the two card kinds, the inline
+  // category filter and the removed-row dent.
+  //
+  // TRANSCRIBED BY ROLE, NOT BY NUMBER. The approved preview app sets its own
+  // absolute sizes off a base scale ~1.25x this one (its `body()` is 15 sp
+  // where `_bodyStyle` is 12, its `heading()` 24 where `_headingStyle` is 21).
+  // Copying the preview's literals would have shipped a screen typographically
+  // larger than every other screen in the app. Each token below therefore
+  // derives from the SAME base style the preview reached for and keeps the
+  // preview's DELTA — weight, line-height, colour, and the relative step up or
+  // down from that base — on this app's absolute scale. Same rule the
+  // discovery block above already follows.
+  // ---------------------------------------------------------------------------
+
+  /// Favourite-card rating value — [discRatingValue] tightened to `height: 1.1`
+  /// so the star and the figure sit on one optical line inside the identity
+  /// row. Colour is applied at the call site: the unrated pair dims as a UNIT.
+  static final TextStyle favRatingValue = discRatingValue.copyWith(height: 1.1);
+
+  /// «Where this master works» — the accentDeep salon line under a master's
+  /// name. A step ABOVE the address rows beneath it in weight (w700) and size,
+  /// because a salon is a navigable entity and an address is inert
+  /// orientation; the hue break is the primary separator, this is the backup.
+  static final TextStyle favAffiliation = _bodyStyle.copyWith(
+    fontSize: 12,
+    height: 1.3,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Inline category-filter pill + chip label — bodyStrong, w700, tight.
+  /// Colour (accentDeep when selected, textSecondary at rest) is applied at
+  /// the call site.
+  static final TextStyle favFilterLabel = _bodyStrongStyle.copyWith(
+    fontSize: 11,
+    height: 1.1,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// The removed-row dent's headline — the name of who was just unliked.
+  /// Secondary tone: the row is on its way out, so it must not compete with
+  /// the live cards around it.
+  static final TextStyle favDentName = _bodyStrongStyle.copyWith(
+    fontSize: 11,
+    height: 1.2,
+    color: BrandColors.textSecondary,
+  );
+
+  /// «Прибрано з улюблених» under the dent name — muted caption.
+  static final TextStyle favDentCaption = _bodyStyle.copyWith(
+    fontSize: 10,
+    height: 1.3,
+    color: BrandColors.muted,
+  );
+
   // ---------------------------------------------------------------------------
   // Generic size variants reused across features. Named by the base role +
   // size so callers stop re-deriving them inline.

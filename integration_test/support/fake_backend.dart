@@ -758,6 +758,54 @@ final class FakeBackend {
   /// `serviceName`, `masterFirstName`, `masterLastName`, `durationMinutes`,
   /// `priceType` (`FIXED` | `RANGE`), `priceMin`, `priceMax`, `priceDisplay`.
   List<Map<String, dynamic>> favoriteServiceRows = <Map<String, dynamic>>[];
+
+  // ── «Улюблені» (Phase 111, mobile-qa) ──────────────────────────────────────
+  //
+  // `GET /api/v1/favorites/masters` and `/salons` — the two endpoints the
+  // FavoritesScreen merges into one flat list. Before Phase 111 neither had a
+  // handler at all, so the screen 404'd into its error surface in every E2E
+  // that so much as landed on the favourites tab.
+  //
+  // Both default to EMPTY, which drives the "nothing saved yet" empty state and
+  // leaves every pre-existing flow's behaviour unchanged.
+
+  /// `GET /api/v1/favorites/masters` call counter — lets a flow prove a
+  /// pull-to-refresh actually refetched rather than replaying a cached value.
+  int listMasterFavoritesCalls = 0;
+
+  /// `GET /api/v1/favorites/salons` call counter.
+  int listSalonFavoritesCalls = 0;
+
+  /// Rows served by `GET /api/v1/favorites/masters`. Each is a
+  /// `FavoriteMasterResponse`: `masterId`, `firstName`, `lastName`,
+  /// `avatarUrl`, `cityLabel`, `districtLabel`, `avgRating`, `street`,
+  /// `buildingNo`, `locationNote`.
+  List<Map<String, dynamic>> favoriteMasterRows = <Map<String, dynamic>>[];
+
+  /// Rows served by `GET /api/v1/favorites/salons`. Each is a
+  /// `FavoriteSalonResponse`: `salonId`, `name`, `avatarUrl`, `cityLabel`,
+  /// `districtLabel`, `avgRating`, `street`, `buildingNo`, `locationNote`.
+  List<Map<String, dynamic>> favoriteSalonRows = <Map<String, dynamic>>[];
+
+  /// Status code `GET /api/v1/favorites/masters` fails with, or null for the
+  /// default 200. Set via [forceListMasterFavoritesFailure] — never assign
+  /// directly, because the route has to be RE-REGISTERED for a status change to
+  /// take effect (same device as [forceRemoveFavoriteFailure]).
+  int? _listMasterFavoritesFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `GET /api/v1/favorites/masters` fail
+  /// with [statusCode], so a flow can drive the «Улюблені» ERROR surface and
+  /// its retry affordance. Call again with `null` to restore the default 200.
+  ///
+  /// Only the MASTERS feed is failed, deliberately: `Favorites._load` fetches
+  /// both endpoints with `Future.wait`, which propagates the FIRST error — so
+  /// failing one is enough to prove the whole load fails rather than
+  /// half-rendering, which is a contract worth exercising in its own right.
+  void forceListMasterFavoritesFailure(int? statusCode) {
+    _listMasterFavoritesFailureStatusCode = statusCode;
+    _wireListMasterFavorites();
+  }
+
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
   Map<String, dynamic>?
   lastPatchMeBody; // body of the most recent PATCH /users/me
@@ -3401,6 +3449,37 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `GET /api/v1/favorites/masters`.
+  /// See [forceListMasterFavoritesFailure].
+  void _wireListMasterFavorites() {
+    final int? failStatus = _listMasterFavoritesFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/favorites/masters',
+      (server) => server.replyCallback(failStatus ?? 200, (_) {
+        listMasterFavoritesCalls++;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to list favorite masters',
+          };
+        }
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': favoriteMasterRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': favoriteMasterRows.length,
+            'totalPages': favoriteMasterRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// (Re-)registers `DELETE /api/v1/favorites?targetType&targetId`.
   /// See [forceRemoveFavoriteFailure].
   void _wireRemoveFavorite() {
@@ -3418,6 +3497,27 @@ final class FakeBackend {
             'data': null,
             'message': 'Failed to remove favorite',
           };
+        }
+        // Phase 111 (mobile-qa) — a MASTER/SALON removal PERSISTS, mirroring
+        // the real backend, so a following `GET /favorites/masters` genuinely
+        // reflects it. Without this a flow can only prove the DELETE was SENT;
+        // it cannot prove the row is actually gone on a re-read, which is the
+        // half a client would notice. Same device as the SERVICE add above.
+        // Shape-tolerant reads, never a raw cast — see
+        // `scripts/forbid_raw_query_param_cast.sh`.
+        final String? type = _scalarQueryParam(
+          req.queryParameters,
+          'targetType',
+        );
+        final String? id = _scalarQueryParam(req.queryParameters, 'targetId');
+        if (type == 'MASTER' && id != null) {
+          favoriteMasterRows = favoriteMasterRows
+              .where((Map<String, dynamic> r) => r['masterId'] != id)
+              .toList();
+        } else if (type == 'SALON' && id != null) {
+          favoriteSalonRows = favoriteSalonRows
+              .where((Map<String, dynamic> r) => r['salonId'] != id)
+              .toList();
         }
         return null;
       }),
@@ -4921,6 +5021,36 @@ final class FakeBackend {
             'size': 20,
             'totalElements': favoriteServiceRows.length,
             'totalPages': favoriteServiceRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/favorites/masters and /salons — the two «Улюблені» feeds
+    // (Phase 111). Registered BEFORE the bare `/api/v1/favorites` handlers for
+    // the same reason `/favorites/services` is: DioAdapter matches on the PATH,
+    // so the longer path must get first refusal.
+    //
+    // Without these the mock router 404s and the favourites branch renders its
+    // ERROR surface — silently changing what every assertion on that tab
+    // measures, exactly as the wish-list section did before its own route
+    // existed.
+    _wireListMasterFavorites();
+
+    _adapter.onRoute(
+      '/api/v1/favorites/salons',
+      (server) => server.replyCallback(200, (_) {
+        listSalonFavoritesCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': favoriteSalonRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': favoriteSalonRows.length,
+            'totalPages': favoriteSalonRows.isEmpty ? 0 : 1,
           },
         };
       }),

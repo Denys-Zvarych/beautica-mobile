@@ -209,6 +209,11 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   ServiceRateLimitedFailure() => true,
 
   // ---- deterministic: HTTP 4xx and typed 4xx envelopes -------------------
+  // A pin miss. Fail-closed and NOT transient in the useful sense: the chain
+  // that was rejected is the chain the next identical attempt will meet, so a
+  // retry burns the same ~38 s spinner and rejects again. Split out of the
+  // NetworkFailure arm on purpose — see CertificateFailure's own doc.
+  CertificateFailure() => false,
   NotFoundFailure() => false,
   UnauthorizedFailure() => false,
   InvalidCredentialsFailure() => false,

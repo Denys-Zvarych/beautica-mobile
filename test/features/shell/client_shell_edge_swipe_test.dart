@@ -21,6 +21,8 @@
 // rightward-only, thresholds) are pinned in
 // test/shared/widgets/edge_swipe_back_test.dart.
 
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/presentation/favorites_screen.dart';
 import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
@@ -32,6 +34,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+
+import '../../helpers/fakes/fake_favorite_repository.dart';
 
 GoRouter _buildClientShellRouter() => GoRouter(
   initialLocation: RouteNames.clientHome,
@@ -52,8 +56,7 @@ GoRouter _buildClientShellRouter() => GoRouter(
           routes: <RouteBase>[
             GoRoute(
               path: RouteNames.clientFavorites,
-              builder: (context, state) =>
-                  const ClientFavoritesPlaceholderScreen(),
+              builder: (context, state) => const FavoritesScreen(),
             ),
           ],
         ),
@@ -93,6 +96,14 @@ Future<void> _pumpShell(WidgetTester tester, GoRouter router) async {
   await tester.pumpWidget(
     ProviderScope(
       retry: beauticaProviderRetry,
+      // Branch 1 mounts the REAL FavoritesScreen (Phase 111 replaced the
+      // placeholder), so the branch body has a repository behind it. Fed a
+      // fake returning empty lists to keep this shell harness hermetic — the
+      // screen settles to its empty state, never a network call and never a
+      // repeating loading skeleton that `pumpAndSettle` could not drain.
+      overrides: [
+        favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
+      ],
       child: MaterialApp.router(
         routerConfig: router,
         localizationsDelegates: AppLocalizations.localizationsDelegates,

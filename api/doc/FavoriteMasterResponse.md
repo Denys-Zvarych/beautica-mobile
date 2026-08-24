@@ -15,7 +15,9 @@ Name | Type | Description | Notes
 **cityLabel** | **String** |  | [optional] 
 **districtLabel** | **String** |  | [optional] 
 **avgRating** | **double** |  | [optional] 
-**lastServiceName** | **String** |  | [optional] 
+**street** | **String** |  | [optional] 
+**buildingNo** | **String** |  | [optional] 
+**locationNote** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

@@ -27,6 +27,8 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/shared/formatters/address_lines.dart';
+import 'package:beautica_mobile/shared/util/sanitize_display_text.dart';
 
 import '../domain/master_search_item.dart';
 import '../domain/salon_search_item.dart';
@@ -43,19 +45,33 @@ import '../domain/salon_search_item.dart';
 ///     line);
 ///   - locationNote appended as a quiet « · note» suffix (never bracketed, and
 ///     dropped entirely when blank → no dangling separator).
+///
+/// SANITIZATION (Phase 253 audit fix — mobile-security MEDIUM)
+/// ----------------------------------------------------------
+/// All three inputs are provider-authored free text validated server-side by
+/// `@Size` only — no character class — and the composed line renders through a
+/// bare `Text` in `ResultAddressBlock` (`result_address_block.dart:144`) on
+/// every search result card. A lone U+202E in a street name would reorder the
+/// rendered address on a list every client scrolls, so each part goes through
+/// `sanitizeDisplayText` before it is composed.
+///
+/// The street + buildingNo half is delegated to [buildStreetLine]
+/// (`shared/formatters/address_lines.dart:92`), which already owns exactly this
+/// composition AND sanitizes-then-tests internally — reused rather than
+/// re-implemented, so the search cards and the master/salon profile screens can
+/// never disagree about what «street, buildingNo» is. What this function
+/// composes is unchanged; only its inputs are now clean.
+///
+/// The note is sanitized here because no composer downstream does — the same
+/// reason `favorite_mapper.dart` owns its note (see that file's header).
 String? _formatAddressLine(String? street, String? buildingNo, String? note) {
-  final String? s = (street != null && street.trim().isNotEmpty)
-      ? street.trim()
-      : null;
-  if (s == null) return null;
-  final String? b = (buildingNo != null && buildingNo.trim().isNotEmpty)
-      ? buildingNo.trim()
-      : null;
-  final String streetLine = b == null ? s : '$s, $b';
-  final String? n = (note != null && note.trim().isNotEmpty)
-      ? note.trim()
-      : null;
-  return n == null ? streetLine : '$streetLine$kServiceNamesSeparator$n';
+  final String? streetLine = buildStreetLine(street, buildingNo);
+  if (streetLine == null) return null;
+  // Sanitize BEFORE the emptiness test: a note made entirely of characters
+  // `sanitizeDisplayText` strips is `isNotEmpty` before sanitization and empty
+  // after it, so testing first would append a dangling ' · ' separator.
+  final String n = note == null ? '' : sanitizeDisplayText(note).trim();
+  return n.isEmpty ? streetLine : '$streetLine$kServiceNamesSeparator$n';
 }
 
 /// Translates [MasterSearchResult] DTOs into the domain [MasterSearchItem].

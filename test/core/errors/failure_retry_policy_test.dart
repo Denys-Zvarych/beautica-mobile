@@ -68,6 +68,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
+  // A TLS pin miss (Phase 111). Fail-closed, and the rejected chain does not
+  // change on its own — an identical retry meets it again. Classified apart
+  // from NetworkFailure precisely so it cannot inherit that arm's `true`.
+  'CertificateFailure': false,
   'NotFoundFailure': false,
   'UnauthorizedFailure': false,
   'InvalidCredentialsFailure': false,
@@ -117,6 +121,7 @@ Map<String, Failure> _instances() {
     'ServerFailure(599)': const ServerFailure(statusCode: 599),
     'ServerFailure(409)': const ServerFailure(statusCode: 409),
     'ServerFailure(null)': const ServerFailure(),
+    'CertificateFailure': const CertificateFailure(),
     'NotFoundFailure': const NotFoundFailure(),
     'UnauthorizedFailure': const UnauthorizedFailure(),
     'InvalidCredentialsFailure': const InvalidCredentialsFailure(),
