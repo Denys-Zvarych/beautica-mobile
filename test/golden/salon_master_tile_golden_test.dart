@@ -253,7 +253,15 @@ Future<void> _driveToMasters(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('master-create-booking-client-next')));
   await tester.pumpAndSettle();
 
+  // PHASE 253 — `service` is multi-select, SELECT ONLY: the card tap merely
+  // marks the service, and the pinned `BookingSummaryBar` CTA is what
+  // advances the wizard. Same two-tap sequence as
+  // `salon_create_booking_screen_test.dart`'s `_pickService`; without the CTA
+  // tap this drive stays parked on the service step and the date step's
+  // calendar never mounts, so `tapCalendarDay` throws `Bad state: No element`.
   await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-1')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
   await tester.pumpAndSettle();
 
   await tester.tapCalendarDay(10);
