@@ -75,6 +75,7 @@
 // (mobile-qa M2 / `forbid_cyrillic_finder.sh`).
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
@@ -87,6 +88,10 @@ import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_schedule_page.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
@@ -347,6 +352,45 @@ const SalonMasterSchedule kVisit = SalonMasterSchedule(
   orderedMasterServiceIds: <String>['assign-m2-svc1'],
 );
 
+// `SalonTimeScreen` also `ref.watch`es `publicSalonProfileProvider`,
+// `salonServiceCatalogProvider` and `salonMasterServiceCoverageProvider`
+// before it can resolve a schedule and render `MasterSchedulePage` — mirrors
+// `salon_time_screen_test.dart`'s `_baseOverrides` fixtures, narrowed to the
+// single master ('m2') / single service ('svc-1') this file's `salonRouter`
+// carries.
+const String _kSalonId = 'salon-1';
+const Salon _stubSalon = Salon(id: _kSalonId, name: 'Salon');
+
+const SalonMasterSummary _stubM2 = SalonMasterSummary(
+  masterId: 'm2',
+  firstName: 'Sofia',
+  lastName: 'Melnyk',
+  avgRating: 5.0,
+  reviewCount: 3,
+  type: MasterType.salonMaster,
+);
+
+const List<SalonServiceCategoryEntry> _stubCatalog =
+    <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'MANICURE',
+        displayName: 'Manicure',
+        count: 1,
+        services: <SalonCatalogService>[kSalonService],
+      ),
+    ];
+
+// masterId -> {catalogServiceId: assignmentId} — must match exactly what
+// `SalonTimeScreen` requests: `salonMasterServiceCoverageProvider` is a
+// family keyed on `SalonBookingMasterSelectionArgs(salonId, selectedServiceIds)`,
+// rebuilt from `salonRouter`'s own `SalonBookingTimeArgs` (salonId 'salon-1',
+// selectedServiceIds ['svc-1']) — an override keyed on anything else is
+// silently never hit.
+const Map<String, Map<String, String>> _stubCoverage =
+    <String, Map<String, String>>{
+      'm2': <String, String>{'svc-1': 'assign-m2-svc1'},
+    };
+
 GoRouter salonRouter() => GoRouter(
   initialLocation: RouteNames.salonBookingTime,
   routes: <RouteBase>[
@@ -354,7 +398,16 @@ GoRouter salonRouter() => GoRouter(
       path: RouteNames.salonBookingTime,
       builder: (BuildContext context, GoRouterState state) =>
           const SalonTimeScreen(
-            args: SalonBookingTimeArgs(salonId: 'salon-1', visit: kVisit),
+            args: SalonBookingTimeArgs(
+              salonId: 'salon-1',
+              // kVisit (unused since this fixed the old `visit:` shape) was
+              // master 'm2' assigned kSalonService ('svc-1') — expressed
+              // directly in the current shape.
+              selectedServiceIds: <String>['svc-1'],
+              assignedServiceIdsByMaster: <String, List<String>>{
+                'm2': <String>['svc-1'],
+              },
+            ),
           ),
     ),
   ],
@@ -378,11 +431,25 @@ Future<AppLocalizations> pumpSalonTimePhase(
       screenProtectionProvider.overrideWithValue(ScreenProtectionManager()),
       slotRepositoryProvider.overrideWith((_) => FakeSlotRepository(slots)),
       clockProvider.overrideWithValue(() => clock),
+      publicSalonProfileProvider(_kSalonId).overrideWith(
+        (ref) => (_stubSalon, const <SalonMasterSummary>[_stubM2]),
+      ),
+      salonServiceCatalogProvider(
+        _kSalonId,
+      ).overrideWith((ref) => _stubCatalog),
+      salonMasterServiceCoverageProvider(
+        const SalonBookingMasterSelectionArgs(
+          salonId: _kSalonId,
+          selectedServiceIds: <String>['svc-1'],
+        ),
+      ).overrideWith((ref) => _stubCoverage),
     ],
   );
   await tester.pumpAndSettle();
 
   await tester.tapCalendarDay(kyivToday(() => clock).day);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('schedule-confirm-cta')));
   await tester.pumpAndSettle();
 
   expect(find.byType(MasterSchedulePage), findsOneWidget);

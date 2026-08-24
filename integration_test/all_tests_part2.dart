@@ -41,6 +41,7 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
@@ -193,6 +194,12 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
+  // behaviours (arrow + swipe paging with inert-end proof, single-master
+  // no-control, per-booking calendar pill count, cross-page comment
+  // isolation reaching the wire) — registered beside `salon_booking_flow`,
+  // whose confirm/success screens and fixtures it shares.
+  group('salon_booking_pager_flow', salon_booking_pager.main);
   // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
   // favorite that the Beauty Passport genuinely reads back as a SALON row.
   // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.

@@ -9,7 +9,7 @@ import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 
 import 'package:beautica_api/src/api_util.dart';
-import 'package:beautica_api/src/model/api_response_booking_response.dart';
+import 'package:beautica_api/src/model/api_response_appointment_detail_response.dart';
 import 'package:beautica_api/src/model/create_staff_booking_request.dart';
 
 class StaffBookingsApi {
@@ -19,8 +19,8 @@ class StaffBookingsApi {
 
   const StaffBookingsApi(this._dio, this._serializers);
 
-  /// Create a walk-in booking on a master&#39;s calendar
-  /// Salon owners and admins may book any master of the salon they manage; an independent master may book only themselves. The salon the booking is scoped to is derived from the caller, never from the request. The booking is created CONFIRMED with source STAFF, no cancel token, and created_by_user_id set to the caller. The guest phone is normalised to E.164 server-side; non-Ukrainian numbers are rejected.  A confirmation SMS is dispatched to that phone number after the booking is committed, subject to the platform-wide app.booking.sms.enabled switch. Delivery is best-effort: it never changes the response, and no field here reports whether a message was sent. No push or email notification is sent by this endpoint.
+  /// Create a walk-in visit on a master&#39;s calendar
+  /// Salon owners and admins may book any master of the salon they manage; an independent master may book only themselves. The salon the booking is scoped to is derived from the caller, never from the request. The visit is created as ONE appointment header plus ONE booking per selected service, all CONFIRMED, source STAFF, no cancel token, and created_by_user_id set to the caller on the header AND every booking. Each service is cancelled, rescheduled, declined and reviewed INDEPENDENTLY of its siblings — creating a visit never implies a whole-visit cascade for any later transition. The guest phone is normalised to E.164 server-side; non-Ukrainian numbers are rejected.  Exactly ONE confirmation SMS is dispatched to that phone number after the visit is committed, regardless of how many services it contains, subject to the platform-wide app.booking.sms.enabled switch. Delivery is best-effort: it never changes the response, and no field here reports whether a message was sent. No push or email notification is sent by this endpoint.
   ///
   /// Parameters:
   /// * [masterId]
@@ -32,9 +32,9 @@ class StaffBookingsApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [ApiResponseBookingResponse] as data
+  /// Returns a [Future] containing a [Response] with a [ApiResponseAppointmentDetailResponse] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<ApiResponseBookingResponse>> createStaffBooking({
+  Future<Response<ApiResponseAppointmentDetailResponse>> createStaffBooking({
     required String masterId,
     required CreateStaffBookingRequest createStaffBookingRequest,
     CancelToken? cancelToken,
@@ -88,7 +88,7 @@ class StaffBookingsApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    ApiResponseBookingResponse? _responseData;
+    ApiResponseAppointmentDetailResponse? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -96,8 +96,9 @@ class StaffBookingsApi {
           ? null
           : _serializers.deserialize(
               rawResponse,
-              specifiedType: const FullType(ApiResponseBookingResponse),
-            ) as ApiResponseBookingResponse;
+              specifiedType:
+                  const FullType(ApiResponseAppointmentDetailResponse),
+            ) as ApiResponseAppointmentDetailResponse;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -108,7 +109,7 @@ class StaffBookingsApi {
       );
     }
 
-    return Response<ApiResponseBookingResponse>(
+    return Response<ApiResponseAppointmentDetailResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

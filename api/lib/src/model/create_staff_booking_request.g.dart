@@ -8,7 +8,7 @@ part of 'create_staff_booking_request.dart';
 
 class _$CreateStaffBookingRequest extends CreateStaffBookingRequest {
   @override
-  final String masterServiceId;
+  final BuiltList<String> masterServiceIds;
   @override
   final DateTime startsAt;
   @override
@@ -19,7 +19,7 @@ class _$CreateStaffBookingRequest extends CreateStaffBookingRequest {
       (CreateStaffBookingRequestBuilder()..update(updates))._build();
 
   _$CreateStaffBookingRequest._(
-      {required this.masterServiceId,
+      {required this.masterServiceIds,
       required this.startsAt,
       required this.guest})
       : super._();
@@ -36,7 +36,7 @@ class _$CreateStaffBookingRequest extends CreateStaffBookingRequest {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is CreateStaffBookingRequest &&
-        masterServiceId == other.masterServiceId &&
+        masterServiceIds == other.masterServiceIds &&
         startsAt == other.startsAt &&
         guest == other.guest;
   }
@@ -44,7 +44,7 @@ class _$CreateStaffBookingRequest extends CreateStaffBookingRequest {
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, masterServiceId.hashCode);
+    _$hash = $jc(_$hash, masterServiceIds.hashCode);
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, guest.hashCode);
     _$hash = $jf(_$hash);
@@ -54,7 +54,7 @@ class _$CreateStaffBookingRequest extends CreateStaffBookingRequest {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'CreateStaffBookingRequest')
-          ..add('masterServiceId', masterServiceId)
+          ..add('masterServiceIds', masterServiceIds)
           ..add('startsAt', startsAt)
           ..add('guest', guest))
         .toString();
@@ -66,10 +66,11 @@ class CreateStaffBookingRequestBuilder
         Builder<CreateStaffBookingRequest, CreateStaffBookingRequestBuilder> {
   _$CreateStaffBookingRequest? _$v;
 
-  String? _masterServiceId;
-  String? get masterServiceId => _$this._masterServiceId;
-  set masterServiceId(String? masterServiceId) =>
-      _$this._masterServiceId = masterServiceId;
+  ListBuilder<String>? _masterServiceIds;
+  ListBuilder<String> get masterServiceIds =>
+      _$this._masterServiceIds ??= ListBuilder<String>();
+  set masterServiceIds(ListBuilder<String>? masterServiceIds) =>
+      _$this._masterServiceIds = masterServiceIds;
 
   DateTime? _startsAt;
   DateTime? get startsAt => _$this._startsAt;
@@ -86,7 +87,7 @@ class CreateStaffBookingRequestBuilder
   CreateStaffBookingRequestBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _masterServiceId = $v.masterServiceId;
+      _masterServiceIds = $v.masterServiceIds.toBuilder();
       _startsAt = $v.startsAt;
       _guest = $v.guest.toBuilder();
       _$v = null;
@@ -112,10 +113,7 @@ class CreateStaffBookingRequestBuilder
     try {
       _$result = _$v ??
           _$CreateStaffBookingRequest._(
-            masterServiceId: BuiltValueNullFieldError.checkNotNull(
-                masterServiceId,
-                r'CreateStaffBookingRequest',
-                'masterServiceId'),
+            masterServiceIds: masterServiceIds.build(),
             startsAt: BuiltValueNullFieldError.checkNotNull(
                 startsAt, r'CreateStaffBookingRequest', 'startsAt'),
             guest: guest.build(),
@@ -123,6 +121,9 @@ class CreateStaffBookingRequestBuilder
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'masterServiceIds';
+        masterServiceIds.build();
+
         _$failedField = 'guest';
         guest.build();
       } catch (e) {

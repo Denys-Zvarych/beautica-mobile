@@ -107,6 +107,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -649,7 +650,11 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       // budget reset the archive's own reload needs — WHICH caches drop is
       // still entirely the shared helper's decision, unchanged.
       _reloadArchive(
-        () => invalidateBookingViewsAfterProviderClose(ref, booking.id),
+        () => invalidateBookingViewsAfterProviderClose(
+          ref,
+          booking.id,
+          affectedDate: kyivDayOf(booking.startAt),
+        ),
       );
     } finally {
       inFlight.end();
@@ -1041,7 +1046,7 @@ class _ArchiveHeader extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: VelvetText.masterBookingsTitle,
+                style: VelvetText.pageTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),

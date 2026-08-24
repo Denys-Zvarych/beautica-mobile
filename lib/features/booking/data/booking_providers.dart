@@ -68,15 +68,21 @@ ReviewControllerApi bookingReviewApi(Ref ref) =>
     ReviewControllerApi(ref.watch(dioProvider), standardSerializers);
 
 /// Provides the generated [StaffBookingsApi] singleton for the PROVIDER-side
-/// walk-in booking write path (`POST /api/v1/masters/{masterId}/bookings`,
-/// backend Phase 22.4 — Phase 246). Built on [standardSerializers]: the
-/// response envelope (`ApiResponseBookingResponse`) carries the LEAN
-/// `BookingResponse`, which has no `EnumClass` status field the way
-/// `BookingDetailResponse` does — see [bookingApi]'s doc for why THAT one
-/// needs [beauticaSerializers] and this one does not.
+/// walk-in VISIT write path (`POST /api/v1/masters/{masterId}/bookings`,
+/// backend Phase 22.4 — Phase 246, widened to multi-service by Phase 252).
+/// Built on [beauticaSerializers] — since Phase 252 the response envelope
+/// carries the full `AppointmentDetailResponse` (previously the lean
+/// `BookingResponse`, which had no throwing `EnumClass` status field and so
+/// tolerated [standardSerializers] fine). `AppointmentDetailResponse` is one
+/// of the DTOs [kBeauticaToleratedEnums] covers — see [appointmentApi]'s doc
+/// and `unknown_enum_tolerance_plugin.dart`'s "a row here is inert for any
+/// api class that was never migrated" warning. Migrated here alongside the
+/// response-type change so an unrecognised visit status degrades to
+/// [BookingStatus.unknown] instead of throwing, exactly like every other
+/// path that can return this DTO.
 @Riverpod(keepAlive: true)
 StaffBookingsApi staffBookingsApi(Ref ref) =>
-    StaffBookingsApi(ref.watch(dioProvider), standardSerializers);
+    StaffBookingsApi(ref.watch(dioProvider), beauticaSerializers);
 
 /// Provides the [BookingRepository] singleton backed by the authenticated
 /// [dioProvider] Dio instance (needed for the raw `getMyBookings` GET — see

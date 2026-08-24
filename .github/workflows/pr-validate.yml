@@ -399,6 +399,20 @@ jobs:
         shell: bash
         run: ./scripts/forbid_missing_client_branch_key.sh
 
+      # 2026-08-22 — the page-title typography unification (mobile-qa)
+      # consolidated the four INDEPENDENT_MASTER tab-root titles (which had
+      # silently diverged onto three different sizes — heading() 21sp, the
+      # deleted one-off masterBookingsTitle 22sp, subheading() 14sp) onto ONE
+      # token, VelvetText.pageTitle. Nothing stopped a future edit from
+      # repointing one screen at a different token, or reintroducing a new
+      # one-off title token, so this gate makes both mechanical. Rule A: no
+      # new *Title-shaped VelvetText token outside the baselined allow-list
+      # (scripts/.page_title_token_allow). Rule B: each of the four known
+      # title call sites stays on VelvetText.pageTitle.
+      - name: Forbid a page-title VelvetText token fork
+        shell: bash
+        run: ./scripts/forbid_page_title_token_fork.sh
+
       # 2026-08-14 — the calendar-consolidation change (mobile-backlog D5)
       # collapsed every month/week calendar surface onto ONE shared file
       # (`lib/shared/widgets/calendar_grid.dart`) precisely so a future D1–D4-
@@ -413,6 +427,34 @@ jobs:
       - name: Forbid a forked calendar-grid implementation
         shell: bash
         run: ./scripts/forbid_forked_calendar_grid.sh
+
+      # 2026-08-22 (Phase 271 D5) — the per-master salon booking submit
+      # notifier was deleted after being harvested for its pinned test
+      # behaviour (Phase 277's *Test cases*). It had already been deleted
+      # once (MO-4) and come back once via a `git checkout` of an ancestor
+      # commit (Phase 268's restore) — this gate makes a repeat of that same
+      # move fail CI instead of shipping. Zero occurrences under lib/ of the
+      # notifier's filename, its class, or its per-appointment status enum.
+      - name: Forbid the deleted per-master salon booking submit notifier
+        shell: bash
+        run: ./scripts/forbid_salon_booking_submit_notifier.sh
+
+      # 2026-08-21 — this track closed a `ProviderSubscription`-closed crash
+      # class: a keepAlive family member drops to ZERO listeners not because
+      # its screen was popped, but because the SAME still-mounted screen
+      # swapped which family key it watches via local state (a rail tap, a
+      # sort toggle, a week page). `invalidateSelf()` then severs the
+      # keepAlive link and queues disposal on a zero-duration Timer, racing
+      # the next frame's re-subscribe to the SAME key. The proven remedy —
+      # gate on "was this key pinned?", invalidate, THEN eagerly re-read so
+      # the keepAlive link is re-touched before the queued disposal fires —
+      # is applied at four sites (bookingsDay, master/salon reviews,
+      # effectiveSchedule). This gate makes a bare cross-file family
+      # invalidation fail CI instead of silently reintroducing the race.
+      # Allow-list: scripts/.keepalive_family_invalidation_allow.
+      - name: Forbid a bare keepalive-family cross-invalidation
+        shell: bash
+        run: ./scripts/forbid_bare_keepalive_family_invalidation.sh
 
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against

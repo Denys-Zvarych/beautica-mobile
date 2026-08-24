@@ -807,6 +807,37 @@ final class MasterBookingNotPermittedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrMasterNotPermitted;
 }
 
+/// Emitted when `POST /api/v1/masters/{masterId}/bookings` returns HTTP
+/// **409 Conflict** (mobile Phase 256 — backend Phase 258 D5).
+///
+/// The backend deliberately carries NO idempotency key on this write: a
+/// resubmitted identical request plans the identical booking chain over the
+/// identical `[firstStart, lastEnd)` span, so the whole-visit overlap check
+/// plus the `no_overlapping_bookings` GIST EXCLUDE make a duplicate visit
+/// **impossible to persist** — a resubmit 409s instead of creating a second
+/// row. On THIS endpoint's create path, that means a 409 reads as "this
+/// exact visit is already on the calendar" far more often than "someone else
+/// just took the slot": the two cases share one status and one body (the app
+/// cannot distinguish them), but the wizard's own submit path only ever
+/// re-POSTs the SAME payload (a double-tap, or a retry after a timeout), so
+/// [userMessage] is worded for the common case — "already created" — rather
+/// than the generic slot-unavailable copy [ConflictFailure] carries. Either
+/// way the message is RECOVERABLE: the confirm step's snack offers an
+/// «Оновити» action that returns to `dateTime` and re-fetches, so a genuine
+/// collision (the rarer case) self-corrects in one tap.
+///
+/// Mapped BEFORE the generic 409/422 → [ConflictFailure] fallback in
+/// `HttpBookingRepository._mapMasterBookingWriteException` — a 422 on this
+/// endpoint (outside working hours, day-off, past time, service not offered)
+/// stays [ConflictFailure]; only the bare 409 status maps here.
+final class MasterBookingDuplicateFailure extends Failure {
+  const MasterBookingDuplicateFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errMasterBookingDuplicate;
+}
+
 /// Emitted when `POST /reviews` returns HTTP **409 Conflict** because the
 /// authenticated client has ALREADY left a review for this booking (Phase
 /// 14.6). The booking's server-computed `canReview` flag normally hides the

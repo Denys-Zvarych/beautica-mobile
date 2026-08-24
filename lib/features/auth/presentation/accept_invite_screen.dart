@@ -129,11 +129,14 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   @override
   void initState() {
     super.initState();
-    // SEC MEDIUM: ref-counted screenshot guard via the app-wide manager (single
-    // owner of the native toggle; internally !kDebugMode-guarded).
-    // MASVS-PLATFORM MS6 (MEDIUM-2, Phase 2.20 audit): FLAG_SECURE takes effect
-    // at onWindowFocusChanged, not at the Dart frame boundary. This is the same
-    // accepted one-frame gap on all PII auth screens in this codebase.
+    // SEC MEDIUM: ref-counted app-switcher / data-leakage guard via the
+    // app-wide manager (single owner of the native toggle; internally
+    // !kDebugMode-guarded). It does NOT block screenshots — MASVS-PLATFORM MS6
+    // (MEDIUM-2, Phase 2.20 audit) cited FLAG_SECURE here, and that half was
+    // REVERSED on 2026-08-20 by product decision; see the header of
+    // `lib/core/security/screen_protection.dart`. The native toggle still lands
+    // asynchronously rather than at the Dart frame boundary, so the same
+    // accepted one-frame gap applies on all PII auth screens in this codebase.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 

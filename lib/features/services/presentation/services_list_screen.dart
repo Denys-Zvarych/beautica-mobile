@@ -251,7 +251,7 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
       elevation: 0,
       surfaceTintColor: Colors.transparent,
       centerTitle: false,
-      title: Text(title, style: VelvetText.heading()),
+      title: Text(title, style: VelvetText.pageTitle),
     );
   }
 }

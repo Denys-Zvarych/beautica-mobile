@@ -17,6 +17,8 @@ class _$CreateBookingRequest extends CreateBookingRequest {
   final String? idempotencyKey;
   @override
   final String? clientComment;
+  @override
+  final bool? allowClientOverlap;
 
   factory _$CreateBookingRequest(
           [void Function(CreateBookingRequestBuilder)? updates]) =>
@@ -27,7 +29,8 @@ class _$CreateBookingRequest extends CreateBookingRequest {
       required this.masterServiceId,
       required this.startsAt,
       this.idempotencyKey,
-      this.clientComment})
+      this.clientComment,
+      this.allowClientOverlap})
       : super._();
   @override
   CreateBookingRequest rebuild(
@@ -46,7 +49,8 @@ class _$CreateBookingRequest extends CreateBookingRequest {
         masterServiceId == other.masterServiceId &&
         startsAt == other.startsAt &&
         idempotencyKey == other.idempotencyKey &&
-        clientComment == other.clientComment;
+        clientComment == other.clientComment &&
+        allowClientOverlap == other.allowClientOverlap;
   }
 
   @override
@@ -57,6 +61,7 @@ class _$CreateBookingRequest extends CreateBookingRequest {
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, idempotencyKey.hashCode);
     _$hash = $jc(_$hash, clientComment.hashCode);
+    _$hash = $jc(_$hash, allowClientOverlap.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -68,7 +73,8 @@ class _$CreateBookingRequest extends CreateBookingRequest {
           ..add('masterServiceId', masterServiceId)
           ..add('startsAt', startsAt)
           ..add('idempotencyKey', idempotencyKey)
-          ..add('clientComment', clientComment))
+          ..add('clientComment', clientComment)
+          ..add('allowClientOverlap', allowClientOverlap))
         .toString();
   }
 }
@@ -100,6 +106,11 @@ class CreateBookingRequestBuilder
   set clientComment(String? clientComment) =>
       _$this._clientComment = clientComment;
 
+  bool? _allowClientOverlap;
+  bool? get allowClientOverlap => _$this._allowClientOverlap;
+  set allowClientOverlap(bool? allowClientOverlap) =>
+      _$this._allowClientOverlap = allowClientOverlap;
+
   CreateBookingRequestBuilder() {
     CreateBookingRequest._defaults(this);
   }
@@ -112,6 +123,7 @@ class CreateBookingRequestBuilder
       _startsAt = $v.startsAt;
       _idempotencyKey = $v.idempotencyKey;
       _clientComment = $v.clientComment;
+      _allowClientOverlap = $v.allowClientOverlap;
       _$v = null;
     }
     return this;
@@ -141,6 +153,7 @@ class CreateBookingRequestBuilder
               startsAt, r'CreateBookingRequest', 'startsAt'),
           idempotencyKey: idempotencyKey,
           clientComment: clientComment,
+          allowClientOverlap: allowClientOverlap,
         );
     replace(_$result);
     return _$result;

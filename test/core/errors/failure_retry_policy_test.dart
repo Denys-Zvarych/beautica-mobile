@@ -5,7 +5,11 @@
 // -----------------------------------------------------------
 // The defect this guards against is a TIMING behaviour: Riverpod's
 // `defaultRetry` retries any non-`Error`, non-`ProviderException` ten times
-// over ~38 s, holding the element in `AsyncLoading` the whole time. Observing
+// over ~38 s, holding the element in `AsyncLoading` the whole time. The
+// predicate answers that on TWO axes — WHICH failures retry (the
+// transient/deterministic split below) and HOW MANY TIMES (`retryCount >=
+// _kMaxTransientRetries`, added 2026-08-20 after a master watched «Мої
+// записи» shimmer indefinitely on a freshly-booked day). Observing
 // that end-to-end means either waiting 38 s of wall-clock or asserting on
 // pumped frames, both of which are slow and flaky, and neither of which pins
 // down WHICH failures were classified which way. Calling the predicate is the
@@ -94,6 +98,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // a transient network condition — retrying re-sends a request that fails
   // identically.
   'MasterBookingNotPermittedFailure': false,
+  // A 409 on the walk-in create path (Phase 256) is deterministic in the
+  // same sense ConflictFailure is — the overlap check that produced it does
+  // not change on its own, so an automatic retry just 409s again.
+  'MasterBookingDuplicateFailure': false,
   'ScheduleOverrideRateLimitedFailure': false,
   'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
@@ -160,6 +168,7 @@ Map<String, Failure> _instances() {
     'BookingRateLimitedFailure': const BookingRateLimitedFailure(),
     'MasterBookingNotPermittedFailure':
         const MasterBookingNotPermittedFailure(),
+    'MasterBookingDuplicateFailure': const MasterBookingDuplicateFailure(),
     'ScheduleOverrideRateLimitedFailure':
         const ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
     'OverrideSpanPartialFailure': OverrideSpanPartialFailure(
@@ -270,23 +279,63 @@ void main() {
   });
 
   group('beauticaProviderRetry', () {
-    test('a transient Failure keeps retrying, with the default backoff', () {
-      // Same curve as `ProviderContainer.defaultRetry`: 200 ms doubling,
-      // capped at 6400 ms, for up to 10 attempts.
+    test('a transient Failure retries ONCE, on the default backoff, then '
+        'stops', () {
+      // The first re-attempt still comes off `ProviderContainer.defaultRetry`'s
+      // own curve — the predicate delegates rather than inventing a delay, so
+      // Riverpod's `Error` / `ProviderException` refusals stay authoritative.
       expect(
         beauticaProviderRetry(0, const NetworkFailure()),
         const Duration(milliseconds: 200),
       );
       expect(
-        beauticaProviderRetry(3, const NetworkFailure()),
-        const Duration(milliseconds: 1600),
+        beauticaProviderRetry(0, const ServerFailure(statusCode: 503)),
+        const Duration(milliseconds: 200),
       );
+
+      // …and that is the ONLY one. `defaultRetry` would still be handing out
+      // 400 / 1600 / 6400 ms here, for ten attempts and ~38 s in total; the
+      // bound in `beauticaProviderRetry` is what stops it. Each attempt can
+      // additionally burn `dioProvider`'s 15 s connect / 30 s receive timeout
+      // before it even fails, so the attempt COUNT — not the delay curve — is
+      // what turned a bad network into a screen that looked hung.
+      expect(
+        beauticaProviderRetry(1, const NetworkFailure()),
+        isNull,
+        reason: 'two attempts in total is the bound',
+      );
+      expect(beauticaProviderRetry(3, const NetworkFailure()), isNull);
       expect(
         beauticaProviderRetry(5, const ServerFailure(statusCode: 503)),
+        isNull,
+      );
+      expect(beauticaProviderRetry(10, const NetworkFailure()), isNull);
+
+      // Negative control: without the bound these WOULD be retried — proving
+      // the assertions above are the predicate talking and not `defaultRetry`
+      // declining on its own account.
+      expect(
+        ProviderContainer.defaultRetry(1, const NetworkFailure()),
+        const Duration(milliseconds: 400),
+      );
+      expect(
+        ProviderContainer.defaultRetry(5, const ServerFailure(statusCode: 503)),
         const Duration(milliseconds: 6400),
       );
-      // The attempt ceiling still applies — "retry" is not "retry forever".
-      expect(beauticaProviderRetry(10, const NetworkFailure()), isNull);
+    });
+
+    test('the bound is checked AFTER classification — it can only shorten a '
+        'retry sequence, never start one', () {
+      // A deterministic failure is refused at retryCount 0, where the bound is
+      // not yet in play, and stays refused past it. If the two checks were
+      // ever swapped, the first assertion here would be the one that broke.
+      expect(beauticaProviderRetry(0, const NotFoundFailure()), isNull);
+      expect(beauticaProviderRetry(1, const NotFoundFailure()), isNull);
+      // A throttle likewise — the 429 guard runs ahead of both.
+      expect(
+        beauticaProviderRetry(0, const BookingRateLimitedFailure()),
+        isNull,
+      );
     });
 
     test('a deterministic Failure stops on the FIRST attempt — this is the '

@@ -10,9 +10,9 @@
 // delta from the earlier bespoke card this replaced: the raw street address
 // is GONE (BookingCard renders no street/buildingNo/cityLabel/districtLabel,
 // no client* field, and no note field) — master photo, professional title,
-// price, and status are NEW. Protection is screen-wide (FLAG_SECURE /
-// app-switcher blur covers the entire screen, not per-card), so this is a
-// documentation-accuracy fix, not a functional gap either way.
+// price, and status are NEW. Protection is screen-wide (the app-switcher blur
+// covers the entire screen, not per-card), so this is a documentation-accuracy
+// fix, not a functional gap either way.
 //
 // Layout (scrollable ListView of cards, staggered reveal):
 //   1. Top bar: beautica wordmark | bell | burger
@@ -84,8 +84,10 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
     // CRITICAL-4: Home Hub shows name / phone / city, and (since the
     // BookingCard cutover) the next appointment's master photo / master name
     // / professional title / salon name / service name / price / status —
-    // acquire screen protection so FLAG_SECURE / iOS app-switcher blur is
-    // active while this screen is mounted. (No street address, no client*
+    // acquire screen protection so the iOS app-switcher blur is active while
+    // this screen is mounted. It does NOT block screenshots (product decision
+    // 2026-08-20 — see `lib/core/security/screen_protection.dart`).
+    // (No street address, no client*
     // field, no note field — see the file header for the full field-set
     // delta against the retired bespoke card.)
     //

@@ -1,26 +1,87 @@
-// MO-4 (single-master single-visit rework) — SalonBookingConfirmScreen: salon
-// booking flow step 4 (final review + submit).
+// Phase 271 — SalonBookingConfirmScreen: salon booking flow step 4 (final
+// review + submit). Mirrors the independent-master `BookingConfirmScreen`
+// (`booking_confirm_screen.dart`) structure — a flat read of each
+// appointment, a pinned CTA — extended to the salon's N-master model: a
+// single shared salon address card, ONE [SalonAppointmentCard] per assigned
+// master (each carrying its own Дата/Час/services/subtotal AND its own
+// comment field — see below), and each appointment submitted via the SHARED
+// `AppointmentSubmit.submitVisit` — the same submit path, failure mapping,
+// and idempotency contract the independent flow uses (NOT a forked salon
+// submit).
 //
-// The salon flow now books ONE visit against ONE chosen master, so this mirrors
-// the independent-master `BookingConfirmScreen` almost exactly: the shared
-// [BookingSummaryCards] recap (master card + Дата/Час + ordered services +
-// «Разом» total/range), an optional «Коментар для майстра», and ONE
-// `POST /appointments` via the SHARED `AppointmentSubmit.submitVisit` — the same
-// submit path, failure mapping, and idempotency contract the independent flow
-// uses (NOT a forked salon submit). This REPLACES the pre-MO-4 N-booking
-// fan-out (`SalonBookingSubmit`) and its per-master partial-failure UI.
+// PAGER REWORK (owner decision, 2026-08-23): the flat stack of N
+// [SalonAppointmentCard]s is now an [AppointmentPager] — one master's card on
+// screen at a time, paged via swipe or the centred `‹ N / M ›` control below
+// the card (not rendered at all when N == 1). The visit-wide grand total
+// («Разом за візит») is REMOVED — each master's own «Разом» subtotal (inside
+// [BookingRecap], via [SalonAppointmentCard]) is the only total on this
+// screen now; see `docs/signup-designs/SalonBookingConfirm/` (the approved
+// preview) for the full rationale. The shared salon address card and the
+// pinned «Записатись» CTA stay OUTSIDE the pager — the address applies to
+// every master, and the CTA submits the whole visit regardless of which page
+// is on screen.
 //
-// ERROR HANDLING: one call now, one clear error state. A failed submit maps the
-// typed [Failure] (a 409 `CLIENT_BOOKING_CONFLICT`/`BOOKING_ALREADY_ELAPSED`/
-// `DUPLICATE_SERVICE`, a 429 rate-limit, or a generic failure) to ONE inline
-// error banner pinned above the CTA — the screen stays interactive so the
-// client can re-tap «Записатись» (reusing the SAME idempotency key, so a retry
-// de-duplicates) or back out and re-pick a time (a fresh key).
+// CARD RESTORATION (owner-reported regression, 2026-08-22): Phase 271 had
+// replaced the per-master `SalonAppointmentCard` (deleted together with the
+// notifier it was coupled to) with the generic `BookingSummaryCards
+// .fromSchedule` — a REGRESSION versus the originally-approved design, not
+// an intended simplification. This pass restores the dedicated per-master
+// card (`widgets/salon_appointment_card.dart`, rebuilt WITHOUT the deleted
+// notifier coupling — see that file's header) while keeping the shared
+// `AppointmentSubmit.submitVisit` write path this screen has used since
+// Phase 271. INTERIM STATE remains as Phase 271 documented: this screen
+// submits every appointment SEQUENTIALLY and stops at the FIRST
+// non-client-conflict failure, with ONE inline error banner (no per-master
+// status, no retry-only-the-failed-ones) — full per-master submit status is
+// a later phase's job.
 //
-// The salon's ADDRESS + name is a secondary read via
-// `publicSalonProfileProvider(salonId)` (the same 5-minute-keepAlive family
-// warmed earlier in this flow) — it never blocks or errors the whole screen;
-// the address row falls back to `l10n.bookingAddressUnknown` while loading.
+// Each appointment's stable `idempotencyKey` (minted once per appointment
+// when these args were built) means a re-tap after a failure is always safe:
+// an already-created appointment's retry de-dupes server-side rather than
+// duplicating, even though this screen does not track which ones already
+// succeeded.
+//
+// PER-MASTER COMMENT (owner decision, 2026-08-22, verbatim: "one field per
+// master card"): each [SalonAppointmentCard] carries its OWN comment
+// controller — that card's text becomes ONLY that appointment's
+// `clientComment`, never any other master's. This screen owns the
+// controllers' lifecycle: one per appointment, created in `initState` (and
+// reconciled in `didUpdateWidget` if `widget.args` ever changes under the
+// same `State` — defensive; `widget.args.appointments` is otherwise
+// immutable for this screen's life), disposed in `dispose`. The controller
+// map lives at the SCREEN level (not inside a page), so an offstage
+// `AppointmentPager` page unbuilding never loses typed text — see that
+// widget's own doc.
+//
+// CLIENT-SELF-OVERLAP (owner decision, 2026-08-22, verbatim: "remove the
+// bottom error when client already has a booking on same date/time; instead
+// display a popup … still proceed? … It's only the client's
+// responsibility"): a `ClientBookingConflictFailure` (409
+// `CLIENT_BOOKING_CONFLICT`) is intercepted PER APPOINTMENT in `_submitOne`,
+// never surfaced as the bottom `_SubmitErrorBanner`. Confirming
+// `showClientBookingConflictDialog` resubmits THAT SAME appointment with
+// `CreateAppointmentRequest.allowClientOverlap: true` — a ONE-SHOT flag on
+// that single resubmit, never sticky state carried onto any other
+// appointment or any later booking. Dismissing the dialog throws
+// `_SubmitCancelled` (caught in `_submit`, before the `on Failure` clause) —
+// nothing else is submitted and the screen is left exactly as it was, no
+// banner, so the client can back out and change the date/time. EVERY other
+// failure (the generic `ConflictFailure` "slot not available" — a MASTER's
+// slot taken by someone else, `NotFoundFailure`, network errors, etc.) is
+// UNCHANGED: it still surfaces via the single inline `_SubmitErrorBanner`.
+//
+// DATA SOURCE: `SalonBookingConfirmArgs` carries the fully-resolved
+// appointments forward from `SalonTimeScreen` (the step-3 picks live in an
+// autoDispose provider that would be gone by the time this screen mounts) —
+// no re-fetch. The salon's ADDRESS is a separate, secondary read via
+// `publicSalonProfileProvider(salonId)` — the SAME 5-minute-keepAlive family
+// `PublicSalonProfileScreen` / `SalonMasterSelectionScreen` already warmed
+// earlier in this exact flow, so reaching this screen normally costs zero
+// extra round trips. Being secondary, its loading/error states NEVER block or
+// error the whole screen — the address row falls back to
+// `l10n.bookingAddressUnknown` (the same fallback `BookingSummaryCards`
+// already uses for a master with no address) while the salon profile is
+// loading or failed; the appointments themselves always render from `args`.
 //
 // SEC: renders the salon's address (PII) — acquires the app-wide screenshot
 // guard in `initState`.
@@ -47,15 +108,17 @@ import '../application/my_bookings_notifier.dart';
 import '../domain/booking_tab.dart';
 import '../domain/create_appointment_request.dart';
 import '../domain/salon_booking_confirm_args.dart';
-import 'widgets/booking_comment_field.dart';
+import 'widgets/appointment_pager.dart';
 import 'widgets/booking_cta_footer.dart';
-import 'widgets/booking_summary_cards.dart';
+import 'widgets/booking_recap.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/client_booking_conflict_dialog.dart';
 import 'widgets/labelled_row.dart';
+import 'widgets/salon_appointment_card.dart';
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/section_rule.dart';
 
-/// Salon booking flow step 4 — review the visit and submit it.
+/// Salon booking flow step 4 — review the N appointments and submit them.
 class SalonBookingConfirmScreen extends ConsumerStatefulWidget {
   const SalonBookingConfirmScreen({super.key, required this.args});
 
@@ -70,67 +133,167 @@ class _SalonBookingConfirmScreenState
     extends ConsumerState<SalonBookingConfirmScreen> {
   static const int _maxComment = 500;
 
-  final TextEditingController _comment = TextEditingController();
+  /// One comment controller PER APPOINTMENT, keyed by `masterId` (a salon
+  /// booking has exactly one appointment per assigned master — see
+  /// `salon_booking_confirm_args.dart`). See the file header's PER-MASTER
+  /// COMMENT note.
+  final Map<String, TextEditingController> _comments =
+      <String, TextEditingController>{};
 
   /// The last submit's failure, or `null` — drives the single inline error
-  /// banner. Cleared at the start of each submit.
+  /// banner. Cleared at the start of each submit. See the file header: this
+  /// screen has no per-master status, so a mid-batch failure surfaces here
+  /// and stops the remaining appointments from being attempted. NEVER set for
+  /// a `ClientBookingConflictFailure` — that one opens a dialog instead (see
+  /// `_submitOne`).
   Failure? _failure;
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
 
   @override
   void initState() {
     super.initState();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    _syncCommentControllers();
   }
+
+  @override
+  void didUpdateWidget(covariant SalonBookingConfirmScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Defensive: `widget.args.appointments` is immutable for this screen's
+    // ordinary lifetime (a fresh push always mints a fresh State), but if
+    // this `State` were ever reused with a different `args` — e.g. a future
+    // caller that reuses a `GlobalKey` — the controller map must not leak a
+    // stale entry nor miss a new appointment.
+    if (!identical(oldWidget.args, widget.args)) _syncCommentControllers();
+  }
+
+  /// Creates a controller for every CURRENT appointment (keyed by masterId)
+  /// that doesn't already have one, and disposes+drops any controller for a
+  /// masterId no longer present — a 1:1 map to `widget.args.appointments` at
+  /// all times, so `dispose()` below never leaks and a resync never
+  /// double-creates.
+  void _syncCommentControllers() {
+    final Set<String> currentIds = widget.args.appointments
+        .map((SalonBookingAppointment a) => a.schedule.masterId)
+        .toSet();
+    _comments.removeWhere((String masterId, TextEditingController c) {
+      if (currentIds.contains(masterId)) return false;
+      c.dispose();
+      return true;
+    });
+    for (final String masterId in currentIds) {
+      _comments.putIfAbsent(masterId, TextEditingController.new);
+    }
+  }
+
+  TextEditingController _commentFor(String masterId) => _comments[masterId]!;
 
   @override
   void dispose() {
     _screenProtection.release();
-    _comment.dispose();
+    for (final TextEditingController c in _comments.values) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  /// Builds THIS appointment's write payload from ITS OWN comment controller
+  /// — never any other master's text (see the file header's PER-MASTER
+  /// COMMENT note).
+  CreateAppointmentRequest _requestFor(
+    SalonBookingAppointment appointment, {
+    bool allowClientOverlap = false,
+  }) {
+    final String rawComment = _commentFor(
+      appointment.schedule.masterId,
+    ).text.trim();
+    return CreateAppointmentRequest(
+      masterId: appointment.schedule.masterId,
+      masterServiceIds: appointment.schedule.orderedMasterServiceIds,
+      startAt: appointment.startAt,
+      idempotencyKey: appointment.idempotencyKey,
+      clientComment: rawComment.isEmpty ? null : rawComment,
+      allowClientOverlap: allowClientOverlap,
+    );
+  }
+
+  /// Submits ONE appointment. On a `ClientBookingConflictFailure`
+  /// specifically, opens [showClientBookingConflictDialog] instead of letting
+  /// the failure propagate to the bottom banner: confirming resubmits this
+  /// SAME appointment with `allowClientOverlap: true`; dismissing throws
+  /// [_SubmitCancelled] so `_submit`'s loop stops with no banner and nothing
+  /// further is submitted. Every OTHER failure (generic slot-conflict, 404,
+  /// network, rate-limit, …) is rethrown unchanged for `_submit`'s `on
+  /// Failure` clause to render as the usual inline banner.
+  Future<void> _submitOne(SalonBookingAppointment appointment) async {
+    final CreateAppointmentRequest request = _requestFor(appointment);
+    try {
+      await ref.read(appointmentSubmitProvider.notifier).submitVisit(request);
+    } on ClientBookingConflictFailure catch (conflict) {
+      if (!mounted) throw const _SubmitCancelled();
+      final bool proceed =
+          await showClientBookingConflictDialog(
+            context,
+            ClientBookingConflictPreview(
+              newServiceNames: appointment.schedule.services
+                  .map((s) => s.name)
+                  .join(', '),
+              newMasterName:
+                  '${appointment.schedule.firstName} '
+                          '${appointment.schedule.lastName}'
+                      .trim(),
+              newStart: appointment.startAt,
+              newEnd: appointment.startAt.add(
+                Duration(minutes: appointment.durationMinutes),
+              ),
+              conflict: conflict,
+            ),
+          ) ??
+          false;
+      if (!proceed) throw const _SubmitCancelled();
+      if (!mounted) throw const _SubmitCancelled();
+      await ref
+          .read(appointmentSubmitProvider.notifier)
+          .submitVisit(_requestFor(appointment, allowClientOverlap: true));
+    }
   }
 
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
     if (_failure != null) setState(() => _failure = null);
 
-    final String? comment = _comment.text.trim().isEmpty
-        ? null
-        : _comment.text.trim();
+    final List<SalonBookingAppointment> appointments = widget.args.appointments;
     try {
-      await ref
-          .read(appointmentSubmitProvider.notifier)
-          .submitVisit(
-            CreateAppointmentRequest(
-              masterId: widget.args.visit.masterId,
-              masterServiceIds: widget.args.visit.orderedMasterServiceIds,
-              startAt: widget.args.startAt,
-              idempotencyKey: widget.args.idempotencyKey,
-              clientComment: comment,
-            ),
-          );
+      // Sequential, stops at the first non-client-conflict failure — see the
+      // file header. Each appointment reuses its OWN stable idempotency key,
+      // so a re-tap after a failure never duplicates an appointment that
+      // actually landed.
+      for (final SalonBookingAppointment appointment in appointments) {
+        await _submitOne(appointment);
+      }
       if (!mounted) return;
-      // A newly-created booking is auto-CONFIRMED → lands in the upcoming tab.
-      // The client shell keeps the My Bookings branch mounted
-      // (`StatefulShellRoute.indexedStack`), so its autoDispose notifier never
-      // re-fetches on tab re-select — invalidate it here from the widget layer
-      // (mirroring the independent flow's `BookingConfirmScreen`) so the new
-      // booking shows without a manual pull-to-refresh. A cross-provider
-      // invalidate from a Notifier would trip
-      // `forbid_provider_self_invalidation`; this is a widget-layer `ref`, so it
-      // is compliant. Also refreshes the Home Hub's own «Найближчий запис»
-      // card, which this new booking may now be (Phase 225).
+      // Every appointment landed → invalidate the booking views ONCE, from
+      // the widget layer (mirrors the independent flow's `BookingConfirmScreen`
+      // — see that screen for the full rationale on why this is a widget-layer
+      // `ref`, not a cross-provider notifier invalidate).
       ref.invalidate(myBookingsProvider(BookingTab.upcoming));
       ref.invalidate(nextAppointmentProvider);
       context.pushReplacement(
         RouteNames.salonBookingSuccess,
         extra: SalonBookingSuccessArgs(
           salonId: widget.args.salonId,
-          visit: widget.args.visit,
-          startAt: widget.args.startAt,
+          appointments: appointments,
         ),
       );
+    } on _SubmitCancelled {
+      // The client dismissed the client-self-overlap dialog — submit nothing
+      // further, no banner. The screen is left exactly as it was so the
+      // client can back out and change the date/time (owner decision — see
+      // the file header).
+      return;
     } on Failure catch (failure) {
       if (!mounted) return;
       setState(() => _failure = failure);
@@ -143,6 +306,7 @@ class _SalonBookingConfirmScreenState
     final bool inFlight = ref.watch(
       appointmentSubmitProvider.select((AsyncValue<void> s) => s.isLoading),
     );
+    final List<SalonBookingAppointment> appointments = widget.args.appointments;
 
     // Secondary read — never blocks/errors the whole screen.
     final Salon? salon = ref.watch(
@@ -189,66 +353,84 @@ class _SalonBookingConfirmScreenState
               onBack: () => context.pop(),
               backKey: const Key('salon-confirm-back'),
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(
-                  VelvetSpacing.lg,
-                  VelvetSpacing.md,
-                  VelvetSpacing.lg,
-                  VelvetSpacing.md,
-                ),
+            // The salon identity + address card, shared by every master —
+            // stays OUTSIDE the pager (it applies to the whole visit, not to
+            // whichever page is on screen).
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                VelvetSpacing.md,
+                VelvetSpacing.lg,
+                0,
+              ),
+              child: NeumorphicCard(
+                key: const Key('salon-confirm-address-card'),
+                padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    // The salon identity + address card, above the visit recap.
-                    NeumorphicCard(
-                      key: const Key('salon-confirm-address-card'),
-                      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          if (salonName != null) ...<Widget>[
-                            LabelledRow(
-                              key: const Key('salon-confirm-salon-name'),
-                              label: l10n.bookingSalonLabel,
-                              value: salonName,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SectionRule(),
-                          ],
-                          LabelledRow(
-                            label: l10n.bookingAddressLabel,
-                            value: addressLine ?? l10n.bookingAddressUnknown,
-                            detail: addressDetail,
-                          ),
-                        ],
+                    if (salonName != null) ...<Widget>[
+                      LabelledRow(
+                        key: const Key('salon-confirm-salon-name'),
+                        label: l10n.bookingSalonLabel,
+                        value: salonName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    const SizedBox(height: VelvetSpacing.md),
-                    // The whole visit: chosen master + Дата/Час + ordered
-                    // services + «Разом» total (or min–max band).
-                    BookingSummaryCards.fromSchedule(
-                      key: const Key('salon-confirm-visit-card'),
-                      schedule: widget.args.visit,
-                      start: widget.args.startAt,
-                      avatarGradient: salonAvatarGradient(0),
-                    ),
-                    const SizedBox(height: VelvetSpacing.md),
-                    BookingCommentField(
-                      controller: _comment,
-                      fieldKey: const Key('salon-confirm-comment-field'),
-                      maxLength: _maxComment,
-                    ),
-                    if (_failure != null) ...<Widget>[
-                      const SizedBox(height: VelvetSpacing.md),
-                      _SubmitErrorBanner(failure: _failure!),
+                      const SectionRule(),
                     ],
+                    LabelledRow(
+                      label: l10n.bookingAddressLabel,
+                      value: addressLine ?? l10n.bookingAddressUnknown,
+                      detail: addressDetail,
+                    ),
                   ],
                 ),
               ),
             ),
+            // Each master's OWN Дата/Час + ordered services + subtotal +
+            // comment field — a dedicated [SalonAppointmentCard] per assigned
+            // master, PAGED one at a time (owner decision, 2026-08-23 — see
+            // the file header). No visit-wide total: each card's own
+            // «Разом» (inside [BookingRecap]) is the only total shown.
+            Expanded(
+              child: AppointmentPager(
+                // Test-support key — lets an integration test drive a real
+                // hand-driven swipe via `pager_drag.dart`'s
+                // `dragPagerByOnePage` in addition to the arrow controls.
+                key: const Key('appointment-pager'),
+                count: appointments.length,
+                pageBuilder: (BuildContext context, int i) =>
+                    SalonAppointmentCard(
+                      key: ValueKey<String>(
+                        'salon-confirm-appt-${appointments[i].schedule.masterId}',
+                      ),
+                      appointment: appointments[i],
+                      selections: appointments[i].schedule.services
+                          .map(BookingSelection.fromSalonCatalogService)
+                          .toList(),
+                      avatarGradient: salonAvatarGradient(i),
+                      commentController: _commentFor(
+                        appointments[i].schedule.masterId,
+                      ),
+                      commentFieldKey: Key(
+                        'salon-confirm-comment-field-'
+                        '${appointments[i].schedule.masterId}',
+                      ),
+                      maxComment: _maxComment,
+                    ),
+              ),
+            ),
+            if (_failure != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  0,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                ),
+                child: _SubmitErrorBanner(failure: _failure!),
+              ),
           ],
         ),
       ),
@@ -256,8 +438,20 @@ class _SalonBookingConfirmScreenState
   }
 }
 
+/// Thrown when the client dismisses [showClientBookingConflictDialog] instead
+/// of proceeding — a benign, non-[Failure] control-flow signal caught by
+/// `_submit`'s own `on _SubmitCancelled` clause (checked BEFORE `on
+/// Failure`), so it never reaches the bottom error banner. Deliberately not a
+/// [Failure]: it is not an error at all, it is the client's explicit choice
+/// to back out.
+class _SubmitCancelled implements Exception {
+  const _SubmitCancelled();
+}
+
 /// The single inline error banner shown when a submit fails — mirrors
-/// `BookingConfirmScreen`'s banner (the independent flow).
+/// `BookingConfirmScreen`'s banner (the independent flow). NEVER shown for a
+/// `ClientBookingConflictFailure` — that one opens
+/// `showClientBookingConflictDialog` instead (see `_submitOne`).
 class _SubmitErrorBanner extends StatelessWidget {
   const _SubmitErrorBanner({required this.failure});
 

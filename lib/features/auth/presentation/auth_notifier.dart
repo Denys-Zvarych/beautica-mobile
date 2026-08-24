@@ -905,7 +905,9 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
     // Security (mobile-security MEDIUM) — force-clear the screen-protection
-    // reference count and tear down FLAG_SECURE / the iOS app-switcher blur.
+    // reference count and tear down the iOS app-switcher blur. (No FLAG_SECURE
+    // is involved: screenshots are allowed by product decision 2026-08-20 —
+    // see the header of `lib/core/security/screen_protection.dart`.)
     // Without this, a logout triggered while a PII screen's dialog is still
     // showing above a live `screenProtectionProvider` acquirer (e.g.
     // `RefreshInterceptor` force-logs-out on a failed token refresh while

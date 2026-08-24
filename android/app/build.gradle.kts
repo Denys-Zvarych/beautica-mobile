@@ -25,8 +25,11 @@ android {
     }
 
     // AGP 8+ requires explicit opt-in to emit BuildConfig.java.
-    // Required so MainActivity.kt can read BuildConfig.DEBUG to gate FLAG_SECURE
-    // in debug builds while keeping screenshot protection in release/profile builds.
+    // Originally enabled so MainActivity.kt could read BuildConfig.DEBUG to gate
+    // FLAG_SECURE. That gate is gone (product decision 2026-08-20 — see the header
+    // comment in MainActivity.kt), so no app source reads BuildConfig today. Left ON
+    // deliberately: it is free, some Flutter plugins expect the class to exist, and
+    // flipping it off is an unrelated build-config change.
     buildFeatures {
         buildConfig = true
     }

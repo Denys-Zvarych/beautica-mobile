@@ -473,7 +473,14 @@ class _ServiceCardState extends State<ServiceCard>
                   decoration: BoxDecoration(
                     color: BrandColors.base,
                     borderRadius: BorderRadius.circular(VelvetRadii.card),
-                    boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
+                    // FIX B (mobile-debugger, this session) — DIM, never
+                    // fully remove, the shadow on press: see
+                    // `VelvetShadows.extrudedCardPressed`'s doc for why a
+                    // `null` target here produced a visible background
+                    // flicker on a normal (sub-150ms) tap.
+                    boxShadow: _pressed
+                        ? VelvetShadows.extrudedCardPressed
+                        : VelvetShadows.extrudedCard,
                     // Additive (Phase 247 part 2): a picker-mode selected card
                     // gets an accent hairline, mirroring the selected-card
                     // treatment used elsewhere in the app. `null` (every

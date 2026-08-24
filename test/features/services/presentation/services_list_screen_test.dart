@@ -1,9 +1,10 @@
 // Phase 5.2 — Widget tests for ServicesListScreen.
 //
 // [ServicesListScreen] is a [ConsumerStatefulWidget]. The [ScreenProtector]
-// lifecycle calls (preventScreenshotOn / preventScreenshotOff) are guarded
-// by !kDebugMode, so they are never invoked during test runs and do not
-// require mocking.
+// lifecycle calls (the app-switcher blur — `preventScreenshotOn/Off` is no
+// longer called anywhere, product decision 2026-08-20, see the header of
+// `lib/core/security/screen_protection.dart`) are guarded by !kDebugMode, so
+// they are never invoked during test runs and do not require mocking.
 //
 // Covers all AsyncValue states and key interactions:
 //   1. Loading state — skeleton cards rendered; no service name text visible.

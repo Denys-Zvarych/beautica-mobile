@@ -289,7 +289,7 @@ final List<WishlistService> _mixedMasterAndSalon = <WishlistService>[
   ),
 ];
 
-/// The native FLAG_SECURE plugin must never fire under `flutter test` —
+/// The native `screen_protector` plugin must never fire under `flutter test` —
 /// [PassportScreen.initState] acquires screen protection on mount.
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override

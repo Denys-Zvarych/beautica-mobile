@@ -34,6 +34,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
@@ -104,7 +105,7 @@ class _FakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError('not used by nextAppointmentProvider');
@@ -203,7 +204,7 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError('not used by nextAppointmentProvider');

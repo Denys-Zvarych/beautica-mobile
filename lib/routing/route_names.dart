@@ -300,6 +300,17 @@ abstract final class RouteNames {
   /// only planned caller so far.
   static const String masterBookingNew = '$masterBookings/new';
 
+  /// Phase 264 — the walk-in chain's second screen: service multi-selection,
+  /// reached with a [WalkInGuest] in `extra` (minted by
+  /// `WalkInGuestStepScreen`'s «Далі»). A CHILD of [masterBookingNew] (`
+  /// /master/bookings/new/services`), registered as a nested `routes:` child
+  /// in `app_router.dart` — NOT a second top-level literal — so the
+  /// `archive` / `new` / `:bookingId` literal-before-dynamic ordering under
+  /// [masterBookings] is not perturbed at all (mirrors how `time` nests
+  /// under [bookingSlots] above). Derived from [masterBookingNew] itself so
+  /// the two constants can never drift apart.
+  static const String masterBookingNewServices = '$masterBookingNew/services';
+
   /// Phase 250 — the STAFF-side salon booking surfaces (`/salon/bookings/…`),
   /// `SALON_OWNER`/`SALON_ADMIN` only.
   ///

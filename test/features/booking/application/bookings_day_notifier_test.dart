@@ -924,4 +924,193 @@ void main() {
       ).called(2);
     });
   });
+
+  group('DayKeepAliveLru.isWatched contract (mobile-qa regression guard, '
+      'this track)', () {
+    // Pins the CONTRACT [DayKeepAliveLru.isWatched] exists to provide —
+    // `invalidateBookingViewsAfterBookingCreated`'s own regression coverage
+    // (`bookings_day_covered_route_recovery_test.dart`,
+    // `master_create_booking_test.dart`) only pins the SYMPTOM (the day list
+    // eventually shows the new booking). This group pins the underlying
+    // signal directly, at the tier that actually owns it, so a future
+    // refactor of `DayKeepAliveLru`/`BookingsDayNotifier.build`'s wiring
+    // breaks HERE — loudly, with a name that says exactly what broke — not
+    // only three files away in a UI-level symptom test.
+    //
+    // Deliberately NOT `container.read(bookingsDayProvider(query).future)`
+    // (the pattern the bounded-keepAlive group's own `visit` helper above
+    // uses) to reach the resolved state: mobile-qa found by mutation-testing
+    // this very group that a bare `.future`/`.read()` on a still-LOADING
+    // member issues its OWN transient internal subscribe/unsubscribe pair
+    // through the exact same `onAddListener`/`onRemoveListener` hooks
+    // `markWatched`/`markUnwatched` are wired to — net effect: `_watched`
+    // loses the query even though THIS test's own persistent `sub` never
+    // closed. That is `_watched` being a `Set`, not a listener count, biting
+    // even a SINGLE external listener the moment Riverpod's own internals
+    // briefly overlap a second one — see this file's Part 3 finding for the
+    // full severity call. Waiting on the listener's OWN callback instead
+    // creates no such second subscription.
+
+    test('a query with a live listener reads isWatched == true', () async {
+      stubBookings(_page(const <Booking>[]));
+      final container = _containerWith(repo);
+      final query = BookingsDayQuery.of(day: DateTime(2026, 7, 20));
+
+      final Completer<void> resolved = Completer<void>();
+      final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+          .listen(bookingsDayProvider(query), (
+            AsyncValue<BookingsDayState>? _,
+            AsyncValue<BookingsDayState> next,
+          ) {
+            if (!next.isLoading && !resolved.isCompleted) resolved.complete();
+          });
+      await resolved.future;
+
+      expect(
+        container.read(dayKeepAliveLruProvider).isWatched(query),
+        isTrue,
+        reason:
+            'a query with an active subscriber must read watched — the '
+            'signal `onAddListener` exists to provide',
+      );
+
+      sub.close();
+    });
+
+    test('a query whose listener detached but which is still LRU-pinned reads '
+        'isWatched == false', () async {
+      stubBookings(_page(const <Booking>[]));
+      final container = _containerWith(repo);
+      final query = BookingsDayQuery.of(day: DateTime(2026, 7, 20));
+
+      final Completer<void> resolved = Completer<void>();
+      final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+          .listen(bookingsDayProvider(query), (
+            AsyncValue<BookingsDayState>? _,
+            AsyncValue<BookingsDayState> next,
+          ) {
+            if (!next.isLoading && !resolved.isCompleted) resolved.complete();
+          });
+      await resolved.future;
+      sub.close();
+      // Same reasoning as the bounded-keepAlive group's `visit` helper
+      // above: the scheduler's dispose-check runs on a real zero-duration
+      // `Timer`, so this yield is what lets Riverpod actually process the
+      // unsubscribe before the assertion below reads its aftermath.
+      await Future<void>.delayed(Duration.zero);
+
+      final DayKeepAliveLru lru = container.read(dayKeepAliveLruProvider);
+      expect(
+        lru.contains(query),
+        isTrue,
+        reason:
+            'the bounded keepAlive link must still be pinning this query '
+            '— otherwise this test is not exercising the '
+            '"genuinely zero-listener, still pinned" case at all',
+      );
+      expect(
+        lru.isWatched(query),
+        isFalse,
+        reason:
+            'every subscriber unsubscribed — `contains` alone cannot '
+            'tell this apart from the paused case below, which is '
+            'exactly the gap `isWatched` exists to close',
+      );
+    });
+
+    test('THE CRUCIAL CASE — a covered (paused) consumer keeps listenerCount > '
+        '0, so isWatched stays true throughout the pause, never flips to '
+        'false the way a genuine unsubscribe does', () async {
+      stubBookings(_page(const <Booking>[]));
+      final container = _containerWith(repo);
+      final query = BookingsDayQuery.of(day: DateTime(2026, 7, 20));
+
+      final Completer<void> resolved = Completer<void>();
+      final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+          .listen(bookingsDayProvider(query), (
+            AsyncValue<BookingsDayState>? _,
+            AsyncValue<BookingsDayState> next,
+          ) {
+            if (!next.isLoading && !resolved.isCompleted) resolved.complete();
+          });
+      await resolved.future;
+
+      // Mirrors a full-screen route (the walk-in wizard) covering the day
+      // list underneath it — Riverpod pauses the covered Consumer's
+      // subscription rather than closing it. `pause()`/`resume()` are the
+      // exact primitives `element.dart`'s `isActive` getter keys off,
+      // per `DayKeepAliveLru._watched`'s own doc.
+      sub.pause();
+
+      final DayKeepAliveLru lru = container.read(dayKeepAliveLruProvider);
+      expect(
+        lru.isWatched(query),
+        isTrue,
+        reason:
+            'pausing a subscription does not touch its listener COUNT — '
+            'only `isActive` — so a covered-but-mounted Consumer must '
+            'still read watched. This is the exact distinction '
+            '`invalidateBookingViewsAfterBookingCreated` needs: skip the '
+            "eager read for THIS query (Riverpod's own resume handles "
+            'it), not fire it the way the pre-fix tautological `contains` '
+            'check did for every pinned member indiscriminately.',
+      );
+
+      sub.resume();
+      sub.close();
+    });
+
+    test('a bare `ref.read` (the exact idiom every fan-out helper in '
+        'booking_calendar_invalidation.dart uses) does NOT clear isWatched '
+        'for a query a REAL listener is still attached to (mobile-qa LOW, '
+        'this track)', () async {
+      // Probed directly against `package:riverpod` 3.1.0's own source
+      // (`provider_container.dart::read`): `read<StateT>` is implemented as
+      // `final sub = listen(provider, (_, _) {}); ...; sub.close();` — NOT a
+      // cheap synchronous peek. So `ref.read(bookingsDayProvider(query))` —
+      // the exact call every one of this file's four fan-out helpers makes,
+      // three of them (`invalidateBookingViewsAfterExternalDecline`,
+      // `invalidateBookingViewsAfterProviderClose`,
+      // `invalidateBookingsDayAfterAppointmentItemReschedule`) UNCONDITIONALLY
+      // whenever `DayKeepAliveLru.contains` is true — opens and immediately
+      // closes its OWN transient dependent subscription on the SAME element
+      // a real, still-open listener (e.g. the master's own «Мої записи»
+      // screen) is attached to. That transient pair fires
+      // `markWatched`/`markUnwatched` in the same synchronous step. A
+      // `Set`-backed `_watched` cannot survive it: `Set.add` then
+      // `Set.remove` nets to "absent" regardless of the real listener still
+      // being open, which is exactly the bug this test pins.
+      stubBookings(_page(const <Booking>[]));
+      final container = _containerWith(repo);
+      final query = BookingsDayQuery.of(day: DateTime(2026, 7, 20));
+
+      final Completer<void> resolved = Completer<void>();
+      final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+          .listen(bookingsDayProvider(query), (
+            AsyncValue<BookingsDayState>? _,
+            AsyncValue<BookingsDayState> next,
+          ) {
+            if (!next.isLoading && !resolved.isCompleted) resolved.complete();
+          });
+      await resolved.future;
+
+      // Mirrors `invalidateBookingViewsAfterExternalDecline`'s own
+      // `ref.invalidate(...)` + eager `ref.read(...)` pair firing for THIS
+      // query while the master is still viewing it — e.g. an external
+      // decline landing on the same day the rail is currently showing.
+      container.invalidate(bookingsDayProvider(query));
+      container.read(bookingsDayProvider(query));
+
+      expect(
+        container.read(dayKeepAliveLruProvider).isWatched(query),
+        isTrue,
+        reason:
+            'the real listener from `container.listen` above never closed '
+            '— a transient `ref.read` on the SAME query must not be able '
+            'to make `isWatched` forget a still-open real listener',
+      );
+
+      sub.close();
+    });
+  });
 }

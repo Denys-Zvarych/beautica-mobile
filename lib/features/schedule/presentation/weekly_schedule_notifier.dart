@@ -23,6 +23,7 @@ import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 import 'effective_schedule_notifier.dart';
+import 'schedule_range.dart';
 
 part 'weekly_schedule_notifier.g.dart';
 
@@ -70,10 +71,10 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     });
     state = result;
     if (result.hasValue) {
-      // The template changed — every resolved effective-schedule window is now
-      // stale. Invalidate the whole family so the calendar re-fetches.
-      // cycle-safe: effectiveScheduleProvider watches overridesProvider + scheduleRepositoryProvider, NOT weeklyScheduleProvider — no back-edge into this notifier, no cycle.
-      ref.invalidate(effectiveScheduleProvider);
+      // The template changed — every resolved effective-schedule window is
+      // now stale. See [_invalidateEffectiveScheduleWindows]'s doc for why
+      // this is no longer a bare family invalidate.
+      _invalidateEffectiveScheduleWindows();
     }
   }
 
@@ -91,8 +92,49 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     });
     state = result;
     if (result.hasValue) {
+      _invalidateEffectiveScheduleWindows();
+    }
+  }
+
+  /// FIX D (mobile-debugger, this track) — the ONE fan-out point for "the
+  /// weekly template changed, every resolved `effectiveScheduleProvider`
+  /// window is stale", called from BOTH [save] and [delete].
+  ///
+  /// Used to be a single bare `ref.invalidate(effectiveScheduleProvider)` —
+  /// correct in scope (the template really does invalidate every window, so
+  /// this can never become a per-range invalidate the way
+  /// `booking_calendar_invalidation.dart`'s callers scope to
+  /// `affectedDate`(s)) but exposed to the same `ProviderSubscription`-closed
+  /// race that file's FIX A/B fix: `MasterScheduleScreen` re-keys its OWN
+  /// `ref.watch(effectiveScheduleProvider(_range))` on local `_weekStart`/
+  /// `_visibleMonth` state as the master pages weeks/months, so a range
+  /// visited earlier this session and paged away from is
+  /// pinned-but-unwatched (alive only via `EffectiveScheduleNotifier`'s own
+  /// 5-minute `_pinForTtl()` TTL, zero listeners) — precisely the precondition
+  /// `invalidateSelf()`'s queued disposal races a later `ref.watch` on. See
+  /// `EffectiveScheduleRangeTracker`'s doc (`effective_schedule_notifier
+  /// .dart`) for why enumerating the candidates (rather than scoping to one
+  /// known range, as the booking fix does) is the correct generalisation
+  /// here: `ScheduleRange` is open-ended, so there is no bounded LRU or fixed
+  /// enum to fall back on — the tracker exists purely so this loop has a key
+  /// set to gate-and-eager-read over, the exact same idiom
+  /// `booking_calendar_invalidation.dart` uses.
+  ///
+  /// Every candidate range costs a `ref.exists` check regardless; only a
+  /// range that WAS pinned pays for the eager `ref.read` — a range this
+  /// session never visited (and so was never remembered by the tracker) is
+  /// never even a candidate.
+  void _invalidateEffectiveScheduleWindows() {
+    final EffectiveScheduleRangeTracker tracker = ref.read(
+      effectiveScheduleRangeTrackerProvider,
+    );
+    for (final ScheduleRange range in tracker.liveRanges) {
+      final bool wasPinned = ref.exists(effectiveScheduleProvider(range));
       // cycle-safe: effectiveScheduleProvider watches overridesProvider + scheduleRepositoryProvider, NOT weeklyScheduleProvider — no back-edge into this notifier, no cycle.
-      ref.invalidate(effectiveScheduleProvider);
+      ref.invalidate(effectiveScheduleProvider(range));
+      if (wasPinned) {
+        ref.read(effectiveScheduleProvider(range));
+      }
     }
   }
 

@@ -37,7 +37,32 @@
 // restated here because this notifier's `void` value type makes that trap
 // invisible rather than absent.)
 //
+// ## PHASE 256 — [submit] now RETURNS the created [Appointment]
+//
+// The `done` step needs the SERVER's visit (window, totals, ordered items),
+// not the wizard's local selection — see `master_create_booking_screen.dart`'s
+// `_DoneStep` doc. Two ways to get it there were on the table: widen `state`
+// to `AsyncValue<Appointment?>`, or keep `state` exactly as `void` and have
+// [submit] hand the value back as its own return. Widening `state` was
+// REJECTED — it would resurrect the EXACT trap the section above documents
+// (`state.value == null` on both "idle" and "submitted"), except now for a
+// value type where a caller is far more likely to reach for `.value` than for
+// this notifier's own `void`. So `state` stays `void`, unchanged in shape and
+// meaning; [submit] separately returns `Appointment?` — non-null on success,
+// `null` on the double-submit no-op AND on a mapped [Failure] (the caller
+// reads `state.hasError`/`state.error` for that, exactly as before this
+// phase). The screen stores the returned value in its OWN local field
+// (`_createdAppointment`) rather than reading it back off this provider.
+//
 // ## Success invalidation
+//
+// Routed through `booking_calendar_invalidation.dart`'s
+// `invalidateBookingViewsAfterBookingCreated`, this feature's ONE fan-out
+// point for "which master-facing booking caches does this write drop?" —
+// rather than enumerated inline here. That is what caught the 2026-08-20
+// mobile-debugger MEDIUM: this notifier dropped `bookingsDayProvider` but not
+// `bookedDaysProvider`, so a day the master had just booked carried no
+// rail/month dot until that 30-minute-TTL singleton happened to refetch.
 //
 // On success, invalidates the WHOLE [bookingsDayProvider] family (every
 // day/query combination the master's «Мої записи» screen may have cached) —
@@ -56,8 +81,9 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../data/booking_providers.dart';
+import '../domain/appointment.dart';
 import '../domain/create_master_booking_request.dart';
-import 'bookings_day_notifier.dart';
+import 'booking_calendar_invalidation.dart';
 
 part 'master_create_booking_notifier.g.dart';
 
@@ -77,23 +103,27 @@ class MasterCreateBookingNotifier extends _$MasterCreateBookingNotifier {
   /// `core/errors/failures.dart`) on failure. A second call while the first
   /// is still in flight is a NO-OP — see the file header's double-submit
   /// section.
-  Future<void> submit({
+  ///
+  /// Returns the server's created [Appointment] on success, `null` on the
+  /// no-op AND on a mapped [Failure] — see the file header's "PHASE 256"
+  /// section for why this is a return value rather than a widened `state`.
+  Future<Appointment?> submit({
     required String masterId,
     required CreateMasterBookingRequest request,
   }) async {
-    if (state.isLoading) return;
+    if (state.isLoading) return null;
     state = const AsyncLoading<void>();
+    Appointment? created;
     state = await AsyncValue.guard(() async {
-      await ref
+      created = await ref
           .read(bookingRepositoryProvider)
           .createMasterBooking(masterId, request);
       // See the file header's "Success invalidation" section for why this
-      // invalidates the WHOLE family rather than one query member.
-      // cycle-safe: BookingsDayNotifier.build only watches
-      // bookingRepositoryProvider / clockProvider — it never watches (even
-      // transitively) masterCreateBookingProvider, so there is no back-edge
-      // for this to close.
-      ref.invalidate(bookingsDayProvider);
+      // invalidates the WHOLE `bookingsDayProvider` family rather than one
+      // query member, and `booking_calendar_invalidation.dart` for why the
+      // day-rail/month dot set (`bookedDaysProvider`) must drop alongside it.
+      invalidateBookingViewsAfterBookingCreated(ref);
     });
+    return created;
   }
 }

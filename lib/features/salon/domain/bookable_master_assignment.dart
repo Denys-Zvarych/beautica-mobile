@@ -17,7 +17,7 @@
 // ids the coverage map actually needs: [masterId] for eligibility, and
 // [masterServiceId] — the master's OWN `MasterServiceAssignment` id for the
 // service, the id the slot-availability endpoint requires (see
-// `salon_master_schedule.dart`'s `primaryServiceAssignmentId`).
+// `salon_master_schedule.dart`'s `orderedMasterServiceIds`).
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 

@@ -51,6 +51,7 @@ import 'package:beautica_mobile/features/booking/application/salon_masters_roste
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
@@ -153,7 +154,7 @@ class _FakeSlotRepository implements SlotRepository {
 
 class _FakeBookingRepository implements BookingRepository {
   @override
-  Future<Booking> createMasterBooking(
+  Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError();
@@ -252,7 +253,15 @@ Future<void> _driveToMasters(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('master-create-booking-client-next')));
   await tester.pumpAndSettle();
 
+  // PHASE 253 — `service` is multi-select, SELECT ONLY: the card tap merely
+  // marks the service, and the pinned `BookingSummaryBar` CTA is what
+  // advances the wizard. Same two-tap sequence as
+  // `salon_create_booking_screen_test.dart`'s `_pickService`; without the CTA
+  // tap this drive stays parked on the service step and the date step's
+  // calendar never mounts, so `tapCalendarDay` throws `Bad state: No element`.
   await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-1')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
   await tester.pumpAndSettle();
 
   await tester.tapCalendarDay(10);

@@ -98,6 +98,15 @@ abstract final class VelvetText {
   static TextStyle wordmark() => _wordmarkStyle;
   static TextStyle heading() => _headingStyle;
   static TextStyle subheading() => _subheadingStyle;
+
+  /// THE single screen/page-title token for every top-level (bottom-nav
+  /// tab-root) screen — Comfortaa 14 / w600 / [BrandColors.text], identical
+  /// to [_subheadingStyle]. Any new top-level screen title MUST use this
+  /// token rather than [heading], [subheading], or a per-screen one-off
+  /// (e.g. the now-removed `masterBookingsTitle`, which forked its own
+  /// 22 sp size and caused the tab-root title divergence this token fixes).
+  static final TextStyle pageTitle = _subheadingStyle;
+
   static TextStyle cta() => _ctaStyle;
   static TextStyle body() => _bodyStyle;
   static TextStyle bodyStrong() => _bodyStrongStyle;
@@ -421,9 +430,6 @@ abstract final class VelvetText {
     color: BrandColors.textSecondary,
     fontWeight: FontWeight.w800,
   );
-
-  /// `MasterSchedulePage`'s date-phase intro copy — body at 14 sp.
-  static final TextStyle scheduleDateIntro = _bodyStyle.copyWith(fontSize: 11);
 
   /// `MasterSchedulePage`'s "Вільний час" section heading — subheading at
   /// 16 sp.
@@ -1410,11 +1416,6 @@ abstract final class VelvetText {
   /// weekday caption ever moves.
   static final TextStyle railDayNumber = _statValueStyle.copyWith(
     fontSize: 12.6,
-  );
-
-  /// Master booking-card screen title («Мої записи») — heading at 22 sp.
-  static final TextStyle masterBookingsTitle = _headingStyle.copyWith(
-    fontSize: 22,
   );
 
   // The `masterCard*` prefix is deliberate. The CLIENT booking card already

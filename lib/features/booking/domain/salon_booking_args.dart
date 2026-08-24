@@ -18,8 +18,6 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
-import 'salon_master_schedule.dart';
-
 part 'salon_booking_args.freezed.dart';
 
 /// Navigation extra for `RouteNames.salonBookingMasters`.
@@ -36,17 +34,24 @@ abstract class SalonBookingMasterSelectionArgs
   }) = _SalonBookingMasterSelectionArgs;
 }
 
-// MO-4 (single-master single-visit rework) — navigation payload for the salon
-// booking flow's step-3 "Час" screen (`RouteNames.salonBookingTime`), pushed
-// by `SalonMasterSelectionScreen`'s «Далі» CTA.
+// Phase 14.16 — navigation payload for the salon booking flow's step-3
+// "Час" screen (`RouteNames.salonBookingTime`), pushed by
+// `SalonMasterSelectionScreen`'s «Підтвердити» CTA.
 //
-// The salon flow now books ONE visit against ONE chosen master who performs
-// ALL selected services. This carries the fully-resolved [visit] (the chosen
-// master + ordered services + per-master assignment ids), so the time / confirm
-// screens need no re-fetch of the coverage map or catalogue to resolve it —
-// only the salon address (a secondary read on the confirm/success screens).
-// REPLACES the pre-MO-4 `{selectedServiceIds, assignedServiceIdsByMaster}`
-// per-master assignment map.
+// DEVIATION from the Phase 14.16 phase doc's one-line sketch
+// (`SalonBookingTimeArgs { salonId, selectedServiceIds }`): this also carries
+// [assignedServiceIdsByMaster] — the EXACT per-master assignment the client
+// resolved on `SalonMasterSelectionScreen`, INCLUDING any contested-service
+// choice made via that screen's resolver chips (a selected service performed
+// by 2+ picked masters, where the client explicitly tapped which one gets
+// it). Without this, `SalonTimeScreen` would have no way to reconstruct that
+// choice — recomputing eligibility fresh from
+// `salonMasterServiceCoverageProvider` + [selectedServiceIds] alone can only
+// ever re-derive the masters/services, never WHICH candidate the client
+// picked for a contested service, so that choice would be silently
+// discarded. This is necessary to satisfy the phase doc's own acceptance
+// criterion ("Slider shows exactly the masters assigned in step 2, with
+// correct per-master service/duration summary") — not an embellishment.
 
 /// Navigation extra for `RouteNames.salonBookingTime`.
 @freezed
@@ -54,8 +59,16 @@ abstract class SalonBookingTimeArgs with _$SalonBookingTimeArgs {
   const factory SalonBookingTimeArgs({
     required String salonId,
 
-    /// The chosen master + ordered selected services + per-master assignment
-    /// ids, resolved on `SalonMasterSelectionScreen`.
-    required SalonMasterSchedule visit,
+    /// The client's full service selection from step 1 — carried alongside
+    /// [assignedServiceIdsByMaster] (rather than re-derived from it) so a
+    /// service that somehow resolved to no master (should never happen once
+    /// `SalonMasterSelectionScreen`'s "Далі" CTA is enabled) is still
+    /// traceable for debugging.
+    required List<String> selectedServiceIds,
+
+    /// masterId → the services (by [SalonCatalogService.id]) assigned to
+    /// them, in roster order. Every value list is non-empty — a master only
+    /// appears here once ≥1 service resolved to them.
+    required Map<String, List<String>> assignedServiceIdsByMaster,
   }) = _SalonBookingTimeArgs;
 }

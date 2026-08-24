@@ -642,6 +642,20 @@ void main() {
       // Both actions are offered on an elapsed CONFIRMED visit.
       expect(find.byKey(const Key('booking-detail-complete')), findsOneWidget);
       expect(find.byKey(const Key('booking-detail-decline')), findsOneWidget);
+      // «Перенести» is OMITTED on an elapsed appointment-child booking too
+      // — `_providerActions`' `hasStartedAt(now)` branch gates on the
+      // booking alone, never on `appointmentId`, mirroring the
+      // plain-booking underway/past case asserted in
+      // `booking_detail_provider_footer_test.dart`. USER-LOCKED REVERSAL
+      // (this session) of the previously-pinned visible-but-inert shape.
+      expect(
+        find.byKey(const Key('booking-detail-provider-reschedule')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('booking-detail-reschedule-unavailable-reason')),
+        findsNothing,
+      );
 
       await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await tester.pumpAndSettle();

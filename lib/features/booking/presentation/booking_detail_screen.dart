@@ -82,6 +82,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -206,10 +207,17 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // The booking just left CONFIRMED for DECLINED — every master-facing
     // cache that status close must drop (own detail, day timeline, archive
     // list) goes through the ONE shared fan-out point; see that function's
-    // doc for the bare-family rationale on both `bookingsDayProvider` and
-    // `masterArchiveProvider`, and for the 2026-08-16 archive-staleness bug
-    // this replaced two independently-drifting hand-rolled call sites for.
-    invalidateBookingViewsAfterProviderClose(ref, booking.id);
+    // doc for the per-date-scoped, wasPinned-gated `bookingsDayProvider`
+    // rationale, the bare-family `masterArchiveProvider` rationale, and the
+    // 2026-08-16 archive-staleness bug this replaced two independently-
+    // drifting hand-rolled call sites for. `affectedDate` is `booking.startAt`
+    // classified into its Kyiv calendar day — the same day
+    // `bookingsDayProvider` keys the master's own «Мої записи» by.
+    invalidateBookingViewsAfterProviderClose(
+      ref,
+      booking.id,
+      affectedDate: kyivDayOf(booking.startAt),
+    );
   }
 
   /// Track 27.x Wave A — the PROVIDER's «Завершити» opens a plain confirm
@@ -266,7 +274,11 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     if (!mounted) return;
     // Same shared fan-out as `_confirmDecline` — the booking just left
     // CONFIRMED for COMPLETED.
-    invalidateBookingViewsAfterProviderClose(ref, booking.id);
+    invalidateBookingViewsAfterProviderClose(
+      ref,
+      booking.id,
+      affectedDate: kyivDayOf(booking.startAt),
+    );
   }
 
   /// Track 30.x (superseding track 27.x/MO-6's whole-visit flow): when
@@ -585,9 +597,7 @@ class _DetailBody extends StatelessWidget {
       case BookingStatus.cancelled:
         return l10n.bookingDetailSublineCancelled;
       case BookingStatus.declined:
-        return b.atSalon
-            ? l10n.bookingDetailSublineDeclinedSalon
-            : l10n.bookingDetailSublineDeclinedMaster;
+        return l10n.bookingDetailSublineDeclined;
       // No subline. Every other branch here is the app narrating what the
       // status MEANS; for a status this build does not recognise there is
       // nothing truthful to narrate, and the badge already says so.
@@ -719,9 +729,13 @@ class _DetailBody extends StatelessWidget {
   ///     per-item `PATCH /appointments/{id}/services/{bookingId}/reschedule`
   ///     — track 30.x, moving ONLY this service) + «Скасувати» (decline).
   ///   * CONFIRMED, [Booking.hasStarted] — «Завершити» AND «Скасувати»
-  ///     (decline). Reschedule alone is hidden — it would 409 server-side
-  ///     once the appointment has begun (see `hasStarted`'s doc for why this
-  ///     is a DIFFERENT gate than the client-side [Booking.isPast]). Decline
+  ///     (decline), PLUS a DISABLED «Перенести» with a visible caption
+  ///     underneath explaining why — it would 409 server-side once the
+  ///     appointment has begun (see `hasStarted`'s doc for why this is a
+  ///     DIFFERENT gate than the client-side [Booking.isPast]). The button
+  ///     used to be omitted outright, which read as a silent app limitation
+  ///     rather than a fact about this booking — kept visible-but-inert
+  ///     instead (`onPressed: null`; see the branch body for detail). Decline
   ///     itself is NOT time-gated — the backend allows a provider to decline
   ///     a CONFIRMED booking at any time, elapsed or not; a client who never
   ///     showed up is recorded as a decline with a free-text reason, same as
@@ -779,6 +793,19 @@ class _DetailBody extends StatelessWidget {
     // pinnable from a test's `clockProvider` override instead of reading the
     // device clock deep inside a getter. See [now].
     if (booking.hasStartedAt(now)) {
+      // USER-LOCKED REVERSAL (this session, supersedes `ef521cace`
+      // 2026-08-20): that commit kept «Перенести» visible-but-disabled here
+      // with a permanent unavailable-reason caption, on the rationale that a
+      // vanished CTA read as "the app can't reschedule" rather than "this
+      // booking specifically can't move". The user overruled that — a
+      // button that can never be tapped should never be shown, full stop,
+      // for BOTH the underway and the fully-elapsed sub-cases this branch
+      // covers (`hasStartedAt` doesn't distinguish them, so there is only
+      // one branch to fix). The backend guard
+      // (`BookingTemporalGuard.assertCurrentNotElapsedForReschedule`) is
+      // unchanged — reschedule was never reachable here, only its
+      // affordance is now omitted. Complete + Decline stay so the footer is
+      // never empty.
       return <Widget>[
         NeumorphicButton(
           key: const Key('booking-detail-complete'),

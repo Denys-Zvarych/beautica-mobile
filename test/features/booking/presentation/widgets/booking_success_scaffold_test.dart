@@ -206,4 +206,67 @@ void main() {
       },
     );
   });
+
+  group(
+    'BookingSuccessScaffold — pagedRecap width (FIX 2, mobile-qa 2026-08-23)',
+    () {
+      testWidgets(
+        'pagedRecap receives the FULL pumped width — no extra horizontal '
+        'inset stacked on top of its own self-padding',
+        (tester) async {
+          await _pumpTall(tester);
+
+          // Captures the BoxConstraints the scaffold hands its `pagedRecap`
+          // slot. `LayoutBuilder` reports the incoming constraint regardless
+          // of what the child asks for, so this is independent of whatever
+          // AppointmentPager (the real caller) does internally — the
+          // question under test is purely "how much width does the SLOT
+          // itself give its child", which is exactly where FIX 2's bug lived
+          // (see `booking_success_scaffold.dart`'s `build()` FIX 2 comment).
+          double? probedWidth;
+          final Widget probe = LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              probedWidth = constraints.maxWidth;
+              return const SizedBox.expand();
+            },
+          );
+
+          await tester.pumpApp(
+            _reducedMotion(
+              BookingSuccessScaffold(
+                // i18n-finder-ok: fixture copy, mirrors `_scaffold()`'s own
+                // title/subline stand-ins above — this test exercises layout,
+                // not copy.
+                title: 'Записано!',
+                subline: 'Тестовий підзаголовок',
+                recapCards: const <Widget>[],
+                pagedRecap: probe,
+              ),
+            ),
+            width: 400,
+          );
+          await tester.pumpAndSettle();
+
+          // The confirm screen's OWN `Expanded(child: AppointmentPager(...))`
+          // (`salon_booking_confirm_screen.dart`) has NO wrapping Padding
+          // either — AppointmentPager always receives the full body width on
+          // BOTH the confirm and success screens, and self-pads internally by
+          // its own single `lg` inset (`appointment_pager.dart`'s
+          // `itemBuilder`). Asserting the pumped width itself is therefore
+          // the numeric parity check: the pre-fix double-padded scaffold
+          // would have reported `400 - 2 * VelvetSpacing.lg` (352) here
+          // instead — see the mutation note on this test in the QA report.
+          expect(
+            probedWidth,
+            400,
+            reason:
+                'the scaffold must apply NO horizontal inset around '
+                'pagedRecap — a reintroduced outer horizontal Padding '
+                'wrapping the whole content column (the FIX 2 regression) '
+                'would shrink this below the full pumped width',
+          );
+        },
+      );
+    },
+  );
 }

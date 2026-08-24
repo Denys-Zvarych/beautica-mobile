@@ -96,11 +96,49 @@ import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 ///   • The on-screen-but-COVERED entries are NOT disposed — `hasNonWeakListeners`
 ///     counts paused subscriptions — they are retained and dirty, and refetch
 ///     once on resume. See `project_riverpod_offstage_pause_invalidate`.
+///
+/// FIX C (mobile-debugger, this track) — the "bucket the user opened earlier
+/// and switched away from" bullet above is not merely "disposed and refetched
+/// later": it is the SAME `ProviderSubscription`-closed race
+/// `booking_calendar_invalidation.dart`'s FIX A/B fix for
+/// `bookingsDayProvider`. `master_reviews_body.dart`'s `_SortableReviewList`
+/// holds the active [MasterReviewSort] as LOCAL mutable state (`_sort`) and
+/// re-keys its OWN `ref.watch(masterReviewsProvider(masterId, _sort))` the
+/// instant the sort toggle fires — the non-selected sort's element drops to
+/// zero listeners right then, kept alive only by its own 5-minute
+/// `ref.keepAlive()` timer (`master_reviews_notifier.dart`), i.e.
+/// pinned-but-unwatched. A review submit any time inside that 5-minute window
+/// invalidates ALL [MasterReviewSort.values] here, including that
+/// pinned-but-unwatched member — `invalidateSelf()` queues its disposal — and
+/// if the client then re-opens the sort sheet and picks the SAME sort back
+/// (re-`ref.watch`ing the identical family member on the SAME still-mounted
+/// screen) before the queued disposal task fires, the watcher can observe the
+/// element mid-teardown and throw, exactly like the calendar bug.
+///
+/// Fix: the SAME idiom `booking_calendar_invalidation.dart` uses — gate on
+/// "does this exact key currently have a live element?" via [WidgetRef.exists]
+/// (the general form of that file's `DayKeepAliveLru.contains`: both answer
+/// "has this specific family member built at least once and not yet been
+/// disposed", `DayKeepAliveLru` via its own bookkeeping, `ref.exists` via
+/// Riverpod's container directly — no separate registry is needed here
+/// because, unlike `bookingsDayProvider`'s per-day queries, the full key space
+/// for one masterId is the small FIXED enum [MasterReviewSort.values], so
+/// there is nothing to enumerate beyond it), THEN invalidate, THEN — only when
+/// the key was actually pinned — perform a synchronous `ref.read` so
+/// `element.flush()` re-touches the keepAlive link before the scheduler's
+/// queued disposal task ever runs, cancelling it deterministically. A sort the
+/// client never opened this session costs exactly what it always did: a
+/// null-guarded no-op.
 void invalidateMasterReviewSurfaces(WidgetRef ref, String masterId) {
   ref.invalidate(publicMasterProfileProvider(masterId));
   ref.invalidate(masterReviewSummaryProvider(masterId));
   for (final MasterReviewSort sort in MasterReviewSort.values) {
-    ref.invalidate(masterReviewsProvider(masterId, sort));
+    final target = masterReviewsProvider(masterId, sort);
+    final bool wasPinned = ref.exists(target);
+    ref.invalidate(target);
+    if (wasPinned) {
+      ref.read(target);
+    }
   }
 }
 
@@ -138,10 +176,23 @@ void invalidateMasterReviewSurfaces(WidgetRef ref, String masterId) {
 /// salon screen sitting on the stack refetch for nothing, and would silently
 /// over-invalidate forever with no compile-time signal when a fourth
 /// salon-keyed cache appears for an unrelated reason. See phase 233 § 4.
+///
+/// FIX C mirror — see [invalidateMasterReviewSurfaces]'s doc for the full
+/// mechanism (this is the byte-for-byte salon-side shape:
+/// `salon_reviews_section.dart`'s `_SalonReviewsSectionState` holds `_sort` as
+/// local mutable state exactly the way `master_reviews_body.dart` does). Same
+/// gate — `WidgetRef.exists` before invalidating, `ref.read` after only when
+/// the key was pinned — and the same reason no registry is needed: one
+/// salonId's key space is the small fixed enum [SalonReviewSort.values].
 void invalidateSalonReviewSurfaces(WidgetRef ref, String salonId) {
   ref.invalidate(publicSalonProfileProvider(salonId));
   ref.invalidate(salonReviewSummaryProvider(salonId));
   for (final SalonReviewSort sort in SalonReviewSort.values) {
-    ref.invalidate(salonReviewsProvider(salonId, sort));
+    final target = salonReviewsProvider(salonId, sort);
+    final bool wasPinned = ref.exists(target);
+    ref.invalidate(target);
+    if (wasPinned) {
+      ref.read(target);
+    }
   }
 }

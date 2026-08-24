@@ -47,6 +47,18 @@ class SuccessLottieBadge extends StatelessWidget {
             // Swap in a static version of the same circular badge so there's
             // never a blank box, then hand off to the real animation the instant
             // the composition is ready.
+            //
+            // COLOUR-FLASH FIX (2026-08-20, user-reported): the placeholder
+            // used to paint `BrandColors.success` (#5C7A4A, GREEN) — a colour
+            // that appears NOWHERE in `assets/lottie/success.json`, whose only
+            // two fills are `#B89A7A` (BrandColors.accent, the camel disc) and
+            // `#F5EDE0` (BrandColors.white, the cream check). So every success
+            // screen flashed a green check for a frame or two and then swapped
+            // to a camel one. The placeholder now paints the animation's OWN
+            // disc colour, so the hand-off is invisible: same disc colour, same
+            // glyph colour, same `size` (no layout jump either). Do NOT restore
+            // `BrandColors.success` here — it is the semantic "success" token,
+            // not this asset's palette, and the two disagree.
             frameBuilder:
                 (
                   BuildContext context,
@@ -55,7 +67,7 @@ class SuccessLottieBadge extends StatelessWidget {
                 ) {
                   if (composition == null) {
                     return StatusMedallion(
-                      color: BrandColors.success,
+                      color: BrandColors.accent,
                       icon: Icons.check_rounded,
                       size: size,
                     );
@@ -88,8 +100,9 @@ class SuccessLottieBadge extends StatelessWidget {
 ///
 /// Promoted from the private `_SuccessBadgePlaceholder` that used to live
 /// only here (Phase 14.3): [SuccessLottieBadge] still uses it, unchanged, as
-/// its decode-time fallback (`color: BrandColors.success, icon:
-/// Icons.check_rounded`); «Деталі запису» (`booking_status_medallion.dart`)
+/// its decode-time fallback (`color: BrandColors.accent, icon:
+/// Icons.check_rounded` — the Lottie's OWN disc colour, see that call site);
+/// «Деталі запису» (`booking_status_medallion.dart`)
 /// uses it directly for all five booking statuses, wrapped in its own
 /// entrance animation. One widget, two call sites, no new vocabulary — see
 /// the Phase 14.3 README's "celebration vs reference" section for why the

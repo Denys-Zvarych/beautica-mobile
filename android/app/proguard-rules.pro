@@ -11,9 +11,12 @@
 -keep class net.jonhanson.flutter_native_splash.** { *; }
 -keepclassmembers class net.jonhanson.flutter_native_splash.** { *; }
 
-# screen_protector — MethodChannel handler for FLAG_SECURE (MASVS-PLATFORM MS6)
-# Protects auth screens from OS-level screenshot/recording. R8 must not strip
-# the MethodChannel implementation or preventScreenshotOn/Off become silent no-ops.
+# screen_protector — MethodChannel handler for the app-switcher / data-leakage
+# blur. It no longer serves FLAG_SECURE: screenshots and screen recording are
+# ALLOWED by product decision 2026-08-20 (see the header comment in
+# MainActivity.kt), and no Dart code calls preventScreenshotOn/Off any more.
+# R8 must not strip the MethodChannel implementation or
+# protectDataLeakageWithBlur/…Off become silent no-ops.
 -keep class com.prongbang.screen_protector.** { *; }
 -keepclassmembers class com.prongbang.screen_protector.** { *; }
 

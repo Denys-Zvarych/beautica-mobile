@@ -26,8 +26,10 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/master_create_booking_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
@@ -39,41 +41,36 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
-/// A minimal enriched [Booking] fixture — [MasterCreateBookingNotifier]
-/// never reads any field off the result (submit state is `void`), so only
-/// the shape needs to satisfy the return type.
-Booking _bookingFixture() => Booking(
-  id: 'booking-1',
+/// A minimal enriched [Appointment] fixture (Phase 252 — the endpoint's
+/// response widened from a lean `Booking` to the full visit) —
+/// [MasterCreateBookingNotifier] never reads any field off the result (submit
+/// state is `void`), so only the shape needs to satisfy the return type.
+Appointment _appointmentFixture() => Appointment(
+  id: 'appt-1',
+  status: BookingStatus.confirmed,
   masterId: 'master-1',
   masterFirstName: 'Марія',
   masterLastName: 'Іванюк',
-  masterAvatarUrl: null,
   masterType: 'INDEPENDENT_MASTER',
-  salonName: null,
-  serviceId: 'service-1',
-  serviceName: 'Манікюр',
-  categoryName: 'Манікюр',
-  cityLabel: 'Львів',
-  districtLabel: null,
-  street: null,
-  buildingNo: null,
-  durationMinutes: 60,
-  price: 500,
   startAt: DateTime.utc(2000, 1, 1, 11),
   endAt: DateTime.utc(2000, 1, 1, 12),
-  status: BookingStatus.confirmed,
-  canReview: false,
-  providerCanReviewClient: false,
-  clientComment: null,
-  providerComment: null,
-  clientCancellationNote: null,
-  masterProfessionalTitle: null,
-  locationNote: null,
-  awaitingClosure: false,
+  totalDurationMinutes: 60,
+  totalPrice: 500,
+  items: <AppointmentItem>[
+    AppointmentItem(
+      bookingId: 'booking-1',
+      masterServiceId: 'service-1',
+      serviceName: 'Манікюр',
+      startAt: DateTime.utc(2000, 1, 1, 11),
+      endAt: DateTime.utc(2000, 1, 1, 12),
+      durationMinutes: 60,
+      price: 500,
+    ),
+  ],
 );
 
 final CreateMasterBookingRequest _request = CreateMasterBookingRequest(
-  masterServiceId: 'service-1',
+  masterServiceIds: <String>['service-1'],
   startsAt: DateTime.utc(2000, 1, 1, 11),
   guest: const WalkInGuest(
     name: 'Іван',
@@ -140,13 +137,75 @@ void main() {
     container = _container(repo);
   });
 
+  // The OTHER half of `invalidateBookingViewsAfterBookingCreated`'s fan-out
+  // (2026-08-20). `bookedDaysProvider` is a filter-independent `keepAlive()`
+  // SINGLETON with a THIRTY-MINUTE TTL, so it is not a member of the
+  // `bookingsDayProvider` family the test below covers and nothing else drops
+  // it. Without this invalidation the day the master had just booked carried
+  // no rail/month dot for up to half an hour — a brand-new booking on a day
+  // that had none is precisely a change to a booking's EXISTENCE, which is the
+  // condition `booked_days_notifier.dart`'s header names as requiring an
+  // explicit invalidation.
+  //
+  // Asserted by REFETCH COUNT: `ref.invalidate` reloads seamlessly and retains
+  // the previous `.value`, so no value-shape assertion could ever fail here.
+  test('submit(): a successful create also invalidates bookedDaysProvider — '
+      'the rail/month dot for the newly-booked day', () async {
+    _stubDayFetch(repo);
+    when(
+      () => repo.createMasterBooking(any(), any()),
+    ).thenAnswer((_) async => _appointmentFixture());
+
+    int bookedDaysFetches = 0;
+    final ProviderContainer c = ProviderContainer(
+      retry: beauticaProviderRetry,
+      // ignore: avoid_dynamic_calls
+      overrides: <Object>[
+        bookingRepositoryProvider.overrideWithValue(repo),
+        // Overridden rather than real: the production provider parks its own
+        // 30-minute keepAlive `Timer`, and a counting closure is the only way
+        // to observe a seamless invalidate at all.
+        bookedDaysProvider.overrideWith((ref) async {
+          bookedDaysFetches++;
+          return <DateTime>{};
+        }),
+      ].cast(),
+    );
+    addTearDown(c.dispose);
+
+    // A LIVE subscription — invalidating a provider with no active listener
+    // DROPS it instead of refetching, which would make this unobservable.
+    final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = c.listen(
+      bookedDaysProvider,
+      (_, _) {},
+      fireImmediately: true,
+    );
+    addTearDown(sub.close);
+    await c.read(bookedDaysProvider.future);
+    expect(bookedDaysFetches, 1, reason: 'sanity: one fetch for the watcher');
+
+    await c.read(masterCreateBookingProvider.future);
+    await c
+        .read(masterCreateBookingProvider.notifier)
+        .submit(masterId: 'master-1', request: _request);
+
+    await c.read(bookedDaysProvider.future);
+    expect(
+      bookedDaysFetches,
+      2,
+      reason:
+          'the dot set must be dropped alongside the day list — it is a '
+          '30-minute-TTL singleton that nothing else here invalidates',
+    );
+  });
+
   test('submit(): happy path calls createMasterBooking with the exact args, '
       'ends AsyncData, and invalidates bookingsDayProvider (a second live '
       'fetch actually happens)', () async {
     _stubDayFetch(repo);
     when(
       () => repo.createMasterBooking(any(), any()),
-    ).thenAnswer((_) async => _bookingFixture());
+    ).thenAnswer((_) async => _appointmentFixture());
 
     // Instantiate + subscribe to a LIVE bookingsDayProvider member BEFORE
     // submit — invalidating a family with no active listener is a
@@ -204,11 +263,45 @@ void main() {
     );
   });
 
+  // PHASE 256 — submit() now RETURNS the created Appointment (see the
+  // notifier file's own "PHASE 256" doc section for why `state` itself stays
+  // `void`). Pinned separately from the happy-path test above: that test
+  // never inspects the return value, only `state`.
+  test('submit(): returns the SERVER Appointment on success, and null on both '
+      'the double-submit no-op and a mapped Failure', () async {
+    _stubDayFetch(repo);
+    final Appointment fixture = _appointmentFixture();
+    when(
+      () => repo.createMasterBooking(any(), any()),
+    ).thenAnswer((_) async => fixture);
+
+    await container.read(masterCreateBookingProvider.future);
+    final Appointment? created = await container
+        .read(masterCreateBookingProvider.notifier)
+        .submit(masterId: 'master-1', request: _request);
+    expect(created, same(fixture));
+
+    // A second call — this time on a rejecting repo, via a FRESH
+    // container/notifier so it is not still gated by the first call's own
+    // AsyncLoading window.
+    final _MockBookingRepository failingRepo = _MockBookingRepository();
+    _stubDayFetch(failingRepo);
+    when(
+      () => failingRepo.createMasterBooking(any(), any()),
+    ).thenAnswer((_) async => throw const ConflictFailure());
+    final ProviderContainer failingContainer = _container(failingRepo);
+    await failingContainer.read(masterCreateBookingProvider.future);
+    final Appointment? onFailure = await failingContainer
+        .read(masterCreateBookingProvider.notifier)
+        .submit(masterId: 'master-1', request: _request);
+    expect(onFailure, isNull);
+  });
+
   test(
     'submit(): a second call while the first is still in flight is a NO-OP '
     '— the repository is called exactly ONCE, not merely "no exception"',
     () async {
-      final completer = Completer<Booking>();
+      final completer = Completer<Appointment>();
       when(
         () => repo.createMasterBooking(any(), any()),
       ).thenAnswer((_) => completer.future);
@@ -222,18 +315,27 @@ void main() {
       // SYNCHRONOUSLY (state is written to AsyncLoading before any `await`),
       // so the second call sees it immediately, before the event loop gets a
       // chance to interleave anything else.
-      final Future<void> first = notifier.submit(
+      final Future<Appointment?> first = notifier.submit(
         masterId: 'master-1',
         request: _request,
       );
-      final Future<void> second = notifier.submit(
+      final Future<Appointment?> second = notifier.submit(
         masterId: 'master-1',
         request: _request,
       );
 
-      completer.complete(_bookingFixture());
-      await first;
-      await second;
+      completer.complete(_appointmentFixture());
+      final Appointment? firstResult = await first;
+      final Appointment? secondResult = await second;
+
+      expect(firstResult, isNotNull, reason: 'the real call succeeded');
+      expect(
+        secondResult,
+        isNull,
+        reason:
+            'PHASE 256 — the no-op call returns null, never the '
+            "in-flight call's eventual result",
+      );
 
       verify(() => repo.createMasterBooking(any(), any())).called(1);
     },
@@ -258,6 +360,18 @@ void main() {
       final AsyncValue<void> state = container.read(
         masterCreateBookingProvider,
       );
+      // mobile-qa Phase 256 audit gap-fill (M12 — `mobile-backlog.md`):
+      // `hasError` alone is ALSO satisfied by a mid-retry `AsyncLoading
+      // (retrying: true)`, so it cannot on its own pin a TERMINAL error.
+      // [MasterBookingNotPermittedFailure] is non-transient
+      // (`isTransientFailure` → `false`, `failure_retry_policy_test.dart`),
+      // so this particular failure is never retried and the trap cannot
+      // concretely bite THIS test — the assertion below is added for
+      // consistency with the pattern the rest of this suite (and
+      // `master_create_booking_screen_test.dart`) is expected to follow, not
+      // because a mutation here is provable against a currently-reachable
+      // retrying state.
+      expect(state, isA<AsyncError<void>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<MasterBookingNotPermittedFailure>());
     },

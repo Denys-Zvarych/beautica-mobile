@@ -18,8 +18,16 @@
 //   [ServiceStep]      — the picker over the promoted
 //                        `service_category_list.dart` widgets.
 //   [ServiceStepEmpty] — the required empty state.
-//   [DateTimeStep]     — wraps `MasterSchedulePage`.
 //   [ConfirmStep]      — the summary + submit-error banner.
+//
+// Phase 265 D2 — `DateTimeStep` (which used to be promoted here, wrapping
+// `MasterSchedulePage`) is DELETED. It was the only ORPHANED step widget
+// once Phase 264 swapped `/master/bookings/new` onto the routed walk-in
+// chain (which uses the client's own `SlotDateScreen`/`SlotTimeScreen`
+// instead) and the salon wizard NEVER called it (see
+// `salon_create_booking_screen.dart`'s own file header). Verified by an
+// exact-count grep before deletion, not by eye — see this phase's own
+// hand-off notes.
 //
 // Also promoted — a private helper [ClientStep]/[ConfirmStep]'s own
 // `_submit` boundary depend on, which would otherwise fail to compile from a
@@ -49,9 +57,15 @@
 // `4`, the master variant's value, so the master screen's call site does not
 // need to pass it. Phase 250's salon wizard (5 steps) passes `totalSteps: 5`.
 //
-// `master_create_booking_screen.dart` is the only current caller. Phase 250
-// adds the salon wizard as an ADDITIVE second consumer of these same public
-// types — nothing else in this file changes to enable that.
+// `master_create_booking_screen.dart` was the ORIGINAL sole caller; Phase 250
+// added the salon wizard as an ADDITIVE second consumer of these same public
+// types. Phase 265 deleted the master wizard outright (its route now renders
+// the routed walk-in chain instead — [WalkInGuestStepScreen] /
+// [WalkInServiceStepScreen], `presentation/walk_in_*_step_screen.dart`, which
+// reuse [ClientStep] / [ServiceStep] / [ServiceStepEmpty] verbatim), so
+// `salon_create_booking_screen.dart` is now this file's only [StepIndicator]/
+// [ConfirmStep] caller — [ClientStep]/[ServiceStep]/[ServiceStepEmpty] gained
+// the two new walk-in-chain callers alongside it.
 //
 // PHASE 250 — two more additive params, both defaulting to `null` so
 // `master_create_booking_screen.dart`'s existing call sites take the exact
@@ -83,7 +97,48 @@
 //     `masterCard: Widget?` slot for exactly this; this promotion only
 //     threads it through from [ConfirmStep]'s own constructor. `null` (the
 //     master wizard's call site) renders no card, exactly as before.
+//
+// PHASE 253 — [ServiceStep] widened ADDITIVELY from single- to multi-select,
+// so both wizards can build a real N-service visit (`masterServiceIds`,
+// Phase 252's data layer) instead of the temporary one-element shim.
+//
+//   * [ServiceStep.selectedServiceIds] / [ServiceStep.onToggleService] — the
+//     new pair. `selectedServiceIds` is a `ValueListenable<Set<String>>`
+//     (the caller's own [CatalogueSelectionController] — REUSED verbatim from
+//     `service_catalogue_accordion.dart`, the same primitive
+//     `ServiceSelectorSheet`/`SalonServiceSelectionScreen` already use for
+//     this exact job; not forked, not rebuilt). `onToggleService` fires with
+//     the tapped [MasterService] on every tap, add or remove — the CALLER
+//     decides whether to allow the add (the `maxServicesPerVisit` cap lives
+//     in the wizard screen's own toggle handler, mirroring
+//     `service_selector_sheet.dart:277-288`'s `_onToggleService`, NOT inside
+//     this widget) and how to track selection ORDER (the wizard screen
+//     appends/removes from its own ordered `List<MasterService>` as each
+//     callback fires — a `Set` cannot carry tap order, so this widget never
+//     tries to derive one).
+//   * `null` (both) is the ORIGINAL single-select path, preserved byte-for-
+//     byte: the mark predicate falls back to `entry.service.id ==
+//     widget.selectedServiceId` and each tap calls `widget.onSelect` — the
+//     constructor asserts the two pairs are never mixed. No existing caller
+//     passes the new pair, so nothing renders differently until a caller
+//     opts in.
+//   * The picker's underlying accordion ([CategorySection] / [ServiceCard]
+//     from `service_category_list.dart`) is UNCHANGED — [ServiceCard]
+//     already exposed additive `selectable`/`selected` booleans generic to
+//     single- vs. multi-select (Phase 247 part 2), so widening the SELECTION
+//     SOURCE the mark predicate reads from is the only change this phase
+//     makes here. The client flow's OTHER accordion family
+//     (`CatalogueCategorySection`/`CatalogueRow` in
+//     `service_catalogue_accordion.dart`) renders a domain-agnostic
+//     projection for a differently-shaped screen (full-page, favourite
+//     hearts, category hoisting) and is NOT swapped in here — doing so would
+//     duplicate rendering logic this widget already has working, which is
+//     exactly what REUSE-FIRST forbids. [BookingSummaryBar] (the pinned
+//     "Разом" shelf + CTA) IS reused, at the wizard-screen level, as this
+//     step's new bottom bar — see `master_create_booking_screen.dart` /
+//     `salon_create_booking_screen.dart`.
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -93,8 +148,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart'
     show approvedCategoriesProvider;
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -111,13 +164,11 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
-import '../../application/salon_booking_schedule_notifier.dart';
-import '../../domain/salon_master_schedule.dart';
+import '../../domain/create_master_booking_request.dart'
+    show kWalkInGuestNameMaxLength;
 import 'booking_recap.dart';
 import 'booking_summary_cards.dart';
 import 'labelled_row.dart';
-import 'master_schedule_page.dart';
-import 'salon_avatar_gradients.dart';
 
 // ---------------------------------------------------------------------------
 // Phone normalization
@@ -281,6 +332,16 @@ class _ClientStepState extends State<ClientStep> {
               color: BrandColors.accent,
             ),
             textInputAction: TextInputAction.next,
+            // Mirrors the backend column EXACTLY —
+            // `StaffClientRef.Guest.MAX_NAME_LENGTH` = 100, itself mirroring
+            // `bookings.guest_name VARCHAR(100)`. Anything longer is a clean
+            // 400 from the server, so refusing the 101st character here turns
+            // a round-trip rejection into a keystroke that simply does not
+            // land — and bounds what the confirm/done recap cards have to
+            // render (audit-fix cycle 1, FINDING 4). `NeumorphicTextField`
+            // pins `counterText: ''`, so no counter appears and no layout
+            // moves.
+            maxLength: kWalkInGuestNameMaxLength,
             // SEC MEDIUM fix — this collects a WALK-IN GUEST's name, a third
             // party who never installed the app and never consented in it.
             // Mirrors register_step_1_screen.dart:209,236 /
@@ -302,6 +363,8 @@ class _ClientStepState extends State<ClientStep> {
               color: BrandColors.accent,
             ),
             textInputAction: TextInputAction.next,
+            // Same backend ceiling as the first-name field above.
+            maxLength: kWalkInGuestNameMaxLength,
             // SEC MEDIUM fix — see the first-name field above.
             enableIMEPersonalizedLearning: false,
             onChanged: (_) => setState(() {}),
@@ -347,16 +410,45 @@ class _ClientStepState extends State<ClientStep> {
 class ServiceStep extends ConsumerStatefulWidget {
   const ServiceStep({
     super.key,
-    required this.selectedServiceId,
-    required this.onSelect,
+    this.selectedServiceId,
+    this.onSelect,
+    this.selectedServiceIds,
+    this.onToggleService,
     this.servicesOverride,
     this.onRetryOverride,
     this.emptyTitleOverride,
     this.emptyBodyOverride,
-  });
+  }) : assert(
+         (selectedServiceIds == null) == (onToggleService == null),
+         'selectedServiceIds and onToggleService must be provided together '
+         '(the multi-select path) — never one without the other.',
+       ),
+       assert(
+         selectedServiceIds != null || onSelect != null,
+         'ServiceStep needs either the multi-select pair '
+         '(selectedServiceIds + onToggleService) or the legacy onSelect '
+         'callback.',
+       );
 
+  /// Legacy single-select path. `null` when [selectedServiceIds] is provided
+  /// instead (the multi-select path) — see this file's header.
   final String? selectedServiceId;
-  final ValueChanged<MasterService> onSelect;
+
+  /// Legacy single-select path. `null` when [onToggleService] is provided
+  /// instead.
+  final ValueChanged<MasterService>? onSelect;
+
+  /// PHASE 253 — multi-select path. A [CatalogueSelectionController] (or any
+  /// `ValueListenable<Set<String>>`) the caller owns and disposes. `null`
+  /// preserves the original single-select rendering exactly — see this
+  /// file's header.
+  final ValueListenable<Set<String>>? selectedServiceIds;
+
+  /// PHASE 253 — fires with the tapped [MasterService] on every tap (add OR
+  /// remove); the caller decides whether to allow the add (cap) and how to
+  /// track selection order. Paired 1:1 with [selectedServiceIds] — see this
+  /// file's header.
+  final ValueChanged<MasterService>? onToggleService;
 
   /// Phase 250 (salon wizard) — overrides the internal
   /// `ref.watch(servicesListProvider)` read with an already-resolved
@@ -474,44 +566,71 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
           categoriesAsync,
           l10n.serviceCategoryUncategorized,
         );
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.md,
-            VelvetSpacing.lg,
-            VelvetSpacing.xl,
+        final ValueListenable<Set<String>>? selectedIds =
+            widget.selectedServiceIds;
+        // Legacy single-select path (`selectedIds == null`) renders the
+        // EXACT SAME tree as before this phase — no `ValueListenableBuilder`
+        // wrap, so byte-identical for every pre-existing caller.
+        if (selectedIds == null) {
+          return _buildGroupList(groups, selectedServiceIds: null);
+        }
+        // Multi-select path — re-marks the affected cards whenever the
+        // caller's selection set changes. Scoped to just this list (not the
+        // whole `ServiceStep`), mirroring the narrow-`ValueListenableBuilder`
+        // pattern `ServiceSelectorSheet`/`BookingSummaryBar` already use.
+        return ValueListenableBuilder<Set<String>>(
+          valueListenable: selectedIds,
+          builder: (BuildContext context, Set<String> ids, _) =>
+              _buildGroupList(groups, selectedServiceIds: ids),
+        );
+      },
+    );
+  }
+
+  Widget _buildGroupList(
+    List<CategoryGroup> groups, {
+    required Set<String>? selectedServiceIds,
+  }) {
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.lg,
+        VelvetSpacing.md,
+        VelvetSpacing.lg,
+        VelvetSpacing.xl,
+      ),
+      itemCount: groups.length,
+      itemBuilder: (BuildContext context, int index) {
+        final CategoryGroup group = groups[index];
+        final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+          child: CategorySection(
+            key: Key('mcb_category_section_$sectionSlug'),
+            title: group.label,
+            count: group.cards.length,
+            // Every section starts expanded: this is a one-shot picker,
+            // not a maintained catalogue view, so showing everything
+            // open reduces taps to find a service — unlike the services
+            // page, which starts every section collapsed by default.
+            initiallyExpanded: true,
+            children: <Widget>[
+              for (final CategoryGroupEntry entry in group.cards)
+                Padding(
+                  padding: const EdgeInsets.only(top: VelvetSpacing.md),
+                  child: ServiceCard(
+                    key: Key('mcb_service_card_${entry.service.id}'),
+                    service: entry.service,
+                    selectable: true,
+                    selected: selectedServiceIds != null
+                        ? selectedServiceIds.contains(entry.service.id)
+                        : entry.service.id == widget.selectedServiceId,
+                    onEdit: selectedServiceIds != null
+                        ? () => widget.onToggleService!(entry.service)
+                        : () => widget.onSelect!(entry.service),
+                  ),
+                ),
+            ],
           ),
-          itemCount: groups.length,
-          itemBuilder: (BuildContext context, int index) {
-            final CategoryGroup group = groups[index];
-            final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-              child: CategorySection(
-                key: Key('mcb_category_section_$sectionSlug'),
-                title: group.label,
-                count: group.cards.length,
-                // Every section starts expanded: this is a one-shot picker,
-                // not a maintained catalogue view, so showing everything
-                // open reduces taps to find a service — unlike the services
-                // page, which starts every section collapsed by default.
-                initiallyExpanded: true,
-                children: <Widget>[
-                  for (final CategoryGroupEntry entry in group.cards)
-                    Padding(
-                      padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                      child: ServiceCard(
-                        key: Key('mcb_service_card_${entry.service.id}'),
-                        service: entry.service,
-                        selectable: true,
-                        selected: entry.service.id == widget.selectedServiceId,
-                        onEdit: () => widget.onSelect(entry.service),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
         );
       },
     );
@@ -560,89 +679,35 @@ class ServiceStepEmpty extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Step — Date & Time (reuses MasterSchedulePage unmodified)
-// ---------------------------------------------------------------------------
-
-class DateTimeStep extends ConsumerWidget {
-  const DateTimeStep({
-    super.key,
-    required this.master,
-    required this.service,
-    required this.onSlotChosen,
-  });
-
-  final Master master;
-  final MasterService service;
-  final ValueChanged<DateTime> onSlotChosen;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Auto-advance the wizard the instant a slot is picked inside
-    // [MasterSchedulePage] — that widget has no "on slot chosen" callback of
-    // its own (it is a self-contained salon-flow step body), so this listens
-    // to the SAME [salonBookingScheduleProvider] state it writes to instead
-    // of adding one. Fires once per date→slot transition (never on a bare
-    // date pick, which only sets `date`).
-    ref.listen(salonBookingScheduleProvider, (
-      SalonBookingScheduleState? previous,
-      SalonBookingScheduleState next,
-    ) {
-      if (previous?.slot == null && next.slot != null) {
-        onSlotChosen(next.slot!.startAt);
-      }
-    });
-
-    final SalonMasterSchedule schedule = SalonMasterSchedule(
-      masterId: master.id,
-      firstName: master.firstName,
-      lastName: master.lastName,
-      type: master.type,
-      professionalTitle: master.professionalTitle,
-      avgRating: master.displayRating,
-      reviewCount: master.reviewCount,
-      services: <SalonCatalogService>[
-        SalonCatalogService(
-          id: service.id,
-          name: service.name,
-          durationLabel: DurationMinutes.format(service.durationMinutes),
-          priceDisplay: service.priceDisplay,
-          category: service.category,
-          serviceTypeSlug: service.serviceTypeSlug,
-          serviceTypeNameUk: service.serviceTypeNameUk,
-          durationMinutes: service.durationMinutes,
-          priceType: service.priceType,
-          priceMin: service.priceMin,
-          priceMax: service.priceMax,
-        ),
-      ],
-      // The master's own per-master assignment id — the SAME id space
-      // `MasterService.id` already represents (see that field's doc).
-      orderedMasterServiceIds: <String>[service.id],
-    );
-
-    return MasterSchedulePage(
-      schedule: schedule,
-      avatarGradient: salonAvatarGradient(0),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Step — Confirm
 // ---------------------------------------------------------------------------
 
 class ConfirmStep extends ConsumerWidget {
   const ConfirmStep({
     super.key,
-    required this.service,
+    this.service,
+    this.services,
     required this.startAt,
     required this.firstName,
     required this.lastName,
     required this.phone,
     this.masterCard,
-  });
+  }) : assert(
+         (service == null) != (services == null),
+         'ConfirmStep needs exactly one of service (legacy single) or '
+         'services (Phase 255 ordered multi) — never both, never neither.',
+       );
 
-  final MasterService service;
+  /// Legacy single-service path. `null` when [services] is provided instead
+  /// — see this constructor's assert and [services]' own doc.
+  final MasterService? service;
+
+  /// PHASE 255 — the visit's full ordered service selection (1..n). `null`
+  /// preserves the pre-255 single-service rendering exactly (every call site
+  /// until this phase passed [service] alone). When non-null, this wins and
+  /// [service] is ignored.
+  final List<MasterService>? services;
+
   final DateTime startAt;
   final String firstName;
   final String lastName;
@@ -660,14 +725,44 @@ class ConfirmStep extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final AsyncValue<void> submitState = ref.watch(masterCreateBookingProvider);
 
-    final BookingSelection selection = BookingSelection(
-      name: service.name,
-      price: ServicePriceDisplay.format(service),
-      duration: DurationMinutes.format(service.durationMinutes),
-      durationMinutes: service.durationMinutes,
-      priceMin: service.priceMin,
-      priceMax: service.priceMax,
+    // Single normalisation point (mirrors [DateTimeStep]'s D2) — every use
+    // below reads `ordered`, never `service`/`services` directly.
+    final List<MasterService> ordered = services ?? <MasterService>[service!];
+
+    // PHASE 255 — REUSE, not a hand-rolled sum: [BookingSelection] per
+    // service (feeds [BookingSummaryCards]' already-existing MULTI path,
+    // `selections:`) and the visit's window is `startAt` → `startAt +
+    // Σdurations`. Summing raw `durationMinutes` ints for the WINDOW LABEL
+    // is not the price-total arithmetic D1/D2 ban — it is the exact same
+    // plain fold `SalonMasterSchedule.summedDurationMinutes` already uses for
+    // the identical purpose (the salon flow's own multi-service confirm/
+    // success window). The MONEY total is never summed here — that is
+    // `BookingRecap`'s job via `formatBookingTotalsFromTerms`, reached
+    // through `BookingSummaryCards(selections: ...)` below.
+    final List<BookingSelection> selections = <BookingSelection>[
+      for (final MasterService s in ordered)
+        BookingSelection(
+          name: s.name,
+          price: ServicePriceDisplay.format(s),
+          duration: DurationMinutes.format(s.durationMinutes),
+          durationMinutes: s.durationMinutes,
+          priceMin: s.priceMin,
+          priceMax: s.priceMax,
+        ),
+    ];
+    final int totalDurationMinutes = ordered.fold<int>(
+      0,
+      (int sum, MasterService s) => sum + s.durationMinutes,
     );
+
+    // Legacy `service:` callers keep the EXACT pre-255 rendering
+    // (`BookingRecap.single` — no "N послуг" header, no dividers, no
+    // "Разом" row) — the additive-widening guarantee D4 requires. Only the
+    // new `services:` path (both wizards, post-255) renders through
+    // [BookingSummaryCards]' existing multi-selection `selections:` mode —
+    // the SAME mode `.fromSchedule` already uses for the salon flow's own
+    // multi-service visit.
+    final bool isMultiPath = services != null;
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -692,6 +787,18 @@ class ConfirmStep extends ConsumerWidget {
               label: l10n.masterCreateBookingGuestLabel,
               value: '$firstName $lastName'.trim(),
               detail: phone.isEmpty ? null : phone,
+              // THIRD-PARTY FREE TEXT (audit-fix cycle 1, FINDING 4 —
+              // mobile-security LOW, 2026-08-20). The guest's name is typed
+              // in by the master, not formatted by the backend, and the
+              // backend's own ceiling is 100 characters PER field
+              // (`StaffClientRef.Guest.MAX_NAME_LENGTH`) — 200 across the two.
+              // Unbounded, a pasted 200-character name flooded this recap card
+              // and pushed the booking details it exists to confirm off the
+              // step. `labelled_row.dart:37-47` prescribes exactly this pair
+              // for the case; two lines keeps a genuinely long-but-real
+              // Ukrainian double-barrelled name readable.
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -702,8 +809,14 @@ class ConfirmStep extends ConsumerWidget {
             masterCard: masterCard,
             showAddress: false,
             dateLabel: formatFullDate(startAt),
-            timeLabel: formatTimeRange(startAt, service.durationMinutes),
-            singleSelection: selection,
+            timeLabel: formatTimeRange(startAt, totalDurationMinutes),
+            // See `isMultiPath`'s doc just above `build`'s return: legacy
+            // `service:` renders via `singleSelection:` (byte-identical to
+            // pre-255), the new `services:` path via the multi `selections:`
+            // list — the SAME reused mode `.fromSchedule` already carries
+            // for the salon flow's own multi-service visit.
+            singleSelection: isMultiPath ? null : selections.single,
+            selections: isMultiPath ? selections : const <BookingSelection>[],
           ),
           if (submitState.hasError) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),

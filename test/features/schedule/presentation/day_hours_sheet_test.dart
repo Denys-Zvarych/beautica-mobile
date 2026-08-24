@@ -49,6 +49,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -1284,8 +1285,10 @@ void main() {
   group('DayHoursSheet — booking-calendar invalidation is asserted directly '
       '(not merely inferred from a fake-backend side effect)', () {
     testWidgets('confirming a conflict invalidates bookingDetailProvider(id), '
-        'bookingsDayProvider(day) and BOTH myBookingsProvider tabs — asserted '
-        'via live-subscriber refetch counts', (tester) async {
+        'bookingsDayProvider(day), BOTH myBookingsProvider tabs AND '
+        'bookedDaysProvider — asserted via live-subscriber refetch counts', (
+      tester,
+    ) async {
       final scheduleRepo = _happyRepo();
       when(
         () => scheduleRepo.previewConflicts(any()),
@@ -1343,12 +1346,24 @@ void main() {
         );
       });
 
+      // The day-rail / month-grid DOT SET. Overridden rather than left to the
+      // real provider for two reasons: the real one parks its own 30-minute
+      // keepAlive `Timer` (which the drain at the end of this test does not
+      // reach), and a counting override is the only way to observe an
+      // `invalidate` at all — `ref.invalidate` reloads SEAMLESSLY, retaining
+      // the previous `.value`, so no value-shape assertion can ever fire.
+      int bookedDaysFetches = 0;
+
       final container = ProviderContainer(
         retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(scheduleRepo),
           bookingRepositoryProvider.overrideWithValue(bookingRepo),
           authProvider.overrideWith(_StubAuthNotifier.new),
+          bookedDaysProvider.overrideWith((ref) async {
+            bookedDaysFetches++;
+            return <DateTime>{};
+          }),
         ].cast(),
       );
       addTearDown(container.dispose);
@@ -1390,7 +1405,16 @@ void main() {
       addTearDown(cancelledSub.close);
       await container.read(myBookingsProvider(BookingTab.cancelled).future);
 
+      final bookedDaysSub = container.listen(
+        bookedDaysProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(bookedDaysSub.close);
+      await container.read(bookedDaysProvider.future);
+
       final int detailBefore = detailFetches;
+      final int bookedDaysBefore = bookedDaysFetches;
       final int dayBefore = dayFetches;
       final int upcomingBefore = upcomingFetches;
       final int cancelledBefore = cancelledFetches;
@@ -1435,6 +1459,21 @@ void main() {
         reason:
             'the cancelled tab must be invalidated — a DECLINED '
             'booking enters it',
+      );
+      expect(
+        bookedDaysFetches,
+        greaterThan(bookedDaysBefore),
+        reason:
+            'bookedDaysProvider must be invalidated too (2026-08-20 fan-out '
+            'fix). The backend declines every conflicting booking atomically '
+            'with the day-off write, and `findBookedDatesByMasterId` '
+            'allow-lists CONFIRMED/COMPLETED/NOT_COMPLETED — so a decline can '
+            "take the day's LAST dotted booking away and the dot must go with "
+            'it. Nothing else here drops it: it is a filter-independent '
+            'keepAlive() SINGLETON with a 30-minute TTL, not a member of the '
+            'bookingsDayProvider family invalidated above, so without this '
+            'call the rail points at a day whose list now renders empty for '
+            'up to half an hour',
       );
 
       await _drainKeepAliveTimers(tester);

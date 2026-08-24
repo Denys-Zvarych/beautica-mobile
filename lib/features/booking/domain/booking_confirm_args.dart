@@ -50,6 +50,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
+import 'create_master_booking_request.dart';
 
 part 'booking_confirm_args.freezed.dart';
 
@@ -86,5 +87,40 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// Non-null only for a track 27.x/MO-6 whole-VISIT reschedule — see the
     /// file header.
     String? rescheduleAppointmentId,
+
+    /// Non-null only when this flow was entered from the master's own
+    /// WALK-IN («Новий запис») entry point — the guest identity to submit
+    /// with `CreateMasterBookingRequest`. See phase-258.
+    WalkInGuest? guest,
+
+    /// `true` when the viewer IS the master being booked (the walk-in path),
+    /// so this screen must not render the master identity card back at
+    /// them. Deliberately NOT derived from `guest != null` — see phase-258
+    /// D4. Defaults to `false` so every existing call site renders
+    /// unchanged.
+    @Default(false) bool hideMasterIdentity,
+
+    /// Forwarded unchanged from [BookingSlotPickerArgs.rescheduleTargetIsWalkIn]
+    /// by `SlotTimeScreen._confirm` — see that field's doc for the full
+    /// rationale. `_submit` folds this into `BookingSuccessArgs.isWalkIn`
+    /// alongside `guest != null`, so a walk-in RESCHEDULE hides the terminal
+    /// screen's «Додати в календар» exactly like a walk-in CREATE, without
+    /// disturbing the reschedule copy/CTA precedence (`isReschedule` is
+    /// still checked FIRST wherever the two could otherwise conflict).
+    /// Defaults to `false` so every existing call site is unaffected.
+    @Default(false) bool rescheduleTargetIsWalkIn,
+
+    /// RESCHEDULE-ONLY, client-identity parity fields (2026-08-22). Forwarded
+    /// unchanged from [BookingSlotPickerArgs.rescheduleClientName] /
+    /// [BookingSlotPickerArgs.rescheduleClientPhone] by `SlotTimeScreen
+    /// ._confirm` — see that field's doc for the full rationale. `null` on
+    /// every CREATE call site (client or walk-in) and on a CLIENT's own
+    /// reschedule; non-null only when a PROVIDER rescheduled a booking with a
+    /// registered client identity to show. Consumed by this screen to render
+    /// [GuestIdentityCard.identity] in the same visual slot the walk-in
+    /// [guest] card occupies, then forwarded onto [BookingSuccessArgs] for
+    /// the terminal done screen.
+    String? rescheduleClientName,
+    String? rescheduleClientPhone,
   }) = _BookingConfirmArgs;
 }

@@ -102,12 +102,16 @@ class _PublicMasterProfileScreenState
   void initState() {
     super.initState();
     // SEC: this screen renders another master's address (PII) — guard against
-    // screenshots / app-switcher snapshots while it is mounted. The manager is
-    // ref-counted and !kDebugMode-guarded internally.
+    // app-switcher snapshots while it is mounted. The manager is ref-counted
+    // and !kDebugMode-guarded internally. It does NOT block screenshots:
+    // capture is allowed app-wide by product decision 2026-08-20, see the
+    // header of `lib/core/security/screen_protection.dart`.
     //
-    // INTENTIONAL PRODUCT DECISION (keep): the FLAG_SECURE screenshot guard on
-    // the public profile is deliberate — do NOT remove it in a future audit pass.
-    // The owner reviewed it and chose to retain the protection on this screen.
+    // INTENTIONAL PRODUCT DECISION (keep): retaining the acquire on the public
+    // profile is deliberate — do NOT remove it in a future audit pass. The
+    // owner reviewed it and chose to keep this screen inside the guard. (The
+    // review predates the 2026-08-20 reversal, which narrowed WHAT the guard
+    // does but did not touch any acquire/release call site.)
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
 
     _controller = AnimationController(

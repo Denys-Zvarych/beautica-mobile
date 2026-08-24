@@ -110,8 +110,10 @@ class _WishlistScreenState extends ConsumerState<WishlistScreen>
   void initState() {
     super.initState();
     // PII: every row shows master name / service name / price — acquire
-    // screen protection so FLAG_SECURE / iOS app-switcher blur is active
-    // while mounted. Same pattern as PassportScreen.
+    // screen protection so the iOS app-switcher blur is active while mounted
+    // (screenshots are NOT blocked; see the header of
+    // `lib/core/security/screen_protection.dart`). Same pattern as
+    // PassportScreen.
     _protection.acquire();
     if (kDebugMode) {
       log(

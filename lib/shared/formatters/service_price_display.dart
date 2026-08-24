@@ -59,6 +59,22 @@ abstract final class ServicePriceDisplay {
     return '${_amount(min)} $suffix';
   }
 
+  /// Builds a price label straight from a raw min/max pair, with no
+  /// [MasterService] to consult — for a caller holding typed figures with no
+  /// service object behind them (e.g. `AppointmentItem`, the server VISIT
+  /// response Phase 256 renders the master booking wizard's `done` step
+  /// from). Mirrors [format]'s RANGE branch and its no-server-string FIXED
+  /// fallback verbatim (same [_amount] / [isRenderablePrice] /
+  /// [priceUnavailableLabel] / [suffix]) — [format] itself is unchanged and
+  /// stays the right call for anything that has a real [MasterService].
+  static String formatRange(double min, double? max) {
+    if (max != null && isRenderablePrice(min) && isRenderablePrice(max)) {
+      return '${_amount(min)} - ${_amount(max)} $suffix';
+    }
+    if (!isRenderablePrice(min)) return priceUnavailableLabel;
+    return '${_amount(min)} $suffix';
+  }
+
   /// Formats a whole-UAH amount without decimals (all service prices are whole
   /// hryvnia in the domain). Callers MUST have cleared [value] through
   /// [isRenderablePrice] first — see the class doc.

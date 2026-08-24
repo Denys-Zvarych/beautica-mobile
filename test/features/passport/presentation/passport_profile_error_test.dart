@@ -154,7 +154,7 @@ List<Object> _overrides(
   ),
 ];
 
-/// The native FLAG_SECURE plugin must never fire under `flutter test`.
+/// The native `screen_protector` plugin must never fire under `flutter test`.
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
   void acquire() {}
