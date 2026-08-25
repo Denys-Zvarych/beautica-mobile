@@ -20,6 +20,8 @@ part 'favorite_salon_response.g.dart';
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [categoryCode]
+/// * [categoryLabel]
 @BuiltValue()
 abstract class FavoriteSalonResponse
     implements Built<FavoriteSalonResponse, FavoriteSalonResponseBuilder> {
@@ -49,6 +51,12 @@ abstract class FavoriteSalonResponse
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  @BuiltValueField(wireName: r'categoryCode')
+  String? get categoryCode;
+
+  @BuiltValueField(wireName: r'categoryLabel')
+  String? get categoryLabel;
 
   FavoriteSalonResponse._();
 
@@ -142,6 +150,20 @@ class _$FavoriteSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.categoryCode != null) {
+      yield r'categoryCode';
+      yield serializers.serialize(
+        object.categoryCode,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.categoryLabel != null) {
+      yield r'categoryLabel';
+      yield serializers.serialize(
+        object.categoryLabel,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -229,6 +251,20 @@ class _$FavoriteSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'categoryCode':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.categoryCode = valueDes;
+          break;
+        case r'categoryLabel':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.categoryLabel = valueDes;
           break;
         default:
           unhandled.add(key);

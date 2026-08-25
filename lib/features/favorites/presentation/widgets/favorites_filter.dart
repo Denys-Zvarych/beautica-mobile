@@ -54,20 +54,24 @@
 // polarity and colour exactly as the preview specified. Re-adding per-category
 // glyphs is a follow-up gated on a reconciled shared icon helper.
 //
-// ── WHY THIS CONTROL CURRENTLY RENDERS NOTHING ──────────────────────────────
+// ── WHAT MAKES THE CONTROL RENDER NOTHING ───────────────────────────────────
 //
-// Neither favourites DTO carries a category (verified against the regenerated
-// client, 2026-08-24 — see `favorite_item.dart`'s header). Every item's
-// `categoryId` is null, so [FavoriteChoice.from] returns an empty list and
-// [FavoritesInlineFilter] returns `SizedBox.shrink()`.
+// Both favourites DTOs carry a category (`categoryCode`/`categoryLabel`,
+// mapped onto `categoryId`/`categoryLabel` by `FavoriteMapper` — verified
+// against the regenerated client, 2026-08-25), so on a real list [choices] is
+// non-empty and this control renders its collapsed pill.
 //
-// That is the honest degradation, not a hedge. A pill that can only ever say
-// «Всі», opening onto a panel holding one chip that is already selected, is a
-// control promising a choice it cannot deliver — furniture that costs permanent
-// vertical space on a scrolling list and answers every tap with nothing. The
-// design's own rule already says a category leading nowhere is not drawn; a
-// filter with zero categories is that rule at its limit. The moment the DTOs
-// carry a category, the chips appear with no change to this file.
+// It still renders NOTHING — [FavoritesInlineFilter] returns
+// `SizedBox.shrink()` — on a client whose favourites happen to carry no
+// category at all (every DTO row missing `categoryCode` or `categoryLabel`,
+// which [FavoriteChoice.from] folds to a dropped pair; see
+// `FavoriteMapper._categoryOrNull`'s both-or-neither rule). That is the honest
+// degradation, not a hedge: a pill that can only ever say «Всі», opening onto
+// a panel holding one chip that is already selected, is a control promising a
+// choice it cannot deliver — furniture that costs permanent vertical space on
+// a scrolling list and answers every tap with nothing. The design's own rule
+// already says a category leading nowhere is not drawn; a filter with zero
+// categories is that rule at its limit.
 
 import 'package:flutter/material.dart';
 
@@ -94,10 +98,12 @@ class FavoriteChoice {
   /// top is the first chip. Alphabetical would be arbitrary against a list
   /// sorted newest-saved-first.
   ///
-  /// A favourite with no `categoryId` — every one of them today — contributes
-  /// nothing, so an all-null list yields no chips and the filter hides itself.
-  /// A category with an id but no label is skipped too: a chip the client
-  /// cannot read is not a choice.
+  /// A favourite with no `categoryId` contributes nothing, so an all-null list
+  /// yields no chips and the filter hides itself. A category with an id but no
+  /// label is skipped too: a chip the client cannot read is not a choice.
+  /// `FavoriteMapper` already enforces both-or-neither on the item itself
+  /// (`_categoryOrNull`), so in practice this only guards against a
+  /// half-formed pair reaching this method some other way.
   static List<FavoriteChoice> from(List<FavoriteItem> items) {
     final Map<String, FavoriteChoice> seen = <String, FavoriteChoice>{};
     for (final FavoriteItem item in items) {

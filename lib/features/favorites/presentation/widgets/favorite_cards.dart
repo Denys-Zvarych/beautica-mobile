@@ -231,22 +231,29 @@ class _IdentityLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // crossAxisAlignment: start — a two-line name must not pull the rating
+    // down to the vertical centre of a now-taller column. The star + value
+    // stay pinned to the FIRST line, matching where a one-line name always
+    // put them, so the readout does not appear to drift down the row on the
+    // (now common, on real Ukrainian names) two-line case.
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Expanded(
           child: Text(
             name,
-            // ONE line, ellipsized — deliberately NOT the wish list's "no
-            // truncation" convention for provider names
-            // (`wishlist_row.dart`). That list is a short vertical stack where
-            // a wrapped name costs nothing; this is a scrolling list whose
-            // whole kind cue is the identity mark being a FLOOR under a
-            // predictable text column. A name free to wrap makes the column
-            // taller than the mark on an arbitrary subset of rows, which
-            // breaks the height ladder the card geometry is built on. The
-            // preview makes the same call, and the full name stays reachable
-            // one tap away on the profile.
-            maxLines: 1,
+            // Up to TWO lines, then ellipsized (user decision, superseding the
+            // one-line call this comment used to defend). Field testing on
+            // real Ukrainian provider names showed truncation on the first
+            // pass — a name is the one piece of identity on this card that
+            // must not be cut to a fragment. The height-ladder argument for
+            // one line no longer holds: this mark is not the tallest element
+            // on every row (a wrapped locationNote already runs to 2 lines,
+            // see `ResultAddressBlock`), so it was never a true floor, only a
+            // common case — and two lines is now the agreed CEILING, not a
+            // regression of the ladder. The full name is still one tap away on
+            // the profile for the rare row that overflows even that.
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: VelvetText.subheading16,
           ),
@@ -477,27 +484,36 @@ class FavoriteMasterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String? locality = formatLocality(item.cityLabel, item.districtLabel);
-    // A salon-affiliated master's premises are their EMPLOYER's. The backend
-    // already masks street/buildingNo/locationNote server-side for them
-    // (`MasterType.disclosesOwnAddress`), so these arrive null and nothing
-    // needs suppressing here — but the guard stays explicit so a future
-    // contract change that starts returning them cannot silently print an
-    // employer's address on an employee's row. The row already names the salon
-    // one line above, in accentDeep, as a pointer to the place that owns that
-    // address; repeating it underneath duplicates the exact string this card
-    // design exists to disambiguate.
-    final bool ownsPremises = !item.isAffiliated;
-    final String? streetLine = ownsPremises
-        ? buildStreetLine(item.street, item.buildingNo)
-        : null;
-    final String? note = ownsPremises ? item.locationNote : null;
+    // No suppression by affiliation any more. Before backend `ca2c98a`, a
+    // salon-affiliated master's street/buildingNo/locationNote arrived null
+    // (masked server-side via `MasterType.disclosesOwnAddress`), and this card
+    // suppressed them defensively on the client too, on the theory that the
+    // affiliation line above already named the place and repeating its
+    // address underneath would duplicate what the line exists to disambiguate.
+    // `ca2c98a` reversed that: an affiliated master now publishes their
+    // EMPLOYING SALON's street/building/note, deliberately, and the product
+    // decision is to render it — the affiliation line carries the salon's
+    // NAME, this block carries its STREET, and nothing is duplicated between
+    // them. street/buildingNo/locationNote are therefore computed
+    // unconditionally, exactly like an independent master or a salon card. Do
+    // NOT restore a client-side guard here: the contract now intends this.
+    final String? streetLine = buildStreetLine(item.street, item.buildingNo);
+    final String? note = item.locationNote;
     final bool hasAddress =
         locality != null || streetLine != null || note != null;
 
     return _FavoriteShell(
       semanticLabel: l10n.favoritesMasterCardLabel(
         item.name,
-        <String>[?locality, ?streetLine, ?note].join('. '),
+        // The affiliation line has no spoken form of its own (it renders as
+        // plain Text, not inside `ExcludeSemantics`, so it still reaches a
+        // screen reader as an incidental stop — but the CARD's own composed
+        // label should lead with it too, for the same reason it already
+        // folds locality/street/note into one spoken blob rather than relying
+        // on each Text's own default announcement: a linear swipe should not
+        // be the only way to learn where this master works). Leading with the
+        // salon name mirrors the visual order — name, affiliation, address.
+        <String>[?item.salonName, ?locality, ?streetLine, ?note].join('. '),
         item.hasRating
             ? l10n.favoritesRatingSpoken(item.rating!)
             : l10n.favoritesNoRatingSpoken,
@@ -567,9 +583,6 @@ class FavoriteMasterCard extends StatelessWidget {
 /// It also sharpens the hardest pair on the screen: «Crystal Room №1» renders
 /// as Comfortaa espresso when the row IS that salon, and as Nunito accentDeep
 /// behind a storefront glyph when the row is a person who works there.
-///
-/// Currently never rendered — the shipped contract carries no `salonName`. See
-/// `favorite_item.dart`'s header.
 class _AffiliationLine extends StatelessWidget {
   const _AffiliationLine({required this.salonName});
 

@@ -18,9 +18,13 @@ part 'favorite_master_response.g.dart';
 /// * [cityLabel]
 /// * [districtLabel]
 /// * [avgRating]
+/// * [salonId]
+/// * [salonName]
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [categoryCode]
+/// * [categoryLabel]
 @BuiltValue()
 abstract class FavoriteMasterResponse
     implements Built<FavoriteMasterResponse, FavoriteMasterResponseBuilder> {
@@ -45,6 +49,12 @@ abstract class FavoriteMasterResponse
   @BuiltValueField(wireName: r'avgRating')
   double? get avgRating;
 
+  @BuiltValueField(wireName: r'salonId')
+  String? get salonId;
+
+  @BuiltValueField(wireName: r'salonName')
+  String? get salonName;
+
   @BuiltValueField(wireName: r'street')
   String? get street;
 
@@ -53,6 +63,12 @@ abstract class FavoriteMasterResponse
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  @BuiltValueField(wireName: r'categoryCode')
+  String? get categoryCode;
+
+  @BuiltValueField(wireName: r'categoryLabel')
+  String? get categoryLabel;
 
   FavoriteMasterResponse._();
 
@@ -133,6 +149,20 @@ class _$FavoriteMasterResponseSerializer
         specifiedType: const FullType(double),
       );
     }
+    if (object.salonId != null) {
+      yield r'salonId';
+      yield serializers.serialize(
+        object.salonId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.salonName != null) {
+      yield r'salonName';
+      yield serializers.serialize(
+        object.salonName,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.street != null) {
       yield r'street';
       yield serializers.serialize(
@@ -151,6 +181,20 @@ class _$FavoriteMasterResponseSerializer
       yield r'locationNote';
       yield serializers.serialize(
         object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.categoryCode != null) {
+      yield r'categoryCode';
+      yield serializers.serialize(
+        object.categoryCode,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.categoryLabel != null) {
+      yield r'categoryLabel';
+      yield serializers.serialize(
+        object.categoryLabel,
         specifiedType: const FullType(String),
       );
     }
@@ -228,6 +272,20 @@ class _$FavoriteMasterResponseSerializer
           ) as double;
           result.avgRating = valueDes;
           break;
+        case r'salonId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.salonId = valueDes;
+          break;
+        case r'salonName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.salonName = valueDes;
+          break;
         case r'street':
           final valueDes = serializers.deserialize(
             value,
@@ -248,6 +306,20 @@ class _$FavoriteMasterResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'categoryCode':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.categoryCode = valueDes;
+          break;
+        case r'categoryLabel':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.categoryLabel = valueDes;
           break;
         default:
           unhandled.add(key);

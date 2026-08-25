@@ -9,31 +9,23 @@
 // Pure Dart — no Flutter import. The presentation layer decides glyphs and
 // colours; this layer only says what is known about the provider.
 //
-// ── TWO FIELDS THE SHIPPED CONTRACT DOES NOT YET CARRY ──────────────────────
+// ── `categoryId` / `categoryLabel` AND `salonName` ARE LIVE ─────────────────
 //
-// [categoryId] / [categoryLabel] and [salonName] are declared here and are
-// ALWAYS null off the current mapper, because neither favourites DTO returns
-// them (verified against the regenerated client, 2026-08-24 —
-// `FavoriteMasterResponse` and `FavoriteSalonResponse` carry id, name, avatar,
-// city/district labels, avgRating, street, buildingNo, locationNote and
-// nothing else). They are modelled rather than omitted because both are
-// REQUIRED by the approved design and the whole screen is built to consume
-// them the day the server sends them:
+// Both `FavoriteMasterResponse` and `FavoriteSalonResponse` carry
+// `categoryCode`/`categoryLabel` (mapped onto [categoryId]/[categoryLabel]
+// below), and `FavoriteMasterResponse` additionally carries `salonId`/
+// `salonName` (mapped onto [salonName]) — verified against the regenerated
+// client, 2026-08-25. `FavoriteMapper` populates all three; see its header for
+// the drop-on-asymmetry rule the category pair follows.
 //
-//   * `categoryId` is what the category filter selects on. With every item
-//     carrying null, [FavoritesFilter] finds zero non-empty categories and
-//     hides itself (see its own header) — a control with nothing to offer is
-//     not drawn.
-//   * `salonName` is what draws the accentDeep affiliation line on a
-//     salon-affiliated master. With it null, [isAffiliated] is false and the
-//     line is simply absent — which is exactly how the design renders an
-//     INDEPENDENT master, so nothing false is asserted. The address block
-//     degrades correctly for free: the backend already nulls
-//     street/buildingNo/locationNote for a `SALON_MASTER`/`SALON_OWNER` via
-//     `MasterType.disclosesOwnAddress`, so an affiliated master renders as
-//     "name + rating + locality" and never shows their employer's address.
-//
-// Wiring them is a one-line mapper change per field once the DTOs grow them.
+//   * `categoryId` is what the category filter selects on — see
+//     `FavoriteChoice.from` in `favorites_filter.dart`.
+//   * `salonName` draws the accentDeep affiliation line on a salon-affiliated
+//     master (see [isAffiliated]). Since backend commit `ca2c98a`, a
+//     salon-affiliated master's `street`/`buildingNo`/`locationNote` are the
+//     EMPLOYING SALON's, not nulled — the address block renders them
+//     unconditionally now (see `FavoriteMasterCard` in `favorite_cards.dart`),
+//     with the affiliation line naming the place one register above.
 
 import 'package:flutter/foundation.dart';
 
@@ -110,13 +102,15 @@ class FavoriteItem {
 
   /// Master only — the salon this person works at.
   ///
-  /// **Always null today** — see the file header. `null` for an independent
-  /// master by design: the absence is the answer to "where do they work"
-  /// (nowhere in particular), which is why no «Приватний майстер» label exists.
+  /// `null` for an independent master by design: the absence is the answer to
+  /// "where do they work" (nowhere in particular), which is why no «Приватний
+  /// майстер» label exists. Mapped from `FavoriteMasterResponse.salonName`,
+  /// sanitized — see the file header and `FavoriteMapper`.
   final String? salonName;
 
   /// The service category this favourite is filed under — what the category
-  /// filter selects on. **Always null today** (see the file header).
+  /// filter selects on. Mapped from the DTO's `categoryCode`, a server
+  /// enum-ish token compared for equality/selection only — never rendered.
   final String? categoryId;
 
   /// The category's Ukrainian display name, rendered on the filter chip.
@@ -124,7 +118,9 @@ class FavoriteItem {
   /// Carried on the ITEM rather than resolved against a hardcoded vocabulary:
   /// the design preview used a const `kFavCategories` list, but production
   /// categories are server-owned and admin-editable, so the filter derives its
-  /// chips from the data it actually has. **Always null today.**
+  /// chips from the data it actually has. Mapped from the DTO's
+  /// `categoryLabel`, provider/admin-authored text — sanitized by the mapper,
+  /// because this is the string a screen actually renders.
   final String? categoryLabel;
 
   /// Resolved city display string (`cityLabel`). Sanitized by the mapper.
@@ -134,12 +130,10 @@ class FavoriteItem {
   /// towns have no district subdivision at all. Sanitized by the mapper.
   final String? districtLabel;
 
-  /// Street name — for a salon, or a master who owns their premises.
-  ///
-  /// The backend suppresses this (and [buildingNo]/[locationNote]) server-side
-  /// for a `SALON_MASTER`/`SALON_OWNER` via `MasterType.disclosesOwnAddress`,
-  /// so an affiliated master arrives with all three null and the client never
-  /// has to hide their employer's address itself.
+  /// Street name — for a salon, a master who owns their premises, OR (since
+  /// backend `ca2c98a`) a salon-affiliated master, in which case this is their
+  /// EMPLOYING SALON's street. The client renders it unconditionally — see
+  /// `FavoriteMasterCard` in `favorite_cards.dart`.
   final String? street;
 
   /// Building number. Rides on [street] or is dropped — `buildStreetLine`
@@ -147,15 +141,16 @@ class FavoriteItem {
   final String? buildingNo;
 
   /// The provider's free-text arrival note (backend `@Size(max = 1000)`).
-  /// Rendered when present, on the same owns-their-own-premises rule as
-  /// [street]. The one line on the card allowed to wrap (to exactly 2 lines).
+  /// Rendered whenever present, alongside [street] — for a salon-affiliated
+  /// master this is the salon's own note. The one line on the card allowed to
+  /// wrap (to exactly 2 lines).
   final String? locationNote;
 
   /// True when this row is a master.
   bool get isMaster => kind == FavoriteKind.master;
 
   /// True when this master works at a salon — the only thing that draws the
-  /// affiliation line. Always false today; see the file header.
+  /// affiliation line.
   bool get isAffiliated => salonName != null;
 
   /// True only when someone has actually been rated. A `0.00` is not a rating.

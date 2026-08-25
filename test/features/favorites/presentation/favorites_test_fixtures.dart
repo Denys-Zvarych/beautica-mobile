@@ -68,6 +68,8 @@ FavoriteItem favSalon(
   String id, {
   String name = 'Crystal Room',
   double? rating,
+  String? categoryId,
+  String? categoryLabel,
   String? cityLabel,
   String? districtLabel,
   String? street,
@@ -79,6 +81,8 @@ FavoriteItem favSalon(
   name: name,
   initials: 'CR',
   rating: rating,
+  categoryId: categoryId,
+  categoryLabel: categoryLabel,
   cityLabel: cityLabel,
   districtLabel: districtLabel,
   street: street,

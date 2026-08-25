@@ -2,19 +2,26 @@
 //
 // WHY THIS FILE EXISTS
 // --------------------
-// `favorite_cards.dart` had no test at all. Two of its behaviours are the kind
-// that rot silently:
+// `favorite_cards.dart` had no test at all. Behaviours worth pinning
+// separately from the mapper/screen tiers:
 //
-//   1. THE ADDRESS SUPPRESSION GUARD (`favorite_cards.dart:489-493`). A
-//      salon-affiliated master's premises are their EMPLOYER's, and the card
-//      refuses to print street/building/note for them. mobile-security noted
-//      that this guard is currently INERT — the shipped DTO never populates
-//      `salonName`, so `isAffiliated` is always false and the branch is never
-//      taken. An inert guard is precisely the code that gets deleted as dead
-//      during a refactor. Feeding a card a non-null `salonName` directly makes
-//      it live and pins it against that day.
+//   1. THE AFFILIATED-MASTER ADDRESS (`favorite_cards.dart`,
+//      `FavoriteMasterCard.build`). Since backend `ca2c98a`, a
+//      salon-affiliated master's `street`/`buildingNo`/`locationNote` are
+//      their EMPLOYING SALON's, and the card renders them exactly like an
+//      independent master's own address — no suppression. An earlier revision
+//      of this card DID suppress them (`ownsPremises`), on the theory that the
+//      backend nulled those fields for an affiliated master anyway; that
+//      theory no longer holds, and the guard was deleted. These tests pin the
+//      CURRENT contract so a future "helpful" restoration of that guard goes
+//      red immediately.
 //
-//   2. THE UNRATED SLOT. A `0.0` beside a star reads as a BAD score to a human,
+//   2. THE TWO-LINE NAME (`_IdentityLine`). Field testing on real Ukrainian
+//      names showed one-line ellipsis truncating identity; the card now wraps
+//      a long name to two lines before ellipsizing, with the rating readout
+//      pinned to the first line.
+//
+//   3. THE UNRATED SLOT. A `0.0` beside a star reads as a BAD score to a human,
 //      not a missing one, and would libel every unrated provider on the screen
 //      — which, for masters, is most of them. The dash is the mark that is not
 //      a zero.
@@ -27,6 +34,7 @@ import 'package:beautica_mobile/features/discovery/presentation/widgets/result_a
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorite_cards.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -35,6 +43,10 @@ import 'favorites_test_fixtures.dart';
 /// A wire-shaped arrival note. Latin, so no Cyrillic-finder escape is needed.
 const String _note = 'entrance from the yard';
 
+/// A provider name long enough to force a two-line wrap in a narrow card
+/// column — Latin, per this file's no-`i18n-finder-ok` convention.
+const String _longName = 'Solomiya Constantinovska Zabrodska Marchenko';
+
 Future<void> _pumpCard(WidgetTester tester, Widget card) => tester.pumpApp(
   Scaffold(
     body: Center(
@@ -42,6 +54,43 @@ Future<void> _pumpCard(WidgetTester tester, Widget card) => tester.pumpApp(
     ),
   ),
 );
+
+/// Same as [_pumpCard], but at a fixed, narrow logical width — needed to force
+/// a wrap deterministically; the default test surface is wide enough that
+/// even [_longName] would fit on one line.
+Future<void> _pumpCardNarrow(WidgetTester tester, Widget card) =>
+    tester.pumpApp(
+      Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: Padding(padding: const EdgeInsets.all(8), child: card),
+        ),
+      ),
+      width: 260,
+    );
+
+/// The [RenderParagraph] backing the [Text] showing [text] (located by its
+/// fixture data — a fixture literal, not a UI string).
+RenderParagraph _paragraphFor(WidgetTester tester, String text) =>
+    tester.renderObject<RenderParagraph>(find.text(text));
+
+/// Number of lines the paragraph actually laid out, reproduced from its own
+/// span + style + the width it was given. [RenderParagraph] exposes no line
+/// count directly, so re-run the layout in a [TextPainter] (which does expose
+/// [TextPainter.computeLineMetrics]) at the paragraph's incoming max width.
+/// Same technique as `salon_result_card_test.dart`'s `_lineCount`.
+int _lineCount(RenderParagraph p) {
+  final TextPainter painter = TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
+}
 
 /// The semantic label the card hands a screen reader.
 String _semanticLabel(WidgetTester tester, Type cardType) {
@@ -58,12 +107,12 @@ String _semanticLabel(WidgetTester tester, Type cardType) {
 }
 
 void main() {
-  group('FavoriteMasterCard — address suppression by affiliation', () {
+  group('FavoriteMasterCard — affiliated-master address (backend ca2c98a)', () {
     testWidgets('an INDEPENDENT master renders street, building and note', (
       WidgetTester tester,
     ) async {
       // The control. Without it, a card that rendered NOTHING would satisfy the
-      // suppression test below.
+      // affiliated-master test below by coincidence.
       await _pumpCard(
         tester,
         FavoriteMasterCard(
@@ -84,18 +133,14 @@ void main() {
       expect(find.text(_note), findsOneWidget);
     });
 
-    testWidgets('a SALON-AFFILIATED master renders NEITHER street NOR note', (
-      WidgetTester tester,
-    ) async {
-      // RED WHEN the `ownsPremises` guard at `favorite_cards.dart:489-493` is
-      // deleted (the branch is currently unreachable off the shipped DTO, so
-      // nothing else in the app would notice).
-      //
-      // The fixture deliberately supplies street/buildingNo/note ALONGSIDE a
-      // salonName — a combination the backend masks server-side today via
-      // `MasterType.disclosesOwnAddress`. That is the whole point: the client
-      // guard must hold on its own, so a contract change that starts returning
-      // those fields cannot print an employer's address on an employee's row.
+    testWidgets('a SALON-AFFILIATED master renders BOTH the affiliation line '
+        'AND the (salon\'s) street and note', (WidgetTester tester) async {
+      // RED WHEN a client-side suppression guard is reintroduced onto
+      // `FavoriteMasterCard.build`. Since backend `ca2c98a`, an affiliated
+      // master's street/buildingNo/locationNote ARE the employing salon's, and
+      // the product decision is to render them exactly like an independent
+      // master's own address — the affiliation line carries the salon's NAME,
+      // this block carries its STREET, nothing duplicated.
       await _pumpCard(
         tester,
         FavoriteMasterCard(
@@ -112,20 +157,18 @@ void main() {
         ),
       );
 
-      expect(find.text('Khreshchatyk, 22'), findsNothing);
-      expect(find.text(_note), findsNothing);
-      // The LOCALITY survives — it is the client's orientation cue and belongs
-      // to nobody's premises. Asserting it is what stops this test from passing
-      // on a card that simply failed to render an address block at all.
       expect(find.text('Kyiv'), findsOneWidget);
+      expect(find.text('Khreshchatyk, 22'), findsOneWidget);
+      expect(find.text(_note), findsOneWidget);
       expect(find.byType(ResultAddressBlock), findsOneWidget);
       // And the affiliation line names the place that owns that address.
       expect(find.text('Crystal Room'), findsOneWidget);
     });
 
-    testWidgets('an affiliated master keeps the suppressed note OUT of its '
-        'spoken label too', (WidgetTester tester) async {
-      // A screen reader must not be handed what the screen refuses to print.
+    testWidgets('an affiliated master\'s spoken label leads with the salon '
+        'name, then carries the (salon\'s) address', (
+      WidgetTester tester,
+    ) async {
       await _pumpCard(
         tester,
         FavoriteMasterCard(
@@ -142,13 +185,17 @@ void main() {
       );
 
       final String label = _semanticLabel(tester, FavoriteMasterCard);
+      expect(label, contains('Crystal Room'));
       expect(label, contains('Kyiv'));
-      expect(label, isNot(contains(_note)));
-      expect(label, isNot(contains('Khreshchatyk')));
+      expect(label, contains('Khreshchatyk'));
+      expect(label, contains(_note));
+      // Salon name reads BEFORE the address, mirroring the visual order —
+      // name, affiliation, address.
+      expect(label.indexOf('Crystal Room'), lessThan(label.indexOf('Kyiv')));
     });
 
-    testWidgets('an affiliated master draws no address block when the '
-        'locality is also absent', (WidgetTester tester) async {
+    testWidgets('an affiliated master still draws an address block from '
+        'street alone, with no locality', (WidgetTester tester) async {
       await _pumpCard(
         tester,
         FavoriteMasterCard(
@@ -162,7 +209,8 @@ void main() {
         ),
       );
 
-      expect(find.byType(ResultAddressBlock), findsNothing);
+      expect(find.byType(ResultAddressBlock), findsOneWidget);
+      expect(find.text('Khreshchatyk'), findsOneWidget);
     });
   });
 
@@ -193,6 +241,62 @@ void main() {
       expect(find.text(_note), findsOneWidget);
       final String label = _semanticLabel(tester, FavoriteSalonCard);
       expect(label, contains(_note));
+    });
+  });
+
+  group('_IdentityLine — the two-line name wrap', () {
+    testWidgets('a long name wraps to a SECOND line rather than being '
+        'truncated to one', (WidgetTester tester) async {
+      // RED WHEN `_IdentityLine`'s `maxLines` reverts to 1. User decision,
+      // 2026-08-25, superseding the earlier one-line-ellipsis call: field
+      // testing on real Ukrainian names showed truncation.
+      await _pumpCardNarrow(
+        tester,
+        FavoriteMasterCard(
+          item: favMaster('m1', name: _longName, rating: 4.7),
+          onOpen: () {},
+          onUnlike: () {},
+        ),
+      );
+
+      final Text text = tester.widget<Text>(find.text(_longName));
+      expect(text.maxLines, 2);
+      expect(text.overflow, TextOverflow.ellipsis);
+      expect(
+        _lineCount(_paragraphFor(tester, _longName)),
+        2,
+        reason:
+            'a static maxLines:2 alone does not prove the layout actually '
+            'used a second line — the narrow column must genuinely wrap it.',
+      );
+    });
+
+    testWidgets('the rating readout stays pinned to the FIRST line, not '
+        'centred against a two-line name', (WidgetTester tester) async {
+      // RatingReadout and the name Text are siblings in `_IdentityLine`'s Row.
+      // With `crossAxisAlignment: start`, both start at the SAME top offset
+      // regardless of how tall the name column grows; with the Row's default
+      // `center`, a two-line name would push the Row taller and drag the
+      // rating down to the new vertical middle. Comparing top offsets catches
+      // that regression directly, independent of any specific pixel budget.
+      await _pumpCardNarrow(
+        tester,
+        FavoriteMasterCard(
+          item: favMaster('m1', name: _longName, rating: 4.7),
+          onOpen: () {},
+          onUnlike: () {},
+        ),
+      );
+
+      final double nameTop = tester.getTopLeft(find.text(_longName)).dy;
+      final double ratingTop = tester.getTopLeft(find.byType(RatingReadout)).dy;
+      expect(
+        ratingTop,
+        closeTo(nameTop, 1.0),
+        reason:
+            'the rating readout drifted away from the first line\'s top — '
+            'the identity Row is no longer top-aligned',
+      );
     });
   });
 

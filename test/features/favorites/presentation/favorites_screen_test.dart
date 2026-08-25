@@ -188,7 +188,9 @@ void main() {
     testWidgets('renders NOTHING when no favourite carries a category', (
       WidgetTester tester,
     ) async {
-      // The shipped contract's actual state. A pill that can only ever say
+      // The degenerate case: a favourite whose DTO carried no
+      // categoryCode/categoryLabel (or only one of the pair — see
+      // `FavoriteMapper._categoryOrNull`). A pill that can only ever say
       // «Всі» is furniture costing permanent vertical space on a scroll.
       final FavoritesHarness h = FavoritesHarness()
         ..repo.masters = <FavoriteItem>[favMaster('m1')];
@@ -202,10 +204,9 @@ void main() {
     testWidgets('appears, opens, and FILTERS the list once categories exist', (
       WidgetTester tester,
     ) async {
-      // Unreachable off the shipped DTOs — which is exactly why it needs a
-      // test: nothing else in the suite exercises `FavoriteChoice.from`, the
-      // `visible` derivation, or the chip wiring, so the whole control could
-      // rot silently between now and the day the server sends a category.
+      // The normal case now that both favourites DTOs carry a category.
+      // Exercises `FavoriteChoice.from`, the `visible` derivation, and the
+      // chip wiring end to end.
       final FavoritesHarness h = FavoritesHarness()
         ..repo.masters = <FavoriteItem>[
           favMaster(

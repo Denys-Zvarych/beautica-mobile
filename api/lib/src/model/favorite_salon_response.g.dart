@@ -25,6 +25,10 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
   final String? buildingNo;
   @override
   final String? locationNote;
+  @override
+  final String? categoryCode;
+  @override
+  final String? categoryLabel;
 
   factory _$FavoriteSalonResponse(
           [void Function(FavoriteSalonResponseBuilder)? updates]) =>
@@ -39,7 +43,9 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
       this.avgRating,
       this.street,
       this.buildingNo,
-      this.locationNote})
+      this.locationNote,
+      this.categoryCode,
+      this.categoryLabel})
       : super._();
   @override
   FavoriteSalonResponse rebuild(
@@ -62,7 +68,9 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
         avgRating == other.avgRating &&
         street == other.street &&
         buildingNo == other.buildingNo &&
-        locationNote == other.locationNote;
+        locationNote == other.locationNote &&
+        categoryCode == other.categoryCode &&
+        categoryLabel == other.categoryLabel;
   }
 
   @override
@@ -77,6 +85,8 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, categoryCode.hashCode);
+    _$hash = $jc(_$hash, categoryLabel.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -92,7 +102,9 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
           ..add('avgRating', avgRating)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
-          ..add('locationNote', locationNote))
+          ..add('locationNote', locationNote)
+          ..add('categoryCode', categoryCode)
+          ..add('categoryLabel', categoryLabel))
         .toString();
   }
 }
@@ -138,6 +150,15 @@ class FavoriteSalonResponseBuilder
   String? get locationNote => _$this._locationNote;
   set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
+  String? _categoryCode;
+  String? get categoryCode => _$this._categoryCode;
+  set categoryCode(String? categoryCode) => _$this._categoryCode = categoryCode;
+
+  String? _categoryLabel;
+  String? get categoryLabel => _$this._categoryLabel;
+  set categoryLabel(String? categoryLabel) =>
+      _$this._categoryLabel = categoryLabel;
+
   FavoriteSalonResponseBuilder() {
     FavoriteSalonResponse._defaults(this);
   }
@@ -154,6 +175,8 @@ class FavoriteSalonResponseBuilder
       _street = $v.street;
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
+      _categoryCode = $v.categoryCode;
+      _categoryLabel = $v.categoryLabel;
       _$v = null;
     }
     return this;
@@ -184,6 +207,8 @@ class FavoriteSalonResponseBuilder
           street: street,
           buildingNo: buildingNo,
           locationNote: locationNote,
+          categoryCode: categoryCode,
+          categoryLabel: categoryLabel,
         );
     replace(_$result);
     return _$result;

@@ -62,6 +62,15 @@ import 'widgets/favorite_cards.dart';
 import 'widgets/favorites_empty_state.dart';
 import 'widgets/favorites_filter.dart';
 
+/// The two O(N) derivations `_Loaded` needs: the category chips
+/// ([FavoriteChoice.from]) and the category-filtered row list. See
+/// [_FavoritesScreenState._viewModelFor] for why this is memoized rather than
+/// recomputed inline.
+typedef _FavoritesViewModel = ({
+  List<FavoriteChoice> choices,
+  List<FavoriteItem> visible,
+});
+
 /// The one identity a row has on this screen: its KIND plus its id.
 ///
 /// [FavoriteItem.id] is a `masterId` OR a `salonId` — two id spaces from two
@@ -107,6 +116,57 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
   /// One timer per denting row. Cancelled on undo and on dispose — a fired
   /// timer on a disposed State would call `ref` after teardown.
   final Map<String, Timer> _timers = <String, Timer>{};
+
+  // ── View-model memoization ───────────────────────────────────────────────
+  //
+  // `_Loaded` used to derive `FavoriteChoice.from(items)` (O(N)) and the
+  // category-filtered `visible` list (O(N)) INSIDE its own `build()`, which
+  // re-ran both on every `_FavoritesScreenState` rebuild — including the four
+  // that touch neither `items` nor the category filter: `_startUndoWindow`'s
+  // setState, the 5s-later `collapsing` setState, `_commitUnfavorite`'s
+  // setState, and (once more, harmlessly) the notifier's own `state =
+  // AsyncData(...)` assignment that actually DOES change `items` and so
+  // legitimately needs a recompute.
+  //
+  // Sub-millisecond at today's list sizes, but the wrong pattern to grow a
+  // list on, and D4 (Phase 111) just made `FavoriteChoice.from` non-empty for
+  // the first time. Fixed with a manually-checked cache field here rather than
+  // hoisting into a `Provider` selector: `_FavoritesScreenState` already owns
+  // exactly this kind of derived, non-Riverpod presentation state (`_pending`,
+  // `_collapsing`, `_timers`), so a plain field pair fits the screen's
+  // existing shape instead of adding a second provider file for two lines of
+  // pure-Dart filtering.
+  //
+  // Keyed on the IDENTITY of `items`, not `==`: `FavoriteItem` has no `<`
+  // ordering and a value-equality list comparison would itself be O(N) per
+  // build, defeating the point. Identity is safe here because
+  // `FavoritesNotifier.unfavorite` (and `refresh`, and the failure-restore
+  // path) always assign a FRESH `List` via `<FavoriteItem>[...current]`
+  // (`favorites_notifier.dart`) — it never mutates the list Riverpod already
+  // handed out. Verified by reading that file, not assumed.
+  List<FavoriteItem>? _memoItems;
+  String? _memoSelectedCategory;
+  late _FavoritesViewModel _memoViewModel;
+
+  _FavoritesViewModel _viewModelFor(
+    List<FavoriteItem> items,
+    String? selectedCategory,
+  ) {
+    if (identical(_memoItems, items) &&
+        _memoSelectedCategory == selectedCategory) {
+      return _memoViewModel;
+    }
+    final List<FavoriteChoice> choices = FavoriteChoice.from(items);
+    final List<FavoriteItem> visible = selectedCategory == null
+        ? items
+        : items
+              .where((FavoriteItem i) => i.categoryId == selectedCategory)
+              .toList(growable: false);
+    _memoItems = items;
+    _memoSelectedCategory = selectedCategory;
+    _memoViewModel = (choices: choices, visible: visible);
+    return _memoViewModel;
+  }
 
   @override
   void dispose() {
@@ -230,23 +290,7 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
           // retry in flight would render as a permanent error.
           return switch (favorites) {
             AsyncData<List<FavoriteItem>>(:final List<FavoriteItem> value) =>
-              _Loaded(
-                items: value,
-                selectedCategory: selectedCategory,
-                pending: _pending,
-                collapsing: _collapsing,
-                reveal: reveal,
-                undoWindow: _undoWindow,
-                collapse: _collapse,
-                onSelectCategory: (String? id) => ref
-                    .read(favoritesCategoryFilterProvider.notifier)
-                    .select(id),
-                onOpen: _openProfile,
-                onUnlike: _startUndoWindow,
-                onUndo: _undo,
-                onRefresh: _refresh,
-                onFindMaster: _openSearch,
-              ),
+              _buildLoaded(value, selectedCategory, reveal),
             AsyncError<List<FavoriteItem>>(:final Object error) => _ErrorBody(
               error: error,
               onRetry: () => unawaited(_refresh()),
@@ -257,12 +301,43 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
       ),
     );
   }
+
+  /// Builds the `AsyncData` branch — the one call site for [_viewModelFor], so
+  /// the memoized derivation runs exactly once per [build].
+  Widget _buildLoaded(
+    List<FavoriteItem> items,
+    String? selectedCategory,
+    RevealFn reveal,
+  ) {
+    final _FavoritesViewModel viewModel = _viewModelFor(
+      items,
+      selectedCategory,
+    );
+    return _Loaded(
+      choices: viewModel.choices,
+      visible: viewModel.visible,
+      selectedCategory: selectedCategory,
+      pending: _pending,
+      collapsing: _collapsing,
+      reveal: reveal,
+      undoWindow: _undoWindow,
+      collapse: _collapse,
+      onSelectCategory: (String? id) =>
+          ref.read(favoritesCategoryFilterProvider.notifier).select(id),
+      onOpen: _openProfile,
+      onUnlike: _startUndoWindow,
+      onUndo: _undo,
+      onRefresh: _refresh,
+      onFindMaster: _openSearch,
+    );
+  }
 }
 
 /// The loaded list — filter, rows, and whichever empty state applies.
 class _Loaded extends StatelessWidget {
   const _Loaded({
-    required this.items,
+    required this.choices,
+    required this.visible,
     required this.selectedCategory,
     required this.pending,
     required this.collapsing,
@@ -277,7 +352,12 @@ class _Loaded extends StatelessWidget {
     required this.onFindMaster,
   });
 
-  final List<FavoriteItem> items;
+  /// The category chips and the category-filtered row list — BOTH already
+  /// derived (and memoized) by `_FavoritesScreenState._viewModelFor`. Never
+  /// re-derive either from a raw `items` list here: that is exactly the O(N)
+  /// work the memoization exists to avoid re-running on every rebuild.
+  final List<FavoriteChoice> choices;
+  final List<FavoriteItem> visible;
   final String? selectedCategory;
 
   /// Both sets hold [_favoriteRowId] values (kind + id), NOT bare item ids.
@@ -333,12 +413,10 @@ class _Loaded extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<FavoriteChoice> choices = FavoriteChoice.from(items);
-    final List<FavoriteItem> visible = selectedCategory == null
-        ? items
-        : items
-              .where((FavoriteItem i) => i.categoryId == selectedCategory)
-              .toList(growable: false);
+    // `choices` and `visible` are already derived (and memoized) by the
+    // caller — see `_FavoritesScreenState._viewModelFor`. Recomputing either
+    // here would be the exact O(N)-per-rebuild pattern that memoization
+    // exists to avoid.
 
     // ONE scrollable, with the filter as its first sliver rather than a sibling
     // above an `Expanded`. In a Column the filter's 220 ms expand/collapse
@@ -346,10 +424,9 @@ class _Loaded extends StatelessWidget {
     // relayout of every visible row plus a re-raster of their shadows, for the
     // whole 220 ms, to open a control that never asked the rows to move. As a
     // header sliver its height change scrolls the rows instead of re-measuring
-    // them. (Unreachable today: no favourites DTO carries a category, so
-    // `choices` is empty and the filter renders `SizedBox.shrink()`. It stops
-    // being unreachable the day categories ship, and this is cheaper to get
-    // right now than to diagnose as jank later.)
+    // them. Both favourites DTOs carry a category, so `choices` is populated
+    // and this control is live on a real list — the sliver placement pays for
+    // itself now, not only on some future contract change.
     return RefreshIndicator(
       onRefresh: onRefresh,
       color: BrandColors.accentDeep,

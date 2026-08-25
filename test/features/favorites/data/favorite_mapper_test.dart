@@ -52,6 +52,10 @@ FavoriteMasterResponse _masterDto({
   String? firstName = 'Marta',
   String? lastName = 'Honchar',
   double? avgRating,
+  String? salonId,
+  String? salonName,
+  String? categoryCode,
+  String? categoryLabel,
   String? cityLabel,
   String? districtLabel,
   String? street,
@@ -63,6 +67,10 @@ FavoriteMasterResponse _masterDto({
     ..firstName = firstName
     ..lastName = lastName
     ..avgRating = avgRating
+    ..salonId = salonId
+    ..salonName = salonName
+    ..categoryCode = categoryCode
+    ..categoryLabel = categoryLabel
     ..cityLabel = cityLabel
     ..districtLabel = districtLabel
     ..street = street
@@ -74,6 +82,8 @@ FavoriteSalonResponse _salonDto({
   String? salonId = 'salon-1',
   String? name = 'Crystal Room',
   double? avgRating,
+  String? categoryCode,
+  String? categoryLabel,
   String? cityLabel,
   String? districtLabel,
   String? street,
@@ -84,6 +94,8 @@ FavoriteSalonResponse _salonDto({
     ..salonId = salonId
     ..name = name
     ..avgRating = avgRating
+    ..categoryCode = categoryCode
+    ..categoryLabel = categoryLabel
     ..cityLabel = cityLabel
     ..districtLabel = districtLabel
     ..street = street
@@ -290,14 +302,86 @@ void main() {
       expect(item.target.type.name, 'salon');
     });
 
-    test('neither DTO can produce a salonName — isAffiliated is false', () {
-      // Pins the documented contract gap. The day a DTO grows `salonName`,
-      // THIS test is what tells whoever wires it that the affiliation line and
-      // the address suppression it gates are now reachable.
+    test('a master row with no salonName is NOT affiliated', () {
       expect(
         _masters(<FavoriteMasterResponse>[_masterDto()]).single.isAffiliated,
         isFalse,
       );
+    });
+  });
+
+  group('FavoriteMapper — salonName (D2, master rows only)', () {
+    // RED WHEN `salonName: _visibleOrNull(dto.salonName)` is dropped from
+    // `_masterFromDto` — the affiliation line and the (now unconditional)
+    // address block both key off `FavoriteItem.isAffiliated`/`.salonName`.
+    test('maps and sanitizes a MASTER row\'s salonName', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(salonName: 'Crystal Room\u200B'),
+      ]).single;
+
+      expect(item.salonName, 'Crystal Room');
+      expect(item.isAffiliated, isTrue);
+    });
+
+    test('a blank salonName does not falsely mark a master affiliated', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(salonName: '   '),
+      ]).single;
+
+      expect(item.salonName, isNull);
+      expect(item.isAffiliated, isFalse);
+    });
+  });
+
+  group('FavoriteMapper — category (D4, both kinds)', () {
+    // RED WHEN `categoryId`/`categoryLabel` mapping is dropped from either
+    // `_masterFromDto` or `_salonFromDto` — pinned on BOTH arms separately,
+    // matching the file's own rule for the locationNote sanitization above.
+    test('maps a MASTER row\'s categoryCode/categoryLabel', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(categoryCode: 'MANICURE', categoryLabel: 'Nails\u200B'),
+      ]).single;
+
+      expect(item.categoryId, 'MANICURE');
+      // The LABEL is rendered, so it is sanitized; the CODE is compared only,
+      // so it is merely trimmed.
+      expect(item.categoryLabel, 'Nails');
+    });
+
+    test('maps a SALON row\'s categoryCode/categoryLabel', () {
+      final FavoriteItem item = _salons(<FavoriteSalonResponse>[
+        _salonDto(categoryCode: 'MANICURE', categoryLabel: 'Nails\u200B'),
+      ]).single;
+
+      expect(item.categoryId, 'MANICURE');
+      expect(item.categoryLabel, 'Nails');
+    });
+
+    test('a code with NO label folds to (null, null), not a half chip', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(categoryCode: 'MANICURE', categoryLabel: null),
+      ]).single;
+
+      expect(item.categoryId, isNull);
+      expect(item.categoryLabel, isNull);
+    });
+
+    test('a label with NO code folds to (null, null), not a half chip', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(categoryCode: null, categoryLabel: 'Nails'),
+      ]).single;
+
+      expect(item.categoryId, isNull);
+      expect(item.categoryLabel, isNull);
+    });
+
+    test('a whitespace-only code is treated as absent, folding the pair', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(categoryCode: '   ', categoryLabel: 'Nails'),
+      ]).single;
+
+      expect(item.categoryId, isNull);
+      expect(item.categoryLabel, isNull);
     });
   });
 }
