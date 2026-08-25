@@ -40,17 +40,22 @@
 //
 // FAKE-BACKEND GAPS
 // -----------------
-// GET /clients/me/passport, GET /favorites/masters, GET /clients/me/timeline —
-// not yet wired in FakeBackend (backend 19.x). Their providers return
-// empty/null placeholders so the Hub shows empty states; the integration test
-// asserts the empty-state keys to confirm this.
+// GET /clients/me/passport, GET /favorites/masters — not yet wired in
+// FakeBackend (backend 19.x). Their providers return empty/null placeholders
+// so the Hub shows empty states; the integration test asserts the
+// empty-state keys to confirm this.
 //
-// GET /bookings/me (Phase 225) and GET /users/me/rating ARE wired — the
-// next-appointment card and the «Мій рейтинг» stat pill both render real
-// FakeBackend data now. FakeBackend seeds ONE booking (`booking-1`, CONFIRMED,
-// 7 days out) by default, so a flow that wants the next-appointment EMPTY
-// state must explicitly flip `fb.bookingStatus` away from CONFIRMED first —
-// see the "no CONFIRMED booking seeded" test below.
+// GET /bookings/me (Phase 225), GET /users/me/rating, and (since the Phase
+// 110 gap-closure pass below) GET /clients/me/timeline ARE wired — the
+// next-appointment card, the «Мій рейтинг» stat pill, and the BEAUTY
+// TIMELINE rail all render real FakeBackend data now. FakeBackend seeds ONE
+// booking (`booking-1`, CONFIRMED, 7 days out) by default, so a flow that
+// wants the next-appointment EMPTY state must explicitly flip
+// `fb.bookingStatus` away from CONFIRMED first — see the "no CONFIRMED
+// booking seeded" test below. `fb.timelineRows` defaults to EMPTY (a
+// genuinely empty page from the wired endpoint, not a hard-coded
+// placeholder) — see the "BEAUTY TIMELINE" tests near the end of this file
+// for the populated-rail coverage.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
@@ -311,13 +316,16 @@ void main() {
       );
 
       // BeautyTimelineSection empty state key — likewise below the fold.
+      // The endpoint IS wired (Phase 110) — FakeBackend's `timelineRows`
+      // defaults to an empty list, so this is a genuinely empty page from
+      // the real endpoint, not an unwired placeholder any more.
       await _scrollHubTo(tester, find.byKey(const Key('timeline_empty')));
       expect(
         find.byKey(const Key('timeline_empty')),
         findsOneWidget,
         reason:
-            'timeline section must show its empty state because the '
-            'timeline endpoint (backend 19.5) is not yet wired',
+            'timeline section must show its empty state when FakeBackend '
+            'serves a genuinely empty page (default `timelineRows`)',
       );
     },
     timeout: const Timeout(Duration(seconds: 45)),
@@ -1067,6 +1075,193 @@ void main() {
         find.byType(HomeHubScreen),
         findsOneWidget,
         reason: 'the client lands back on the hub, not a blank shell branch',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test N — mobile-qa gap-closure (Phase 110 / Step 2.7 Rule 3b) ────────
+  //              BEAUTY TIMELINE rail: populated rendering, sort, and the ────
+  //              bookingId tap-to-navigate / inert-when-absent contract ─────
+  //
+  // The widget tier (home_hub_screen_test.dart) and the data-layer unit
+  // tier (timeline_repository_test.dart / timeline_mapper_test.dart) each
+  // prove ONE link of this chain in isolation with fakes/mocks. Neither
+  // exercises the REAL journey end to end: a CLIENT's real HTTP round trip
+  // through FakeBackend, the real TimelineMapper sort, and the real
+  // go_router `context.push` navigating to «Деталі запису». This is exactly
+  // the shape Step 2.7 Rule 3b requires for a change that touches a screen +
+  // provider/repository wiring + API contract + navigation.
+
+  testWidgets(
+    'BEAUTY TIMELINE rail renders populated tiles most-recent-first from '
+    'FakeBackend data (proves the client-side re-sort, not wire order)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // Isolate the timeline from the next-appointment card so only ONE
+        // BookingCard-shaped section is on screen (matches Test 4's "no
+        // CONFIRMED booking seeded" fixture flip).
+        ..bookingStatus = 'COMPLETED'
+        // Deliberately seeded ASCENDING (oldest first) — the backend already
+        // orders DESC in production, but TimelineMapper.fromDtoList
+        // re-sorts client-side regardless (see its file header) and must
+        // never simply trust wire order. If that re-sort were ever dropped,
+        // the rail would render these in THIS ascending order and the dx
+        // assertions below would fail.
+        ..timelineRows = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'PEDICURE',
+            'categoryName': 'Педикюр',
+            'date': '2026-04-02',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний педикюр',
+          },
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'BROW',
+            'categoryName': 'Брови',
+            'date': '2026-05-12',
+            'masterId': 'master-1',
+            'serviceName': 'Корекція брів',
+          },
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'NAIL_SERVICE',
+            'categoryName': 'Манікюр',
+            'date': '2026-06-18',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний манікюр',
+          },
+        ];
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      // i18n-finder-ok: these are FakeBackend fixture category names, not
+      // translated UI copy — asserting their horizontal order, not content.
+      final double manicureX = tester.getTopLeft(find.text('Манікюр')).dx;
+      final double browX = tester.getTopLeft(find.text('Брови')).dx;
+      final double pedicureX = tester.getTopLeft(find.text('Педикюр')).dx;
+
+      expect(
+        manicureX,
+        lessThan(browX),
+        reason:
+            'the most recent procedure (18 Jun) must render leftmost — a '
+            'regression to wire order would put Педикюр (2 Apr) first '
+            'instead',
+      );
+      expect(
+        browX,
+        lessThan(pedicureX),
+        reason:
+            'the middle-dated procedure (12 May) must render before the '
+            'oldest (2 Apr)',
+      );
+
+      expect(
+        fb.getTimelineCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the rail must be backed by a real GET /clients/me/timeline '
+            'call, not a hard-coded fixture',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  testWidgets(
+    'tapping a BEAUTY TIMELINE tile with a bookingId opens «Деталі запису» — '
+    'a tile with no bookingId is inert (no navigation, no crash)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..timelineRows = <Map<String, dynamic>>[
+          // No bookingId at all — the wire shape for a completed procedure
+          // whose source booking cannot be resolved server-side. Must
+          // render on the rail but stay non-tappable (never coerced to '').
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'BROW',
+            'categoryName': 'Брови',
+            'date': '2026-05-12',
+            'masterId': 'master-1',
+            'serviceName': 'Корекція брів',
+          },
+          // Reuses "booking-1" — the ONLY seeded booking with a wired
+          // GET /bookings/:id route (`_wireBookingDetail` in
+          // fake_backend.dart uses a CONCRETE path; the DioAdapter mock has
+          // no path-template matching).
+          <String, dynamic>{
+            'bookingId': 'booking-1',
+            'categoryKey': 'NAIL_SERVICE',
+            'categoryName': 'Манікюр',
+            'date': '2026-06-18',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний манікюр',
+          },
+        ];
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      // ── 1. The bookingId-less tile renders but is INERT. ────────────────
+      expect(
+        find.text('Брови'),
+        findsOneWidget,
+        reason: 'the no-bookingId row must still render on the rail',
+      );
+      expect(
+        find.byKey(const Key('timeline_tile_booking-1')),
+        findsOneWidget,
+        reason: 'the bookingId-carrying row must render as a keyed InkWell',
+      );
+      // `warnIfMissed: false` — this is a DELIBERATE inert-tile tap (no
+      // GestureDetector/InkWell exists on this branch of `_TimelineNode`),
+      // not a scroll-clipping miss. Mirrors `TapCalendarDay`'s documented
+      // distinction (test/helpers/pump_app.dart) for the same shape of
+      // assertion.
+      await tester.tap(find.text('Брови'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(BookingDetailScreen),
+        findsNothing,
+        reason:
+            'a timeline row with no bookingId must never navigate — '
+            'TimelineMapper never coerces a missing id to "" (see '
+            'timeline_mapper.dart\'s header), and BeautyTimelineSection only '
+            'wraps a tile in InkWell when bookingId is non-null/non-empty '
+            '(beauty_timeline_section.dart\'s _TimelineNode)',
+      );
+
+      // ── 2. The bookingId-carrying tile navigates to «Деталі запису». ────
+      await tester.tap(find.byKey(const Key('timeline_tile_booking-1')));
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason:
+            'tapping a timeline tile whose bookingId is set must push '
+            '«Деталі запису» via context.push '
+            '(BeautyTimelineSection.onOpenBooking → '
+            'RouteNames.bookingDetail)',
+      );
+      // `expectNestedPushLocation` (not `expectLocation`) — `push` grafts
+      // this leaf onto the shell match of whichever branch is CURRENTLY
+      // ACTIVE (Home), the same shape the next-appointment card's own
+      // navigation test above documents.
+      AppHarness.expectNestedPushLocation(
+        router,
+        '${RouteNames.clientBookings}/booking-1',
       );
     },
     timeout: const Timeout(Duration(seconds: 45)),

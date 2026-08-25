@@ -747,6 +747,38 @@ final class FakeBackend {
     'memberSinceYear': 2021,
   };
 
+  /// `GET /api/v1/clients/me/timeline` call counter (Phase 110 / mobile-qa
+  /// gap-closure — this route did not exist at all until this pass; see
+  /// [timelineRows]'s doc for the defect that absence caused).
+  int getTimelineCalls = 0;
+
+  /// Rows served by `GET /api/v1/clients/me/timeline`'s page envelope
+  /// (`data.data`). Defaults to EMPTY, which drives the BEAUTY TIMELINE
+  /// rail's `timeline_empty` state — the same default every sibling
+  /// placeholder-shaped list uses ([favoriteMasterRows],
+  /// [favoriteServiceRows]). Replace wholesale in a flow to serve populated
+  /// completed-procedure history.
+  ///
+  /// Each row is a `TimelineItemResponse`: `bookingId` (String?, may be
+  /// omitted/null — a row with no bookingId must render but stay
+  /// non-tappable, see `timeline_mapper.dart`'s header), `categoryKey`,
+  /// `categoryName`, `date` (a wire-format `Date`, i.e. a bare
+  /// `"YYYY-MM-DD"` string — NOT an instant, see `api/lib/src/
+  /// date_serializer.dart`), `masterId`, `serviceName`.
+  ///
+  /// mobile-qa DEFECT NOTE (found authoring the Phase 110 test gaps, fixed
+  /// here): `HttpTimelineRepository` was wired to the REAL
+  /// `GET /clients/me/timeline` endpoint, but this route was never added to
+  /// FakeBackend. Every E2E flow that reached the BEAUTY TIMELINE section
+  /// therefore hit an unmocked path and the card rendered its ERROR state —
+  /// `find.byType(BeautyTimelineSection)` (only built on the DATA branch of
+  /// `timelineAsync.when`) matched nothing, and `_scrollHubTo` threw `Bad
+  /// state: No element` scrolling for a widget that was never built. Two
+  /// tests in `client_home_hub_flow_test.dart` were red for exactly this
+  /// reason before this route was added — this is test infrastructure
+  /// (`integration_test/support/`), not `lib/` production code.
+  List<Map<String, dynamic>> timelineRows = <Map<String, dynamic>>[];
+
   /// `GET /api/v1/favorites/services` call counter — the BEAUTY WISH LIST feed
   /// (backend 247, mobile Phase 237).
   int listServiceFavoritesCalls = 0;
@@ -3810,6 +3842,32 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getPassportCalls++;
         return _ok(passportBody);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/clients/me/timeline — CLIENT's BEAUTY TIMELINE
+    // (completed-procedure history, backend 19.5). Wired now that
+    // `HttpTimelineRepository` calls the real endpoint — see [timelineRows]'s
+    // doc for the defect this route's ABSENCE caused before this pass.
+    // Envelope shape mirrors `_wireListMasterFavorites`'s page envelope
+    // exactly: outer `ApiResponse` (`success`/`message`/`data`), inner
+    // `PageResponse` (`data`/`page`/`size`/`totalElements`/`totalPages`).
+    _adapter.onRoute(
+      '/api/v1/clients/me/timeline',
+      (server) => server.replyCallback(200, (_) {
+        getTimelineCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': timelineRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': timelineRows.length,
+            'totalPages': timelineRows.isEmpty ? 0 : 1,
+          },
+        };
       }),
       request: const Request(method: RequestMethods.get),
     );

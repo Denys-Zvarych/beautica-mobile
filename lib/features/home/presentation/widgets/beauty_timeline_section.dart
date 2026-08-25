@@ -1,15 +1,29 @@
 // Phase 13.7 — BEAUTY TIMELINE section.
+// Phase 110 (13.9) — data-wired; `onSeeAll` widened to optional (no timeline
+// page exists — see below) and tile tap now opens «Деталі запису» when a row
+// carries a bookingId; `_categoryIcon` now prefers the backend's stable
+// `categoryKey`.
 //
 // Title "BEAUTY TIMELINE" is an untranslated English brand constant (locked
 // product decision). The section label itself uses [HubSectionTitle] with
 // `literal: true` for wider tracking.
 //
-// Category icons are produced by the local [_categoryIcon] helper (mirrors the
-// preview's sample icons). A full `categoryIconFor(slug)` helper will land in
-// Phase 13.3 (discovery); for now we map by category string.
+// Category icons are produced by the local [_categoryIcon] helper (mirrors
+// the preview's sample icons) — see that function's doc for why this stays a
+// PRIVATE, in-file mapper rather than a shared `categoryIconFor` (two other
+// screens, `booking_card.dart` and `favorites_filter.dart`, already carry
+// their own drifted private mappers; reconciling all three is a separate,
+// out-of-scope decision — see `favorites_filter.dart`'s header).
 //
 // Ported from `_TimelineSection` + `_DottedLine` in the approved preview.
 // Timeline rail height is locked at 108dp (preview value).
+//
+// NO "SEE ALL" DESTINATION: there is no standalone timeline page and none is
+// planned ("there shouldn't be new page, just railway on home client profile
+// page" — locked product decision). [onSeeAll] is therefore OPTIONAL
+// (`VoidCallback?`); the trailing link only renders when a caller supplies
+// one, so wiring real data (which used to leave a dead debug-log-only tap
+// target behind) never ships a visible, tappable no-op control.
 
 import 'package:flutter/material.dart';
 
@@ -25,11 +39,20 @@ class BeautyTimelineSection extends StatelessWidget {
   const BeautyTimelineSection({
     super.key,
     required this.entries,
-    required this.onSeeAll,
+    this.onSeeAll,
+    this.onOpenBooking,
   });
 
   final List<TimelineEntry> entries;
-  final VoidCallback onSeeAll;
+
+  /// Optional — see the file header. Null renders no trailing link.
+  final VoidCallback? onSeeAll;
+
+  /// Optional callback fired when a tile whose [TimelineEntry.bookingId] is
+  /// non-null/non-empty is tapped, with that id. Null (the default) makes
+  /// tiles non-interactive, matching this rail's "read-only" phase decision
+  /// unless a caller opts in.
+  final ValueChanged<String>? onOpenBooking;
 
   static const double _railHeight = 108;
   static const double _medallion = 64;
@@ -55,12 +78,12 @@ class BeautyTimelineSection extends StatelessWidget {
           // ignore: avoid_hardcoded_strings — locked brand literal
           title: 'BEAUTY TIMELINE',
           literal: true,
-          trailing: entries.isEmpty
+          trailing: entries.isEmpty || onSeeAll == null
               ? null
               : HubSeeAllLink(
                   key: const Key('timeline_see_all'),
                   label: l10n.homeHubTimelineSeeAll,
-                  onTap: onSeeAll,
+                  onTap: onSeeAll!,
                 ),
         ),
         const SizedBox(height: VelvetSpacing.md),
@@ -112,7 +135,7 @@ class BeautyTimelineSection extends StatelessWidget {
                           top: _medallion / 2 - 1,
                           child: _DottedLine(),
                         ),
-                      _TimelineNode(entry: entry),
+                      _TimelineNode(entry: entry, onOpen: onOpenBooking),
                     ],
                   ),
                 );
@@ -125,16 +148,25 @@ class BeautyTimelineSection extends StatelessWidget {
 }
 
 class _TimelineNode extends StatelessWidget {
-  const _TimelineNode({required this.entry});
+  const _TimelineNode({required this.entry, this.onOpen});
 
   final TimelineEntry entry;
+
+  /// See [BeautyTimelineSection.onOpenBooking]. Only invoked when
+  /// [TimelineEntry.bookingId] is non-null and non-empty (checked below) —
+  /// [onOpen] itself never has to re-guard a blank id.
+  final ValueChanged<String>? onOpen;
 
   static final TextStyle _categoryStyle = VelvetText.bodyStrong12;
   static final TextStyle _dateStyle = VelvetText.body11;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final String? bookingId = entry.bookingId;
+    final bool isTappable =
+        onOpen != null && bookingId != null && bookingId.isNotEmpty;
+
+    final Widget content = Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Container(
@@ -149,7 +181,7 @@ class _TimelineNode extends StatelessWidget {
             ),
           ),
           child: Icon(
-            _categoryIcon(entry.category),
+            _categoryIcon(entry),
             size: 26,
             color: BrandColors.accentDeep,
           ),
@@ -169,13 +201,65 @@ class _TimelineNode extends StatelessWidget {
         ),
       ],
     );
+
+    if (!isTappable) return content;
+    return InkWell(
+      key: Key('timeline_tile_$bookingId'),
+      borderRadius: BorderRadius.circular(VelvetRadii.card),
+      onTap: () => onOpen!(bookingId),
+      child: content,
+    );
   }
 }
 
+/// Resolves a representative Material icon for one timeline tile.
+///
+/// Prefers [TimelineEntry.categoryKey] (the backend's stable uppercase slug,
+/// e.g. `"NAIL_SERVICE"` — matched against the current platform-category
+/// taxonomy, `platform_categories.name` /
+/// `V74__seed_taxonomy_platform_categories.sql`) when the row carries one.
+/// Falls back to keyword-matching [TimelineEntry.category] (the Ukrainian
+/// display name) for rows with no key — e.g. pre-Phase-110 callers/tests.
+///
+/// This stays a PRIVATE, in-file mapper — see the file header for why a
+/// shared `categoryIconFor` is deliberately not introduced by this change.
+IconData _categoryIcon(TimelineEntry entry) {
+  final String? key = entry.categoryKey;
+  if (key != null && key.isNotEmpty) {
+    final String upper = key.toUpperCase();
+    if (upper.contains('NAIL') ||
+        upper.contains('MANICURE') ||
+        upper.contains('PEDICURE') ||
+        upper.contains('PODOLOGY')) {
+      return Icons.front_hand_rounded;
+    }
+    if (upper.contains('LASH')) return Icons.auto_awesome_rounded;
+    if (upper.contains('BROW')) return Icons.remove_red_eye_rounded;
+    if (upper.contains('HAIR') ||
+        upper.contains('BARBER') ||
+        upper.contains('BEARD') ||
+        upper.contains('SHAV') ||
+        upper.contains('TRICHOLOGY')) {
+      return Icons.content_cut_rounded;
+    }
+    if (upper.contains('COSMETOLOGY') ||
+        upper.contains('AESTHETIC') ||
+        upper.contains('LASER') ||
+        upper.contains('INJECTION')) {
+      return Icons.face_retouching_natural_rounded;
+    }
+    if (upper.contains('MAKEUP')) return Icons.brush_rounded;
+    if (upper.contains('MASSAGE')) return Icons.spa_rounded;
+    // Any other/unknown key (e.g. "OTHER", "UNKNOWN") falls through to the
+    // name-based matcher below rather than defaulting here, so a row that
+    // also carries a categoryName still gets its best-effort keyword match.
+  }
+  return _categoryIconFromName(entry.category);
+}
+
 /// Maps a category name (Ukrainian) to a representative Material icon.
-/// Phase 13.3 will expose a shared `categoryIconFor(slug)` utility;
-/// until then, we do a simple switch on the category string.
-IconData _categoryIcon(String category) {
+/// [_categoryIcon]'s fallback for rows with no `categoryKey`.
+IconData _categoryIconFromName(String category) {
   final lower = category.toLowerCase();
   if (lower.contains('манікюр') || lower.contains('педикюр')) {
     return Icons.front_hand_rounded;
