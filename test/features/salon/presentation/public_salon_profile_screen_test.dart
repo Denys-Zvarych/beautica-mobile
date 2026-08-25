@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/booking/application/salon_master_covera
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
@@ -147,6 +148,16 @@ class _FakeFavoriteRepository implements FavoriteRepository {
   @override
   Future<void> remove(FavoriteTarget target) async =>
       calls.add('remove:${target.id}');
+
+  // Phase 111 — this screen never lists favourites; empty keeps the contract
+  // satisfied without inventing rows the assertions would then have to ignore.
+  @override
+  Future<List<FavoriteItem>> getFavoriteMasters() async =>
+      const <FavoriteItem>[];
+
+  @override
+  Future<List<FavoriteItem>> getFavoriteSalons() async =>
+      const <FavoriteItem>[];
 }
 
 /// In-memory fake [SalonRepository] covering all 4 independent tab loaders.

@@ -86,12 +86,12 @@ import '../features/home/presentation/client_contacts_edit_screen.dart';
 import '../features/home/presentation/client_location_edit_screen.dart';
 import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
+import '../features/favorites/presentation/favorites_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
-import '../features/shell/presentation/branch_placeholders.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -429,12 +429,13 @@ GoRouter appRouter(Ref ref) {
           StatefulShellBranch(
             navigatorKey: clientBranchNavigatorKeys[kClientFavoritesBranch],
             routes: [
+              // Phase 111 — real FavoritesScreen replaces the placeholder.
+              // Carries the placeholder's `client-branch-favorites` Key
+              // forward (see `forbid_missing_client_branch_key.sh`).
               GoRoute(
                 path: RouteNames.clientFavorites,
-                pageBuilder: (context, state) => _instantPage(
-                  state,
-                  const ClientFavoritesPlaceholderScreen(),
-                ),
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const FavoritesScreen()),
               ),
             ],
           ),

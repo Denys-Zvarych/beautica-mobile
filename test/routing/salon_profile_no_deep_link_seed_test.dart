@@ -58,6 +58,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
@@ -165,6 +166,15 @@ class _NoopFavoriteRepository implements FavoriteRepository {
 
   @override
   Future<void> remove(FavoriteTarget target) async {}
+
+  // Phase 111 — routing-only test; the list calls are never reached.
+  @override
+  Future<List<FavoriteItem>> getFavoriteMasters() async =>
+      const <FavoriteItem>[];
+
+  @override
+  Future<List<FavoriteItem>> getFavoriteSalons() async =>
+      const <FavoriteItem>[];
 }
 
 /// In-memory [SalonRepository] whose ONLY interesting property is

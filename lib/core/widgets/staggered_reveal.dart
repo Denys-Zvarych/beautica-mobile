@@ -105,6 +105,31 @@ class _RevealState extends State<StaggeredReveal>
   final Map<(double, double), _RevealAnimations> _revealCache =
       <(double, double), _RevealAnimations>{};
 
+  /// Upper bound on [_revealCache], asserted in [_reveal].
+  ///
+  /// Mirrors `_InsetShadowPainter._kMaxCachedRadii` (`neumorphic.dart:137`),
+  /// and for the same reason: a memo whose key set is not closed by an enum is
+  /// a leak the moment a caller starts computing its keys, and NOTHING about
+  /// that failure is visible at the call site.
+  ///
+  /// It is not hypothetical. A favourites list computed its per-row `start`
+  /// from the list LENGTH, so every removal minted a fresh interval; emptying
+  /// a 40-row list one row at a time cached 486 `CurvedAnimation`s, each
+  /// holding a status listener on `_controller`, on a screen that is a
+  /// `StatefulShellRoute.indexedStack` branch and therefore never disposed for
+  /// the whole session. That caller now QUANTIZES its interval (2 decimal
+  /// places), which is what bounds the key set — see
+  /// `favorites_screen.dart`'s `_quantize` (applied to the `_stepFor`-derived
+  /// bounds in `_rowsSliver`).
+  ///
+  /// The budget: at 2-decimal quantization one screen can mint at most ~81
+  /// distinct starts in the usable 0.0–0.8 band, and a screen actually
+  /// revealing that many slots at once does not exist. 96 is roughly double the
+  /// largest plausible legitimate set (a 40-row list plus its chrome), so a new
+  /// design intent will not trip it while a genuinely UNQUANTIZED computed
+  /// interval blows it within a couple of dozen mutations.
+  static const int _kMaxCachedIntervals = 96;
+
   @override
   void initState() {
     super.initState();
@@ -160,6 +185,19 @@ class _RevealState extends State<StaggeredReveal>
   }) {
     // Lazily memoized per interval — see the `_revealCache` comment above for
     // why re-allocating these on every build is a listener leak.
+    assert(
+      _revealCache.containsKey((start, end)) ||
+          _revealCache.length < _kMaxCachedIntervals,
+      'StaggeredReveal._revealCache grew past $_kMaxCachedIntervals entries. '
+      'It is keyed by the (start, end) interval, and every caller is expected '
+      'to pass either a literal constant or a QUANTIZED value, so this means '
+      'a raw computed interval is now reaching it — which makes this memo an '
+      'unbounded leak of CurvedAnimations (each one holds a status listener '
+      'on the controller) instead of the fixed table it is meant to be. Round '
+      'the interval at the call site, as favorites_screen._quantize does to '
+      'its _stepFor-derived bounds; do NOT raise this cap to make the assert '
+      'go away.',
+    );
     final _RevealAnimations anims = _revealCache.putIfAbsent((start, end), () {
       final CurvedAnimation opacity = CurvedAnimation(
         parent: _controller,

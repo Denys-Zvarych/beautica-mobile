@@ -22,7 +22,17 @@ class _$FavoriteMasterResponse extends FavoriteMasterResponse {
   @override
   final double? avgRating;
   @override
-  final String? lastServiceName;
+  final String? salonId;
+  @override
+  final String? salonName;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final String? locationNote;
+  @override
+  final BuiltList<FavoriteCategoryView>? categories;
 
   factory _$FavoriteMasterResponse(
           [void Function(FavoriteMasterResponseBuilder)? updates]) =>
@@ -36,7 +46,12 @@ class _$FavoriteMasterResponse extends FavoriteMasterResponse {
       this.cityLabel,
       this.districtLabel,
       this.avgRating,
-      this.lastServiceName})
+      this.salonId,
+      this.salonName,
+      this.street,
+      this.buildingNo,
+      this.locationNote,
+      this.categories})
       : super._();
   @override
   FavoriteMasterResponse rebuild(
@@ -58,7 +73,12 @@ class _$FavoriteMasterResponse extends FavoriteMasterResponse {
         cityLabel == other.cityLabel &&
         districtLabel == other.districtLabel &&
         avgRating == other.avgRating &&
-        lastServiceName == other.lastServiceName;
+        salonId == other.salonId &&
+        salonName == other.salonName &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote &&
+        categories == other.categories;
   }
 
   @override
@@ -71,7 +91,12 @@ class _$FavoriteMasterResponse extends FavoriteMasterResponse {
     _$hash = $jc(_$hash, cityLabel.hashCode);
     _$hash = $jc(_$hash, districtLabel.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
-    _$hash = $jc(_$hash, lastServiceName.hashCode);
+    _$hash = $jc(_$hash, salonId.hashCode);
+    _$hash = $jc(_$hash, salonName.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, categories.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -86,7 +111,12 @@ class _$FavoriteMasterResponse extends FavoriteMasterResponse {
           ..add('cityLabel', cityLabel)
           ..add('districtLabel', districtLabel)
           ..add('avgRating', avgRating)
-          ..add('lastServiceName', lastServiceName))
+          ..add('salonId', salonId)
+          ..add('salonName', salonName)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote)
+          ..add('categories', categories))
         .toString();
   }
 }
@@ -124,10 +154,31 @@ class FavoriteMasterResponseBuilder
   double? get avgRating => _$this._avgRating;
   set avgRating(double? avgRating) => _$this._avgRating = avgRating;
 
-  String? _lastServiceName;
-  String? get lastServiceName => _$this._lastServiceName;
-  set lastServiceName(String? lastServiceName) =>
-      _$this._lastServiceName = lastServiceName;
+  String? _salonId;
+  String? get salonId => _$this._salonId;
+  set salonId(String? salonId) => _$this._salonId = salonId;
+
+  String? _salonName;
+  String? get salonName => _$this._salonName;
+  set salonName(String? salonName) => _$this._salonName = salonName;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
+  ListBuilder<FavoriteCategoryView>? _categories;
+  ListBuilder<FavoriteCategoryView> get categories =>
+      _$this._categories ??= ListBuilder<FavoriteCategoryView>();
+  set categories(ListBuilder<FavoriteCategoryView>? categories) =>
+      _$this._categories = categories;
 
   FavoriteMasterResponseBuilder() {
     FavoriteMasterResponse._defaults(this);
@@ -143,7 +194,12 @@ class FavoriteMasterResponseBuilder
       _cityLabel = $v.cityLabel;
       _districtLabel = $v.districtLabel;
       _avgRating = $v.avgRating;
-      _lastServiceName = $v.lastServiceName;
+      _salonId = $v.salonId;
+      _salonName = $v.salonName;
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
+      _categories = $v.categories?.toBuilder();
       _$v = null;
     }
     return this;
@@ -163,17 +219,35 @@ class FavoriteMasterResponseBuilder
   FavoriteMasterResponse build() => _build();
 
   _$FavoriteMasterResponse _build() {
-    final _$result = _$v ??
-        _$FavoriteMasterResponse._(
-          masterId: masterId,
-          firstName: firstName,
-          lastName: lastName,
-          avatarUrl: avatarUrl,
-          cityLabel: cityLabel,
-          districtLabel: districtLabel,
-          avgRating: avgRating,
-          lastServiceName: lastServiceName,
-        );
+    _$FavoriteMasterResponse _$result;
+    try {
+      _$result = _$v ??
+          _$FavoriteMasterResponse._(
+            masterId: masterId,
+            firstName: firstName,
+            lastName: lastName,
+            avatarUrl: avatarUrl,
+            cityLabel: cityLabel,
+            districtLabel: districtLabel,
+            avgRating: avgRating,
+            salonId: salonId,
+            salonName: salonName,
+            street: street,
+            buildingNo: buildingNo,
+            locationNote: locationNote,
+            categories: _categories?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'categories';
+        _categories?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'FavoriteMasterResponse', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

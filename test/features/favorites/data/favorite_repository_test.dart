@@ -20,6 +20,8 @@
 // argument. No real Dio, no ProviderScope, no widget tree.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:dio/dio.dart';
@@ -30,6 +32,8 @@ class _MockFavoriteControllerApi extends Mock
     implements FavoriteControllerApi {}
 
 class _FakeAddFavoriteRequest extends Fake implements AddFavoriteRequest {}
+
+class _FakePageable extends Fake implements Pageable {}
 
 Response<ApiResponseFavoriteResponse> _addOk() =>
     Response<ApiResponseFavoriteResponse>(
@@ -45,6 +49,9 @@ Response<void> _removeOk() => Response<void>(
 void main() {
   setUpAll(() {
     registerFallbackValue(_FakeAddFavoriteRequest());
+    // `any(named: 'pageable')` on the two list calls needs its own fallback —
+    // mocktail cannot synthesise a non-nullable built_value argument.
+    registerFallbackValue(_FakePageable());
   });
 
   late _MockFavoriteControllerApi api;
@@ -199,6 +206,173 @@ void main() {
           targetId: 'service-def-1',
         ),
       ).called(1);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 111 (mobile-qa) — the two LIST calls and their failure mapping.
+  //
+  // The `badCertificate` arm at `favorite_repository.dart:218` is a BACKLOG FIX
+  // shipped in this phase and, until now, unpinned. It is also the one arm that
+  // was wrong TWICE: `badCertificate` used to fall into `ServerFailure` (the
+  // server never spoke, so there is no server to blame), and the first
+  // correction folded it into `NetworkFailure` — whose copy tells the client to
+  // check their connection, the exact wrong advice when the cause is an
+  // intercepting proxy. This app PINS, so `badCertificate` fires only after the
+  // chain failed against the pinned anchors.
+  //
+  // `thenThrow` is correct HERE and would be wrong one layer up (M13): this is
+  // a plain class with no Riverpod retry in play, so there is no retry curve to
+  // bypass. The notifier tier uses the async shape instead.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  DioException dioError(DioExceptionType type, {int? status}) => DioException(
+    requestOptions: RequestOptions(path: '/api/v1/favorites/masters'),
+    type: type,
+    response: status == null
+        ? null
+        : Response<void>(
+            requestOptions: RequestOptions(path: '/api/v1/favorites/masters'),
+            statusCode: status,
+          ),
+  );
+
+  Response<ApiResponsePageResponseFavoriteMasterResponse> mastersEnvelope(
+    PageResponseFavoriteMasterResponse? page,
+  ) => Response<ApiResponsePageResponseFavoriteMasterResponse>(
+    requestOptions: RequestOptions(path: '/api/v1/favorites/masters'),
+    statusCode: 200,
+    data: ApiResponsePageResponseFavoriteMasterResponse((
+      ApiResponsePageResponseFavoriteMasterResponseBuilder b,
+    ) {
+      b.success = true;
+      if (page != null) b.data.replace(page);
+    }),
+  );
+
+  group('HttpFavoriteRepository.getFavoriteMasters — failure mapping', () {
+    test('maps badCertificate to CertificateFailure, NOT NetworkFailure', () {
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenThrow(dioError(DioExceptionType.badCertificate));
+
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isA<CertificateFailure>()),
+      );
+      // The negative half is load-bearing: `CertificateFailure` would satisfy
+      // an `isA<Failure>` check no matter which arm produced it, and both wrong
+      // answers this fix superseded are named here so neither can come back.
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isNot(isA<NetworkFailure>())),
+      );
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isNot(isA<ServerFailure>())),
+      );
+    });
+
+    test('a CertificateFailure is NOT transient — no automatic retry', () {
+      // A pin miss is deterministic: the chain that was rejected is the chain
+      // the next identical attempt meets, so an auto-retry burns the same ~38 s
+      // spinner and rejects again. Asserted against the SHIPPED predicate, so
+      // the repository's typed failure and the container's policy cannot drift.
+      expect(beauticaProviderRetry(0, const CertificateFailure()), isNull);
+    });
+
+    test('maps a connection timeout to NetworkFailure', () {
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenThrow(dioError(DioExceptionType.connectionTimeout));
+
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('maps 404 to NotFoundFailure and 500 to ServerFailure', () {
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenThrow(dioError(DioExceptionType.badResponse, status: 404));
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isA<NotFoundFailure>()),
+      );
+
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenThrow(dioError(DioExceptionType.badResponse, status: 500));
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('no raw DioException ever escapes the data layer', () {
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenThrow(dioError(DioExceptionType.unknown));
+
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isNot(isA<DioException>())),
+      );
+    });
+  });
+
+  group('HttpFavoriteRepository.getFavoriteMasters — envelope handling', () {
+    test('a MISSING envelope is a broken payload → ServerFailure', () {
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenAnswer((_) async => mastersEnvelope(null));
+
+      expect(
+        () => repository.getFavoriteMasters(),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('an ABSENT rows list is an EMPTY favourites list, not an error', () {
+      // The distinction the repository draws deliberately: the envelope
+      // arrived, so the server answered — it just has nothing saved to report.
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenAnswer(
+        (_) async => mastersEnvelope(
+          PageResponseFavoriteMasterResponse(
+            (PageResponseFavoriteMasterResponseBuilder b) => b
+              ..page = 0
+              ..size = 20
+              ..totalElements = 0
+              ..totalPages = 0,
+          ),
+        ),
+      );
+
+      expect(repository.getFavoriteMasters(), completion(isEmpty));
+    });
+
+    test('asks for the page size the endpoint itself defaults to', () {
+      // Stated explicitly rather than relied on, so a backend-side
+      // `@PageableDefault` change cannot silently resize the client's list.
+      when(
+        () => api.listMasterFavorites(pageable: any(named: 'pageable')),
+      ).thenAnswer((_) async => mastersEnvelope(null));
+
+      expect(() => repository.getFavoriteMasters(), throwsA(isA<Failure>()));
+
+      final Pageable sent =
+          verify(
+                () => api.listMasterFavorites(
+                  pageable: captureAny(named: 'pageable'),
+                ),
+              ).captured.single
+              as Pageable;
+      expect(sent.page, 0);
+      expect(sent.size, HttpFavoriteRepository.pageSize);
+      expect(HttpFavoriteRepository.pageSize, 20);
     });
   });
 

@@ -46,6 +46,35 @@ final class NetworkFailure extends Failure {
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errNetwork;
 }
 
+/// Emitted when the TLS handshake was rejected by the app's PINNED trust
+/// anchors — `DioExceptionType.badCertificate`.
+///
+/// Deliberately NOT a [NetworkFailure]. Pinning is fail-closed, so by the time
+/// this is thrown nothing was transmitted and nothing was received — but
+/// `dio_provider.dart`'s `_logRejectedCertificate` states the requirement
+/// directly: a pin miss must not "blend into generic network failures".
+/// [NetworkFailure]'s copy («перевірте з'єднання») invites exactly the wrong
+/// response — retry, or hop onto another network — and under an active MITM
+/// the other network IS the attack.
+///
+/// The two real causes are a rotated CA chain (ours to fix, in a release) and
+/// an intercepting proxy (never fixed by retrying), so the copy offers no
+/// connectivity advice and points at the app instead.
+///
+/// **Deterministic** — see `isTransientFailure`. An identical later attempt
+/// meets the identical rejected chain, so it is never auto-retried.
+///
+/// Only `favorite_repository.dart` emits this today; the other ten repositories
+/// still collapse `badCertificate` into [ServerFailure] and are a separate
+/// sweep (the backlog row names them).
+final class CertificateFailure extends Failure {
+  const CertificateFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errCertificate;
+}
+
 /// Emitted when the server responds with HTTP 404 Not Found.
 final class NotFoundFailure extends Failure {
   const NotFoundFailure({super.cause});

@@ -116,6 +116,7 @@ doc/DeviceControllerApi.md
 doc/DuplicateServiceErrorResponse.md
 doc/DuplicateServiceResponse.md
 doc/EffectiveDayResponse.md
+doc/FavoriteCategoryView.md
 doc/FavoriteControllerApi.md
 doc/FavoriteMasterResponse.md
 doc/FavoriteResponse.md
@@ -379,6 +380,7 @@ lib/src/model/date.dart
 lib/src/model/duplicate_service_error_response.dart
 lib/src/model/duplicate_service_response.dart
 lib/src/model/effective_day_response.dart
+lib/src/model/favorite_category_view.dart
 lib/src/model/favorite_master_response.dart
 lib/src/model/favorite_response.dart
 lib/src/model/favorite_salon_response.dart
@@ -485,3 +487,4 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/favorite_category_view_test.dart

@@ -303,6 +303,7 @@ Class | Method | HTTP request | Description
  - [DuplicateServiceErrorResponse](doc/DuplicateServiceErrorResponse.md)
  - [DuplicateServiceResponse](doc/DuplicateServiceResponse.md)
  - [EffectiveDayResponse](doc/EffectiveDayResponse.md)
+ - [FavoriteCategoryView](doc/FavoriteCategoryView.md)
  - [FavoriteMasterResponse](doc/FavoriteMasterResponse.md)
  - [FavoriteResponse](doc/FavoriteResponse.md)
  - [FavoriteSalonResponse](doc/FavoriteSalonResponse.md)
