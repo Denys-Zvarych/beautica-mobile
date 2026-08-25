@@ -36,6 +36,26 @@ import '../../../helpers/pump_app.dart';
 // payload matters (the bidi-override note) is pinned in the MAPPER test, where
 // no finder is involved at all.
 
+// `categoryId`/`categoryLabel` are kept (additively) alongside the new
+// `categories` param so every pre-multi-category caller in this suite keeps
+// compiling and asserting exactly what it did before: a single pair still
+// builds a one-element `categories` list. Pass `categories` directly for a
+// multi-category fixture — the two are mutually exclusive; when both are
+// given, `categories` wins, matching "the more specific override wins".
+List<FavoriteCategory> _resolveCategories({
+  String? categoryId,
+  String? categoryLabel,
+  List<FavoriteCategory>? categories,
+}) {
+  if (categories != null) return categories;
+  if (categoryId != null && categoryLabel != null) {
+    return <FavoriteCategory>[
+      FavoriteCategory(id: categoryId, label: categoryLabel),
+    ];
+  }
+  return const <FavoriteCategory>[];
+}
+
 FavoriteItem favMaster(
   String id, {
   String name = 'Marta Honchar',
@@ -43,6 +63,7 @@ FavoriteItem favMaster(
   String? salonName,
   String? categoryId,
   String? categoryLabel,
+  List<FavoriteCategory>? categories,
   String? cityLabel,
   String? districtLabel,
   String? street,
@@ -55,8 +76,11 @@ FavoriteItem favMaster(
   initials: 'MH',
   rating: rating,
   salonName: salonName,
-  categoryId: categoryId,
-  categoryLabel: categoryLabel,
+  categories: _resolveCategories(
+    categoryId: categoryId,
+    categoryLabel: categoryLabel,
+    categories: categories,
+  ),
   cityLabel: cityLabel,
   districtLabel: districtLabel,
   street: street,
@@ -70,6 +94,7 @@ FavoriteItem favSalon(
   double? rating,
   String? categoryId,
   String? categoryLabel,
+  List<FavoriteCategory>? categories,
   String? cityLabel,
   String? districtLabel,
   String? street,
@@ -81,8 +106,11 @@ FavoriteItem favSalon(
   name: name,
   initials: 'CR',
   rating: rating,
-  categoryId: categoryId,
-  categoryLabel: categoryLabel,
+  categories: _resolveCategories(
+    categoryId: categoryId,
+    categoryLabel: categoryLabel,
+    categories: categories,
+  ),
   cityLabel: cityLabel,
   districtLabel: districtLabel,
   street: street,

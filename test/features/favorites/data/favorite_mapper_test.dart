@@ -47,6 +47,17 @@ const String _zeroWidthOnlyNote = '\u200B\u200B';
 // DTO builders
 // ---------------------------------------------------------------------------
 
+/// A `FavoriteCategoryView(code, label)` pair, for building `categories`
+/// lists below. Standalone rather than a positional-args shortcut so a test
+/// reads `_categoryView(code: ..., label: ...)` the same way the DTO field
+/// itself pairs the two.
+FavoriteCategoryView _categoryView({String? code, String? label}) =>
+    FavoriteCategoryView(
+      (FavoriteCategoryViewBuilder b) => b
+        ..code = code
+        ..label = label,
+    );
+
 FavoriteMasterResponse _masterDto({
   String? masterId = 'master-1',
   String? firstName = 'Marta',
@@ -54,54 +65,50 @@ FavoriteMasterResponse _masterDto({
   double? avgRating,
   String? salonId,
   String? salonName,
-  String? categoryCode,
-  String? categoryLabel,
+  List<FavoriteCategoryView>? categories,
   String? cityLabel,
   String? districtLabel,
   String? street,
   String? buildingNo,
   String? locationNote,
-}) => FavoriteMasterResponse(
-  (FavoriteMasterResponseBuilder b) => b
+}) => FavoriteMasterResponse((FavoriteMasterResponseBuilder b) {
+  b
     ..masterId = masterId
     ..firstName = firstName
     ..lastName = lastName
     ..avgRating = avgRating
     ..salonId = salonId
     ..salonName = salonName
-    ..categoryCode = categoryCode
-    ..categoryLabel = categoryLabel
     ..cityLabel = cityLabel
     ..districtLabel = districtLabel
     ..street = street
     ..buildingNo = buildingNo
-    ..locationNote = locationNote,
-);
+    ..locationNote = locationNote;
+  if (categories != null) b.categories.replace(categories);
+});
 
 FavoriteSalonResponse _salonDto({
   String? salonId = 'salon-1',
   String? name = 'Crystal Room',
   double? avgRating,
-  String? categoryCode,
-  String? categoryLabel,
+  List<FavoriteCategoryView>? categories,
   String? cityLabel,
   String? districtLabel,
   String? street,
   String? buildingNo,
   String? locationNote,
-}) => FavoriteSalonResponse(
-  (FavoriteSalonResponseBuilder b) => b
+}) => FavoriteSalonResponse((FavoriteSalonResponseBuilder b) {
+  b
     ..salonId = salonId
     ..name = name
     ..avgRating = avgRating
-    ..categoryCode = categoryCode
-    ..categoryLabel = categoryLabel
     ..cityLabel = cityLabel
     ..districtLabel = districtLabel
     ..street = street
     ..buildingNo = buildingNo
-    ..locationNote = locationNote,
-);
+    ..locationNote = locationNote;
+  if (categories != null) b.categories.replace(categories);
+});
 
 List<FavoriteItem> _masters(List<FavoriteMasterResponse> rows) =>
     FavoriteMapper.mastersFromDtoList(BuiltList<FavoriteMasterResponse>(rows));
@@ -333,55 +340,146 @@ void main() {
     });
   });
 
-  group('FavoriteMapper — category (D4, both kinds)', () {
-    // RED WHEN `categoryId`/`categoryLabel` mapping is dropped from either
-    // `_masterFromDto` or `_salonFromDto` — pinned on BOTH arms separately,
-    // matching the file's own rule for the locationNote sanitization above.
-    test('maps a MASTER row\'s categoryCode/categoryLabel', () {
+  group('FavoriteMapper — categories (backend b0c924f, both kinds)', () {
+    // RED WHEN `categories: _categoriesFromDto(dto.categories)` is dropped
+    // from either `_masterFromDto` or `_salonFromDto` — pinned on BOTH arms
+    // separately, matching the file's own rule for the locationNote
+    // sanitization above.
+    test('maps a MASTER row\'s categories list', () {
       final FavoriteItem item = _masters(<FavoriteMasterResponse>[
-        _masterDto(categoryCode: 'MANICURE', categoryLabel: 'Nails\u200B'),
+        _masterDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: 'MANICURE', label: 'Nails\u200B'),
+          ],
+        ),
       ]).single;
 
-      expect(item.categoryId, 'MANICURE');
+      expect(item.categories, hasLength(1));
+      expect(item.categories.single.id, 'MANICURE');
       // The LABEL is rendered, so it is sanitized; the CODE is compared only,
       // so it is merely trimmed.
-      expect(item.categoryLabel, 'Nails');
+      expect(item.categories.single.label, 'Nails');
     });
 
-    test('maps a SALON row\'s categoryCode/categoryLabel', () {
+    test('maps a SALON row\'s categories list', () {
       final FavoriteItem item = _salons(<FavoriteSalonResponse>[
-        _salonDto(categoryCode: 'MANICURE', categoryLabel: 'Nails\u200B'),
+        _salonDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: 'MANICURE', label: 'Nails\u200B'),
+          ],
+        ),
       ]).single;
 
-      expect(item.categoryId, 'MANICURE');
-      expect(item.categoryLabel, 'Nails');
+      expect(item.categories, hasLength(1));
+      expect(item.categories.single.id, 'MANICURE');
+      expect(item.categories.single.label, 'Nails');
     });
 
-    test('a code with NO label folds to (null, null), not a half chip', () {
+    test(
+      'a provider offering SEVERAL categories carries every one of them',
+      () {
+        // The whole point of backend `b0c924f`: a favourite now carries every
+        // distinct platform category the provider offers, not the client's
+        // most-recently-booked one.
+        final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+          _masterDto(
+            categories: <FavoriteCategoryView>[
+              _categoryView(code: 'MANICURE', label: 'Nails'),
+              _categoryView(code: 'BROWS', label: 'Brows'),
+            ],
+          ),
+        ]).single;
+
+        expect(item.categories, const <FavoriteCategory>[
+          FavoriteCategory(id: 'MANICURE', label: 'Nails'),
+          FavoriteCategory(id: 'BROWS', label: 'Brows'),
+        ]);
+      },
+    );
+
+    test('a code with NO label is dropped, not a half chip', () {
       final FavoriteItem item = _masters(<FavoriteMasterResponse>[
-        _masterDto(categoryCode: 'MANICURE', categoryLabel: null),
+        _masterDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: 'MANICURE', label: null),
+          ],
+        ),
       ]).single;
 
-      expect(item.categoryId, isNull);
-      expect(item.categoryLabel, isNull);
+      expect(item.categories, isEmpty);
     });
 
-    test('a label with NO code folds to (null, null), not a half chip', () {
+    test('a label with NO code is dropped, not a half chip', () {
       final FavoriteItem item = _masters(<FavoriteMasterResponse>[
-        _masterDto(categoryCode: null, categoryLabel: 'Nails'),
+        _masterDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: null, label: 'Nails'),
+          ],
+        ),
       ]).single;
 
-      expect(item.categoryId, isNull);
-      expect(item.categoryLabel, isNull);
+      expect(item.categories, isEmpty);
     });
 
-    test('a whitespace-only code is treated as absent, folding the pair', () {
+    test('a whitespace-only code is treated as absent, dropping the pair', () {
       final FavoriteItem item = _masters(<FavoriteMasterResponse>[
-        _masterDto(categoryCode: '   ', categoryLabel: 'Nails'),
+        _masterDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: '   ', label: 'Nails'),
+          ],
+        ),
       ]).single;
 
-      expect(item.categoryId, isNull);
-      expect(item.categoryLabel, isNull);
+      expect(item.categories, isEmpty);
     });
+
+    test('one dropped element does not take a valid sibling down with it', () {
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: 'MANICURE', label: null),
+            _categoryView(code: 'BROWS', label: 'Brows'),
+          ],
+        ),
+      ]).single;
+
+      expect(item.categories, const <FavoriteCategory>[
+        FavoriteCategory(id: 'BROWS', label: 'Brows'),
+      ]);
+    });
+
+    test('a repeated code is deduped defensively, keeping the FIRST label', () {
+      // The chip set is keyed by id — a repeat would build two chips racing
+      // for the same `Key`. First-seen wins, matching `FavoriteChoice.from`'s
+      // own `putIfAbsent`.
+      final FavoriteItem item = _masters(<FavoriteMasterResponse>[
+        _masterDto(
+          categories: <FavoriteCategoryView>[
+            _categoryView(code: 'MANICURE', label: 'Nails'),
+            _categoryView(code: 'MANICURE', label: 'Manicure (duplicate)'),
+          ],
+        ),
+      ]).single;
+
+      expect(item.categories, const <FavoriteCategory>[
+        FavoriteCategory(id: 'MANICURE', label: 'Nails'),
+      ]);
+    });
+
+    test(
+      'a null or empty categories list maps to an empty list, never null',
+      () {
+        expect(
+          _masters(<FavoriteMasterResponse>[_masterDto()]).single.categories,
+          isEmpty,
+        );
+        expect(
+          _masters(<FavoriteMasterResponse>[
+            _masterDto(categories: const <FavoriteCategoryView>[]),
+          ]).single.categories,
+          isEmpty,
+        );
+      },
+    );
   });
 }

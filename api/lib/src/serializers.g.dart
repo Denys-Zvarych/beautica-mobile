@@ -127,6 +127,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(DuplicateServiceResponse.serializer)
       ..add(EffectiveDayResponse.serializer)
       ..add(EffectiveDayResponseSource_Enum.serializer)
+      ..add(FavoriteCategoryView.serializer)
       ..add(FavoriteMasterResponse.serializer)
       ..add(FavoriteResponse.serializer)
       ..add(FavoriteResponseTargetTypeEnum.serializer)
@@ -328,6 +329,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
           () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(FavoriteCategoryView)]),
+          () => ListBuilder<FavoriteCategoryView>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(FavoriteCategoryView)]),
+          () => ListBuilder<FavoriteCategoryView>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(FavoriteMasterResponse)]),

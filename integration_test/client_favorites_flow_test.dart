@@ -97,9 +97,9 @@ const String _kCleanNote = 'entrance from the yard';
 // D2/D3/D4 field-test fixtures (mobile-qa, Phase 111 fix)
 // ---------------------------------------------------------------------------
 //
-// The `setUp` rows above never set `salonId`/`salonName`/`categoryCode`/
-// `categoryLabel`, so Tests 1-6 cannot exercise any of the three newly-live
-// paths this fix ships. These constants/rows are for the tests below only.
+// The `setUp` rows above never set `salonId`/`salonName`/`categories`, so
+// Tests 1-6 cannot exercise any of the three newly-live paths this fix ships.
+// These constants/rows are for the tests below only.
 
 const String _kAffiliatedMasterId = 'master-affiliated';
 const String _kAffiliatedMasterName = 'Iryna Podolska';
@@ -118,11 +118,17 @@ const String _kCategoryBrowsId = 'c2';
 const String _kCategoryBrowsLabel = 'Brows';
 
 /// A THIRD category, carried by a SALON row rather than a master row —
-/// Test 8's own arm, closing the QA finding that no salon row's
-/// `categoryCode`/`categoryLabel` ever travelled wire→mapper→`FavoriteChoice`
-/// →chip→filter end to end (only the mapper-level arm existed before).
+/// Test 8's own arm, closing the QA finding that no salon row's `categories`
+/// ever travelled wire→mapper→`FavoriteChoice`→chip→filter end to end (only
+/// the mapper-level arm existed before).
 const String _kCategorySalonId = 'c3';
 const String _kCategorySalonLabel = 'Spa';
+
+/// A JSON `FavoriteCategoryView` — the wire shape of one element of a row's
+/// `categories` array, matching `{code, label}` on the live contract
+/// (backend `b0c924f`).
+Map<String, dynamic> _categoryJson(String code, String label) =>
+    <String, dynamic>{'code': code, 'label': label};
 
 /// A name long enough to force a two-line wrap at a 360dp phone width. Latin,
 /// matching this file's no-`i18n-finder-ok` convention.
@@ -140,8 +146,15 @@ Map<String, dynamic> _masterRow({
   String? salonName,
   String? street = 'Khreshchatyk',
   String? buildingNo = '22',
+  // Backend `b0c924f`: every distinct platform category the provider
+  // offers, not the single most-recently-booked one. `categoryCode`/
+  // `categoryLabel` remain as a single-category convenience — they build a
+  // one-element `categories` array — and `categories` itself is available
+  // directly for a multi-category row. The two are mutually exclusive;
+  // `categories` wins if both are given.
   String? categoryCode,
   String? categoryLabel,
+  List<Map<String, dynamic>>? categories,
 }) => <String, dynamic>{
   'masterId': masterId,
   'firstName': firstName,
@@ -155,24 +168,33 @@ Map<String, dynamic> _masterRow({
   'locationNote': locationNote,
   'salonId': salonId,
   'salonName': salonName,
-  'categoryCode': categoryCode,
-  'categoryLabel': categoryLabel,
+  'categories':
+      categories ??
+      (categoryCode != null && categoryLabel != null
+          ? <Map<String, dynamic>>[_categoryJson(categoryCode, categoryLabel)]
+          : const <Map<String, dynamic>>[]),
 };
 
-Map<String, dynamic> _salonRow({String? categoryCode, String? categoryLabel}) =>
-    <String, dynamic>{
-      'salonId': _kSalonId,
-      'name': _kSalonName,
-      'avatarUrl': null,
-      'cityLabel': 'Kyiv',
-      'districtLabel': null,
-      'avgRating': 4.8,
-      'street': 'Sichovykh Striltsiv',
-      'buildingNo': '9',
-      'locationNote': null,
-      'categoryCode': categoryCode,
-      'categoryLabel': categoryLabel,
-    };
+Map<String, dynamic> _salonRow({
+  String? categoryCode,
+  String? categoryLabel,
+  List<Map<String, dynamic>>? categories,
+}) => <String, dynamic>{
+  'salonId': _kSalonId,
+  'name': _kSalonName,
+  'avatarUrl': null,
+  'cityLabel': 'Kyiv',
+  'districtLabel': null,
+  'avgRating': 4.8,
+  'street': 'Sichovykh Striltsiv',
+  'buildingNo': '9',
+  'locationNote': null,
+  'categories':
+      categories ??
+      (categoryCode != null && categoryLabel != null
+          ? <Map<String, dynamic>>[_categoryJson(categoryCode, categoryLabel)]
+          : const <Map<String, dynamic>>[]),
+};
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -516,7 +538,7 @@ void main() {
   testWidgets('Test 8 — the category filter renders chips derived from the '
       'wire data (masters AND salons); selecting one filters the list, and '
       '«Скинути» clears it in one tap', (WidgetTester tester) async {
-    // D4: categoryCode/categoryLabel now survive the mapper, so
+    // D4: a row's `categories` array now survives the mapper, so
     // `FavoritesInlineFilter` must render real chips instead of
     // `SizedBox.shrink()`. A SALON row carries its own category
     // (`_kCategorySalonId`/`_kCategorySalonLabel`) so the full wire→mapper→
@@ -567,16 +589,16 @@ void main() {
     // «Всі» + nails + brows + the SALON's own category.
     expect(find.byType(FavoriteCategoryChip), findsNWidgets(4));
     expect(
-      find.byKey(const Key('favorites-chip-$_kCategorySalonId')),
+      find.byKey(const Key('favorites-chip-cat-$_kCategorySalonId')),
       findsOneWidget,
       reason:
-          "the salon row's own categoryCode/categoryLabel must reach the "
-          'filter as its own chip, not only the two master categories',
+          "the salon row's own categories entry must reach the filter as "
+          'its own chip, not only the two master categories',
     );
 
     await AppHarness.tapVisible(
       tester,
-      find.byKey(const Key('favorites-chip-$_kCategoryNailsId')),
+      find.byKey(const Key('favorites-chip-cat-$_kCategoryNailsId')),
     );
     await AppHarness.settle(tester);
 
@@ -609,13 +631,81 @@ void main() {
     await AppHarness.settle(tester);
     await AppHarness.tapVisible(
       tester,
-      find.byKey(const Key('favorites-chip-$_kCategorySalonId')),
+      find.byKey(const Key('favorites-chip-cat-$_kCategorySalonId')),
     );
     await AppHarness.settle(tester);
 
     expect(find.byKey(_salonCard(_kSalonId)), findsOneWidget);
     expect(find.byKey(_masterCard(_kMasterId)), findsNothing);
     expect(find.byKey(_masterCard(_kIndependentMasterId)), findsNothing);
+  });
+
+  testWidgets('Test 8b — a provider offering SEVERAL categories appears '
+      'under EVERY one of their chips, end to end', (
+    WidgetTester tester,
+  ) async {
+    // Backend `b0c924f`: a favourite carries every distinct category the
+    // provider offers, not the client's most-recently-booked one. This is
+    // the assertion Test 8 does not make — every row there carries exactly
+    // one category — proving the WIRE→mapper→union→membership path for a
+    // provider that legitimately belongs under more than one chip.
+    fakeBackend
+      ..favoriteMasterRows = <Map<String, dynamic>>[
+        _masterRow(
+          masterId: _kMasterId,
+          categories: <Map<String, dynamic>>[
+            _categoryJson(_kCategoryNailsId, _kCategoryNailsLabel),
+            _categoryJson(_kCategoryBrowsId, _kCategoryBrowsLabel),
+          ],
+        ),
+        _masterRow(
+          masterId: _kIndependentMasterId,
+          firstName: 'Oksana',
+          lastName: 'Bilyk',
+          categoryCode: _kCategoryBrowsId,
+          categoryLabel: _kCategoryBrowsLabel,
+        ),
+      ]
+      ..favoriteSalonRows = <Map<String, dynamic>>[];
+
+    await openFavorites(tester);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(_masterCard(_kMasterId)),
+    );
+
+    // «Всі» — both rows visible.
+    expect(find.byKey(_masterCard(_kIndependentMasterId)), findsOneWidget);
+
+    final Finder pill = find.byKey(const Key('favorites-filter-pill'));
+    await AppHarness.tapVisible(tester, pill);
+    await AppHarness.settle(tester);
+    // «Всі» + nails + brows — exactly two distinct categories exist despite
+    // three category ENTRIES across the two rows.
+    expect(find.byType(FavoriteCategoryChip), findsNWidgets(3));
+
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const Key('favorites-chip-cat-$_kCategoryNailsId')),
+    );
+    await AppHarness.settle(tester);
+
+    // Nails: only the multi-category master offers it.
+    expect(find.byKey(_masterCard(_kMasterId)), findsOneWidget);
+    expect(find.byKey(_masterCard(_kIndependentMasterId)), findsNothing);
+
+    await AppHarness.tapVisible(tester, pill);
+    await AppHarness.settle(tester);
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const Key('favorites-chip-cat-$_kCategoryBrowsId')),
+    );
+    await AppHarness.settle(tester);
+
+    // Brows: BOTH the multi-category master and the single-category one
+    // offer it — the first is not exclusive to nails.
+    expect(find.byKey(_masterCard(_kMasterId)), findsOneWidget);
+    expect(find.byKey(_masterCard(_kIndependentMasterId)), findsOneWidget);
   });
 
   testWidgets('Test 9 — a long provider name wraps to a SECOND line at a '

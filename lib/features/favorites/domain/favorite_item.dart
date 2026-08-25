@@ -9,16 +9,21 @@
 // Pure Dart — no Flutter import. The presentation layer decides glyphs and
 // colours; this layer only says what is known about the provider.
 //
-// ── `categoryId` / `categoryLabel` AND `salonName` ARE LIVE ─────────────────
+// ── `categories` (MULTI) AND `salonName` ARE LIVE ───────────────────────────
 //
-// Both `FavoriteMasterResponse` and `FavoriteSalonResponse` carry
-// `categoryCode`/`categoryLabel` (mapped onto [categoryId]/[categoryLabel]
-// below), and `FavoriteMasterResponse` additionally carries `salonId`/
-// `salonName` (mapped onto [salonName]) — verified against the regenerated
-// client, 2026-08-25. `FavoriteMapper` populates all three; see its header for
-// the drop-on-asymmetry rule the category pair follows.
+// Backend commit `b0c924f` reversed the category axis: both
+// `FavoriteMasterResponse` and `FavoriteSalonResponse` now carry `categories`
+// — every distinct platform category the provider offers — instead of the
+// single `categoryCode`/`categoryLabel` scalar pair the field used to mirror
+// (that scalar came from the client's most recently BOOKED service with the
+// provider, which meant a freshly-favourited-but-never-booked row carried
+// nothing at all). Mapped onto [categories] below via `FavoriteMapper`;
+// `FavoriteMasterResponse` additionally carries `salonId`/`salonName`
+// (mapped onto [salonName]) — verified against the regenerated client,
+// 2026-08-25.
 //
-//   * `categoryId` is what the category filter selects on — see
+//   * [categories] is what the category filter unions over — a provider with
+//     several categories appears under each of them. See
 //     `FavoriteChoice.from` in `favorites_filter.dart`.
 //   * `salonName` draws the accentDeep affiliation line on a salon-affiliated
 //     master (see [isAffiliated]). Since backend commit `ca2c98a`, a
@@ -30,6 +35,37 @@
 import 'package:flutter/foundation.dart';
 
 import 'favorite_target.dart';
+
+/// One category a favourite is filed under — a `(code, label)` pair mirroring
+/// the backend's `FavoriteCategoryView`.
+///
+/// A tiny value type rather than two parallel lists on [FavoriteItem]: the id
+/// and label travel together everywhere they are used (equality, the chip
+/// `Key`, the chip label), and parallel lists invite index-skew bugs the
+/// moment one side is filtered or reordered independently of the other.
+@immutable
+class FavoriteCategory {
+  const FavoriteCategory({required this.id, required this.label});
+
+  /// Server enum-ish token (`MANICURE`), compared for equality/selection
+  /// only — never rendered. Mirrors `FavoriteCategoryView.code`.
+  final String id;
+
+  /// Ukrainian display text, rendered on the filter chip. Mirrors
+  /// `FavoriteCategoryView.label`.
+  final String label;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FavoriteCategory && other.id == id && other.label == label;
+
+  @override
+  int get hashCode => Object.hash(id, label);
+
+  @override
+  String toString() => 'FavoriteCategory($id, $label)';
+}
 
 /// What a favourite points at — a **person** or a **place**.
 ///
@@ -56,8 +92,7 @@ class FavoriteItem {
     required this.initials,
     this.rating,
     this.salonName,
-    this.categoryId,
-    this.categoryLabel,
+    this.categories = const <FavoriteCategory>[],
     this.cityLabel,
     this.districtLabel,
     this.street,
@@ -108,20 +143,21 @@ class FavoriteItem {
   /// sanitized — see the file header and `FavoriteMapper`.
   final String? salonName;
 
-  /// The service category this favourite is filed under — what the category
-  /// filter selects on. Mapped from the DTO's `categoryCode`, a server
-  /// enum-ish token compared for equality/selection only — never rendered.
-  final String? categoryId;
-
-  /// The category's Ukrainian display name, rendered on the filter chip.
+  /// Every distinct platform category this provider offers — what the
+  /// category filter unions over. A provider offering both manicure and
+  /// pedicure carries both, and shows up under either chip.
   ///
   /// Carried on the ITEM rather than resolved against a hardcoded vocabulary:
   /// the design preview used a const `kFavCategories` list, but production
   /// categories are server-owned and admin-editable, so the filter derives its
-  /// chips from the data it actually has. Mapped from the DTO's
-  /// `categoryLabel`, provider/admin-authored text — sanitized by the mapper,
-  /// because this is the string a screen actually renders.
-  final String? categoryLabel;
+  /// chips from the data it actually has. Mapped from the DTO's `categories`
+  /// (backend commit `b0c924f` — every distinct category the provider offers,
+  /// not the client's most-recently-booked one), both-or-neither per pair and
+  /// deduped by id — see `FavoriteMapper`.
+  ///
+  /// Non-null and defaults to empty — never null-check this before iterating.
+  /// Empty means "reachable only under «Всі»", not "unknown".
+  final List<FavoriteCategory> categories;
 
   /// Resolved city display string (`cityLabel`). Sanitized by the mapper.
   final String? cityLabel;
@@ -172,8 +208,14 @@ class FavoriteItem {
           other.initials == initials &&
           other.rating == rating &&
           other.salonName == salonName &&
-          other.categoryId == categoryId &&
-          other.categoryLabel == categoryLabel &&
+          // `List`'s own `==` is identity, not element-wise — a plain
+          // `other.categories == categories` here would silently break
+          // `_FavoritesScreenState._viewModelFor`'s memoisation the moment two
+          // distinct-but-equal lists were compared. `listEquals` (already
+          // imported via `package:flutter/foundation.dart` for `@immutable`)
+          // does deep, order-sensitive element equality via [FavoriteCategory]
+          // above.
+          listEquals(other.categories, categories) &&
           other.cityLabel == cityLabel &&
           other.districtLabel == districtLabel &&
           other.street == street &&
@@ -188,8 +230,9 @@ class FavoriteItem {
     initials,
     rating,
     salonName,
-    categoryId,
-    categoryLabel,
+    // Combine the list's element hashes into one int first — Object.hash
+    // takes discrete arguments, not a nested Iterable.
+    Object.hashAll(categories),
     cityLabel,
     districtLabel,
     street,

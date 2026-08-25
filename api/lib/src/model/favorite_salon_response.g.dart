@@ -26,9 +26,7 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
   @override
   final String? locationNote;
   @override
-  final String? categoryCode;
-  @override
-  final String? categoryLabel;
+  final BuiltList<FavoriteCategoryView>? categories;
 
   factory _$FavoriteSalonResponse(
           [void Function(FavoriteSalonResponseBuilder)? updates]) =>
@@ -44,8 +42,7 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
       this.street,
       this.buildingNo,
       this.locationNote,
-      this.categoryCode,
-      this.categoryLabel})
+      this.categories})
       : super._();
   @override
   FavoriteSalonResponse rebuild(
@@ -69,8 +66,7 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
-        categoryCode == other.categoryCode &&
-        categoryLabel == other.categoryLabel;
+        categories == other.categories;
   }
 
   @override
@@ -85,8 +81,7 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
-    _$hash = $jc(_$hash, categoryCode.hashCode);
-    _$hash = $jc(_$hash, categoryLabel.hashCode);
+    _$hash = $jc(_$hash, categories.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -103,8 +98,7 @@ class _$FavoriteSalonResponse extends FavoriteSalonResponse {
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
-          ..add('categoryCode', categoryCode)
-          ..add('categoryLabel', categoryLabel))
+          ..add('categories', categories))
         .toString();
   }
 }
@@ -150,14 +144,11 @@ class FavoriteSalonResponseBuilder
   String? get locationNote => _$this._locationNote;
   set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
-  String? _categoryCode;
-  String? get categoryCode => _$this._categoryCode;
-  set categoryCode(String? categoryCode) => _$this._categoryCode = categoryCode;
-
-  String? _categoryLabel;
-  String? get categoryLabel => _$this._categoryLabel;
-  set categoryLabel(String? categoryLabel) =>
-      _$this._categoryLabel = categoryLabel;
+  ListBuilder<FavoriteCategoryView>? _categories;
+  ListBuilder<FavoriteCategoryView> get categories =>
+      _$this._categories ??= ListBuilder<FavoriteCategoryView>();
+  set categories(ListBuilder<FavoriteCategoryView>? categories) =>
+      _$this._categories = categories;
 
   FavoriteSalonResponseBuilder() {
     FavoriteSalonResponse._defaults(this);
@@ -175,8 +166,7 @@ class FavoriteSalonResponseBuilder
       _street = $v.street;
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
-      _categoryCode = $v.categoryCode;
-      _categoryLabel = $v.categoryLabel;
+      _categories = $v.categories?.toBuilder();
       _$v = null;
     }
     return this;
@@ -196,20 +186,32 @@ class FavoriteSalonResponseBuilder
   FavoriteSalonResponse build() => _build();
 
   _$FavoriteSalonResponse _build() {
-    final _$result = _$v ??
-        _$FavoriteSalonResponse._(
-          salonId: salonId,
-          name: name,
-          avatarUrl: avatarUrl,
-          cityLabel: cityLabel,
-          districtLabel: districtLabel,
-          avgRating: avgRating,
-          street: street,
-          buildingNo: buildingNo,
-          locationNote: locationNote,
-          categoryCode: categoryCode,
-          categoryLabel: categoryLabel,
-        );
+    _$FavoriteSalonResponse _$result;
+    try {
+      _$result = _$v ??
+          _$FavoriteSalonResponse._(
+            salonId: salonId,
+            name: name,
+            avatarUrl: avatarUrl,
+            cityLabel: cityLabel,
+            districtLabel: districtLabel,
+            avgRating: avgRating,
+            street: street,
+            buildingNo: buildingNo,
+            locationNote: locationNote,
+            categories: _categories?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'categories';
+        _categories?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'FavoriteSalonResponse', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

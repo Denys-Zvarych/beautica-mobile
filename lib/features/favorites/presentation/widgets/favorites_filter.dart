@@ -36,10 +36,20 @@
 // cannot ship: production categories are server-owned and admin-editable (see
 // `approvedCategoriesProvider`), so a frozen client-side list would silently
 // drop any category an admin adds and mislabel any they rename. [FavoriteChoice]
-// is therefore derived from the favourites themselves — every distinct
-// (`categoryId`, `categoryLabel`) pair present in the list — which makes the
-// "hide empty categories" rule fall out for free rather than being enforced by
-// a count comparison.
+// is therefore derived from the favourites themselves — the UNION of every
+// distinct [FavoriteCategory] across every item's `categories` list — which
+// makes the "hide empty categories" rule fall out for free rather than being
+// enforced by a count comparison.
+//
+// ── ONE PROVIDER, SEVERAL CHIPS ──────────────────────────────────────────
+//
+// Since backend commit `b0c924f`, `FavoriteItem.categories` is every distinct
+// platform category the provider offers, not the single category the client
+// most recently booked with them. A master offering both manicure and
+// pedicure therefore appears under BOTH chips when either is selected —
+// `from` unions across items, and the screen's membership test
+// (`_FavoritesScreenState._viewModelFor`) checks whether the selected id is
+// ANYWHERE in the item's list, not whether it equals a single scalar.
 //
 // ONE CONSEQUENCE, FLAGGED RATHER THAN ABSORBED: the chips carry no per-
 // category glyph, because a server-owned category has no icon field and this
@@ -56,23 +66,36 @@
 //
 // ── WHAT MAKES THE CONTROL RENDER NOTHING ───────────────────────────────────
 //
-// Both favourites DTOs carry a category (`categoryCode`/`categoryLabel`,
-// mapped onto `categoryId`/`categoryLabel` by `FavoriteMapper` — verified
-// against the regenerated client, 2026-08-25), so on a real list [choices] is
-// non-empty and this control renders its collapsed pill.
+// Both favourites DTOs carry a `categories` list (mapped onto
+// `FavoriteItem.categories` by `FavoriteMapper` — verified against the
+// regenerated client, 2026-08-25), so on a real list [choices] is non-empty
+// and this control renders its collapsed pill.
 //
 // It still renders NOTHING — [FavoritesInlineFilter] returns
 // `SizedBox.shrink()` — on a client whose favourites happen to carry no
-// category at all (every DTO row missing `categoryCode` or `categoryLabel`,
-// which [FavoriteChoice.from] folds to a dropped pair; see
-// `FavoriteMapper._categoryOrNull`'s both-or-neither rule). That is the honest
-// degradation, not a hedge: a pill that can only ever say «Всі», opening onto
-// a panel holding one chip that is already selected, is a control promising a
-// choice it cannot deliver — furniture that costs permanent vertical space on
-// a scrolling list and answers every tap with nothing. The design's own rule
-// already says a category leading nowhere is not drawn; a filter with zero
-// categories is that rule at its limit.
+// category at all (every DTO row's `categories` empty, or every element
+// missing `code` or `label`, which [FavoriteChoice.from] skips element-by-
+// element; see `FavoriteMapper._categoriesFromDto`'s both-or-neither rule).
+// That is the honest degradation, not a hedge: a pill that can only ever say
+// «Всі», opening onto a panel holding one chip that is already selected, is a
+// control promising a choice it cannot deliver — furniture that costs
+// permanent vertical space on a scrolling list and answers every tap with
+// nothing. The design's own rule already says a category leading nowhere is
+// not drawn; a filter with zero categories is that rule at its limit.
+//
+// The one case this does NOT cover: a category the client is currently
+// FILTERED TO that has just gone empty (its last favourite unliked, or
+// pushed past `FavoriteChoice._kMaxChoices` by a reorder) while it is the
+// ONLY category left in `items`. There the raw union is empty but the filter
+// is still meaningfully applied, so [choices] itself still carries one entry
+// — the caller (`_FavoritesScreenState._withRetainedSelection`) retains the
+// selected [FavoriteChoice] past its own emptying, so this widget never has
+// to special-case "selected but not really there". See that method and
+// mobile-security re-audit finding 2.
 
+import 'dart:developer';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -91,26 +114,77 @@ class FavoriteChoice {
   final String id;
   final String label;
 
-  /// The distinct categories present in [items], in first-seen order.
+  static const String _tag = 'feature.favorites.filter';
+
+  /// Hard ceiling on how many distinct chips [from] will ever return.
   ///
-  /// First-seen order (not alphabetical) so the chip row mirrors the scroll
-  /// order of the list beneath it: the category of the row you can see at the
-  /// top is the first chip. Alphabetical would be arbitrary against a list
-  /// sorted newest-saved-first.
+  /// `FavoriteMapper._categoriesFromDto` dedupes per item, but nothing on the
+  /// wire bounds how many DISTINCT codes a buggy or hostile response can claim
+  /// across every item — and every distinct choice this method returns becomes
+  /// one chip inside an unconditional [Wrap] under an [AnimatedSize]
+  /// (`_FavoritesInlineFilterState.build`), so an unbounded [choices] list is
+  /// unbounded layout work re-run on every open/close, not merely a longer
+  /// list. The bound belongs HERE rather than in the mapper: a per-item cap
+  /// there would not stop the union across many items from still growing
+  /// without limit, and `categories` is never rendered per-item on its own —
+  /// only this union ever reaches a `Wrap`. 50 is generous against the real
+  /// vocabulary (Beautica's category taxonomy is small and admin-curated) while
+  /// still keeping the worst case a bounded number of chips rather than
+  /// thousands.
   ///
-  /// A favourite with no `categoryId` contributes nothing, so an all-null list
-  /// yields no chips and the filter hides itself. A category with an id but no
-  /// label is skipped too: a chip the client cannot read is not a choice.
-  /// `FavoriteMapper` already enforces both-or-neither on the item itself
-  /// (`_categoryOrNull`), so in practice this only guards against a
-  /// half-formed pair reaching this method some other way.
+  /// This cap bounds what THIS method returns, not what ever reaches the
+  /// `Wrap`: `_FavoritesScreenState._withRetainedSelection` adds back the
+  /// currently-selected choice when a reorder pushes it past this cap
+  /// (mobile-security re-audit finding 2, LOW), so the actual worst case
+  /// rendered is N+1, not N. One extra chip for the row the client is
+  /// standing on is not the unbounded growth this cap exists to stop.
+  static const int _kMaxChoices = 50;
+
+  /// The distinct categories present across every item's [FavoriteItem.
+  /// categories], unioned and deduped by id, in first-seen order.
+  ///
+  /// A provider can carry several categories — a master offering both
+  /// manicure and pedicure contributes one chip for each. First-seen order
+  /// (not alphabetical) means "first-seen across the flattened traversal": for
+  /// item 0's categories, then item 1's, and so on, so the chip row still
+  /// mirrors the scroll order of the list beneath it — the first NEW category
+  /// encountered while scanning top to bottom is the first chip. Alphabetical
+  /// would be arbitrary against a list sorted newest-saved-first.
+  ///
+  /// An item with an empty `categories` list contributes nothing — reachable
+  /// only under «Всі» — so a list where every item carries no category yields
+  /// no chips and the filter hides itself. `FavoriteMapper` already enforces
+  /// both-or-neither and dedupe-by-id per element on the item itself
+  /// (`_categoriesFromDto`), so this method's own dedupe only guards the
+  /// cross-item union.
   static List<FavoriteChoice> from(List<FavoriteItem> items) {
     final Map<String, FavoriteChoice> seen = <String, FavoriteChoice>{};
+    bool truncated = false;
+    outer:
     for (final FavoriteItem item in items) {
-      final String? id = item.categoryId;
-      final String? label = item.categoryLabel;
-      if (id == null || label == null || label.isEmpty) continue;
-      seen.putIfAbsent(id, () => FavoriteChoice(id: id, label: label));
+      for (final FavoriteCategory category in item.categories) {
+        if (seen.containsKey(category.id)) continue;
+        if (seen.length >= _kMaxChoices) {
+          // Stop scanning entirely, not just stop adding: once the cap is
+          // hit there is no more layout work left to bound, only union work
+          // left to skip.
+          truncated = true;
+          break outer;
+        }
+        seen[category.id] = FavoriteChoice(
+          id: category.id,
+          label: category.label,
+        );
+      }
+    }
+    if (truncated && kDebugMode) {
+      log(
+        'FavoriteChoice.from truncated at $_kMaxChoices distinct categories — '
+        'the favourites response claims more distinct category codes than '
+        'that across the visible items.',
+        name: _tag,
+        level: 900,
+      );
     }
     return seen.values.toList(growable: false);
   }
@@ -136,7 +210,11 @@ class FavoritesInlineFilter extends StatefulWidget {
   });
 
   /// The categories that have at least one favourite in them, plus (kept by
-  /// the caller) the one currently selected even if it has just emptied.
+  /// the caller — `_FavoritesScreenState._withRetainedSelection` — see that
+  /// method) the one currently selected even if it has just emptied or been
+  /// truncated past `FavoriteChoice._kMaxChoices`. This widget trusts that
+  /// promise and does no retention of its own: every lookup below is a plain
+  /// `choices.where(id == selectedId)`.
   final List<FavoriteChoice> choices;
 
   /// `null` → «Всі» (no filter).
@@ -163,8 +241,9 @@ class _FavoritesInlineFilterState extends State<FavoritesInlineFilter> {
   void didUpdateWidget(FavoritesInlineFilter oldWidget) {
     super.didUpdateWidget(oldWidget);
     // A filter that loses every choice while its panel is open (the client
-    // unliked the last categorised row) must not keep an empty panel expanded
-    // in the tree — it would spring back the moment a chip reappeared.
+    // unliked the last categorised row, with no filter applied to retain it)
+    // must not keep an empty panel expanded in the tree — it would spring
+    // back the moment a chip reappeared.
     if (_open && widget.choices.isEmpty) _open = false;
   }
 
@@ -173,6 +252,10 @@ class _FavoritesInlineFilterState extends State<FavoritesInlineFilter> {
     if (widget.choices.isEmpty) return const SizedBox.shrink();
 
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // `widget.choices` already carries the retained selection when it has
+    // dropped out of the live union — see that field's doc and
+    // `_FavoritesScreenState._withRetainedSelection` — so a plain lookup is
+    // enough here; this widget does no retention of its own.
     final FavoriteChoice? selected = widget.selectedId == null
         ? null
         : widget.choices
@@ -231,7 +314,11 @@ class _FavoritesInlineFilterState extends State<FavoritesInlineFilter> {
                   ),
                   for (final FavoriteChoice c in widget.choices)
                     FavoriteCategoryChip(
-                      key: Key('favorites-chip-${c.id}'),
+                      // `-cat-` keeps this namespace disjoint from the
+                      // hardcoded `favorites-chip-all` sentinel above: a real
+                      // category code of literally `all` would otherwise
+                      // collide with it.
+                      key: Key('favorites-chip-cat-${c.id}'),
                       label: c.label,
                       selected: widget.selectedId == c.id,
                       onTap: () => _choose(c.id),
@@ -277,6 +364,16 @@ class _StatePill extends StatelessWidget {
           const SizedBox(width: VelvetSpacing.sm - 1),
           Text(
             label,
+            // Same defect, worse exposure: this renders `selected?.label` —
+            // the identical untrusted [FavoriteChoice.label] the chip caps
+            // (`FavoriteCategoryChip`, below) — but the PILL is always
+            // visible, where the chip only renders while the panel is open.
+            // `sanitizeDisplayText` strips the bidi/zero-width class but not
+            // `\n`/U+2028/U+2029 (a separate, recorded backlog gap; not
+            // touched here), so an unbounded label would otherwise stretch
+            // this pill's height (mobile-security re-audit finding 1, MEDIUM).
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: VelvetText.favFilterLabel.copyWith(
               color: BrandColors.accentDeep,
             ),
@@ -346,6 +443,13 @@ class FavoriteCategoryChip extends StatelessWidget {
       ),
       child: Text(
         label,
+        // One line, ellipsized — matches the address block's `note`
+        // convention (`ResultAddressBlock`/`favorite_cards.dart`).
+        // `sanitizeDisplayText` strips the bidi/zero-width class but not
+        // `\n`/U+2028/U+2029, so an unbounded label would otherwise stretch
+        // this chip's height inside the `AnimatedSize` panel above.
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: VelvetText.favFilterLabel.copyWith(
           color: selected ? BrandColors.accentDeep : BrandColors.textSecondary,
           fontWeight: selected ? FontWeight.w700 : FontWeight.w600,

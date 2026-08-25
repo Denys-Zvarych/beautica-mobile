@@ -148,6 +148,70 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
   String? _memoSelectedCategory;
   late _FavoritesViewModel _memoViewModel;
 
+  // ── Retained selection (mobile-security re-audit finding 2, LOW) ────────
+  //
+  // `FavoriteChoice.from(items)` is a plain UNION over what is CURRENTLY
+  // saved — it drops a category the instant its last favourite is unliked,
+  // and `FavoriteChoice._kMaxChoices` can drop one a reorder pushes past the
+  // 50th slot. Either way, if that category is the one the client is
+  // FILTERED TO, `FavoritesInlineFilter`'s `choices.where(id == selectedId)`
+  // lookup misses: the collapsed pill falls back to «Всі», «Скинути»
+  // disappears, and `_emptyState`'s own lookup (below) falls back to a blank
+  // category name — while `visible` stays correctly filtered the whole time.
+  // The control lies about a filter the data still enforces.
+  //
+  // `_retainedChoice` is this screen's memory of the selected [FavoriteChoice]
+  // from the last build where it WAS present in the raw union — the only
+  // place that label can come from once its category has zero items left.
+  // `_withRetainedSelection` is the single place that reads AND writes it, and
+  // is invoked only from inside `_viewModelFor`'s cache-miss branch, so it
+  // runs exactly when `items` or `selectedCategory` actually changed — the
+  // only two things that can make the retained entry go stale.
+  FavoriteChoice? _retainedChoice;
+
+  /// Returns [raw] plus the retained selection, when [selectedCategory] is
+  /// non-null and missing from [raw].
+  ///
+  /// Also owns discarding [_retainedChoice] once it stops applying:
+  ///   - `selectedCategory == null` (cleared, or never filtered) → discard;
+  ///   - `selectedCategory` is live in [raw] → the union already speaks for
+  ///     itself; adopt that entry as the new memory (so a genuine category
+  ///     RENAME is reflected the moment it is still live, never frozen at
+  ///     the label seen the moment it was first selected) and return [raw]
+  ///     unchanged;
+  ///   - `selectedCategory` is neither live nor what is already remembered
+  ///     (a selection this screen never saw live — not reachable through a
+  ///     real chip tap, which only ever selects an id present in the panel
+  ///     at tap time) → discard rather than risk showing a memory under the
+  ///     wrong id.
+  ///
+  /// At most ONE entry is ever appended — [_retainedChoice] holds a single
+  /// [FavoriteChoice], never a set — so `FavoriteChoice._kMaxChoices`'s
+  /// guarantee holds at N+1 chips actually rendered, not defeated back to
+  /// unbounded.
+  List<FavoriteChoice> _withRetainedSelection(
+    List<FavoriteChoice> raw,
+    String? selectedCategory,
+  ) {
+    if (selectedCategory == null) {
+      _retainedChoice = null;
+      return raw;
+    }
+    final FavoriteChoice? live = raw
+        .where((FavoriteChoice c) => c.id == selectedCategory)
+        .firstOrNull;
+    if (live != null) {
+      _retainedChoice = live;
+      return raw;
+    }
+    final FavoriteChoice? retained = _retainedChoice;
+    if (retained != null && retained.id == selectedCategory) {
+      return <FavoriteChoice>[...raw, retained];
+    }
+    _retainedChoice = null;
+    return raw;
+  }
+
   _FavoritesViewModel _viewModelFor(
     List<FavoriteItem> items,
     String? selectedCategory,
@@ -156,11 +220,21 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
         _memoSelectedCategory == selectedCategory) {
       return _memoViewModel;
     }
-    final List<FavoriteChoice> choices = FavoriteChoice.from(items);
+    final List<FavoriteChoice> choices = _withRetainedSelection(
+      FavoriteChoice.from(items),
+      selectedCategory,
+    );
+    // Membership, not equality: a provider carries EVERY category it offers
+    // (backend `b0c924f`), so it must appear under each one the client
+    // selects, not only when the selection happens to match a single scalar.
     final List<FavoriteItem> visible = selectedCategory == null
         ? items
         : items
-              .where((FavoriteItem i) => i.categoryId == selectedCategory)
+              .where(
+                (FavoriteItem i) => i.categories.any(
+                  (FavoriteCategory c) => c.id == selectedCategory,
+                ),
+              )
               .toList(growable: false);
     _memoItems = items;
     _memoSelectedCategory = selectedCategory;

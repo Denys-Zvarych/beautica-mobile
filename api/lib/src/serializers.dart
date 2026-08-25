@@ -121,6 +121,7 @@ import 'package:beautica_api/src/model/create_staff_booking_request.dart';
 import 'package:beautica_api/src/model/duplicate_service_error_response.dart';
 import 'package:beautica_api/src/model/duplicate_service_response.dart';
 import 'package:beautica_api/src/model/effective_day_response.dart';
+import 'package:beautica_api/src/model/favorite_category_view.dart';
 import 'package:beautica_api/src/model/favorite_master_response.dart';
 import 'package:beautica_api/src/model/favorite_response.dart';
 import 'package:beautica_api/src/model/favorite_salon_response.dart';
@@ -336,6 +337,7 @@ part 'serializers.g.dart';
   DuplicateServiceErrorResponse,
   DuplicateServiceResponse,
   EffectiveDayResponse,
+  FavoriteCategoryView,
   FavoriteMasterResponse,
   FavoriteResponse,
   FavoriteSalonResponse,

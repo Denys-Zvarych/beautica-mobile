@@ -27,16 +27,16 @@
 // the category LABEL AND the location note — is run through
 // `sanitizeDisplayText` HERE.
 //
-// `street`, `buildingNo` and the category ID (`categoryCode`) are the
-// exceptions, and the reason is narrow in each case. `street`/`buildingNo` are
-// never rendered on their own: both are composed by `buildStreetLine`
+// `street`, `buildingNo` and each category's `code` are the exceptions, and
+// the reason is narrow in each case. `street`/`buildingNo` are never rendered
+// on their own: both are composed by `buildStreetLine`
 // (`shared/formatters/address_lines.dart:92`), which sanitizes them itself, so
 // repeating it here would duplicate an invariant the composer already owns.
-// `categoryCode` is never rendered at all — `FavoriteChoice.from`
+// A category's `code` is never rendered at all — `FavoriteChoice.from`
 // (`favorites_filter.dart`) uses it only for equality and chip selection — so
 // it is only trimmed (`_idOrNull`), the same treatment as `masterId`/
-// `salonId`, not sanitized for display. See `_categoryOrNull` for the
-// both-or-neither rule the pair follows.
+// `salonId`, not sanitized for display. See `_categoriesFromDto` for the
+// both-or-neither rule each pair follows, and the defensive dedupe-by-id.
 //
 // `locationNote` is NOT in that group, and an earlier revision of this header
 // claimed it was. It is wrong: `buildStreetLine(street, buildingNo)` never
@@ -101,10 +101,6 @@ abstract final class FavoriteMapper {
       return null;
     }
     final String name = _joinName(dto.firstName, dto.lastName);
-    final _Category category = _categoryOrNull(
-      dto.categoryCode,
-      dto.categoryLabel,
-    );
     return FavoriteItem(
       id: id,
       kind: FavoriteKind.master,
@@ -115,8 +111,7 @@ abstract final class FavoriteMapper {
       // this method. `salonName` is what draws `_AffiliationLine`; it is NOT
       // used to derive `salonId`/navigation (out of scope for this render).
       salonName: _visibleOrNull(dto.salonName),
-      categoryId: category.id,
-      categoryLabel: category.label,
+      categories: _categoriesFromDto(dto.categories),
       cityLabel: _visibleOrNull(dto.cityLabel),
       districtLabel: _visibleOrNull(dto.districtLabel),
       // For a salon-affiliated master (since backend `ca2c98a`), these are the
@@ -136,18 +131,13 @@ abstract final class FavoriteMapper {
       return null;
     }
     final String name = _visibleOrNull(dto.name) ?? '';
-    final _Category category = _categoryOrNull(
-      dto.categoryCode,
-      dto.categoryLabel,
-    );
     return FavoriteItem(
       id: id,
       kind: FavoriteKind.salon,
       name: name,
       initials: initialsOf(name),
       rating: _ratingOrNull(dto.avgRating),
-      categoryId: category.id,
-      categoryLabel: category.label,
+      categories: _categoriesFromDto(dto.categories),
       cityLabel: _visibleOrNull(dto.cityLabel),
       districtLabel: _visibleOrNull(dto.districtLabel),
       street: dto.street,
@@ -167,27 +157,35 @@ abstract final class FavoriteMapper {
     return trimmed.isEmpty ? null : trimmed;
   }
 
-  /// `(categoryId, categoryLabel)`, both-or-neither.
+  /// Every distinct, both-or-neither `(code, label)` pair in [raw], deduped
+  /// by id and kept in first-seen (wire) order.
   ///
-  /// `categoryCode` is a server enum-ish token (`MANICURE`) used only for
+  /// `code` is a server enum-ish token (`MANICURE`) used only for
   /// equality/selection — trimmed like an id via [_idOrNull], never sanitized
-  /// for display since it is never displayed. `categoryLabel` is
-  /// provider/admin-authored Ukrainian text that IS rendered on the filter
-  /// chip, so it goes through [_visibleOrNull].
+  /// for display since it is never displayed. `label` is provider/admin-
+  /// authored Ukrainian text that IS rendered on the filter chip, so it goes
+  /// through [_visibleOrNull].
   ///
   /// `FavoriteChoice.from` (`favorites_filter.dart`) requires both a non-null
   /// id AND a non-empty label to produce a chip a client can both select and
-  /// read. A DTO carrying one without the other — code with no label, or a
-  /// label with no code — cannot satisfy that, so this folds the pair to
-  /// `(null, null)` together rather than leaking a half-formed one that would
-  /// either be unselectable or unreadable.
-  static _Category _categoryOrNull(String? code, String? label) {
-    final String? id = _idOrNull(code);
-    final String? visibleLabel = _visibleOrNull(label);
-    if (id == null || visibleLabel == null) {
-      return const _Category(id: null, label: null);
+  /// read. An element carrying one without the other — code with no label, or
+  /// a label with no code — cannot satisfy that, so it is dropped rather than
+  /// leaking a half-formed entry that would be either unselectable or
+  /// unreadable. Deduped defensively in case the server ever repeats a code:
+  /// the chip set (and this list) are keyed by id, so a repeat would otherwise
+  /// build two identical chips racing for the same `Key`.
+  static List<FavoriteCategory> _categoriesFromDto(
+    BuiltList<FavoriteCategoryView>? raw,
+  ) {
+    if (raw == null || raw.isEmpty) return const <FavoriteCategory>[];
+    final Map<String, FavoriteCategory> byId = <String, FavoriteCategory>{};
+    for (final FavoriteCategoryView view in raw) {
+      final String? id = _idOrNull(view.code);
+      final String? label = _visibleOrNull(view.label);
+      if (id == null || label == null) continue;
+      byId.putIfAbsent(id, () => FavoriteCategory(id: id, label: label));
     }
-    return _Category(id: id, label: visibleLabel);
+    return List<FavoriteCategory>.unmodifiable(byId.values);
   }
 
   /// A provider-authored display string, sanitized and trimmed, or null when it
@@ -258,12 +256,4 @@ abstract final class FavoriteMapper {
       );
     }
   }
-}
-
-/// The both-or-neither pair [FavoriteMapper._categoryOrNull] returns.
-class _Category {
-  const _Category({required this.id, required this.label});
-
-  final String? id;
-  final String? label;
 }
