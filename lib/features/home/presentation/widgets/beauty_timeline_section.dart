@@ -57,6 +57,15 @@ class BeautyTimelineSection extends StatelessWidget {
   static const double _railHeight = 108;
   static const double _medallion = 64;
 
+  // Tile width. Also given as a TIGHT width to [_TimelineNode] (via the
+  // SizedBox below) so its inner Column always centres the 64dp circle at a
+  // constant x-origin, regardless of caption length — see the connector
+  // maths in `left:` below, which assumes exactly that. Without the tight
+  // width, a loose Stack-imposed constraint lets the Column shrink to its
+  // widest child (the caption Text), which drifts the circle's x-origin with
+  // caption length and desyncs it from the hard-coded connector position.
+  static const double _tileWidth = 84;
+
   // Extra height to absorb scaled text below the fixed medallion. The two text
   // lines (~23dp at scale 1.0) gain ~30% at the clamped 1.3 cap; this adds that
   // delta (and a small cushion) so the rail tolerates large accessibility fonts
@@ -125,17 +134,46 @@ class BeautyTimelineSection extends StatelessWidget {
                 final TimelineEntry entry = entries[i];
                 final bool isLast = i == entries.length - 1;
                 return SizedBox(
-                  width: 84,
+                  width: _tileWidth,
                   child: Stack(
+                    // The connector below deliberately overhangs this tile's
+                    // right edge (negative `right`) so it reaches the NEXT
+                    // tile's circle instead of stopping short at the tile
+                    // boundary — see the Positioned's own comment. Clip.none
+                    // lets that overhang paint; it lands in the next tile's
+                    // local x 0..10, which is empty padding before that
+                    // tile's own circle, so nothing is obscured or doubled.
+                    clipBehavior: Clip.none,
                     children: <Widget>[
                       if (!isLast)
+                        // Circle occupies local x [10, 74] (centred 64dp
+                        // medallion in the 84dp tight-width tile — see
+                        // _tileWidth's doc comment). The connector starts
+                        // exactly at the circle's right edge (74, i.e.
+                        // `_tileWidth / 2 + _medallion / 2`) so none of it
+                        // renders under the circle's translucent fill, and
+                        // extends to local x 94 (`right: -10`, i.e.
+                        // `-(_tileWidth - _medallion) / 2`) — the next
+                        // tile's circle left edge — so the dotted line
+                        // spans the full inter-circle gap instead of
+                        // stopping 10dp short at the tile boundary.
                         const Positioned(
-                          left: 84 / 2 + _medallion / 2 - 4,
-                          right: 0,
+                          left: _tileWidth / 2 + _medallion / 2,
+                          right: -(_tileWidth - _medallion) / 2,
                           top: _medallion / 2 - 1,
                           child: _DottedLine(),
                         ),
-                      _TimelineNode(entry: entry, onOpen: onOpenBooking),
+                      // Tight width so _TimelineNode's inner Column centres
+                      // the circle at a constant x-origin instead of at the
+                      // caption Text's (variable) intrinsic width — see
+                      // _tileWidth's doc comment.
+                      SizedBox(
+                        width: _tileWidth,
+                        child: _TimelineNode(
+                          entry: entry,
+                          onOpen: onOpenBooking,
+                        ),
+                      ),
                     ],
                   ),
                 );
