@@ -10,8 +10,17 @@
 // `favorites_filter.dart` keep their own private mappers for now — migrating
 // them is a separate, out-of-scope visual review). Tile width/rail height
 // grew (84→100 / 108→118) and the caption gained a second line to stop
-// «Ін'єкційна косметологія» truncating to «Ін'єкц…»; the medallion glyph grew
-// 26→36dp so the more detailed traced icons stay legible.
+// «Ін'єкційна косметологія» truncating to «Ін'єкц…».
+//
+// MEDALLION ICON SIZE — CORRECTED HISTORY (2026-08-26)
+// The `_TimelineNode` medallion `Container` (64×64) had no `alignment`, so
+// its tight `BoxConstraints` forced the child `AppIcon` to render at 64dp
+// regardless of the `size:` value passed. That means every earlier size —
+// 26, then 36, then 32 — was inert; the icon actually painted at 64dp the
+// whole time. `alignment: Alignment.center` (added below, do not remove)
+// finally made `size:` take effect, and the icon is now set to 48dp — a
+// deliberate 25% reduction from the 64dp the user was actually looking at,
+// leaving an 8dp inset inside the 64dp medallion.
 //
 // Title "BEAUTY TIMELINE" is an untranslated English brand constant (locked
 // product decision). The section label itself uses [HubSectionTitle] with
@@ -243,6 +252,17 @@ class _TimelineNode extends StatelessWidget {
         Container(
           height: 64,
           width: 64,
+          // `alignment` is required here, not cosmetic: without it Container
+          // has no Align layer, so its tight 64×64 BoxConstraints pass
+          // straight through and force ANY child — including AppIcon's own
+          // `size:`-driven SizedBox — to render at 64×64 regardless of the
+          // value passed. Confirmed via `tester.getSize()`: `size: 32` with
+          // no `alignment` measured 64×64; adding `alignment: Alignment
+          // .center` measured the intended 32×32 (mobile-qa, 2026-08-26,
+          // Phase 110 Part 2 gap-closure — this is what actually explained
+          // the golden byte-identical finding, not an SVG-decode timing
+          // issue). Do not remove.
+          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: BrandColors.white.withValues(alpha: 0.5),
             shape: BoxShape.circle,
@@ -258,10 +278,11 @@ class _TimelineNode extends StatelessWidget {
               categoryKey: entry.categoryKey,
               categoryName: entry.category,
             ),
-            // 26 → 36. The traced icons (13 of the 20) are faithful to
-            // detailed line artwork and read as an illegible smudge at 26dp
-            // — sizing-only change, see the file header.
-            size: 36,
+            // 48dp, inset within the 64dp medallion. The 26/36/32 values
+            // that preceded this never actually rendered — see the file
+            // header for why (the Container had no `alignment`, so every
+            // earlier size was clobbered to 64dp regardless of this field).
+            size: 48,
             color: BrandColors.accentDeep,
           ),
         ),

@@ -36,6 +36,55 @@
 // exact string is the binding constraint that drove the 84→100dp resize), at
 // {1.0, 1.3} textScale — the accessibility ceiling `main.dart` clamps to,
 // and the exact matrix `home_hub_overflow_test.dart`'s bug lived in.
+//
+// SVG ICON LAYER — GAP-CLOSURE (mobile-qa, 2026-08-26)
+// -------------------------------------------------------
+// A MEDIUM finding from an earlier chain read: "these goldens have zero
+// pixel coverage of the SVG icon layer" — evidence was that mutating the
+// medallion `AppIcon`'s `size:` to an absurd value and regenerating produced
+// a byte-identical PNG. The working diagnosis at the time was that
+// `SvgPicture.asset` doesn't resolve within a single `goldenTest` pump
+// cycle. That diagnosis was WRONG: direct measurement showed the SVG paints
+// fine under plain `pumpAndSettle` (confirmed by sampling non-background
+// pixel colours in the medallion region, with and without an added
+// `vg.waitForPendingDecodes()` step — identical either way).
+//
+// The real cause was a layout bug: the 64×64 medallion `Container` in
+// `_TimelineNode` had no `alignment`, so its tight `BoxConstraints` forced
+// ANY child to render at 64×64 regardless of size requested — `size: 8` and
+// `size: 32` were laid out IDENTICALLY (both clobbered to 64dp), which is
+// exactly what produced the byte-identical golden. Fixed with
+// `alignment: Alignment.center` on that `Container` (see its comment there
+// for the `tester.getSize()` proof: 64×64 → 32×32).
+//
+// Post-fix, the golden DOES have real, mutation-proven SVG pixel coverage:
+//   HEAD (size 32, no alignment — pre-fix, clobbered to 64dp):
+//     360_1x sha256 c233abb2ec501e57d19e8199acb4e7b045b9781277c911931d82f9acab9bb050
+//   Fixed layout, size 32 (superseded — no longer this baseline):
+//     360_1x sha256 54a497eb66d01ab4667cfc9a0c2800fde546788057125c862659079c1bc28d8a
+//   Fixed layout, size 8 (mutation probe — differs from the line above):
+//     360_1x sha256 dcf488c85ae1640d4b4d6559927f5c2c7c37cbdc9f0d05f535e8ac100dff59bd
+//
+// The `AppIcon.size` field assertion in the first `testWidgets` group below
+// is ALSO vacuous in the same way the golden mutation was — it reads the
+// widget's constructor field, not what actually got laid out, so it could
+// not have caught this bug either. A second measured test
+// ("...is actually LAID OUT at 48dp...") asserts `tester.getSize()` instead;
+// removing `alignment: Alignment.center` reddens BOTH that test (medallion
+// clobbered back to 64×64, not 48×48) AND both goldens below, proving both
+// are load-bearing against this exact regression.
+//
+// SIZE RAISED 32 → 48dp (2026-08-26, same day as the alignment fix above):
+// with `alignment: Alignment.center` finally making `size:` take effect,
+// the user was actually looking at 64dp icons (the alignment bug's clobber)
+// when asking for "a little bit smaller" — 48dp is a deliberate 25%
+// reduction from that 64dp, not from the never-rendered 32dp value. This
+// baseline's bytes MUST differ from the size-32 hash recorded above.
+//
+// `vg.waitForPendingDecodes()` stays wired into `helpers/golden_pump.dart`
+// regardless — see that file's header for why it's kept as a free,
+// package-documented safety net even though it wasn't the operative fix
+// here.
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -134,8 +183,8 @@ void main() {
     );
 
     testWidgets(
-      'the medallion AppIcon renders at the Part 2 size (36dp), not the '
-      'retired 26dp',
+      'the medallion AppIcon renders at the current size (48dp), not a '
+      'retired 26dp/36dp/32dp value',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -149,14 +198,69 @@ void main() {
 
         final Iterable<AppIcon> icons = tester
             .widgetList<AppIcon>(find.byType(AppIcon))
-            .where((AppIcon icon) => icon.size == 36.0);
+            .where((AppIcon icon) => icon.size == 48.0);
         expect(
           icons.length,
           _entries.length,
           reason:
               'every one of the ${_entries.length} rendered tiles must '
-              'carry a 36dp medallion AppIcon',
+              'carry a 48dp medallion AppIcon',
         );
+      },
+    );
+
+    testWidgets(
+      'the medallion AppIcon is actually LAID OUT at 48dp, not merely '
+      'configured with size: 48 (mobile-qa gap-closure, 2026-08-26)',
+      (tester) async {
+        // The assertion above reads `AppIcon.size` — the constructor field —
+        // which is set correctly regardless of what the surrounding layout
+        // does with it. It cannot catch a layout bug that silently overrides
+        // the requested size. That bug was real here: the 64×64 medallion
+        // `Container` had no `alignment`, so its tight BoxConstraints forced
+        // ANY child (including AppIcon's own `size:`-driven SizedBox) to
+        // render at 64×64 regardless of the value passed — every size up to
+        // and including `size: 32` was completely inert, and the rendered
+        // icon silently filled the whole medallion. This is exactly why an
+        // earlier chain's "set the icon to an absurd size and regenerate"
+        // mutation probe on the golden came back byte-identical: the
+        // mutation never reached the screen. `alignment: Alignment.center`
+        // on the Container (see `beauty_timeline_section.dart`) fixed it,
+        // and the icon size was then raised to 48dp now that `size:` is
+        // finally load-bearing. This test pins the FIX via the one signal
+        // that can't be fooled the same way — the actual laid-out size — so
+        // a regression (e.g. someone removing `alignment` again) fails here
+        // even if `AppIcon.size` still reads 48.
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: Scaffold(body: _host(360)),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final List<Element> iconElements = find
+            .byType(AppIcon)
+            .evaluate()
+            .toList();
+        expect(iconElements.length, _entries.length);
+
+        for (final Element element in iconElements) {
+          final Size renderedSize = tester.getSize(
+            find.byWidget(element.widget),
+          );
+          expect(
+            renderedSize,
+            const Size(48.0, 48.0),
+            reason:
+                'the medallion icon must actually PAINT at 48×48 — a '
+                '64×64 result here means the Container alignment fix '
+                'regressed and the icon is silently filling the whole '
+                'medallion again',
+          );
+        }
       },
     );
   });

@@ -1353,10 +1353,35 @@ void main() {
       );
       expect(
         injectionIcon.size,
-        36.0,
+        48.0,
         reason:
-            'Phase 110 Part 2 grew the medallion glyph 26 → 36dp — the '
-            'rendered AppIcon must carry the new size, not the retired one',
+            'the rendered AppIcon must carry the current medallion size '
+            '(48dp) — the 26/36/32dp values that preceded it never actually '
+            'rendered (see `beauty_timeline_section.dart`\'s file header): '
+            'the 64×64 Container had no `alignment`, so every prior size '
+            'was clobbered to 64dp until that fix landed alongside this '
+            'raise to 48dp',
+      );
+      // `injectionIcon.size` above reads the AppIcon CONSTRUCTOR field, which
+      // stays 48.0 even if a surrounding layout bug silently overrides what
+      // actually paints — that happened for real: the 64×64 medallion
+      // `Container` had no `alignment`, so its tight BoxConstraints forced
+      // the icon to render at 64×64 regardless of `size:` (mobile-qa,
+      // 2026-08-26, Phase 110 Part 2 gap-closure — see
+      // `beauty_timeline_section.dart`'s `_TimelineNode` comment and
+      // `test/golden/beauty_timeline_rail_golden_test.dart`'s file header for
+      // the full trace). Assert the ACTUAL laid-out size too, end to end
+      // against the real FakeBackend-served row, so a regressed `alignment`
+      // fails here even though the field-only check above would stay green.
+      expect(
+        tester.getSize(
+          _appIconFinderForTile(tester, caption: "Ін'єкційна косметологія"),
+        ),
+        const Size(48.0, 48.0),
+        reason:
+            'the medallion icon must actually PAINT at 48×48 — a 64×64 '
+            'result means the Container alignment fix regressed and the '
+            'icon is silently filling the whole medallion again',
       );
 
       final AppIcon pedicureIcon = _appIconForTile(tester, caption: 'Педикюр');
@@ -1481,6 +1506,16 @@ void main() {
 /// doc comment) so a medallion icon from a DIFFERENT tile can never
 /// false-satisfy this lookup.
 AppIcon _appIconForTile(WidgetTester tester, {required String caption}) {
+  return tester.widget<AppIcon>(
+    _appIconFinderForTile(tester, caption: caption),
+  );
+}
+
+/// The [Finder] half of [_appIconForTile] — split out so callers that need
+/// the actual laid-out size (`tester.getSize`), not just the widget's
+/// constructor fields, can reuse the exact same scoped lookup rather than
+/// re-deriving it (and risking drift between the two).
+Finder _appIconFinderForTile(WidgetTester tester, {required String caption}) {
   final Finder captionFinder = find.descendant(
     of: find.byKey(const Key('timeline_rail')),
     matching: find.text(caption),
@@ -1502,5 +1537,5 @@ AppIcon _appIconForTile(WidgetTester tester, {required String caption}) {
     findsOneWidget,
     reason: 'the tile for caption "$caption" must render exactly one AppIcon',
   );
-  return tester.widget<AppIcon>(iconFinder);
+  return iconFinder;
 }
