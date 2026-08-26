@@ -30,6 +30,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -166,6 +168,13 @@ class _ServiceCategoryCardListState
 /// services list screen: same tokens, same typography, same count badge — but
 /// without a disclosure chevron or collapsible body.
 ///
+/// Leads with a 20dp category glyph from the shared [categoryIconFor]
+/// resolver, tinted [BrandColors.accentDeep] — except the uncategorized
+/// (`slug == null`) card, which renders an empty same-size slot instead of a
+/// glyph (see the [slug] doc and the build-method comment for why: the
+/// resolver never returns null and would otherwise mislabel that bucket with
+/// the cosmetology icon).
+///
 /// When [interactive] is `true` (the owner's own profile), tapping navigates
 /// to the services list with the matching category pre-expanded
 /// (`expandCategory` query parameter) — using the card's own live
@@ -204,6 +213,21 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
   // Hoisted to avoid a per-build TextStyle allocation.
   static final TextStyle _cardStyle = VelvetText.subheading16;
 
+  // Leading category glyph. Smaller than the rail's 36dp and the timeline
+  // medallion's 48dp — this is a compact list row, not a tile/medallion.
+  // Legibility of the (now uniformly thin-stroke, ~0.5/24 unit) icon set at
+  // this size was verified by rendering the real card (several category
+  // slugs, incl. the null/uncategorized case) to a PNG and inspecting it —
+  // strokes stay crisp against the warm-taupe base at 20dp.
+  //
+  // Measured fact (mobile-qa, corrects an earlier "row did not get taller"
+  // claim): this 20dp icon — not the label — now sets the `Row`'s cross-axis
+  // extent, since it is taller than the ~19dp `subheading16` text line it
+  // sits beside. The card grew 39dp → 40dp at default text scale. Harmless
+  // (both consumers sit inside a `SingleChildScrollView`, no overflow at any
+  // matrix cell), but the 1dp is real — don't cite the old "unchanged" figure.
+  static const double _iconSize = 20;
+
   @override
   Widget build(BuildContext context) {
     final Widget card = AnimatedScale(
@@ -222,6 +246,30 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
         ),
         child: Row(
           children: <Widget>[
+            // Leading category glyph. `slug == null` means "uncategorized"
+            // (see the constructor doc) — [categoryIconFor] NEVER returns
+            // null and would silently fall back to the cosmetology glyph,
+            // mislabelling a bucket that isn't cosmetology at all. So the
+            // uncategorized card renders NO icon (an empty same-size slot,
+            // keeping every card's label left edge aligned) rather than
+            // resolving a glyph for it. The name-fallback stage doesn't
+            // rescue this either: the uncategorized label is literally
+            // `l10n.serviceCategoryUncategorized` ("Без категорії"), which
+            // matches none of categoryIconFor's Ukrainian keyword substrings
+            // and would itself resolve to the same wrong cosmetology
+            // fallback.
+            SizedBox(
+              width: _iconSize,
+              height: _iconSize,
+              child: widget.slug == null
+                  ? null
+                  : AppIcon(
+                      categoryIconFor(categoryKey: widget.slug),
+                      size: _iconSize,
+                      color: BrandColors.accentDeep,
+                    ),
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
             Expanded(
               child: Text(
                 widget.label,
