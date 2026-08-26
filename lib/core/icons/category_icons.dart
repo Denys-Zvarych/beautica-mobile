@@ -62,6 +62,39 @@ String categoryIconFor({String? categoryKey, String? categoryName}) {
   return _fromName(categoryName) ?? _fallback;
 }
 
+/// `null` when both [categoryKey] and [categoryName] are null/blank/
+/// whitespace-only — the "uncategorised" bucket, which must render NO icon.
+/// [categoryIconFor]'s fallback would otherwise mislabel it as a
+/// cosmetology bucket. Otherwise defers to [categoryIconFor], which is
+/// unaffected and stays total.
+///
+/// This is the single "should an icon render at all" gate — every call site
+/// used to re-answer that question by hand (`x.isEmpty ? null : x`) before
+/// ever reaching [categoryIconFor]; a site that forgot the gate silently
+/// rendered the cosmetology glyph on an uncategorised bucket. Callers that
+/// already know they have a real category (never call this with both params
+/// blank) can keep calling [categoryIconFor] directly.
+///
+/// Blank-ness is checked via [String.trim] rather than a bare [String.isEmpty]
+/// (mobile-qa gap-closure, 2026-08-26): two of the five current call sites
+/// (`service_category_cards.dart`, `service_category_list.dart`) already
+/// normalise their own slug with `.trim().toUpperCase()` before it ever
+/// reaches here, but `_CategoryDropdown` (`service_form.dart`) and
+/// `_SalonCategoryHeader` (`salon_services_accordion.dart`) pass their slug
+/// straight through unnormalised. A stray whitespace-only category on either
+/// of those two paths (a legacy row, a bad admin edit) would previously have
+/// fallen all the way through [categoryIconFor] to the cosmetology fallback
+/// instead of being gated here — silently mislabelling an uncategorised item
+/// as cosmetology exactly like the bug this function exists to prevent. Since
+/// this function is the SHARED "should an icon render at all" gate, it should
+/// not depend on every caller having independently trimmed first.
+String? categoryIconOrNullFor({String? categoryKey, String? categoryName}) {
+  final bool noKey = categoryKey == null || categoryKey.trim().isEmpty;
+  final bool noName = categoryName == null || categoryName.trim().isEmpty;
+  if (noKey && noName) return null;
+  return categoryIconFor(categoryKey: categoryKey, categoryName: categoryName);
+}
+
 /// Fallback for an unrecognised/absent category — the closest general
 /// "beauty services" glyph among the 20 registered category icons.
 const String _fallback = BeauticaAssetIcons.categoryCosmetology;

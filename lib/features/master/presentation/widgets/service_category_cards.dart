@@ -230,6 +230,7 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
 
   @override
   Widget build(BuildContext context) {
+    final String? iconAsset = categoryIconOrNullFor(categoryKey: widget.slug);
     final Widget card = AnimatedScale(
       scale: _pressed ? 0.99 : 1.0,
       duration: const Duration(milliseconds: 110),
@@ -247,24 +248,20 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
         child: Row(
           children: <Widget>[
             // Leading category glyph. `slug == null` means "uncategorized"
-            // (see the constructor doc) — [categoryIconFor] NEVER returns
-            // null and would silently fall back to the cosmetology glyph,
-            // mislabelling a bucket that isn't cosmetology at all. So the
-            // uncategorized card renders NO icon (an empty same-size slot,
-            // keeping every card's label left edge aligned) rather than
-            // resolving a glyph for it. The name-fallback stage doesn't
-            // rescue this either: the uncategorized label is literally
-            // `l10n.serviceCategoryUncategorized` ("Без категорії"), which
-            // matches none of categoryIconFor's Ukrainian keyword substrings
-            // and would itself resolve to the same wrong cosmetology
-            // fallback.
+            // (see the constructor doc) — [categoryIconOrNullFor] resolves
+            // that to `null` too, rather than falling back to
+            // [categoryIconFor]'s cosmetology glyph, which would mislabel a
+            // bucket that isn't cosmetology at all. So the uncategorized
+            // card renders NO icon (an empty same-size slot, keeping every
+            // card's label left edge aligned) rather than resolving a glyph
+            // for it.
             SizedBox(
               width: _iconSize,
               height: _iconSize,
-              child: widget.slug == null
+              child: iconAsset == null
                   ? null
                   : AppIcon(
-                      categoryIconFor(categoryKey: widget.slug),
+                      iconAsset,
                       size: _iconSize,
                       color: BrandColors.accentDeep,
                     ),

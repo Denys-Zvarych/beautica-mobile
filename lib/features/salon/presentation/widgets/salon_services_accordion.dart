@@ -18,6 +18,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -141,6 +143,16 @@ class _SalonCategoryGroupState extends State<_SalonCategoryGroup> {
           count: cat.count,
           expanded: _expanded,
           onTap: _toggleExpand,
+          // `SalonServiceCategoryEntry.category` is the backend's stable
+          // uppercase slug (see the domain model doc). The salon offering
+          // is master-performed only (locked product decision) so the
+          // backend always sends a real, non-blank slug here — there is no
+          // client-side "uncategorized" bucket on this surface the way the
+          // master's own services list has. Passed raw anyway:
+          // `_SalonCategoryHeader` resolves its icon via
+          // `categoryIconOrNullFor`, which already treats a blank slug as
+          // "no icon" — no local isEmpty gate needed here.
+          slug: cat.category,
         ),
         AnimatedSize(
           duration: const Duration(milliseconds: 220),
@@ -165,6 +177,7 @@ class _SalonCategoryHeader extends StatelessWidget {
     required this.count,
     required this.expanded,
     required this.onTap,
+    this.slug,
   });
 
   final String label;
@@ -172,11 +185,26 @@ class _SalonCategoryHeader extends StatelessWidget {
   final bool expanded;
   final VoidCallback onTap;
 
+  /// Additive — the backend's stable uppercase category slug (blank or
+  /// `null` both mean "uncategorized"), resolved via [categoryIconOrNullFor]
+  /// (same convention as
+  /// `CategorySection`/`ServiceCategoryCard`/`CatalogueCategoryHeader`).
+  ///
+  /// The 20dp icon slot and its trailing spacer are ALWAYS reserved in the
+  /// header `Row` — only the glyph inside is conditional on the resolved
+  /// result. Every label sits 28dp further right than it would with no slot
+  /// at all, whether or not its category has an icon.
+  final String? slug;
+
   static final TextStyle _headerStyle = VelvetText.subheading16;
+
+  // Matches the sibling list-row surfaces' 20dp glyph.
+  static const double _iconSize = 20;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final String? iconAsset = categoryIconOrNullFor(categoryKey: slug);
     return Semantics(
       button: true,
       header: true,
@@ -204,6 +232,20 @@ class _SalonCategoryHeader extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
+              // Leading category glyph — see [slug]'s doc: this SizedBox
+              // and the spacer below are unconditional; only the glyph is.
+              SizedBox(
+                width: _iconSize,
+                height: _iconSize,
+                child: iconAsset == null
+                    ? null
+                    : AppIcon(
+                        iconAsset,
+                        size: _iconSize,
+                        color: BrandColors.accentDeep,
+                      ),
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: Text(
                   label,

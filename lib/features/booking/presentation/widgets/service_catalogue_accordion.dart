@@ -56,6 +56,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -303,6 +305,16 @@ class _CatalogueCategorySectionState extends State<CatalogueCategorySection> {
           onTap: widget.onToggleExpand,
           verticalPadding: widget.headerVerticalPadding,
           showCountBadges: widget.showCountBadges,
+          // `group.key` IS the backend's stable uppercase category slug
+          // (see `_group` / `_toCatalogueCategoryGroup`'s `entry.key` /
+          // `entry.category` callers below) — no redundant slug param is
+          // needed on [CatalogueCategorySection] itself. Passed raw (empty
+          // string for the uncategorized bucket included):
+          // [CatalogueCategoryHeader] resolves its icon via
+          // `categoryIconOrNullFor`, which already treats a blank slug as
+          // "uncategorized, no icon" (see [CatalogueCategoryHeader.slug]'s
+          // doc) — no local isEmpty gate needed here.
+          slug: group.key,
           semanticsLabel: widget.headerSemanticsLabel(
             label: group.label,
             count: group.rows.length,
@@ -393,6 +405,7 @@ class CatalogueCategoryHeader extends StatelessWidget {
     required this.semanticsLabel,
     required this.verticalPadding,
     this.showCountBadges = true,
+    this.slug,
   });
 
   final String label;
@@ -404,8 +417,23 @@ class CatalogueCategoryHeader extends StatelessWidget {
   final double verticalPadding;
   final bool showCountBadges;
 
+  /// Additive — the backend's stable uppercase category slug (blank or
+  /// `null` both mean "uncategorized"), resolved via [categoryIconOrNullFor].
+  ///
+  /// The 20dp icon slot and its trailing spacer are ALWAYS reserved in the
+  /// header `Row` — only the glyph inside is conditional on the resolved
+  /// result. Every label sits 28dp further right than it would with no slot
+  /// at all, whether or not its category has an icon.
+  final String? slug;
+
+  // Leading category glyph size — matches `CategorySection`'s /
+  // `ServiceCategoryCard`'s 20dp, the sibling list-row surfaces this
+  // accordion header sits alongside in the same booking/catalogue flows.
+  static const double _iconSize = 20;
+
   @override
   Widget build(BuildContext context) {
+    final String? iconAsset = categoryIconOrNullFor(categoryKey: slug);
     return Semantics(
       button: true,
       header: true,
@@ -426,6 +454,20 @@ class CatalogueCategoryHeader extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
+              // Leading category glyph — see [slug]'s doc: this SizedBox
+              // and the spacer below are unconditional; only the glyph is.
+              SizedBox(
+                width: _iconSize,
+                height: _iconSize,
+                child: iconAsset == null
+                    ? null
+                    : AppIcon(
+                        iconAsset,
+                        size: _iconSize,
+                        color: BrandColors.accentDeep,
+                      ),
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: Text(
                   label,

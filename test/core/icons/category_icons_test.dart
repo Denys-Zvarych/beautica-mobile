@@ -342,4 +342,99 @@ void main() {
       }
     });
   });
+
+  // ── categoryIconOrNullFor — the "should an icon render at all" gate ─────
+  //
+  // mobile-qa gap-closure (2026-08-26, Phase 110 Part 2 rollout audit):
+  // `categoryIconOrNullFor` (added alongside the three new icon call sites
+  // audited in this rollout — `CatalogueCategoryHeader`, `_SalonCategoryHeader`,
+  // `_CategoryDropdown`) had ZERO test coverage before this group. It answers
+  // a DIFFERENT question than `categoryIconFor`'s totality group above:
+  // `categoryIconFor` is proven to NEVER return null (always a usable asset,
+  // even for garbage input); `categoryIconOrNullFor` is proven to return null
+  // EXACTLY on the "no real category" case, and to otherwise delegate
+  // unchanged. The two invariants are independent — a regression that made
+  // `categoryIconOrNullFor` always return null (or never return null) would
+  // not move a single assertion in the totality group above.
+  group('categoryIconOrNullFor — blank/null gate', () {
+    test('both null → null (the uncategorised bucket renders no icon)', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: null, categoryName: null),
+        isNull,
+      );
+    });
+
+    test('both empty strings → null', () {
+      expect(categoryIconOrNullFor(categoryKey: '', categoryName: ''), isNull);
+    });
+
+    test('null key + empty name → null', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: null, categoryName: ''),
+        isNull,
+      );
+    });
+
+    test('empty key + null name → null', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: '', categoryName: null),
+        isNull,
+      );
+    });
+
+    test('whitespace-only key and name → null, NOT the cosmetology fallback '
+        '(regression pin: a bare .isEmpty check — no .trim() — would let this '
+        'fall through to categoryIconFor\'s fallback instead of being gated '
+        'here; two of the five real call sites normalise their own slug '
+        'before calling, but `_CategoryDropdown` / `_SalonCategoryHeader` do '
+        'not, so the gate itself must not depend on that)', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: '   ', categoryName: '\t\n'),
+        isNull,
+      );
+    });
+
+    test('no arguments at all (both default to null) → null', () {
+      expect(categoryIconOrNullFor(), isNull);
+    });
+
+    test('a real known key is NOT gated — matches categoryIconFor\'s own '
+        'resolution for the same input', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: 'NAIL_SERVICE'),
+        categoryIconFor(categoryKey: 'NAIL_SERVICE'),
+      );
+      expect(
+        categoryIconOrNullFor(categoryKey: 'NAIL_SERVICE'),
+        BeauticaAssetIcons.categoryNailService,
+      );
+    });
+
+    test(
+      'a real key with a blank name is NOT gated — only "both blank" gates',
+      () {
+        expect(
+          categoryIconOrNullFor(categoryKey: 'BROWS', categoryName: ''),
+          BeauticaAssetIcons.categoryBrows,
+        );
+      },
+    );
+
+    test('a blank key with a real Ukrainian name falls through to the '
+        'name-matching stage, NOT gated to null', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: '', categoryName: 'Манікюр'),
+        BeauticaAssetIcons.categoryNailService,
+      );
+    });
+
+    test('an UNKNOWN key with no name is NOT gated to null — it still resolves '
+        'to categoryIconFor\'s cosmetology fallback (the gate is specifically '
+        '"no category info supplied", not "no ICON resolved")', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: 'NOT_A_REAL_SLUG'),
+        BeauticaAssetIcons.categoryCosmetology,
+      );
+    });
+  });
 }

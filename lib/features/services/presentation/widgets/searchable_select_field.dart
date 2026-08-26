@@ -88,6 +88,7 @@ class SearchableSelectField<T> extends StatelessWidget {
     this.errorText,
     this.menuFooter,
     this.enabled = true,
+    this.leadingIcon,
   });
 
   /// Stable key applied to the tappable closed field (interaction target).
@@ -145,6 +146,17 @@ class SearchableSelectField<T> extends StatelessWidget {
 
   /// Suppresses the open-on-tap while a submit is in flight.
   final bool enabled;
+
+  /// Additive — an optional leading glyph rendered before the field's text
+  /// (before [selectedLabel]/[placeholder]), inside its own 20×20 slot with
+  /// a `VelvetSpacing.sm` trailing gap. `null` (every pre-existing caller —
+  /// this generic field is also used for the service-type select, which has
+  /// no icon concept) renders no slot at all and lays out byte-identically
+  /// to before this field existed. The only current caller is the category
+  /// dropdown (an `accentDeep`-tinted category glyph from the shared
+  /// `categoryIconFor` resolver), which itself passes `null` whenever
+  /// nothing is selected — see that call site's doc.
+  final Widget? leadingIcon;
 
   // Section-label style — hoisted to avoid per-frame TextStyle allocations.
   static final TextStyle _labelStyle = VelvetText.label();
@@ -243,6 +255,10 @@ class SearchableSelectField<T> extends StatelessWidget {
                   height: VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
                   child: Row(
                     children: <Widget>[
+                      if (leadingIcon != null) ...<Widget>[
+                        SizedBox(width: 20, height: 20, child: leadingIcon),
+                        const SizedBox(width: VelvetSpacing.sm),
+                      ],
                       Expanded(
                         child: Text(
                           displayText,

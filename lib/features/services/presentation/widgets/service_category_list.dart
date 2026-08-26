@@ -239,6 +239,7 @@ class _CategorySectionState extends State<CategorySection> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final String? iconAsset = categoryIconOrNullFor(categoryKey: widget.slug);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -268,18 +269,19 @@ class _CategorySectionState extends State<CategorySection> {
                 children: <Widget>[
                   // Leading category glyph, matching [ServiceCategoryCard]'s
                   // 20dp/accentDeep treatment. `slug == null` means
-                  // uncategorized (see the field doc) — [categoryIconFor]
-                  // NEVER returns null and would otherwise mislabel «Без
-                  // категорії» with the cosmetology fallback glyph, so the
+                  // uncategorized (see the field doc) — [categoryIconOrNullFor]
+                  // resolves that to `null` too, rather than
+                  // [categoryIconFor]'s cosmetology fallback glyph, which
+                  // would otherwise mislabel «Без категорії». So the
                   // uncategorized section renders an empty same-size slot
                   // instead, keeping every header's title left edge aligned.
                   SizedBox(
                     width: _iconSize,
                     height: _iconSize,
-                    child: widget.slug == null
+                    child: iconAsset == null
                         ? null
                         : AppIcon(
-                            categoryIconFor(categoryKey: widget.slug),
+                            iconAsset,
                             size: _iconSize,
                             color: BrandColors.accentDeep,
                           ),
