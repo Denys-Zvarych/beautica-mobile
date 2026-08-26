@@ -239,6 +239,116 @@ abstract final class BeauticaAssetIcons {
   static const String filter = '$_base/filter.svg';
 
   // ---------------------------------------------------------------------------
+  // Category icons (Phase 110 Part 2) — the 20 live `platform_categories`
+  // slugs (`V74__seed_taxonomy_platform_categories.sql`). First consumer is
+  // the BEAUTY TIMELINE rail (`beauty_timeline_section.dart`) via the shared
+  // `categoryIconFor` resolver in `lib/core/icons/category_icons.dart` — see
+  // that file's header for the reuse contract (ONE shared resolver; the rail
+  // is its first caller, `booking_card.dart`/`favorites_filter.dart` keep
+  // their existing private mappers per that file's scope note).
+  //
+  // Filename convention: `category_<slug lowercased>.svg`, e.g.
+  // `category_hairdressing.svg` for the `HAIRDRESSING` slug.
+  //
+  // Two provenance groups:
+  //   Group A (7) — genuine Flaticon UICONS downloads. Licence: Flaticon Free
+  //     (attribution required before release; RELEASE-GATE: every one must be
+  //     re-downloaded under a 1-month Premium subscription before any store
+  //     build, with the certificate kept — same gate as the nav icons above).
+  //     Source URLs are recorded in
+  //     `docs/mobile-phases/category-icons-provenance.md` and as a top-of-file
+  //     comment in each SVG.
+  //   Group B (13) — traced in-repo from the user's supplied source PNGs via
+  //     `scripts/icons/trace_icon.py` (marching squares + Ramer-Douglas-Peucker
+  //     simplification + quadratic smoothing). NOT a Flaticon download — no
+  //     attribution or release-gate obligation. Ink-coverage fidelity vs the
+  //     source PNG verified at ±5%. `viewBox="0 0 24 24"`, one
+  //     `<path fill-rule="evenodd">`, no fill/stroke colour attributes, so
+  //     [AppIcon] tints them exactly like the rest of this registry.
+  //
+  // All 20 are monochrome — render via `AppIcon(BeauticaAssetIcons.category…,
+  // color: …, size: …)`; never `multicolor: true`.
+  // ---------------------------------------------------------------------------
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/barber-shop_3914559
+  static const String categoryHairdressing = '$_base/category_hairdressing.svg';
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/finger-nail_17699788
+  static const String categoryNailService = '$_base/category_nail_service.svg';
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/eye-lashes_18407551
+  static const String categoryLashExtensions =
+      '$_base/category_lash_extensions.svg';
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/blush_19002308
+  static const String categoryMakeup = '$_base/category_makeup.svg';
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/footprint_17003879
+  static const String categoryPodology = '$_base/category_podology.svg';
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/barber-pole_14700816
+  static const String categoryBarbering = '$_base/category_barbering.svg';
+
+  /// Group A (Flaticon UICONS). Source:
+  /// https://www.flaticon.com/free-icon-font/beard_18556793
+  static const String categoryBeardCare = '$_base/category_beard_care.svg';
+
+  /// Group B (traced from user-supplied source artwork). No Flaticon licence
+  /// obligation — see the section header above.
+  static const String categoryBrows = '$_base/category_brows.svg';
+
+  /// Group B (traced).
+  static const String categoryHairColoring =
+      '$_base/category_hair_coloring.svg';
+
+  /// Group B (traced).
+  static const String categoryHairTreatment =
+      '$_base/category_hair_treatment.svg';
+
+  /// Group B (traced).
+  static const String categoryHairExtensions =
+      '$_base/category_hair_extensions.svg';
+
+  /// Group B (traced).
+  static const String categoryTrichology = '$_base/category_trichology.svg';
+
+  /// Group B (traced).
+  static const String categoryLashLamination =
+      '$_base/category_lash_lamination.svg';
+
+  /// Group B (traced).
+  static const String categoryCosmetology = '$_base/category_cosmetology.svg';
+
+  /// Group B (traced).
+  static const String categoryInjectionCosmetology =
+      '$_base/category_injection_cosmetology.svg';
+
+  /// Group B (traced).
+  static const String categoryHardwareCosmetology =
+      '$_base/category_hardware_cosmetology.svg';
+
+  /// Group B (traced).
+  static const String categoryAestheticCosmetology =
+      '$_base/category_aesthetic_cosmetology.svg';
+
+  /// Group B (traced).
+  static const String categoryLaserCosmetology =
+      '$_base/category_laser_cosmetology.svg';
+
+  /// Group B (traced).
+  static const String categoryHairRemoval = '$_base/category_hair_removal.svg';
+
+  /// Group B (traced).
+  static const String categoryPermanentMakeup =
+      '$_base/category_permanent_makeup.svg';
+
+  // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
   // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------

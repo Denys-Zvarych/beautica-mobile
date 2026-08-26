@@ -307,8 +307,8 @@ void main() {
         'NAIL_SERVICE',
         reason:
             'the stable key must survive on its own field even though '
-            'categoryName won the caption — _categoryIcon in '
-            'beauty_timeline_section.dart reads categoryKey separately',
+            'categoryName won the caption — categoryIconFor (called from '
+            'beauty_timeline_section.dart) reads categoryKey separately',
       );
     });
   });

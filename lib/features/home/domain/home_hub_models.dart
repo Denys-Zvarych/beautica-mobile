@@ -86,10 +86,11 @@ class TimelineEntry {
 
   /// The backend's stable machine key for the service category (e.g.
   /// `"NAIL_SERVICE"`), when the row carries one. Preferred over [category]
-  /// for icon resolution in `beauty_timeline_section.dart`'s `_categoryIcon`
-  /// — a row with no key (e.g. a pre-Phase-110 test fixture) falls back to
-  /// matching [category] by keyword instead. Null, never `''`: an absent key
-  /// must be distinguishable from a genuinely empty one.
+  /// for icon resolution via `categoryIconFor` in
+  /// `lib/core/icons/category_icons.dart` — a row with no key (e.g. a
+  /// pre-Phase-110 test fixture) falls back to matching [category] by
+  /// keyword instead. Null, never `''`: an absent key must be
+  /// distinguishable from a genuinely empty one.
   final String? categoryKey;
 
   /// The source booking's id, when the row carries one. Used to navigate to

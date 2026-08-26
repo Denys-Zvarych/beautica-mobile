@@ -49,6 +49,27 @@ comment at the top of the SVG). Before any store build, re-download each under a
 | `location_marker.svg` | https://www.flaticon.com/free-icon-font/marker_3916880 | `71111aa34ced576c936597993e431167ac111ce897203f52b9e05303b74a211c` |
 | `star.svg` | https://www.flaticon.com/free-icon-font/star_3916582 | `5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6` |
 | `filter.svg` | https://www.flaticon.com/free-icon-font/filter_3914366 | `099791fb4a43ba6d05cdca105e2b9b1bc77898ada7ccc83bf04a3ca5e87ad5fa` |
+| `category_hairdressing.svg` | https://www.flaticon.com/free-icon-font/barber-shop_3914559 | `701812988c4468f74e9260a2a548f1e0929cc45e27a60af2cf7207dd5f46aaac` |
+| `category_nail_service.svg` | https://www.flaticon.com/free-icon-font/finger-nail_17699788 | `48290d0b4129dd8ca58a516aca2c2b720da765ae9234edb5cb31e234d4db50fa` |
+| `category_lash_extensions.svg` | https://www.flaticon.com/free-icon-font/eye-lashes_18407551 | `bd8143eb0acf305bce291089d287a516e1c8466e583d1701e875af70578cdca0` |
+| `category_makeup.svg` | https://www.flaticon.com/free-icon-font/blush_19002308 | `71b72b48fda6a145e23ffb9973723b9211c74f8da9cc8f1eb004bb6356d1115d` |
+| `category_podology.svg` | https://www.flaticon.com/free-icon-font/footprint_17003879 | `52fc1a77492f6056826f1e5621af02bb58d5ae953eb2278f880b9c6f946a7d90` |
+| `category_barbering.svg` | https://www.flaticon.com/free-icon-font/barber-pole_14700816 | `2dd8aaa56e4f63dd953fbd15fcec6aaa375356279627f92454c56d8a9fa5eb09` |
+| `category_beard_care.svg` | https://www.flaticon.com/free-icon-font/beard_18556793 | `30babccdcccdf6519ddbd781e8baf3f89da7da988189a0e93ab1b8ea45f2f045` |
+
+## Traced category icons (NOT Flaticon — no release-gate obligation)
+
+13 of the 20 category icons (`category_brows.svg`, `category_hair_coloring.svg`,
+`category_hair_treatment.svg`, `category_hair_extensions.svg`,
+`category_trichology.svg`, `category_lash_lamination.svg`,
+`category_cosmetology.svg`, `category_injection_cosmetology.svg`,
+`category_hardware_cosmetology.svg`, `category_aesthetic_cosmetology.svg`,
+`category_laser_cosmetology.svg`, `category_hair_removal.svg`,
+`category_permanent_makeup.svg`) are traced in-repo from the user's own source
+PNGs via `scripts/icons/trace_icon.py` (marching squares + Ramer-Douglas-Peucker
++ quadratic smoothing) — see `docs/mobile-phases/category-icons-resume.md` for
+the method. They carry no Flaticon licence and are exempt from the
+Premium-re-download release gate above.
 
 ## Notes
 

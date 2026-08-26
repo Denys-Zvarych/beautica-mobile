@@ -57,6 +57,8 @@
 // placeholder) — see the "BEAUTY TIMELINE" tests near the end of this file
 // for the populated-rail coverage.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
@@ -1266,4 +1268,239 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
+
+  // ── Test N+1 — mobile-qa (Phase 110 Part 2 / Step 2.7 Rule 3b): the rail ──
+  //              renders category icons via the shared `categoryIconFor` ────
+  //              resolver, on the REAL rendered tree — for both the ─────────
+  //              known-slug path AND the unknown-slug/name-fallback path ────
+  //
+  // WHY THIS EXISTS
+  // ----------------
+  // `category_icons_test.dart` (mobile-qa, closes a mobile-security LOW)
+  // already proves `categoryIconFor` itself is total and adversary-safe as a
+  // pure function. It does NOT prove the rail actually WIRES that function's
+  // output into the rendered `AppIcon` for real FakeBackend-served rows —
+  // that wiring is `beauty_timeline_section.dart`'s `_TimelineNode.build`,
+  // one call site, previously untested end to end (the widget tier only
+  // pumps `BeautyTimelineSection` directly with hand-built `TimelineEntry`
+  // fixtures whose `categoryKey` never round-trips through the real
+  // `GET /clients/me/timeline` → `TimelineMapper` → provider chain). This
+  // flow drives that chain for real and asserts the rendered `AppIcon.asset`
+  // against an INDEPENDENTLY computed expectation — never trusting the
+  // resolver's own output as its own proof.
+  testWidgets(
+    'BEAUTY TIMELINE rail wires the shared categoryIconFor resolver into '
+    'the rendered AppIcon for both a known categoryKey and an unknown-key/'
+    'name-fallback row',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..timelineRows = <Map<String, dynamic>>[
+          // Known, registered slug — Stage 1 of the resolver must win.
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'INJECTION_COSMETOLOGY',
+            'categoryName': "Ін'єкційна косметологія",
+            'date': '2026-06-20',
+            'masterId': 'master-1',
+            'serviceName': 'Біоревіталізація',
+          },
+          // Legacy/unregistered slug ("PEDICURE" is not in _fromKey's
+          // switch — the real registered slug is "PODOLOGY") paired with a
+          // matching Ukrainian name, so the resolver must fall through to
+          // Stage 2 and land on the Podology asset, not the generic
+          // fallback — the exact fallthrough `category_icons_test.dart`
+          // pins in isolation, now proven wired end to end.
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'PEDICURE',
+            'categoryName': 'Педикюр',
+            'date': '2026-05-02',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний педикюр',
+          },
+        ];
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      // i18n-finder-ok: FakeBackend fixture category names, not translated
+      // UI copy.
+      final AppIcon injectionIcon = _appIconForTile(
+        tester,
+        caption: "Ін'єкційна косметологія",
+      );
+      expect(
+        injectionIcon.asset,
+        categoryIconFor(
+          categoryKey: 'INJECTION_COSMETOLOGY',
+          categoryName: "Ін'єкційна косметологія",
+        ),
+        reason:
+            'the rendered AppIcon for the known-slug row must carry the '
+            'EXACT asset path categoryIconFor resolves for that same input '
+            '— a hard-coded/guessed asset in _TimelineNode would silently '
+            'desync from the resolver and this comparison would fail',
+      );
+      // Independently pin the specific asset too — belt and braces against
+      // both sides of the comparison drifting together.
+      expect(
+        injectionIcon.asset,
+        'assets/icons/category_injection_cosmetology.svg',
+      );
+      expect(
+        injectionIcon.size,
+        36.0,
+        reason:
+            'Phase 110 Part 2 grew the medallion glyph 26 → 36dp — the '
+            'rendered AppIcon must carry the new size, not the retired one',
+      );
+
+      final AppIcon pedicureIcon = _appIconForTile(tester, caption: 'Педикюр');
+      expect(
+        pedicureIcon.asset,
+        categoryIconFor(categoryKey: 'PEDICURE', categoryName: 'Педикюр'),
+        reason:
+            'the unregistered "PEDICURE" slug must resolve through the '
+            'REAL name-fallback stage (landing on Podology), not the '
+            'generic cosmetology fallback — proves the fallthrough is '
+            'actually reachable on real wire data, not merely declared',
+      );
+      expect(
+        pedicureIcon.asset,
+        'assets/icons/category_podology.svg',
+        reason:
+            'if this ever regresses to the generic fallback '
+            '(category_cosmetology.svg), the assertion above would still '
+            'pass (both sides drift together) — this literal pin catches '
+            'exactly that class of regression',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test N+2 — mobile-qa (Phase 110 Part 2 / Step 2.7 Rule 3b): the ───────
+  //              long category caption genuinely WRAPS to 2 lines on the ────
+  //              real rendered tree, never ellipsis-truncates ───────────────
+  //
+  // WHY THIS EXISTS
+  // ----------------
+  // The overflow-guard suite (`home_hub_overflow_test.dart`) proves the rail
+  // doesn't RenderFlex-overflow at this caption length; it never proves the
+  // caption's own TEXT is fully visible rather than silently ellipsis-
+  // clipped (an ellipsis clip renders a perfectly valid, non-overflowing
+  // layout — the failure mode this test exists to catch is invisible to an
+  // overflow guard). This flow measures the REAL rendered tile width (not a
+  // hard-coded constant — `_tileWidth` is file-private and unreachable from
+  // here) and independently lays out the full caption string at that exact
+  // width with the SAME style/text-scaler the widget uses, asserting Flutter
+  // itself reports no overflow AND that 2 lines were actually used (not
+  // fitting trivially on 1) — proving the tile is genuinely exercising the
+  // Phase 110 Part 2 two-line contract, not merely fitting by coincidence.
+  testWidgets(
+    'BEAUTY TIMELINE rail: the long caption «Ін\'єкційна косметологія» wraps '
+    'to 2 lines and is never ellipsis-truncated',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..timelineRows = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'INJECTION_COSMETOLOGY',
+            'categoryName': "Ін'єкційна косметологія",
+            'date': '2026-06-20',
+            'masterId': 'master-1',
+            'serviceName': 'Біоревіталізація',
+          },
+        ];
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      const String caption = "Ін'єкційна косметологія";
+      final Finder captionFinder = find.descendant(
+        of: find.byKey(const Key('timeline_rail')),
+        matching: find.text(caption),
+      );
+      expect(
+        captionFinder,
+        findsOneWidget,
+        reason: 'the long-caption fixture row must render on the rail',
+      );
+
+      // The tile's own tight-width SizedBox is the caption's real layout
+      // constraint (see beauty_timeline_section.dart's `_tileWidth` doc
+      // comment) — the closest ancestor SizedBox of the caption Text.
+      final Finder tileBox = find
+          .ancestor(of: captionFinder, matching: find.byType(SizedBox))
+          .first;
+      final double measuredTileWidth = tester.getSize(tileBox).width;
+
+      final Text captionWidget = tester.widget<Text>(captionFinder);
+      final TextPainter probe = TextPainter(
+        text: TextSpan(text: caption, style: captionWidget.style),
+        textDirection: TextDirection.ltr,
+        maxLines: captionWidget.maxLines,
+        textScaler: MediaQuery.textScalerOf(tester.element(captionFinder)),
+      )..layout(maxWidth: measuredTileWidth);
+
+      expect(
+        probe.didExceedMaxLines,
+        isFalse,
+        reason:
+            'laying out the FULL caption string at the ACTUAL measured tile '
+            'width ($measuredTileWidth) with the widget\'s own maxLines '
+            '(${captionWidget.maxLines}) must fit — a truncation regression '
+            '(e.g. maxLines reverting to 1, or the tile shrinking back '
+            'toward 84dp) would make this exceed and go red',
+      );
+      expect(
+        probe.computeLineMetrics().length,
+        2,
+        reason:
+            'this specific caption is the documented binding case that '
+            'NEEDS 2 lines at the current tile width — 1 line here would '
+            'mean the width grew enough to no longer exercise the Part 2 '
+            'wrap contract at all',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+}
+
+/// Returns the [AppIcon] rendered inside the BEAUTY TIMELINE tile whose
+/// caption text is [caption]. Scopes the descendant search to the tile's
+/// own tight-width `SizedBox` wrapper (the closest ancestor `SizedBox` of
+/// the caption `Text` — see `beauty_timeline_section.dart`'s `_tileWidth`
+/// doc comment) so a medallion icon from a DIFFERENT tile can never
+/// false-satisfy this lookup.
+AppIcon _appIconForTile(WidgetTester tester, {required String caption}) {
+  final Finder captionFinder = find.descendant(
+    of: find.byKey(const Key('timeline_rail')),
+    matching: find.text(caption),
+  );
+  expect(
+    captionFinder,
+    findsOneWidget,
+    reason: 'fixture bug: caption "$caption" must render exactly once',
+  );
+  final Finder tileBox = find
+      .ancestor(of: captionFinder, matching: find.byType(SizedBox))
+      .first;
+  final Finder iconFinder = find.descendant(
+    of: tileBox,
+    matching: find.byType(AppIcon),
+  );
+  expect(
+    iconFinder,
+    findsOneWidget,
+    reason: 'the tile for caption "$caption" must render exactly one AppIcon',
+  );
+  return tester.widget<AppIcon>(iconFinder);
 }

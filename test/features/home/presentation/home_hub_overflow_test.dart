@@ -233,17 +233,19 @@ void main() {
   // `_TimelineNode` was the Stack's only non-Positioned child, so it laid out
   // with LOOSE width constraints. Its Column (crossAxisAlignment.center) then
   // took the width of its widest child — the caption Text, not the 64dp
-  // circle — and centred the circle inside THAT width instead of the 84dp
-  // tile. The circle's x-origin drifted with caption length while the
-  // connector's `left: 84/2 + 64/2 - 4` (= 70) assumed a centred-in-84dp
-  // circle, desyncing the two: a 6dp gap at a short caption, a 4dp overlap at
-  // a caption that fills the full 84dp tile width.
+  // circle — and centred the circle inside THAT width instead of the tile
+  // width. The circle's x-origin drifted with caption length while the
+  // connector's `left` assumed a centred-in-tile circle, desyncing the two.
   //
   // THE FIX
   // -------
   // `_TimelineNode` is now wrapped in `SizedBox(width: _tileWidth, ...)` —
   // a TIGHT width — so the Column always centres the circle at a constant
-  // x-origin of `(84 - 64) / 2 == 10.0`, regardless of caption length.
+  // x-origin of `(_tileWidth - 64) / 2`, regardless of caption length.
+  // Phase 110 Part 2 grew `_tileWidth` 84 → 100 (see that constant's doc
+  // comment), which moved this x-origin 10.0 → 18.0 — the constant below was
+  // re-derived, not just re-pinned; the underlying invariant (fixed x-origin,
+  // formula-driven off `_tileWidth`/`_medallion`) is unchanged.
   //
   // A SECOND BUG IN THE CONNECTOR ITSELF (fixed separately, same file)
   // --------------------------------------------------------------------
@@ -252,10 +254,9 @@ void main() {
   // circle (hide the dash's ragged end under the circle's edge). The circle
   // fill is actually 50%-translucent, so that tuck made 4dp of dotted line
   // visible THROUGH the circle instead of hidden. The fix drops the `- 4`:
-  // the connector now starts exactly at the circle's right edge (74) and
-  // extends past the tile's own right edge (`right: -10`, under
-  // `clipBehavior: Clip.none`) to reach the NEXT circle's left edge — no
-  // gap, no under-circle overlap.
+  // the connector now starts exactly at the circle's right edge and extends
+  // past the tile's own right edge (under `clipBehavior: Clip.none`) to
+  // reach the NEXT circle's left edge — no gap, no under-circle overlap.
   //
   // WHY THE SECOND ASSERTION IS AN EXACT EQUALITY, NOT `>=`
   // ---------------------------------------------------------
@@ -268,20 +269,20 @@ void main() {
   // overlap alike. This replaces the old `connectorRect.left + 4` pin, which
   // asserted the pre-fix 4dp under-circle overlap as correct.
   group('BeautyTimelineSection connector alignment (circle x-origin)', () {
-    testWidgets('circle x-origin fixed at 10.0 — short caption', (
+    testWidgets('circle x-origin fixed at 18.0 — short caption', (
       tester,
     ) async {
       await _expectTileAligned(tester, caption: 'Брови');
     });
 
-    testWidgets('circle x-origin fixed at 10.0 — max-width caption', (
+    testWidgets('circle x-origin fixed at 18.0 — max-width caption', (
       tester,
     ) async {
       await _expectTileAligned(tester, caption: 'COSMETOLOGY_AESTHETIC');
     });
 
     testWidgets(
-      'circle x-origin fixed at 10.0 — short caption, textScale 1.3',
+      'circle x-origin fixed at 18.0 — short caption, textScale 1.3',
       (tester) async {
         await _expectTileAligned(
           tester,
@@ -292,7 +293,7 @@ void main() {
     );
 
     testWidgets(
-      'circle x-origin fixed at 10.0 — max-width caption, textScale 1.3',
+      'circle x-origin fixed at 18.0 — max-width caption, textScale 1.3',
       (tester) async {
         await _expectTileAligned(
           tester,
@@ -393,9 +394,9 @@ Future<void> _expectTileAligned(
 
   expect(
     circleRect.left - stackRect.left,
-    10.0,
+    18.0,
     reason:
-        'circle x-origin must be fixed at (84 - 64) / 2 == 10.0 regardless '
+        'circle x-origin must be fixed at (100 - 64) / 2 == 18.0 regardless '
         'of caption "$caption" — a loose-width Stack child would centre the '
         'circle inside the CAPTION\'s width instead, drifting this origin',
   );

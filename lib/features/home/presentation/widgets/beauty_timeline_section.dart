@@ -1,22 +1,25 @@
 // Phase 13.7 — BEAUTY TIMELINE section.
 // Phase 110 (13.9) — data-wired; `onSeeAll` widened to optional (no timeline
 // page exists — see below) and tile tap now opens «Деталі запису» when a row
-// carries a bookingId; `_categoryIcon` now prefers the backend's stable
-// `categoryKey`.
+// carries a bookingId.
+// Phase 110 Part 2 — real category SVG icons + two-line caption. Category
+// glyphs now come from the shared `categoryIconFor` resolver
+// (`lib/core/icons/category_icons.dart`) instead of a private in-file
+// Material-icon mapper — this rail is that resolver's first caller; see its
+// file header for the reuse contract (`booking_card.dart` and
+// `favorites_filter.dart` keep their own private mappers for now — migrating
+// them is a separate, out-of-scope visual review). Tile width/rail height
+// grew (84→100 / 108→118) and the caption gained a second line to stop
+// «Ін'єкційна косметологія» truncating to «Ін'єкц…»; the medallion glyph grew
+// 26→36dp so the more detailed traced icons stay legible.
 //
 // Title "BEAUTY TIMELINE" is an untranslated English brand constant (locked
 // product decision). The section label itself uses [HubSectionTitle] with
 // `literal: true` for wider tracking.
 //
-// Category icons are produced by the local [_categoryIcon] helper (mirrors
-// the preview's sample icons) — see that function's doc for why this stays a
-// PRIVATE, in-file mapper rather than a shared `categoryIconFor` (two other
-// screens, `booking_card.dart` and `favorites_filter.dart`, already carry
-// their own drifted private mappers; reconciling all three is a separate,
-// out-of-scope decision — see `favorites_filter.dart`'s header).
-//
 // Ported from `_TimelineSection` + `_DottedLine` in the approved preview.
-// Timeline rail height is locked at 108dp (preview value).
+// Timeline rail height was 108dp (preview value); see [_railHeight]'s doc
+// comment for the Part 2 resize.
 //
 // NO "SEE ALL" DESTINATION: there is no standalone timeline page and none is
 // planned ("there shouldn't be new page, just railway on home client profile
@@ -27,6 +30,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/category_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -54,7 +59,11 @@ class BeautyTimelineSection extends StatelessWidget {
   /// unless a caller opts in.
   final ValueChanged<String>? onOpenBooking;
 
-  static const double _railHeight = 108;
+  // Phase 110 Part 2: 108 → 118. Grown alongside [_tileWidth] and the
+  // caption's `maxLines: 1` → `2` to fit the two-line category caption
+  // without shrinking the fixed-height rail's headroom for scaled text — see
+  // [_scaledTextHeadroom].
+  static const double _railHeight = 118;
   static const double _medallion = 64;
 
   // Tile width. Also given as a TIGHT width to [_TimelineNode] (via the
@@ -64,16 +73,32 @@ class BeautyTimelineSection extends StatelessWidget {
   // width, a loose Stack-imposed constraint lets the Column shrink to its
   // widest child (the caption Text), which drifts the circle's x-origin with
   // caption length and desyncs it from the hard-coded connector position.
-  static const double _tileWidth = 84;
+  //
+  // Phase 110 Part 2: 84 → 100. A `TextPainter` probe found «косметологія»
+  // (the longest unbreakable token across the 20 category display names) is
+  // the binding constraint: 84dp truncated at both text scales
+  // («Ін'єкційна косметологія» → «Ін'єкц…»); 100dp holds at scale 1.0 and
+  // degrades gracefully at the 1.3 accessibility cap; 112dp holds 1.3 too but
+  // drops the rail from 3.5 to 3.1 visible tiles, so 100dp was chosen as the
+  // best fit/density trade-off. The connector maths below is expressed
+  // entirely in terms of [_tileWidth] and [_medallion], so this resize needed
+  // no connector change — verified by re-deriving both endpoints (see the
+  // Positioned's own comment).
+  static const double _tileWidth = 100;
 
-  // Extra height to absorb scaled text below the fixed medallion. The two text
-  // lines (~23dp at scale 1.0) gain ~30% at the clamped 1.3 cap; this adds that
-  // delta (and a small cushion) so the rail tolerates large accessibility fonts
-  // without redesigning the fixed-height layout.
-  static double _scaledTextHeadroom(BuildContext context) {
+  // Extra height to absorb scaled text below the fixed medallion. Phase 110
+  // Part 2: the caption grew from 1 line to 2 (see the Text below), so the
+  // headroom formula grew from a flat `textLinesBase` constant to
+  // `11 + 12 * captionLines` — 11dp for the date line plus 12dp per category
+  // caption line — so a 2-line caption gets proportionally more scaled-text
+  // cushion than the old fixed 23dp assumed 1 line of category text.
+  static double _scaledTextHeadroom(
+    BuildContext context, {
+    int captionLines = 2,
+  }) {
     final double scale = MediaQuery.textScalerOf(context).scale(1.0);
-    const double textLinesBase = 23; // category (12) + date (11)
-    return ((scale - 1.0).clamp(0.0, 0.3)) * textLinesBase + 4;
+    final double textLinesBase = 11.0 + 12.0 * captionLines;
+    return ((scale - 1.0).clamp(0.0, 0.3)) * textLinesBase + 6;
   }
 
   @override
@@ -146,17 +171,25 @@ class BeautyTimelineSection extends StatelessWidget {
                     clipBehavior: Clip.none,
                     children: <Widget>[
                       if (!isLast)
-                        // Circle occupies local x [10, 74] (centred 64dp
-                        // medallion in the 84dp tight-width tile — see
+                        // Circle occupies local x [18, 82] (centred 64dp
+                        // medallion in the 100dp tight-width tile — see
                         // _tileWidth's doc comment). The connector starts
-                        // exactly at the circle's right edge (74, i.e.
+                        // exactly at the circle's right edge (82, i.e.
                         // `_tileWidth / 2 + _medallion / 2`) so none of it
                         // renders under the circle's translucent fill, and
-                        // extends to local x 94 (`right: -10`, i.e.
+                        // extends to local x 118 (`right: -18`, i.e.
                         // `-(_tileWidth - _medallion) / 2`) — the next
                         // tile's circle left edge — so the dotted line
                         // spans the full inter-circle gap instead of
-                        // stopping 10dp short at the tile boundary.
+                        // stopping 18dp short at the tile boundary.
+                        //
+                        // Phase 110 Part 2 re-derivation (84→100 tile resize):
+                        // left = 100/2 + 64/2 = 82; right = -(100-64)/2 = -18,
+                        // whose resolved right-edge (stackWidth − right =
+                        // 100 − (−18) = 118) still lands exactly on the next
+                        // tile's circle left edge (100 + 18 = 118) — both
+                        // endpoints are formulas in [_tileWidth]/[_medallion],
+                        // so the resize needed no edit here, only re-checking.
                         const Positioned(
                           left: _tileWidth / 2 + _medallion / 2,
                           right: -(_tileWidth - _medallion) / 2,
@@ -218,17 +251,26 @@ class _TimelineNode extends StatelessWidget {
               width: 1.4,
             ),
           ),
-          child: Icon(
-            _categoryIcon(entry),
-            size: 26,
+          child: AppIcon(
+            // Phase 110 Part 2: real SVG via the shared categoryIconFor
+            // resolver, replacing the retired Material-icon private mapper.
+            categoryIconFor(
+              categoryKey: entry.categoryKey,
+              categoryName: entry.category,
+            ),
+            // 26 → 36. The traced icons (13 of the 20) are faithful to
+            // detailed line artwork and read as an illegible smudge at 26dp
+            // — sizing-only change, see the file header.
+            size: 36,
             color: BrandColors.accentDeep,
           ),
         ),
         const SizedBox(height: VelvetSpacing.sm - 2),
         Text(
           entry.category,
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
           style: _categoryStyle,
         ),
         Text(
@@ -250,72 +292,11 @@ class _TimelineNode extends StatelessWidget {
   }
 }
 
-/// Resolves a representative Material icon for one timeline tile.
-///
-/// Prefers [TimelineEntry.categoryKey] (the backend's stable uppercase slug,
-/// e.g. `"NAIL_SERVICE"` — matched against the current platform-category
-/// taxonomy, `platform_categories.name` /
-/// `V74__seed_taxonomy_platform_categories.sql`) when the row carries one.
-/// Falls back to keyword-matching [TimelineEntry.category] (the Ukrainian
-/// display name) for rows with no key — e.g. pre-Phase-110 callers/tests.
-///
-/// This stays a PRIVATE, in-file mapper — see the file header for why a
-/// shared `categoryIconFor` is deliberately not introduced by this change.
-IconData _categoryIcon(TimelineEntry entry) {
-  final String? key = entry.categoryKey;
-  if (key != null && key.isNotEmpty) {
-    final String upper = key.toUpperCase();
-    if (upper.contains('NAIL') ||
-        upper.contains('MANICURE') ||
-        upper.contains('PEDICURE') ||
-        upper.contains('PODOLOGY')) {
-      return Icons.front_hand_rounded;
-    }
-    if (upper.contains('LASH')) return Icons.auto_awesome_rounded;
-    if (upper.contains('BROW')) return Icons.remove_red_eye_rounded;
-    if (upper.contains('HAIR') ||
-        upper.contains('BARBER') ||
-        upper.contains('BEARD') ||
-        upper.contains('SHAV') ||
-        upper.contains('TRICHOLOGY')) {
-      return Icons.content_cut_rounded;
-    }
-    if (upper.contains('COSMETOLOGY') ||
-        upper.contains('AESTHETIC') ||
-        upper.contains('LASER') ||
-        upper.contains('INJECTION')) {
-      return Icons.face_retouching_natural_rounded;
-    }
-    if (upper.contains('MAKEUP')) return Icons.brush_rounded;
-    if (upper.contains('MASSAGE')) return Icons.spa_rounded;
-    // Any other/unknown key (e.g. "OTHER", "UNKNOWN") falls through to the
-    // name-based matcher below rather than defaulting here, so a row that
-    // also carries a categoryName still gets its best-effort keyword match.
-  }
-  return _categoryIconFromName(entry.category);
-}
-
-/// Maps a category name (Ukrainian) to a representative Material icon.
-/// [_categoryIcon]'s fallback for rows with no `categoryKey`.
-IconData _categoryIconFromName(String category) {
-  final lower = category.toLowerCase();
-  if (lower.contains('манікюр') || lower.contains('педикюр')) {
-    return Icons.front_hand_rounded;
-  }
-  if (lower.contains('бров')) return Icons.remove_red_eye_rounded;
-  if (lower.contains('волос') || lower.contains('стриж')) {
-    return Icons.content_cut_rounded;
-  }
-  if (lower.contains('масаж')) return Icons.spa_rounded;
-  if (lower.contains('косметол') || lower.contains('обличч')) {
-    return Icons.face_retouching_natural_rounded;
-  }
-  if (lower.contains('вій') || lower.contains('lash')) {
-    return Icons.auto_awesome_rounded;
-  }
-  if (lower.contains('макіяж')) return Icons.brush_rounded;
-  return Icons.spa_rounded;
-}
+// Phase 110 Part 2: the private `_categoryIcon`/`_categoryIconFromName`
+// Material-icon mappers that used to live here are RETIRED — category
+// glyphs now come from the shared `categoryIconFor` resolver
+// (`lib/core/icons/category_icons.dart`), called directly above in
+// [_TimelineNode.build]. See that file's header for the resolver contract.
 
 // ---------------------------------------------------------------------------
 // Dotted connector line between timeline medallions (ported verbatim)
