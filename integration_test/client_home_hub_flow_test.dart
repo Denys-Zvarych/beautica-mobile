@@ -59,6 +59,7 @@
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
@@ -1353,19 +1354,21 @@ void main() {
       );
       expect(
         injectionIcon.size,
-        22.0,
+        39.0,
         reason:
             'the rendered AppIcon must carry the current medallion size '
-            '(22dp) — matching the client bottom-nav search disc\'s own '
-            'icon-to-disc ratio (22/52) at the medallion\'s disc-match size '
-            '(52dp, see `beauty_timeline_section.dart`\'s file header). The '
-            '26/36/32/48dp values that preceded this never actually reached '
-            'the intended proportion — the 48dp value in particular was '
-            'sized for the earlier flat 64dp medallion, retired by the '
-            'later "same as search button circle" product decision.',
+            '(39dp = 48 × 52/64) — the user-approved 48-in-64dp ratio '
+            're-derived for the medallion\'s 52dp size (see '
+            '`beauty_timeline_section.dart`\'s file header). A same-day '
+            'pass shrank this to 22dp to match the client bottom-nav search '
+            'disc\'s OWN icon-to-disc ratio, alongside copying that disc\'s '
+            'gradient/shadow/bevel onto the medallion — both were reverted '
+            'on user instruction; only the 52dp medallion SIZE match was '
+            'ever requested. The 26/36/32/48/22dp values that preceded this '
+            'never landed on the correct, approved proportion.',
       );
       // `injectionIcon.size` above reads the AppIcon CONSTRUCTOR field, which
-      // would stay 22.0 even if a surrounding layout bug silently overrides
+      // would stay 39.0 even if a surrounding layout bug silently overrides
       // what actually paints — that happened for real once already: the
       // 64×64 medallion `Container` had no `alignment`, so its tight
       // BoxConstraints forced the icon to render at 64×64 regardless of
@@ -1374,18 +1377,67 @@ void main() {
       // `test/golden/beauty_timeline_rail_golden_test.dart`'s file header for
       // the full trace). Assert the ACTUAL laid-out size too, end to end
       // against the real FakeBackend-served row, so a regressed `alignment`
-      // — or the `SizedBox`+`Stack` wrapper the disc-match bevel now needs —
       // fails here even though the field-only check above would stay green.
       expect(
         tester.getSize(
           _appIconFinderForTile(tester, caption: "Ін'єкційна косметологія"),
         ),
-        const Size(22.0, 22.0),
+        const Size(39.0, 39.0),
         reason:
-            'the medallion icon must actually PAINT at 22×22 — a larger '
-            'result means the Container alignment fix (or the disc-match '
-            'Stack/SizedBox wrapper) regressed and the icon is silently '
-            'filling more of the medallion again',
+            'the medallion icon must actually PAINT at 39×39 — a different '
+            'result means the Container alignment fix regressed and the '
+            'icon is silently mis-sized inside the medallion again',
+      );
+
+      // mobile-qa (colour-copy revert, 2026-08-26): every assertion above
+      // (and every prior one in this file's history) only ever pinned
+      // SIZE. It's the MATERIAL a same-day pass changed without being
+      // asked to — camel→mocha gradient face, dual extruded boxShadow, a
+      // bevel sheen, and a cream icon tint, all copied wholesale from the
+      // client bottom-nav's search disc. The user rejected exactly that
+      // ("its mean make CYRCLE SIZE, but u changed the collor - revert it
+      // and fix as expected!"). These two assertions are the ones that
+      // would have caught it, run end to end against the real
+      // FakeBackend-served row — see
+      // `test/golden/beauty_timeline_rail_golden_test.dart`'s "medallion
+      // decoration is FLAT VelvetTouch" group for the mutation-proven
+      // widget-tier counterpart.
+      final Container medallionContainer = tester.widget<Container>(
+        find
+            .ancestor(
+              of: _appIconFinderForTile(
+                tester,
+                caption: "Ін'єкційна косметологія",
+              ),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final BoxDecoration medallionDecoration =
+          medallionContainer.decoration! as BoxDecoration;
+      expect(
+        medallionDecoration.gradient,
+        isNull,
+        reason:
+            'the reverted pass set `gradient: VelvetGradients.'
+            'accentDiscFace` on this exact real-data-rendered medallion — '
+            'must stay null',
+      );
+      expect(
+        medallionDecoration.boxShadow,
+        isNull,
+        reason:
+            'the reverted pass set `boxShadow: VelvetShadows.'
+            'extrudedDiscAccent` on this exact real-data-rendered medallion '
+            '— must stay null',
+      );
+      expect(
+        injectionIcon.color,
+        BrandColors.accentDeep,
+        reason:
+            'the reverted pass flipped this to cream `BrandColors.white` '
+            'so the icon would read against the gradient face it also '
+            'added — must stay the dark accentDeep tint',
       );
 
       final AppIcon pedicureIcon = _appIconForTile(tester, caption: 'Педикюр');

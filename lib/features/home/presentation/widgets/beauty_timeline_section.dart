@@ -22,26 +22,23 @@
 // deliberate 25% reduction from the 64dp the user was actually looking at,
 // leaving an 8dp inset inside the 64dp medallion.
 //
-// MEDALLION MATCHED TO THE NAV-BAR SEARCH DISC (2026-08-26, same day,
-// follow-up decision)
-// The flat 64dp circle above was a DIFFERENT visual material from the
-// client bottom-nav's elevated search disc (`client_bottom_nav.dart`
-// `_CenterSearchButton`) — flat translucent fill + hairline border, vs. the
-// disc's camel→mocha gradient + dual extruded shadow + bevel sheen. Locked
-// product decision: "just make circles same as search button circle" — the
-// medallion is now the search disc's exact treatment at the search disc's
-// exact size (52dp, down from 64dp), consuming the SAME promoted tokens
-// (`VelvetShadows.extrudedDiscAccent` / `VelvetGradients.accentDiscFace` /
-// `VelvetGradients.accentDiscBevel` — see `core/theme/velvet_geometry.dart`)
-// rather than a copy, per this repo's REUSE-FIRST rule. The icon shrank
-// 48dp → 22dp alongside it: 22/52 is the search disc's OWN icon-to-disc
-// ratio (its `searchFilled` glyph is 22dp inside the 52dp disc), applied
-// here rather than re-deriving a new proportion, and its tint flipped dark
-// (`accentDeep`) → cream (`BrandColors.white`, the on-accent-gradient text
-// colour) because a dark glyph is invisible on the now-dark gradient face.
-// `_railHeight` dropped 118 → 106 (exactly the 12dp the medallion shrank by
+// MEDALLION SIZE MATCHED TO THE NAV-BAR SEARCH DISC — CORRECTED
+// (2026-08-26, same day, follow-up decision)
+// The locked product decision was "just make circles same as search button
+// circle" — read at the time as SIZE only. A same-day pass additionally
+// copied the search disc's (`client_bottom_nav.dart` `_CenterSearchButton`)
+// gradient face, dual extruded shadow and bevel sheen onto this medallion,
+// and flipped the icon tint dark→cream to read against that dark gradient.
+// That colour/material copy was NOT requested ("its mean make CYRCLE SIZE,
+// but u changed the collor - revert it and fix as expected!") and has been
+// reverted: the medallion keeps its own flat translucent VelvetTouch fill +
+// hairline border, dark `accentDeep` icon tint, no gradient, no shadow, no
+// bevel. Only the SIZE match survives — 52dp (down from 64dp) — and with it
+// `_railHeight`'s 118 → 106 drop (exactly the 12dp the medallion shrank by
 // — every other element in the tile's Column is unchanged) — see
-// [_railHeight]'s own doc comment.
+// [_railHeight]'s own doc comment. The icon is 39dp (`48 × 52/64`), which
+// preserves the approved 0.75 icon-to-medallion ratio from the 64dp size at
+// the new 52dp size — see the `size:` doc comment on the `AppIcon` below.
 //
 // Title "BEAUTY TIMELINE" is an untranslated English brand constant (locked
 // product decision). The section label itself uses [HubSectionTitle] with
@@ -284,19 +281,6 @@ class _TimelineNode extends StatelessWidget {
   static final TextStyle _categoryStyle = VelvetText.bodyStrong12;
   static final TextStyle _dateStyle = VelvetText.body11;
 
-  // Hoisted bevel DecoratedBox — matches `client_bottom_nav.dart`'s
-  // `_CenterSearchButton._bevelSheen` (same promoted tokens, same rationale):
-  // shared across every `_TimelineNode.build()` so the sheen layer is never
-  // re-created per tile per rebuild — the rail paints 3-4 of these at once.
-  static final Widget _bevelSheen = IgnorePointer(
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: VelvetGradients.accentDiscBevel,
-      ),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     final String? bookingId = entry.bookingId;
@@ -320,74 +304,41 @@ class _TimelineNode extends StatelessWidget {
           // byte-identical finding, not an SVG-decode timing issue). Do not
           // remove.
           alignment: Alignment.center,
-          // Same-material match with the client bottom-nav's elevated
-          // search disc (`client_bottom_nav.dart` `_CenterSearchButton`) —
-          // both consume the SAME promoted tokens, not private copies. See
-          // the file header's "MEDALLION MATCHED TO THE NAV-BAR SEARCH
-          // DISC" note.
-          // NOT `shape: BoxShape.circle`: a blurred BoxShadow on a circle
-          // shape rasterizes as a hard-edged square under Impeller-GLES (the
-          // shadow's bounding box) — see
-          // `test/features/booking/impeller_circle_shadow_guard_test.dart`
-          // header. This repo's established remedy is an RRect at half the
-          // box side, which is visually identical and routes through
-          // Impeller's correct RRect blur path. Worse here than at the nav
-          // bar this decoration is shared with: the rail paints 3-4 tiles
-          // simultaneously inside a `Clip.none` Stack, so a square artifact
-          // has room to bleed into the neighbouring tile.
-          // NOT `const BoxDecoration`: `BorderRadius.circular` is not a
-          // const constructor (`this.all(Radius.circular(radius))` is a
-          // redirecting non-const ctor) — matches the established precedent
-          // in `master_avatar_badge.dart`, which drops `const` for the same
-          // reason.
+          // Flat translucent VelvetTouch material — deliberately its OWN
+          // treatment, not a copy of the client bottom-nav's elevated search
+          // disc (`client_bottom_nav.dart` `_CenterSearchButton`). Only the
+          // SIZE was asked to match that disc (52dp); an earlier same-day
+          // pass also copied its gradient/shadow/bevel and was reverted on
+          // user instruction — see the file header.
+          // `shape: BoxShape.circle` (not an RRect) is safe here: this
+          // decoration carries no `boxShadow`, so the Impeller-GLES
+          // blurred-circle-shadow artifact
+          // (`test/features/booking/impeller_circle_shadow_guard_test.dart`)
+          // does not apply — that guard only forbids `BoxShape.circle`
+          // paired with a non-null `boxShadow`.
           decoration: BoxDecoration(
-            // 26 = half of `_medallion` (52dp), spelled as a literal per the
-            // guard's own established convention (`master_avatar_badge.dart`).
-            borderRadius: BorderRadius.circular(26),
-            gradient: VelvetGradients.accentDiscFace,
-            boxShadow: VelvetShadows.extrudedDiscAccent,
-          ),
-          // A plain `AppIcon` child would receive LOOSE constraints from the
-          // `alignment` Align layer above and size to its own 22×22 intent —
-          // fine for the icon itself, but the bevel sheen below needs to
-          // fill the full 52×52 circle, which a loose-constrained Stack
-          // would NOT do (it would shrink to its largest non-positioned
-          // child, i.e. the 22×22 icon). This inner SizedBox re-establishes
-          // a tight 52×52 box for the Stack without touching the outer
-          // `alignment: Alignment.center` requirement above.
-          child: SizedBox(
-            height: BeautyTimelineSection._medallion,
-            width: BeautyTimelineSection._medallion,
-            child: Stack(
-              children: <Widget>[
-                Center(
-                  child: AppIcon(
-                    // Phase 110 Part 2: real SVG via the shared
-                    // categoryIconFor resolver, replacing the retired
-                    // Material-icon private mapper.
-                    categoryIconFor(
-                      categoryKey: entry.categoryKey,
-                      categoryName: entry.category,
-                    ),
-                    // 22dp — the search disc's OWN icon-to-disc ratio
-                    // (22/52) applied here, not a re-derived proportion. On
-                    // a light-on-dark camel→mocha gradient the icon must be
-                    // the light/cream tone (`BrandColors.white` is the
-                    // on-accent-gradient cream, `#F5EDE0`) — the previous
-                    // `accentDeep` (dark mocha) is invisible on this dark
-                    // face.
-                    size: 22,
-                    color: BrandColors.white,
-                  ),
-                ),
-                // Inner bevel sheen, matching the disc's — sells the
-                // "physical pillow" read. `DecoratedBox`'s own
-                // `shape: BoxShape.circle` clips the gradient to the circle
-                // inscribed in this 52×52 box, so it never bleeds past the
-                // medallion's own rounded edge.
-                Positioned.fill(child: _bevelSheen),
-              ],
+            color: BrandColors.white.withValues(alpha: 0.5),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: BrandColors.accent.withValues(alpha: 0.55),
+              width: 1.4,
             ),
+          ),
+          child: AppIcon(
+            // Phase 110 Part 2: real SVG via the shared categoryIconFor
+            // resolver, replacing the retired Material-icon private mapper.
+            categoryIconFor(
+              categoryKey: entry.categoryKey,
+              categoryName: entry.category,
+            ),
+            // 39dp = 48 × 52/64 — preserves the user-approved 0.75
+            // icon-to-medallion ratio (48dp inside the earlier 64dp
+            // medallion, "a little bit smaller" per that review) at the
+            // medallion's new 52dp size, rather than re-deriving a
+            // different proportion. Flat translucent fill needs the dark
+            // tint back, matching the medallion's pre-disc-match material.
+            size: 39,
+            color: BrandColors.accentDeep,
           ),
         ),
         const SizedBox(height: VelvetSpacing.sm - 2),
