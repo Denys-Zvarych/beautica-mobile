@@ -14,9 +14,10 @@
 //
 // [categoryIconFor] is the reconciliation point: ONE function, returning a
 // real SVG asset path (not a generic Material glyph) from the 20 category
-// icons registered on [BeauticaAssetIcons]. Its first and — as of this
-// change — ONLY caller is the BEAUTY TIMELINE rail
-// (`lib/features/home/presentation/widgets/beauty_timeline_section.dart`).
+// icons registered on [BeauticaAssetIcons]. Its first caller was the BEAUTY
+// TIMELINE rail (`lib/features/home/presentation/widgets/beauty_timeline_section.dart`);
+// a second caller was added when the CLIENT SEARCH category rail migrated
+// onto it (`lib/features/discovery/presentation/search_filters_screen.dart:953`).
 //
 // ── SCOPE — DO NOT MIGRATE THE OTHER TWO MAPPERS HERE ──────────────────────
 //
