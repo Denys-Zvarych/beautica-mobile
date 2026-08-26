@@ -85,6 +85,15 @@
 // regardless — see that file's header for why it's kept as a free,
 // package-documented safety net even though it wasn't the operative fix
 // here.
+//
+// DISC-MATCH RESIZE, SAME DAY (2026-08-26, follow-up product decision):
+// "just make circles same as search button circle" — the medallion is now
+// the client bottom-nav's elevated search disc's exact treatment
+// (`client_bottom_nav.dart` `_CenterSearchButton`) at the search disc's
+// exact size: 52dp (was 64dp), gradient face + dual shadow + bevel sheen
+// (was a flat translucent fill + hairline border), 22dp cream icon (was
+// 48dp dark). Both baselines below MUST move — see
+// `beauty_timeline_section.dart`'s own file header for the full rationale.
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -183,8 +192,9 @@ void main() {
     );
 
     testWidgets(
-      'the medallion AppIcon renders at the current size (48dp), not a '
-      'retired 26dp/36dp/32dp value',
+      'the medallion AppIcon renders at the current size (22dp), matching '
+      'the nav-bar search disc\'s own icon-to-disc ratio — not the retired '
+      '26/36/32/48dp values',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -198,39 +208,37 @@ void main() {
 
         final Iterable<AppIcon> icons = tester
             .widgetList<AppIcon>(find.byType(AppIcon))
-            .where((AppIcon icon) => icon.size == 48.0);
+            .where((AppIcon icon) => icon.size == 22.0);
         expect(
           icons.length,
           _entries.length,
           reason:
               'every one of the ${_entries.length} rendered tiles must '
-              'carry a 48dp medallion AppIcon',
+              'carry a 22dp medallion AppIcon',
         );
       },
     );
 
     testWidgets(
-      'the medallion AppIcon is actually LAID OUT at 48dp, not merely '
-      'configured with size: 48 (mobile-qa gap-closure, 2026-08-26)',
+      'the medallion AppIcon is actually LAID OUT at 22dp, not merely '
+      'configured with size: 22 (disc-match resize, 2026-08-26)',
       (tester) async {
         // The assertion above reads `AppIcon.size` — the constructor field —
         // which is set correctly regardless of what the surrounding layout
         // does with it. It cannot catch a layout bug that silently overrides
-        // the requested size. That bug was real here: the 64×64 medallion
-        // `Container` had no `alignment`, so its tight BoxConstraints forced
-        // ANY child (including AppIcon's own `size:`-driven SizedBox) to
-        // render at 64×64 regardless of the value passed — every size up to
-        // and including `size: 32` was completely inert, and the rendered
-        // icon silently filled the whole medallion. This is exactly why an
-        // earlier chain's "set the icon to an absurd size and regenerate"
-        // mutation probe on the golden came back byte-identical: the
-        // mutation never reached the screen. `alignment: Alignment.center`
-        // on the Container (see `beauty_timeline_section.dart`) fixed it,
-        // and the icon size was then raised to 48dp now that `size:` is
-        // finally load-bearing. This test pins the FIX via the one signal
-        // that can't be fooled the same way — the actual laid-out size — so
-        // a regression (e.g. someone removing `alignment` again) fails here
-        // even if `AppIcon.size` still reads 48.
+        // the requested size. That bug was real here once already: the
+        // 64×64 medallion `Container` had no `alignment`, so its tight
+        // BoxConstraints forced ANY child to render at 64×64 regardless of
+        // the value passed. `alignment: Alignment.center` on the Container
+        // (see `beauty_timeline_section.dart`) fixed it, and the icon size
+        // is now 22dp — matching the client bottom-nav's search disc's own
+        // 22/52 icon-to-disc ratio at the medallion's new 52dp size (the
+        // "just make circles same as search button circle" product
+        // decision). This test pins the FIX via the one signal that can't
+        // be fooled the same way — the actual laid-out size — so a
+        // regression (e.g. someone removing `alignment` again, or the new
+        // `SizedBox`+`Stack` wrapper introduced by the disc-match change)
+        // fails here even if `AppIcon.size` still reads 22.
         await tester.pumpWidget(
           MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -253,12 +261,12 @@ void main() {
           );
           expect(
             renderedSize,
-            const Size(48.0, 48.0),
+            const Size(22.0, 22.0),
             reason:
-                'the medallion icon must actually PAINT at 48×48 — a '
-                '64×64 result here means the Container alignment fix '
-                'regressed and the icon is silently filling the whole '
-                'medallion again',
+                'the medallion icon must actually PAINT at 22×22 — a '
+                'larger result here means the Container alignment fix (or '
+                'the Stack/SizedBox wrapper it now needs) regressed and '
+                'the icon is silently filling more of the medallion again',
           );
         }
       },

@@ -76,6 +76,30 @@ void main() {
     // reintroduce the corner artifact.
     'lib/features/booking/presentation/widgets/master_booking_card.dart',
     'lib/features/booking/presentation/widgets/booking_counterparty_header.dart',
+    // 2026-08-26 (disc-match promotion): the BEAUTY TIMELINE medallion and
+    // the client bottom-nav's center search disc both consume the promoted
+    // `VelvetShadows.extrudedDiscAccent` recipe on a shadow-bearing surface.
+    // Neither file appeared here when the promotion shipped `shape:
+    // BoxShape.circle` on both — the structural gap that let the corner-square
+    // regression through silently. Guarded here so it can't happen again.
+    //
+    // NOT in `surfaceFiles` below (the Chain-B offset-opaque-recipe guard) —
+    // deliberately, not an oversight. `VelvetShadows.extrudedDiscAccent`
+    // (the recipe both these files consume) pairs an opaque
+    // `shadowLightStrong` (`0xFFFFFBF4`) with a diagonal `Offset(-5,-5)`,
+    // exactly the pattern that guard forbids — adding these two files to
+    // `surfaceFiles` would fail Chain-B against a pre-existing,
+    // locked-by-product-decision token (the nav search disc already shipped
+    // this recipe; the timeline medallion was told to match it exactly).
+    // These two files are proven safe against the CIRCLE+SHADOW artifact
+    // (the guard immediately below, `borderRadius` not `BoxShape.circle`)
+    // but are a KNOWN, ACCEPTED exception to the OFFSET-OPAQUE-RECIPE
+    // artifact — not verified safe against it. Do not silently add them to
+    // `surfaceFiles`; if `extrudedDiscAccent` is ever re-verified unsafe on
+    // real Impeller-GLES hardware, both consumers need a coordinated recipe
+    // change, not a guard-list edit.
+    'lib/features/home/presentation/widgets/beauty_timeline_section.dart',
+    'lib/features/shell/presentation/widgets/client_bottom_nav.dart',
   ];
 
   // The SECOND Impeller-GLES artifact, same backend, different trigger: a

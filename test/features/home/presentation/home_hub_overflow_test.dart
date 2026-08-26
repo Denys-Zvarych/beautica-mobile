@@ -241,11 +241,15 @@ void main() {
   // -------
   // `_TimelineNode` is now wrapped in `SizedBox(width: _tileWidth, ...)` —
   // a TIGHT width — so the Column always centres the circle at a constant
-  // x-origin of `(_tileWidth - 64) / 2`, regardless of caption length.
-  // Phase 110 Part 2 grew `_tileWidth` 84 → 100 (see that constant's doc
-  // comment), which moved this x-origin 10.0 → 18.0 — the constant below was
-  // re-derived, not just re-pinned; the underlying invariant (fixed x-origin,
-  // formula-driven off `_tileWidth`/`_medallion`) is unchanged.
+  // x-origin of `(_tileWidth - _medallion) / 2`, regardless of caption
+  // length. Phase 110 Part 2 grew `_tileWidth` 84 → 100 (see that constant's
+  // doc comment), which moved this x-origin 10.0 → 18.0 — the constant below
+  // was re-derived, not just re-pinned; the underlying invariant (fixed
+  // x-origin, formula-driven off `_tileWidth`/`_medallion`) is unchanged.
+  //
+  // 2026-08-26 (disc-match resize): `_medallion` shrank 64 → 52 to match the
+  // nav-bar search disc's size, moving this x-origin 18.0 → 24.0 —
+  // `(100 - 52) / 2`. Same re-derivation, not a re-pin.
   //
   // A SECOND BUG IN THE CONNECTOR ITSELF (fixed separately, same file)
   // --------------------------------------------------------------------
@@ -269,20 +273,20 @@ void main() {
   // overlap alike. This replaces the old `connectorRect.left + 4` pin, which
   // asserted the pre-fix 4dp under-circle overlap as correct.
   group('BeautyTimelineSection connector alignment (circle x-origin)', () {
-    testWidgets('circle x-origin fixed at 18.0 — short caption', (
+    testWidgets('circle x-origin fixed at 24.0 — short caption', (
       tester,
     ) async {
       await _expectTileAligned(tester, caption: 'Брови');
     });
 
-    testWidgets('circle x-origin fixed at 18.0 — max-width caption', (
+    testWidgets('circle x-origin fixed at 24.0 — max-width caption', (
       tester,
     ) async {
       await _expectTileAligned(tester, caption: 'COSMETOLOGY_AESTHETIC');
     });
 
     testWidgets(
-      'circle x-origin fixed at 18.0 — short caption, textScale 1.3',
+      'circle x-origin fixed at 24.0 — short caption, textScale 1.3',
       (tester) async {
         await _expectTileAligned(
           tester,
@@ -293,7 +297,7 @@ void main() {
     );
 
     testWidgets(
-      'circle x-origin fixed at 18.0 — max-width caption, textScale 1.3',
+      'circle x-origin fixed at 24.0 — max-width caption, textScale 1.3',
       (tester) async {
         await _expectTileAligned(
           tester,
@@ -302,6 +306,48 @@ void main() {
         );
       },
     );
+  });
+
+  // ── 2c. Rail height — measured, not merely golden-pixel ───────────────────
+  //
+  // mobile-qa gap-closure (2026-08-26): `_railHeight` (106, down from 118 —
+  // see its own doc comment for the 12dp disc-match derivation) drives the
+  // `SizedBox(key: Key('timeline_rail'))`'s height directly
+  // (`_railHeight + _scaledTextHeadroom(context)`). Before this group, NO
+  // non-golden assertion read that height at all: the overflow guard above
+  // only proves the value is LARGE ENOUGH not to RenderFlex-overflow at the
+  // 320×1.3 worst cell — it would stay green even if `_railHeight` were
+  // doubled (extra dead space, never an exception) or shrunk by a few
+  // px (still no overflow at 1.0 scale, silently clipping less visible
+  // content). The two `beauty_timeline_rail_golden_test.dart` baselines DO
+  // capture the exact value, but only as opaque pixels — this test pins the
+  // number itself so a future edit to `_railHeight` fails HERE, at the
+  // source of truth, not just as an unexplained pixel diff.
+  group('BeautyTimelineSection rail height (measured, textScale 1.0)', () {
+    testWidgets('timeline_rail SizedBox is laid out at exactly 112.0 '
+        '(_railHeight 106 + _scaledTextHeadroom(scale: 1.0) == 6)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const BeautyTimelineSection(entries: _sampleTimeline, onSeeAll: _noop),
+      );
+      await tester.pump();
+
+      final Finder rail = find.byKey(const Key('timeline_rail'));
+      expect(rail, findsOneWidget);
+
+      final Size railSize = tester.getSize(rail);
+      expect(
+        railSize.height,
+        112.0,
+        reason:
+            '_railHeight (106) + _scaledTextHeadroom at scale 1.0 (a flat '
+            '6, since the (scale-1.0).clamp(0,0.3) term is zero at scale '
+            '1.0) must equal 112.0 — a change to either constant that is '
+            'not ALSO reflected in the two beauty_timeline_rail golden '
+            'baselines must fail here first.',
+      );
+    });
   });
 
   // ── 3. Favourites mini-card rail in isolation at the worst cell ───────────
@@ -394,9 +440,9 @@ Future<void> _expectTileAligned(
 
   expect(
     circleRect.left - stackRect.left,
-    18.0,
+    24.0,
     reason:
-        'circle x-origin must be fixed at (100 - 64) / 2 == 18.0 regardless '
+        'circle x-origin must be fixed at (100 - 52) / 2 == 24.0 regardless '
         'of caption "$caption" — a loose-width Stack child would centre the '
         'circle inside the CAPTION\'s width instead, drifting this origin',
   );

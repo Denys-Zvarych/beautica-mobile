@@ -18,9 +18,30 @@
 // regardless of the `size:` value passed. That means every earlier size —
 // 26, then 36, then 32 — was inert; the icon actually painted at 64dp the
 // whole time. `alignment: Alignment.center` (added below, do not remove)
-// finally made `size:` take effect, and the icon is now set to 48dp — a
+// finally made `size:` take effect, and the icon was then set to 48dp — a
 // deliberate 25% reduction from the 64dp the user was actually looking at,
 // leaving an 8dp inset inside the 64dp medallion.
+//
+// MEDALLION MATCHED TO THE NAV-BAR SEARCH DISC (2026-08-26, same day,
+// follow-up decision)
+// The flat 64dp circle above was a DIFFERENT visual material from the
+// client bottom-nav's elevated search disc (`client_bottom_nav.dart`
+// `_CenterSearchButton`) — flat translucent fill + hairline border, vs. the
+// disc's camel→mocha gradient + dual extruded shadow + bevel sheen. Locked
+// product decision: "just make circles same as search button circle" — the
+// medallion is now the search disc's exact treatment at the search disc's
+// exact size (52dp, down from 64dp), consuming the SAME promoted tokens
+// (`VelvetShadows.extrudedDiscAccent` / `VelvetGradients.accentDiscFace` /
+// `VelvetGradients.accentDiscBevel` — see `core/theme/velvet_geometry.dart`)
+// rather than a copy, per this repo's REUSE-FIRST rule. The icon shrank
+// 48dp → 22dp alongside it: 22/52 is the search disc's OWN icon-to-disc
+// ratio (its `searchFilled` glyph is 22dp inside the 52dp disc), applied
+// here rather than re-deriving a new proportion, and its tint flipped dark
+// (`accentDeep`) → cream (`BrandColors.white`, the on-accent-gradient text
+// colour) because a dark glyph is invisible on the now-dark gradient face.
+// `_railHeight` dropped 118 → 106 (exactly the 12dp the medallion shrank by
+// — every other element in the tile's Column is unchanged) — see
+// [_railHeight]'s own doc comment.
 //
 // Title "BEAUTY TIMELINE" is an untranslated English brand constant (locked
 // product decision). The section label itself uses [HubSectionTitle] with
@@ -72,11 +93,25 @@ class BeautyTimelineSection extends StatelessWidget {
   // caption's `maxLines: 1` → `2` to fit the two-line category caption
   // without shrinking the fixed-height rail's headroom for scaled text — see
   // [_scaledTextHeadroom].
-  static const double _railHeight = 118;
-  static const double _medallion = 64;
+  //
+  // 2026-08-26 (disc-match): 118 → 106. [_medallion] shrank 64 → 52 (12dp)
+  // to match the nav-bar search disc's size (see the file header); nothing
+  // else in the tile's Column changed, so the height budget drops by exactly
+  // that 12dp. Verified overflow-free at the accessibility ceiling by
+  // `test/features/home/presentation/home_hub_overflow_test.dart`'s 320×1.3
+  // matrix cell, which still passes unchanged against this value.
+  static const double _railHeight = 106;
+
+  // 2026-08-26: 64 → 52, matching `client_bottom_nav.dart`'s
+  // `_CenterSearchButton._centerSize` exactly — see the file header. The
+  // connector geometry in the `Positioned` below is expressed entirely as
+  // formulas in [_tileWidth]/[_medallion], so it re-derives automatically;
+  // re-verified by measurement in `home_hub_overflow_test.dart`'s connector-
+  // alignment group (circle x-origin now (100-52)/2 = 24.0, was 18.0).
+  static const double _medallion = 52;
 
   // Tile width. Also given as a TIGHT width to [_TimelineNode] (via the
-  // SizedBox below) so its inner Column always centres the 64dp circle at a
+  // SizedBox below) so its inner Column always centres the 52dp circle at a
   // constant x-origin, regardless of caption length — see the connector
   // maths in `left:` below, which assumes exactly that. Without the tight
   // width, a loose Stack-imposed constraint lets the Column shrink to its
@@ -180,17 +215,17 @@ class BeautyTimelineSection extends StatelessWidget {
                     clipBehavior: Clip.none,
                     children: <Widget>[
                       if (!isLast)
-                        // Circle occupies local x [18, 82] (centred 64dp
+                        // Circle occupies local x [24, 76] (centred 52dp
                         // medallion in the 100dp tight-width tile — see
                         // _tileWidth's doc comment). The connector starts
-                        // exactly at the circle's right edge (82, i.e.
+                        // exactly at the circle's right edge (76, i.e.
                         // `_tileWidth / 2 + _medallion / 2`) so none of it
                         // renders under the circle's translucent fill, and
-                        // extends to local x 118 (`right: -18`, i.e.
+                        // extends to local x 124 (`right: -24`, i.e.
                         // `-(_tileWidth - _medallion) / 2`) — the next
                         // tile's circle left edge — so the dotted line
                         // spans the full inter-circle gap instead of
-                        // stopping 18dp short at the tile boundary.
+                        // stopping 24dp short at the tile boundary.
                         //
                         // Phase 110 Part 2 re-derivation (84→100 tile resize):
                         // left = 100/2 + 64/2 = 82; right = -(100-64)/2 = -18,
@@ -199,6 +234,15 @@ class BeautyTimelineSection extends StatelessWidget {
                         // tile's circle left edge (100 + 18 = 118) — both
                         // endpoints are formulas in [_tileWidth]/[_medallion],
                         // so the resize needed no edit here, only re-checking.
+                        //
+                        // 2026-08-26 re-derivation (64→52 medallion,
+                        // disc-match resize): left = 100/2 + 52/2 = 76;
+                        // right = -(100-52)/2 = -24, whose resolved right
+                        // edge (100 − (−24) = 124) still lands exactly on
+                        // the next tile's circle left edge (100 + 24 = 124)
+                        // — again both endpoints are formulas in
+                        // [_tileWidth]/[_medallion], so only re-checking was
+                        // needed, no edit.
                         const Positioned(
                           left: _tileWidth / 2 + _medallion / 2,
                           right: -(_tileWidth - _medallion) / 2,
@@ -240,6 +284,19 @@ class _TimelineNode extends StatelessWidget {
   static final TextStyle _categoryStyle = VelvetText.bodyStrong12;
   static final TextStyle _dateStyle = VelvetText.body11;
 
+  // Hoisted bevel DecoratedBox — matches `client_bottom_nav.dart`'s
+  // `_CenterSearchButton._bevelSheen` (same promoted tokens, same rationale):
+  // shared across every `_TimelineNode.build()` so the sheen layer is never
+  // re-created per tile per rebuild — the rail paints 3-4 of these at once.
+  static final Widget _bevelSheen = IgnorePointer(
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: VelvetGradients.accentDiscBevel,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final String? bookingId = entry.bookingId;
@@ -250,40 +307,87 @@ class _TimelineNode extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Container(
-          height: 64,
-          width: 64,
+          height: BeautyTimelineSection._medallion,
+          width: BeautyTimelineSection._medallion,
           // `alignment` is required here, not cosmetic: without it Container
-          // has no Align layer, so its tight 64×64 BoxConstraints pass
-          // straight through and force ANY child — including AppIcon's own
-          // `size:`-driven SizedBox — to render at 64×64 regardless of the
-          // value passed. Confirmed via `tester.getSize()`: `size: 32` with
-          // no `alignment` measured 64×64; adding `alignment: Alignment
-          // .center` measured the intended 32×32 (mobile-qa, 2026-08-26,
-          // Phase 110 Part 2 gap-closure — this is what actually explained
-          // the golden byte-identical finding, not an SVG-decode timing
-          // issue). Do not remove.
+          // has no Align layer, so its tight BoxConstraints pass straight
+          // through and force ANY child to render at the medallion's own
+          // size regardless of what that child requests. Confirmed via
+          // `tester.getSize()`: `size: 32` with no `alignment` measured
+          // 64×64; adding `alignment: Alignment.center` measured the
+          // intended 32×32 (mobile-qa, 2026-08-26, Phase 110 Part 2
+          // gap-closure — this is what actually explained the golden
+          // byte-identical finding, not an SVG-decode timing issue). Do not
+          // remove.
           alignment: Alignment.center,
+          // Same-material match with the client bottom-nav's elevated
+          // search disc (`client_bottom_nav.dart` `_CenterSearchButton`) —
+          // both consume the SAME promoted tokens, not private copies. See
+          // the file header's "MEDALLION MATCHED TO THE NAV-BAR SEARCH
+          // DISC" note.
+          // NOT `shape: BoxShape.circle`: a blurred BoxShadow on a circle
+          // shape rasterizes as a hard-edged square under Impeller-GLES (the
+          // shadow's bounding box) — see
+          // `test/features/booking/impeller_circle_shadow_guard_test.dart`
+          // header. This repo's established remedy is an RRect at half the
+          // box side, which is visually identical and routes through
+          // Impeller's correct RRect blur path. Worse here than at the nav
+          // bar this decoration is shared with: the rail paints 3-4 tiles
+          // simultaneously inside a `Clip.none` Stack, so a square artifact
+          // has room to bleed into the neighbouring tile.
+          // NOT `const BoxDecoration`: `BorderRadius.circular` is not a
+          // const constructor (`this.all(Radius.circular(radius))` is a
+          // redirecting non-const ctor) — matches the established precedent
+          // in `master_avatar_badge.dart`, which drops `const` for the same
+          // reason.
           decoration: BoxDecoration(
-            color: BrandColors.white.withValues(alpha: 0.5),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: BrandColors.accent.withValues(alpha: 0.55),
-              width: 1.4,
-            ),
+            // 26 = half of `_medallion` (52dp), spelled as a literal per the
+            // guard's own established convention (`master_avatar_badge.dart`).
+            borderRadius: BorderRadius.circular(26),
+            gradient: VelvetGradients.accentDiscFace,
+            boxShadow: VelvetShadows.extrudedDiscAccent,
           ),
-          child: AppIcon(
-            // Phase 110 Part 2: real SVG via the shared categoryIconFor
-            // resolver, replacing the retired Material-icon private mapper.
-            categoryIconFor(
-              categoryKey: entry.categoryKey,
-              categoryName: entry.category,
+          // A plain `AppIcon` child would receive LOOSE constraints from the
+          // `alignment` Align layer above and size to its own 22×22 intent —
+          // fine for the icon itself, but the bevel sheen below needs to
+          // fill the full 52×52 circle, which a loose-constrained Stack
+          // would NOT do (it would shrink to its largest non-positioned
+          // child, i.e. the 22×22 icon). This inner SizedBox re-establishes
+          // a tight 52×52 box for the Stack without touching the outer
+          // `alignment: Alignment.center` requirement above.
+          child: SizedBox(
+            height: BeautyTimelineSection._medallion,
+            width: BeautyTimelineSection._medallion,
+            child: Stack(
+              children: <Widget>[
+                Center(
+                  child: AppIcon(
+                    // Phase 110 Part 2: real SVG via the shared
+                    // categoryIconFor resolver, replacing the retired
+                    // Material-icon private mapper.
+                    categoryIconFor(
+                      categoryKey: entry.categoryKey,
+                      categoryName: entry.category,
+                    ),
+                    // 22dp — the search disc's OWN icon-to-disc ratio
+                    // (22/52) applied here, not a re-derived proportion. On
+                    // a light-on-dark camel→mocha gradient the icon must be
+                    // the light/cream tone (`BrandColors.white` is the
+                    // on-accent-gradient cream, `#F5EDE0`) — the previous
+                    // `accentDeep` (dark mocha) is invisible on this dark
+                    // face.
+                    size: 22,
+                    color: BrandColors.white,
+                  ),
+                ),
+                // Inner bevel sheen, matching the disc's — sells the
+                // "physical pillow" read. `DecoratedBox`'s own
+                // `shape: BoxShape.circle` clips the gradient to the circle
+                // inscribed in this 52×52 box, so it never bleeds past the
+                // medallion's own rounded edge.
+                Positioned.fill(child: _bevelSheen),
+              ],
             ),
-            // 48dp, inset within the 64dp medallion. The 26/36/32 values
-            // that preceded this never actually rendered — see the file
-            // header for why (the Container had no `alignment`, so every
-            // earlier size was clobbered to 64dp regardless of this field).
-            size: 48,
-            color: BrandColors.accentDeep,
           ),
         ),
         const SizedBox(height: VelvetSpacing.sm - 2),
