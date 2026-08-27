@@ -16,6 +16,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -67,12 +68,19 @@ enum RowFlagReason {
   alreadyInMenu,
 }
 
-/// Returns the uniform category glyph used for every chip / group-header icon
-/// on the service-setup page. A single consistent icon is intentional — the
-/// platform categories are dynamic (sourced from the backend) and the visual
-/// language of the setup page treats them as peers rather than assigning each a
-/// distinct pictogram.
-IconData serviceCategoryIcon(String slug) => Icons.spa_rounded;
+/// SUPERSEDED (2026-08-27, user instruction: "continue adding SVGs to missed
+/// places"): this file used to define
+/// `IconData serviceCategoryIcon(String slug) => Icons.spa_rounded` — a single
+/// uniform Material glyph rendered for every category chip / group header,
+/// locked in by a regression test guarding against a MAKEUP-only divergence.
+/// That uniform-icon decision is reversed. Chips and headers now render the
+/// real per-category SVG resolved by
+/// [categoryIconOrNullFor](../../../../core/icons/category_icons.dart) —
+/// called by the owning screen (`service_setup_screen.dart`) with both the
+/// category's wire slug and its Ukrainian display name, and passed down here
+/// as [CategoryChip.iconAsset] / [CategoryGroupHeader.iconAsset]. See
+/// `test/features/services/presentation/widgets/service_setup_widgets_test.dart`
+/// for the updated contract test.
 
 /// A multi-selectable category chip — the entry point that, when selected,
 /// expands inline to reveal every service-type under the category.
@@ -84,20 +92,36 @@ IconData serviceCategoryIcon(String slug) => Icons.spa_rounded;
 class CategoryChip extends StatelessWidget {
   const CategoryChip({
     super.key,
-    required this.icon,
+    required this.iconAsset,
     required this.label,
     required this.selected,
     required this.includedCount,
     required this.onTap,
   });
 
-  final IconData icon;
+  /// Resolved SVG asset path for the category glyph (from
+  /// [categoryIconOrNullFor](../../../../core/icons/category_icons.dart)), or
+  /// `null` for an uncategorised entry. `null` renders no icon but the leading
+  /// slot still reserves [_iconSize] so every chip's label stays aligned.
+  final String? iconAsset;
   final String label;
   final bool selected;
 
   /// How many service-types under this category are currently toggled ON.
   final int includedCount;
   final VoidCallback onTap;
+
+  /// Matches the 20dp icon size used app-wide for comparable category rows
+  /// and headers (`service_category_cards.dart`, `service_category_list.dart`,
+  /// `service_catalogue_accordion.dart`) — chosen over the previous 16dp
+  /// Material glyph size because the category SVG set is thin-stroke and loses
+  /// detail below ~20dp (see `project_category_icon_set_thin_locked` memory).
+  /// Measured effect (`tester.getSize`, badge-less chip): unselected/selected
+  /// height grows 32dp → 36dp, which now MATCHES the already-existing 36dp
+  /// height of a selected chip carrying a count badge — so this removes a
+  /// pre-existing 4dp inconsistency between badge / no-badge chips rather than
+  /// introducing a new one.
+  static const double _iconSize = 20;
 
   static const BorderRadius _pillRadius = BorderRadius.all(
     Radius.circular(VelvetRadii.pill),
@@ -143,7 +167,17 @@ class CategoryChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 16, color: BrandColors.white),
+          SizedBox(
+            width: _iconSize,
+            height: _iconSize,
+            child: iconAsset == null
+                ? null
+                : AppIcon(
+                    iconAsset!,
+                    size: _iconSize,
+                    color: BrandColors.white,
+                  ),
+          ),
           const SizedBox(width: VelvetSpacing.sm - 2),
           Text(
             label,
@@ -169,7 +203,17 @@ class CategoryChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 16, color: BrandColors.accent),
+            SizedBox(
+              width: _iconSize,
+              height: _iconSize,
+              child: iconAsset == null
+                  ? null
+                  : AppIcon(
+                      iconAsset!,
+                      size: _iconSize,
+                      color: BrandColors.accent,
+                    ),
+            ),
             const SizedBox(width: VelvetSpacing.sm - 2),
             Text(label, style: VelvetText.pill()),
           ],
@@ -213,16 +257,26 @@ class _CountBadge extends StatelessWidget {
 class CategoryGroupHeader extends StatelessWidget {
   const CategoryGroupHeader({
     super.key,
-    required this.icon,
+    required this.iconAsset,
     required this.label,
     required this.includedCount,
     required this.total,
   });
 
-  final IconData icon;
+  /// Resolved SVG asset path for the category glyph (from
+  /// [categoryIconOrNullFor](../../../../core/icons/category_icons.dart)), or
+  /// `null` for an uncategorised entry. `null` renders no icon but the leading
+  /// slot still reserves [_iconSize] so every header's label stays aligned.
+  final String? iconAsset;
   final String label;
   final int includedCount;
   final int total;
+
+  /// See [CategoryChip._iconSize] — same 20dp app-wide category-icon size and
+  /// the same thin-stroke-legibility rationale. Measured effect
+  /// (`tester.getSize`): header height grows 23dp → ~28dp (was sized to a
+  /// 14dp Material glyph; the SVG set does not ship a smaller variant).
+  static const double _iconSize = 20;
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +289,17 @@ class CategoryGroupHeader extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 14, color: BrandColors.accentDeep),
+          SizedBox(
+            width: _iconSize,
+            height: _iconSize,
+            child: iconAsset == null
+                ? null
+                : AppIcon(
+                    iconAsset!,
+                    size: _iconSize,
+                    color: BrandColors.accentDeep,
+                  ),
+          ),
           const SizedBox(width: VelvetSpacing.xs + 2),
           Flexible(
             child: Text(
