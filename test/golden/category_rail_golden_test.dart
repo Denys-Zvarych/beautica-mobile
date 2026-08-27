@@ -26,8 +26,11 @@
 // tiles with `icon:` only — [CategoryRailTile.iconAsset] is never passed, so
 // these two baselines moved purely from the 80→92dp height bump and carry
 // ZERO visual coverage of the SVG glyph path production ALWAYS renders
-// (`search_filters_screen.dart:951` never leaves `iconAsset` null —
-// `categoryIconFor` never returns null). A regression in [AppIcon],
+// (`search_filters_screen.dart:954` calls `categoryIconOrNullFor`, which
+// only returns null when BOTH the category key and display name are blank —
+// structurally impossible here, since `approvedCategoriesProvider` drops any
+// category with a blank slug before it ever reaches the rail — so `iconAsset`
+// is effectively always non-null in production). A regression in [AppIcon],
 // `categoryIconFor`, or the [CategoryRailTile.kGlyphAssetSize] constant would
 // not move either baseline above.
 //

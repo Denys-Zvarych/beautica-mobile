@@ -1,11 +1,16 @@
 // Phase 110 Part 2 gap-closure (mobile-qa) — [ClientSearchScreen]'s category
 // rail resolves the CORRECT SVG glyph per category slug.
 //
-// `search_filters_screen.dart:951` wires every rail tile through
-// `categoryIconFor(categoryKey: c.name, categoryName: c.displayName)`
+// `search_filters_screen.dart:954` wires every rail tile through
+// `categoryIconOrNullFor(categoryKey: c.name, categoryName: c.displayName)`
 // (`lib/core/icons/category_icons.dart`) instead of the old Material
 // `serviceTypeIcon` substring mapper
 // (`lib/features/discovery/presentation/widgets/service_type_tile.dart`).
+// (This call site was migrated from `categoryIconFor` to
+// `categoryIconOrNullFor` in the never-null-resolver sweep — see the last
+// group below for the regression test covering that swap; it is a no-op for
+// every REAL category, since `approvedCategoriesProvider` never yields a
+// blank slug, but matches the convention every other call site follows.)
 // That migration is otherwise UNGUARDED end to end — no test pumps the real
 // screen and reads back which asset a given slug resolved to.
 //
@@ -87,7 +92,10 @@ const _categories = <ServiceCategoryOption>[
   ServiceCategoryOption(name: 'HAIRDRESSING', displayName: 'Перукарня'),
 ];
 
-Future<void> _pumpScreen(WidgetTester tester) async {
+Future<void> _pumpScreen(
+  WidgetTester tester, {
+  List<ServiceCategoryOption> categories = _categories,
+}) async {
   installOverflowGuard();
   tester.view.physicalSize = const Size(900, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -101,7 +109,7 @@ Future<void> _pumpScreen(WidgetTester tester) async {
     serviceRepositoryProvider.overrideWithValue(_MockServiceRepository()),
     // DIRECT override — approvedCategoriesProvider bypasses
     // serviceRepositoryProvider entirely (the footgun documented above).
-    approvedCategoriesProvider.overrideWith((ref) async => _categories),
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
   ];
 
   await tester.pumpWidget(
@@ -198,4 +206,51 @@ void main() {
       },
     );
   });
+
+  // ── categoryIconFor -> categoryIconOrNullFor migration (never-null-resolver
+  // sweep) ────────────────────────────────────────────────────────────────
+  //
+  // A blank category (empty key AND empty display name — the "uncategorised"
+  // bucket `categoryIconOrNullFor` exists to gate, see its doc comment in
+  // `lib/core/icons/category_icons.dart`) must NOT render the cosmetology
+  // fallback asset. Every REAL category from `approvedCategoriesProvider` is
+  // structurally guaranteed non-blank (`MasterServiceMapper.fromApprovedCategoryList`
+  // drops any entry with a blank slug), so this scenario cannot occur via the
+  // normal provider path — it exercises defence-in-depth for a hypothetical
+  // future caller/override that supplies one anyway.
+  group(
+    'ClientSearchScreen — category rail categoryIconOrNullFor migration',
+    () {
+      const blankCategory = ServiceCategoryOption(name: '', displayName: '');
+
+      testWidgets(
+        'a blank category does not render the cosmetology SVG asset — it '
+        'renders the plain Material glyph fallback instead',
+        (tester) async {
+          await _pumpScreen(tester, categories: const [blankCategory]);
+
+          final Finder tile = find.byKey(const Key('search_service_type_'));
+          expect(tile, findsOneWidget);
+
+          // No SVG glyph at all — categoryIconOrNullFor(key: '', name: '')
+          // returns null, so CategoryRailTile falls back to its Material Icon
+          // path rather than resolving (wrongly) to the cosmetology SVG.
+          expect(
+            find.descendant(of: tile, matching: find.byType(AppIcon)),
+            findsNothing,
+            reason:
+                'a blank category must not fall back to the cosmetology SVG '
+                'glyph via the never-null categoryIconFor',
+          );
+          expect(
+            find.descendant(of: tile, matching: find.byType(Icon)),
+            findsOneWidget,
+            reason:
+                'a blank category must still render SOME glyph — the Material '
+                'fallback, not a bare empty slot',
+          );
+        },
+      );
+    },
+  );
 }

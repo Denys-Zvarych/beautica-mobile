@@ -17,10 +17,12 @@
 // icons registered on [BeauticaAssetIcons]. Its first caller was the BEAUTY
 // TIMELINE rail (`lib/features/home/presentation/widgets/beauty_timeline_section.dart`);
 // a second caller was added when the CLIENT SEARCH category rail migrated
-// onto it (`lib/features/discovery/presentation/search_filters_screen.dart:953`);
-// `booking_card.dart` migrated onto [categoryIconOrNullFor] (the nullable
-// wrapper below) as a third caller, retiring its own `_categoryIconFor`
-// switch entirely.
+// onto it, then re-migrated onto [categoryIconOrNullFor] (the nullable
+// wrapper below) once the rail's `iconAsset` gap already fell back cleanly to
+// a Material glyph, matching every other consumer's convention
+// (`lib/features/discovery/presentation/search_filters_screen.dart:954`);
+// `booking_card.dart` migrated onto [categoryIconOrNullFor] as well, retiring
+// its own `_categoryIconFor` switch entirely.
 //
 // ── SCOPE — DO NOT MIGRATE THE REMAINING MAPPER HERE ────────────────────────
 //

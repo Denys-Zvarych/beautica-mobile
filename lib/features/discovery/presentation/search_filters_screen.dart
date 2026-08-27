@@ -951,7 +951,7 @@ class _CategorySection extends ConsumerWidget {
                       child: CategoryRailTile(
                         key: Key('search_service_type_${c.name}'),
                         icon: serviceTypeIcon(c.name),
-                        iconAsset: categoryIconFor(
+                        iconAsset: categoryIconOrNullFor(
                           categoryKey: c.name,
                           categoryName: c.displayName,
                         ),
