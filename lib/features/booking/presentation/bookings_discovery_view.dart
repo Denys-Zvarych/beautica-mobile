@@ -139,6 +139,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
@@ -147,7 +148,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
@@ -824,21 +825,23 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     hasServiceIds: _serviceIds.isNotEmpty,
   );
 
-  /// Finding #6 — the header's "+" add-booking affordance.
+  /// Phase 248 — the header's "+" add-booking affordance.
   ///
-  /// There is no independent-master "create a booking for a walk-in client"
-  /// route anywhere in this app yet — `RouteNames.bookingNew` is the CLIENT's
-  /// own "book a master" flow (wrong direction: it would walk a MASTER
-  /// through booking themselves as a client). Rather than wire this to a
-  /// route that means something else, or invent a new backend call, this
-  /// shows the same transient-VelvetSnack "coming soon" pattern the app
-  /// already uses for other unscoped affordances (e.g.
-  /// `reschedule_navigation.dart`'s `bookingRescheduleUnavailable`,
-  /// `SalonBookingComingSoonScreen`'s placeholder copy).
+  /// Pushes `RouteNames.masterBookingNew` (`/master/bookings/new`), the
+  /// Phase 247 «Новий запис» walk-in wizard — a CHILD of `RouteNames
+  /// .masterBookings` registered with `pageBuilder` +
+  /// `MaterialPage(fullscreenDialog: true)` in `app_router.dart`. Deliberately
+  /// NOT `RouteNames.bookingNew`: that is the CLIENT's own "book a master"
+  /// flow (wrong direction — it would walk a MASTER through booking
+  /// themselves as a client). This screen only ever mounts under `/master/*`,
+  /// which `auth_redirect.dart` already gates to `INDEPENDENT_MASTER`
+  /// (redirecting any other authenticated role — including `SALON_MASTER` —
+  /// to the home shell before this screen, or the wizard route it pushes,
+  /// ever builds), so no separate role check is needed here.
   ///
   /// ZERO-ARG ON PURPOSE (mobile-perf LOW): it reads `context` off the
   /// `State` so the call site can pass the TEAR-OFF (`onAdd:
-  /// _showAddComingSoon`) rather than a fresh `() => _showAddComingSoon(
+  /// _openCreateBooking`) rather than a fresh `() => _openCreateBooking(
   /// context)` closure per build. Dart canonicalises instance-method
   /// tear-offs, so the resulting `VoidCallback` is `identical` across
   /// rebuilds — which saves ONE closure allocation per build and keeps
@@ -849,17 +852,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// — a claim an earlier revision of this comment made and that was simply
   /// false. Keep the tear-off for the allocation, not for a skip that never
   /// happened; do not reintroduce the `BuildContext` parameter.
-  void _showAddComingSoon() {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    // This screen (via `MasterBookingsScreen`) always renders the master's
-    // own `VelvetBottomNavBar` as its `bottomNavigationBar` — never
-    // suppressed — so the bottom-anchored snack needs `bottomInset` to clear
-    // it; see `VelvetSizes.bottomNavClearanceMaster`'s doc.
-    showInfoSnack(
-      context,
-      l10n.masterBookingsAddComingSoon,
-      bottomInset: VelvetSizes.bottomNavClearanceMaster,
-    );
+  void _openCreateBooking() {
+    context.push(RouteNames.masterBookingNew);
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -926,7 +920,29 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                 VelvetSpacing.lg,
                 VelvetSpacing.xxl,
               ),
-              children: const <Widget>[BookingsSkeleton()],
+              children: <Widget>[
+                const BookingsSkeleton(),
+                // The escape hatch for an indefinite `AsyncLoading`, added
+                // after a master reported the skeleton shimmering forever on
+                // the one day a manual walk-in booking had just been created
+                // for. That day is by construction the ONE day not in
+                // `bookings_day_notifier.dart`'s ≤3-day keepAlive LRU, so it
+                // is the only one that must hit the network — and
+                // `AsyncValue.when` routes `AsyncLoading(retrying: true)`
+                // here too, so every automatic re-attempt looked identical to
+                // a first attempt. The `error:` branch below has always had a
+                // retry button; this gives `loading:` a bounded one.
+                //
+                // Renders nothing at all until
+                // [kMyBookingsSlowLoadThreshold] elapses, so a healthy load —
+                // which replaces this whole subtree long before then — never
+                // shows it. See the widget's own doc for why no flash is
+                // possible.
+                MyBookingsSlowLoadNotice(
+                  onRetry: () =>
+                      ref.invalidate(bookingsDayProvider(_liveQuery)),
+                ),
+              ],
             ),
             error: (Object e, StackTrace _) => ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -981,7 +997,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onBack: widget.onBack,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
-              onAdd: _showAddComingSoon,
+              onAdd: _openCreateBooking,
               onOpenArchive: widget.onOpenArchive,
             ),
             const _ServiceCatalogueWarmer(),
@@ -1552,7 +1568,7 @@ class _Header extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: VelvetText.masterBookingsTitle,
+                style: VelvetText.pageTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),

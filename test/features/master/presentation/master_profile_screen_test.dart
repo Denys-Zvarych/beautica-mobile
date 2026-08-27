@@ -1818,9 +1818,10 @@ void main() {
     // ── B4. MID-RETRY window — tile and section must agree ──────────────────
     //
     // B2 above pins only the POST-EXHAUSTION state: `pumpAndSettle` runs the
-    // fake clock through all 10 retries (SkeletonShimmerScope's
+    // fake clock through every retry `_kMaxTransientRetries`
+    // (`failure_retry_policy.dart`) allows (SkeletonShimmerScope's
     // `..repeat(reverse: true)` keeps frames scheduled, so settle never
-    // returns early) and lands on the terminal AsyncError. The ~38 s window
+    // returns early) and lands on the terminal AsyncError. The brief window
     // BEFORE that was pinned by nothing — and it is the entire reason the
     // screen derives `hasError` from the `when` arms rather than from
     // `servicesAsync.hasError`.
@@ -1828,10 +1829,13 @@ void main() {
     // The mechanism: `NetworkFailure` is transient (failure_retry_policy.dart)
     // so `beauticaProviderRetry` — which `pumpApp` installs by default, the
     // same predicate main.dart installs in production — delegates to
-    // Riverpod's 10-attempt, 200 ms→6400 ms backoff. While a retry is pending
-    // Riverpod emits `AsyncLoading(error: …, retrying: true)`: runtime type
-    // AsyncLoading, but `hasError == true`. `AsyncValue.when` routes that to
-    // its `loading()` arm; `.hasError` would report `true`.
+    // Riverpod's `defaultRetry` curve, but BOUNDED to `_kMaxTransientRetries
+    // = 1` (2026-08 fix for a real stuck-skeleton bug — see that constant's
+    // own doc): **two attempts in total, ~200 ms apart**, not ten attempts
+    // over ~38 s. While the one retry is pending, Riverpod emits
+    // `AsyncLoading(error: …, retrying: true)`: runtime type AsyncLoading,
+    // but `hasError == true`. `AsyncValue.when` routes that to its
+    // `loading()` arm; `.hasError` would report `true`.
     //
     // So reading `.hasError` (or passing `skipLoadingOnReload: true`) would
     // flip THIS tile to '?' while `_ProfileCategoriesSection` — deriving from
@@ -1839,6 +1843,16 @@ void main() {
     // skeletons. A screen contradicting itself: "failed" in the stat row,
     // "loading" 400 px below. This test asserts the two agree, not merely that
     // the glyph is a dash, so the contradiction is what fails it.
+    //
+    // THE WINDOW IS NOW NARROW, AND THAT CHANGES HOW THIS IS PUMPED
+    // ---------------------------------------------------------------
+    // Measured timeline under the 1-retry bound: call #1 lands at t≈0 (tile
+    // shows the dash); the one retry fires at t≈200 ms and fails too,
+    // landing on a TERMINAL AsyncError — the tile flips to '?' from ~300 ms
+    // on. So "still retrying" is only true inside `[0, ~200 ms)`, with
+    // EXACTLY ONE call made so far — not "more than one", which is now
+    // self-contradictory: the moment a 2nd call has fired and failed, the
+    // 1-retry budget is spent and the element is already terminal.
     testWidgets(
       'B4. while transient-failure retries are still in flight the stat tile '
       'keeps the dash AND the categories section keeps its skeletons',
@@ -1868,26 +1882,33 @@ void main() {
             serviceRepo: mockServiceRepo,
           ),
         );
-        // Deliberately NOT pumpAndSettle: settling would burn the whole
-        // 10-attempt backoff and land on the terminal AsyncError — i.e.
-        // re-test B2. Pump a BOUNDED number of frames instead.
+        // Deliberately NOT pumpAndSettle: settling would burn the retry
+        // budget entirely and land on the terminal AsyncError — i.e. re-test
+        // B2. Pump ONE bounded frame landing INSIDE the retrying window
+        // instead.
         //
-        // Why a loop and not one long pump: a retry needs a FRAME to land, not
-        // just elapsed time. A single `pump(Duration(milliseconds: 1200))` is
-        // one frame, so exactly one further attempt lands however long the
-        // duration is (measured: 1 call). Four 400 ms frames clear the 1100 ms
-        // entrance animation AND leave several attempts behind us — still far
-        // short of the 10 that would exhaust the curve and flip the element to
-        // a terminal AsyncError.
-        for (int frame = 0; frame < 4; frame++) {
-          await tester.pump(const Duration(milliseconds: 400));
-        }
+        // A single 100 ms pump — not the four 400 ms frames this test used
+        // to pump under the old 10-attempt/~38 s curve. That loop was sized
+        // to clear the 1100 ms entrance animation while staying "far short
+        // of the 10 attempts that would exhaust the curve"; under the
+        // current 1-retry bound, 1600 ms (4×400 ms) is 5-8x PAST the ~300 ms
+        // point the element already turns terminal, so it could only ever
+        // observe the post-exhaustion state B2 already covers. 100 ms sits
+        // inside the true `[0, ~200 ms)` retrying window (call #1 at t≈0, the
+        // one retry at t≈200 ms) with room to spare before the terminal flip
+        // at ~300 ms.
+        await tester.pump(const Duration(milliseconds: 100));
 
-        // Precondition: retries genuinely fired. Without this the test would
-        // still pass while parked in the FIRST attempt — a plain loading state
-        // that B3 already covers — and would prove nothing about the retrying
-        // state this case exists for.
-        verify(() => mockServiceRepo.listMyServices()).called(greaterThan(1));
+        // Precondition: the ONE call this bound allows before the retry has
+        // genuinely fired (not zero — a still-in-flight FIRST attempt, which
+        // B3 already covers, would prove nothing about the retrying state
+        // this case exists for). `called(1)`, not `called(greaterThan(1))`:
+        // under `_kMaxTransientRetries = 1` a 2nd call means the retry has
+        // ALREADY fired and failed, which is the terminal AsyncError case —
+        // "more than one call" and "still retrying" can no longer both be
+        // true at once, so asserting the old `greaterThan(1)` here would be
+        // self-contradictory against the very state this test targets.
+        verify(() => mockServiceRepo.listMyServices()).called(1);
 
         // (a) The stat tile shows the unresolved placeholder, NOT the failure
         // glyph — the load has not failed yet, it is still being attempted.

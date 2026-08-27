@@ -68,7 +68,6 @@ import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dar
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
-import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
@@ -158,6 +157,42 @@ BookingSuccessArgs _validSuccessArgs() => BookingSuccessArgs(
   startAt: DateTime.utc(2026, 7, 20, 10),
 );
 
+// ---------------------------------------------------------------------------
+// Phase 27.2 follow-up — RESCHEDULE-shaped seeds.
+//
+// Track 27.2 widened `PATCH /bookings/{id}/reschedule` to providers, so an
+// INDEPENDENT_MASTER's «Перенести» CTA re-enters the CLIENT slot picker
+// instead of forking a provider-only copy. `isBookingRescheduleSeed`
+// (`lib/routing/booking_reschedule_seed.dart`) NARROWS the role bounce to
+// CREATE-shaped seeds only — these fixtures are the admitted half, the
+// `_valid*Args()` fixtures above stay the bounced half.
+// ---------------------------------------------------------------------------
+
+const String _kRescheduleBookingId = 'bkg-reschedule-1';
+
+BookingSlotPickerArgs _rescheduleArgs() => const BookingSlotPickerArgs(
+  masterId: _kMasterId,
+  master: _kMaster,
+  services: <MasterService>[_kService],
+  rescheduleBookingId: _kRescheduleBookingId,
+);
+
+BookingConfirmArgs _rescheduleConfirmArgs() => BookingConfirmArgs(
+  masterId: _kMasterId,
+  master: _kMaster,
+  services: <MasterService>[_kService],
+  startAt: DateTime.utc(2026, 7, 20, 10),
+  idempotencyKey: 'guard-key-reschedule-1',
+  rescheduleBookingId: _kRescheduleBookingId,
+);
+
+BookingSuccessArgs _rescheduleSuccessArgs() => BookingSuccessArgs(
+  master: _kMaster,
+  services: <MasterService>[_kService],
+  startAt: DateTime.utc(2026, 7, 20, 10),
+  isReschedule: true,
+);
+
 // Phase 14.12/14.13 — salon booking flow fixtures.
 const String _kSalonId = 'salon-1';
 
@@ -197,26 +232,17 @@ const _kSalonMaster = SalonMasterSummary(
   type: MasterType.salonMaster,
 );
 
+// Retired `visit:` shape carried master `_kSalonMasterId` ('Salon Master')
+// assigned the single 'svc-1' service — expressed directly in the current
+// shape below. `SalonCatalogService`/`orderedMasterServiceIds` detail no
+// longer belongs on this args type (the screen re-resolves it from
+// `salonMasterServiceCoverageProvider`), so only the id survives here.
 SalonBookingTimeArgs _validSalonTimeArgs() => const SalonBookingTimeArgs(
   salonId: _kSalonId,
-  visit: SalonMasterSchedule(
-    masterId: _kSalonMasterId,
-    firstName: 'Salon',
-    lastName: 'Master',
-    type: MasterType.salonMaster,
-    services: <SalonCatalogService>[
-      SalonCatalogService(
-        id: 'svc-1',
-        name: 'Манікюр',
-        durationLabel: '1 год',
-        priceDisplay: '500 ₴',
-        durationMinutes: 60,
-        priceType: ServicePriceType.fixed,
-        priceMin: 500,
-      ),
-    ],
-    orderedMasterServiceIds: <String>['assign-svc-1'],
-  ),
+  selectedServiceIds: <String>['svc-1'],
+  assignedServiceIdsByMaster: <String, List<String>>{
+    _kSalonMasterId: <String>['svc-1'],
+  },
 );
 
 const _clientUser = User(
@@ -425,7 +451,7 @@ void main() {
           // MUST resolve `_kSalonMasterId -> 'svc-1'` to a real assignment
           // id here (not an empty map): `SalonTimeScreen._resolveSchedule`
           // now consults this map to build `SalonMasterSchedule
-          // .primaryServiceAssignmentId`, and drops any master it can't
+          // .orderedMasterServiceIds`, and drops any master it can't
           // resolve — an empty map would silently empty out the schedule
           // list and self-pop the `/booking/salon/time` route this file's
           // "CLIENT may reach every booking route" group asserts renders.
@@ -501,49 +527,57 @@ void main() {
         expect(find.byType(ServiceSelectorSheet), findsNothing);
       });
 
-      testWidgets('/booking/slots (extra: valid args) → /master/profile', (
-        tester,
-      ) async {
-        final router = await pumpRouterAs(tester, _masterSession);
+      testWidgets(
+        '/booking/slots (extra: CREATE-shaped args) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
 
-        router.go(RouteNames.bookingSlots, extra: _validArgs());
-        await tester.pumpAndSettle();
+          router.go(RouteNames.bookingSlots, extra: _validArgs());
+          await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(SlotDateScreen), findsNothing);
-      });
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(SlotDateScreen), findsNothing);
+        },
+      );
 
-      testWidgets('/booking/slots/time (extra: valid args) → /master/profile', (
-        tester,
-      ) async {
-        final router = await pumpRouterAs(tester, _masterSession);
+      testWidgets(
+        '/booking/slots/time (extra: CREATE-shaped args) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
 
-        router.go(RouteNames.bookingSlotsTime, extra: _validArgs());
-        await tester.pumpAndSettle();
+          router.go(RouteNames.bookingSlotsTime, extra: _validArgs());
+          await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(SlotTimeScreen), findsNothing);
-      });
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(SlotTimeScreen), findsNothing);
+        },
+      );
 
-      testWidgets('/booking/confirm → /master/profile', (tester) async {
-        final router = await pumpRouterAs(tester, _masterSession);
+      testWidgets(
+        '/booking/confirm (extra: CREATE-shaped args) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
 
-        router.go(RouteNames.bookingConfirm, extra: _validConfirmArgs());
-        await tester.pumpAndSettle();
+          router.go(RouteNames.bookingConfirm, extra: _validConfirmArgs());
+          await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(BookingConfirmScreen), findsNothing);
-      });
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(BookingConfirmScreen), findsNothing);
+        },
+      );
 
-      testWidgets('/booking/success → /master/profile', (tester) async {
-        final router = await pumpRouterAs(tester, _masterSession);
+      testWidgets(
+        '/booking/success (extra: CREATE-shaped args) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
 
-        router.go(RouteNames.bookingSuccess, extra: _validSuccessArgs());
-        await tester.pumpAndSettle();
+          router.go(RouteNames.bookingSuccess, extra: _validSuccessArgs());
+          await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.masterProfile));
-        expect(find.byType(BookingSuccessScreen), findsNothing);
-      });
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(BookingSuccessScreen), findsNothing);
+        },
+      );
 
       // Phase 14.12/14.13 — same guard, salon booking flow's 3 routes.
       testWidgets(
@@ -585,6 +619,66 @@ void main() {
 
         expect(locationOf(router), equals(RouteNames.masterProfile));
         expect(find.byType(SalonTimeScreen), findsNothing);
+      });
+    });
+
+    // Phase 27.2 follow-up — the OTHER half of the split above. The rule
+    // "providers stay out of the CLIENT booking flow" is NARROWED, not
+    // deleted: a RESCHEDULE-shaped `extra` (the master moving its own
+    // booking) is admitted onto the four routes the reschedule flow
+    // traverses, while the CREATE-shaped seeds asserted in the bounce group
+    // above still redirect to `/master/profile`.
+    //
+    // `/booking/new` is deliberately ABSENT from this group — step 1 of the
+    // CREATE flow is never entered by a reschedule and stays fully
+    // CLIENT-only (its bounce assertion is untouched above).
+    group('INDEPENDENT_MASTER is admitted on a RESCHEDULE-shaped seed', () {
+      testWidgets('/booking/slots (extra: rescheduleBookingId set)', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _masterSession);
+
+        router.go(RouteNames.bookingSlots, extra: _rescheduleArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingSlots));
+        expect(find.byType(SlotDateScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/slots/time (extra: rescheduleBookingId set)', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _masterSession);
+
+        router.go(RouteNames.bookingSlotsTime, extra: _rescheduleArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingSlotsTime));
+        expect(find.byType(SlotTimeScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/confirm (extra: rescheduleBookingId set)', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _masterSession);
+
+        router.go(RouteNames.bookingConfirm, extra: _rescheduleConfirmArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/success (extra: isReschedule true)', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _masterSession);
+
+        router.go(RouteNames.bookingSuccess, extra: _rescheduleSuccessArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingSuccess));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
       });
     });
 

@@ -898,12 +898,20 @@ void main() {
     // the un-mocked `screen_protector` MethodChannel throws a
     // MissingPluginException and the test fails — proving the guard is gone.
     //
-    // This also documents the property that the MainActivity.kt change
-    // (`if (!BuildConfig.DEBUG) { window.setFlags(FLAG_SECURE, ...) }`) did NOT
-    // alter the Dart-side guard: both layers use the same "skip in debug"
-    // contract and must be maintained in sync.
+    // STALE-COMMENT CORRECTION 2026-08-20: this block used to say the manager
+    // mirrored MainActivity's `if (!BuildConfig.DEBUG) { setFlags(FLAG_SECURE) }`.
+    // That FLAG_SECURE baseline is GONE — screenshots, screen recording and
+    // casting are now allowed by explicit product decision (see the header of
+    // `lib/core/security/screen_protection.dart`). The manager's only remaining
+    // native call is the iOS app-switcher blur, still `!kDebugMode`-guarded, so
+    // the assertions below are unchanged and still valid: they only prove the
+    // screen mounts and disposes without hitting an unmocked platform channel.
+    // The test NAME and the `reason:` strings still say
+    // `preventScreenshotOn/Off`; nothing calls those any more, so those
+    // mentions are stale too — left untouched because they are assertion
+    // arguments, not comments. Read them as "the guarded native call".
     //
-    // Cannot verify the Android FLAG_SECURE window attribute from flutter_test —
+    // Cannot verify Android window attributes from flutter_test —
     // that is a native platform concern only verifiable via manual device testing
     // or an instrumented Espresso test.  See: manual verification checklist in
     // the QA audit report for this fix.

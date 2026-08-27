@@ -27,6 +27,7 @@ import 'master_bookings_month_step_flow_test.dart'
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
+import 'master_create_booking_test.dart' as master_create_booking;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -40,6 +41,7 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
@@ -71,6 +73,12 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  // Phase 248 (mobile-dev) — the «+» add-booking entry point → the Phase 247
+  // walk-in wizard, end to end: fill client → pick service → pick date/slot
+  // → confirm → done → pop → the new booking visible in the refetched day
+  // list. Registered beside `master_bookings_flow`, whose login/router
+  // scaffolding it shares.
+  group('master_create_booking_flow', master_create_booking.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
   // bookings including an elapsed-unclosed row, filtering to «Підтверджено»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter
@@ -186,6 +194,12 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
+  // behaviours (arrow + swipe paging with inert-end proof, single-master
+  // no-control, per-booking calendar pill count, cross-page comment
+  // isolation reaching the wire) — registered beside `salon_booking_flow`,
+  // whose confirm/success screens and fixtures it shares.
+  group('salon_booking_pager_flow', salon_booking_pager.main);
   // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
   // favorite that the Beauty Passport genuinely reads back as a SALON row.
   // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.

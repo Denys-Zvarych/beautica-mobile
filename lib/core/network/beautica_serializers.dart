@@ -24,7 +24,10 @@
 //   AppointmentDetailResponse → `appointment_controller_api.dart`, via
 //   + AppointmentItemResponse   `appointmentApiProvider` (the item response is
 //                               only ever reached nested inside the detail
-//                               response).
+//                               response); ALSO `staff_bookings_api.dart`, via
+//                               `staffBookingsApiProvider` (Phase 252 — the
+//                               walk-in create endpoint's response widened to
+//                               the same `AppointmentDetailResponse`).
 //
 // (Verified by grep over `api/lib/src/api/`.) Every other repository still
 // holds `standardSerializers`; migrate them here as their own DTOs gain

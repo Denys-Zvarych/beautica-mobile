@@ -176,4 +176,107 @@ void main() {
       );
     });
   });
+
+  // ── ServicePriceDisplay.formatRange — mobile-qa Phase 256 gap-fill ───────
+  //
+  // Zero direct coverage before this (mobile-build-verifier finding): every
+  // existing test above exercises [ServicePriceDisplay.format], which takes
+  // a [MasterService]. [formatRange] is the Phase 256 sibling that takes raw
+  // `(min, max)` doubles straight off `AppointmentItem` — the master booking
+  // wizard's `done` step's ONLY price formatter now (see
+  // `master_create_booking_screen.dart`'s `_DoneStep`) — with no
+  // [MasterService] and no server `priceDisplay` string to fall back to.
+  group('ServicePriceDisplay.formatRange', () {
+    test('a genuine range (both bounds renderable) → hyphenated band', () {
+      expect(
+        ServicePriceDisplay.formatRange(200, 600),
+        '200 - 600 ${ServicePriceDisplay.suffix}',
+      );
+    });
+
+    test('whole-hryvnia formatting (no decimals), mirrors [format]', () {
+      expect(
+        ServicePriceDisplay.formatRange(150, 1200),
+        '150 - 1200 ${ServicePriceDisplay.suffix}',
+      );
+    });
+
+    test('null max → single "<min> <suffix>" label, no band', () {
+      expect(
+        ServicePriceDisplay.formatRange(300, null),
+        '300 ${ServicePriceDisplay.suffix}',
+      );
+    });
+
+    test('an unrenderable max falls back to the single-min label — UNLIKE '
+        '[format], there is no server priceDisplay string to prefer first', () {
+      for (final double max in _kUnrenderable) {
+        expect(
+          ServicePriceDisplay.formatRange(200, max),
+          '200 ${ServicePriceDisplay.suffix}',
+          reason: 'max $max',
+        );
+      }
+    });
+
+    test('an unrenderable min (max null) yields the neutral label and NO '
+        'currency suffix', () {
+      for (final double min in _kUnrenderable) {
+        final String label = ServicePriceDisplay.formatRange(min, null);
+        expect(label, priceUnavailableLabel, reason: 'min $min');
+        expect(
+          label.contains(ServicePriceDisplay.suffix),
+          isFalse,
+          reason: 'min $min must not assert a hryvnia amount',
+        );
+      }
+    });
+
+    test(
+      'an unrenderable min ALSO wins over a renderable max — the floor '
+      'guard is not skipped just because a band could otherwise be drawn',
+      () {
+        for (final double min in _kUnrenderable) {
+          final String label = ServicePriceDisplay.formatRange(min, 900);
+          expect(label, priceUnavailableLabel, reason: 'min $min');
+        }
+      },
+    );
+
+    test('no output ever contains Infinity, NaN, exponent notation or a '
+        'leading minus', () {
+      for (final double min in _kUnrenderable) {
+        for (final double? max in <double?>[null, 900, double.infinity, -0.0]) {
+          final String label = ServicePriceDisplay.formatRange(min, max);
+          final String why = 'min $min / max $max';
+          expect(label, isNot(contains('Infinity')), reason: why);
+          expect(label, isNot(contains('NaN')), reason: why);
+          expect(label, isNot(contains('e+')), reason: why);
+          expect(label, isNot(contains('-')), reason: why);
+        }
+      }
+    });
+
+    test('POSITIVE zero is a renderable, untouched figure', () {
+      expect(
+        ServicePriceDisplay.formatRange(0, null),
+        '0 ${ServicePriceDisplay.suffix}',
+      );
+      expect(
+        ServicePriceDisplay.formatRange(0, 500),
+        '0 - 500 ${ServicePriceDisplay.suffix}',
+      );
+    });
+  });
 }
+
+/// Shared unrenderable-figure fixture — the SAME set
+/// `ServicePriceDisplay.format`'s own tests above use.
+const List<double> _kUnrenderable = <double>[
+  double.infinity,
+  double.negativeInfinity,
+  double.nan,
+  -500,
+  -0.0,
+  1e21,
+];

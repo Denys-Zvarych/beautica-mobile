@@ -1,31 +1,51 @@
-// Ref-counted screenshot / data-leakage protection for PII-bearing screens.
+// Ref-counted app-switcher / data-leakage protection for PII-bearing screens.
 //
-// SEC MEDIUM-1: a per-screen `dispose() → preventScreenshotOff()` clears
-// FLAG_SECURE for the whole single-Activity app. If two PII screens are ever
-// stacked and the upper pops, protection would be torn down while the lower
-// PII screen is still visible. This manager makes protection durable by
-// reference-counting acquirers:
-//   • count 0 → 1: enable screenshot protection (Android FLAG_SECURE / iOS)
-//                   AND blur the iOS app-switcher snapshot (SEC MEDIUM-2).
-//   • count 1 → 0: disable the iOS-side protection. Android FLAG_SECURE is
-//                   NOT cleared — see [_disable].
+// PRODUCT DECISION 2026-08-20 — SCREENSHOTS ARE ALLOWED. THIS MANAGER NO LONGER
+// BLOCKS SCREEN CAPTURE ON ANY PLATFORM. DO NOT RE-ADD `preventScreenshotOn`.
+// ---------------------------------------------------------------------------
+// WHAT USED TO BE HERE. This file previously carried two security-audit findings
+// as its rationale:
+//   • SEC MEDIUM-1 — the reference count, added because a per-screen
+//     `dispose() → preventScreenshotOff()` cleared FLAG_SECURE for the whole
+//     single-Activity app while a lower PII screen was still visible.
+//   • SEC MEDIUM-2 (2026-07-29) — an ANDROID TEARDOWN ASYMMETRY: `_enable()` was
+//     symmetric but `_disable()` deliberately skipped `preventScreenshotOff()` on
+//     Android, because `MainActivity.onCreate` set FLAG_SECURE app-wide and this
+//     manager must never clear a baseline it did not set.
 //
-// ASYMMETRY IS INTENTIONAL (SEC MEDIUM-2, 2026-07-29). `MainActivity.onCreate`
-// already sets FLAG_SECURE app-wide on every non-debug Android build, so this
-// manager's Android "enable" is a redundant re-assert of a flag that is always
-// on, while its Android "disable" was actively destructive: the first release
-// tore down the app-wide baseline for the rest of the process. Android now only
-// ever turns protection ON, never off; iOS (which has no such baseline) keeps
-// the full symmetric acquire/release cycle. The reference count itself is
-// platform-independent and unchanged.
+// WHY BOTH ARE REVERSED. Both findings were AUDIT-DRIVEN (MASVS-PLATFORM MS6 /
+// mobile-security MS-4), never product decisions, and the product cost of
+// app-wide capture-blocking was never weighed. Beautica is a beauty
+// discovery/booking marketplace: sharing what you found IS the growth loop.
+// Blocking capture stopped a user screenshotting their own booking confirmation,
+// sharing a master's profile or a result photo, saving a price list, attaching a
+// screenshot to a support request, or casting. The user weighed that on
+// 2026-08-20 and chose sharing over capture-blocking.
+//   → `MainActivity` no longer sets FLAG_SECURE, so there is no app-wide baseline
+//     left for the Android teardown exemption to protect. SEC MEDIUM-2's premise
+//     is gone and the asymmetry is removed: `_disable()` is symmetric again.
+//   → Per-screen FLAG_SECURE is explicitly NOT wanted either, so the Android
+//     screenshot toggle here is now a deliberate NO-OP.
 //
-// SEC MEDIUM-2: [ScreenProtector.preventScreenshotOn] does NOT obscure the iOS
-// app-switcher snapshot, so [protectDataLeakageWithBlur] is enabled alongside
-// it (and torn down with [protectDataLeakageWithBlurOff]).
+// WHAT IS RETAINED. The task-switcher thumbnail is still blanked — a real leak to
+// anyone picking up an unlocked phone, and blankable WITHOUT blocking the user's
+// own captures. Android does it natively via
+// `Activity.setRecentsScreenshotEnabled(false)` in `MainActivity`; iOS does it
+// here via [ScreenProtector.protectDataLeakageWithBlur], which is the exact iOS
+// equivalent and is the ONLY native call this manager still makes.
 //
-// All native calls are `!kDebugMode`-guarded (protection off in debug so the
-// emulator / devtools can still capture frames) and idempotent (the native
-// toggle only fires on the 0↔1 boundary).
+// WHY THE REFCOUNT SURVIVES. It still drives the iOS app-switcher blur on the
+// 0↔1 boundary, and keeping it means re-enabling capture-blocking later is a
+// one-line change rather than a re-architecture. `acquire()` / `release()` /
+// `reset()` and every existing call site are UNCHANGED.
+//
+// TO A FUTURE SECURITY AUDITOR: re-filing MASVS-PLATFORM MS6 / MS-4 against this
+// file, or "restoring symmetry" by re-adding `preventScreenshotOn/Off`, is a
+// re-litigation of a settled product decision. It is WON'T FIX. Raise it with
+// the user as a product question; do not re-land it in code.
+//
+// All native calls stay `!kDebugMode`-guarded and idempotent (the native toggle
+// only fires on the 0↔1 boundary).
 //
 // PII screens call `ref.read(screenProtectionProvider).acquire()` in initState
 // and `.release()` in dispose. Non-PII screens (settings hub, account page)
@@ -39,10 +59,14 @@ import 'package:screen_protector/screen_protector.dart';
 
 part 'screen_protection.g.dart';
 
-/// Reference-counted owner of the app-wide screenshot / data-leakage guard.
+/// Reference-counted owner of the app-switcher / data-leakage guard.
 ///
-/// Enables protection when the first PII route mounts and disables it only
-/// when the last PII route unmounts. Idempotent and `!kDebugMode`-guarded.
+/// Enables protection when the first PII route mounts and disables it only when
+/// the last PII route unmounts. Idempotent and `!kDebugMode`-guarded.
+///
+/// Since the 2026-08-20 product decision (see the file header) this guard is the
+/// iOS app-switcher snapshot blur ONLY — it never blocks screenshots, screen
+/// recording or casting, on either platform.
 class ScreenProtectionManager {
   ScreenProtectionManager();
 
@@ -73,8 +97,8 @@ class ScreenProtectionManager {
   ///
   /// Logout calls this after wiping the session/storage so a PII screen that
   /// was never disposed (e.g. a logout triggered from a dialog above a live
-  /// acquirer) cannot leave [FLAG_SECURE] / the app-switcher blur latched on
-  /// across the auth boundary. Idempotent and `!kDebugMode`-guarded.
+  /// acquirer) cannot leave the app-switcher blur latched on across the auth
+  /// boundary. Idempotent and `!kDebugMode`-guarded.
   void reset() {
     _count = 0;
     _disable();
@@ -82,12 +106,26 @@ class ScreenProtectionManager {
 
   void _enable() {
     if (kDebugMode) return;
-    // Android FLAG_SECURE + iOS screenshot/recents block.
-    ScreenProtector.preventScreenshotOn();
-    // iOS app-switcher snapshot blur (preventScreenshot alone does not cover it).
-    ScreenProtector.protectDataLeakageWithBlur();
+    // DELIBERATELY NO `ScreenProtector.preventScreenshotOn()` — product decision
+    // 2026-08-20 (file header). Screenshots, screen recording and casting are
+    // allowed on both platforms; the Android toggle is a no-op by design.
+    //
+    // iOS app-switcher snapshot blur — the iOS equivalent of Android's
+    // `setRecentsScreenshotEnabled(false)`, and the retained mitigation.
+    // Self-guarded: the `screen_protector` platform channel can throw
+    // (PlatformException / MissingPluginException) on real devices, and a
+    // failed blur must never escape into a PII screen's initState.
+    try {
+      ScreenProtector.protectDataLeakageWithBlur();
+    } catch (e) {
+      log(
+        'protectDataLeakageWithBlur failed (tolerated): ${e.runtimeType}',
+        name: 'core.security.screen_protection',
+        level: 900,
+      );
+    }
     log(
-      'screenshot protection enabled',
+      'app-switcher blur enabled',
       name: 'core.security.screen_protection',
       level: 700,
     );
@@ -95,35 +133,19 @@ class ScreenProtectionManager {
 
   void _disable() {
     if (kDebugMode) return;
-    // Self-guard each native call: the `screen_protector` platform channels can
-    // throw (PlatformException / MissingPluginException) on real devices, and a
-    // failure in the first teardown must not abort the second — nor escape into
-    // a logout-time reset() caller and surface a false logout failure.
+    // SYMMETRIC AGAIN ON BOTH PLATFORMS (reverses SEC MEDIUM-2, 2026-08-20).
+    // The old `if (defaultTargetPlatform != TargetPlatform.android)` exemption
+    // existed for ONE reason: `MainActivity.onCreate` set FLAG_SECURE app-wide,
+    // so clearing it here would have torn down a baseline this manager never
+    // set, leaving the process capturable for its whole remaining lifetime.
+    // `MainActivity` no longer sets FLAG_SECURE (product decision — file
+    // header), so that premise is gone. There is nothing left to exempt: this
+    // manager never turns capture-blocking ON, so it has nothing to turn OFF.
+    // `preventScreenshotOff()` is therefore not called at all, on any platform.
     //
-    // SEC MEDIUM-2 — ANDROID IS DELIBERATELY EXEMPT FROM THIS TEARDOWN.
-    // `MainActivity.onCreate` sets FLAG_SECURE app-wide for every non-debug
-    // build, so this manager never SET the Android flag — and must therefore
-    // never CLEAR it. It used to: the first 1→0 release (open Settings, pop
-    // back) called `preventScreenshotOff()`, which cleared the Activity-level
-    // flag and left the process unprotected for its entire remaining lifetime.
-    // Everything typed afterwards — a searched client name, a booking — became
-    // capturable by any screen-recording app and was baked into the Recent Apps
-    // thumbnail. iOS has no such baseline, so it still gets the full teardown.
-    if (defaultTargetPlatform != TargetPlatform.android) {
-      try {
-        ScreenProtector.preventScreenshotOff();
-      } catch (e) {
-        log(
-          'preventScreenshotOff failed (tolerated): ${e.runtimeType}',
-          name: 'core.security.screen_protection',
-          level: 900,
-        );
-      }
-    }
-    // iOS app-switcher blur teardown — unconditional, and the ONLY teardown
-    // that runs on Android (a no-op there, since the plugin's blur overlay is
-    // iOS-only). Keeping it outside the platform branch preserves the exact
-    // acquire/release semantics iOS relies on.
+    // Self-guarded: the `screen_protector` platform channel can throw on real
+    // devices, and a failure must not escape into a logout-time reset() caller
+    // and surface a false logout failure.
     try {
       ScreenProtector.protectDataLeakageWithBlurOff();
     } catch (e) {
@@ -134,7 +156,7 @@ class ScreenProtectionManager {
       );
     }
     log(
-      'screenshot protection disabled',
+      'app-switcher blur disabled',
       name: 'core.security.screen_protection',
       level: 700,
     );

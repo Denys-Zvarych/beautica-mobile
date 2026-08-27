@@ -78,6 +78,10 @@
   "@errNetwork": {
     "description": "Error message shown when a network request fails due to no connectivity."
   },
+  "errCertificate": "Не вдалося встановити захищене з'єднання. Оновіть застосунок або спробуйте пізніше.",
+  "@errCertificate": {
+    "description": "Error message shown when the server certificate is rejected by the app's pinned trust anchors (TLS pin miss). Deliberately gives no connectivity advice: retrying or switching networks is the wrong action under an intercepting proxy."
+  },
   "errNotFound": "Запис не знайдено.",
   "@errNotFound": {
     "description": "Error message shown when a 404 response is received."
@@ -106,6 +110,10 @@
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
   },
+  "errMasterBookingDuplicate": "Цей запис уже створено",
+  "@errMasterBookingDuplicate": {
+    "description": "Error message shown when the master \"Новий запис\" wizard's submit returns HTTP 409 (MasterBookingDuplicateFailure) — the create path has no idempotency key because the overlap check already makes a duplicate visit impossible to persist, so a 409 here almost always means the master's own double-tap/retry already succeeded, not that the slot was taken by someone else."
+  },
   "bookingErrClientConflict": "У вас вже є запис на цей час: {serviceName}, {masterName}, {window}",
   "@bookingErrClientConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 with data.code == CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own (ClientBookingConflictFailure).",
@@ -127,6 +135,10 @@
   "bookingErrRateLimited": "Забагато спроб бронювання. Зачекайте кілька секунд і спробуйте ще раз.",
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
+  },
+  "bookingErrMasterNotPermitted": "У вас немає прав створити цей запис.",
+  "@bookingErrMasterNotPermitted": {
+    "description": "Error message shown when POST /api/v1/masters/{masterId}/bookings returns HTTP 403 (backend Phase 22.4 @authz.canBookForMaster) — the caller may not book this master (wrong salon, not the independent master's own profile, read-only SALON_MASTER caller) OR the master id is unknown/inactive (deliberately collapsed into the same 403 as a probe defence). Surfaced via MasterBookingNotPermittedFailure.userMessage — must never imply the master was not found, which would leak that distinction."
   },
   "bookingErrorAlreadyElapsed": "Час цього запису вже минув.",
   "@bookingErrorAlreadyElapsed": {
@@ -164,6 +176,10 @@
   "retryLabel": "Спробувати знову",
   "@retryLabel": {
     "description": "Label for the retry button shown in error states."
+  },
+  "bookingsStillLoadingBody": "Записи завантажуються довше, ніж зазвичай. Зачекайте ще трохи або спробуйте знову.",
+  "@bookingsStillLoadingBody": {
+    "description": "Body copy of the slow-load notice on «Мої записи», shown below the loading skeleton once a day's fetch has been pending for kMyBookingsSlowLoadThreshold (8 s). Deliberately NOT an error message — the request is still in flight and may still succeed; it accompanies the retry button (retryLabel) purely as an escape hatch."
   },
   "loginTitle": "Вхід",
   "@loginTitle": {
@@ -3779,6 +3795,20 @@
   "@bookingNoSlotsMessage": {
     "description": "Empty-state body copy on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
   },
+  "bookingSlotsConflictTitle": "Час перетинається з іншим записом",
+  "@bookingSlotsConflictTitle": {
+    "description": "Empty-state heading on the time screen (phase-274 D5) when the master DOES have free slots on this day, but every one of them overlaps a window the client already scheduled for another service in the same multi-service draft — distinct from bookingNoSlotsTitle, which means the master has nothing left."
+  },
+  "bookingSlotsConflictMessage": "Усі вільні слоти зайняті часом, який ви вже обрали для «{serviceName}». Оберіть іншу дату або змініть раніше обраний час.",
+  "@bookingSlotsConflictMessage": {
+    "description": "Empty-state body copy for bookingSlotsConflictTitle, naming the service this picker instance is scheduling (BookingSlotPickerArgs.services.first.name) whose slots are all excluded by the client's own other picks.",
+    "placeholders": {
+      "serviceName": {
+        "type": "String",
+        "example": "Педикюр"
+      }
+    }
+  },
   "bookingSelectedState": "обрано",
   "@bookingSelectedState": {
     "description": "Accessibility state word shared by the selected calendar day cell and the selected time-slot chip."
@@ -3948,6 +3978,22 @@
       "service": { "type": "String" }
     }
   },
+  "salonBookingPagerSemantics": "Майстер {index} з {count}",
+  "@salonBookingPagerSemantics": {
+    "description": "Semantics label for the salon booking confirm/success screens' centred pager control, read together with the current page — announces which master's card is on screen and how many the visit has.",
+    "placeholders": {
+      "index": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "salonBookingPagerPrevious": "Попередній майстер",
+  "@salonBookingPagerPrevious": {
+    "description": "Semantics label for the salon booking confirm/success screens' pager left chevron."
+  },
+  "salonBookingPagerNext": "Наступний майстер",
+  "@salonBookingPagerNext": {
+    "description": "Semantics label for the salon booking confirm/success screens' pager right chevron."
+  },
   "bookingCalendarEventTitle": "{service} · {provider}",
   "@bookingCalendarEventTitle": {
     "description": "Title of the OS calendar event created by «Додати в календар» — the booked service and the provider (salon or master) name.",
@@ -4003,6 +4049,134 @@
   "bookingSalonLabel": "Салон",
   "@bookingSalonLabel": {
     "description": "Label for the salon-name row shown on the salon booking confirm, success, and detail summary cards."
+  },
+  "salonBookingConflictDialogTitle": "У вас вже є запис на цей час",
+  "@salonBookingConflictDialogTitle": {
+    "description": "Title of the dialog shown on the salon booking confirm screen when a submit returns HTTP 409 CLIENT_BOOKING_CONFLICT — the client already has an overlapping booking of their own."
+  },
+  "salonBookingConflictDialogSubtitle": "Ви можете забронювати обидва — рішення за вами.",
+  "@salonBookingConflictDialogSubtitle": {
+    "description": "Subline under the client-overlap conflict dialog's title, making clear this is the client's own call, not a blocked action."
+  },
+  "salonBookingConflictNewBookingLabel": "Новий запис",
+  "@salonBookingConflictNewBookingLabel": {
+    "description": "Row label on the client-overlap conflict dialog naming the appointment the client is currently trying to book."
+  },
+  "salonBookingConflictExistingBookingLabel": "Уже заброньовано",
+  "@salonBookingConflictExistingBookingLabel": {
+    "description": "Row label on the client-overlap conflict dialog naming the client's existing overlapping booking, from ClientBookingConflictFailure."
+  },
+  "salonBookingConflictProceedCta": "Все одно записатись",
+  "@salonBookingConflictProceedCta": {
+    "description": "Primary action on the client-overlap conflict dialog — resubmits the SAME appointment with allowClientOverlap: true."
+  },
+  "salonBookingConflictDismissCta": "Скасувати",
+  "@salonBookingConflictDismissCta": {
+    "description": "Secondary/back-out action on the client-overlap conflict dialog — closes the dialog, submits nothing, leaves the confirm screen unchanged so the client can go back and change the time."
+  },
+  "masterCreateBookingTitle": "Новий запис",
+  "@masterCreateBookingTitle": {
+    "description": "Header title on the master booking wizard's client-details (first) step."
+  },
+  "masterCreateBookingServiceTitle": "Оберіть послугу",
+  "@masterCreateBookingServiceTitle": {
+    "description": "Header title on the master booking wizard's service-picker step."
+  },
+  "masterCreateBookingClientHeading": "Дані клієнта",
+  "@masterCreateBookingClientHeading": {
+    "description": "Sub-heading on the master booking wizard's client-details step."
+  },
+  "masterCreateBookingClientIntro": "Вкажіть ім'я, прізвище клієнта та номер телефону.",
+  "@masterCreateBookingClientIntro": {
+    "description": "Explanatory copy under the heading on the master booking wizard's client-details step."
+  },
+  "masterCreateBookingFirstNameLabel": "Ім'я",
+  "@masterCreateBookingFirstNameLabel": {
+    "description": "Field label for the walk-in guest's first name on the master booking wizard."
+  },
+  "masterCreateBookingFirstNameHint": "Наприклад, Марина",
+  "@masterCreateBookingFirstNameHint": {
+    "description": "Hint text for the walk-in guest's first name field."
+  },
+  "masterCreateBookingLastNameLabel": "Прізвище",
+  "@masterCreateBookingLastNameLabel": {
+    "description": "Field label for the walk-in guest's last name on the master booking wizard."
+  },
+  "masterCreateBookingLastNameHint": "Наприклад, Кравчук",
+  "@masterCreateBookingLastNameHint": {
+    "description": "Hint text for the walk-in guest's last name field."
+  },
+  "masterCreateBookingPhoneLabel": "Телефон",
+  "@masterCreateBookingPhoneLabel": {
+    "description": "Field label for the walk-in guest's phone number on the master booking wizard."
+  },
+  "masterCreateBookingPhoneHint": "+380 __ ___ __ __",
+  "@masterCreateBookingPhoneHint": {
+    "description": "Hint text for the walk-in guest's phone number field."
+  },
+  "masterCreateBookingServiceEmptyTitle": "У вас ще немає жодної послуги",
+  "@masterCreateBookingServiceEmptyTitle": {
+    "description": "Empty-state title on the master booking wizard's service step when the master has no services yet."
+  },
+  "masterCreateBookingServiceEmptyBody": "Додайте послугу в розділі «Мої послуги», щоб створити запис.",
+  "@masterCreateBookingServiceEmptyBody": {
+    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet."
+  },
+  "masterCreateBookingGuestLabel": "Клієнт",
+  "@masterCreateBookingGuestLabel": {
+    "description": "Label for the walk-in guest identity row on the master booking wizard's confirm step."
+  },
+  "masterCreateBookingDoneSubline": "Клієнта додано до вашого розкладу.",
+  "@masterCreateBookingDoneSubline": {
+    "description": "Sub-line under the success headline on the master booking wizard's done step. Must never claim an SMS/notification was sent — the backend's confirmation SMS is gated off by default."
+  },
+  "masterCreateBookingSubmitCta": "Записати",
+  "@masterCreateBookingSubmitCta": {
+    "description": "Primary CTA on the master «Новий запис» wizard's confirm step; submits the walk-in booking the MASTER creates FOR a guest. Deliberately NOT the shared `bookingSubmitCta` («Записатись»), which is the client-facing reflexive «book myself in» and reads wrong when the actor is booking someone else."
+  },
+  "masterCreateBookingDoneCta": "Готово",
+  "@masterCreateBookingDoneCta": {
+    "description": "Sole onward action on the master booking wizard's done step; pops back to «Мої записи»."
+  },
+  "masterCreateBookingDuplicateRefreshAction": "Оновити",
+  "@masterCreateBookingDuplicateRefreshAction": {
+    "description": "Action label on the snack shown for errMasterBookingDuplicate. Returns the master booking wizard to the dateTime step and re-fetches the schedule, so a genuine slot collision self-corrects in one tap."
+  },
+  "salonCreateBookingDateTitle": "Дата",
+  "@salonCreateBookingDateTitle": {
+    "description": "Header title for the salon booking wizard's date-only step."
+  },
+  "salonCreateBookingDateHeading": "Оберіть зручну дату",
+  "@salonCreateBookingDateHeading": {
+    "description": "Body heading above the calendar on the salon booking wizard's date step."
+  },
+  "salonCreateBookingDateNextCta": "Далі — Майстри",
+  "@salonCreateBookingDateNextCta": {
+    "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
+  },
+  "salonCreateBookingMastersStepTitle": "Вільні майстри",
+  "@salonCreateBookingMastersStepTitle": {
+    "description": "Header title for the salon booking wizard's masters step."
+  },
+  "salonCreateBookingMasterOffers": "Виконує",
+  "@salonCreateBookingMasterOffers": {
+    "description": "Status pill on a salon booking wizard master tile: this master performs the selected service."
+  },
+  "salonCreateBookingMasterNotOffered": "Не виконує",
+  "@salonCreateBookingMasterNotOffered": {
+    "description": "Status pill on a salon booking wizard master tile: this master does not perform the selected service."
+  },
+  "salonCreateBookingDoneSubline": "Клієнта додано до розкладу майстра.",
+  "@salonCreateBookingDoneSubline": {
+    "description": "Sub-line under the success headline on the salon booking wizard's done step. Must never claim an SMS/notification was sent — the backend's confirmation SMS is gated off by default."
+  },
+  "salonCreateBookingServiceEmptyTitle": "У салоні ще немає жодної послуги",
+  "@salonCreateBookingServiceEmptyTitle": {
+    "description": "Empty-state title on the salon booking wizard's service step when the salon's masters have no services yet."
+  },
+  "salonCreateBookingServiceEmptyBody": "Додайте послугу майстру, щоб створити запис.",
+  "@salonCreateBookingServiceEmptyBody": {
+    "description": "Empty-state body on the salon booking wizard's service step when the salon's masters have no services yet."
   },
   "bookingArrivalNoteSemantics": "Як знайти: {text}",
   "@bookingArrivalNoteSemantics": {
@@ -4223,13 +4397,9 @@
   "@bookingDetailSublineCancelled": {
     "description": "Booking detail subline — CANCELLED."
   },
-  "bookingDetailSublineDeclinedSalon": "Салон скасував цей запис. Причину вказано нижче.",
-  "@bookingDetailSublineDeclinedSalon": {
-    "description": "Booking detail subline — DECLINED at a salon booking."
-  },
-  "bookingDetailSublineDeclinedMaster": "Майстер скасував цей запис. Причину вказано нижче.",
-  "@bookingDetailSublineDeclinedMaster": {
-    "description": "Booking detail subline — DECLINED at an independent-master booking."
+  "bookingDetailSublineDeclined": "Запис скасовано",
+  "@bookingDetailSublineDeclined": {
+    "description": "Booking detail subline — DECLINED. Neutral, no who-cancelled distinction."
   },
   "bookingDetailRescheduleCta": "Перенести",
   "@bookingDetailRescheduleCta": {
@@ -4953,10 +5123,6 @@
       "index": { "type": "int", "example": "2" }
     }
   },
-  "salonScheduleDateIntro": "Оберіть зручну дату для цього майстра — далі підберемо вільний час.",
-  "@salonScheduleDateIntro": {
-    "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
-  },
   "bookingServiceTimeTitle": "Час",
   "@bookingServiceTimeTitle": {
     "description": "Top-bar title of the independent-master per-service booking time screen (a PageView, one slide per selected service)."
@@ -5020,10 +5186,6 @@
   "@bookingServiceOverlapError": {
     "description": "Snackbar/error shown when two of the client's selected services are scheduled at overlapping times in the independent-master booking flow (pre-empts the backend CLIENT_BOOKING_CONFLICT 409)."
   },
-  "salonScheduleWindowPrompt": "Оберіть час",
-  "@salonScheduleWindowPrompt": {
-    "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
-  },
   "salonScheduleProgress": "{scheduled} з {total} заплановано",
   "@salonScheduleProgress": {
     "description": "Progress line in the salon booking time screen's pinned confirm bar.",
@@ -5044,7 +5206,6 @@
       "total": { "type": "int", "example": "3" }
     }
   },
-
   "professionalTitleLabel": "Професійне звання",
   "@professionalTitleLabel": {
     "description": "Field label above the professional title input on the master edit screen."
@@ -5177,10 +5338,6 @@
   "@masterBookingsAddSemantics": {
     "description": "Accessibility label for the master bookings header's '+' add-booking button (design-parity finding #6)."
   },
-  "masterBookingsAddComingSoon": "Створення запису вручну з'явиться найближчим часом",
-  "@masterBookingsAddComingSoon": {
-    "description": "Transient SnackBar shown when the master taps the '+' add-booking button — there is no independent-master 'create a booking for a walk-in client' flow yet (design-parity finding #6)."
-  },
   "masterArchiveOpenSemantics": "Відкрити архів записів",
   "@masterArchiveOpenSemantics": {
     "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."
@@ -5256,5 +5413,106 @@
   "velvetSnackDismissSemantic": "Закрити сповіщення",
   "@velvetSnackDismissSemantic": {
     "description": "VelvetSnack (shared/feedback) — semantic label for the optional explicit dismiss (close) affordance."
+  },
+  "favoritesUnlikeLabel": "Прибрати {name} з улюблених",
+  "@favoritesUnlikeLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label on the filled heart of a favourite card. The heart is a REMOVE affordance, never a toggle: every row on this screen is already a favourite.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Марта Гончар"}
+    }
+  },
+  "favoritesUndo": "Повернути",
+  "@favoritesUndo": {
+    "description": "«Улюблені» (Phase 111) — the undo action inside the removed-row dent, restoring the favourite before the 5-second window closes."
+  },
+  "favoritesUndoLabel": "Повернути {name} до улюблених",
+  "@favoritesUndoLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label for the «Повернути» undo action in the removed-row dent.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Марта Гончар"}
+    }
+  },
+  "favoritesRemovedCaption": "Прибрано з улюблених",
+  "@favoritesRemovedCaption": {
+    "description": "«Улюблені» (Phase 111) — caption inside the recessed dent that replaces an unliked row for 5 seconds before the DELETE fires."
+  },
+  "favoritesRatingSpoken": "Рейтинг {rating}",
+  "@favoritesRatingSpoken": {
+    "description": "«Улюблені» (Phase 111) — spoken form of a favourite card's rating readout. The visual readout is wrapped in ExcludeSemantics so a screen reader never receives the bare star + digits; this says it in words.",
+    "placeholders": {
+      "rating": {"type": "double", "format": "decimalPatternDigits", "optionalParameters": {"decimalDigits": 1}, "example": "4.7"}
+    }
+  },
+  "favoritesNoRatingSpoken": "Без оцінок",
+  "@favoritesNoRatingSpoken": {
+    "description": "«Улюблені» (Phase 111) — spoken form for an unrated provider. The card draws «★ –» (an en dash, never 0.0); a screen reader must never be handed the bare dash to announce."
+  },
+  "favoritesMasterCardLabel": "Майстер {name}. {address} {rating}",
+  "@favoritesMasterCardLabel": {
+    "description": "«Улюблені» (Phase 111) — full semantic label of a master favourite card. {address} is the already-composed locality/street/note run (may be empty); {rating} is favoritesRatingSpoken or favoritesNoRatingSpoken.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Марта Гончар"},
+      "address": {"type": "String", "example": "Печерський, Київ. вул. Іоанна Павла II, 4"},
+      "rating": {"type": "String", "example": "Рейтинг 4,9"}
+    }
+  },
+  "favoritesSalonCardLabel": "Салон {name}. {address} {rating}",
+  "@favoritesSalonCardLabel": {
+    "description": "«Улюблені» (Phase 111) — full semantic label of a salon favourite card. Same {address}/{rating} composition as favoritesMasterCardLabel.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Crystal Room №1"},
+      "address": {"type": "String", "example": "Дарницький, Київ. вул. Замарстинівська, 1"},
+      "rating": {"type": "String", "example": "Рейтинг 4,7"}
+    }
+  },
+  "favoritesFilterAll": "Всі",
+  "@favoritesFilterAll": {
+    "description": "«Улюблені» (Phase 111) — the category filter's cleared state, on both the collapsed pill and the first chip in the expanded panel. No count is ever rendered beside it."
+  },
+  "favoritesFilterReset": "Скинути",
+  "@favoritesFilterReset": {
+    "description": "«Улюблені» (Phase 111) — clears the category filter in one tap from the COLLAPSED pill, so the client never has to open the panel to get back to everything."
+  },
+  "favoritesFilterResetLabel": "Скинути фільтр",
+  "@favoritesFilterResetLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label for the «Скинути» filter-clear action."
+  },
+  "favoritesFilterPillLabel": "Категорія: {label}. Показати всі категорії",
+  "@favoritesFilterPillLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label of the collapsed filter pill. States the current filter first, then what tapping does.",
+    "placeholders": {
+      "label": {"type": "String", "example": "Волосся"}
+    }
+  },
+  "favoritesEmptyTitle": "Ще немає улюблених",
+  "@favoritesEmptyTitle": {
+    "description": "«Улюблені» (Phase 111) — empty-state title when the client has saved nothing at all (as opposed to a filter that matches nothing)."
+  },
+  "favoritesEmptyBody": "Збережені майстри й салони збираються тут — щоб записатися до них вдруге за два дотики.",
+  "@favoritesEmptyBody": {
+    "description": "«Улюблені» (Phase 111) — empty-state body. Explains what this tab collects rather than apologising for the emptiness."
+  },
+  "favoritesEmptyCta": "Знайти майстра",
+  "@favoritesEmptyCta": {
+    "description": "«Улюблені» (Phase 111) — empty-state CTA; hops to the «Пошук» branch, the only way to fill this list."
+  },
+  "favoritesCategoryEmptyTitle": "У категорії «{category}» порожньо",
+  "@favoritesCategoryEmptyTitle": {
+    "description": "«Улюблені» (Phase 111) — title when the LIST has rows but the selected category has none. A different situation from favoritesEmptyTitle and it gets a different direction: clear the filter, not search.",
+    "placeholders": {
+      "category": {"type": "String", "example": "Волосся"}
+    }
+  },
+  "favoritesCategoryEmptyBody": "Тут ще немає збережених. Поверніться до повного списку або збережіть когось із цієї категорії.",
+  "@favoritesCategoryEmptyBody": {
+    "description": "«Улюблені» (Phase 111) — body for the empty-category state."
+  },
+  "favoritesShowAll": "Показати всі",
+  "@favoritesShowAll": {
+    "description": "«Улюблені» (Phase 111) — action on the empty-category state; clears the filter back to «Всі»."
+  },
+  "favoritesShowAllLabel": "Показати всі улюблені",
+  "@favoritesShowAllLabel": {
+    "description": "«Улюблені» (Phase 111) — semantic label for the «Показати всі» action."
   }
 }

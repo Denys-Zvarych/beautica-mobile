@@ -68,6 +68,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/reschedule_assertions.dart';
 
 /// The whole-visit provider write path, hand-faked (see the file header for
 /// why no real `/appointments` adapter route exists). Only
@@ -174,8 +175,9 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) => throw UnimplementedError();
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> cancelAppointment(String id, {String? note}) =>
@@ -391,10 +393,7 @@ void main() {
             'decline stays offered on an underway booking too — the backend '
             'allows a provider decline at any time',
       );
-      expect(
-        find.byKey(const Key('booking-detail-provider-reschedule')),
-        findsNothing,
-      );
+      expectRescheduleAbsent(tester);
 
       await tester.tap(find.byKey(const Key('booking-detail-complete')));
       await AppHarness.settle(tester);
@@ -487,10 +486,7 @@ void main() {
             'the backend allows a provider decline at any time, so it stays '
             'offered on an underway/elapsed booking too',
       );
-      expect(
-        find.byKey(const Key('booking-detail-provider-reschedule')),
-        findsNothing,
-      );
+      expectRescheduleAbsent(tester);
 
       await tester.tap(find.byKey(const Key('booking-detail-decline')));
       await AppHarness.settle(tester);

@@ -24,17 +24,22 @@ import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class _MockDio extends Mock implements Dio {}
 
 class _MockBookingControllerApi extends Mock implements BookingControllerApi {}
 
 class _MockReviewControllerApi extends Mock implements ReviewControllerApi {}
+
+class _MockStaffBookingsApi extends Mock implements StaffBookingsApi {}
 
 const _createPath = '/api/v1/bookings';
 const _getPath = '/api/v1/bookings/booking-1';
@@ -206,6 +211,7 @@ void main() {
   late _MockDio dio;
   late _MockBookingControllerApi bookingApi;
   late _MockReviewControllerApi reviewApi;
+  late _MockStaffBookingsApi staffBookingsApi;
   late HttpBookingRepository repository;
 
   setUpAll(() {
@@ -239,13 +245,29 @@ void main() {
             StatusUpdateRequestCancellationReasonEnum.PROVIDER_UNAVAILABLE,
       ),
     );
+    registerFallbackValue(
+      CreateStaffBookingRequest(
+        (b) => b
+          ..masterServiceIds.replace(<String>['fallback-service'])
+          ..startsAt = DateTime.utc(2026, 1, 1)
+          ..guest.name = 'fallback-name'
+          ..guest.surname = 'fallback-surname'
+          ..guest.phone = '+380500000000',
+      ),
+    );
   });
 
   setUp(() {
     dio = _MockDio();
     bookingApi = _MockBookingControllerApi();
     reviewApi = _MockReviewControllerApi();
-    repository = HttpBookingRepository(dio, bookingApi, reviewApi);
+    staffBookingsApi = _MockStaffBookingsApi();
+    repository = HttpBookingRepository(
+      dio,
+      bookingApi,
+      reviewApi,
+      staffBookingsApi,
+    );
   });
 
   group('createBooking', () {
@@ -543,6 +565,370 @@ void main() {
       await expectLater(
         repository.createBooking(req),
         throwsA(isA<ConflictFailure>()),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 246 — createMasterBooking (PROVIDER-side walk-in write, backend
+  // Phase 22.4 `POST /api/v1/masters/{masterId}/bookings`).
+  // ---------------------------------------------------------------------------
+  group('createMasterBooking', () {
+    const staffBookingPath = '/api/v1/masters/master-1/bookings';
+
+    // 14:00 Kyiv wall-clock, July (EEST/UTC+3) — built via the IANA
+    // Europe/Kyiv `tz.TZDateTime`, NOT a device-local `DateTime`, so the
+    // expected UTC instant below is correct regardless of the host's own
+    // timezone. Run under `TZ=UTC` (the test gate's explicit ask) this is
+    // the only construction that can actually catch a "silently used the
+    // host's local offset instead of Kyiv's" regression — a plain
+    // `DateTime(2026, 7, 10, 14)` would coincidentally equal its own
+    // `.toUtc()` under `TZ=UTC`, masking exactly that bug.
+    final DateTime kyivStart = tz.TZDateTime(beauticaZone, 2026, 7, 10, 14);
+
+    CreateMasterBookingRequest buildReq({List<String>? masterServiceIds}) =>
+        CreateMasterBookingRequest(
+          masterServiceIds: masterServiceIds ?? const <String>['service-1'],
+          startsAt: kyivStart,
+          guest: const WalkInGuest(
+            name: 'Іван',
+            surname: 'Петренко',
+            phone: '+380501234567',
+          ),
+        );
+
+    final req = buildReq();
+
+    // Phase 252 — the 201 body is now the full `AppointmentDetailResponse`
+    // (one visit header + N items), not the lean `BookingResponse` a
+    // follow-up `getBookingById` used to enrich. Fixture shape mirrors
+    // `appointment_repository_test.dart`'s `_buildItem`/`_buildDetail` —
+    // REUSED pattern, not reinvented.
+    AppointmentItemResponse buildStaffItem({
+      String bookingId = 'booking-1',
+      String masterServiceId = 'service-1',
+    }) =>
+        (AppointmentItemResponseBuilder()
+              ..bookingId = bookingId
+              ..masterServiceId = masterServiceId
+              ..serviceName = 'Манікюр'
+              ..startsAt = DateTime.utc(2026, 7, 10, 11)
+              ..endsAt = DateTime.utc(2026, 7, 10, 12)
+              ..durationMinutesAtBooking = 60
+              ..priceAtBooking = 500)
+            .build();
+
+    AppointmentDetailResponse buildStaffAppointment({
+      String id = 'appt-1',
+      List<AppointmentItemResponse>? items,
+    }) =>
+        (AppointmentDetailResponseBuilder()
+              ..id = id
+              ..status = AppointmentDetailResponseStatusEnum.CONFIRMED
+              ..masterId = 'master-1'
+              ..masterFirstName = 'Оля'
+              ..masterLastName = 'Коваль'
+              ..masterType =
+                  AppointmentDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+              ..startsAt = DateTime.utc(2026, 7, 10, 11)
+              ..endsAt = DateTime.utc(2026, 7, 10, 12)
+              ..totalDurationMinutes = 60
+              ..totalPrice = 500
+              ..items = ListBuilder<AppointmentItemResponse>(
+                items ?? <AppointmentItemResponse>[buildStaffItem()],
+              ))
+            .build();
+
+    Response<ApiResponseAppointmentDetailResponse> staffDetailResponse(
+      AppointmentDetailResponse dto,
+    ) => Response<ApiResponseAppointmentDetailResponse>(
+      data: ApiResponseAppointmentDetailResponse(
+        (b) => b
+          ..data.replace(dto)
+          ..success = true,
+      ),
+      requestOptions: RequestOptions(path: staffBookingPath),
+      statusCode: 201,
+    );
+
+    void stubCreate(Response<ApiResponseAppointmentDetailResponse> response) {
+      when(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      ).thenAnswer((_) async => response);
+    }
+
+    void stubCreateThrows(DioException e) {
+      when(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      ).thenThrow(e);
+    }
+
+    DioException badResponse(int statusCode, {Failure? attached}) =>
+        DioException(
+          requestOptions: RequestOptions(path: staffBookingPath),
+          type: DioExceptionType.badResponse,
+          error: attached,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: staffBookingPath),
+            statusCode: statusCode,
+          ),
+        );
+
+    test('success: maps the AppointmentDetailResponse directly (no follow-up '
+        'getBookingById), and normalises startsAt to a correct UTC offset on '
+        'the wire', () async {
+      stubCreate(staffDetailResponse(buildStaffAppointment()));
+
+      final appointment = await repository.createMasterBooking('master-1', req);
+
+      expect(appointment.id, 'appt-1');
+      expect(appointment.status, BookingStatus.confirmed);
+      expect(appointment.items, hasLength(1));
+      expect(appointment.items.single.masterServiceId, 'service-1');
+
+      final captured = verify(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: captureAny(named: 'masterId'),
+          createStaffBookingRequest: captureAny(
+            named: 'createStaffBookingRequest',
+          ),
+        ),
+      ).captured;
+      expect(captured[0], 'master-1');
+      final capturedBody = captured[1] as CreateStaffBookingRequest;
+      expect(capturedBody.masterServiceIds, <String>['service-1']);
+      expect(capturedBody.guest.name, 'Іван');
+      expect(capturedBody.guest.surname, 'Петренко');
+      expect(capturedBody.guest.phone, '+380501234567');
+      // The generated Iso8601DateTimeSerializer THROWS on a non-UTC
+      // DateTime at real serialization time, so a captured value at all
+      // already proves `.isUtc` — asserted explicitly anyway, plus the
+      // actual instant, to also catch a wrong-DIRECTION offset shift
+      // (e.g. adding instead of subtracting the +3 offset).
+      expect(capturedBody.startsAt.isUtc, isTrue);
+      expect(capturedBody.startsAt, DateTime.utc(2026, 7, 10, 11));
+
+      // No enrichment follow-up any more — the 201 body IS the enriched
+      // shape.
+      verifyNever(
+        () => bookingApi.getBooking(bookingId: any(named: 'bookingId')),
+      );
+    });
+
+    // mutation-check RED: swap the mapper's `..masterServiceIds.replace(...)`
+    // for `..masterServiceIds.replace(req.masterServiceIds.toSet().toList())`
+    // (or add a `..sort()`) and this goes red — proves the wire body
+    // preserves ORDER and DUPLICATES rather than silently de-duplicating or
+    // re-sorting them.
+    test('sends masterServiceIds on the wire in the EXACT given order, '
+        'duplicates included — never sorted or de-duplicated', () async {
+      final multiReq = buildReq(
+        masterServiceIds: const <String>[
+          'service-c',
+          'service-a',
+          'service-a',
+          'service-b',
+        ],
+      );
+      stubCreate(
+        staffDetailResponse(
+          buildStaffAppointment(
+            items: <AppointmentItemResponse>[
+              buildStaffItem(bookingId: 'b-1', masterServiceId: 'service-c'),
+              buildStaffItem(bookingId: 'b-2', masterServiceId: 'service-a'),
+              buildStaffItem(bookingId: 'b-3', masterServiceId: 'service-a'),
+              buildStaffItem(bookingId: 'b-4', masterServiceId: 'service-b'),
+            ],
+          ),
+        ),
+      );
+
+      await repository.createMasterBooking('master-1', multiReq);
+
+      final capturedBody =
+          verify(
+                () => staffBookingsApi.createStaffBooking(
+                  masterId: any(named: 'masterId'),
+                  createStaffBookingRequest: captureAny(
+                    named: 'createStaffBookingRequest',
+                  ),
+                ),
+              ).captured.single
+              as CreateStaffBookingRequest;
+      expect(capturedBody.masterServiceIds, <String>[
+        'service-c',
+        'service-a',
+        'service-a',
+        'service-b',
+      ]);
+    });
+
+    test('empty masterServiceIds → ArgumentError, no HTTP call made (spec-'
+        'fidelity guard: the published schema renders minItems: 0 even though '
+        'the backend enforces @NotEmpty server-side)', () async {
+      final emptyReq = buildReq(masterServiceIds: const <String>[]);
+
+      expect(
+        () => repository.createMasterBooking('master-1', emptyReq),
+        throwsArgumentError,
+      );
+
+      verifyNever(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      );
+    });
+
+    test('11 masterServiceIds (over the maxServicesPerVisit=10 cap) → '
+        'ArgumentError, no HTTP call made', () async {
+      final overCapReq = buildReq(
+        masterServiceIds: List<String>.generate(11, (i) => 'service-$i'),
+      );
+
+      expect(
+        () => repository.createMasterBooking('master-1', overCapReq),
+        throwsArgumentError,
+      );
+
+      verifyNever(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      );
+    });
+
+    test('exactly 10 masterServiceIds (at the cap) → accepted, HTTP call '
+        'made', () async {
+      final atCapReq = buildReq(
+        masterServiceIds: List<String>.generate(10, (i) => 'service-$i'),
+      );
+      stubCreate(staffDetailResponse(buildStaffAppointment()));
+
+      await repository.createMasterBooking('master-1', atCapReq);
+
+      verify(
+        () => staffBookingsApi.createStaffBooking(
+          masterId: any(named: 'masterId'),
+          createStaffBookingRequest: any(named: 'createStaffBookingRequest'),
+        ),
+      ).called(1);
+    });
+
+    test('403 → MasterBookingNotPermittedFailure', () async {
+      stubCreateThrows(badResponse(403));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<MasterBookingNotPermittedFailure>()),
+      );
+    });
+
+    test('409 → MasterBookingDuplicateFailure (Phase 256 — the create path '
+        'has no idempotency key because the overlap check already makes a '
+        'duplicate impossible to persist, so a 409 here reads as "already '
+        'created", not the generic slot-unavailable copy)', () async {
+      stubCreateThrows(badResponse(409));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<MasterBookingDuplicateFailure>()),
+      );
+    });
+
+    test('422 → ConflictFailure (slot outside working hours / day-off / past '
+        'time / service not offered — UNLIKE 409, this status keeps the '
+        'generic slot-conflict copy)', () async {
+      stubCreateThrows(badResponse(422));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
+    test('400 → whatever Failure ErrorMapperInterceptor already attached '
+        '(this endpoint does not re-map 400 — it defers entirely, proving the '
+        '403/409/422 branches run BEFORE, not instead of, the interceptor '
+        'passthrough)', () async {
+      const attached = ValidationFailure(
+        fieldErrors: {'guest.phone': 'Некоректний формат телефону'},
+      );
+      stubCreateThrows(badResponse(400, attached: attached));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(same(attached)),
+      );
+    });
+
+    // mobile-qa gap-fix (Phase 246 audit) — the backend's StaffBookingService
+    // throws NotFoundException (404) for an unknown, foreign or inactive
+    // masterServiceId (reachable in practice if the wizard submits a stale
+    // service id after the master edited/removed it mid-flow). Neither
+    // `_mapMasterBookingWriteException` nor the phase doc's error table has a
+    // 404 arm; the method defers to `_mapDioException`, which on a real
+    // request already has `e.error` populated by `ErrorMapperInterceptor`
+    // (`if (statusCode == 404) return NotFoundFailure(cause: err);` — runs
+    // unconditionally for every path, see `error_mapper_interceptor.dart:146`)
+    // — mirrors the identical `e.error is Failure` precedent already pinned
+    // for `getBookingById`'s 404 case above. This test is the tripwire: if a
+    // future change adds a 404 arm to `_mapMasterBookingWriteException` that
+    // returns something OTHER than the pre-mapped Failure (e.g. mistakenly
+    // maps it to `ConflictFailure`, matching the 409/422 slot-conflict copy),
+    // this goes red.
+    test('404 (stale/unknown/foreign/inactive masterServiceId) → the '
+        'pre-mapped NotFoundFailure passes through unchanged, exactly like '
+        'the 400 case above', () async {
+      const attached = NotFoundFailure();
+      stubCreateThrows(badResponse(404, attached: attached));
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(same(attached)),
+      );
+    });
+
+    test('connectionError → NetworkFailure', () async {
+      stubCreateThrows(
+        DioException(
+          requestOptions: RequestOptions(path: staffBookingPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('response with null data → ServerFailure(null)', () async {
+      stubCreate(
+        Response<ApiResponseAppointmentDetailResponse>(
+          data: ApiResponseAppointmentDetailResponse((b) => b..success = true),
+          requestOptions: RequestOptions(path: staffBookingPath),
+          statusCode: 201,
+        ),
+      );
+
+      await expectLater(
+        repository.createMasterBooking('master-1', req),
+        throwsA(
+          isA<ServerFailure>().having(
+            (f) => f.statusCode,
+            'statusCode',
+            isNull,
+          ),
+        ),
       );
     });
   });
@@ -1456,14 +1842,26 @@ void main() {
       expect(page.items.single.status, BookingStatus.unknown);
     });
 
-    test('ONE structurally broken row is skipped; its siblings still render '
-        'and the SERVER page counters are preserved', () async {
+    test('ONE structurally broken row is skipped; its siblings still render, '
+        'totalPages stays the SERVER\'s and totalElements drops by exactly '
+        'the number of rows lost', () async {
       // The page is decoded ROW BY ROW, so a row that cannot be parsed at all
       // (here: a non-date `startsAt`) is dropped on its own instead of taking
-      // the page down with it. `totalElements`/`totalPages` deliberately stay
-      // the SERVER's values — they are the pager's cursor state, and
-      // recomputing them from the surviving rows would convince the pager it
-      // had reached the end of the list.
+      // the page down with it.
+      //
+      // `totalPages` is the pager's cursor state and stays the SERVER's value
+      // verbatim — `PageResponse.hasMore` reads it, and recomputing it from
+      // the surviving rows would convince the pager it had reached the end.
+      //
+      // `totalElements` is DEBITED by the drop count (mobile-debugger MEDIUM,
+      // 2026-08-20 — see `_decodeBookingsPage`'s doc, point 2). It is not
+      // "recomputed from the survivors": with 2 rows sent and 1 lost, a
+      // recompute would give 1, not 41. The debit exists because
+      // `BookingsDayNotifier` derives `isTruncated` from `totalElements >
+      // items.length`, so leaving the server's 42 over a shortened `items`
+      // made EVERY decode failure render as the "day too dense" notice —
+      // disguising a decode bug as a capacity condition on the one screen
+      // where it shows up.
       final envelope = _serializeMyBookingsEnvelope(
         [_buildDetailDto(id: 'booking-1'), _buildDetailDto(id: 'booking-2')],
         totalPages: 3,
@@ -1500,7 +1898,74 @@ void main() {
       expect(page.items, hasLength(1));
       expect(page.items.single.id, 'booking-2');
       expect(page.totalPages, 3);
-      expect(page.totalElements, 42);
+      expect(
+        page.totalElements,
+        41,
+        reason:
+            '42 sent minus the 1 row lost — NOT 1 (a recompute from the '
+            'survivors) and NOT 42 (which would read as truncation)',
+      );
+      expect(
+        page.totalElements > page.items.length,
+        isTrue,
+        reason:
+            'this page IS genuinely truncated (42 elements, 2 rows on the '
+            'page) and must still say so after the debit',
+      );
+      expect(page.hasMore, isTrue);
+    });
+
+    // The counterpart to the test above: a SHORT page (every element fits) in
+    // which a row is lost. Before the debit this produced `totalElements(2) >
+    // items.length(1)` — indistinguishable from a genuinely over-full day, so
+    // «Мої записи» rendered the "day too dense" notice instead of surfacing
+    // the decode failure. This is the case the fix exists for; the test above
+    // only proves it did not break real truncation.
+    test('a dropped row on a SHORT page does NOT read as truncation — the '
+        'decode failure must not masquerade as a too-dense day', () async {
+      final envelope = _serializeMyBookingsEnvelope(
+        [_buildDetailDto(id: 'booking-1'), _buildDetailDto(id: 'booking-2')],
+        totalPages: 1,
+        totalElements: 2,
+      );
+      final pageMap = envelope['data'] as Map<String, dynamic>;
+      final items = pageMap['data'] as List<dynamic>;
+      final broken = Map<String, dynamic>.from(
+        items.first as Map<String, dynamic>,
+      );
+      broken['startsAt'] = 'not-a-timestamp';
+      pageMap['data'] = <dynamic>[broken, items.last];
+
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          _myBookingsPath,
+          queryParameters: any(named: 'queryParameters'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<Map<String, dynamic>>(
+          data: envelope,
+          requestOptions: RequestOptions(path: _myBookingsPath),
+          statusCode: 200,
+        ),
+      );
+
+      final page = await repository.getMyBookings(
+        statuses: const <BookingStatus>{},
+        sort: BookingSort.newest,
+        page: 0,
+      );
+
+      expect(page.items, hasLength(1));
+      expect(page.totalElements, 1, reason: '2 sent minus the 1 row lost');
+      expect(
+        page.totalElements > page.items.length,
+        isFalse,
+        reason:
+            "this is BookingsDayNotifier's `isTruncated` predicate verbatim — "
+            'a decode drop must not satisfy it',
+      );
+      expect(page.totalPages, 1, reason: 'the pager cursor is untouched');
     });
 
     // ------------------------------------------------------------------
@@ -1646,10 +2111,15 @@ void main() {
       );
 
       expect(page.items, isEmpty);
-      // The SERVER's counters survive: the pager must not conclude it reached
+      // `totalPages` survives verbatim: the pager must not conclude it reached
       // the end just because this page happened to decode to nothing.
       expect(page.totalPages, 3);
-      expect(page.totalElements, 42);
+      // `totalElements` is debited by BOTH lost rows (42 - 2) — see the
+      // "ONE structurally broken row" test above for why the debit exists.
+      // Still far above `items.length` (0), so this page reads as genuinely
+      // truncated, which it is: 42 elements exist and none of them rendered.
+      expect(page.totalElements, 40);
+      expect(page.hasMore, isTrue);
     });
 
     // The test ABOVE breaks rows at the DESERIALIZATION boundary
@@ -1668,12 +2138,15 @@ void main() {
     // The counters are deliberately values that CANNOT be produced by
     // recomputing from the 2 survivors (totalElements 57, totalPages 3). If a
     // future refactor "helpfully" derives the counters from `items.length`,
-    // this fails — and it must, because shortening totalElements would also
-    // convince the pager it had reached the end and silently strand the rest
-    // of the user's history.
+    // this fails — and it must, because `totalPages` is what
+    // `PageResponse.hasMore` reads, so shortening it would convince the pager
+    // it had reached the end and silently strand the rest of the user's
+    // history. `totalElements` is debited by the ONE lost row (57 → 56, not
+    // 2) for the separate reason documented on the "ONE structurally broken
+    // row" test above.
     test('a row that DESERIALIZES but fails MAPPING is skipped mid-page — the '
-        'siblings survive and the SERVER page counters are preserved, not '
-        'recomputed from the survivors', () async {
+        'siblings survive, totalPages stays the SERVER\'s and totalElements '
+        'drops by exactly the one row lost', () async {
       final envelope = _serializeMyBookingsEnvelope(
         [
           _buildDetailDto(id: 'booking-1'),
@@ -1729,10 +2202,10 @@ void main() {
       );
       expect(
         page.totalElements,
-        57,
+        56,
         reason:
-            'the SERVER cursor state is authoritative — never recomputed '
-            'from the 2 surviving rows',
+            '57 sent minus the 1 row lost to the MAPPING loop — never '
+            'recomputed from the 2 surviving rows (which would give 2)',
       );
       expect(page.totalPages, 3);
       expect(page.page, 1);

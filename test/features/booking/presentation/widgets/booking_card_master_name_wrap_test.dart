@@ -39,7 +39,7 @@ Booking _booking() {
     salonName: null,
     serviceId: 'service-$_cardId',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     districtLabel: 'Залізничний район',
     street: 'вулиця Тестова',

@@ -3,6 +3,8 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:beautica_api/src/model/favorite_category_view.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -18,7 +20,12 @@ part 'favorite_master_response.g.dart';
 /// * [cityLabel]
 /// * [districtLabel]
 /// * [avgRating]
-/// * [lastServiceName]
+/// * [salonId]
+/// * [salonName]
+/// * [street]
+/// * [buildingNo]
+/// * [locationNote]
+/// * [categories]
 @BuiltValue()
 abstract class FavoriteMasterResponse
     implements Built<FavoriteMasterResponse, FavoriteMasterResponseBuilder> {
@@ -43,8 +50,23 @@ abstract class FavoriteMasterResponse
   @BuiltValueField(wireName: r'avgRating')
   double? get avgRating;
 
-  @BuiltValueField(wireName: r'lastServiceName')
-  String? get lastServiceName;
+  @BuiltValueField(wireName: r'salonId')
+  String? get salonId;
+
+  @BuiltValueField(wireName: r'salonName')
+  String? get salonName;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
+
+  @BuiltValueField(wireName: r'categories')
+  BuiltList<FavoriteCategoryView>? get categories;
 
   FavoriteMasterResponse._();
 
@@ -125,11 +147,47 @@ class _$FavoriteMasterResponseSerializer
         specifiedType: const FullType(double),
       );
     }
-    if (object.lastServiceName != null) {
-      yield r'lastServiceName';
+    if (object.salonId != null) {
+      yield r'salonId';
       yield serializers.serialize(
-        object.lastServiceName,
+        object.salonId,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.salonName != null) {
+      yield r'salonName';
+      yield serializers.serialize(
+        object.salonName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.categories != null) {
+      yield r'categories';
+      yield serializers.serialize(
+        object.categories,
+        specifiedType:
+            const FullType(BuiltList, [FullType(FavoriteCategoryView)]),
       );
     }
   }
@@ -206,12 +264,48 @@ class _$FavoriteMasterResponseSerializer
           ) as double;
           result.avgRating = valueDes;
           break;
-        case r'lastServiceName':
+        case r'salonId':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.lastServiceName = valueDes;
+          result.salonId = valueDes;
+          break;
+        case r'salonName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.salonName = valueDes;
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
+          break;
+        case r'categories':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(BuiltList, [FullType(FavoriteCategoryView)]),
+          ) as BuiltList<FavoriteCategoryView>;
+          result.categories.replace(valueDes);
           break;
         default:
           unhandled.add(key);

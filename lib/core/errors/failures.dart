@@ -46,6 +46,35 @@ final class NetworkFailure extends Failure {
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errNetwork;
 }
 
+/// Emitted when the TLS handshake was rejected by the app's PINNED trust
+/// anchors — `DioExceptionType.badCertificate`.
+///
+/// Deliberately NOT a [NetworkFailure]. Pinning is fail-closed, so by the time
+/// this is thrown nothing was transmitted and nothing was received — but
+/// `dio_provider.dart`'s `_logRejectedCertificate` states the requirement
+/// directly: a pin miss must not "blend into generic network failures".
+/// [NetworkFailure]'s copy («перевірте з'єднання») invites exactly the wrong
+/// response — retry, or hop onto another network — and under an active MITM
+/// the other network IS the attack.
+///
+/// The two real causes are a rotated CA chain (ours to fix, in a release) and
+/// an intercepting proxy (never fixed by retrying), so the copy offers no
+/// connectivity advice and points at the app instead.
+///
+/// **Deterministic** — see `isTransientFailure`. An identical later attempt
+/// meets the identical rejected chain, so it is never auto-retried.
+///
+/// Only `favorite_repository.dart` emits this today; the other ten repositories
+/// still collapse `badCertificate` into [ServerFailure] and are a separate
+/// sweep (the backlog row names them).
+final class CertificateFailure extends Failure {
+  const CertificateFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errCertificate;
+}
+
 /// Emitted when the server responds with HTTP 404 Not Found.
 final class NotFoundFailure extends Failure {
   const NotFoundFailure({super.cause});
@@ -778,6 +807,64 @@ final class BookingRateLimitedFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).bookingErrRateLimited;
+}
+
+/// Emitted when `POST /api/v1/masters/{masterId}/bookings` returns HTTP
+/// **403 Forbidden** (backend Phase 22.4, amendment A6 —
+/// `docs/backend-phases/phase-171-22.4-staff-booking-endpoint-and-authz.md`).
+///
+/// The backend's `@authz.canBookForMaster` predicate DELIBERATELY collapses
+/// every "you may not book this master" reason into this ONE status:
+///   - the caller is a salon owner/admin whose managed salon does not
+///     contain [masterId]'s master;
+///   - the caller is an `INDEPENDENT_MASTER` and [masterId] is not their own
+///     profile;
+///   - the caller is a `SALON_MASTER` (read-only calendar — never permitted);
+///   - **`masterId` does not exist, or resolves to an inactive master** — a
+///     probe defence: distinguishing "unknown master" from "not yours" via a
+///     404 would let a caller enumerate valid master ids by status code
+///     alone, so the backend answers 403 either way.
+///
+/// [userMessage] therefore NEVER says anything resembling "майстра не
+/// знайдено" ("master not found") — that would leak exactly the distinction
+/// the backend deliberately hides. Do not add a variant that does.
+final class MasterBookingNotPermittedFailure extends Failure {
+  const MasterBookingNotPermittedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrMasterNotPermitted;
+}
+
+/// Emitted when `POST /api/v1/masters/{masterId}/bookings` returns HTTP
+/// **409 Conflict** (mobile Phase 256 — backend Phase 258 D5).
+///
+/// The backend deliberately carries NO idempotency key on this write: a
+/// resubmitted identical request plans the identical booking chain over the
+/// identical `[firstStart, lastEnd)` span, so the whole-visit overlap check
+/// plus the `no_overlapping_bookings` GIST EXCLUDE make a duplicate visit
+/// **impossible to persist** — a resubmit 409s instead of creating a second
+/// row. On THIS endpoint's create path, that means a 409 reads as "this
+/// exact visit is already on the calendar" far more often than "someone else
+/// just took the slot": the two cases share one status and one body (the app
+/// cannot distinguish them), but the wizard's own submit path only ever
+/// re-POSTs the SAME payload (a double-tap, or a retry after a timeout), so
+/// [userMessage] is worded for the common case — "already created" — rather
+/// than the generic slot-unavailable copy [ConflictFailure] carries. Either
+/// way the message is RECOVERABLE: the confirm step's snack offers an
+/// «Оновити» action that returns to `dateTime` and re-fetches, so a genuine
+/// collision (the rarer case) self-corrects in one tap.
+///
+/// Mapped BEFORE the generic 409/422 → [ConflictFailure] fallback in
+/// `HttpBookingRepository._mapMasterBookingWriteException` — a 422 on this
+/// endpoint (outside working hours, day-off, past time, service not offered)
+/// stays [ConflictFailure]; only the bare 409 status maps here.
+final class MasterBookingDuplicateFailure extends Failure {
+  const MasterBookingDuplicateFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errMasterBookingDuplicate;
 }
 
 /// Emitted when `POST /reviews` returns HTTP **409 Conflict** because the

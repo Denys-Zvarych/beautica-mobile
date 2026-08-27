@@ -19,9 +19,14 @@
 // locked product decision and are exactly what a screenshot in a task
 // switcher, or a screen recorder, should not capture.
 //
-// The RELEASE half matters as much as the acquire: a leaked acquire leaves
-// FLAG_SECURE on for the rest of the session, which is not a security failure
-// but is a user-visible one (screenshots silently stop working app-wide).
+// The RELEASE half matters as much as the acquire: a leaked acquire leaves the
+// app-switcher blur on for the rest of the session, which is not a security
+// failure but is a user-visible one (every screen's task-switcher thumbnail
+// silently stays blank). It no longer latches FLAG_SECURE — screenshots are
+// allowed app-wide since the 2026-08-20 product decision, see the header of
+// `lib/core/security/screen_protection.dart`. The `reason:` strings below still
+// say FLAG_SECURE; they are stale for the same reason and are left untouched
+// because they are assertion arguments, not comments.
 //
 // Asserted for BOTH viewer roles — the protection is a property of the SCREEN,
 // not of the branch it renders, and a future refactor that moved the acquire

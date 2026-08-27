@@ -12,6 +12,15 @@
 // the SAME submit reuse the same key so the backend de-duplicates a double-send
 // (same contract as [CreateBookingRequest.idempotencyKey]).
 //
+// [allowClientOverlap] (backend session, `CLIENT_BOOKING_CONFLICT` self-
+// overlap track) — defaults `false`, matching the backend's own default.
+// `true` tells the server to skip ONLY `assertNoClientConflict` (the CLIENT's
+// own overlapping-booking check); the per-master `no_overlapping_bookings`
+// EXCLUDE constraint is untouched and unwaivable. Set `true` for exactly ONE
+// resubmit, immediately after the client explicitly confirms a
+// `ClientBookingConflictFailure` dialog — never sticky, never set on the
+// first attempt (see `salon_booking_confirm_screen.dart`'s `_submitOne`).
+//
 // NAMING COLLISION: the generated wire `CreateAppointmentRequest`
 // (`beautica_api`) shares this exact class name, resolved in
 // `appointment_repository.dart` via a `hide` + aliased-`show` import pair —
@@ -41,5 +50,9 @@ abstract class CreateAppointmentRequest with _$CreateAppointmentRequest {
     /// retry/dedupe contract.
     required String idempotencyKey,
     String? clientComment,
+
+    /// Skips the CLIENT's own overlapping-booking check when `true`. See the
+    /// file header — defaults `false` (every pre-existing caller unaffected).
+    @Default(false) bool allowClientOverlap,
   }) = _CreateAppointmentRequest;
 }

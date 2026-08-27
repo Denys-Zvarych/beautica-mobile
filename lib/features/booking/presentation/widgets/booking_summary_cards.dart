@@ -177,6 +177,18 @@ class BookingSummaryCards extends StatelessWidget {
     bool dense = false,
     bool showBorder = false,
     bool compactText = false,
+    // FIX 3 (owner-reported, salon booking success screen) — additive
+    // passthrough to the core constructor's `trailingAction`, mirroring
+    // `BookingSummaryCards.fromMaster`'s independent-flow call site
+    // (`booking_success_screen.dart`), which mounts ONE `CalendarButton` for
+    // the WHOLE visit via this exact slot. `null` (every pre-existing
+    // caller — `salon_booking_confirm_screen.dart`,
+    // `salon_booking_success_screen.dart`'s prior bespoke-card version)
+    // renders byte-identically to before this addition: no rule, no action
+    // block. See `salon_booking_success_screen.dart` for the new caller that
+    // mounts ONE `CalendarButton` per master through this slot, replacing
+    // the deleted `_SalonCalendarActionsCard`/`_CalendarActionRow`.
+    Widget? trailingAction,
   }) {
     final List<BookingSelection> selections = schedule.services
         .map(BookingSelection.fromSalonCatalogService)
@@ -202,6 +214,7 @@ class BookingSummaryCards extends StatelessWidget {
       dense: dense,
       showBorder: showBorder,
       compactText: compactText,
+      trailingAction: trailingAction,
     );
   }
 
@@ -323,8 +336,13 @@ class BookingSummaryCards extends StatelessWidget {
   /// again, which is exactly the ambiguity the old single page-level pill
   /// below the recap had.
   ///
-  /// `null` (every other call site — both confirm screens, the salon success
-  /// screen, «Деталі запису») renders nothing at all: no rule, no gap.
+  /// `null` (every other call site — both confirm screens, «Деталі запису»)
+  /// renders nothing at all: no rule, no gap. The salon success screen
+  /// (`salon_booking_success_screen.dart`) sets this via
+  /// [BookingSummaryCards.fromSchedule]'s `trailingAction` passthrough — ONE
+  /// [CalendarButton] per master, covering that master's whole (possibly
+  /// multi-service) visit window, mirroring [BookingSummaryCards.fromMaster]'s
+  /// independent-flow call site.
   final Widget? trailingAction;
 
   @override

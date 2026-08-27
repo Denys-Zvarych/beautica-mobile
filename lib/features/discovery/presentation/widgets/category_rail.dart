@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/icons/app_icon.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -33,6 +34,7 @@ class CategoryRailTile extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.iconAsset,
   });
 
   final IconData icon;
@@ -40,16 +42,41 @@ class CategoryRailTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  /// Optional SVG asset path (e.g. from `categoryIconFor` in
+  /// `core/icons/category_icons.dart`), rendered via [AppIcon] at
+  /// [kGlyphAssetSize] instead of the Material [icon]. Additive — defaults to
+  /// `null` so every existing caller keeps rendering the Material [icon] at
+  /// [kGlyphSize] exactly as before.
+  ///
+  /// The asset glyph paints larger than the Material fallback because most of
+  /// the 20 registered category SVGs are traced from detailed line artwork
+  /// (up to 26 closed loops) that reads as a smudge below ~32 dp — confirmed
+  /// by rendering the four densest (`category_cosmetology`,
+  /// `category_hair_treatment`, `category_laser_cosmetology`,
+  /// `category_aesthetic_cosmetology`) at 24–48 dp. 36 dp is the smallest size
+  /// at which all of them read as distinct silhouettes.
+  final String? iconAsset;
+
+  /// Material [icon] glyph size — used only when [iconAsset] is null.
+  static const double kGlyphSize = 24;
+
+  /// [iconAsset] SVG glyph size — see [iconAsset]'s doc for why this is
+  /// larger than [kGlyphSize].
+  static const double kGlyphAssetSize = 36;
+
   /// Uniform tile width — chosen so the longest approved label
   /// («Перманентний макіяж») still wraps cleanly onto two lines within the
   /// inner content width (width − 2×[_kTileHPadding] ≈ 100 dp) without a
   /// mid-word break, while short labels sit comfortably centered.
   static const double kTileWidth = 112;
 
-  /// Uniform tile height — reserves the 24 dp glyph + gap + a 2-line label area
-  /// with symmetric vertical breathing, centered. Constant across every tile so
-  /// 1-line and 2-line labels yield identical-height cards.
-  static const double kTileHeight = 80;
+  /// Uniform tile height — reserves the glyph ([kGlyphAssetSize], the larger
+  /// of the two glyph sizes so an [iconAsset] tile never clips) + gap + a
+  /// 2-line label area with symmetric vertical breathing, centered. Constant
+  /// across every tile so 1-line and 2-line labels yield identical-height
+  /// cards. Grew 80→92 (+12, exactly [kGlyphAssetSize] − [kGlyphSize]) when
+  /// [iconAsset] was added, to keep the same vertical breathing margin.
+  static const double kTileHeight = 92;
 
   /// Horizontal breathing inside the card; keeps the inner content width at
   /// ~100 dp (the proven width at which the longest label wraps to two lines).
@@ -66,16 +93,19 @@ class CategoryRailTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color glyph = selected
+    final Color glyphColor = selected
         ? BrandColors.accent
         : BrandColors.textSecondary;
+    final Widget glyph = iconAsset != null
+        ? AppIcon(iconAsset!, color: glyphColor, size: kGlyphAssetSize)
+        : Icon(icon, color: glyphColor, size: kGlyphSize);
     final Widget inner = Padding(
       padding: const EdgeInsets.symmetric(horizontal: _kTileHPadding),
       child: Column(
         mainAxisSize: MainAxisSize.max,
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(icon, color: glyph, size: 24),
+          glyph,
           const SizedBox(height: VelvetSpacing.xs + 2),
           ConstrainedBox(
             constraints: const BoxConstraints(minHeight: _kLabelMinHeight),

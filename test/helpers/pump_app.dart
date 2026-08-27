@@ -216,8 +216,19 @@ extension PumpUntil on WidgetTester {
 /// helper `fail()`s outright when the resolved cell has no `GestureDetector`
 /// descendant (see the inline comment on the check for the defect it caught).
 extension TapCalendarDay on WidgetTester {
-  Future<void> tapCalendarDay(int day) async {
-    final Finder finder = find.byKey(Key('booking-calendar-day-$day'));
+  /// [within] scopes the cell lookup to one ancestor's subtree — needed when
+  /// more than one `booking-calendar-day-<day>` key can be simultaneously
+  /// mounted (e.g. the salon booking flow's multi-slide `PageView`, where
+  /// mobile-perf's current±1 keep-alive bound can leave two slides' calendars
+  /// mounted at once with the SAME day number). `skipOffstage: false` mirrors
+  /// the flows' own `withinSlide` helpers so a kept-alive-but-scrolled-off
+  /// slide's cell is still reachable. Omitted (the default, every pre-
+  /// existing caller), the lookup is unscoped exactly as before.
+  Future<void> tapCalendarDay(int day, {Finder? within}) async {
+    final Finder cellKey = find.byKey(Key('booking-calendar-day-$day'));
+    final Finder finder = within == null
+        ? cellKey
+        : find.descendant(of: within, matching: cellKey, skipOffstage: false);
     await ensureVisible(finder);
     await pumpAndSettle();
 

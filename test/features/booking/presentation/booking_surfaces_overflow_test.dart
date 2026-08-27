@@ -131,7 +131,7 @@ String _longNote() {
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
-/// No-op — the native FLAG_SECURE plugin must never fire in a widget test.
+/// No-op — the native `screen_protector` plugin must never fire in a widget test.
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
   void acquire() {}
@@ -168,7 +168,7 @@ Booking _booking({
     salonName: salonName,
     serviceId: 'service-$id',
     serviceName: serviceName,
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     districtLabel: 'Залізничний район',
     street: street,

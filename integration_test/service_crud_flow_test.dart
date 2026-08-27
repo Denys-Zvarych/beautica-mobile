@@ -40,6 +40,8 @@
 // ----------
 // All navigation taps use key-based finders. See app_harness.dart for policy.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -103,6 +105,33 @@ void main() {
       final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
       await tester.pumpUntilFound(nailsChip.hitTestable());
       AppHarness.expectLocation(router, RouteNames.serviceSetup);
+
+      // ── Category-icon wiring, end to end (mobile-qa gap-closure, 2026-08-27)
+      // The widget/screen unit tests already prove categoryIconOrNullFor is
+      // wired at both service_setup_screen.dart call sites (mocked
+      // ServiceCategoryOption fixtures). This proves the SAME wiring survives
+      // the real HTTP round-trip through FakeBackend's
+      // `/service-categories/approved` seed (fake_backend.dart:5031-5032):
+      //   • BROWS is a real `_fromKey` switch entry (category_icons.dart) — its
+      //     chip must render the DISTINCT brows asset, not a fallback.
+      //   • NAILS is a fixture slug that matches NEITHER the key switch (the
+      //     live platform slug is `NAIL_SERVICE`) nor any `_fromName` Ukrainian
+      //     keyword for «Нігті» — so it resolves through the cosmetology
+      //     fallback. Asserting that HERE (not just in the resolver's own unit
+      //     tests) pins that this known-fallback case renders a REAL icon
+      //     end-to-end rather than silently rendering nothing.
+      final AppIcon nailsIcon = tester.widget<AppIcon>(
+        find.descendant(of: nailsChip, matching: find.byType(AppIcon)),
+      );
+      expect(nailsIcon.asset, equals(BeauticaAssetIcons.categoryCosmetology));
+
+      final Finder browsChip = find.byKey(const ValueKey<String>('cat_BROWS'));
+      final AppIcon browsIcon = tester.widget<AppIcon>(
+        find.descendant(of: browsChip, matching: find.byType(AppIcon)),
+      );
+      expect(browsIcon.asset, equals(BeauticaAssetIcons.categoryBrows));
+      expect(browsIcon.asset, isNot(equals(nailsIcon.asset)));
+
       await tester.tap(nailsChip);
 
       // Wait for the ROW itself (not a pump count) — the per-category fetch

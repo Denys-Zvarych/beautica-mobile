@@ -52,6 +52,8 @@ import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/presentation/favorites_screen.dart';
 import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
@@ -64,6 +66,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+
+import '../../helpers/fakes/fake_favorite_repository.dart';
 
 // ---------------------------------------------------------------------------
 // No-op ScreenProtectionManager — both HomeHubScreen and PassportScreen
@@ -98,6 +102,9 @@ List<Object> _overrides() => <Object>[
   ),
   beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
   unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
+  // Branch 1 mounts the REAL FavoritesScreen (Phase 111) — an empty-list fake
+  // keeps the branch hermetic and settled, same as the Home providers above.
+  favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
 ];
 
 /// Builds a GoRouter that mounts the REAL CLIENT StatefulShellRoute (the same
@@ -125,8 +132,7 @@ GoRouter _buildClientShellRouter() {
             routes: <RouteBase>[
               GoRoute(
                 path: RouteNames.clientFavorites,
-                builder: (context, state) =>
-                    const ClientFavoritesPlaceholderScreen(),
+                builder: (context, state) => const FavoritesScreen(),
               ),
             ],
           ),

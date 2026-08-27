@@ -66,9 +66,42 @@ class FavoriteMasterItem {
 }
 
 /// One past procedure on the BEAUTY TIMELINE rail.
+///
+/// Phase 110 (13.9) wired this onto `GET /clients/me/timeline` and added
+/// three OPTIONAL fields ([categoryKey], [bookingId], [serviceName]) —
+/// additive-only, per the project's reuse/no-breaking-change rule: several
+/// existing tests construct `TimelineEntry(category: ..., dateLabel: ...)`
+/// directly, so none of the new fields may become required.
 class TimelineEntry {
-  const TimelineEntry({required this.category, required this.dateLabel});
+  const TimelineEntry({
+    required this.category,
+    required this.dateLabel,
+    this.categoryKey,
+    this.bookingId,
+    this.serviceName,
+  });
 
   final String category;
   final String dateLabel;
+
+  /// The backend's stable machine key for the service category (e.g.
+  /// `"NAIL_SERVICE"`), when the row carries one. Preferred over [category]
+  /// for icon resolution via `categoryIconOrNullFor` in
+  /// `lib/core/icons/category_icons.dart` — a row with no key (e.g. a
+  /// pre-Phase-110 test fixture) falls back to matching [category] by
+  /// keyword instead. Null, never `''`: an absent key must be
+  /// distinguishable from a genuinely empty one. The literal `"UNKNOWN"`
+  /// sentinel (the timeline endpoint's no-category marker) is a valid,
+  /// non-null value of this field — normalised to null at the
+  /// `beauty_timeline_section.dart` call site, not here.
+  final String? categoryKey;
+
+  /// The source booking's id, when the row carries one. Used to navigate to
+  /// «Деталі запису» on tile tap; null/empty ⇒ the tile is not tappable.
+  /// Never coerced with `?? ''` — see `data/timeline_mapper.dart`'s header.
+  final String? bookingId;
+
+  /// The booked service's name, when the row carries one. Not currently
+  /// rendered by the compact rail tile; carried through for future use.
+  final String? serviceName;
 }

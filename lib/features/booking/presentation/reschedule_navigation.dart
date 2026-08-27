@@ -56,6 +56,19 @@
 // [BookingConfirmArgs.rescheduleAppointmentId]) to swap the endpoint to
 // `AppointmentSubmit.rescheduleAppointmentItem` instead of the per-booking
 // [AppointmentSubmit.reschedule].
+//
+// WALK-IN TARGET («Додати в календар» removal, 2026-08-21): the same fresh
+// [Booking] fetch is also the source of
+// [BookingSlotPickerArgs.rescheduleTargetIsWalkIn] — `booking.isGuestBooking`
+// (`clientId == null`, `booking_display_x.dart`), the existing signal that
+// already marks a booking as a walk-in elsewhere (non-reviewable). Threaded
+// through to `BookingConfirmArgs` and folded into `BookingSuccessArgs
+// .isWalkIn` by `BookingConfirmScreen._submit`, so a master rescheduling a
+// WALK-IN booking hides the terminal screen's calendar button the same way a
+// walk-in CREATE does — reusing the SAME `isWalkIn` gate, no parallel flag.
+// Mirrors [rescheduleAppointmentId]'s own reasoning: derived from the ONE
+// fresh read, never a caller-supplied value, so it can never disagree with
+// the booking's actual shape.
 
 import 'dart:async';
 
@@ -72,7 +85,9 @@ import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
+import '../application/booking_viewer_role.dart';
 import '../domain/booking.dart';
+import '../domain/booking_display_x.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/booking_status.dart';
 
@@ -158,6 +173,47 @@ Future<void> startBookingReschedule({
     }
 
     if (!context.mounted) return;
+    // FIX 3 (audit-fix cycle 3, 2026-08-21) — hide the master identity card
+    // (+ its Hero + the address block) through the picker/confirm chain when
+    // the RESCHEDULE VIEWER is the provider: a master rescheduling their own
+    // booking has no use for a card of themselves. Derived from the SAME
+    // session-backed `bookingViewerRoleProvider` `booking_detail_screen.dart`
+    // already watches for its footer split (never a caller-supplied flag —
+    // see that provider's own "derived from the session" rationale) — a
+    // CLIENT rescheduling their own booking resolves `BookingViewerRole
+    // .client` here exactly as it always has, so `hideMasterIdentity` stays
+    // `false` and that path is UNCHANGED (the pre-existing default every
+    // other `BookingSlotPickerArgs` call site relies on).
+    final bool hideMasterIdentity = ref
+        .read(bookingViewerRoleProvider)
+        .isProvider;
+    // «Додати в календар» removal (2026-08-21) — a master rescheduling a
+    // WALK-IN booking must still hide the terminal screen's calendar button,
+    // same as walk-in CREATE. Read off the SAME fresh [booking] fetch above
+    // (never re-derived elsewhere) so it can never disagree with
+    // [rescheduleAppointmentId]'s own reasoning just above it. `isGuestBooking`
+    // (`clientId == null`) is the existing signal that already gates
+    // walk-ins as non-reviewable — reused here rather than inventing a new
+    // one. A CLIENT rescheduling their own booking, or a PROVIDER
+    // rescheduling a real client's booking, both keep `clientId` set, so
+    // this stays `false` and those paths are byte-for-byte unaffected.
+    final bool rescheduleTargetIsWalkIn = booking.isGuestBooking;
+    // CLIENT IDENTITY PARITY (2026-08-22): the walk-in CREATE flow renders a
+    // `GuestIdentityCard` on the confirm/done screens so the master always
+    // sees WHO the visit is for instead of their own (hidden) identity strip
+    // staring back at them; the RESCHEDULE flow left that same slot EMPTY
+    // because it has no guest step to source a `WalkInGuest` from. Reused
+    // here off the SAME `hideMasterIdentity` boolean just above (not a second
+    // `bookingViewerRoleProvider` read) — a CLIENT rescheduling their own
+    // booking must NOT be shown an identity card of themselves (the exact
+    // "your own strip staring back at you" problem the walk-in card was
+    // introduced to solve), so only the PROVIDER arm populates these fields.
+    // `BookingDisplayX.clientName` is the SAME name-joining logic every other
+    // provider-facing surface uses — never re-implemented here. `Booking`
+    // carries no client phone field, so `rescheduleClientPhone` stays `null`.
+    final String? rescheduleClientName = hideMasterIdentity
+        ? booking.clientName
+        : null;
     unawaited(
       context.push(
         RouteNames.bookingSlots,
@@ -167,6 +223,9 @@ Future<void> startBookingReschedule({
           services: <MasterService>[service],
           rescheduleBookingId: booking.id,
           rescheduleAppointmentId: booking.appointmentId,
+          hideMasterIdentity: hideMasterIdentity,
+          rescheduleTargetIsWalkIn: rescheduleTargetIsWalkIn,
+          rescheduleClientName: rescheduleClientName,
         ),
       ),
     );

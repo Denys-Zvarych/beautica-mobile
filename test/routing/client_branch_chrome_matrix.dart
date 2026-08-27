@@ -51,9 +51,9 @@
 
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
+import 'package:beautica_mobile/features/favorites/presentation/favorites_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
-import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -108,17 +108,15 @@ class ClientBranchChrome {
 /// │ # │ Branch       │ Route     │ Root widget                    │ TopBar? │
 /// ├───┼──────────────┼───────────┼────────────────────────────────┼─────────┤
 /// │ 0 │ Головна      │ /home     │ HomeHubScreen                  │  YES    │
-/// │ 1 │ Улюблені     │ /favorites│ ClientFavoritesPlaceholder…    │  YES*   │
+/// │ 1 │ Улюблені     │ /favorites│ FavoritesScreen                │  YES    │
 /// │ 2 │ Пошук        │ /search   │ ClientSearchScreen             │  YES    │
 /// │ 3 │ Записи       │ /bookings │ MyBookingsScreen                │  YES*   │
 /// │ 4 │ BEAUTY PASS… │ /passport │ PassportScreen                 │  YES    │
 /// └───┴──────────────┴───────────┴────────────────────────────────┴─────────┘
 /// * The [ClientTopBar] is shell-owned (2026-06-24 hoist), so ALL five branches
-///   — including the Favorites + Bookings placeholders (Phase 13.11 / 14.3) —
-///   sit beneath the same shared bar and join the wordmark-`dy` invariant. The
-///   placeholder bodies still draw their own `appTitle` ("Beautica") wordmark,
-///   but that is the placeholder's body text, distinct from the shell's
-///   "beautica" [ClientTopBar] wordmark the invariant measures.
+///   sit beneath the same shared bar and join the wordmark-`dy` invariant. No
+///   branch root mounts a bar of its own; a root that re-introduced one would
+///   be caught by the dy assertion.
 final List<ClientBranchChrome> clientBranchChromeMatrix = <ClientBranchChrome>[
   const ClientBranchChrome(
     branchIndex: kClientHomeBranch, // 0
@@ -131,12 +129,12 @@ final List<ClientBranchChrome> clientBranchChromeMatrix = <ClientBranchChrome>[
     branchIndex: kClientFavoritesBranch, // 1
     branchName: 'Улюблені (favorites)',
     expectedRoute: RouteNames.clientFavorites, // '/favorites'
-    expectedRootType: ClientFavoritesPlaceholderScreen,
-    // The ClientTopBar is now SHELL-owned (2026-06-24 hoist), so EVERY branch —
-    // including the favorites placeholder body — sits beneath the same shared
-    // bar. The placeholder body still draws its own appTitle "Beautica"
-    // wordmark, but the shell's "beautica" ClientTopBar wordmark is also
-    // present and is what the dy invariant measures.
+    // Phase 111 — real FavoritesScreen replaces the placeholder. It mounts NO
+    // screen-owned top bar (same convention as HomeHubScreen / PassportScreen
+    // — the shell owns the single ClientTopBar), so the wordmark-dy invariant
+    // is unaffected; the grid settles to its own error state under the
+    // suite-wide no-network override, same as Home/Passport's data providers.
+    expectedRootType: FavoritesScreen,
     hasTopBar: true,
   ),
   const ClientBranchChrome(

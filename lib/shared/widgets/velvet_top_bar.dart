@@ -32,7 +32,7 @@ class VelvetTopBar extends StatelessWidget {
   });
 
   /// Title rendered centred in the 48 dp strip via `Text(title,
-  /// style: VelvetText.subheading())` — UNLESS [titleWidget] is supplied, in
+  /// style: VelvetText.pageTitle)` — UNLESS [titleWidget] is supplied, in
   /// which case [titleWidget] is rendered in that exact slot instead and
   /// [title] is used only as this bar's accessible identity (kept required
   /// so every call site still states its screen's semantic title even when
@@ -42,7 +42,7 @@ class VelvetTopBar extends StatelessWidget {
   /// Optional replacement for the default centred `Text(title, ...)` — e.g.
   /// the "beautica" wordmark on [MyRatingScreen]. Purely additive: omitted
   /// (the default) renders EXACTLY the pre-existing `Text(title,
-  /// style: VelvetText.subheading())`, so all 5 pre-existing call sites are
+  /// style: VelvetText.pageTitle)`, so all 5 pre-existing call sites are
   /// byte-identical. When supplied, [title] no longer renders visually but
   /// still documents the screen's identity at the call site.
   ///
@@ -97,7 +97,7 @@ class VelvetTopBar extends StatelessWidget {
             titleWidget ??
                 Text(
                   title,
-                  style: VelvetText.subheading(),
+                  style: VelvetText.pageTitle,
                   textAlign: TextAlign.center,
                 ),
             if (trailing != null)

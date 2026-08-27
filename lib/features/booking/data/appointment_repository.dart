@@ -230,11 +230,20 @@ abstract interface class AppointmentRepository {
   /// [Failure] the shared error-mapper interceptor already attached — see
   /// [_mapAppointmentItemRescheduleException], transcribed from
   /// `HttpBookingRepository._mapBookingWriteException`.
+  ///
+  /// [allowClientOverlap] — backend commit c1c2349 — mirrors
+  /// `BookingRepository.rescheduleBooking`'s counterpart: `true` waives the
+  /// [ClientBookingConflictFailure] check on resubmit, after the CLIENT has
+  /// confirmed the overlap dialog. Defaults to `false` so every existing
+  /// caller resubmits unchanged. Honoured by the backend ONLY when the actor
+  /// is the CLIENT — a PROVIDER reschedule ignores it and still 409s — so
+  /// callers must never set this `true` on a provider-initiated reschedule.
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  );
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  });
 
   /// Declines a visit on behalf of the authenticated PROVIDER (track 27.x /
   /// MO-6) — the whole-visit counterpart to `BookingRepository.declineBooking`.
@@ -358,14 +367,17 @@ final class HttpAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) async {
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) async {
     try {
       final res = await _appointmentApi.rescheduleAppointmentItem(
         appointmentId: appointmentId,
         bookingId: bookingId,
         appointmentItemRescheduleRequest: AppointmentItemRescheduleRequest(
-          (b) => b..newStartsAt = newStartAt,
+          (b) => b
+            ..newStartsAt = newStartAt
+            ..allowClientOverlap = allowClientOverlap ? true : null,
         ),
       );
       final dto = res.data?.data;
@@ -592,7 +604,8 @@ final class HttpAppointmentRepository implements AppointmentRepository {
         ..masterServiceIds.replace(req.masterServiceIds)
         ..startsAt = req.startAt
         ..idempotencyKey = req.idempotencyKey
-        ..clientComment = req.clientComment,
+        ..clientComment = req.clientComment
+        ..allowClientOverlap = req.allowClientOverlap,
     );
   }
 

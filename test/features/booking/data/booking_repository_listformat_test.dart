@@ -48,6 +48,8 @@ class _MockBookingApi extends Mock implements BookingControllerApi {}
 
 class _MockReviewApi extends Mock implements ReviewControllerApi {}
 
+class _MockStaffBookingsApi extends Mock implements StaffBookingsApi {}
+
 void main() {
   late Dio dio;
   late HttpBookingRepository repository;
@@ -83,6 +85,7 @@ void main() {
       dio,
       _MockBookingApi(),
       _MockReviewApi(),
+      _MockStaffBookingsApi(),
     );
   });
 

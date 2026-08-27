@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -161,6 +162,122 @@ void main() {
         find.byKey(const Key('test-category-_none')),
       );
       expect(card.count, 1);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // mobile-build-verifier INFO (closed): the `slug == null` → "no icon glyph"
+  // decision (see the ServiceCategoryCard class doc + the leading-glyph
+  // comment in build()) was backed ONLY by the beauty_timeline_rail golden's
+  // pixel diff. A regenerated golden is self-referential — a future
+  // `--update-goldens` could silently absorb a regression here with nothing
+  // else catching it. These pin the actual contract directly:
+  //   • a categorised card renders exactly one SvgPicture, laid out at 20dp
+  //     (categoryIconFor never returns null, so this is the "has a glyph"
+  //     case);
+  //   • the uncategorized (_none) card renders NO SvgPicture at all
+  //     (categoryIconFor would otherwise silently mislabel it with the
+  //     cosmetology fallback — see the build() comment);
+  //   • the label's left edge lines up identically on both, proving the empty
+  //     same-size SizedBox slot (not the icon itself) is what keeps every
+  //     card's text aligned.
+  // Both cards are mounted from ONE ServiceCategoryCardList so the comparison
+  // in the third test is apples-to-apples (same padding/ancestor context).
+  // ──────────────────────────────────────────────────────────────────────────
+  group('leading glyph — slug == null renders no icon (non-golden pin)', () {
+    final List<MasterService> combined = <MasterService>[
+      ..._twoCategoryServices,
+      ..._uncategorizedServices,
+    ];
+
+    testWidgets(
+      'a categorised card renders exactly one SvgPicture, laid out at 20dp',
+      (tester) async {
+        await tester.pumpApp(
+          ServiceCategoryCardList(
+            services: combined,
+            keyPrefix: 'test-category',
+            interactive: true,
+          ),
+          overrides: _overrides(),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(const Key('test-category-MANICURE'));
+        final Finder svg = find.descendant(
+          of: card,
+          matching: find.byType(SvgPicture),
+        );
+        expect(svg, findsOneWidget);
+
+        // Measure the actual RenderBox, not the widget's constructor field —
+        // a tight-constrained ancestor can silently clobber the rendered
+        // size while the field still reads correctly (the exact trap that
+        // hid a 64dp-vs-36dp bug elsewhere this session).
+        expect(tester.getSize(svg), const Size(20, 20));
+      },
+    );
+
+    testWidgets('the uncategorized (_none) card renders NO SvgPicture', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        ServiceCategoryCardList(
+          services: combined,
+          keyPrefix: 'test-category',
+          interactive: true,
+        ),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder card = find.byKey(const Key('test-category-_none'));
+      expect(
+        find.descendant(of: card, matching: find.byType(SvgPicture)),
+        findsNothing,
+        reason:
+            'categoryIconFor never returns null, so the uncategorized card '
+            'must suppress the glyph itself or it would render the wrong '
+            '(cosmetology fallback) icon',
+      );
+    });
+
+    testWidgets("the label's left offset is identical on the categorised and "
+        'uncategorized cards', (tester) async {
+      await tester.pumpApp(
+        ServiceCategoryCardList(
+          services: combined,
+          keyPrefix: 'test-category',
+          interactive: true,
+        ),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      // The label Text is the one with maxLines == 1 (build()'s Expanded
+      // child) — uniquely distinguishes it from the count badge's Text,
+      // which sets no maxLines at all.
+      bool isLabelText(Widget w) => w is Text && w.maxLines == 1;
+
+      final Finder manicureLabel = find.descendant(
+        of: find.byKey(const Key('test-category-MANICURE')),
+        matching: find.byWidgetPredicate(isLabelText),
+      );
+      final Finder noneLabel = find.descendant(
+        of: find.byKey(const Key('test-category-_none')),
+        matching: find.byWidgetPredicate(isLabelText),
+      );
+      expect(manicureLabel, findsOneWidget);
+      expect(noneLabel, findsOneWidget);
+
+      expect(
+        tester.getTopLeft(noneLabel).dx,
+        tester.getTopLeft(manicureLabel).dx,
+        reason:
+            'the empty same-size icon slot on the uncategorized card must '
+            'keep its label at the same left edge as a categorised card '
+            'with a real glyph',
+      );
     });
   });
 

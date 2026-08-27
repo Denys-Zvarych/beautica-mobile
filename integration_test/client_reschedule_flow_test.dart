@@ -100,6 +100,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_success_sc
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -134,8 +135,9 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) async {
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) async {
     rescheduleItemCalls++;
     lastAppointmentId = appointmentId;
     lastBookingId = bookingId;
@@ -312,12 +314,42 @@ void main() {
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.bookingSlots);
 
+      // AUDIT-FIX CYCLE 3 (FIX 3, 2026-08-21) — the LOCKED regression guard:
+      // a CLIENT rescheduling their OWN booking must still SEE the master
+      // identity card on the date-picker step. FIX 3 hides this card ONLY
+      // when the reschedule VIEWER is the provider
+      // (`reschedule_navigation.dart`'s `bookingViewerRoleProvider`-derived
+      // `hideMasterIdentity`); this CLIENT session must be completely
+      // unaffected. `client_reschedule_flow_test.dart` is the ONE E2E flow
+      // that drives a CLIENT through this exact `startBookingReschedule`
+      // seeding path — the provider-side mirror-image assertion
+      // (hideMasterIdentity: true) lives in
+      // `booking_detail_provider_footer_test.dart`'s "provider reschedule"
+      // group, which always drives a PROVIDER session.
+      expect(
+        find.byType(MasterStrip),
+        findsOneWidget,
+        reason:
+            'a CLIENT reschedule must still show the master card on the date '
+            'step — FIX 3 must only hide it for a PROVIDER-initiated '
+            'reschedule',
+      );
+
       // ── Pick a NEW date + time through the real picker. ───────────────────
       await pickNewDateAndTime(tester);
 
       // ── The confirm screen is in RESCHEDULE mode. ─────────────────────────
       AppHarness.expectLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      // Same regression guard, now on the confirm screen (master card +
+      // address block, both gated by the SAME `hideMasterIdentity`).
+      expect(
+        find.byType(MasterStrip),
+        findsOneWidget,
+        reason:
+            'a CLIENT reschedule must still show the master card on the '
+            'confirm screen too',
+      );
       final AppLocalizations confirmL10n = l10nOf(tester, BookingConfirmScreen);
       // CTA reads «Перенести запис» (never «Записатись»).
       expect(find.text(confirmL10n.bookingRescheduleSubmitCta), findsOneWidget);
@@ -581,6 +613,111 @@ void main() {
             'booking-1 moved',
       );
       expect(sibling.endAt, DateTime.parse(originalSiblingEnd));
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // ==========================================================================
+  // Test 3 — mobile-qa (2026-08-26). The bottom-banner → popup rework: a
+  // CLIENT-actor reschedule that 409s with CLIENT_BOOKING_CONFLICT now opens
+  // `showClientBookingConflictDialog` instead of the bottom error banner;
+  // confirming resubmits the SAME reschedule with `allowClientOverlap: true`
+  // and reaches success. Drives the REAL slot picker + confirm screen + the
+  // REAL `FakeBackend` `DioAdapter` route (not a hand-fake), proving the
+  // dialog wiring survives end to end through `HttpBookingRepository`'s own
+  // 409-envelope decoding — the widget-tier tests
+  // (`booking_confirm_test.dart`) mock the repository directly and so never
+  // exercise that decode step.
+  // ==========================================================================
+  testWidgets(
+    'CLIENT reschedule that 409s CLIENT_BOOKING_CONFLICT opens the conflict '
+    'dialog (never the bottom banner); confirming resubmits with '
+    'allowClientOverlap: true and reaches success',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..rescheduleClientOverlapConflict = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingCard), findsOneWidget);
+      await tester.tap(find.byType(BookingCard));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('booking-detail-reschedule')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
+
+      await pickNewDateAndTime(tester);
+
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+      // ── Submit → PATCH /reschedule 409s CLIENT_BOOKING_CONFLICT. ──────────
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await AppHarness.settle(tester);
+
+      // Still on the confirm screen — the dialog is a popup ON TOP of it,
+      // never a navigation.
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+      expect(
+        find.byKey(const Key('client-booking-conflict-dialog')),
+        findsOneWidget,
+        reason: 'a CLIENT_BOOKING_CONFLICT 409 must open the popup',
+      );
+      expect(
+        find.byKey(const Key('booking-confirm-submit-error')),
+        findsNothing,
+        reason: 'the bottom error banner must NOT render for this failure',
+      );
+      expect(
+        fb.rescheduleBookingCalls,
+        1,
+        reason: 'the first (rejected) attempt is exactly one PATCH call',
+      );
+      // `HttpBookingRepository.rescheduleBooking` OMITS the wire field
+      // entirely when `false` (`allowClientOverlap ? true : null` —
+      // `booking_repository.dart:741`) rather than sending a literal
+      // `false` — so the first (rejected) attempt's decoded value is
+      // `null`, never `false`. Unlike the widget-tier tests
+      // (`booking_confirm_test.dart`), which assert on the Dart METHOD
+      // parameter (always `false`/`true`) because they mock the repository
+      // directly and never touch the wire.
+      expect(fb.lastRescheduleAllowClientOverlap, isNull);
+
+      // ── Confirm «Все одно записатись» → resubmits with the override; the
+      //    fake flips back to a clean 200, exactly as the flow requires it to
+      //    itself between the rejected attempt and the resubmit (see
+      //    [FakeBackend.rescheduleClientOverlapConflict]'s own doc). ────────
+      fb.rescheduleClientOverlapConflict = false;
+      await tester.tap(
+        find.byKey(const Key('client-booking-conflict-proceed')),
+      );
+      await AppHarness.settle(tester);
+
+      AppHarness.expectLocation(router, RouteNames.bookingSuccess);
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(
+        fb.rescheduleBookingCalls,
+        2,
+        reason:
+            'the first (rejected) attempt PLUS the confirmed resubmit — '
+            'never a third call',
+      );
+      expect(
+        fb.lastRescheduleAllowClientOverlap,
+        isTrue,
+        reason:
+            'the resubmit triggered by "Все одно записатись" must carry '
+            'allowClientOverlap: true on the WIRE, decoded from the real '
+            'PATCH body',
+      );
     },
     timeout: const Timeout(Duration(seconds: 120)),
   );

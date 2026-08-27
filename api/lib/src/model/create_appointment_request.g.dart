@@ -17,6 +17,8 @@ class _$CreateAppointmentRequest extends CreateAppointmentRequest {
   final String? idempotencyKey;
   @override
   final String? clientComment;
+  @override
+  final bool? allowClientOverlap;
 
   factory _$CreateAppointmentRequest(
           [void Function(CreateAppointmentRequestBuilder)? updates]) =>
@@ -27,7 +29,8 @@ class _$CreateAppointmentRequest extends CreateAppointmentRequest {
       required this.masterServiceIds,
       required this.startsAt,
       this.idempotencyKey,
-      this.clientComment})
+      this.clientComment,
+      this.allowClientOverlap})
       : super._();
   @override
   CreateAppointmentRequest rebuild(
@@ -46,7 +49,8 @@ class _$CreateAppointmentRequest extends CreateAppointmentRequest {
         masterServiceIds == other.masterServiceIds &&
         startsAt == other.startsAt &&
         idempotencyKey == other.idempotencyKey &&
-        clientComment == other.clientComment;
+        clientComment == other.clientComment &&
+        allowClientOverlap == other.allowClientOverlap;
   }
 
   @override
@@ -57,6 +61,7 @@ class _$CreateAppointmentRequest extends CreateAppointmentRequest {
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, idempotencyKey.hashCode);
     _$hash = $jc(_$hash, clientComment.hashCode);
+    _$hash = $jc(_$hash, allowClientOverlap.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -68,7 +73,8 @@ class _$CreateAppointmentRequest extends CreateAppointmentRequest {
           ..add('masterServiceIds', masterServiceIds)
           ..add('startsAt', startsAt)
           ..add('idempotencyKey', idempotencyKey)
-          ..add('clientComment', clientComment))
+          ..add('clientComment', clientComment)
+          ..add('allowClientOverlap', allowClientOverlap))
         .toString();
   }
 }
@@ -102,6 +108,11 @@ class CreateAppointmentRequestBuilder
   set clientComment(String? clientComment) =>
       _$this._clientComment = clientComment;
 
+  bool? _allowClientOverlap;
+  bool? get allowClientOverlap => _$this._allowClientOverlap;
+  set allowClientOverlap(bool? allowClientOverlap) =>
+      _$this._allowClientOverlap = allowClientOverlap;
+
   CreateAppointmentRequestBuilder() {
     CreateAppointmentRequest._defaults(this);
   }
@@ -114,6 +125,7 @@ class CreateAppointmentRequestBuilder
       _startsAt = $v.startsAt;
       _idempotencyKey = $v.idempotencyKey;
       _clientComment = $v.clientComment;
+      _allowClientOverlap = $v.allowClientOverlap;
       _$v = null;
     }
     return this;
@@ -144,6 +156,7 @@ class CreateAppointmentRequestBuilder
                 startsAt, r'CreateAppointmentRequest', 'startsAt'),
             idempotencyKey: idempotencyKey,
             clientComment: clientComment,
+            allowClientOverlap: allowClientOverlap,
           );
     } catch (_) {
       late String _$failedField;

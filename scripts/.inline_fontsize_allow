@@ -14,7 +14,7 @@
 # --- Widget-constructor params (NOT a TextStyle literal) ---------------------
 # `fontSize:` here is forwarded to the HubAvatar/HubPhoto CONSTRUCTOR; the
 # widget itself builds a cached TextStyle internally (see hub_widgets.dart).
-lib/features/passport/presentation/passport_screen.dart:509          # HubAvatar(fontSize:) ctor arg
+lib/features/passport/presentation/passport_screen.dart:513          # HubAvatar(fontSize:) ctor arg
 lib/features/home/presentation/widgets/home_profile_card.dart:58     # HubAvatar(fontSize:) ctor arg
 lib/features/home/presentation/widgets/favorite_masters_card.dart:171 # HubPhoto(fontSize:) ctor arg
 #
@@ -23,3 +23,4 @@ lib/features/salon/presentation/widgets/salon_cover_widgets.dart:83  # diameter 
 lib/features/home/presentation/widgets/hub_widgets.dart:106          # HubAvatar EXPLICIT-override path only; the default scale is size-derived
 lib/features/home/presentation/widgets/hub_widgets.dart:193          # fontSize pass-through into cached HubPhoto style
 lib/features/home/presentation/widgets/hub_widgets.dart:625          # size * 0.5 fallback-avatar glyph
+lib/features/favorites/presentation/widgets/favorite_cards.dart:321  # size * 0.32 master-mark initials glyph

@@ -10,12 +10,16 @@ class _$AppointmentItemRescheduleRequest
     extends AppointmentItemRescheduleRequest {
   @override
   final DateTime newStartsAt;
+  @override
+  final bool? allowClientOverlap;
 
   factory _$AppointmentItemRescheduleRequest(
           [void Function(AppointmentItemRescheduleRequestBuilder)? updates]) =>
       (AppointmentItemRescheduleRequestBuilder()..update(updates))._build();
 
-  _$AppointmentItemRescheduleRequest._({required this.newStartsAt}) : super._();
+  _$AppointmentItemRescheduleRequest._(
+      {required this.newStartsAt, this.allowClientOverlap})
+      : super._();
   @override
   AppointmentItemRescheduleRequest rebuild(
           void Function(AppointmentItemRescheduleRequestBuilder) updates) =>
@@ -29,13 +33,15 @@ class _$AppointmentItemRescheduleRequest
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is AppointmentItemRescheduleRequest &&
-        newStartsAt == other.newStartsAt;
+        newStartsAt == other.newStartsAt &&
+        allowClientOverlap == other.allowClientOverlap;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, newStartsAt.hashCode);
+    _$hash = $jc(_$hash, allowClientOverlap.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -43,7 +49,8 @@ class _$AppointmentItemRescheduleRequest
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'AppointmentItemRescheduleRequest')
-          ..add('newStartsAt', newStartsAt))
+          ..add('newStartsAt', newStartsAt)
+          ..add('allowClientOverlap', allowClientOverlap))
         .toString();
   }
 }
@@ -58,6 +65,11 @@ class AppointmentItemRescheduleRequestBuilder
   DateTime? get newStartsAt => _$this._newStartsAt;
   set newStartsAt(DateTime? newStartsAt) => _$this._newStartsAt = newStartsAt;
 
+  bool? _allowClientOverlap;
+  bool? get allowClientOverlap => _$this._allowClientOverlap;
+  set allowClientOverlap(bool? allowClientOverlap) =>
+      _$this._allowClientOverlap = allowClientOverlap;
+
   AppointmentItemRescheduleRequestBuilder() {
     AppointmentItemRescheduleRequest._defaults(this);
   }
@@ -66,6 +78,7 @@ class AppointmentItemRescheduleRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _newStartsAt = $v.newStartsAt;
+      _allowClientOverlap = $v.allowClientOverlap;
       _$v = null;
     }
     return this;
@@ -89,6 +102,7 @@ class AppointmentItemRescheduleRequestBuilder
         _$AppointmentItemRescheduleRequest._(
           newStartsAt: BuiltValueNullFieldError.checkNotNull(
               newStartsAt, r'AppointmentItemRescheduleRequest', 'newStartsAt'),
+          allowClientOverlap: allowClientOverlap,
         );
     replace(_$result);
     return _$result;

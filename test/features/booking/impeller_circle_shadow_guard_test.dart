@@ -76,6 +76,41 @@ void main() {
     // reintroduce the corner artifact.
     'lib/features/booking/presentation/widgets/master_booking_card.dart',
     'lib/features/booking/presentation/widgets/booking_counterparty_header.dart',
+    // 2026-08-26 (disc-match promotion, then same-day colour revert): the
+    // BEAUTY TIMELINE medallion briefly consumed the promoted
+    // `VelvetShadows.extrudedDiscAccent` recipe (gradient face + dual
+    // extruded shadow + bevel), matched to the client bottom-nav's center
+    // search disc. That colour/material copy was NOT what was asked for —
+    // only the disc's SIZE (52dp) was — and has been reverted; the medallion
+    // is back to a flat translucent fill + hairline border with NO
+    // `boxShadow` at all (see `beauty_timeline_section.dart`'s file header).
+    // It stays in `guardedFiles` anyway: the decoration still sets `shape:
+    // BoxShape.circle`, and this guard is what would catch a future edit
+    // re-adding a `boxShadow` to that same circle. Neither file appeared
+    // here when the promotion first shipped `shape: BoxShape.circle` on
+    // both — the structural gap that let the corner-square regression
+    // through silently — so both stay guarded even though only the nav
+    // search disc still carries a shadow today.
+    //
+    // `client_bottom_nav.dart`'s center search disc is UNCHANGED by the
+    // revert above and still consumes `VelvetShadows.extrudedDiscAccent` on
+    // a shadow-bearing surface. NOT in `surfaceFiles` below (the Chain-B
+    // offset-opaque-recipe guard) — deliberately, not an oversight.
+    // `VelvetShadows.extrudedDiscAccent` pairs an opaque `shadowLightStrong`
+    // (`0xFFFFFBF4`) with a diagonal `Offset(-5,-5)`, exactly the pattern
+    // that guard forbids — adding this file to `surfaceFiles` would fail
+    // Chain-B against a pre-existing, locked-by-product-decision token (the
+    // nav search disc already shipped this recipe before the timeline
+    // medallion was ever told to match it). This file is proven safe
+    // against the CIRCLE+SHADOW artifact (the guard immediately below,
+    // `borderRadius` not `BoxShape.circle`) but is a KNOWN, ACCEPTED
+    // exception to the OFFSET-OPAQUE-RECIPE artifact — not verified safe
+    // against it. Do not silently add it to `surfaceFiles`; if
+    // `extrudedDiscAccent` is ever re-verified unsafe on real Impeller-GLES
+    // hardware, its consumer(s) need a coordinated recipe change, not a
+    // guard-list edit.
+    'lib/features/home/presentation/widgets/beauty_timeline_section.dart',
+    'lib/features/shell/presentation/widgets/client_bottom_nav.dart',
   ];
 
   // The SECOND Impeller-GLES artifact, same backend, different trigger: a

@@ -19,6 +19,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
+import 'create_master_booking_request.dart';
 
 part 'booking_success_args.freezed.dart';
 
@@ -39,5 +40,37 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// to a new time) rather than a fresh visit — the success screen swaps its
     /// celebration title/subline copy accordingly. Defaults to `false`.
     @Default(false) bool isReschedule,
+
+    /// `true` when the flow was the master's own WALK-IN («Новий запис»)
+    /// entry point rather than a client booking. Defaults to `false`. See
+    /// phase-258.
+    @Default(false) bool isWalkIn,
+
+    /// Audit-fix cycle 2 (FIX 1, 2026-08-21) — the walk-in guest identity to
+    /// echo back on the terminal done screen, mirroring the retired wizard's
+    /// `_DoneStep` guest card (`git show HEAD:.../master_create_booking_screen
+    /// .dart`, deleted by the phase-258+ routed-chain port). Non-null only on
+    /// the walk-in path — threaded from `BookingConfirmScreen._submit`'s
+    /// walk-in branch, the SAME `guest` it already reads off
+    /// `BookingConfirmArgs`. `null` on every existing call site (client
+    /// create, reschedule), so this is a purely additive field: the recap
+    /// gates the guest card on `isWalkIn && guest != null`, never on
+    /// [isWalkIn] alone, so those paths render byte-identically. Defaults to
+    /// `null`.
+    WalkInGuest? guest,
+
+    /// RESCHEDULE-ONLY, client-identity parity fields (2026-08-22) — the
+    /// reschedule-path counterpart of [guest]: forwarded unchanged from
+    /// [BookingConfirmArgs.rescheduleClientName] /
+    /// [BookingConfirmArgs.rescheduleClientPhone] by `BookingConfirmScreen
+    /// ._submit`. `null` on every CREATE call site (client or walk-in) and on
+    /// a CLIENT's own reschedule; non-null only when a PROVIDER rescheduled a
+    /// booking with a registered client identity to show. The done screen
+    /// gates its [GuestIdentityCard.identity] recap card on
+    /// [rescheduleClientName] non-null, mirroring how it gates the walk-in
+    /// card on `isWalkIn && guest != null`, so those paths render
+    /// byte-identically.
+    String? rescheduleClientName,
+    String? rescheduleClientPhone,
   }) = _BookingSuccessArgs;
 }

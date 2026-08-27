@@ -48,6 +48,7 @@ ROOTS=(
   "lib/features/shell/presentation/branch_placeholders.dart"      # ClientFavoritesPlaceholderScreen + ClientBookingsPlaceholderScreen
   "lib/features/discovery/presentation/search_filters_screen.dart" # ClientSearchScreen
   "lib/features/passport/presentation/passport_screen.dart"       # PassportScreen
+  "lib/features/favorites/presentation/favorites_screen.dart"     # FavoritesScreen (Phase 111 — superseded the Улюблені placeholder)
 )
 
 # Match: a Scaffold appBar slot, a bare AppBar(...) constructor, or a

@@ -94,6 +94,13 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 // future-date-ok: the injected fixed clock itself — see the note above.
 final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
 
+/// Phase 248 — the fixed id `POST /api/v1/masters/{masterId}/bookings`
+/// mints for a walk-in booking created through the wizard. Fixed (not
+/// generated) because this fake serves exactly one flow that submits this
+/// endpoint per test; a second submit in the same test would overwrite the
+/// same dataset row rather than appending a second one.
+const String kWalkInBookingId = 'walkin-booking-1';
+
 /// The REAL device clock, captured once per process, as the anchor for every
 /// "upcoming booking" fixture instant.
 ///
@@ -740,6 +747,38 @@ final class FakeBackend {
     'memberSinceYear': 2021,
   };
 
+  /// `GET /api/v1/clients/me/timeline` call counter (Phase 110 / mobile-qa
+  /// gap-closure — this route did not exist at all until this pass; see
+  /// [timelineRows]'s doc for the defect that absence caused).
+  int getTimelineCalls = 0;
+
+  /// Rows served by `GET /api/v1/clients/me/timeline`'s page envelope
+  /// (`data.data`). Defaults to EMPTY, which drives the BEAUTY TIMELINE
+  /// rail's `timeline_empty` state — the same default every sibling
+  /// placeholder-shaped list uses ([favoriteMasterRows],
+  /// [favoriteServiceRows]). Replace wholesale in a flow to serve populated
+  /// completed-procedure history.
+  ///
+  /// Each row is a `TimelineItemResponse`: `bookingId` (String?, may be
+  /// omitted/null — a row with no bookingId must render but stay
+  /// non-tappable, see `timeline_mapper.dart`'s header), `categoryKey`,
+  /// `categoryName`, `date` (a wire-format `Date`, i.e. a bare
+  /// `"YYYY-MM-DD"` string — NOT an instant, see `api/lib/src/
+  /// date_serializer.dart`), `masterId`, `serviceName`.
+  ///
+  /// mobile-qa DEFECT NOTE (found authoring the Phase 110 test gaps, fixed
+  /// here): `HttpTimelineRepository` was wired to the REAL
+  /// `GET /clients/me/timeline` endpoint, but this route was never added to
+  /// FakeBackend. Every E2E flow that reached the BEAUTY TIMELINE section
+  /// therefore hit an unmocked path and the card rendered its ERROR state —
+  /// `find.byType(BeautyTimelineSection)` (only built on the DATA branch of
+  /// `timelineAsync.when`) matched nothing, and `_scrollHubTo` threw `Bad
+  /// state: No element` scrolling for a widget that was never built. Two
+  /// tests in `client_home_hub_flow_test.dart` were red for exactly this
+  /// reason before this route was added — this is test infrastructure
+  /// (`integration_test/support/`), not `lib/` production code.
+  List<Map<String, dynamic>> timelineRows = <Map<String, dynamic>>[];
+
   /// `GET /api/v1/favorites/services` call counter — the BEAUTY WISH LIST feed
   /// (backend 247, mobile Phase 237).
   int listServiceFavoritesCalls = 0;
@@ -751,6 +790,54 @@ final class FakeBackend {
   /// `serviceName`, `masterFirstName`, `masterLastName`, `durationMinutes`,
   /// `priceType` (`FIXED` | `RANGE`), `priceMin`, `priceMax`, `priceDisplay`.
   List<Map<String, dynamic>> favoriteServiceRows = <Map<String, dynamic>>[];
+
+  // ── «Улюблені» (Phase 111, mobile-qa) ──────────────────────────────────────
+  //
+  // `GET /api/v1/favorites/masters` and `/salons` — the two endpoints the
+  // FavoritesScreen merges into one flat list. Before Phase 111 neither had a
+  // handler at all, so the screen 404'd into its error surface in every E2E
+  // that so much as landed on the favourites tab.
+  //
+  // Both default to EMPTY, which drives the "nothing saved yet" empty state and
+  // leaves every pre-existing flow's behaviour unchanged.
+
+  /// `GET /api/v1/favorites/masters` call counter — lets a flow prove a
+  /// pull-to-refresh actually refetched rather than replaying a cached value.
+  int listMasterFavoritesCalls = 0;
+
+  /// `GET /api/v1/favorites/salons` call counter.
+  int listSalonFavoritesCalls = 0;
+
+  /// Rows served by `GET /api/v1/favorites/masters`. Each is a
+  /// `FavoriteMasterResponse`: `masterId`, `firstName`, `lastName`,
+  /// `avatarUrl`, `cityLabel`, `districtLabel`, `avgRating`, `street`,
+  /// `buildingNo`, `locationNote`.
+  List<Map<String, dynamic>> favoriteMasterRows = <Map<String, dynamic>>[];
+
+  /// Rows served by `GET /api/v1/favorites/salons`. Each is a
+  /// `FavoriteSalonResponse`: `salonId`, `name`, `avatarUrl`, `cityLabel`,
+  /// `districtLabel`, `avgRating`, `street`, `buildingNo`, `locationNote`.
+  List<Map<String, dynamic>> favoriteSalonRows = <Map<String, dynamic>>[];
+
+  /// Status code `GET /api/v1/favorites/masters` fails with, or null for the
+  /// default 200. Set via [forceListMasterFavoritesFailure] — never assign
+  /// directly, because the route has to be RE-REGISTERED for a status change to
+  /// take effect (same device as [forceRemoveFavoriteFailure]).
+  int? _listMasterFavoritesFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `GET /api/v1/favorites/masters` fail
+  /// with [statusCode], so a flow can drive the «Улюблені» ERROR surface and
+  /// its retry affordance. Call again with `null` to restore the default 200.
+  ///
+  /// Only the MASTERS feed is failed, deliberately: `Favorites._load` fetches
+  /// both endpoints with `Future.wait`, which propagates the FIRST error — so
+  /// failing one is enough to prove the whole load fails rather than
+  /// half-rendering, which is a contract worth exercising in its own right.
+  void forceListMasterFavoritesFailure(int? statusCode) {
+    _listMasterFavoritesFailureStatusCode = statusCode;
+    _wireListMasterFavorites();
+  }
+
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
   Map<String, dynamic>?
   lastPatchMeBody; // body of the most recent PATCH /users/me
@@ -821,6 +908,15 @@ final class FakeBackend {
   /// so a multi-service booking threads N ids and the scalar view silently
   /// keeps only the first.
   List<String>? lastMasterAaaWorkingDaysServiceIds;
+
+  /// Phase 264 — the FULL, ordered `serviceId` list the most recent
+  /// `/masters/$masterRowId/slots` request carried (the routed walk-in
+  /// chain's OWN date/time step — `SlotDateScreen`/`SlotTimeScreen`, not the
+  /// retired wizard's embedded `MasterSchedulePage`). `null` when the param
+  /// was absent. Proves HARD CONSTRAINT 4: a 3-service walk-in visit
+  /// requests availability for the WHOLE chained selection
+  /// (`getMasterSlots(serviceIds: ordered)`), never `services.first` alone.
+  List<String>? lastMasterOwnSlotsServiceIds;
 
   /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
   /// count (Phase 23.x bookable-masters rewire) — the salon booking flow's
@@ -2521,6 +2617,40 @@ final class FakeBackend {
   int rescheduleBookingCalls = 0;
   String? lastRescheduleNewStartsAt;
 
+  /// The last `allowClientOverlap` wire value submitted on
+  /// `PATCH /bookings/{id}/reschedule`, decoded on EVERY call regardless of
+  /// [rescheduleClientOverlapConflict] — lets a flow prove the override
+  /// actually reaches the wire on the confirmed resubmit (booking-conflict
+  /// popup track), independent of which status this fake happened to answer.
+  bool? lastRescheduleAllowClientOverlap;
+
+  /// When `true`, `PATCH /bookings/{id}/reschedule` answers HTTP **409** with
+  /// the typed `CLIENT_BOOKING_CONFLICT` envelope
+  /// (`HttpBookingRepository._extractClientBookingConflict`'s exact shape)
+  /// instead of the default 200 success — simulating the CLIENT already
+  /// having a different overlapping booking. Off by default so every other
+  /// reschedule flow keeps its clean 200.
+  ///
+  /// RE-WIRES ON WRITE — see [createRejectDuplicate]'s doc for why a status
+  /// change requires re-registering the route rather than just flipping a
+  /// field `replyCallback` would read too late (status is captured at
+  /// registration time, never per-request).
+  ///
+  /// A real backend re-evaluates the conflict per REQUEST based on whether
+  /// `allowClientOverlap` was set — this fake cannot do that within one
+  /// registration (see [_wireRescheduleBooking]'s doc), so a flow driving the
+  /// "confirm the popup, resubmit succeeds" journey must flip this back to
+  /// `false` itself between the rejected attempt and the resubmit, exactly as
+  /// it would flip [createRejectDuplicate]. [lastRescheduleAllowClientOverlap]
+  /// still proves what the RESUBMIT actually sent, independent of that timing.
+  bool get rescheduleClientOverlapConflict => _rescheduleClientOverlapConflict;
+  set rescheduleClientOverlapConflict(bool value) {
+    _rescheduleClientOverlapConflict = value;
+    _wireRescheduleBooking();
+  }
+
+  bool _rescheduleClientOverlapConflict = false;
+
   /// Track 27.x/MO-6 — the seeded booking's `appointmentId`, `null` by
   /// default (a plain single-service booking). A flow proving the
   /// appointment-child provider-write routing (`BookingDetailScreen`'s
@@ -2634,6 +2764,38 @@ final class FakeBackend {
   /// upcoming tab fetches the single CONFIRMED status.
   int getBookingDetailCalls = 0;
   int getMyBookingsCalls = 0;
+
+  /// Phase 248 — `POST /api/v1/masters/{masterId}/bookings` call count (the
+  /// INDEPENDENT_MASTER walk-in «Новий запис» wizard's own submit,
+  /// `BookingRepository.createMasterBooking`, backend 22.4
+  /// `StaffBookingsApi.createStaffBooking`). Distinct from every other create
+  /// counter in this file — this endpoint is provider-scoped, not the CLIENT
+  /// `POST /bookings` write.
+  int createStaffBookingCalls = 0;
+
+  /// The most recent walk-in submit's decoded JSON body — `masterServiceId` /
+  /// `startsAt` / `guest.{name,surname,phone}` — so a flow can assert exactly
+  /// what went on the wire without re-deriving it from UI state.
+  Map<String, dynamic>? lastStaffBookingRequestBody;
+
+  /// `GET /api/v1/bookings/$kWalkInBookingId` call count.
+  ///
+  /// STALE as a description of [BookingRepository.createMasterBooking] as of
+  /// Phase 256 (mobile-qa audit) — that method no longer makes a follow-up
+  /// GET at all: since the response widened to the full
+  /// `AppointmentDetailResponse` (`items[]`, totals, a real `endAt`), the
+  /// POST's own response body is parsed directly via `AppointmentMapper
+  /// .fromDto` and returned. This counter and its route (below) are dead
+  /// for THAT call path today; the route itself is harmless to keep — other
+  /// booking-detail fetches for [kWalkInBookingId] may still hit it — but a
+  /// zero count here no longer signals anything about `createMasterBooking`.
+  int getWalkInBookingDetailCalls = 0;
+
+  /// The row [kWalkInBookingId]'s POST handler most recently built — served
+  /// back by the `GET /api/v1/bookings/$kWalkInBookingId` route above so the
+  /// detail follow-up sees the SAME booking it just created, not a stale
+  /// placeholder.
+  Map<String, dynamic>? _lastWalkInBookingRow;
 
   /// When non-null, `GET /api/v1/bookings/booking-1` replies with THIS HTTP
   /// status (and a plain error envelope) instead of `200` + the seeded booking.
@@ -2757,7 +2919,7 @@ final class FakeBackend {
     // «Манікюр з покриттям», 90 min — consistent with the fields below.
     'masterServiceId': 'pub-assign-1',
     'serviceName': 'Манікюр з покриттям',
-    'categoryName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
     'street': 'вул. Хрещатик',
@@ -2806,7 +2968,7 @@ final class FakeBackend {
     'clientLastName': clientLastName,
     'masterServiceId': 'pub-assign-2',
     'serviceName': 'Дизайн нігтів',
-    'categoryName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
     'street': 'вул. Хрещатик',
@@ -3020,7 +3182,7 @@ final class FakeBackend {
     'salonName': null,
     'masterServiceId': 'pub-assign-1',
     'serviceName': 'Манікюр з покриттям',
-    'categoryName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
     'street': 'вул. Хрещатик',
@@ -3353,6 +3515,96 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `PATCH /api/v1/bookings/booking-1/reschedule` — client
+  /// reschedule (track 24.x auto-confirm). Status is chosen by
+  /// [rescheduleClientOverlapConflict] (that field's doc explains why a
+  /// status-dependent route must be re-registered by a `_wireX` method
+  /// rather than inlined in [_wire] — see [_wireCreateService]'s doc for the
+  /// full `DioAdapter.onRoute` mechanics).
+  ///
+  ///   - `false` (default) — moves the seeded booking to the submitted
+  ///     `newStartsAt`, keeps it CONFIRMED (a reschedule never changes
+  ///     status), and returns the enriched `BookingDetailResponse` the
+  ///     repository maps back (unlike cancel, which is void). The 90-minute
+  ///     span is preserved so the moved booking's end tracks its new start.
+  ///   - `true` — answers HTTP 409 with the exact `CLIENT_BOOKING_CONFLICT`
+  ///     envelope `HttpBookingRepository._extractClientBookingConflict`
+  ///     decodes, simulating the CLIENT already holding a different
+  ///     overlapping booking.
+  ///
+  /// [lastRescheduleAllowClientOverlap] is decoded from the body on EVERY
+  /// call, both branches — see that field's doc for why.
+  void _wireRescheduleBooking() {
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/reschedule',
+      (server) => server.replyCallback(
+        _rescheduleClientOverlapConflict ? 409 : 200,
+        (req) {
+          rescheduleBookingCalls++;
+          final body = _decodeBody(req.data);
+          final String? newStartsAt = body['newStartsAt'] as String?;
+          lastRescheduleNewStartsAt = newStartsAt;
+          lastRescheduleAllowClientOverlap =
+              body['allowClientOverlap'] as bool?;
+          if (_rescheduleClientOverlapConflict) {
+            return <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{
+                'code': 'CLIENT_BOOKING_CONFLICT',
+                'conflictingBookingId': 'booking-existing',
+                'serviceName': 'Стрижка',
+                'masterName': 'Ірина Бондар',
+                'startsAt': bookingStartsAt,
+                'endsAt': bookingEndsAt,
+              },
+              'message': 'Client already has an overlapping booking',
+            };
+          }
+          if (newStartsAt != null) {
+            final DateTime start = DateTime.parse(newStartsAt).toUtc();
+            final DateTime end = start.add(const Duration(minutes: 90));
+            bookingStartsAt = start.toIso8601String();
+            bookingEndsAt = end.toIso8601String();
+          }
+          // A reschedule leaves the booking CONFIRMED — never touches status.
+          return _ok(_seededBookingJson());
+        },
+      ),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `GET /api/v1/favorites/masters`.
+  /// See [forceListMasterFavoritesFailure].
+  void _wireListMasterFavorites() {
+    final int? failStatus = _listMasterFavoritesFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/favorites/masters',
+      (server) => server.replyCallback(failStatus ?? 200, (_) {
+        listMasterFavoritesCalls++;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to list favorite masters',
+          };
+        }
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': favoriteMasterRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': favoriteMasterRows.length,
+            'totalPages': favoriteMasterRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// (Re-)registers `DELETE /api/v1/favorites?targetType&targetId`.
   /// See [forceRemoveFavoriteFailure].
   void _wireRemoveFavorite() {
@@ -3370,6 +3622,27 @@ final class FakeBackend {
             'data': null,
             'message': 'Failed to remove favorite',
           };
+        }
+        // Phase 111 (mobile-qa) — a MASTER/SALON removal PERSISTS, mirroring
+        // the real backend, so a following `GET /favorites/masters` genuinely
+        // reflects it. Without this a flow can only prove the DELETE was SENT;
+        // it cannot prove the row is actually gone on a re-read, which is the
+        // half a client would notice. Same device as the SERVICE add above.
+        // Shape-tolerant reads, never a raw cast — see
+        // `scripts/forbid_raw_query_param_cast.sh`.
+        final String? type = _scalarQueryParam(
+          req.queryParameters,
+          'targetType',
+        );
+        final String? id = _scalarQueryParam(req.queryParameters, 'targetId');
+        if (type == 'MASTER' && id != null) {
+          favoriteMasterRows = favoriteMasterRows
+              .where((Map<String, dynamic> r) => r['masterId'] != id)
+              .toList();
+        } else if (type == 'SALON' && id != null) {
+          favoriteSalonRows = favoriteSalonRows
+              .where((Map<String, dynamic> r) => r['salonId'] != id)
+              .toList();
         }
         return null;
       }),
@@ -3666,6 +3939,32 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/clients/me/timeline — CLIENT's BEAUTY TIMELINE
+    // (completed-procedure history, backend 19.5). Wired now that
+    // `HttpTimelineRepository` calls the real endpoint — see [timelineRows]'s
+    // doc for the defect this route's ABSENCE caused before this pass.
+    // Envelope shape mirrors `_wireListMasterFavorites`'s page envelope
+    // exactly: outer `ApiResponse` (`success`/`message`/`data`), inner
+    // `PageResponse` (`data`/`page`/`size`/`totalElements`/`totalPages`).
+    _adapter.onRoute(
+      '/api/v1/clients/me/timeline',
+      (server) => server.replyCallback(200, (_) {
+        getTimelineCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': timelineRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': timelineRows.length,
+            'totalPages': timelineRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // PATCH /api/v1/users/me — CLIENT profile partial update (the shared,
     // CLIENT-callable profile endpoint the client edit screens hit via
     // UserControllerApi.updateMe). Merge-onto-cache: each key present in the body
@@ -3795,6 +4094,46 @@ final class FakeBackend {
         request: const Request(method: RequestMethods.get),
       );
     }
+
+    // Phase 264 — GET /api/v1/masters/{masterRowId}, the PUBLIC master-detail
+    // endpoint keyed on the master's OWN row id. The routed walk-in chain's
+    // `BookingConfirmScreen` (a REUSED CLIENT screen, `publicMasterProfile
+    // Provider(masterId)`) always re-resolves the target master through this
+    // public endpoint — even when the target IS the signed-in master
+    // themselves — unlike the retired wizard, which only ever read
+    // `masterProfileProvider` (`GET /masters/me`, registered above). Reuses
+    // [_masterDetailEnvelope] verbatim (REUSE-FIRST) rather than a second,
+    // possibly-drifting envelope shape: the public view of "my own profile"
+    // is the same identity `GET /masters/me` already returns. Registered
+    // AFTER the more-specific `.../reviews`/`.../reviews/summary` routes
+    // above (same "more specific path first" ordering those routes'
+    // own comment establishes) so this bare-id route can never shadow them.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterCalls++;
+        lastGetPublicMasterId = masterRowId;
+        return _masterDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 264 — GET /api/v1/masters/{masterRowId}/services, the PUBLIC
+    // active-services counterpart `publicMasterProfileProvider` fetches
+    // alongside the detail route just above. Reuses [_services] verbatim
+    // (REUSE-FIRST) — the SAME wire shape `_publicMasterServices`'s own doc
+    // already notes ("Shapes match the generated `MasterServiceResponse`,
+    // the same envelope `_services` uses"), so this is not a new fixture,
+    // just a new route onto an existing one.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = masterRowId;
+        return _okList(_services);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
 
     // GET /api/v1/masters/master-aaa — PUBLIC master detail (Phase 13.5). The
     // client-facing public profile resolves the target master by its Master-row
@@ -4016,6 +4355,178 @@ final class FakeBackend {
         getMasterSlotsCalls++;
         lastMasterDddSlotsServiceId = _serviceIdFrom(req.queryParameters);
         return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 248 — the INDEPENDENT_MASTER walk-in flow's OWN date/time
+    // picker. Originally the retired single-screen wizard's embedded
+    // `MasterSchedulePage`; Phase 264 repointed the SAME masterId at the
+    // routed chain's `SlotDateScreen`/`SlotTimeScreen` instead (the CLIENT
+    // screens' own `SlotRepository.getMasterSlots` call) — this route
+    // registration did not need to change, only its consumer did.
+    // `master.id` there resolves to `masterRowId` (`GET /masters/me`'s own
+    // id), so this mirrors the `master-ccc`/`master-ddd` pair one level up:
+    // the master books THEMSELVES, not a roster colleague. Reuses the shared
+    // `_workingDaysEnvelope()`/`_availableSlotsEnvelope()` fixtures — every
+    // day across a wide window is working, and the slots land on
+    // `kyivDayOf(serverNow)` — so the wizard's calendar/time step needs no
+    // fixture of its own beyond this registration.
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/slots',
+      (server) => server.replyCallback(200, (req) {
+        getMasterSlotsCalls++;
+        // Phase 264 — the walk-in chain's OWN slot-availability request
+        // (the client's `SlotDateScreen`/`SlotTimeScreen`, not the retired
+        // wizard's embedded `MasterSchedulePage`). See
+        // [lastMasterOwnSlotsServiceIds]'s own doc.
+        lastMasterOwnSlotsServiceIds = _multiQueryParam(
+          req.queryParameters,
+          'serviceId',
+        );
+        return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 248 — `POST /api/v1/masters/{masterId}/bookings`, the walk-in
+    // wizard's own submit (`BookingRepository.createMasterBooking`, backend
+    // 22.4 `StaffBookingsApi.createStaffBooking`). Mints the FIXED
+    // [kWalkInBookingId] and APPENDS the new row to [_bookingsDataset] —
+    // lazily initialising it if the test never called
+    // [seedManyBookingsDataset] — so the very next day-scoped
+    // `GET /bookings/me` the wizard's own success invalidation triggers
+    // (`MasterCreateBookingNotifier.submit`'s `ref.invalidate
+    // (bookingsDayProvider)`) actually shows it. `guest.name`/`guest.surname`
+    // map onto `clientFirstName`/`clientLastName` — the fields the MASTER'S
+    // OWN card reads (see `datasetBookingRow`'s doc: it seeds the
+    // counterparty-identity fields empty on purpose, spread in by the
+    // caller).
+    //
+    // PHASE 256 — the wire request body carries `masterServiceIds` (plural,
+    // ORDERED — Phase 252 widened the scalar `masterServiceId` this handler
+    // used to read), and the response must be a real
+    // `AppointmentDetailResponse` shape (`items[]`, `totalPrice`,
+    // `totalDurationMinutes`, a real `endsAt`) — `AppointmentMapper.fromDto`
+    // tolerates an absent `items` as an EMPTY list rather than throwing, so a
+    // stale single-`Booking`-shaped reply here would silently render a
+    // done step with NO services instead of failing loudly. Each id is
+    // chained onto the previous item with a fixed 10-minute buffer — NOT
+    // back-to-back — so a multi-service run genuinely proves the done step
+    // renders the SERVER's window/totals, not a re-derived local sum (the
+    // same D3 regression `should_renderServerVisitWindow_when_
+    // multiServiceVisitCreated` pins at the widget tier, proven here end to
+    // end through the real repository/mapper/wire path instead of a fake
+    // repository).
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/bookings',
+      (server) => server.replyCallback(201, (req) {
+        createStaffBookingCalls++;
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        lastStaffBookingRequestBody = body;
+        final DateTime startsAt = DateTime.parse(body['startsAt'] as String);
+        final Map<String, dynamic> guest = (body['guest'] as Map)
+            .cast<String, dynamic>();
+        final List<dynamic> serviceIds =
+            (body['masterServiceIds'] as List?) ?? const <dynamic>[];
+
+        const Duration itemBuffer = Duration(minutes: 10);
+        DateTime cursor = startsAt;
+        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+        double totalPrice = 0;
+        double totalPriceMaxSum = 0;
+        bool anyRange = false;
+        for (final dynamic rawId in serviceIds) {
+          final String assignId = rawId as String;
+          final Map<String, dynamic> assignment = _services.firstWhere(
+            (Map<String, dynamic> s) => s['id'] == assignId,
+            orElse: () => throw StateError(
+              'FakeBackend: unknown masterServiceId "$assignId" in a '
+              'walk-in create — seed it in _services first',
+            ),
+          );
+          final Map<String, dynamic> def =
+              (assignment['serviceDefinition'] as Map).cast<String, dynamic>();
+          final int duration = assignment['effectiveDurationMinutes'] as int;
+          final double priceMin = (assignment['priceMin'] as num).toDouble();
+          final double? priceMax = (assignment['priceMax'] as num?)?.toDouble();
+          final DateTime itemStart = cursor;
+          final DateTime itemEnd = itemStart.add(Duration(minutes: duration));
+          items.add(<String, dynamic>{
+            'bookingId': 'walkin-booking-${items.length + 1}',
+            'masterServiceId': assignId,
+            'serviceName': def['name'],
+            'status': 'CONFIRMED',
+            'startsAt': itemStart.toIso8601String(),
+            'endsAt': itemEnd.toIso8601String(),
+            'durationMinutesAtBooking': duration,
+            'priceAtBooking': priceMin,
+            'priceMaxAtBooking': priceMax,
+          });
+          totalPrice += priceMin;
+          totalPriceMaxSum += priceMax ?? priceMin;
+          if (priceMax != null) anyRange = true;
+          cursor = itemEnd.add(itemBuffer);
+        }
+        // No trailing buffer past the LAST item — the buffer only ever sits
+        // BETWEEN items.
+        final DateTime visitEnd = items.isEmpty
+            ? startsAt
+            : cursor.subtract(itemBuffer);
+
+        final Map<String, dynamic> row = <String, dynamic>{
+          ...datasetBookingRow(
+            id: kWalkInBookingId,
+            status: 'CONFIRMED',
+            startsAt: startsAt,
+            duration: visitEnd.difference(startsAt),
+          ),
+          'masterServiceId': serviceIds.isNotEmpty ? serviceIds.first : null,
+          'clientId': null,
+          'clientFirstName': guest['name'],
+          'clientLastName': guest['surname'],
+          // Overrides `datasetBookingRow`'s single-service defaults with the
+          // REAL chained visit shape (`AppointmentDetailResponse` fields) —
+          // see this route's own doc above for why an absent `items` here
+          // would fail silently rather than loudly.
+          'endsAt': visitEnd.toIso8601String(),
+          'totalDurationMinutes': visitEnd.difference(startsAt).inMinutes,
+          'totalPrice': totalPrice,
+          'totalPriceMax': anyRange ? totalPriceMaxSum : null,
+          'items': items,
+        };
+        (_bookingsDataset ??= <Map<String, dynamic>>[]).add(row);
+        _lastWalkInBookingRow = row;
+        return _ok(row);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // GET /api/v1/bookings/$kWalkInBookingId — kept registered for any OTHER
+    // flow that looks up this fixed id by detail fetch. NOT a follow-up
+    // `createMasterBooking` itself makes any more — see
+    // [getWalkInBookingDetailCalls]'s doc (mobile-qa Phase 256 audit) for why
+    // that used to be true and no longer is.
+    _adapter.onRoute(
+      '/api/v1/bookings/$kWalkInBookingId',
+      (server) => server.replyCallback(200, (_) {
+        getWalkInBookingDetailCalls++;
+        return _ok(
+          _lastWalkInBookingRow ??
+              datasetBookingRow(
+                id: kWalkInBookingId,
+                status: 'CONFIRMED',
+                startsAt: serverNow,
+              ),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -4667,6 +5178,36 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/favorites/masters and /salons — the two «Улюблені» feeds
+    // (Phase 111). Registered BEFORE the bare `/api/v1/favorites` handlers for
+    // the same reason `/favorites/services` is: DioAdapter matches on the PATH,
+    // so the longer path must get first refusal.
+    //
+    // Without these the mock router 404s and the favourites branch renders its
+    // ERROR surface — silently changing what every assertion on that tab
+    // measures, exactly as the wish-list section did before its own route
+    // existed.
+    _wireListMasterFavorites();
+
+    _adapter.onRoute(
+      '/api/v1/favorites/salons',
+      (server) => server.replyCallback(200, (_) {
+        listSalonFavoritesCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': favoriteSalonRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': favoriteSalonRows.length,
+            'totalPages': favoriteSalonRows.isEmpty ? 0 : 1,
+          },
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // POST /api/v1/favorites — add (idempotent 200). Returns a FavoriteResponse
     // envelope so the generated addFavorite() deserializes cleanly.
     //
@@ -4812,30 +5353,7 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // PATCH /api/v1/bookings/booking-1/reschedule — client reschedule (track
-    // 24.x auto-confirm). Moves the seeded booking to the submitted
-    // `newStartsAt`, keeps it CONFIRMED (a reschedule never changes status),
-    // and returns the enriched `BookingDetailResponse` the repository maps back
-    // (unlike cancel, which is void). The 90-minute span is preserved so the
-    // moved booking's end tracks its new start.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1/reschedule',
-      (server) => server.replyCallback(200, (req) {
-        rescheduleBookingCalls++;
-        final body = _decodeBody(req.data);
-        final String? newStartsAt = body['newStartsAt'] as String?;
-        lastRescheduleNewStartsAt = newStartsAt;
-        if (newStartsAt != null) {
-          final DateTime start = DateTime.parse(newStartsAt).toUtc();
-          final DateTime end = start.add(const Duration(minutes: 90));
-          bookingStartsAt = start.toIso8601String();
-          bookingEndsAt = end.toIso8601String();
-        }
-        // A reschedule leaves the booking CONFIRMED — never touches status.
-        return _ok(_seededBookingJson());
-      }),
-      request: const Request(method: RequestMethods.patch, data: Matchers.any),
-    );
+    _wireRescheduleBooking();
 
     // PATCH /api/v1/bookings/booking-1/cancel — client cancellation. Flips the
     // seeded booking to CANCELLED and stores the free-text comment as the

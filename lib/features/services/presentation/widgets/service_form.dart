@@ -32,6 +32,8 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -1456,6 +1458,8 @@ class _CategoryDropdown extends ConsumerWidget {
       error: (_, _) => SelectFieldState.error,
     );
 
+    final String? iconAsset = categoryIconOrNullFor(categoryKey: selected);
+
     return SearchableSelectField<String>(
       key: const Key('select-category-field-wrapper'),
       fieldKey: const Key('select-category-field'),
@@ -1470,6 +1474,15 @@ class _CategoryDropdown extends ConsumerWidget {
       fieldState: fieldState,
       errorText: errorText,
       enabled: !disabled,
+      // `selected` is already the backend's wire slug (never a display
+      // label — see the class doc), so it is resolved directly, with no
+      // redundant param needed on this widget. `categoryIconOrNullFor`
+      // returns null when nothing is chosen yet, so this renders no icon
+      // rather than `categoryIconFor`'s cosmetology fallback for a blank
+      // slug.
+      leadingIcon: iconAsset == null
+          ? null
+          : AppIcon(iconAsset, size: 20, color: BrandColors.accentDeep),
       options: <SelectOption<String>>[
         for (final ServiceCategoryOption o in options)
           SelectOption<String>(

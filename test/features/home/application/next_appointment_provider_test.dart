@@ -34,12 +34,14 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -103,6 +105,12 @@ class _FakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
+  Future<Appointment> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  ) => throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
@@ -118,8 +126,11 @@ class _FakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError('not used by nextAppointmentProvider');
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
   Future<void> declineBooking(String id, {String? comment}) =>
@@ -196,6 +207,12 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
+  Future<Appointment> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  ) => throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
@@ -211,8 +228,11 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError('not used by nextAppointmentProvider');
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
   Future<void> declineBooking(String id, {String? comment}) =>

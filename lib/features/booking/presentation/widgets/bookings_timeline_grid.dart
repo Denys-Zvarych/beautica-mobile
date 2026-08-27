@@ -766,9 +766,12 @@ import 'timeline_hour_ruler.dart';
 /// window is still exposed simultaneously, and a hostile app that scrolls the
 /// view still sweeps the lot. The trade-off below is accepted on exactly the
 /// same terms as before.) The retired `ListView.builder` virtualized, so
-/// only visible cards were ever exposed. `FLAG_SECURE` (acquired by the
-/// hosting screen's `ScreenProtectionManager`) blocks screenshots/screen
-/// recording but does NOT gate the Android Accessibility API, so a hostile
+/// only visible cards were ever exposed. The hosting screen's
+/// `ScreenProtectionManager` acquire is no defence here: since the 2026-08-20
+/// product decision it only blanks the app-switcher snapshot and never blocked
+/// the Android Accessibility API in any case (it no longer blocks screenshots
+/// or screen recording either — see the header of
+/// `lib/core/security/screen_protection.dart`). So a hostile
 /// accessibility-service app can enumerate a full day's client names in one
 /// sweep instead of only what is visible on screen. This is an ACCEPTED
 /// trade-off, not an oversight: `size: 100` already bounds how much PII a

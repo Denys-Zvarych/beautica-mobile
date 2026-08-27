@@ -67,15 +67,35 @@ AppointmentControllerApi appointmentApi(Ref ref) =>
 ReviewControllerApi bookingReviewApi(Ref ref) =>
     ReviewControllerApi(ref.watch(dioProvider), standardSerializers);
 
+/// Provides the generated [StaffBookingsApi] singleton for the PROVIDER-side
+/// walk-in VISIT write path (`POST /api/v1/masters/{masterId}/bookings`,
+/// backend Phase 22.4 — Phase 246, widened to multi-service by Phase 252).
+/// Built on [beauticaSerializers] — since Phase 252 the response envelope
+/// carries the full `AppointmentDetailResponse` (previously the lean
+/// `BookingResponse`, which had no throwing `EnumClass` status field and so
+/// tolerated [standardSerializers] fine). `AppointmentDetailResponse` is one
+/// of the DTOs [kBeauticaToleratedEnums] covers — see [appointmentApi]'s doc
+/// and `unknown_enum_tolerance_plugin.dart`'s "a row here is inert for any
+/// api class that was never migrated" warning. Migrated here alongside the
+/// response-type change so an unrecognised visit status degrades to
+/// [BookingStatus.unknown] instead of throwing, exactly like every other
+/// path that can return this DTO.
+@Riverpod(keepAlive: true)
+StaffBookingsApi staffBookingsApi(Ref ref) =>
+    StaffBookingsApi(ref.watch(dioProvider), beauticaSerializers);
+
 /// Provides the [BookingRepository] singleton backed by the authenticated
 /// [dioProvider] Dio instance (needed for the raw `getMyBookings` GET — see
 /// the WIRE-FORMAT NOTE in `booking_repository.dart`), [bookingApiProvider],
-/// and [bookingReviewApiProvider] (the `POST /reviews` write path).
+/// [bookingReviewApiProvider] (the `POST /reviews` write path), and
+/// [staffBookingsApiProvider] (the master walk-in booking write path, Phase
+/// 246).
 @Riverpod(keepAlive: true)
 BookingRepository bookingRepository(Ref ref) => HttpBookingRepository(
   ref.watch(dioProvider),
   ref.watch(bookingApiProvider),
   ref.watch(bookingReviewApiProvider),
+  ref.watch(staffBookingsApiProvider),
 );
 
 /// Provides the [AppointmentRepository] singleton backed by

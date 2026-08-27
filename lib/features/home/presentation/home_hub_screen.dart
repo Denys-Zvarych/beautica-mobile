@@ -10,9 +10,12 @@
 // delta from the earlier bespoke card this replaced: the raw street address
 // is GONE (BookingCard renders no street/buildingNo/cityLabel/districtLabel,
 // no client* field, and no note field) — master photo, professional title,
-// price, and status are NEW. Protection is screen-wide (FLAG_SECURE /
-// app-switcher blur covers the entire screen, not per-card), so this is a
-// documentation-accuracy fix, not a functional gap either way.
+// price, and status are NEW. Also, since Phase 110 (13.9), the BEAUTY
+// TIMELINE rail's completed-procedure history: category / categoryKey,
+// dateLabel, and serviceName (`TimelineEntry`, `home_hub_models.dart`).
+// Protection is screen-wide (the app-switcher blur covers the entire screen,
+// not per-card), so each of these additions is a documentation-accuracy fix,
+// not a functional gap either way.
 //
 // Layout (scrollable ListView of cards, staggered reveal):
 //   1. Top bar: beautica wordmark | bell | burger
@@ -42,6 +45,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
+import '../../../core/widgets/app_refresh_indicator.dart';
 import '../../../core/widgets/staggered_reveal.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
@@ -84,8 +88,10 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
     // CRITICAL-4: Home Hub shows name / phone / city, and (since the
     // BookingCard cutover) the next appointment's master photo / master name
     // / professional title / salon name / service name / price / status —
-    // acquire screen protection so FLAG_SECURE / iOS app-switcher blur is
-    // active while this screen is mounted. (No street address, no client*
+    // acquire screen protection so the iOS app-switcher blur is active while
+    // this screen is mounted. It does NOT block screenshots (product decision
+    // 2026-08-20 — see `lib/core/security/screen_protection.dart`).
+    // (No street address, no client*
     // field, no note field — see the file header for the full field-set
     // delta against the retired bespoke card.)
     //
@@ -165,106 +171,136 @@ class _HomeHubBody extends ConsumerWidget {
     final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
 
-    return RepaintBoundary(
-      child: StaggeredReveal(
-        builder: (BuildContext context, RevealFn reveal) {
-          return ListView(
-            // Top inset matches the gap the on-screen bar used to leave above
-            // the profile block: the shell-owned ClientTopBar sits directly
-            // above this body, so the first card needs a `lg` breathing gap
-            // (the old bar reveal + its trailing `lg` SizedBox collapsed to
-            // this single top pad). Bottom keeps the page's `lg` end inset.
-            padding: const EdgeInsets.fromLTRB(
-              VelvetSpacing.lg,
-              VelvetSpacing.lg,
-              VelvetSpacing.lg,
-              VelvetSpacing.lg,
-            ),
-            children: <Widget>[
-              // (Top bar removed — now persistent chrome owned by ClientShell.)
-
-              // 2. Profile block
-              reveal(start: 0.05, end: 0.46, child: const _ProfileSection()),
-              const SizedBox(height: VelvetSpacing.lg),
-
-              // 3. Stat pills (IntrinsicHeight — CRITICAL render bug prevention)
-              reveal(
-                start: 0.11,
-                end: 0.52,
-                child: _StatPillsRow(
-                  // Passport is shell branch [kClientPassportBranch]. Hop the
-                  // branch (not `context.push`) so the page AND the bottom-nav
-                  // selection stay in sync — a plain push stacks Passport on the
-                  // Home branch and leaves the Home tile filled.
-                  onPassport: () => StatefulNavigationShell.of(
-                    context,
-                  ).goBranch(kClientPassportBranch),
-                  // Rating lives OUTSIDE the shell — a normal push is correct.
-                  onRating: () => context.push(RouteNames.myRating),
-                ),
+    // Pull-to-refresh: invalidate every Home Hub card provider (profile,
+    // next appointment, favourites, BEAUTY TIMELINE) together, matching
+    // `master_schedule_screen.dart`'s call site — a pull that refreshed only
+    // one card would read as a worse inconsistency than the missing
+    // invalidation this fixes (mobile-perf MEDIUM, Phase 110 audit-fix
+    // cycle 1). `clientProfileProvider` / `nextAppointmentProvider` are read
+    // (not watched) here — their own leaf widgets (`_ProfileSection` /
+    // `_NextAppointmentSection`) already watch and rebuild independently;
+    // this callback only needs to trigger + await their refetch.
+    // Riverpod 3.x note: invalidate + await `.future` — never gate on
+    // `value == null` (retains the previous value through the reload).
+    return AppRefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(clientProfileProvider);
+        ref.invalidate(nextAppointmentProvider);
+        ref.invalidate(favoriteMastersProvider);
+        ref.invalidate(beautyTimelineProvider);
+        try {
+          await Future.wait(<Future<void>>[
+            ref.read(clientProfileProvider.future),
+            ref.read(nextAppointmentProvider.future),
+            ref.read(favoriteMastersProvider.future),
+            ref.read(beautyTimelineProvider.future),
+          ]);
+        } on Object {
+          // Errors surface through each card's own `.when(error: ...)`
+          // branch (_CardErrorState / _ProfileSection / _NextAppointmentSection)
+          // — one card failing must not throw past the RefreshIndicator or
+          // stop the others' refetch from being awaited above.
+        }
+      },
+      child: RepaintBoundary(
+        child: StaggeredReveal(
+          builder: (BuildContext context, RevealFn reveal) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              // Top inset matches the gap the on-screen bar used to leave above
+              // the profile block: the shell-owned ClientTopBar sits directly
+              // above this body, so the first card needs a `lg` breathing gap
+              // (the old bar reveal + its trailing `lg` SizedBox collapsed to
+              // this single top pad). Bottom keeps the page's `lg` end inset.
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                VelvetSpacing.lg,
+                VelvetSpacing.lg,
+                VelvetSpacing.lg,
               ),
-              const SizedBox(height: VelvetSpacing.md),
+              children: <Widget>[
+                // (Top bar removed — now persistent chrome owned by ClientShell.)
 
-              // 4. Quick-links
-              reveal(start: 0.17, end: 0.58, child: const QuickLinksCard()),
-              const SizedBox(height: VelvetSpacing.lg),
+                // 2. Profile block
+                reveal(start: 0.05, end: 0.46, child: const _ProfileSection()),
+                const SizedBox(height: VelvetSpacing.lg),
 
-              // 5. Next appointment
-              reveal(
-                start: 0.23,
-                end: 0.64,
-                child: const _NextAppointmentSection(),
-              ),
-              const SizedBox(height: VelvetSpacing.lg),
-
-              // 6. Favourite masters
-              reveal(
-                start: 0.29,
-                end: 0.70,
-                child: favoritesAsync.when(
-                  data: (List<FavoriteMasterItem> masters) =>
-                      FavoriteMastersCard(
-                        masters: masters,
-                        totalCount: masters.length,
-                      ),
-                  loading: () => const _SectionSkeleton(),
-                  error: (Object e, _) => _CardErrorState(
-                    message: l10n.homeHubFavoritesLoadError,
-                    onRetry: () => ref.invalidate(favoriteMastersProvider),
+                // 3. Stat pills (IntrinsicHeight — CRITICAL render bug prevention)
+                reveal(
+                  start: 0.11,
+                  end: 0.52,
+                  child: _StatPillsRow(
+                    // Passport is shell branch [kClientPassportBranch]. Hop the
+                    // branch (not `context.push`) so the page AND the bottom-nav
+                    // selection stay in sync — a plain push stacks Passport on the
+                    // Home branch and leaves the Home tile filled.
+                    onPassport: () => StatefulNavigationShell.of(
+                      context,
+                    ).goBranch(kClientPassportBranch),
+                    // Rating lives OUTSIDE the shell — a normal push is correct.
+                    onRating: () => context.push(RouteNames.myRating),
                   ),
                 ),
-              ),
-              const SizedBox(height: VelvetSpacing.lg),
+                const SizedBox(height: VelvetSpacing.md),
 
-              // 7. BEAUTY TIMELINE
-              reveal(
-                start: 0.35,
-                end: 0.78,
-                child: timelineAsync.when(
-                  data: (List<TimelineEntry> entries) => BeautyTimelineSection(
-                    entries: entries,
-                    onSeeAll: () {
-                      // TODO(13.9): route to timeline page
-                      if (kDebugMode) {
-                        log(
-                          'timeline see-all — placeholder',
-                          name: 'feature.home',
-                          level: 700,
-                        );
-                      }
-                    },
-                  ),
-                  loading: () => const _SectionSkeleton(),
-                  error: (Object e, _) => _CardErrorState(
-                    message: l10n.homeHubTimelineLoadError,
-                    onRetry: () => ref.invalidate(beautyTimelineProvider),
+                // 4. Quick-links
+                reveal(start: 0.17, end: 0.58, child: const QuickLinksCard()),
+                const SizedBox(height: VelvetSpacing.lg),
+
+                // 5. Next appointment
+                reveal(
+                  start: 0.23,
+                  end: 0.64,
+                  child: const _NextAppointmentSection(),
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
+
+                // 6. Favourite masters
+                reveal(
+                  start: 0.29,
+                  end: 0.70,
+                  child: favoritesAsync.when(
+                    data: (List<FavoriteMasterItem> masters) =>
+                        FavoriteMastersCard(
+                          masters: masters,
+                          totalCount: masters.length,
+                        ),
+                    loading: () => const _SectionSkeleton(),
+                    error: (Object e, _) => _CardErrorState(
+                      message: l10n.homeHubFavoritesLoadError,
+                      onRetry: () => ref.invalidate(favoriteMastersProvider),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: VelvetSpacing.lg),
-            ],
-          );
-        },
+                const SizedBox(height: VelvetSpacing.lg),
+
+                // 7. BEAUTY TIMELINE
+                reveal(
+                  start: 0.35,
+                  end: 0.78,
+                  child: timelineAsync.when(
+                    data: (List<TimelineEntry> entries) => BeautyTimelineSection(
+                      entries: entries,
+                      // No "see all" destination — see this widget's file
+                      // header ("there shouldn't be new page, just railway on
+                      // home client profile page", locked product decision).
+                      // `onSeeAll` is optional and left null so no trailing
+                      // link renders.
+                      onOpenBooking: (String bookingId) =>
+                          context.push(RouteNames.bookingDetail(bookingId)),
+                    ),
+                    loading: () => const _SectionSkeleton(),
+                    error: (Object e, _) => _CardErrorState(
+                      message: l10n.homeHubTimelineLoadError,
+                      onRetry: () => ref.invalidate(beautyTimelineProvider),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

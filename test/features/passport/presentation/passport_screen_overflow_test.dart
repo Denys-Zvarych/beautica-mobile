@@ -68,7 +68,7 @@ import '../../../helpers/fakes/fake_wishlist_repository.dart';
 import '../../../helpers/overflow_guard.dart';
 
 // ---------------------------------------------------------------------------
-// No-op ScreenProtectionManager (the native FLAG_SECURE plugin must not fire).
+// No-op ScreenProtectionManager (the native `screen_protector` plugin must not fire).
 // ---------------------------------------------------------------------------
 
 class _NoOpScreenProtection extends ScreenProtectionManager {

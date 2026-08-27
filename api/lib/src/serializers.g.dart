@@ -122,10 +122,12 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CreateSalonRequest.serializer)
       ..add(CreateServiceDefinitionRequest.serializer)
       ..add(CreateServiceDefinitionRequestPriceTypeEnum.serializer)
+      ..add(CreateStaffBookingRequest.serializer)
       ..add(DuplicateServiceErrorResponse.serializer)
       ..add(DuplicateServiceResponse.serializer)
       ..add(EffectiveDayResponse.serializer)
       ..add(EffectiveDayResponseSource_Enum.serializer)
+      ..add(FavoriteCategoryView.serializer)
       ..add(FavoriteMasterResponse.serializer)
       ..add(FavoriteResponse.serializer)
       ..add(FavoriteResponseTargetTypeEnum.serializer)
@@ -136,6 +138,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ForgotPasswordRequest.serializer)
       ..add(GuestBookingRequest.serializer)
       ..add(GuestBookingResponse.serializer)
+      ..add(GuestClientDto.serializer)
       ..add(GuestTokenResponse.serializer)
       ..add(IndependentMasterUpdateRequest.serializer)
       ..add(InviteAcceptRequest.serializer)
@@ -328,6 +331,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(FavoriteCategoryView)]),
+          () => ListBuilder<FavoriteCategoryView>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(FavoriteCategoryView)]),
+          () => ListBuilder<FavoriteCategoryView>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(FavoriteMasterResponse)]),
           () => ListBuilder<FavoriteMasterResponse>())
       ..addBuilderFactory(
@@ -449,6 +460,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ServiceSummaryDto)]),
           () => ListBuilder<ServiceSummaryDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

@@ -45,6 +45,8 @@ import '../features/booking/domain/booking_confirm_args.dart';
 import '../features/booking/domain/booking_entry_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
+import '../features/booking/domain/create_master_booking_request.dart'
+    show WalkInGuest;
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
@@ -57,11 +59,14 @@ import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/my_bookings_screen.dart';
 import '../features/booking/presentation/salon_booking_confirm_screen.dart';
 import '../features/booking/presentation/salon_booking_success_screen.dart';
+import '../features/booking/presentation/salon_create_booking_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
 import '../features/booking/presentation/salon_service_selection_screen.dart';
 import '../features/booking/presentation/salon_time_screen.dart';
 import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
+import '../features/booking/presentation/walk_in_guest_step_screen.dart';
+import '../features/booking/presentation/walk_in_service_step_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -81,12 +86,12 @@ import '../features/home/presentation/client_contacts_edit_screen.dart';
 import '../features/home/presentation/client_location_edit_screen.dart';
 import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
+import '../features/favorites/presentation/favorites_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
-import '../features/shell/presentation/branch_placeholders.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -96,6 +101,7 @@ import '../features/services/domain/category_slug.dart';
 import '../shared/formatters/api_date.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
+import 'booking_reschedule_seed.dart';
 import 'role_home.dart';
 import 'route_names.dart';
 
@@ -345,9 +351,14 @@ GoRouter appRouter(Ref ref) {
         ],
       ),
       GoRoute(
-        // Phase 2.19 MEDIUM-2 (screenshot/FLAG_SECURE PII coverage):
+        // Phase 2.19 MEDIUM-2 (PII screen-protection coverage; the finding's
+        // FLAG_SECURE half was REVERSED on 2026-08-20 by product decision —
+        // screenshots are allowed, see the header of
+        // `lib/core/security/screen_protection.dart`. What the manager still
+        // drives is the iOS app-switcher blur plus the shared reference count,
+        // and the coverage argument below is unchanged for that):
         // /verification renders OUTSIDE the RegisterFlowShell, so it is NOT
-        // covered by the shell's screenshot guard. It instead acquires the
+        // covered by the shell's acquire. It instead acquires the
         // app-wide ScreenProtectionManager in VerificationScreen.initState and
         // releases it in dispose (the manager is internally !kDebugMode-guarded
         // and ref-counts a single native toggle). The three wizard steps
@@ -418,12 +429,13 @@ GoRouter appRouter(Ref ref) {
           StatefulShellBranch(
             navigatorKey: clientBranchNavigatorKeys[kClientFavoritesBranch],
             routes: [
+              // Phase 111 — real FavoritesScreen replaces the placeholder.
+              // Carries the placeholder's `client-branch-favorites` Key
+              // forward (see `forbid_missing_client_branch_key.sh`).
               GoRoute(
                 path: RouteNames.clientFavorites,
-                pageBuilder: (context, state) => _instantPage(
-                  state,
-                  const ClientFavoritesPlaceholderScreen(),
-                ),
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const FavoritesScreen()),
               ),
             ],
           ),
@@ -683,8 +695,15 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingSlots,
         redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
+          // Phase 27.2 follow-up — a PROVIDER rescheduling its own booking
+          // re-enters this CLIENT picker rather than forking a provider-only
+          // copy of it, so the role bounce is skipped for a reschedule-shaped
+          // seed only. A CREATE-shaped `BookingSlotPickerArgs` still bounces.
+          // See `booking_reschedule_seed.dart` for the SEC rationale.
+          if (!isBookingProviderSeed(state.extra)) {
+            final roleRedirect = clientOnlyGuard(context, state);
+            if (roleRedirect != null) return roleRedirect;
+          }
           if (state.extra is! BookingSlotPickerArgs) {
             return RouteNames.bookingNew;
           }
@@ -696,8 +715,11 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: 'time',
             redirect: (context, state) {
-              final roleRedirect = clientOnlyGuard(context, state);
-              if (roleRedirect != null) return roleRedirect;
+              // Same Phase 27.2 reschedule admission as the parent route.
+              if (!isBookingProviderSeed(state.extra)) {
+                final roleRedirect = clientOnlyGuard(context, state);
+                if (roleRedirect != null) return roleRedirect;
+              }
               if (state.extra is! BookingSlotPickerArgs) {
                 return RouteNames.bookingNew;
               }
@@ -717,8 +739,11 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingConfirm,
         redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
+          // Same Phase 27.2 reschedule admission as `bookingSlots` above.
+          if (!isBookingProviderSeed(state.extra)) {
+            final roleRedirect = clientOnlyGuard(context, state);
+            if (roleRedirect != null) return roleRedirect;
+          }
           if (state.extra is! BookingConfirmArgs) {
             return RouteNames.bookingNew;
           }
@@ -745,8 +770,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingSuccess,
         redirect: (context, state) {
-          final roleRedirect = clientOnlyGuard(context, state);
-          if (roleRedirect != null) return roleRedirect;
+          // Same Phase 27.2 reschedule admission as `bookingSlots` above —
+          // keyed off `BookingSuccessArgs.isReschedule` here.
+          if (!isBookingProviderSeed(state.extra)) {
+            final roleRedirect = clientOnlyGuard(context, state);
+            if (roleRedirect != null) return roleRedirect;
+          }
           if (state.extra is! BookingSuccessArgs) {
             return RouteNames.clientHome;
           }
@@ -912,6 +941,53 @@ GoRouter appRouter(Ref ref) {
             path: 'archive',
             builder: (context, state) => const MasterArchiveScreen(),
           ),
+          // Phase 247 — /master/bookings/new, the master «Новий запис» walk-in
+          // booking entry point. Registered BEFORE the `:bookingId` sibling
+          // below for the same reason `archive` is (go_router matches
+          // literal segments before dynamic ones only by declaration order
+          // among siblings) — `new` must never be shadowed by `:bookingId`.
+          // `pageBuilder` + `MaterialPage(fullscreenDialog: true)` per the
+          // phase doc; reached via `context.push` (never `Navigator`).
+          //
+          // Phase 264 — builder swapped from the retired single-screen
+          // walk-in wizard to [WalkInGuestStepScreen], the first thin screen
+          // of the ROUTED walk-in chain (see `route_names.dart`'s
+          // [RouteNames.masterBookingNewServices] doc and phase-264's D4).
+          // The old wizard screen was deleted outright in Phase 265.
+          GoRoute(
+            path: 'new',
+            pageBuilder: (context, state) => const MaterialPage<void>(
+              fullscreenDialog: true,
+              child: WalkInGuestStepScreen(),
+            ),
+            routes: [
+              // Phase 264 — /master/bookings/new/services, the walk-in
+              // chain's service multi-select step. A NESTED child of `new`,
+              // never a second top-level literal — this introduces no new
+              // sibling under [masterBookings], so the `archive` / `new` /
+              // `:bookingId` literal-before-dynamic ordering above is
+              // untouched (mirrors how `time` nests under [bookingSlots]
+              // elsewhere in this file). Reached with `context.push` from
+              // [WalkInGuestStepScreen]'s «Далі», carrying the minted
+              // [WalkInGuest] in `extra`. A missing/wrong-typed `extra`
+              // (e.g. a direct deep link) bounces back to
+              // [RouteNames.masterBookingNew] — a two-hop bounce to a safe
+              // place once that screen's own guard sends a non-master
+              // there too (phase-264 D9, pinned by test).
+              GoRoute(
+                path: 'services',
+                redirect: (context, state) => state.extra is WalkInGuest
+                    ? null
+                    : RouteNames.masterBookingNew,
+                // `builder:` (MaterialPage, not fullscreenDialog) — mirrors
+                // how `time` nests under [bookingSlots] elsewhere in this
+                // file: a normal forward push within the already-modal
+                // chain, carrying the theme's swipe-back gesture.
+                builder: (context, state) =>
+                    WalkInServiceStepScreen(guest: state.extra! as WalkInGuest),
+              ),
+            ],
+          ),
           // /master/bookings/:bookingId — the PROVIDER view of «Деталі
           // запису» (Phase 7.2). The SAME `BookingDetailScreen` the client
           // route renders: one screen, role-branched off the session (locked
@@ -927,6 +1003,60 @@ GoRouter appRouter(Ref ref) {
             ),
           ),
         ],
+      ),
+      // Phase 250 — /salon/bookings/new, the SALON «Новий запис» wizard.
+      //
+      // Registered as a STANDALONE top-level route, NOT nested under a
+      // `/salon/bookings` parent `GoRoute` — unlike [masterBookings]
+      // (`/master/bookings`), there is no parent SCREEN yet for the bare
+      // `/salon/bookings` path (that is Phase 251's Розклад entry point);
+      // mirrors [RouteNames.clientReview]'s own "standalone top-level route,
+      // not nested under a plain content screen" precedent (see that route's
+      // registration comment further down for the full go_router-matcher
+      // rationale). `salonId` travels via `extra` (a bare `String`) — this
+      // route's own path carries no id, mirroring [salonBookingServices]'s
+      // identical "no natural upstream salon id" shape.
+      //
+      // Role gate: the `/salon/*` prefix gate added to `auth_redirect.dart`
+      // for this phase (SALON_OWNER / SALON_ADMIN only) — no per-route
+      // `clientOnlyGuard`-style duplicate needed here, unlike the CLIENT
+      // salon-booking routes above (those sit under `/booking/salon/*`,
+      // which carries NO prefix gate in `auth_redirect.dart`, hence their
+      // own redirect closures).
+      //
+      // ⚠ SHADOWING — if a future phase nests a dynamic sibling (most likely
+      // `/salon/bookings/:bookingId`) under a shared `/salon/bookings`
+      // parent, this literal `new` MUST be declared before it — see
+      // [RouteNames.salonStaffBookingNew]'s own doc and
+      // `master_bookings_route_shadowing_test.dart` for why the ordering,
+      // not the path string, is what actually resolves the request.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` pins the
+      // resolved page TYPE for this route today (no dynamic sibling exists
+      // yet, so nothing can shadow it) and documents the same guard for
+      // whichever phase adds one.
+      //
+      // `pageBuilder` + `MaterialPage(fullscreenDialog: true)`, matching
+      // [masterBookingNew]. Reached via `context.push` (never `Navigator`).
+      GoRoute(
+        path: RouteNames.salonStaffBookingNew,
+        redirect: (context, state) {
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            // No natural upstream to chain-redirect through — same shape as
+            // [salonBookingServices]'s own missing-extra fallback, but the
+            // landing is role-derived (this route's callers are staff, not
+            // CLIENT) rather than a fixed `clientHome`.
+            final session = ref.read(authProvider).value;
+            return session is Authenticated
+                ? roleHomePath(session.user.role)
+                : RouteNames.login;
+          }
+          return null;
+        },
+        pageBuilder: (context, state) => MaterialPage<void>(
+          fullscreenDialog: true,
+          child: SalonCreateBookingScreen(salonId: state.extra! as String),
+        ),
       ),
       // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
       // Registered as a STANDALONE top-level route carrying the SAME full

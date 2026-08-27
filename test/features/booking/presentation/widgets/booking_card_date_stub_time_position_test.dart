@@ -59,7 +59,7 @@ Booking _booking({BookingStatus status = BookingStatus.confirmed}) {
     salonName: 'Lviv Nails Studio',
     serviceId: 'service-$_cardId',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     districtLabel: 'Залізничний район',
     street: 'вулиця Тестова',

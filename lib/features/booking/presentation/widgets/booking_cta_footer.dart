@@ -26,6 +26,7 @@ class BookingCtaFooter extends StatelessWidget {
     required this.loading,
     required this.onPressed,
     required this.buttonKey,
+    this.icon = Icons.check_circle_outline_rounded,
   });
 
   /// CTA caption — caller-driven (e.g. «Записатись» / «Повторити» / loading).
@@ -43,6 +44,14 @@ class BookingCtaFooter extends StatelessWidget {
   /// Key applied to the inner [NeumorphicButton] — distinct per flow
   /// (`booking-confirm-submit-cta` / `salon-confirm-submit-cta`).
   final Key buttonKey;
+
+  /// Leading glyph on the CTA. Defaults to the confirm/submit check, so every
+  /// pre-existing caller (all four submit footers) renders exactly as before.
+  /// The master «Новий запис» wizard's mid-flow «Далі» footers pass
+  /// [Icons.arrow_forward_rounded] instead — a check on a step that only moves
+  /// forward would claim the booking was made. Hidden entirely while
+  /// [loading] (the spinner takes over), same as before.
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +84,7 @@ class BookingCtaFooter extends StatelessWidget {
           child: NeumorphicButton(
             key: buttonKey,
             label: label,
-            icon: loading ? null : Icons.check_circle_outline_rounded,
+            icon: loading ? null : icon,
             loading: loading,
             onPressed: enabled ? onPressed : null,
           ),

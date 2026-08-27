@@ -451,8 +451,12 @@ void main() {
     // PII screen's dialog (e.g. `ClientBookingConflictDialog` open over
     // `BookingConfirmScreen`) that is still holding an acquired ref count when
     // a logout fires (e.g. `RefreshInterceptor` force-logout on a failed
-    // token refresh) cannot leave FLAG_SECURE / the iOS app-switcher blur
-    // latched on past the auth boundary. This pins that contract directly —
+    // token refresh) cannot leave the iOS app-switcher blur latched on past the
+    // auth boundary. (No FLAG_SECURE is involved any more — screenshots are
+    // allowed since 2026-08-20, see the header of
+    // `lib/core/security/screen_protection.dart`. The `reason:` string below
+    // still names it and is stale, left untouched because it is an assertion
+    // argument, not a comment.) This pins that contract directly —
     // a future refactor that drops the `.reset()` call would otherwise only
     // be caught manually on a real device.
     // -----------------------------------------------------------------------

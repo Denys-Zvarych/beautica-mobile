@@ -17,6 +17,7 @@ part 'create_appointment_request.g.dart';
 /// * [startsAt]
 /// * [idempotencyKey]
 /// * [clientComment]
+/// * [allowClientOverlap]
 @BuiltValue()
 abstract class CreateAppointmentRequest
     implements
@@ -35,6 +36,9 @@ abstract class CreateAppointmentRequest
 
   @BuiltValueField(wireName: r'clientComment')
   String? get clientComment;
+
+  @BuiltValueField(wireName: r'allowClientOverlap')
+  bool? get allowClientOverlap;
 
   CreateAppointmentRequest._();
 
@@ -93,6 +97,13 @@ class _$CreateAppointmentRequestSerializer
       yield serializers.serialize(
         object.clientComment,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.allowClientOverlap != null) {
+      yield r'allowClientOverlap';
+      yield serializers.serialize(
+        object.allowClientOverlap,
+        specifiedType: const FullType(bool),
       );
     }
   }
@@ -154,6 +165,13 @@ class _$CreateAppointmentRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.clientComment = valueDes;
+          break;
+        case r'allowClientOverlap':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.allowClientOverlap = valueDes;
           break;
         default:
           unhandled.add(key);

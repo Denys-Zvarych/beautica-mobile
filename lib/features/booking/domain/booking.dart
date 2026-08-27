@@ -118,6 +118,16 @@ abstract class Booking with _$Booking {
     required String serviceId,
     required String serviceName,
     String? categoryName,
+
+    /// Stable machine key for the client-side category-icon resolver — the
+    /// uppercase slug of the service's category (e.g. `"NAIL_SERVICE"`), or
+    /// null when the service has no category. Mirrors
+    /// `BookingDetailResponse.categoryKey` on the wire. Prefer this over
+    /// [categoryName] for icon resolution — [categoryName] is display-only
+    /// (and, per its own doc, actually carries the raw slug too on this
+    /// path, but is not the contract to depend on for icon lookup). Pass
+    /// both to `categoryIconOrNullFor`, key first.
+    String? categoryKey,
     String? cityLabel,
     String? districtLabel,
     String? street,

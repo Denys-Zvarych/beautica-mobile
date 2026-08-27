@@ -2,7 +2,7 @@
 //
 // The INDEPENDENT_MASTER's "Мої послуги" catalogue. Three AsyncValue states:
 //   • loading → three [_SkeletonCard] widgets (shimmer sweep)
-//   • data    → if empty: [_EmptyState]; else [ListView.builder] of [_ServiceCard]
+//   • data    → if empty: [_EmptyState]; else [ListView.builder] of [ServiceCard]
 //   • error   → [ErrorState] with retry
 //
 // A neumorphic extended FAB (hidden in the empty state: the empty state has its
@@ -14,6 +14,14 @@
 // Design source: `docs/signup-designs/ServiceListScreen/lib/screens/service_list_screen.dart`
 // and `service_widgets.dart` — transcribed 1:1; local state / Navigator
 // replaced by Riverpod notifier + go_router.
+//
+// Phase 247 (part 1) — [CategoryGroup], [CategorySection],
+// [CategoryCountBadge], [ServiceCard], [PhotoThumbnail], [ServiceInfo],
+// [MetaLine] and [MetaItem] were PROMOTED out of this file (dropped their
+// leading underscore) into
+// `presentation/widgets/service_category_list.dart` so the master booking
+// wizard (Phase 247 part 2) can reuse the exact same widgets rather than
+// forking a lookalike. Pure move — no behaviour change.
 
 import 'dart:developer';
 
@@ -30,14 +38,12 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
-import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
-import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
@@ -245,7 +251,7 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
       elevation: 0,
       surfaceTintColor: Colors.transparent,
       centerTitle: false,
-      title: Text(title, style: VelvetText.heading()),
+      title: Text(title, style: VelvetText.pageTitle),
     );
   }
 }
@@ -283,12 +289,12 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   // frequent rebuilds those invalidations trigger.
   List<MasterService>? _cachedServices;
   List<ServiceCategoryOption>? _cachedCategories;
-  List<_CategoryGroup>? _cachedGroups;
+  List<CategoryGroup>? _cachedGroups;
   // P-M2 fix: cache the _flatten() result. Invalidated whenever _cachedGroups
   // is recomputed (identity change of services or categories).
   List<_ListItem>? _cachedItems;
 
-  List<_CategoryGroup> _resolveGroups(
+  List<CategoryGroup> _resolveGroups(
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
     String uncategorizedLabel,
   ) {
@@ -299,9 +305,10 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
         identical(_cachedCategories, categoriesValue);
     if (hit) return _cachedGroups!;
 
-    final List<_CategoryGroup> groups = _group(
-      categoriesAsync,
-      uncategorizedLabel,
+    final List<CategoryGroup> groups = groupServicesByCategory(
+      services: widget.services,
+      categoriesAsync: categoriesAsync,
+      uncategorizedLabel: uncategorizedLabel,
     );
     _cachedServices = widget.services;
     _cachedCategories = categoriesValue;
@@ -311,81 +318,12 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
     return groups;
   }
 
-  /// Resolves a category wire slug to a display label using the same source the
-  /// service form uses ([approvedCategoriesProvider]):
-  ///   • match found in the approved list → the Ukrainian [displayName];
-  ///   • slug absent (inactive/retired) OR the provider is still loading /
-  ///     errored → [humanizeCategorySlug] so the user sees "Brows", never the
-  ///     raw ALL-CAPS wire value "BROWS".
-  /// Returns null when the service has no category at all.
-  String? _resolveCategoryLabel(
-    String? slug,
-    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
-  ) {
-    if (slug == null || slug.isEmpty) return null;
-    // `.value` returns the data when in AsyncData state, null otherwise
-    // (loading / error) — the humanized fallback covers those states.
-    final List<ServiceCategoryOption>? options = categoriesAsync.value;
-    if (options != null) {
-      for (final ServiceCategoryOption option in options) {
-        if (categorySlugMatches(slug, option.name)) return option.displayName;
-      }
-    }
-    return humanizeCategorySlug(slug);
-  }
-
-  /// Groups the widget's services into ordered category buckets, preserving the
-  /// EXACT creation order the list provider returns.
-  ///
-  /// - Within a bucket, services keep their original relative order.
-  /// - Category buckets are ordered by the FIRST appearance of a service in
-  ///   that category in the creation-ordered list (stable, tied to creation
-  ///   order — never alphabetical or by price).
-  /// - Services with no category share a single trailing bucket keyed on the
-  ///   empty string.
-  ///
-  /// A [LinkedHashMap] preserves insertion order, so iterating the entries
-  /// yields the buckets in first-appearance order without an explicit sort.
-  /// Each bucketed service is paired with a continuous [_CardEntry.staggerIndex]
-  /// (counted across section boundaries) so the entrance cascade is unbroken.
-  List<_CategoryGroup> _group(
-    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
-    String uncategorizedLabel,
-  ) {
-    // Bucket key: the upper-cased wire slug, or '' for uncategorized — so two
-    // services tagged 'brows' and 'BROWS' land in the same bucket.
-    final Map<String, List<MasterService>> buckets =
-        <String, List<MasterService>>{};
-    for (final MasterService s in widget.services) {
-      final String key = (s.category ?? '').trim().toUpperCase();
-      (buckets[key] ??= <MasterService>[]).add(s);
-    }
-    // Running index across all cards, in first-appearance + creation order, so
-    // the staggered entrance animation keeps a continuous cascade across
-    // section boundaries (preserves the prior behaviour exactly).
-    var cardIndex = 0;
-    return buckets.entries
-        .map((entry) {
-          final bool isUncategorized = entry.key.isEmpty;
-          final String label = isUncategorized
-              ? uncategorizedLabel
-              : _resolveCategoryLabel(entry.key, categoriesAsync) ??
-                    uncategorizedLabel;
-          final List<_CardEntry> cards = <_CardEntry>[
-            for (final MasterService service in entry.value)
-              _CardEntry(service: service, staggerIndex: cardIndex++),
-          ];
-          return _CategoryGroup(key: entry.key, label: label, cards: cards);
-        })
-        .toList(growable: false);
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final categoriesAsync = ref.watch(approvedCategoriesProvider);
 
-    final List<_CategoryGroup> groups = _resolveGroups(
+    final List<CategoryGroup> groups = _resolveGroups(
       categoriesAsync,
       l10n.serviceCategoryUncategorized,
     );
@@ -440,19 +378,20 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
             final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
             return Padding(
               padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-              child: _CategorySection(
+              child: CategorySection(
                 // Stable key per bucket so expand/collapse state survives
                 // rebuilds (e.g. category-cache invalidation on screen return).
                 // Also used by widget tests and profile card navigation.
                 key: Key('category_section_$sectionSlug'),
                 title: group.label,
                 count: group.cards.length,
+                slug: group.key.isEmpty ? null : group.key,
                 initiallyExpanded: initiallyExpanded,
                 children: <Widget>[
-                  for (final _CardEntry entry in group.cards)
+                  for (final CategoryGroupEntry entry in group.cards)
                     Padding(
                       padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                      child: _ServiceCard(
+                      child: ServiceCard(
                         key: Key('service_card_${entry.service.id}'),
                         service: entry.service,
                         onEdit: () => widget.onOpen(
@@ -481,12 +420,12 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   /// builder can construct one section at a time as it scrolls into view.
   List<_ListItem> _flatten(
     AppLocalizations l10n,
-    List<_CategoryGroup> groups,
+    List<CategoryGroup> groups,
     int total,
   ) {
     return <_ListItem>[
       _HeaderItem(_activeServicesLabel(l10n, total)),
-      for (final _CategoryGroup group in groups) _SectionItem(group),
+      for (final CategoryGroup group in groups) _SectionItem(group),
     ];
   }
 
@@ -514,42 +453,6 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
 }
 
 // ---------------------------------------------------------------------------
-// Category grouping
-// ---------------------------------------------------------------------------
-
-/// A single service paired with its continuous entrance-stagger index.
-///
-/// [staggerIndex] is assigned in first-appearance + creation order across ALL
-/// sections so the staggered fade/rise cascade is unbroken across section
-/// boundaries — independent of which section the card lives in.
-@immutable
-class _CardEntry {
-  const _CardEntry({required this.service, required this.staggerIndex});
-
-  final MasterService service;
-  final int staggerIndex;
-}
-
-/// An ordered bucket of services that share a category.
-///
-/// [key] is the upper-cased wire slug (or '' for uncategorized) and is used to
-/// derive a stable widget key. [label] is the display-ready Ukrainian header.
-/// [cards] preserve their creation order within the bucket and carry the
-/// continuous stagger index for the entrance animation.
-@immutable
-class _CategoryGroup {
-  const _CategoryGroup({
-    required this.key,
-    required this.label,
-    required this.cards,
-  });
-
-  final String key;
-  final String label;
-  final List<_CardEntry> cards;
-}
-
-// ---------------------------------------------------------------------------
 // Flattened list items (header + sections) for the lazy ListView.builder
 // ---------------------------------------------------------------------------
 
@@ -572,526 +475,7 @@ class _HeaderItem extends _ListItem {
 class _SectionItem extends _ListItem {
   const _SectionItem(this.group);
 
-  final _CategoryGroup group;
-}
-
-// ---------------------------------------------------------------------------
-// Expandable category section
-// ---------------------------------------------------------------------------
-
-/// A soft neumorphic disclosure section: an extruded header pillow (category
-/// name + count badge + rotating chevron) over a collapsible body of service
-/// cards.
-///
-/// [initiallyExpanded] controls the initial open/close state of this section:
-/// `true` starts expanded, `false` (the default) starts collapsed. The
-/// [_LoadedBodyState] passes `true` only for the explicitly-targeted category
-/// (when the master navigated via a specific category card). The user can
-/// toggle freely after first build — the initial value is applied only once
-/// in [initState].
-///
-/// This is the VelvetTouch analogue of an [ExpansionTile] — no raw Material
-/// chrome. The header reuses the same [BrandColors.base] + [VelvetShadows]
-/// language as the cards beneath it so the page reads as one carved surface.
-class _CategorySection extends StatefulWidget {
-  const _CategorySection({
-    super.key,
-    required this.title,
-    required this.count,
-    required this.children,
-    this.initiallyExpanded = false,
-  });
-
-  final String title;
-  final int count;
-  final List<Widget> children;
-
-  /// Whether this section starts expanded. Applied once in [initState];
-  /// the user can toggle freely afterward. Defaults to `false` (collapsed).
-  /// [_LoadedBodyState] passes `true` only for the explicitly-requested
-  /// category (non-null [_LoadedBody.initialExpandCategory] that matches this
-  /// section's slug).
-  final bool initiallyExpanded;
-
-  @override
-  State<_CategorySection> createState() => _CategorySectionState();
-}
-
-class _CategorySectionState extends State<_CategorySection> {
-  // Seeded from widget.initiallyExpanded in initState.
-  late bool _expanded;
-
-  // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _headerStyle = VelvetText.subheading16;
-
-  @override
-  void initState() {
-    super.initState();
-    _expanded = widget.initiallyExpanded;
-  }
-
-  void _toggle() => setState(() => _expanded = !_expanded);
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Semantics(
-          button: true,
-          header: true,
-          expanded: _expanded,
-          label: l10n.servicesCategorySectionSemantics(
-            widget.title,
-            widget.count,
-          ),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _toggle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: VelvetSpacing.md,
-                vertical: VelvetSpacing.sm + 2,
-              ),
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.card),
-                boxShadow: VelvetShadows.extrudedCard,
-              ),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      widget.title,
-                      style: _headerStyle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  _CategoryCountBadge(count: widget.count),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  AnimatedRotation(
-                    // 0.25 turns = 90°: chevron points down when expanded,
-                    // right when collapsed.
-                    turns: _expanded ? 0.0 : -0.25,
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOutCubic,
-                    child: const Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: BrandColors.accent,
-                      size: 22,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        // Collapsible body — AnimatedSize gives a smooth reveal/hide that keeps
-        // the cards' own staggered entrance intact on first build.
-        AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _expanded
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: widget.children,
-                )
-              : const SizedBox(width: double.infinity, height: 0),
-        ),
-      ],
-    );
-  }
-}
-
-/// A small recessed count badge shown on the right of a category header.
-class _CategoryCountBadge extends StatelessWidget {
-  const _CategoryCountBadge({required this.count});
-
-  final int count;
-
-  // Hoisted to avoid per-build allocation.
-  static final TextStyle _style = VelvetText.pillSm;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.sm,
-        vertical: 2,
-      ),
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.pill),
-        boxShadow: VelvetShadows.extrudedSmall,
-      ),
-      child: Text('$count', style: _style),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Service card
-// ---------------------------------------------------------------------------
-
-/// A tappable service card. Extrudes at rest; depresses (scale 0.99, shadow
-/// removed) on press for tactile "tap-to-edit" affordance.
-///
-/// Entrance animation: staggered fade + rise driven by [appearDelay].
-class _ServiceCard extends StatefulWidget {
-  const _ServiceCard({
-    super.key,
-    required this.service,
-    required this.onEdit,
-    this.appearDelay = Duration.zero,
-  });
-
-  final MasterService service;
-
-  /// Opens the edit form for this service and invalidates the category cache
-  /// on return. Provided by [_LoadedBody.onOpen].
-  final VoidCallback onEdit;
-
-  final Duration appearDelay;
-
-  @override
-  State<_ServiceCard> createState() => _ServiceCardState();
-}
-
-class _ServiceCardState extends State<_ServiceCard>
-    with SingleTickerProviderStateMixin {
-  bool _pressed = false;
-  late final AnimationController _appear;
-
-  // PERF MEDIUM-1: CurvedAnimation moved from build() to initState() so a
-  // new instance is not allocated on every frame. Typed as CurvedAnimation
-  // (not Animation<double>) so dispose() is accessible.
-  late final CurvedAnimation _curve;
-
-  // P-H1 fix: pre-built SlideTransition offset animation. Derived from
-  // _curve so it shares the same timing. FadeTransition + SlideTransition
-  // are compositing-friendly — they do not create extra raster layers unlike
-  // Opacity + Transform.translate.
-  late final Animation<Offset> _slide;
-
-  @override
-  void initState() {
-    super.initState();
-    _appear = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 460),
-    );
-    _curve = CurvedAnimation(parent: _appear, curve: Curves.easeOutCubic);
-    // P-H1: derive the slide animation once here (mirrors _ProfileBody._revealWith).
-    _slide = Tween<Offset>(
-      begin: const Offset(0, 0.05),
-      end: Offset.zero,
-    ).animate(_curve);
-    if (widget.appearDelay == Duration.zero) {
-      _appear.forward();
-    } else {
-      Future<void>.delayed(widget.appearDelay, () {
-        if (mounted) _appear.forward();
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _curve.dispose();
-    _appear.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final MasterService s = widget.service;
-    final durationLabel = DurationMinutes.format(s.durationMinutes);
-    // Price label: FIXED renders the server-formatted priceDisplay
-    // ("750 ₴"); RANGE is reformatted client-side to a hyphenated band
-    // ("200 - 600 ₴") via [ServicePriceDisplay]. Falls back gracefully when
-    // priceDisplay is empty (pre-V67 data / broken contract).
-    final priceLabel = ServicePriceDisplay.format(s);
-
-    // Card label rule: the master's OPTIONAL custom name REPLACES the platform
-    // service-type name. When a custom name is present we show ONLY it; when it
-    // is absent we fall back to the service-type name (e.g. "Стрижка"). The two
-    // names are never shown together. If both are empty the label is the empty
-    // string so a card is never blank / never crashes.
-    //
-    // M4 (contract correctness): serviceTypeNameUk is read straight off the
-    // mapped MasterService; the mapper sources it from
-    // MasterServiceResponse.serviceTypeNameUk (top-level, V16.3+) with a
-    // ServiceDefinitionResponse.serviceTypeNameUk fallback — both confirmed
-    // present in the generated DTOs. A null here means no type is assigned,
-    // NOT a dropped field.
-    final String typeName = (s.serviceTypeNameUk ?? '').trim();
-    final String customName = s.name.trim();
-    final String primaryLabel = customName.isNotEmpty ? customName : typeName;
-
-    // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
-    // Transform.translate. Both transitions are compositing-friendly and
-    // do not force an extra GPU raster layer per card.
-    //
-    // PERF: RepaintBoundary isolates this card's staggered entrance repaints so
-    // the per-frame fade/slide does not invalidate sibling cards in the section.
-    return RepaintBoundary(
-      child: FadeTransition(
-        opacity: _curve,
-        child: SlideTransition(
-          position: _slide,
-          child: Semantics(
-            button: true,
-            label: '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
-            // priceLabel renders from priceDisplay (server-formatted) so the
-            // accessibility label always matches what the user sees in the card.
-            child: GestureDetector(
-              onTapDown: (_) => setState(() => _pressed = true),
-              onTapCancel: () => setState(() => _pressed = false),
-              onTapUp: (_) {
-                setState(() => _pressed = false);
-                widget.onEdit();
-              },
-              child: AnimatedScale(
-                scale: _pressed ? 0.99 : 1.0,
-                duration: const Duration(milliseconds: 110),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  decoration: BoxDecoration(
-                    color: BrandColors.base,
-                    borderRadius: BorderRadius.circular(VelvetRadii.card),
-                    boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-                  ),
-                  // Compact dense row: tighter vertical padding (~halved height)
-                  // versus the original VelvetSpacing.sm + 2 with a stacked pill
-                  // Wrap below the title.
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.sm + 2,
-                    VelvetSpacing.sm,
-                    VelvetSpacing.sm + 2,
-                    VelvetSpacing.sm,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      _PhotoThumbnail(key: Key('thumb_${s.id}')),
-                      const SizedBox(width: VelvetSpacing.sm + 2),
-                      Expanded(
-                        child: _ServiceInfo(
-                          name: primaryLabel,
-                          durationLabel: durationLabel,
-                          priceLabel: priceLabel,
-                        ),
-                      ),
-                      const SizedBox(width: VelvetSpacing.sm),
-                      const _EditButton(),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Photo thumbnail (no-photo placeholder — service photo deferred to Phase 9.x)
-// ---------------------------------------------------------------------------
-
-/// 40×40 recessed inset well with a centred camel spa icon.
-///
-/// Compact-row sizing (was 48×48) so the dense list fits more rows on screen.
-/// When actual photo upload is implemented (Phase 9.x), this widget will
-/// accept a `photoUrl` and render an [Image.network] inside the same
-/// 40×40 rounded [ClipRRect]. Until then, every service shows the icon
-/// placeholder so depth always comes from shadows, never a flat grey box.
-class _PhotoThumbnail extends StatelessWidget {
-  const _PhotoThumbnail({super.key});
-
-  static const double _size = 40;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: _size,
-      width: _size,
-      child: NeumorphicInset(
-        radius: VelvetRadii.field,
-        child: Center(
-          child: Icon(
-            Icons.spa_rounded,
-            size: 18,
-            color: BrandColors.accent.withValues(alpha: 0.9),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Service info (name + pills)
-// ---------------------------------------------------------------------------
-
-class _ServiceInfo extends StatelessWidget {
-  const _ServiceInfo({
-    required this.name,
-    required this.durationLabel,
-    required this.priceLabel,
-  });
-
-  /// Card label — the master's custom name when present, otherwise the platform
-  /// service-type name. The two names are never shown together.
-  final String name;
-
-  final String durationLabel;
-  final String priceLabel;
-
-  // Hoisted to avoid per-build allocation (MEDIUM-3).
-  static final TextStyle _nameStyle = VelvetText.svcCardName;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          name,
-          // Compact row: single line, slightly smaller than the full cardTitle
-          // so the dense list reads as rows rather than tall cards.
-          style: _nameStyle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: VelvetSpacing.xs),
-        // Inline duration · price metadata line. The category is shown as the
-        // section header the card lives under, not here.
-        _MetaLine(durationLabel: durationLabel, priceLabel: priceLabel),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Inline metadata line (replaces the stacked inset pills for density)
-// ---------------------------------------------------------------------------
-
-/// A compact, single-line metadata strip: a duration glyph + value, a thin
-/// divider dot, and a price glyph + value.
-///
-/// Overflow-safe: the whole strip clips with an ellipsis if the row is narrow.
-class _MetaLine extends StatelessWidget {
-  const _MetaLine({required this.durationLabel, required this.priceLabel});
-
-  final String durationLabel;
-  final String priceLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        _MetaItem(icon: Icons.schedule_rounded, value: durationLabel),
-        const _MetaDot(),
-        Flexible(
-          child: _MetaItem(icon: Icons.sell_rounded, value: priceLabel),
-        ),
-      ],
-    );
-  }
-}
-
-/// A small icon + value pair used inside [_MetaLine]. Compact glyph (13) and
-/// the existing [VelvetText.pill] tone, but flat (no inset well).
-class _MetaItem extends StatelessWidget {
-  const _MetaItem({required this.icon, required this.value});
-
-  final IconData icon;
-  final String value;
-
-  // Hoisted to avoid per-build allocation (MEDIUM-3).
-  static final TextStyle _valueStyle = VelvetText.pillSm;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(icon, size: 13, color: BrandColors.accent),
-        const SizedBox(width: VelvetSpacing.xs),
-        Flexible(
-          child: Text(
-            value,
-            style: _valueStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A thin separator dot between metadata items.
-class _MetaDot extends StatelessWidget {
-  const _MetaDot();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.sm - 2),
-      child: Container(
-        width: 3,
-        height: 3,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: BrandColors.accent.withValues(alpha: 0.55),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Trailing edit button
-// ---------------------------------------------------------------------------
-
-/// 30×30 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
-///
-/// Compact-row sizing (was 32×32). The whole row remains the tap target for
-/// edit, so this remains a non-interactive affordance glyph.
-class _EditButton extends StatelessWidget {
-  const _EditButton();
-
-  // Hoisted: VelvetRadii.field is a compile-time constant.
-  static const BorderRadius _radius = BorderRadius.all(
-    Radius.circular(VelvetRadii.field),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 30,
-      width: 30,
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: _radius,
-        boxShadow: VelvetShadows.extrudedSmall,
-      ),
-      child: const Icon(
-        Icons.edit_outlined,
-        color: BrandColors.accent,
-        size: 16,
-      ),
-    );
-  }
+  final CategoryGroup group;
 }
 
 // ---------------------------------------------------------------------------

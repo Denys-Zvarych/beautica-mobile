@@ -14,10 +14,12 @@
 //     Home Hub renders it through the SAME `BookingCard` widget «Мої записи»
 //     uses (locked decision), so there is no lossy DTO projection in between
 //     any more.
+//   • timelineAsync         → Phase 110 (13.9) — derived from
+//     TimelineRepository.getMyTimeline (GET /clients/me/timeline, backend
+//     19.5), see [beautyTimeline]'s doc.
 //
 // Empty-state-placeholder cards (backend 19.x not yet shipped):
 //   • favoriteMastersAsync  — TODO(19.1) wire GET /favorites/masters
-//   • timelineAsync         — TODO(19.5) wire GET /clients/me/timeline
 //
 // The client's aggregate rating (two-sided system: masters/salons rate clients)
 // is derivable from GET /clients/me/rating but that endpoint is not yet shipped;
@@ -28,6 +30,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
@@ -38,6 +41,7 @@ import '../../booking/domain/booking.dart';
 import '../../booking/domain/booking_partition.dart';
 import '../../booking/domain/booking_sort.dart';
 import '../../booking/domain/booking_tab.dart';
+import '../data/timeline_repository.dart';
 import '../domain/home_hub_models.dart';
 import 'client_edit_profile_notifier.dart';
 
@@ -347,23 +351,29 @@ Future<List<FavoriteMasterItem>> favoriteMasters(Ref ref) async {
 }
 
 // ---------------------------------------------------------------------------
-// Beauty Timeline — placeholder (backend 19.5 not ready)
+// Beauty Timeline — data-wired (Phase 110 / 13.9)
 // ---------------------------------------------------------------------------
 
-/// Returns the CLIENT's beauty timeline entries.
-/// Currently always returns an empty list until the endpoint ships.
-/// TODO(19.5): wire GET /clients/me/timeline
+/// Binds the timeline repository to the live `GET /clients/me/timeline`
+/// endpoint. Override in tests with a mocktail mock — never construct
+/// [HttpTimelineRepository] directly. Mirrors
+/// `passport_notifier.dart`'s `passportRepositoryProvider`.
 @riverpod
-Future<List<TimelineEntry>> beautyTimeline(Ref ref) async {
-  // TODO(19.5): call timeline repository when endpoint ships.
-  if (kDebugMode) {
-    log(
-      'beautyTimeline: placeholder — backend 19.5 not ready',
-      name: 'feature.home',
-      level: 700,
-    );
-  }
-  return const <TimelineEntry>[];
+TimelineRepository timelineRepository(Ref ref) =>
+    HttpTimelineRepository(ref.watch(clientApiProvider));
+
+/// Returns the CLIENT's BEAUTY TIMELINE entries (completed procedures),
+/// most-recent-first — see [TimelineMapper.fromDtoList]'s doc for the exact
+/// sort/drop policy.
+///
+/// No TTL/keepAlive caching — matches the plain-autoDispose shape of the
+/// sibling [favoriteMasters]/[nextAppointment] cards (unlike
+/// [passportProvider]'s 5-minute TTL), so `_CardErrorState`'s
+/// `ref.invalidate(beautyTimelineProvider)` retry always re-fetches on the
+/// very next read.
+@riverpod
+Future<List<TimelineEntry>> beautyTimeline(Ref ref) {
+  return ref.watch(timelineRepositoryProvider).getMyTimeline();
 }
 
 // ---------------------------------------------------------------------------

@@ -110,11 +110,13 @@ doc/CreatePlatformCategoryRequest.md
 doc/CreateReviewRequest.md
 doc/CreateSalonRequest.md
 doc/CreateServiceDefinitionRequest.md
+doc/CreateStaffBookingRequest.md
 doc/DashboardControllerApi.md
 doc/DeviceControllerApi.md
 doc/DuplicateServiceErrorResponse.md
 doc/DuplicateServiceResponse.md
 doc/EffectiveDayResponse.md
+doc/FavoriteCategoryView.md
 doc/FavoriteControllerApi.md
 doc/FavoriteMasterResponse.md
 doc/FavoriteResponse.md
@@ -123,6 +125,7 @@ doc/FavoriteServiceResponse.md
 doc/ForgotPasswordRequest.md
 doc/GuestBookingRequest.md
 doc/GuestBookingResponse.md
+doc/GuestClientDto.md
 doc/GuestTokenResponse.md
 doc/IndependentMasterControllerApi.md
 doc/IndependentMasterUpdateRequest.md
@@ -210,6 +213,7 @@ doc/ServiceControllerApi.md
 doc/ServiceDefinitionResponse.md
 doc/ServiceSummaryDto.md
 doc/SortObject.md
+doc/StaffBookingsApi.md
 doc/StatusUpdateRequest.md
 doc/SuggestServiceTypeRequest.md
 doc/SupportControllerApi.md
@@ -258,6 +262,7 @@ lib/src/api/salon_master_controller_api.dart
 lib/src/api/search_controller_api.dart
 lib/src/api/service_catalog_controller_api.dart
 lib/src/api/service_controller_api.dart
+lib/src/api/staff_bookings_api.dart
 lib/src/api/support_controller_api.dart
 lib/src/api/user_controller_api.dart
 lib/src/api_util.dart
@@ -370,10 +375,12 @@ lib/src/model/create_platform_category_request.dart
 lib/src/model/create_review_request.dart
 lib/src/model/create_salon_request.dart
 lib/src/model/create_service_definition_request.dart
+lib/src/model/create_staff_booking_request.dart
 lib/src/model/date.dart
 lib/src/model/duplicate_service_error_response.dart
 lib/src/model/duplicate_service_response.dart
 lib/src/model/effective_day_response.dart
+lib/src/model/favorite_category_view.dart
 lib/src/model/favorite_master_response.dart
 lib/src/model/favorite_response.dart
 lib/src/model/favorite_salon_response.dart
@@ -381,6 +388,7 @@ lib/src/model/favorite_service_response.dart
 lib/src/model/forgot_password_request.dart
 lib/src/model/guest_booking_request.dart
 lib/src/model/guest_booking_response.dart
+lib/src/model/guest_client_dto.dart
 lib/src/model/guest_token_response.dart
 lib/src/model/independent_master_update_request.dart
 lib/src/model/invite_accept_request.dart

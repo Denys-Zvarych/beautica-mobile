@@ -614,28 +614,14 @@ void main() {
       },
     );
 
-    testWidgets(
-      'favorites placeholder icon pillow uses heartFilled SVG at accentDeep tint',
-      (tester) async {
-        await tester.pumpWidget(
-          _wrap(const ClientFavoritesPlaceholderScreen()),
-        );
-        await tester.pump(const Duration(seconds: 1));
-
-        // No Material favorite icon must appear.
-        expect(find.byIcon(Icons.favorite_rounded), findsNothing);
-
-        expect(find.byType(AppIcon), findsOneWidget);
-        final AppIcon appIcon = tester.widget<AppIcon>(find.byType(AppIcon));
-        expect(
-          appIcon.asset,
-          equals(BeauticaAssetIcons.heartFilled),
-          reason: 'Favorites placeholder must use heartFilled SVG via AppIcon.',
-        );
-        expect(appIcon.color, equals(const Color(0xFF6A4A28)));
-        expect(appIcon.size, equals(40.0));
-      },
-    );
+    // The favorites branch has NO placeholder any more — Phase 111 mounts the
+    // real FavoritesScreen at RouteNames.clientFavorites, and
+    // ClientFavoritesPlaceholderScreen was deleted with it. Its icon-pillow
+    // test went with the widget: there is nothing left for it to assert. The
+    // branch's `client-branch-favorites` Key (the one contract that outlived
+    // the placeholder) is pinned by the router-tier matrix
+    // (test/routing/client_branch_chrome_matrix.dart) and by
+    // scripts/forbid_missing_client_branch_key.sh.
 
     testWidgets(
       'search placeholder icon pillow uses searchFilled SVG at accentDeep tint',

@@ -92,7 +92,7 @@ const int _kFetchChunkSize = 8;
 /// [SalonCatalogService.id]), the value is that master's OWN
 /// `MasterServiceAssignment` id for the same service — the id the slot-
 /// availability endpoint actually requires (see `salon_master_schedule.dart`'s
-/// `primaryServiceAssignmentId`). "Does master X cover service Y" is still a
+/// `orderedMasterServiceIds`). "Does master X cover service Y" is still a
 /// simple `coverage[x]?.containsKey(y) ?? false` check.
 ///
 /// Generated provider name: `salonMasterServiceCoverageProvider` — a family,

@@ -171,6 +171,165 @@ void main() {
     },
   );
 
+  // ITEM 6 (this track) — pins `_invalidateEffectiveScheduleWindows`'s (FIX D)
+  // candidate-set bound, the schedule-side counterpart to the booking/review
+  // siblings' wasPinned call-count pins. The test above only ever exercises
+  // the PINNED branch (the range is watched before `save` runs). This test
+  // proves a range nobody built this session gets ZERO `effectiveSchedule`
+  // calls: since it was never built, `EffectiveScheduleRangeTracker` never
+  // remembered it, so it is not even a CANDIDATE for the loop.
+  //
+  // HONEST LIMITATION, checked empirically (mutation-probed): unlike the
+  // booking/review siblings — whose loop always visits a FIXED key set
+  // (2 day-list members / 4 review sorts) regardless of `wasPinned`, so
+  // dropping `if (wasPinned)` there flips an UNPINNED member's count from 0
+  // to nonzero — this file's loop only ever visits `tracker.liveRanges`,
+  // which is ALREADY filtered to "built this session". Reverting
+  // `_invalidateEffectiveScheduleWindows` to a bare
+  // `ref.invalidate(effectiveScheduleProvider)` entirely (dropping the
+  // tracker AND the `if (wasPinned)` gate together) does NOT change this
+  // file's `effectiveSchedule` call counts for either test above — verified
+  // by mutating it and re-running this suite, still green. THAT regression
+  // shape (bare-family cross-file invalidate of a keepAlive family) is what
+  // `scripts/forbid_bare_keepalive_family_invalidation.sh` (ITEM 5) exists to
+  // catch instead; it goes red the instant `weekly_schedule_notifier.dart:134`
+  // stops matching a wasPinned-gated per-range shape. The two are
+  // complementary, not redundant: this test bounds the CANDIDATE SET, the
+  // structural gate bounds the SHAPE of the invalidate call itself.
+  test('save does NOT fetch a range nobody built this session (proves the '
+      'candidate set is genuinely bounded to built ranges, not the whole '
+      'family)', () async {
+    when(
+      () => repo.listWeeklySchedules(),
+    ).thenAnswer((_) async => <WeeklySchedule>[]);
+    when(
+      () => repo.upsertWeeklySchedule(
+        any(),
+        scheduleId: any(named: 'scheduleId'),
+      ),
+    ).thenAnswer((_) async => _schedule(id: 's1'));
+    when(
+      () => repo.effectiveSchedule(any(), any()),
+    ).thenAnswer((_) async => <EffectiveDay>[]);
+    when(
+      () => repo.listOverrides(any(), any()),
+    ).thenAnswer((_) async => const <ScheduleOverride>[]);
+
+    final container = makeContainer();
+
+    // Deliberately NO subscription/read for ANY ScheduleRange before
+    // save() runs — no `EffectiveScheduleNotifier` element exists yet, so
+    // the tracker's candidate set is genuinely empty.
+    await container.read(weeklyScheduleProvider.future);
+    await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+
+    verifyNever(() => repo.effectiveSchedule(any(), any()));
+  });
+
+  // ITEM 6b (mobile-qa audit, this track) — the assertion the ITEM 6 test
+  // above does NOT make: it distinguishes the wasPinned-GATED eager-read
+  // idiom from a bare-family `ref.invalidate(effectiveScheduleProvider)`.
+  //
+  // WHY THE ABOVE TWO TESTS CANNOT: the "watched window refetches" test
+  // keeps an ACTIVE `container.listen` on `range` for its entire body — an
+  // ACTIVELY-watched provider refetches on ANY invalidate (bare or gated),
+  // gated or not, because Riverpod recomputes every family member with a
+  // live listener regardless of this file's own `wasPinned` branch. ITEM 6
+  // keeps the candidate set EMPTY, so the loop body never runs at all
+  // either way. Neither shape can go red on a revert to
+  // `ref.invalidate(effectiveScheduleProvider)` (verified: reverting
+  // `_invalidateEffectiveScheduleWindows` to that one line leaves this
+  // whole suite green — see the ITEM 6 comment above).
+  //
+  // THIS test instead pins `range` the way `MasterScheduleScreen` actually
+  // does: build it, then CLOSE the listener (`sub.close()`) — the element
+  // now has ZERO listeners and survives only via `_pinForTtl()`'s
+  // `ref.keepAlive()` link, i.e. genuinely pinned-but-unwatched, the exact
+  // precondition FIX D's `if (wasPinned) ref.read(...)` exists for. It then
+  // asserts the refetch count IMMEDIATELY after `save()` returns, with NO
+  // intervening read of `range` — that is load-bearing: only the EAGER
+  // `ref.read` inside `_invalidateEffectiveScheduleWindows` can produce a
+  // second `effectiveSchedule` call this early, because nothing else in
+  // this test ever re-touches `range`.
+  //
+  //   • WITH the fix: `wasPinned` reads `true` (the tracker remembered
+  //     `range`, `ref.exists` finds its element), so the eager `ref.read`
+  //     fires synchronously inside `save()` → 2 calls by the time `save()`
+  //     returns.
+  //   • Reverted to bare `ref.invalidate(effectiveScheduleProvider)`: the
+  //     invalidate still runs, but with zero listeners Riverpod DROPS the
+  //     provider rather than eagerly refetching it (same "settled revisit
+  //     costs nothing" contract this file's own header documents for
+  //     [invalidateBookingViewsAfterExternalDecline]'s sibling case) — no
+  //     synchronous refetch, so the count stays at 1. RED on that revert —
+  //     confirmed by mutation-testing this exact test before adding it.
+  test(
+    'save eagerly refetches a PINNED-BUT-UNWATCHED range synchronously '
+    '(proves the wasPinned branch itself, not just the candidate-set bound)',
+    () async {
+      when(
+        () => repo.listWeeklySchedules(),
+      ).thenAnswer((_) async => <WeeklySchedule>[]);
+      when(
+        () => repo.upsertWeeklySchedule(
+          any(),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      ).thenAnswer((_) async => _schedule(id: 's1'));
+      when(
+        () => repo.effectiveSchedule(any(), any()),
+      ).thenAnswer((_) async => <EffectiveDay>[]);
+      when(
+        () => repo.listOverrides(any(), any()),
+      ).thenAnswer((_) async => const <ScheduleOverride>[]);
+
+      final container = makeContainer();
+      final range = ScheduleRange(
+        from: DateTime(2026, 6, 1),
+        to: DateTime(2026, 6, 30),
+      );
+
+      // Build `range` once, THEN close the listener — pinned-but-unwatched
+      // via `_pinForTtl()`'s keepAlive link, NOT actively watched. This is
+      // the "swap away" half of the recipe every sibling pin-race test
+      // drives through real widgets; here it is driven directly through the
+      // container, matching this file's own unit-test level.
+      final sub = container.listen(
+        effectiveScheduleProvider(range),
+        (_, _) {},
+        fireImmediately: true,
+      );
+      await container.read(effectiveScheduleProvider(range).future);
+      sub.close();
+
+      verify(() => repo.effectiveSchedule(any(), any())).called(1);
+
+      await container.read(weeklyScheduleProvider.future);
+      await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+
+      // Flush pending microtasks WITHOUT reading `range` ourselves — the
+      // eager `ref.read` inside `_invalidateEffectiveScheduleWindows` (if it
+      // ran) already STARTED `range`'s rebuild synchronously inside `save`;
+      // this only lets that already-in-flight build's own internal
+      // `await overridesProvider(range).future` resolve and reach
+      // `repo.effectiveSchedule`. It does NOT itself initiate a new read of
+      // `range` — under the reverted/bare-invalidate mutation nothing was
+      // ever triggered to begin with, so this flush produces no extra call
+      // there either.
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      // mocktail `verify()` CONSUMES the interactions it matches — the
+      // `.called(1)` above already claimed the initial build's call, so
+      // this checks exactly ONE NEW (unconsumed) call happened since then.
+      // Nothing else in this test ever reads `range` again, so that one new
+      // call can ONLY have come from the eager `ref.read` inside
+      // `_invalidateEffectiveScheduleWindows`.
+      verify(() => repo.effectiveSchedule(any(), any())).called(1);
+    },
+  );
+
   test(
     'failed save → AsyncError and NO effective-schedule invalidation',
     () async {

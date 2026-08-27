@@ -226,6 +226,130 @@ void main() {
     );
   });
 
+  // ── 2b. Connector alignment regression — circle x-origin must be fixed ────
+  //
+  // THE BUG (this group)
+  // ---------------------
+  // `_TimelineNode` was the Stack's only non-Positioned child, so it laid out
+  // with LOOSE width constraints. Its Column (crossAxisAlignment.center) then
+  // took the width of its widest child — the caption Text, not the 64dp
+  // circle — and centred the circle inside THAT width instead of the tile
+  // width. The circle's x-origin drifted with caption length while the
+  // connector's `left` assumed a centred-in-tile circle, desyncing the two.
+  //
+  // THE FIX
+  // -------
+  // `_TimelineNode` is now wrapped in `SizedBox(width: _tileWidth, ...)` —
+  // a TIGHT width — so the Column always centres the circle at a constant
+  // x-origin of `(_tileWidth - _medallion) / 2`, regardless of caption
+  // length. Phase 110 Part 2 grew `_tileWidth` 84 → 100 (see that constant's
+  // doc comment), which moved this x-origin 10.0 → 18.0 — the constant below
+  // was re-derived, not just re-pinned; the underlying invariant (fixed
+  // x-origin, formula-driven off `_tileWidth`/`_medallion`) is unchanged.
+  //
+  // 2026-08-26 (disc-match resize): `_medallion` shrank 64 → 52 to match the
+  // nav-bar search disc's size, moving this x-origin 18.0 → 24.0 —
+  // `(100 - 52) / 2`. Same re-derivation, not a re-pin.
+  //
+  // A SECOND BUG IN THE CONNECTOR ITSELF (fixed separately, same file)
+  // --------------------------------------------------------------------
+  // Even with the circle's x-origin pinned, the connector's own `left` had a
+  // `- 4` tuck-under left over from when this was written against an OPAQUE
+  // circle (hide the dash's ragged end under the circle's edge). The circle
+  // fill is actually 50%-translucent, so that tuck made 4dp of dotted line
+  // visible THROUGH the circle instead of hidden. The fix drops the `- 4`:
+  // the connector now starts exactly at the circle's right edge and extends
+  // past the tile's own right edge (under `clipBehavior: Clip.none`) to
+  // reach the NEXT circle's left edge — no gap, no under-circle overlap.
+  //
+  // WHY THE SECOND ASSERTION IS AN EXACT EQUALITY, NOT `>=`
+  // ---------------------------------------------------------
+  // A "no overlap" assertion (`connectorRect.left >= circleRect.right`) would
+  // have PASSED on the pre-fix short-caption case, which had a 6dp *gap*
+  // (the line floats visibly detached from the circle) rather than an
+  // overlap. Pinning `circleRect.right == connectorRect.left` (the connector
+  // starts EXACTLY at the circle's edge, zero pixels under the circle and
+  // zero pixels of detached gap) catches both failure directions — gap and
+  // overlap alike. This replaces the old `connectorRect.left + 4` pin, which
+  // asserted the pre-fix 4dp under-circle overlap as correct.
+  group('BeautyTimelineSection connector alignment (circle x-origin)', () {
+    testWidgets('circle x-origin fixed at 24.0 — short caption', (
+      tester,
+    ) async {
+      await _expectTileAligned(tester, caption: 'Брови');
+    });
+
+    testWidgets('circle x-origin fixed at 24.0 — max-width caption', (
+      tester,
+    ) async {
+      await _expectTileAligned(tester, caption: 'COSMETOLOGY_AESTHETIC');
+    });
+
+    testWidgets(
+      'circle x-origin fixed at 24.0 — short caption, textScale 1.3',
+      (tester) async {
+        await _expectTileAligned(
+          tester,
+          caption: 'Брови',
+          textScaleFactor: 1.3,
+        );
+      },
+    );
+
+    testWidgets(
+      'circle x-origin fixed at 24.0 — max-width caption, textScale 1.3',
+      (tester) async {
+        await _expectTileAligned(
+          tester,
+          caption: 'COSMETOLOGY_AESTHETIC',
+          textScaleFactor: 1.3,
+        );
+      },
+    );
+  });
+
+  // ── 2c. Rail height — measured, not merely golden-pixel ───────────────────
+  //
+  // mobile-qa gap-closure (2026-08-26): `_railHeight` (106, down from 118 —
+  // see its own doc comment for the 12dp disc-match derivation) drives the
+  // `SizedBox(key: Key('timeline_rail'))`'s height directly
+  // (`_railHeight + _scaledTextHeadroom(context)`). Before this group, NO
+  // non-golden assertion read that height at all: the overflow guard above
+  // only proves the value is LARGE ENOUGH not to RenderFlex-overflow at the
+  // 320×1.3 worst cell — it would stay green even if `_railHeight` were
+  // doubled (extra dead space, never an exception) or shrunk by a few
+  // px (still no overflow at 1.0 scale, silently clipping less visible
+  // content). The two `beauty_timeline_rail_golden_test.dart` baselines DO
+  // capture the exact value, but only as opaque pixels — this test pins the
+  // number itself so a future edit to `_railHeight` fails HERE, at the
+  // source of truth, not just as an unexplained pixel diff.
+  group('BeautyTimelineSection rail height (measured, textScale 1.0)', () {
+    testWidgets('timeline_rail SizedBox is laid out at exactly 112.0 '
+        '(_railHeight 106 + _scaledTextHeadroom(scale: 1.0) == 6)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const BeautyTimelineSection(entries: _sampleTimeline, onSeeAll: _noop),
+      );
+      await tester.pump();
+
+      final Finder rail = find.byKey(const Key('timeline_rail'));
+      expect(rail, findsOneWidget);
+
+      final Size railSize = tester.getSize(rail);
+      expect(
+        railSize.height,
+        112.0,
+        reason:
+            '_railHeight (106) + _scaledTextHeadroom at scale 1.0 (a flat '
+            '6, since the (scale-1.0).clamp(0,0.3) term is zero at scale '
+            '1.0) must equal 112.0 — a change to either constant that is '
+            'not ALSO reflected in the two beauty_timeline_rail golden '
+            'baselines must fail here first.',
+      );
+    });
+  });
+
   // ── 3. Favourites mini-card rail in isolation at the worst cell ───────────
   group('FavoriteMastersCard rail — isolated overflow guard', () {
     testWidgets(
@@ -262,3 +386,74 @@ void main() {
 }
 
 void _noop() {}
+
+/// Pumps a two-entry [BeautyTimelineSection] with [caption] as the FIRST
+/// entry (so it is never the last tile — `if (!isLast)` skips the connector
+/// on the last tile — and this rig always exercises one) and asserts the
+/// fixed-x-origin invariant the fix establishes.
+///
+/// Both rects are read from the tile's own `Stack` subtree via
+/// `find.ancestor`/`find.descendant`, so this works regardless of the tile's
+/// absolute position on screen: `_TimelineNode`'s circle `Container` and the
+/// connector's `CustomPaint` (inside the private `_DottedLine`, so it can't
+/// be matched by type from outside this file — found this way instead) carry
+/// no `Key`, and adding one would touch production code.
+Future<void> _expectTileAligned(
+  WidgetTester tester, {
+  required String caption,
+  double? textScaleFactor,
+}) async {
+  await tester.pumpApp(
+    BeautyTimelineSection(
+      entries: <TimelineEntry>[
+        TimelineEntry(category: caption, dateLabel: '18.06.2026'),
+        const TimelineEntry(category: 'Педикюр', dateLabel: '01.01.2026'),
+      ],
+    ),
+    textScaleFactor: textScaleFactor,
+  );
+  await tester.pump();
+
+  final Finder tileStack = find
+      .ancestor(of: find.text(caption), matching: find.byType(Stack))
+      .first;
+  final Finder circle = find.descendant(
+    of: tileStack,
+    matching: find.byType(Container),
+  );
+  final Finder connector = find.descendant(
+    of: tileStack,
+    matching: find.byType(CustomPaint),
+  );
+
+  expect(
+    connector,
+    findsOneWidget,
+    reason:
+        'fixture bug: the caption-under-test tile must not be the last '
+        'tile, or no connector renders to assert against',
+  );
+
+  final Rect stackRect = tester.getRect(tileStack);
+  final Rect circleRect = tester.getRect(circle);
+  final Rect connectorRect = tester.getRect(connector);
+
+  expect(
+    circleRect.left - stackRect.left,
+    24.0,
+    reason:
+        'circle x-origin must be fixed at (100 - 52) / 2 == 24.0 regardless '
+        'of caption "$caption" — a loose-width Stack child would centre the '
+        'circle inside the CAPTION\'s width instead, drifting this origin',
+  );
+  expect(
+    circleRect.right,
+    connectorRect.left,
+    reason:
+        'connector must start exactly at the circle\'s right edge — zero '
+        'pixels rendering under the (50%-translucent) circle fill, and zero '
+        'pixels of detached gap. Not merely non-overlapping (a >= assertion '
+        'would pass on both a detached gap and an overlap); this pins the '
+        'exact edge-to-edge relationship.',
+  );
+}

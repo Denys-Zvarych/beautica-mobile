@@ -545,6 +545,112 @@ void main() {
       );
     });
 
+    // Phase 250 — /salon/* role gate (new prefix guard).
+    //
+    // `/salon/bookings/new` (the SALON «Новий запис» wizard) is the first
+    // route under this prefix. Mirrors the /master/* group immediately
+    // above: SALON_OWNER/SALON_ADMIN are allowed, every other authenticated
+    // role is redirected to its own landing. See `salon_bookings_route
+    // _shadowing_test.dart` for the widget-level pin of the resolved screen
+    // itself; these are the pure-function role-gate cases.
+
+    test('SALON_OWNER at /salon/bookings/new is allowed (null)', () {
+      const salonOwnerUser = User(
+        id: 'u-so2',
+        email: 'owner2@example.com',
+        role: UserRole.salonOwner,
+        firstName: 'Salon',
+        lastName: 'Owner',
+      );
+      const salonOwnerSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonOwnerUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(
+          salonOwnerSession,
+          RouteNames.salonStaffBookingNew,
+        ),
+        isNull,
+      );
+    });
+
+    test('SALON_ADMIN at /salon/bookings/new is allowed (null)', () {
+      const salonAdminUser = User(
+        id: 'u-sa',
+        email: 'admin@example.com',
+        role: UserRole.salonAdmin,
+        firstName: 'Salon',
+        lastName: 'Admin',
+      );
+      const salonAdminSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonAdminUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(
+          salonAdminSession,
+          RouteNames.salonStaffBookingNew,
+        ),
+        isNull,
+      );
+    });
+
+    test('SALON_MASTER at /salon/bookings/new is redirected to / — a read-only '
+        'calendar is not a walk-in-booking affordance', () {
+      const salonMasterUser = User(
+        id: 'u-sm2',
+        email: 'salonmaster2@example.com',
+        role: UserRole.salonMaster,
+        firstName: 'Salon',
+        lastName: 'Master',
+      );
+      const salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonMasterUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(
+          salonMasterSession,
+          RouteNames.salonStaffBookingNew,
+        ),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('INDEPENDENT_MASTER at /salon/bookings/new is redirected to '
+        '/master/profile', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.salonStaffBookingNew,
+        ),
+        equals(RouteNames.masterProfile),
+      );
+    });
+
+    test('CLIENT at /salon/bookings/new is redirected to /home', () {
+      expect(
+        authRedirectForLocation(
+          _clientSession,
+          RouteNames.salonStaffBookingNew,
+        ),
+        equals(RouteNames.clientHome),
+      );
+    });
+
+    // Auth gate precedence: an unauthenticated session is forwarded to
+    // /login BEFORE the role gate is even reached — deep-linking to
+    // /salon/bookings/new while signed out must never expose the screen,
+    // nor leak the role-gate's non-login bounce targets. Mirrors the
+    // /schedule/* and CLIENT-shell precedence tests below.
+    test('unauthenticated at /salon/bookings/new is redirected to /login', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.salonStaffBookingNew,
+        ),
+        equals(RouteNames.login),
+      );
+    });
+
     // Phase 15.6 — /schedule/* role gate (OQ-2 hardening regression).
     //
     // The schedule EDIT surfaces are INDEPENDENT_MASTER-only in MVP. The

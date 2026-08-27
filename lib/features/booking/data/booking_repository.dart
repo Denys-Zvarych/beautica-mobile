@@ -7,6 +7,17 @@
 //   PATCH  /api/v1/bookings/{bookingId}/cancel     → cancel
 //   PATCH  /api/v1/bookings/{bookingId}/reschedule → reschedule (19.2)
 //
+// ...plus, since Phase 246, ONE provider-side path on the same repository
+// (kept here rather than a separate file — it shares the same [Failure]
+// taxonomy as the rest of this repository; since Phase 252 it maps its
+// response directly via `AppointmentMapper` rather than following up with
+// `getBookingById`):
+//   POST   /api/v1/masters/{masterId}/bookings     → createMasterBooking
+//                                                      (walk-in VISIT, backend
+//                                                      22.4, widened to
+//                                                      multi-service by 22.8–
+//                                                      22.16 / mobile Phase 252)
+//
 // Kept provider-free on purpose (mirrors `schedule_repository.dart` /
 // `favorite_repository.dart`) — see `booking_providers.dart` for the Riverpod
 // wiring. Tests construct [HttpBookingRepository] directly with a mocktail
@@ -39,6 +50,7 @@
 // All raw-Dio paths here must include the full `/api/v1/` segment explicitly.
 
 import 'dart:developer';
+import 'dart:math' as math;
 
 import 'package:beautica_api/beautica_api.dart' hide CreateBookingRequest;
 import 'package:beautica_api/beautica_api.dart'
@@ -52,11 +64,21 @@ import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../domain/appointment.dart';
+import 'appointment_mapper.dart';
+// Phase 252: [maxServicesPerVisit] is the ONLY thing pulled from
+// `slot_repository.dart` here — a `data/`→`data/` import (legal; the
+// forbidden direction is `domain/`→`data/`). See
+// `create_master_booking_request.dart`'s file header for why the cap isn't
+// validated in the domain model itself.
+import 'slot_repository.dart' show maxServicesPerVisit;
+
 import '../domain/booking.dart';
 import '../domain/booking_partition.dart';
 import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
+import '../domain/create_master_booking_request.dart';
 import 'booking_mapper.dart';
 
 /// Default page size for the "my bookings" list (Phase 14.3).
@@ -84,6 +106,62 @@ abstract interface class BookingRepository {
   /// failure's doc). Throws [BookingRateLimitedFailure] on HTTP 429 (per-user
   /// booking-write rate limit).
   Future<Booking> createBooking(CreateBookingRequest req);
+
+  /// Creates a CONFIRMED, `STAFF`-sourced WALK-IN VISIT on [masterId]'s
+  /// calendar on behalf of the authenticated PROVIDER (Phase 246 — backend
+  /// Phase 22.4, `docs/backend-phases/
+  /// phase-171-22.4-staff-booking-endpoint-and-authz.md`; widened to
+  /// multi-service by Phase 252 — backend track 22.8–22.16). The caller may
+  /// be an independent master booking THEMSELVES, or a salon owner/admin
+  /// booking a master they manage — `@authz.canBookForMaster` enforces which
+  /// on the backend; this method sends the same request either way.
+  ///
+  /// Wraps `POST /api/v1/masters/{masterId}/bookings`. ONE `Appointment`
+  /// header + N chained `Booking` rows are created server-side from
+  /// [CreateMasterBookingRequest.masterServiceIds] — the SAME visit shape
+  /// the CLIENT multi-service flow ([AppointmentRepository.createAppointment])
+  /// produces, per the locked product decision that a walk-in is "EXACTLY
+  /// same logic as we already have for independent master when client
+  /// making the bookings". Unlike [createBooking]/the PRE-252 shape of this
+  /// method (which returned the LEAN `BookingResponse` and needed a
+  /// follow-up [getBookingById]), the endpoint now returns the FULL
+  /// `AppointmentDetailResponse` directly — mapped here via
+  /// [AppointmentMapper.fromDto] (REUSED verbatim from the client
+  /// multi-service path; no second visit model/mapper). No follow-up fetch.
+  ///
+  /// Throws [ArgumentError] — NOT a [Failure] — when
+  /// [CreateMasterBookingRequest.masterServiceIds] is empty or exceeds
+  /// [maxServicesPerVisit], BEFORE any HTTP call is made. This guards a real
+  /// spec-fidelity gap: the published OpenAPI schema renders
+  /// `masterServiceIds` with `minItems: 0` even though the backend enforces
+  /// `@NotEmpty` server-side (the annotation didn't merge into the SpringDoc
+  /// output), so the generated client's own validation cannot be relied on —
+  /// an empty list would otherwise reach the wire and come back as an opaque
+  /// 400. Mirrors the [ArgumentError] precedent in
+  /// `MasterServiceMapper.toCreateRequest` — a caller bug, not a runtime
+  /// [Failure], so it is thrown OUTSIDE the try/catch below and never mapped.
+  ///
+  /// Error contract (backend Phase 22.4's "Error contract" section):
+  ///   - **403** → [MasterBookingNotPermittedFailure]. Covers "wrong salon /
+  ///     not your own profile / read-only SALON_MASTER" AND "unknown or
+  ///     inactive master" — the backend deliberately collapses both into one
+  ///     status (a probe defence). Never surface a "master not found"
+  ///     message for this — see that failure's doc.
+  ///   - **409 / 422** → [ConflictFailure] — overlapping booking, outside
+  ///     working hours, day-off, past time, or the master doesn't offer one
+  ///     of [CreateMasterBookingRequest.masterServiceIds]. The same generic
+  ///     slot-conflict copy [createBooking] itself surfaces on 409.
+  ///   - **400** → [ValidationFailure] (missing/malformed walk-in guest
+  ///     field, bad phone shape) — mapped by [ErrorMapperInterceptor] before
+  ///     this repository ever sees the [DioException]; [fieldErrors] names
+  ///     the offending field.
+  ///
+  /// [CreateMasterBookingRequest.startsAt] is normalised to UTC
+  /// (`.toUtc()`) before it reaches the wire — see that field's doc for why.
+  Future<Appointment> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  );
 
   /// Fetches one page of the authenticated client's bookings, server-sorted
   /// by `startsAt` in the direction [ascending] requests.
@@ -213,7 +291,21 @@ abstract interface class BookingRepository {
   /// CLIENT already has a DIFFERENT overlapping booking of their own at the
   /// new time (see that failure's doc). Throws [BookingRateLimitedFailure] on
   /// HTTP 429 (per-user booking-write rate limit).
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt);
+  ///
+  /// [allowClientOverlap] — backend commit c1c2349 — mirrors
+  /// `CreateAppointmentRequest.allowClientOverlap`'s self-override contract on
+  /// THIS endpoint: `true` waives the [ClientBookingConflictFailure] check on
+  /// resubmit, after the CLIENT has confirmed the overlap dialog. Defaults to
+  /// `false` so every existing caller resubmits unchanged. The backend
+  /// honours the flag ONLY when the actor is the CLIENT — a PROVIDER
+  /// reschedule ignores it and still 409s, deliberately (a provider cannot
+  /// waive a client's overlap on their behalf) — so callers must never set
+  /// this `true` on a provider-initiated reschedule.
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  });
 
   /// Declines a booking on behalf of the authenticated PROVIDER (an
   /// independent master, or a salon owner/admin with authority over it —
@@ -275,11 +367,17 @@ abstract interface class BookingRepository {
 /// Inject via [bookingRepositoryProvider] — never construct directly outside
 /// tests.
 final class HttpBookingRepository implements BookingRepository {
-  HttpBookingRepository(this._dio, this._bookingApi, this._reviewApi);
+  HttpBookingRepository(
+    this._dio,
+    this._bookingApi,
+    this._reviewApi,
+    this._staffBookingsApi,
+  );
 
   final Dio _dio;
   final BookingControllerApi _bookingApi;
   final ReviewControllerApi _reviewApi;
+  final StaffBookingsApi _staffBookingsApi;
 
   @override
   Future<Booking> createBooking(CreateBookingRequest req) async {
@@ -312,6 +410,57 @@ final class HttpBookingRepository implements BookingRepository {
     }
 
     return getBookingById(bookingId);
+  }
+
+  @override
+  Future<Appointment> createMasterBooking(
+    String masterId,
+    CreateMasterBookingRequest request,
+  ) async {
+    // Thrown BEFORE the try/catch — a caller bug (empty/oversized list), not
+    // a runtime Failure. See this method's doc for the spec-fidelity gap this
+    // closes (published `minItems: 0` vs. the backend's real `@NotEmpty`).
+    final int serviceCount = request.masterServiceIds.length;
+    if (serviceCount == 0 || serviceCount > maxServicesPerVisit) {
+      throw ArgumentError.value(
+        request.masterServiceIds,
+        'request.masterServiceIds',
+        'must be a non-empty ordered list of at most $maxServicesPerVisit '
+            'ids (got $serviceCount) — mirrors the backend '
+            'MAX_SERVICES_PER_VISIT; fail fast before the wasted round-trip.',
+      );
+    }
+
+    try {
+      final res = await _staffBookingsApi.createStaffBooking(
+        masterId: masterId,
+        createStaffBookingRequest: _toWireStaffBookingRequest(request),
+      );
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            'createMasterBooking: response data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return AppointmentMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'createMasterBooking failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapMasterBookingWriteException(e);
+    }
   }
 
   @override
@@ -578,12 +727,18 @@ final class HttpBookingRepository implements BookingRepository {
   }
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) async {
     try {
       final res = await _bookingApi.rescheduleBooking(
         bookingId: id,
         rescheduleBookingRequest: RescheduleBookingRequest(
-          (b) => b..newStartsAt = newStartAt,
+          (b) => b
+            ..newStartsAt = newStartAt
+            ..allowClientOverlap = allowClientOverlap ? true : null,
         ),
       );
       final dto = res.data?.data;
@@ -750,6 +905,43 @@ final class HttpBookingRepository implements BookingRepository {
     );
   }
 
+  /// Builds the generated wire `CreateStaffBookingRequest` DTO from the
+  /// domain [CreateMasterBookingRequest] (Phase 246; widened to a
+  /// multi-service list by Phase 252).
+  ///
+  /// [CreateMasterBookingRequest.startsAt] is forced to UTC (`.toUtc()`)
+  /// here, unconditionally — the generated `Iso8601DateTimeSerializer`
+  /// THROWS `ArgumentError` on a non-UTC `DateTime` at actual serialization
+  /// time (`api/lib/src/serializers.dart`), and `.toUtc()` is idempotent on a
+  /// value that is already UTC. This is the single point that guarantees the
+  /// wire `startsAt` always carries a real, unambiguous ISO-8601 offset
+  /// (`Z`) regardless of what zone the caller's `DateTime` happened to carry
+  /// — see [CreateMasterBookingRequest.startsAt]'s doc for the full
+  /// reasoning, including why this matters under `TZ=UTC` test runs.
+  ///
+  /// `..masterServiceIds.replace(...)` — NEVER `..addAll` onto a builder that
+  /// may carry state from a previous build, and never `.toSet()`/sort the
+  /// list first: order IS the performance order the backend chains on, and
+  /// duplicates are a legal visit (the same service twice). A `.toSet()`
+  /// "for safety" would silently drop that legal duplicate case and reorder
+  /// the chain — see `create_master_booking_request.dart`'s doc.
+  ///
+  /// No naming collision with `CreateStaffBookingRequest` — unlike
+  /// `CreateBookingRequest` (shared by both the domain and wire types), this
+  /// generated class name is unique, so no `hide`/`show` aliasing is needed.
+  CreateStaffBookingRequest _toWireStaffBookingRequest(
+    CreateMasterBookingRequest req,
+  ) {
+    return CreateStaffBookingRequest(
+      (b) => b
+        ..masterServiceIds.replace(req.masterServiceIds)
+        ..startsAt = req.startsAt.toUtc()
+        ..guest.name = req.guest.name
+        ..guest.surname = req.guest.surname
+        ..guest.phone = req.guest.phone,
+    );
+  }
+
   /// Decodes the `GET /bookings/me` envelope ROW BY ROW.
   ///
   /// This used to be one `_deserialize<ApiResponsePageResponseBookingDetail
@@ -767,6 +959,34 @@ final class HttpBookingRepository implements BookingRepository {
   /// the SERVER's pagination cursor state and must stay authoritative, or a
   /// dropped row would shorten the list AND convince the pager it had reached
   /// the end.
+  ///
+  /// ## A DROPPED ROW IS NOT A TRUNCATED DAY (mobile-debugger MEDIUM,
+  /// 2026-08-20)
+  ///
+  /// `BookingsDayNotifier` derives `BookingsDayState.isTruncated` from
+  /// `page.totalElements > page.items.length` — "the day reports more bookings
+  /// than fit in one page". Left alone, EVERY decode drop satisfied that
+  /// inequality too, so a broken row rendered the master a soothing "day too
+  /// dense" notice instead of anything resembling a failure. That is worse
+  /// than silent: it actively disguises a decode bug as a capacity condition,
+  /// and it disguises it on the exact screen where such a bug shows up.
+  ///
+  /// Two things fix that, and NEITHER weakens the drop-don't-throw resilience
+  /// above — a broken row is still skipped, its siblings still render, and
+  /// nothing here throws:
+  ///
+  ///   1. The drop is LOGGED unconditionally (not `kDebugMode`-gated, unlike
+  ///      [_deserialize]'s own line, so it survives into a release build's
+  ///      crash reporter). Count and page index only — a bookings envelope is
+  ///      full of client PII and none of it belongs in a log line.
+  ///   2. `totalElements` is reduced by the number of rows THIS page dropped,
+  ///      so the inequality above once again means only what it says: the
+  ///      SERVER withheld rows. This is not the "recompute from the surviving
+  ///      rows" the paragraph above forbids — `totalPages` is untouched, and
+  ///      `PageResponse.hasMore` reads `totalPages`, never `totalElements`, so
+  ///      no pager can be talked into believing it reached the end. A
+  ///      genuinely over-full day still truncates (150 elements, 100 rows, one
+  ///      of them broken → `149 > 99`).
   ///
   /// ROW tolerance is NOT envelope tolerance. The row loop's leniency stops at
   /// the row boundary: an absent or wrong-shaped `data` / `data.data` throws
@@ -811,11 +1031,35 @@ final class HttpBookingRepository implements BookingRepository {
       }
     }
 
+    // BOTH drop layers, counted against what the server actually SENT in this
+    // page: the row loop above skips undeserializable JSON, and
+    // [BookingMapper.fromDtoList] independently skips any DTO it cannot map
+    // (`on Failure { continue; }`). Either one shrinks `items` without the
+    // server having withheld anything.
+    final List<Booking> items = BookingMapper.fromDtoList(rows);
+    final int droppedRows = rowsJson.length - items.length;
+    if (droppedRows > 0) {
+      // Unconditional (see this method's doc, point 1). Counts only — never a
+      // row's contents, which are client PII.
+      log(
+        'getMyBookings: dropped $droppedRows of ${rowsJson.length} row(s) on '
+        'page $requestedPage — undeserializable or unmappable',
+        name: _tag,
+        level: 1000,
+      );
+    }
+
+    final int serverTotal = _intOr(pageMap['totalElements'], 0);
     return PageResponse<Booking>(
-      items: BookingMapper.fromDtoList(rows),
+      items: items,
       page: _intOr(pageMap['page'], requestedPage),
       totalPages: _intOr(pageMap['totalPages'], 0),
-      totalElements: _intOr(pageMap['totalElements'], 0),
+      // See this method's doc, point 2 — a drop must not read as truncation.
+      // Clamped at 0 so a malformed `totalElements` smaller than the rows it
+      // shipped can never produce a negative count.
+      totalElements: droppedRows > 0
+          ? math.max(0, serverTotal - droppedRows)
+          : serverTotal,
     );
   }
 
@@ -919,6 +1163,48 @@ final class HttpBookingRepository implements BookingRepository {
     }
     if (statusCode == 429) return BookingRateLimitedFailure(cause: e);
     if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `POST /api/v1/masters/{masterId}/bookings`
+  /// to a typed [Failure] (Phase 246 — backend Phase 22.4's error contract,
+  /// see [BookingRepository.createMasterBooking]'s doc).
+  ///
+  ///   - **403** → [MasterBookingNotPermittedFailure]. Backend amendment A6
+  ///     collapses BOTH "wrong master" (not the owner/admin's salon, not the
+  ///     independent master's own profile, a read-only `SALON_MASTER`
+  ///     caller) AND "unknown/inactive master" into this ONE status — a
+  ///     probe defence, not a real 404. Never surface "майстра не знайдено"
+  ///     for this — see that failure's doc.
+  ///   - **409** → [MasterBookingDuplicateFailure] (mobile Phase 256 — see
+  ///     that failure's own doc). Backend Phase 258 D5 decided against an
+  ///     idempotency key on this write BECAUSE the overlap check already
+  ///     makes a duplicate visit impossible to persist, so a 409 here reads
+  ///     as "already created" (a double-tap / retry-after-timeout), not as
+  ///     "slot unavailable" — a genuinely-taken-slot race shares the same
+  ///     status/body and is indistinguishable, but is the rarer case on THIS
+  ///     path, so the copy is worded for the common one.
+  ///   - **422** → [ConflictFailure] — outside working hours, day-off, past
+  ///     time, service not offered. This endpoint has no typed `data.code`
+  ///     422 envelope documented (no `CLIENT_BOOKING_CONFLICT`-style
+  ///     sub-type the way [createBooking]'s mapper needs one).
+  ///   - everything else (notably **400**) defers to [_mapDioException] —
+  ///     which already returns the [ErrorMapperInterceptor]'s
+  ///     [ValidationFailure] for 400/422 via its `e.error is Failure` check.
+  ///     The 403/409/422 branches here run FIRST specifically to override
+  ///     what the interceptor already attached for those three codes (it has
+  ///     no master-booking-specific 403 case — an unmatched 403 there falls
+  ///     through to [UnknownFailure] — and maps a bare 409 to a generic
+  ///     [ServerFailure] with no slot-conflict copy), mirroring the
+  ///     [_mapBookingWriteException] precedent above. 422 is deliberately
+  ///     NOT deferred to the interceptor's own 422 → [ValidationFailure]
+  ///     branch: on THIS endpoint a 422 is a slot-availability rejection, not
+  ///     a per-field validation error.
+  Failure _mapMasterBookingWriteException(DioException e) {
+    final int? statusCode = e.response?.statusCode;
+    if (statusCode == 403) return MasterBookingNotPermittedFailure(cause: e);
+    if (statusCode == 409) return MasterBookingDuplicateFailure(cause: e);
+    if (statusCode == 422) return ConflictFailure(cause: e);
     return _mapDioException(e);
   }
 
