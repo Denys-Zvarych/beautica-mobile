@@ -145,8 +145,11 @@ class _FakeBookingRepository implements BookingRepository {
       throw UnimplementedError();
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> declineBooking(String id, {String? comment}) =>
@@ -413,8 +416,9 @@ class _RecordingAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) => throw UnimplementedError();
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> declineAppointment(String id, {String? comment}) =>

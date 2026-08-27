@@ -134,7 +134,7 @@ Booking _booking({required bool canReview}) {
     masterType: 'INDEPENDENT_MASTER',
     serviceId: 's1',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Київ',
     durationMinutes: 90,
     price: 650,

@@ -608,6 +608,7 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
             key: Key('mcb_category_section_$sectionSlug'),
             title: group.label,
             count: group.cards.length,
+            slug: group.key.isEmpty ? null : group.key,
             // Every section starts expanded: this is a one-shot picker,
             // not a maintained catalogue view, so showing everything
             // open reduces taps to find a service — unlike the services

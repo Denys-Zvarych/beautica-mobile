@@ -291,7 +291,21 @@ abstract interface class BookingRepository {
   /// CLIENT already has a DIFFERENT overlapping booking of their own at the
   /// new time (see that failure's doc). Throws [BookingRateLimitedFailure] on
   /// HTTP 429 (per-user booking-write rate limit).
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt);
+  ///
+  /// [allowClientOverlap] — backend commit c1c2349 — mirrors
+  /// `CreateAppointmentRequest.allowClientOverlap`'s self-override contract on
+  /// THIS endpoint: `true` waives the [ClientBookingConflictFailure] check on
+  /// resubmit, after the CLIENT has confirmed the overlap dialog. Defaults to
+  /// `false` so every existing caller resubmits unchanged. The backend
+  /// honours the flag ONLY when the actor is the CLIENT — a PROVIDER
+  /// reschedule ignores it and still 409s, deliberately (a provider cannot
+  /// waive a client's overlap on their behalf) — so callers must never set
+  /// this `true` on a provider-initiated reschedule.
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  });
 
   /// Declines a booking on behalf of the authenticated PROVIDER (an
   /// independent master, or a salon owner/admin with authority over it —
@@ -713,12 +727,18 @@ final class HttpBookingRepository implements BookingRepository {
   }
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) async {
     try {
       final res = await _bookingApi.rescheduleBooking(
         bookingId: id,
         rescheduleBookingRequest: RescheduleBookingRequest(
-          (b) => b..newStartsAt = newStartAt,
+          (b) => b
+            ..newStartsAt = newStartAt
+            ..allowClientOverlap = allowClientOverlap ? true : null,
         ),
       );
       final dto = res.data?.data;

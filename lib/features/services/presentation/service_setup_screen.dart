@@ -55,6 +55,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -1001,7 +1002,10 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
               for (final c in categories)
                 CategoryChip(
                   key: ValueKey<String>('cat_${c.name}'),
-                  icon: serviceCategoryIcon(c.name),
+                  iconAsset: categoryIconOrNullFor(
+                    categoryKey: c.name,
+                    categoryName: c.displayName,
+                  ),
                   label: c.displayName,
                   selected: _expanded.contains(c.name),
                   includedCount: _expanded.contains(c.name)
@@ -1047,7 +1051,10 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     final out = <_SetupSlot>[];
     for (final c in active) {
       final slug = c.name;
-      final icon = serviceCategoryIcon(slug);
+      final iconAsset = categoryIconOrNullFor(
+        categoryKey: slug,
+        categoryName: c.displayName,
+      );
 
       if (_loadingCategories.contains(slug)) {
         out.add(
@@ -1082,7 +1089,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
             key: ValueKey<String>('group_$slug'),
             listenable: _aggregate,
             builder: (context, _) => CategoryGroupHeader(
-              icon: icon,
+              iconAsset: iconAsset,
               label: c.displayName,
               includedCount: _includedCount(slug),
               total: selectable,

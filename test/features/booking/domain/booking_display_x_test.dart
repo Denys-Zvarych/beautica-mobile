@@ -37,7 +37,7 @@ Booking _booking({
     salonName: salonName,
     serviceId: 's1',
     serviceName: 'Манікюр',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: cityLabel,
     districtLabel: districtLabel,
     street: street,

@@ -37,6 +37,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -184,6 +186,7 @@ class CategorySection extends StatefulWidget {
     required this.count,
     required this.children,
     this.initiallyExpanded = false,
+    this.slug,
   });
 
   final String title;
@@ -193,6 +196,20 @@ class CategorySection extends StatefulWidget {
   /// Whether this section starts expanded. Applied once in [initState];
   /// the user can toggle freely afterward. Defaults to `false` (collapsed).
   final bool initiallyExpanded;
+
+  /// Additive — the backend's stable uppercase category slug (`group.key`
+  /// from [groupServicesByCategory]), used to resolve a leading glyph via the
+  /// shared [categoryIconFor] resolver. `null` (every pre-existing caller)
+  /// renders no icon and lays out byte-identically to before this field
+  /// existed.
+  ///
+  /// Both current callers already hold this value in the exact same shape
+  /// (`group.key.isEmpty ? null : group.key`) and neither needs to know
+  /// about [categoryIconFor] itself — mirrors [ServiceCategoryCard]'s
+  /// `slug` + internal resolution, not [CategoryRailTile]'s caller-resolved
+  /// `iconAsset`. See the header-Row comment below for why `null` must stay
+  /// "no icon", never the resolver's cosmetology fallback.
+  final String? slug;
 
   @override
   State<CategorySection> createState() => _CategorySectionState();
@@ -205,6 +222,12 @@ class _CategorySectionState extends State<CategorySection> {
   // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
   static final TextStyle _headerStyle = VelvetText.subheading16;
 
+  // Leading category glyph size — matches [ServiceCategoryCard]'s 20dp,
+  // the sibling list-row surface. Verified by rendering (not reasoning): see
+  // this file's header comment / the phase report for the PNG check across
+  // several slugs including the null/uncategorized case.
+  static const double _iconSize = 20;
+
   @override
   void initState() {
     super.initState();
@@ -216,6 +239,7 @@ class _CategorySectionState extends State<CategorySection> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final String? iconAsset = categoryIconOrNullFor(categoryKey: widget.slug);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -243,6 +267,26 @@ class _CategorySectionState extends State<CategorySection> {
               ),
               child: Row(
                 children: <Widget>[
+                  // Leading category glyph, matching [ServiceCategoryCard]'s
+                  // 20dp/accentDeep treatment. `slug == null` means
+                  // uncategorized (see the field doc) — [categoryIconOrNullFor]
+                  // resolves that to `null` too, rather than
+                  // [categoryIconFor]'s cosmetology fallback glyph, which
+                  // would otherwise mislabel «Без категорії». So the
+                  // uncategorized section renders an empty same-size slot
+                  // instead, keeping every header's title left edge aligned.
+                  SizedBox(
+                    width: _iconSize,
+                    height: _iconSize,
+                    child: iconAsset == null
+                        ? null
+                        : AppIcon(
+                            iconAsset,
+                            size: _iconSize,
+                            color: BrandColors.accentDeep,
+                          ),
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm),
                   Expanded(
                     child: Text(
                       widget.title,

@@ -21,7 +21,18 @@
 // RESCHEDULE: when `rescheduleBookingId` is non-null the flow moves a single
 // EXISTING booking — [services] holds one element and the submit swaps to
 // `PATCH /bookings/{id}/reschedule` (`AppointmentSubmit.reschedule`); the
-// comment field is hidden (that endpoint has no comment channel).
+// comment field is hidden (that endpoint has no comment channel). A
+// `ClientBookingConflictFailure` on either reschedule endpoint (backend
+// commit c1c2349 added `allowClientOverlap` to both) opens the SAME
+// `showClientBookingConflictDialog` the client-create branch uses, resubmits
+// with the override on confirm — but ONLY when the session-derived
+// `bookingViewerRoleProvider` (read directly, NOT via `widget.args
+// .hideMasterIdentity` — that field is a presentation flag with an
+// independent, role-unrelated producer, see the `_submit` read site) resolves
+// to `BookingViewerRole.client`. The backend honours `allowClientOverlap`
+// ONLY for a CLIENT actor; a PROVIDER reschedule rethrows straight to the
+// generic `on Failure` banner instead of opening a dialog whose confirm would
+// just 409 again.
 //
 // PER-ITEM VISIT RESCHEDULE (track 30.x, superseding track 27.x/MO-6's
 // whole-visit flow): when `rescheduleAppointmentId` is ALSO non-null (checked
@@ -95,6 +106,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_notifier.dart';
+import '../application/booking_viewer_role.dart';
 import '../application/master_create_booking_notifier.dart';
 import '../application/my_bookings_notifier.dart';
 import '../domain/appointment.dart';
@@ -108,6 +120,7 @@ import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/client_booking_conflict_dialog.dart';
 import 'widgets/guest_identity_card.dart';
 import 'widgets/master_strip.dart';
 
@@ -247,22 +260,87 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
             .read(bookingDetailProvider(rescheduleId))
             .value
             ?.startAt;
-        if (rescheduleAppointmentId != null) {
-          // Track 30.x — per-item VISIT reschedule, checked FIRST (both
-          // fields are set together on this path — see the file header).
-          // Moves ONLY this one service via the appointment-scoped endpoint;
-          // siblings are untouched.
-          await ref
-              .read(appointmentSubmitProvider.notifier)
-              .rescheduleAppointmentItem(
-                rescheduleAppointmentId,
-                rescheduleId,
-                widget.args.startAt,
-              );
-        } else {
-          await ref
-              .read(appointmentSubmitProvider.notifier)
-              .reschedule(rescheduleId, widget.args.startAt);
+        // Read the SAME session-backed `bookingViewerRoleProvider`
+        // `reschedule_navigation.dart` reads (never `widget.args
+        // .hideMasterIdentity` — that field is a PRESENTATION flag with a
+        // second, role-unrelated producer: `walk_in_service_step_screen
+        // .dart` hardcodes it `true` by flow construction, no role involved.
+        // `bookingViewerRoleProvider`'s own doc argues against exactly a
+        // caller-supplied widget parameter standing in for role — a
+        // copy-pasted route registration would silently carry the wrong
+        // flag through). Fails CLOSED onto the client branch for a
+        // null/loading/unauthenticated session, same as every other reader
+        // of this provider.
+        final bool isProviderReschedule = ref
+            .read(bookingViewerRoleProvider)
+            .isProvider;
+        try {
+          if (rescheduleAppointmentId != null) {
+            // Track 30.x — per-item VISIT reschedule, checked FIRST (both
+            // fields are set together on this path — see the file header).
+            // Moves ONLY this one service via the appointment-scoped
+            // endpoint; siblings are untouched.
+            await ref
+                .read(appointmentSubmitProvider.notifier)
+                .rescheduleAppointmentItem(
+                  rescheduleAppointmentId,
+                  rescheduleId,
+                  widget.args.startAt,
+                );
+          } else {
+            await ref
+                .read(appointmentSubmitProvider.notifier)
+                .reschedule(rescheduleId, widget.args.startAt);
+          }
+        } on ClientBookingConflictFailure catch (conflict) {
+          // CLIENT-actor counterpart of the client-create catch below — SAME
+          // shared dialog, SAME resubmit-with-override contract (backend
+          // commit c1c2349 added `allowClientOverlap` to BOTH reschedule
+          // endpoints, honoured ONLY for a CLIENT actor —
+          // `BookingRepository.rescheduleBooking`'s doc). A PROVIDER
+          // reschedule ignores the flag and still 409s regardless (a
+          // provider cannot waive a client's overlap on their behalf), so
+          // opening the dialog for one would only earn a second identical
+          // 409 on "confirm" — rethrow instead and let the generic
+          // `on Failure` clause below render the shared banner, unchanged
+          // from before this wiring.
+          if (isProviderReschedule) rethrow;
+          if (!mounted) return;
+          final bool proceed =
+              await showClientBookingConflictDialog(
+                context,
+                ClientBookingConflictPreview(
+                  newServiceNames: services.map((s) => s.name).join(', '),
+                  newMasterName: '${master.firstName} ${master.lastName}'
+                      .trim(),
+                  newStart: widget.args.startAt,
+                  newEnd: widget.args.startAt.add(
+                    Duration(minutes: _totalDurationMinutes),
+                  ),
+                  conflict: conflict,
+                ),
+              ) ??
+              false;
+          if (!proceed) return;
+          if (!mounted) return;
+          if (rescheduleAppointmentId != null) {
+            await ref
+                .read(appointmentSubmitProvider.notifier)
+                .rescheduleAppointmentItem(
+                  rescheduleAppointmentId,
+                  rescheduleId,
+                  widget.args.startAt,
+                  allowClientOverlap: true,
+                );
+          } else {
+            await ref
+                .read(appointmentSubmitProvider.notifier)
+                .reschedule(
+                  rescheduleId,
+                  widget.args.startAt,
+                  allowClientOverlap: true,
+                );
+          }
         }
         if (!mounted) return;
         // A successful RESCHEDULE moved an EXISTING booking (a plain one, or
@@ -373,19 +451,58 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         final String? comment = _comment.text.trim().isEmpty
             ? null
             : _comment.text.trim();
-        await ref
-            .read(appointmentSubmitProvider.notifier)
-            .submitVisit(
-              CreateAppointmentRequest(
-                masterId: widget.args.masterId,
-                masterServiceIds: <String>[
-                  for (final MasterService s in services) s.id,
-                ],
-                startAt: widget.args.startAt,
-                idempotencyKey: widget.args.idempotencyKey,
-                clientComment: comment,
-              ),
-            );
+        final CreateAppointmentRequest request = CreateAppointmentRequest(
+          masterId: widget.args.masterId,
+          masterServiceIds: <String>[
+            for (final MasterService s in services) s.id,
+          ],
+          startAt: widget.args.startAt,
+          idempotencyKey: widget.args.idempotencyKey,
+          clientComment: comment,
+        );
+        try {
+          await ref
+              .read(appointmentSubmitProvider.notifier)
+              .submitVisit(request);
+        } on ClientBookingConflictFailure catch (conflict) {
+          // Client-create counterpart of `salon_booking_confirm_screen.dart`
+          // `_submitOne`'s identical catch — SAME shared dialog, SAME
+          // resubmit-with-override contract (product decision, that file's
+          // header). On a `ClientBookingConflictFailure` specifically, open
+          // [showClientBookingConflictDialog] instead of letting the failure
+          // reach the `on Failure` clause below (which would render it as
+          // the generic bottom `_SubmitErrorBanner` — the behaviour the user
+          // asked to replace here). Confirming resubmits this SAME request
+          // with `allowClientOverlap: true`; dismissing (or a `mounted`
+          // guard tripping across the dialog's `await`) returns out of
+          // `_submit` entirely — no banner, nothing further submitted, the
+          // screen left exactly as it was so the client can back out and
+          // change the time. Every OTHER failure (generic slot-conflict,
+          // 404, network, rate-limit, …) is unaffected — it still throws out
+          // of this `try` for the shared `on Failure` clause to render as
+          // usual.
+          if (!mounted) return;
+          final bool proceed =
+              await showClientBookingConflictDialog(
+                context,
+                ClientBookingConflictPreview(
+                  newServiceNames: services.map((s) => s.name).join(', '),
+                  newMasterName: '${master.firstName} ${master.lastName}'
+                      .trim(),
+                  newStart: widget.args.startAt,
+                  newEnd: widget.args.startAt.add(
+                    Duration(minutes: _totalDurationMinutes),
+                  ),
+                  conflict: conflict,
+                ),
+              ) ??
+              false;
+          if (!proceed) return;
+          if (!mounted) return;
+          await ref
+              .read(appointmentSubmitProvider.notifier)
+              .submitVisit(request.copyWith(allowClientOverlap: true));
+        }
         if (!mounted) return;
         // A newly-created booking is auto-CONFIRMED → lands in the upcoming
         // tab. The client shell keeps the My Bookings branch mounted

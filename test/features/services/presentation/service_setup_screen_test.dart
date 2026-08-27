@@ -21,6 +21,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -60,6 +62,19 @@ const _manicure = ServiceCategoryOption(
   displayName: 'Манікюр',
 );
 const _hair = ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся');
+
+/// A pathological "uncategorised" category — both the wire slug and the
+/// display name blank. `approvedCategoriesProvider` sources from
+/// `GET /service-categories/approved`, which gates to ~20-24 named platform
+/// categories, so this shape is not expected from that endpoint today; it
+/// exists to prove the SCREEN's own wiring onto `categoryIconOrNullFor`
+/// (mobile-qa gap-closure, 2026-08-27) rather than only the widget's already
+/// covered `iconAsset: null` handling (`service_setup_widgets_test.dart`).
+/// If a future edit ever swaps this screen's call sites from
+/// `categoryIconOrNullFor` to the never-null `categoryIconFor`, this is the
+/// test that goes red — a blank category would otherwise silently render the
+/// cosmetology fallback glyph instead of no icon.
+const _blank = ServiceCategoryOption(name: '', displayName: '');
 
 const _typeClassic = ServiceTypeOption(
   id: 'type-classic',
@@ -617,6 +632,146 @@ void main() {
   });
 
   // ── Expansion + rows ─────────────────────────────────────────────────────────
+
+  // ── Category-icon wiring (mobile-qa gap-closure, 2026-08-27) ────────────────
+  //
+  // service_setup_widgets_test.dart proves CategoryChip/CategoryGroupHeader
+  // render whatever iconAsset they are handed. It hand-feeds that value, so it
+  // cannot catch a wiring regression at the CALL SITE (e.g. this screen
+  // swapping `categoryIconOrNullFor` for the never-null `categoryIconFor`, or
+  // passing the wrong category's slug/name). These tests drive the resolver
+  // through the real screen + real ServiceCategoryOption fixtures instead.
+  group('category-icon wiring (resolver reached through the real screen)', () {
+    testWidgets(
+      'chip renders the resolver-mapped asset for its own category, not a '
+      'sibling\'s',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[
+              _manicure,
+              _hair,
+            ]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final AppIcon manicureIcon = tester.widget<AppIcon>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('cat_MANICURE')),
+            matching: find.byType(AppIcon),
+          ),
+        );
+        expect(
+          manicureIcon.asset,
+          equals(BeauticaAssetIcons.categoryNailService),
+        );
+
+        final AppIcon hairIcon = tester.widget<AppIcon>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('cat_HAIR')),
+            matching: find.byType(AppIcon),
+          ),
+        );
+        expect(hairIcon.asset, equals(BeauticaAssetIcons.categoryHairdressing));
+        expect(hairIcon.asset, isNot(equals(manicureIcon.asset)));
+      },
+    );
+
+    testWidgets(
+      'expanded group header renders the SAME resolved asset as its chip',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+
+        final AppIcon headerIcon = tester.widget<AppIcon>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('group_MANICURE')),
+            matching: find.byType(AppIcon),
+          ),
+        );
+        expect(
+          headerIcon.asset,
+          equals(BeauticaAssetIcons.categoryNailService),
+        );
+      },
+    );
+
+    testWidgets(
+      'a blank-slug/blank-name category renders NO icon on its CHIP through '
+      'the screen (proves categoryIconOrNullFor, not categoryIconFor, is '
+      'wired at the chip call site)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_blank]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final chip = find.byKey(const ValueKey<String>('cat_'));
+        expect(chip, findsOneWidget);
+        expect(
+          find.descendant(of: chip, matching: find.byType(AppIcon)),
+          findsNothing,
+          reason:
+              'categoryIconFor() never returns null (it falls back to the '
+              'cosmetology asset) — an AppIcon here means the call site '
+              'regressed off categoryIconOrNullFor',
+        );
+      },
+    );
+
+    testWidgets(
+      'a blank-slug/blank-name category renders NO icon on its EXPANDED '
+      'GROUP HEADER either (proves categoryIconOrNullFor is wired at the '
+      '_expandedSlots call site too — a separate call site from the chip '
+      'above, and the one an isolated chip-only assertion would miss)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_blank]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              '': const <ServiceTypeOption>[],
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('cat_')));
+        await tester.pumpAndSettle();
+
+        final header = find.byKey(const ValueKey<String>('group_'));
+        expect(header, findsOneWidget);
+        expect(
+          find.descendant(of: header, matching: find.byType(AppIcon)),
+          findsNothing,
+          reason:
+              'categoryIconFor() never returns null — an AppIcon on a blank '
+              'category\'s group header means _expandedSlots regressed off '
+              'categoryIconOrNullFor',
+        );
+      },
+    );
+  });
 
   group('category expansion', () {
     testWidgets('selecting a category expands it and shows service-type rows', (

@@ -291,6 +291,28 @@ BookingConfirmArgs _rescheduleArgsWithClientName({
   rescheduleClientPhone: phone,
 );
 
+/// [_rescheduleArgs] but with `hideMasterIdentity: true` ALSO set — the
+/// role-signal-fix regression pin (mobile-qa, 2026-08-26). Production never
+/// mints this exact combination for a CLIENT session (`hideMasterIdentity`
+/// is only ever `true` on a PROVIDER-initiated walk-in/registered-client
+/// reschedule seed — `reschedule_navigation.dart`), which is exactly why it
+/// matters: paired with a CLIENT `authProvider` override, this fixture
+/// proves `_submit`'s `isProviderReschedule` reads `bookingViewerRoleProvider`
+/// and NOT `widget.args.hideMasterIdentity` — see
+/// `booking_confirm_screen.dart:274-276`'s own doc for the bug this exists
+/// to catch. Under the OLD flag-based derivation this flag being `true`
+/// would have suppressed the dialog (rethrown straight to the banner) for a
+/// CLIENT who should see it.
+BookingConfirmArgs _rescheduleArgsClientHiddenIdentity() => BookingConfirmArgs(
+  masterId: _kMaster.id,
+  master: _kMaster,
+  services: const <MasterService>[_kService],
+  startAt: _kStartAt,
+  idempotencyKey: _kIdemKey,
+  rescheduleBookingId: 'booking-1',
+  hideMasterIdentity: true,
+);
+
 BookingConfirmArgs _rescheduleArgsWalkInTarget() => BookingConfirmArgs(
   masterId: _kMaster.id,
   master: _kMaster,
@@ -369,6 +391,13 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   final List<(String, String, DateTime)> rescheduleItemCalls =
       <(String, String, DateTime)>[];
 
+  /// mobile-qa (2026-08-26) — every `allowClientOverlap` VALUE
+  /// [rescheduleAppointmentItem] actually received, in call order. Additive
+  /// alongside [rescheduleItemCalls] (which predates the flag) so a test can
+  /// assert the override reaches the per-item wire without widening that
+  /// tuple's shape.
+  final List<bool> rescheduleItemAllowClientOverlapCalls = <bool>[];
+
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) async {
     requests.add(req);
@@ -386,9 +415,11 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) async {
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) async {
     rescheduleItemCalls.add((appointmentId, bookingId, newStartAt));
+    rescheduleItemAllowClientOverlapCalls.add(allowClientOverlap);
     final Object? err = rescheduleItemErrorToThrow;
     if (err != null) throw err;
     return appointmentToReturn ?? _appointmentFixture();
@@ -438,9 +469,30 @@ class _RecordingRescheduleRepository implements BookingRepository {
   /// fixture — the 409-duplicate test case (D6).
   Object? createMasterBookingErrorToThrow;
 
+  /// mobile-qa (2026-08-26) — when set, [rescheduleBooking] throws this
+  /// instead of returning the fixture. Mutable so a test can clear it
+  /// between the rejected attempt and a confirmed resubmit (the
+  /// booking-conflict-dialog "proceed" journey), exactly as it would toggle
+  /// `FakeBackend.rescheduleClientOverlapConflict` on the integration tier —
+  /// mirrors `_FakeAppointmentRepository.errorToThrow`.
+  Object? rescheduleErrorToThrow;
+
+  /// Every `allowClientOverlap` VALUE [rescheduleBooking] actually received,
+  /// in call order — additive alongside [rescheduleCalls] (which predates
+  /// the flag) so a test can assert the override reaches the wire without
+  /// widening that tuple's shape.
+  final List<bool> rescheduleAllowClientOverlapCalls = <bool>[];
+
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) async {
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) async {
     rescheduleCalls.add((id, newStartAt));
+    rescheduleAllowClientOverlapCalls.add(allowClientOverlap);
+    final Object? err = rescheduleErrorToThrow;
+    if (err != null) throw err;
     return _bookingFixture();
   }
 
@@ -1769,6 +1821,436 @@ void main() {
 
         expect(find.byType(MasterStrip), findsOneWidget);
       });
+    });
+
+    // mobile-qa (2026-08-26) — the bottom-banner → popup rework: a 409
+    // ClientBookingConflictFailure on the CLIENT path (create OR reschedule)
+    // now opens `showClientBookingConflictDialog` instead of rendering
+    // `_SubmitErrorBanner`; confirming resubmits with `allowClientOverlap:
+    // true`. A PROVIDER-initiated reschedule still rethrows straight to the
+    // banner — the backend only honours the flag for a CLIENT actor. See
+    // `booking_confirm_screen.dart:250-345`'s own doc for the full contract.
+    group('client-booking-conflict dialog (bottom banner -> popup)', () {
+      ClientBookingConflictFailure conflictFixture() =>
+          ClientBookingConflictFailure(
+            conflictingBookingId: 'booking-existing',
+            serviceName: 'Стрижка',
+            masterName: 'Ірина Бондар',
+            startsAt: _kStartAt,
+            endsAt: _kStartAt.add(const Duration(minutes: 45)),
+          );
+
+      // `bookingViewerRoleProvider` is only ever READ lazily at submit time
+      // (`_submit` calls `ref.read`, nothing in `build()` watches it) — so on
+      // an authProvider override that resolves asynchronously (`_StubAuth`/
+      // `_RoleAuth`, both a `Future`-returning `build()`), the FIRST read can
+      // land on the provider's own not-yet-built `AsyncLoading` and fail
+      // CLOSED onto the client branch regardless of the overridden role —
+      // exactly the race the REGRESSION GUARD tests above pre-warm around.
+      // Every reschedule test below that asserts on the RESOLVED role (the
+      // PROVIDER-rethrow test, the role-signal-fix pin) needs this or it is
+      // either flaky or silently vacuous — see `_StubAuth`'s own doc.
+      Future<void> warmAuth(WidgetTester tester) async {
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(BookingConfirmScreen)),
+          listen: false,
+        );
+        await container.read(authProvider.future);
+      }
+
+      testWidgets(
+        'client-create: a ClientBookingConflictFailure opens the conflict '
+        'dialog and renders NO bottom error banner',
+        (tester) async {
+          final fake = _FakeAppointmentRepository(
+            errorToThrow: conflictFixture(),
+          );
+          await pump(tester, fake);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('client-booking-conflict-dialog')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('booking-confirm-submit-error')),
+            findsNothing,
+            reason:
+                'a client-conflict 409 must open the dialog INSTEAD of the '
+                'bottom error banner',
+          );
+        },
+      );
+
+      testWidgets('client-create: dialog "proceed" resubmits with '
+          'allowClientOverlap: true and reaches success', (tester) async {
+        final fake = _FakeAppointmentRepository(
+          errorToThrow: conflictFixture(),
+          appointmentToReturn: _appointmentFixture(),
+        );
+        await pump(tester, fake);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('client-booking-conflict-dialog')),
+          findsOneWidget,
+        );
+
+        // Clears the fixture's error exactly as the real backend would
+        // stop 409-ing once the client accepts the overlap — mirrors
+        // `FakeBackend.rescheduleClientOverlapConflict`'s doc.
+        fake.errorToThrow = null;
+        await tester.tap(
+          find.byKey(const Key('client-booking-conflict-proceed')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+        expect(
+          fake.requests,
+          hasLength(2),
+          reason:
+              'the first (rejected) attempt PLUS the confirmed resubmit — '
+              'never a third call',
+        );
+        expect(
+          fake.requests[0].allowClientOverlap,
+          isFalse,
+          reason: 'the FIRST attempt must never set the flag',
+        );
+        expect(
+          fake.requests[1].allowClientOverlap,
+          isTrue,
+          reason: 'the resubmit must carry allowClientOverlap: true',
+        );
+      });
+
+      testWidgets(
+        'client-create: dialog dismiss shows no banner and submits nothing '
+        'further',
+        (tester) async {
+          final fake = _FakeAppointmentRepository(
+            errorToThrow: conflictFixture(),
+          );
+          await pump(tester, fake);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          await tester.tap(
+            find.byKey(const Key('client-booking-conflict-dismiss')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingSuccessScreen), findsNothing);
+          expect(
+            find.byKey(const Key('booking-confirm-submit-error')),
+            findsNothing,
+            reason: 'a dismissed conflict dialog must show no error banner',
+          );
+          expect(
+            fake.requests,
+            hasLength(1),
+            reason: 'a dismiss must not trigger any resubmit',
+          );
+        },
+      );
+
+      testWidgets(
+        'client-reschedule (whole booking): a ClientBookingConflictFailure '
+        'opens the conflict dialog and renders NO bottom error banner',
+        (tester) async {
+          final bookings = _RecordingRescheduleRepository()
+            ..rescheduleErrorToThrow = conflictFixture();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+              authProvider.overrideWith(() => _RoleAuth(UserRole.client)),
+            ],
+          );
+          unawaited(
+            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+          );
+          await tester.pumpAndSettle();
+          await warmAuth(tester);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('client-booking-conflict-dialog')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('booking-confirm-submit-error')),
+            findsNothing,
+            reason:
+                'a client-conflict 409 must open the dialog INSTEAD of the '
+                'bottom error banner, on the RESCHEDULE branch too',
+          );
+        },
+      );
+
+      testWidgets(
+        'client-reschedule (whole booking): dialog "proceed" resubmits with '
+        'allowClientOverlap: true and reaches success',
+        (tester) async {
+          final bookings = _RecordingRescheduleRepository()
+            ..rescheduleErrorToThrow = conflictFixture();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+              authProvider.overrideWith(() => _RoleAuth(UserRole.client)),
+            ],
+          );
+          unawaited(
+            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+          );
+          await tester.pumpAndSettle();
+          await warmAuth(tester);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('client-booking-conflict-dialog')),
+            findsOneWidget,
+          );
+
+          bookings.rescheduleErrorToThrow = null;
+          await tester.tap(
+            find.byKey(const Key('client-booking-conflict-proceed')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+          expect(
+            bookings.rescheduleCalls,
+            hasLength(2),
+            reason:
+                'the first (rejected) attempt PLUS the confirmed resubmit — '
+                'never a third call',
+          );
+          expect(
+            bookings.rescheduleAllowClientOverlapCalls,
+            <bool>[false, true],
+            reason:
+                'the FIRST attempt must never set the flag; the resubmit '
+                'triggered by "Все одно записатись" must carry '
+                'allowClientOverlap: true',
+          );
+        },
+      );
+
+      testWidgets(
+        'client-reschedule (whole booking): dialog dismiss shows no banner '
+        'and submits nothing further',
+        (tester) async {
+          final bookings = _RecordingRescheduleRepository()
+            ..rescheduleErrorToThrow = conflictFixture();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+              authProvider.overrideWith(() => _RoleAuth(UserRole.client)),
+            ],
+          );
+          unawaited(
+            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+          );
+          await tester.pumpAndSettle();
+          await warmAuth(tester);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          await tester.tap(
+            find.byKey(const Key('client-booking-conflict-dismiss')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingSuccessScreen), findsNothing);
+          expect(
+            find.byKey(const Key('booking-confirm-submit-error')),
+            findsNothing,
+            reason: 'a dismissed conflict dialog must show no error banner',
+          );
+          expect(
+            bookings.rescheduleCalls,
+            hasLength(1),
+            reason: 'a dismiss must not trigger any resubmit',
+          );
+        },
+      );
+
+      testWidgets(
+        'PROVIDER-initiated reschedule: a ClientBookingConflictFailure '
+        'RETHROWS to the generic banner — the dialog never opens',
+        (tester) async {
+          final bookings = _RecordingRescheduleRepository()
+            ..rescheduleErrorToThrow = conflictFixture();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+              // INDEPENDENT_MASTER — the provider side of the booking.
+              authProvider.overrideWith(_StubAuth.new),
+            ],
+          );
+          unawaited(
+            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+          );
+          await tester.pumpAndSettle();
+          await warmAuth(tester);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('booking-confirm-submit-error')),
+            findsOneWidget,
+            reason:
+                'a PROVIDER cannot waive the CLIENT\'s own-overlap check on '
+                'their behalf — the backend still 409s regardless, so this '
+                'must fall through to the generic banner',
+          );
+          expect(
+            find.byKey(const Key('client-booking-conflict-dialog')),
+            findsNothing,
+          );
+          expect(
+            bookings.rescheduleCalls,
+            hasLength(1),
+            reason: 'no dialog means no resubmit is ever offered',
+          );
+        },
+      );
+
+      // THE ROLE-SIGNAL FIX — mobile-qa (2026-08-26). `_submit` used to
+      // derive `isProviderReschedule` from `widget.args.hideMasterIdentity`
+      // (a presentation flag with a SECOND, role-unrelated producer —
+      // `walk_in_service_step_screen.dart:129` hardcodes it `true` by flow
+      // construction, no role involved) and now reads
+      // `bookingViewerRoleProvider` instead. This fixture pairs a CLIENT
+      // session with `hideMasterIdentity: true` — a combination production
+      // never mints for a client, but which is EXACTLY what proves which
+      // signal the branch actually reads: under the OLD flag-based
+      // derivation this would have rethrown straight to the banner for a
+      // client who should see the dialog.
+      testWidgets(
+        'a CLIENT session with hideMasterIdentity: true STILL opens the '
+        'conflict dialog — proves isProviderReschedule reads the ROLE '
+        'provider, not widget.args.hideMasterIdentity',
+        (tester) async {
+          final bookings = _RecordingRescheduleRepository()
+            ..rescheduleErrorToThrow = conflictFixture();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+              authProvider.overrideWith(() => _RoleAuth(UserRole.client)),
+            ],
+          );
+          unawaited(
+            router.push(
+              RouteNames.bookingConfirm,
+              extra: _rescheduleArgsClientHiddenIdentity(),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await warmAuth(tester);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('client-booking-conflict-dialog')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('booking-confirm-submit-error')),
+            findsNothing,
+          );
+        },
+      );
+
+      testWidgets(
+        'per-item VISIT reschedule (CLIENT): dialog "proceed" resubmits '
+        'with allowClientOverlap: true and reaches success',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+            rescheduleItemErrorToThrow: conflictFixture(),
+          );
+          final bookings = _RecordingRescheduleRepository();
+          final router = _router();
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              appointmentRepositoryProvider.overrideWith((_) => appointments),
+              bookingRepositoryProvider.overrideWith((_) => bookings),
+              publicMasterProfileProvider(_kMaster.id).overrideWith(
+                (ref) => (_kMaster, const <MasterService>[_kService]),
+              ),
+              authProvider.overrideWith(() => _RoleAuth(UserRole.client)),
+            ],
+          );
+          unawaited(
+            router.push(
+              RouteNames.bookingConfirm,
+              extra: _appointmentItemRescheduleArgs(),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await warmAuth(tester);
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('client-booking-conflict-dialog')),
+            findsOneWidget,
+          );
+
+          appointments.rescheduleItemErrorToThrow = null;
+          await tester.tap(
+            find.byKey(const Key('client-booking-conflict-proceed')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byType(BookingSuccessScreen), findsOneWidget);
+          expect(
+            appointments.rescheduleItemAllowClientOverlapCalls,
+            <bool>[false, true],
+            reason:
+                'the FIRST attempt must never set the flag; the resubmit '
+                'must carry allowClientOverlap: true',
+          );
+        },
+      );
     });
 
     // «Додати в календар» removal on WALK-IN RESCHEDULE (2026-08-21) — an

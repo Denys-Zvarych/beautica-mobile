@@ -165,6 +165,28 @@ abstract final class VelvetShadows {
     ),
   ];
 
+  /// Accent-gradient DISC shadow — a smaller-radius sibling of
+  /// [extrudedButtonAccent], with offsets/blur reduced ~52/64 so the
+  /// elevation reads proportional (not heavy) on an icon-only disc rather
+  /// than a full-width CTA button.
+  ///
+  /// Promoted here (2026-08-26) from a private `_discShadow` constant that
+  /// used to live only inside `client_bottom_nav.dart`'s
+  /// `_CenterSearchButton`. Two surfaces now consume this SAME token —
+  /// `_CenterSearchButton` (the elevated search disc) and
+  /// `beauty_timeline_section.dart`'s `_TimelineNode` medallion circles
+  /// (the "just make circles same as search button circle" product
+  /// decision) — so a future shadow tweak propagates to both identically
+  /// (REUSE-FIRST: one token, one fix, every consumer).
+  static const List<BoxShadow> extrudedDiscAccent = <BoxShadow>[
+    BoxShadow(color: Color(0xFF8C6A44), offset: Offset(5, 5), blurRadius: 11),
+    BoxShadow(
+      color: BrandColors.shadowLightStrong,
+      offset: Offset(-5, -5),
+      blurRadius: 11,
+    ),
+  ];
+
   /// Small raised element (logo tile, OTP cell, badge).
   static const List<BoxShadow> extrudedSmall = <BoxShadow>[
     BoxShadow(
@@ -248,6 +270,35 @@ abstract final class VelvetShadows {
       blurRadius: 16,
     ),
   ];
+}
+
+/// Camel→mocha diagonal gradients for "accent disc" surfaces — the same two
+/// consumers as [VelvetShadows.extrudedDiscAccent] just above: the client
+/// bottom-nav's elevated search disc (`_CenterSearchButton`) and the BEAUTY
+/// TIMELINE rail's medallion circles (`_TimelineNode`). Promoted 2026-08-26
+/// so both surfaces read as the same physical material (REUSE-FIRST).
+abstract final class VelvetGradients {
+  /// Disc/medallion face fill.
+  static const LinearGradient accentDiscFace = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
+  );
+
+  /// Inner bevel sheen painted on top of [accentDiscFace] while the surface
+  /// is in its elevated (non-pressed) state — sells the "physical pillow"
+  /// read. White highlight top-left fading through transparent to a faint
+  /// black shade bottom-right, matching the gradient's own diagonal.
+  static final LinearGradient accentDiscBevel = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: <Color>[
+      Colors.white.withValues(alpha: 0.30),
+      Colors.transparent,
+      Colors.black.withValues(alpha: 0.14),
+    ],
+    stops: const <double>[0.0, 0.5, 1.0],
+  );
 }
 
 /// Motion constants for [VelvetSnack] (`lib/shared/feedback/velvet_snack.dart`)

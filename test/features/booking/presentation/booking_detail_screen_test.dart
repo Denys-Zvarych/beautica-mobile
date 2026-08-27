@@ -87,7 +87,7 @@ Booking _booking({
     salonName: salonName,
     serviceId: 's1',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     districtLabel: null,
     street: 'вул. Городоцька',

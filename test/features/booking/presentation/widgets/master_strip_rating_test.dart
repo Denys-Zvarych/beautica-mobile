@@ -66,7 +66,7 @@ Booking _booking({
     salonName: null,
     serviceId: 's1',
     serviceName: 'Манікюр',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Київ',
     districtLabel: null,
     street: null,

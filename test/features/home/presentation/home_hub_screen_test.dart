@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/data/timeline_repository.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
@@ -226,6 +227,40 @@ const _sampleTimeline = <TimelineEntry>[
   TimelineEntry(category: 'Манікюр', dateLabel: '18.06'),
   TimelineEntry(category: 'Брови', dateLabel: '12.05'),
 ];
+
+// mobile-qa gap-closure (Gap 2) — pull-to-refresh fixtures. Two DISTINCT
+// fixtures (not the same list served twice) so a content assertion, not
+// just a call count, proves the refetch actually reached the screen.
+const _preRefreshTimeline = <TimelineEntry>[
+  TimelineEntry(category: 'Манікюр', dateLabel: '12.06'),
+];
+const _postRefreshTimeline = <TimelineEntry>[
+  TimelineEntry(category: 'Педикюр', dateLabel: '20.06'),
+  TimelineEntry(category: 'Манікюр', dateLabel: '12.06'),
+];
+
+/// A [TimelineRepository] fake that returns a DIFFERENT fixture on each
+/// successive call (clamped to the last one once exhausted) and counts calls
+/// — mirrors `master_profile_screen_refresh_test.dart`'s
+/// `_CountingFakeMasterRepository` strategy for the identical "prove the
+/// refetch actually fired" shape. A hand-written fake (not a mocktail mock)
+/// so the call is trivially synchronous-observable with no
+/// `registerFallbackValue` plumbing.
+class _CountingFakeTimelineRepository implements TimelineRepository {
+  _CountingFakeTimelineRepository(this._responses);
+
+  final List<List<TimelineEntry>> _responses;
+  int callCount = 0;
+
+  @override
+  Future<List<TimelineEntry>> getMyTimeline() async {
+    final int i = callCount < _responses.length
+        ? callCount
+        : _responses.length - 1;
+    callCount++;
+    return _responses[i];
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shared provider overrides
@@ -1269,6 +1304,181 @@ void main() {
         );
       }
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // mobile-qa gap-closure (Gap 2, mobile-build-verifier finding) — pull-to-
+  // refresh on HomeHubScreen. `grep -rn "AppRefreshIndicator|RefreshIndicator"
+  // test/features/home/` returned ZERO matches before this group: the
+  // `onRefresh` closure (4x `ref.invalidate` + `Future.wait` over 4 provider
+  // futures, home_hub_screen.dart:186-203) was entirely unexercised.
+  //
+  // STRATEGY — mirrors `master_profile_screen_refresh_test.dart`'s documented
+  // approach for the identical shape:
+  //   • The REAL `beautyTimelineProvider` (generated AsyncNotifier-shaped
+  //     provider) is NOT stubbed — stubbing it directly would short-circuit
+  //     before ever calling `timelineRepositoryProvider`, which is exactly the
+  //     invalidate + re-fetch chain under test. Only `timelineRepositoryProvider`
+  //     is overridden, with `_CountingFakeTimelineRepository` returning a
+  //     DIFFERENT fixture per call.
+  //   • `clientProfileProvider` / `nextAppointmentProvider` /
+  //     `favoriteMastersProvider` are stubbed directly (their own re-fetch
+  //     wiring is proven elsewhere — `master_profile_screen_refresh_test.dart`
+  //     for the master side; this group is scoped to the timeline card only).
+  //
+  // TWO RECORDED TRAPS THIS TEST DELIBERATELY AVOIDS:
+  //   1. `AsyncLoading(retrying: true)` satisfies `hasError`, and a
+  //      SYNCHRONOUS `thenThrow` bypasses Riverpod retry entirely — neither
+  //      applies here (this fake never throws), but the fake still returns
+  //      via a real `Future` (not a synchronous value) so any future failure
+  //      variant added to this fixture would fail the same way the real Dio
+  //      transport does.
+  //   2. Riverpod 3 PAUSES (does not dispose) a covered/offstage consumer, so
+  //      `ref.invalidate` on an autoDispose provider whose only listener is
+  //      paused would defer the refetch to branch-resume rather than firing
+  //      immediately. THIS TEST'S ASSUMPTION, MADE EXPLICIT: `tester.pumpApp`
+  //      mounts `HomeHubScreen` directly inside a plain `ProviderScope` +
+  //      `MaterialApp` — there is NO `StatefulShellBranch` ancestor here, so
+  //      the single listener this test creates is never offstage/paused, and
+  //      `ref.invalidate` takes effect on the very next pump. A test that
+  //      instead pumped this screen THROUGH the real `ClientShell` could NOT
+  //      assume the same immediacy.
+  group('HomeHubScreen — pull-to-refresh (BEAUTY TIMELINE card)', () {
+    testWidgets(
+      'REGRESSION: pull-to-refresh invalidates beautyTimelineProvider and '
+      're-fetches from timelineRepositoryProvider',
+      (tester) async {
+        final fakeRepo = _CountingFakeTimelineRepository(<List<TimelineEntry>>[
+          _preRefreshTimeline,
+          _postRefreshTimeline,
+        ]);
+
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            myRatingProvider.overrideWith((ref) async => const ClientRating()),
+            clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+            nextAppointmentProvider.overrideWith((ref) async => null),
+            favoriteMastersProvider.overrideWith(
+              (ref) async => const <FavoriteMasterItem>[],
+            ),
+            // The REAL beautyTimelineProvider stays wired — only its
+            // repository dependency is faked. See the group doc above.
+            timelineRepositoryProvider.overrideWithValue(fakeRepo),
+            unlikeFavoriteMasterProvider.overrideWith(
+              () => UnlikeFavoriteMaster(),
+            ),
+          ],
+        );
+
+        // — Settle to loaded state —
+        await tester.pump(); // start async providers
+        await tester.pump(); // fake futures resolve → AsyncData
+        // HomeHubScreen's StaggeredReveal is time-driven; advance past it so
+        // the below-the-fold cards are laid out (mobile-qa: same 1100ms
+        // constant this file already uses elsewhere for the same reveal —
+        // this file is grandfathered in scripts/.fixed_wait_allow).
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        final Finder scrollableFinder = find
+            .descendant(
+              of: find.byType(HomeHubScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+
+        // — Confirm the INITIAL fetch happened exactly once and rendered the
+        //   PRE-refresh fixture. Scrolling is required to MOUNT the below-
+        //   the-fold rail element (the outer ListView still lazily builds
+        //   Elements for off-screen children even though its `children:`
+        //   list was constructed eagerly) — see `_scrollHubTo`'s doc in
+        //   `integration_test/client_home_hub_flow_test.dart` for the same
+        //   fact pinned at the E2E tier.
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('timeline_rail')),
+          300,
+          scrollable: scrollableFinder,
+          maxScrolls: 30,
+        );
+        await tester.pump();
+
+        expect(
+          fakeRepo.callCount,
+          1,
+          reason: 'exactly one fetch must happen on initial build',
+        );
+        expect(
+          find.text('Манікюр'),
+          findsOneWidget,
+          reason: 'the initial fetch must render the PRE-refresh fixture',
+        );
+        expect(
+          find.text('Педикюр'),
+          findsNothing,
+          reason:
+              'the POST-refresh-only entry must not be present before any '
+              'pull — proves the two fixtures are genuinely distinct',
+        );
+
+        // — Reset scroll to the TOP so the pull gesture can register as an
+        //   overscroll (RefreshIndicator only triggers from offset 0). A
+        //   gesture-based scroll-to-top would itself risk re-triggering the
+        //   indicator, so the scroll position is set directly.
+        final ScrollableState scrollableState = tester.state<ScrollableState>(
+          scrollableFinder,
+        );
+        scrollableState.position.jumpTo(0);
+        await tester.pump();
+
+        // — Trigger pull-to-refresh —
+        await tester.fling(scrollableFinder, const Offset(0, 400), 800);
+        // Pump 1: RefreshIndicator intercepts the gesture, calls onRefresh.
+        await tester.pump();
+        // Pump 2: onRefresh runs (4x invalidate + await 4 provider futures).
+        await tester.pump();
+        // Pump 3: Riverpod notifier state transitions settle.
+        await tester.pump(const Duration(milliseconds: 50));
+        // Pump 4: Material RefreshIndicator's built-in 250ms dismiss
+        // animation (the ONLY magic-number pump here that is not the reveal
+        // animation — bounded by the Material library, not application code;
+        // matches `app_refresh_indicator_test.dart`'s own documented M6
+        // exception).
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(
+          fakeRepo.callCount,
+          greaterThan(1),
+          reason:
+              'pull-to-refresh must invalidate beautyTimelineProvider and '
+              're-fetch via timelineRepositoryProvider.getMyTimeline(). If '
+              'this fails, the onRefresh callback is missing '
+              'ref.invalidate(beautyTimelineProvider) OR AppRefreshIndicator '
+              'is not wired in _HomeHubBody any more.',
+        );
+
+        // — Confirm the RENDERED content actually changed, not just the call
+        //   count (a stale-cache bug could invalidate+refetch while still
+        //   painting the old AsyncValue if the widget read the wrong
+        //   provider).
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('timeline_rail')),
+          300,
+          scrollable: scrollableFinder,
+          maxScrolls: 30,
+        );
+        await tester.pump();
+
+        expect(
+          find.text('Педикюр'),
+          findsOneWidget,
+          reason:
+              'after the pull, the rail must show the POST-refresh fixture '
+              '— this is the assertion that separates "refetched" from '
+              '"call count incremented but the screen never rebuilt"',
+        );
+      },
+    );
   });
 }
 

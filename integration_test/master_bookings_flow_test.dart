@@ -80,6 +80,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_boo
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
+import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
@@ -91,6 +92,7 @@ import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -639,6 +641,41 @@ void main() {
     await AppHarness.settle(tester);
     expect(find.byType(MasterBookingsScreen), findsOneWidget);
     expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
+
+    // Wait for the REAL `masterServiceCatalogProvider` fetch — started the
+    // instant `MasterBookingsScreen` mounted, by its zero-height
+    // `_ServiceCatalogueWarmer` — to actually resolve, rather than trusting
+    // `AppHarness.settle`'s frame-scheduled quiescence to have caught it.
+    //
+    // `_applyFilters()` (`bookings_discovery_view.dart`) reads
+    // `masterServiceCatalogProvider`'s `.asData?.value` SYNCHRONOUSLY inside
+    // the filter button's own `onPressed`, before any further pump runs. If
+    // the catalogue is still `AsyncLoading` at that instant, the sheet opens
+    // with `services: const []`, and `bookings_filter_sheet.dart` OMITS the
+    // whole «Послуга» section by design ("Empty (or still loading) hides the
+    // whole section rather than showing an empty one.") — a real,
+    // deliberately-accepted trade-off in the app, not a bug to route around
+    // here.
+    //
+    // `pumpAndSettle` can report "settled" in the lull between two async hops
+    // of a single Dio round trip — `AppHarness.pumpUntilGone`'s own doc
+    // records the identical PATCH→GET precedent
+    // (`SchedulerBinding.hasScheduledFrame` genuinely goes false for a beat
+    // mid-chain). That lull is what made this test pass on CI attempt 1 and
+    // fail on attempts 2 and 3: nothing in `fake_backend.dart` adds latency,
+    // but the auth/log/retry/error-map/refresh Dio interceptor chain and the
+    // `flutter_secure_storage` platform-channel read inside it are genuinely
+    // asynchronous, and their exact timing relative to `settle`'s poll
+    // interval is not guaranteed.
+    //
+    // `container.read(...future)` is a REAL await on the REAL `Future` the
+    // widget tree is already subscribed to via `_ServiceCatalogueWarmer` —
+    // not a UI poll standing in for one. `masterServiceCatalogProvider` is
+    // `keepAlive: true`, so this does not start a second, duplicate fetch.
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(MasterBookingsScreen)),
+    );
+    await container.read(masterServiceCatalogProvider.future);
 
     // The filter sheet is Статус + Послуга only — no Дата anywhere.
     await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
@@ -1296,9 +1333,31 @@ void main() {
       //      renders the month, and that is precisely why the card no longer
       //      needs to. An unscoped probe would fail on the rail and prove
       //      nothing about the card. ────────────────────────────────────────
+      //
+      // WORD-BOUNDARY match, not a bare substring: a 3-letter month
+      // abbreviation is also a plain substring of unrelated fixed UA copy —
+      // «вер» (September) sits inside «Підтверджено» (the CONFIRMED status
+      // badge THIS card always renders) and inside «Завершити» (the
+      // complete CTA). `find.textContaining(monthToken)` self-matched the
+      // card's own status badge every year from 2026-08-25 to ~09-23,
+      // whatever the fixture's `today + 7` anchor landed on — see the guard
+      // test below for the full audit across all 12 months. A real date
+      // token is always rendered bounded by whitespace/punctuation
+      // (`formatBookingDayHeader`/`formatBookingWindow`: "$wd, $day $mon"),
+      // never embedded inside a longer Cyrillic word, so a boundary-aware
+      // match is the assertion that actually means "no date on the card" —
+      // scoping the finder to exclude just the status-badge subtree would
+      // still miss the CTA collision, and any other future text node that
+      // happens to carry "вер".
       final String monthToken = monthAbbrev(toBeauticaTime(wireStart).month);
+      final RegExp monthTokenAsWord = RegExp(
+        '(?<![а-яіїєґА-ЯІЇЄҐ])${RegExp.escape(monthToken)}(?![а-яіїєґА-ЯІЇЄҐ])',
+      );
       expect(
-        find.descendant(of: card, matching: find.textContaining(monthToken)),
+        find.descendant(
+          of: card,
+          matching: find.textContaining(monthTokenAsWord),
+        ),
         findsNothing,
         reason:
             'a date component ("$monthToken") reached the card — «Мої записи» '
@@ -1313,6 +1372,103 @@ void main() {
       );
     },
   );
+
+  // ── Guard for the assertion above — ALL 12 months, not just whichever one
+  //      the fixture's `today + 7` anchor happens to land on. ────────────────
+  //
+  // The failure this pins: `monthAbbrev(9)` is «вер», a literal substring of
+  // «Підтверджено» (the CONFIRMED status badge every card in the test above
+  // renders) and of «Завершити» (the complete CTA). A bare
+  // `find.textContaining(monthToken)` therefore self-matched the card's OWN
+  // fixed copy — nothing to do with a date — whenever `wireStart` (anchored
+  // to the REAL clock + 7 days, `fake_backend.dart`'s `_futureInstant`, so
+  // the fixture never expires) landed in September: every year, ~2026-08-25
+  // through ~2026-09-23. TZ-independent — `toBeauticaTime` uses `.toUtc()`.
+  //
+  // This is a pure-Dart property test (`test`, not `testWidgets` — no widget
+  // tree needed) so it runs in milliseconds and would have failed the day
+  // `bookingStatusConfirmed`/`bookingDetailCompleteCta` was first authored,
+  // long before any calendar ever rolled onto the colliding month.
+  test('no monthAbbrev() token collides, WORD-BOUNDED, with the master booking '
+      'card\'s fixed status/label vocabulary — in any of the 12 months', () {
+    // The fixed Ukrainian copy a `MasterBookingCard` can render outside the
+    // client/service name and the time range — status badge labels
+    // (`booking_status_badge.dart`'s `BookingStatusVisual.of`) plus the two
+    // CTA/placeholder strings the card itself reads directly
+    // (`master_booking_card.dart`). Hand-mirrored from `app_uk.arb` because
+    // a pure-Dart test has no `BuildContext`/`AppLocalizations` to read
+    // from — keep this list in sync if that copy changes; a stale entry
+    // here only makes the guard MORE conservative, never less.
+    const Map<String, String> vocabulary = <String, String>{
+      'bookingStatusConfirmed': 'Підтверджено',
+      'bookingStatusCompleted': 'Виконано',
+      'bookingStatusNotCompleted': 'Візит не відбувся',
+      'bookingStatusCancelled': 'Скасовано',
+      'bookingStatusUnknown': 'Статус уточнюється',
+      'bookingDetailCompleteCta': 'Завершити',
+      'masterArchiveReviewCta': 'Відгук',
+      'bookingDetailGuestClient': 'Гість',
+    };
+
+    // KNOWN naive (unbounded-substring) collisions, audited by hand across
+    // all 12 `monthAbbrev()` tokens against every entry above — the only
+    // pairing where a month token is embedded inside fixed card copy.
+    // Documented so this test visibly PINS them instead of silently living
+    // with whatever collides today; a bare `find.textContaining` anywhere
+    // in this file must never probe for "вер" without the word-boundary
+    // guard the test above now uses.
+    const Map<String, List<String>> knownNaiveCollisions =
+        <String, List<String>>{
+          'вер': <String>['bookingStatusConfirmed', 'bookingDetailCompleteCta'],
+        };
+
+    for (int month = 1; month <= 12; month++) {
+      final String token = monthAbbrev(month);
+      final RegExp bounded = RegExp(
+        '(?<![а-яіїєґА-ЯІЇЄҐ])${RegExp.escape(token)}(?![а-яіїєґА-ЯІЇЄҐ])',
+      );
+      final List<String> naiveCollisionsForToken =
+          knownNaiveCollisions[token] ?? const <String>[];
+
+      vocabulary.forEach((String key, String label) {
+        // The word-bounded finder (what the card assertion now uses) must
+        // NEVER match inside fixed UI copy — a real date token is always
+        // whitespace/punctuation-bounded, so a bounded hit here would be a
+        // genuine collision, not a tolerated false positive.
+        expect(
+          bounded.hasMatch(label),
+          isFalse,
+          reason:
+              'month token "$token" (month $month) matched WORD-BOUNDED '
+              'inside "$key" = "$label" — a real date token cannot be '
+              'embedded in fixed UI copy, so the boundary-aware finder the '
+              'card assertion relies on would now false-positive; fix the '
+              'copy or the regex before this ships',
+        );
+
+        // The NAIVE substring check is what actually broke in production
+        // (pre-fix) — track it so a NEW naive collision (a future ARB edit
+        // introducing another "вер"-shaped accident, or one in a different
+        // month) is caught here, at authoring time, rather than waiting for
+        // the calendar to roll onto it.
+        final bool naiveHit = label.toLowerCase().contains(token);
+        final bool isKnownNaiveCollision = naiveCollisionsForToken.contains(
+          key,
+        );
+        if (naiveHit && !isKnownNaiveCollision) {
+          fail(
+            'NEW naive substring collision: month token "$token" (month '
+            '$month) is a plain substring of "$key" = "$label". A raw '
+            '`find.textContaining("$token")` probe would false-positive '
+            'whenever this label is on screen and the seeded/real date '
+            'lands in month $month. Audit this the way "вер"/September '
+            'was audited (see this test\'s header) and either fix the '
+            'copy or record it in knownNaiveCollisions.',
+          );
+        }
+      });
+    }
+  });
 
   // ── 2026-07-21 — the compact card is a MINIATURE of the >=1h card, and the
   //      45-minute booking is on the COMPACT side of the threshold ──────────

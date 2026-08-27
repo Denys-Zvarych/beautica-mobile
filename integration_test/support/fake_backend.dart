@@ -747,6 +747,38 @@ final class FakeBackend {
     'memberSinceYear': 2021,
   };
 
+  /// `GET /api/v1/clients/me/timeline` call counter (Phase 110 / mobile-qa
+  /// gap-closure — this route did not exist at all until this pass; see
+  /// [timelineRows]'s doc for the defect that absence caused).
+  int getTimelineCalls = 0;
+
+  /// Rows served by `GET /api/v1/clients/me/timeline`'s page envelope
+  /// (`data.data`). Defaults to EMPTY, which drives the BEAUTY TIMELINE
+  /// rail's `timeline_empty` state — the same default every sibling
+  /// placeholder-shaped list uses ([favoriteMasterRows],
+  /// [favoriteServiceRows]). Replace wholesale in a flow to serve populated
+  /// completed-procedure history.
+  ///
+  /// Each row is a `TimelineItemResponse`: `bookingId` (String?, may be
+  /// omitted/null — a row with no bookingId must render but stay
+  /// non-tappable, see `timeline_mapper.dart`'s header), `categoryKey`,
+  /// `categoryName`, `date` (a wire-format `Date`, i.e. a bare
+  /// `"YYYY-MM-DD"` string — NOT an instant, see `api/lib/src/
+  /// date_serializer.dart`), `masterId`, `serviceName`.
+  ///
+  /// mobile-qa DEFECT NOTE (found authoring the Phase 110 test gaps, fixed
+  /// here): `HttpTimelineRepository` was wired to the REAL
+  /// `GET /clients/me/timeline` endpoint, but this route was never added to
+  /// FakeBackend. Every E2E flow that reached the BEAUTY TIMELINE section
+  /// therefore hit an unmocked path and the card rendered its ERROR state —
+  /// `find.byType(BeautyTimelineSection)` (only built on the DATA branch of
+  /// `timelineAsync.when`) matched nothing, and `_scrollHubTo` threw `Bad
+  /// state: No element` scrolling for a widget that was never built. Two
+  /// tests in `client_home_hub_flow_test.dart` were red for exactly this
+  /// reason before this route was added — this is test infrastructure
+  /// (`integration_test/support/`), not `lib/` production code.
+  List<Map<String, dynamic>> timelineRows = <Map<String, dynamic>>[];
+
   /// `GET /api/v1/favorites/services` call counter — the BEAUTY WISH LIST feed
   /// (backend 247, mobile Phase 237).
   int listServiceFavoritesCalls = 0;
@@ -2585,6 +2617,40 @@ final class FakeBackend {
   int rescheduleBookingCalls = 0;
   String? lastRescheduleNewStartsAt;
 
+  /// The last `allowClientOverlap` wire value submitted on
+  /// `PATCH /bookings/{id}/reschedule`, decoded on EVERY call regardless of
+  /// [rescheduleClientOverlapConflict] — lets a flow prove the override
+  /// actually reaches the wire on the confirmed resubmit (booking-conflict
+  /// popup track), independent of which status this fake happened to answer.
+  bool? lastRescheduleAllowClientOverlap;
+
+  /// When `true`, `PATCH /bookings/{id}/reschedule` answers HTTP **409** with
+  /// the typed `CLIENT_BOOKING_CONFLICT` envelope
+  /// (`HttpBookingRepository._extractClientBookingConflict`'s exact shape)
+  /// instead of the default 200 success — simulating the CLIENT already
+  /// having a different overlapping booking. Off by default so every other
+  /// reschedule flow keeps its clean 200.
+  ///
+  /// RE-WIRES ON WRITE — see [createRejectDuplicate]'s doc for why a status
+  /// change requires re-registering the route rather than just flipping a
+  /// field `replyCallback` would read too late (status is captured at
+  /// registration time, never per-request).
+  ///
+  /// A real backend re-evaluates the conflict per REQUEST based on whether
+  /// `allowClientOverlap` was set — this fake cannot do that within one
+  /// registration (see [_wireRescheduleBooking]'s doc), so a flow driving the
+  /// "confirm the popup, resubmit succeeds" journey must flip this back to
+  /// `false` itself between the rejected attempt and the resubmit, exactly as
+  /// it would flip [createRejectDuplicate]. [lastRescheduleAllowClientOverlap]
+  /// still proves what the RESUBMIT actually sent, independent of that timing.
+  bool get rescheduleClientOverlapConflict => _rescheduleClientOverlapConflict;
+  set rescheduleClientOverlapConflict(bool value) {
+    _rescheduleClientOverlapConflict = value;
+    _wireRescheduleBooking();
+  }
+
+  bool _rescheduleClientOverlapConflict = false;
+
   /// Track 27.x/MO-6 — the seeded booking's `appointmentId`, `null` by
   /// default (a plain single-service booking). A flow proving the
   /// appointment-child provider-write routing (`BookingDetailScreen`'s
@@ -2853,7 +2919,7 @@ final class FakeBackend {
     // «Манікюр з покриттям», 90 min — consistent with the fields below.
     'masterServiceId': 'pub-assign-1',
     'serviceName': 'Манікюр з покриттям',
-    'categoryName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
     'street': 'вул. Хрещатик',
@@ -2902,7 +2968,7 @@ final class FakeBackend {
     'clientLastName': clientLastName,
     'masterServiceId': 'pub-assign-2',
     'serviceName': 'Дизайн нігтів',
-    'categoryName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
     'street': 'вул. Хрещатик',
@@ -3116,7 +3182,7 @@ final class FakeBackend {
     'salonName': null,
     'masterServiceId': 'pub-assign-1',
     'serviceName': 'Манікюр з покриттям',
-    'categoryName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
     'street': 'вул. Хрещатик',
@@ -3446,6 +3512,65 @@ final class FakeBackend {
             return _ok(newService);
           }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `PATCH /api/v1/bookings/booking-1/reschedule` — client
+  /// reschedule (track 24.x auto-confirm). Status is chosen by
+  /// [rescheduleClientOverlapConflict] (that field's doc explains why a
+  /// status-dependent route must be re-registered by a `_wireX` method
+  /// rather than inlined in [_wire] — see [_wireCreateService]'s doc for the
+  /// full `DioAdapter.onRoute` mechanics).
+  ///
+  ///   - `false` (default) — moves the seeded booking to the submitted
+  ///     `newStartsAt`, keeps it CONFIRMED (a reschedule never changes
+  ///     status), and returns the enriched `BookingDetailResponse` the
+  ///     repository maps back (unlike cancel, which is void). The 90-minute
+  ///     span is preserved so the moved booking's end tracks its new start.
+  ///   - `true` — answers HTTP 409 with the exact `CLIENT_BOOKING_CONFLICT`
+  ///     envelope `HttpBookingRepository._extractClientBookingConflict`
+  ///     decodes, simulating the CLIENT already holding a different
+  ///     overlapping booking.
+  ///
+  /// [lastRescheduleAllowClientOverlap] is decoded from the body on EVERY
+  /// call, both branches — see that field's doc for why.
+  void _wireRescheduleBooking() {
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/reschedule',
+      (server) => server.replyCallback(
+        _rescheduleClientOverlapConflict ? 409 : 200,
+        (req) {
+          rescheduleBookingCalls++;
+          final body = _decodeBody(req.data);
+          final String? newStartsAt = body['newStartsAt'] as String?;
+          lastRescheduleNewStartsAt = newStartsAt;
+          lastRescheduleAllowClientOverlap =
+              body['allowClientOverlap'] as bool?;
+          if (_rescheduleClientOverlapConflict) {
+            return <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{
+                'code': 'CLIENT_BOOKING_CONFLICT',
+                'conflictingBookingId': 'booking-existing',
+                'serviceName': 'Стрижка',
+                'masterName': 'Ірина Бондар',
+                'startsAt': bookingStartsAt,
+                'endsAt': bookingEndsAt,
+              },
+              'message': 'Client already has an overlapping booking',
+            };
+          }
+          if (newStartsAt != null) {
+            final DateTime start = DateTime.parse(newStartsAt).toUtc();
+            final DateTime end = start.add(const Duration(minutes: 90));
+            bookingStartsAt = start.toIso8601String();
+            bookingEndsAt = end.toIso8601String();
+          }
+          // A reschedule leaves the booking CONFIRMED — never touches status.
+          return _ok(_seededBookingJson());
+        },
+      ),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
   }
 
@@ -3810,6 +3935,32 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getPassportCalls++;
         return _ok(passportBody);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/clients/me/timeline — CLIENT's BEAUTY TIMELINE
+    // (completed-procedure history, backend 19.5). Wired now that
+    // `HttpTimelineRepository` calls the real endpoint — see [timelineRows]'s
+    // doc for the defect this route's ABSENCE caused before this pass.
+    // Envelope shape mirrors `_wireListMasterFavorites`'s page envelope
+    // exactly: outer `ApiResponse` (`success`/`message`/`data`), inner
+    // `PageResponse` (`data`/`page`/`size`/`totalElements`/`totalPages`).
+    _adapter.onRoute(
+      '/api/v1/clients/me/timeline',
+      (server) => server.replyCallback(200, (_) {
+        getTimelineCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'data': timelineRows,
+            'page': 0,
+            'size': 20,
+            'totalElements': timelineRows.length,
+            'totalPages': timelineRows.isEmpty ? 0 : 1,
+          },
+        };
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -5202,30 +5353,7 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // PATCH /api/v1/bookings/booking-1/reschedule — client reschedule (track
-    // 24.x auto-confirm). Moves the seeded booking to the submitted
-    // `newStartsAt`, keeps it CONFIRMED (a reschedule never changes status),
-    // and returns the enriched `BookingDetailResponse` the repository maps back
-    // (unlike cancel, which is void). The 90-minute span is preserved so the
-    // moved booking's end tracks its new start.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1/reschedule',
-      (server) => server.replyCallback(200, (req) {
-        rescheduleBookingCalls++;
-        final body = _decodeBody(req.data);
-        final String? newStartsAt = body['newStartsAt'] as String?;
-        lastRescheduleNewStartsAt = newStartsAt;
-        if (newStartsAt != null) {
-          final DateTime start = DateTime.parse(newStartsAt).toUtc();
-          final DateTime end = start.add(const Duration(minutes: 90));
-          bookingStartsAt = start.toIso8601String();
-          bookingEndsAt = end.toIso8601String();
-        }
-        // A reschedule leaves the booking CONFIRMED — never touches status.
-        return _ok(_seededBookingJson());
-      }),
-      request: const Request(method: RequestMethods.patch, data: Matchers.any),
-    );
+    _wireRescheduleBooking();
 
     // PATCH /api/v1/bookings/booking-1/cancel — client cancellation. Flips the
     // seeded booking to CANCELLED and stores the free-text comment as the

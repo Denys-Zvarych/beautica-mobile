@@ -431,47 +431,43 @@ class _CenterSearchButton extends StatefulWidget {
 class _CenterSearchButtonState extends State<_CenterSearchButton> {
   bool _pressed = false;
 
-  /// Accent extruded shadow scaled down to suit the smaller (52px) disc — a
-  /// local copy of [VelvetShadows.extrudedButtonAccent] with offsets/blur
-  /// reduced ~52/64 so the elevation reads proportional, not heavy.
-  static const List<BoxShadow> _discShadow = <BoxShadow>[
-    BoxShadow(color: Color(0xFF8C6A44), offset: Offset(5, 5), blurRadius: 11),
-    BoxShadow(
-      color: BrandColors.shadowLightStrong,
-      offset: Offset(-5, -5),
-      blurRadius: 11,
-    ),
-  ];
-
-  static const LinearGradient _faceGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
-  );
-
-  static final LinearGradient _bevelGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: <Color>[
-      Colors.white.withValues(alpha: 0.30),
-      Colors.transparent,
-      Colors.black.withValues(alpha: 0.14),
-    ],
-    stops: const <double>[0.0, 0.5, 1.0],
-  );
-
   // Hoisted disc decorations — avoids allocating a new BoxDecoration on every
   // AnimatedContainer build tick (fires at 60 fps during the press animation).
   // Two variants cover the two states: elevated (shadow visible) vs depressed
   // (no shadow). AnimatedContainer interpolates between them.
-  static const BoxDecoration _discElevatedDecoration = BoxDecoration(
-    shape: BoxShape.circle,
-    gradient: _faceGradient,
-    boxShadow: _discShadow,
+  //
+  // Face gradient, bevel gradient and shadow are PROMOTED shared tokens
+  // (`VelvetShadows.extrudedDiscAccent` / `VelvetGradients.accentDiscFace` /
+  // `VelvetGradients.accentDiscBevel` in `core/theme/velvet_geometry.dart`)
+  // — this disc used to own private copies; the BEAUTY TIMELINE rail's
+  // medallion circles (`beauty_timeline_section.dart`) now consume the same
+  // tokens so both surfaces read as one material (REUSE-FIRST, 2026-08-26).
+  // NOT `shape: BoxShape.circle`: a blurred BoxShadow on a circle shape
+  // rasterizes as a hard-edged square under Impeller-GLES (the shadow's
+  // bounding box) — see
+  // `test/features/booking/impeller_circle_shadow_guard_test.dart` header.
+  // The established remedy is an RRect at half the box side (26 = 52 / 2),
+  // visually identical and routed through Impeller's correct RRect blur
+  // path. Both variants below use the same `borderRadius`, not just the
+  // elevated one: `AnimatedContainer` lerps between these two decorations on
+  // every press, and `BoxDecoration.lerp` needs matching `shape` to
+  // interpolate cleanly — mixing `shape: BoxShape.circle` on one side with
+  // `borderRadius` on the other would reintroduce a shape mismatch mid-tween.
+  //
+  // `static final`, not `static const`: `BorderRadius.circular` is not a
+  // const constructor (`this.all(Radius.circular(radius))` is a redirecting
+  // non-const ctor), so a `const BoxDecoration` referencing it fails to
+  // compile — matches the established precedent in `master_avatar_badge.dart`.
+  // `static final` still hoists the allocation to once per app run, same as
+  // the `const` it replaces for this purpose.
+  static final BoxDecoration _discElevatedDecoration = BoxDecoration(
+    borderRadius: BorderRadius.circular(26),
+    gradient: VelvetGradients.accentDiscFace,
+    boxShadow: VelvetShadows.extrudedDiscAccent,
   );
-  static const BoxDecoration _discDepressedDecoration = BoxDecoration(
-    shape: BoxShape.circle,
-    gradient: _faceGradient,
+  static final BoxDecoration _discDepressedDecoration = BoxDecoration(
+    borderRadius: BorderRadius.circular(26),
+    gradient: VelvetGradients.accentDiscFace,
   );
 
   // Hoisted bevel DecoratedBox — shared across all builds so the sheen layer
@@ -480,7 +476,7 @@ class _CenterSearchButtonState extends State<_CenterSearchButton> {
     child: DecoratedBox(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: _bevelGradient,
+        gradient: VelvetGradients.accentDiscBevel,
       ),
     ),
   );

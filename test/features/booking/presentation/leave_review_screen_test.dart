@@ -90,7 +90,7 @@ Booking _booking({
     masterType: 'INDEPENDENT_MASTER',
     serviceId: 's1',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Київ',
     street: 'вул. Хрещатик',
     buildingNo: '12',

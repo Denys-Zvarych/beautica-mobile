@@ -40,18 +40,26 @@
 //
 // FAKE-BACKEND GAPS
 // -----------------
-// GET /clients/me/passport, GET /favorites/masters, GET /clients/me/timeline —
-// not yet wired in FakeBackend (backend 19.x). Their providers return
-// empty/null placeholders so the Hub shows empty states; the integration test
-// asserts the empty-state keys to confirm this.
+// GET /clients/me/passport, GET /favorites/masters — not yet wired in
+// FakeBackend (backend 19.x). Their providers return empty/null placeholders
+// so the Hub shows empty states; the integration test asserts the
+// empty-state keys to confirm this.
 //
-// GET /bookings/me (Phase 225) and GET /users/me/rating ARE wired — the
-// next-appointment card and the «Мій рейтинг» stat pill both render real
-// FakeBackend data now. FakeBackend seeds ONE booking (`booking-1`, CONFIRMED,
-// 7 days out) by default, so a flow that wants the next-appointment EMPTY
-// state must explicitly flip `fb.bookingStatus` away from CONFIRMED first —
-// see the "no CONFIRMED booking seeded" test below.
+// GET /bookings/me (Phase 225), GET /users/me/rating, and (since the Phase
+// 110 gap-closure pass below) GET /clients/me/timeline ARE wired — the
+// next-appointment card, the «Мій рейтинг» stat pill, and the BEAUTY
+// TIMELINE rail all render real FakeBackend data now. FakeBackend seeds ONE
+// booking (`booking-1`, CONFIRMED, 7 days out) by default, so a flow that
+// wants the next-appointment EMPTY state must explicitly flip
+// `fb.bookingStatus` away from CONFIRMED first — see the "no CONFIRMED
+// booking seeded" test below. `fb.timelineRows` defaults to EMPTY (a
+// genuinely empty page from the wired endpoint, not a hard-coded
+// placeholder) — see the "BEAUTY TIMELINE" tests near the end of this file
+// for the populated-rail coverage.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
@@ -311,13 +319,16 @@ void main() {
       );
 
       // BeautyTimelineSection empty state key — likewise below the fold.
+      // The endpoint IS wired (Phase 110) — FakeBackend's `timelineRows`
+      // defaults to an empty list, so this is a genuinely empty page from
+      // the real endpoint, not an unwired placeholder any more.
       await _scrollHubTo(tester, find.byKey(const Key('timeline_empty')));
       expect(
         find.byKey(const Key('timeline_empty')),
         findsOneWidget,
         reason:
-            'timeline section must show its empty state because the '
-            'timeline endpoint (backend 19.5) is not yet wired',
+            'timeline section must show its empty state when FakeBackend '
+            'serves a genuinely empty page (default `timelineRows`)',
       );
     },
     timeout: const Timeout(Duration(seconds: 45)),
@@ -1071,4 +1082,516 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
+
+  // ── Test N — mobile-qa gap-closure (Phase 110 / Step 2.7 Rule 3b) ────────
+  //              BEAUTY TIMELINE rail: populated rendering, sort, and the ────
+  //              bookingId tap-to-navigate / inert-when-absent contract ─────
+  //
+  // The widget tier (home_hub_screen_test.dart) and the data-layer unit
+  // tier (timeline_repository_test.dart / timeline_mapper_test.dart) each
+  // prove ONE link of this chain in isolation with fakes/mocks. Neither
+  // exercises the REAL journey end to end: a CLIENT's real HTTP round trip
+  // through FakeBackend, the real TimelineMapper sort, and the real
+  // go_router `context.push` navigating to «Деталі запису». This is exactly
+  // the shape Step 2.7 Rule 3b requires for a change that touches a screen +
+  // provider/repository wiring + API contract + navigation.
+
+  testWidgets(
+    'BEAUTY TIMELINE rail renders populated tiles most-recent-first from '
+    'FakeBackend data (proves the client-side re-sort, not wire order)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // Isolate the timeline from the next-appointment card so only ONE
+        // BookingCard-shaped section is on screen (matches Test 4's "no
+        // CONFIRMED booking seeded" fixture flip).
+        ..bookingStatus = 'COMPLETED'
+        // Deliberately seeded ASCENDING (oldest first) — the backend already
+        // orders DESC in production, but TimelineMapper.fromDtoList
+        // re-sorts client-side regardless (see its file header) and must
+        // never simply trust wire order. If that re-sort were ever dropped,
+        // the rail would render these in THIS ascending order and the dx
+        // assertions below would fail.
+        ..timelineRows = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'PEDICURE',
+            'categoryName': 'Педикюр',
+            'date': '2026-04-02',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний педикюр',
+          },
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'BROW',
+            'categoryName': 'Брови',
+            'date': '2026-05-12',
+            'masterId': 'master-1',
+            'serviceName': 'Корекція брів',
+          },
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'NAIL_SERVICE',
+            'categoryName': 'Манікюр',
+            'date': '2026-06-18',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний манікюр',
+          },
+        ];
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      // i18n-finder-ok: these are FakeBackend fixture category names, not
+      // translated UI copy — asserting their horizontal order, not content.
+      final double manicureX = tester.getTopLeft(find.text('Манікюр')).dx;
+      final double browX = tester.getTopLeft(find.text('Брови')).dx;
+      final double pedicureX = tester.getTopLeft(find.text('Педикюр')).dx;
+
+      expect(
+        manicureX,
+        lessThan(browX),
+        reason:
+            'the most recent procedure (18 Jun) must render leftmost — a '
+            'regression to wire order would put Педикюр (2 Apr) first '
+            'instead',
+      );
+      expect(
+        browX,
+        lessThan(pedicureX),
+        reason:
+            'the middle-dated procedure (12 May) must render before the '
+            'oldest (2 Apr)',
+      );
+
+      expect(
+        fb.getTimelineCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the rail must be backed by a real GET /clients/me/timeline '
+            'call, not a hard-coded fixture',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  testWidgets(
+    'tapping a BEAUTY TIMELINE tile with a bookingId opens «Деталі запису» — '
+    'a tile with no bookingId is inert (no navigation, no crash)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..timelineRows = <Map<String, dynamic>>[
+          // No bookingId at all — the wire shape for a completed procedure
+          // whose source booking cannot be resolved server-side. Must
+          // render on the rail but stay non-tappable (never coerced to '').
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'BROW',
+            'categoryName': 'Брови',
+            'date': '2026-05-12',
+            'masterId': 'master-1',
+            'serviceName': 'Корекція брів',
+          },
+          // Reuses "booking-1" — the ONLY seeded booking with a wired
+          // GET /bookings/:id route (`_wireBookingDetail` in
+          // fake_backend.dart uses a CONCRETE path; the DioAdapter mock has
+          // no path-template matching).
+          <String, dynamic>{
+            'bookingId': 'booking-1',
+            'categoryKey': 'NAIL_SERVICE',
+            'categoryName': 'Манікюр',
+            'date': '2026-06-18',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний манікюр',
+          },
+        ];
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      // ── 1. The bookingId-less tile renders but is INERT. ────────────────
+      expect(
+        find.text('Брови'),
+        findsOneWidget,
+        reason: 'the no-bookingId row must still render on the rail',
+      );
+      expect(
+        find.byKey(const Key('timeline_tile_booking-1')),
+        findsOneWidget,
+        reason: 'the bookingId-carrying row must render as a keyed InkWell',
+      );
+      // `warnIfMissed: false` — this is a DELIBERATE inert-tile tap (no
+      // GestureDetector/InkWell exists on this branch of `_TimelineNode`),
+      // not a scroll-clipping miss. Mirrors `TapCalendarDay`'s documented
+      // distinction (test/helpers/pump_app.dart) for the same shape of
+      // assertion.
+      await tester.tap(find.text('Брови'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(BookingDetailScreen),
+        findsNothing,
+        reason:
+            'a timeline row with no bookingId must never navigate — '
+            'TimelineMapper never coerces a missing id to "" (see '
+            'timeline_mapper.dart\'s header), and BeautyTimelineSection only '
+            'wraps a tile in InkWell when bookingId is non-null/non-empty '
+            '(beauty_timeline_section.dart\'s _TimelineNode)',
+      );
+
+      // ── 2. The bookingId-carrying tile navigates to «Деталі запису». ────
+      await tester.tap(find.byKey(const Key('timeline_tile_booking-1')));
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason:
+            'tapping a timeline tile whose bookingId is set must push '
+            '«Деталі запису» via context.push '
+            '(BeautyTimelineSection.onOpenBooking → '
+            'RouteNames.bookingDetail)',
+      );
+      // `expectNestedPushLocation` (not `expectLocation`) — `push` grafts
+      // this leaf onto the shell match of whichever branch is CURRENTLY
+      // ACTIVE (Home), the same shape the next-appointment card's own
+      // navigation test above documents.
+      AppHarness.expectNestedPushLocation(
+        router,
+        '${RouteNames.clientBookings}/booking-1',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test N+1 — mobile-qa (Phase 110 Part 2 / Step 2.7 Rule 3b): the rail ──
+  //              renders category icons via the shared `categoryIconFor` ────
+  //              resolver, on the REAL rendered tree — for both the ─────────
+  //              known-slug path AND the unknown-slug/name-fallback path ────
+  //
+  // WHY THIS EXISTS
+  // ----------------
+  // `category_icons_test.dart` (mobile-qa, closes a mobile-security LOW)
+  // already proves `categoryIconFor` itself is total and adversary-safe as a
+  // pure function. It does NOT prove the rail actually WIRES that function's
+  // output into the rendered `AppIcon` for real FakeBackend-served rows —
+  // that wiring is `beauty_timeline_section.dart`'s `_TimelineNode.build`,
+  // one call site, previously untested end to end (the widget tier only
+  // pumps `BeautyTimelineSection` directly with hand-built `TimelineEntry`
+  // fixtures whose `categoryKey` never round-trips through the real
+  // `GET /clients/me/timeline` → `TimelineMapper` → provider chain). This
+  // flow drives that chain for real and asserts the rendered `AppIcon.asset`
+  // against an INDEPENDENTLY computed expectation — never trusting the
+  // resolver's own output as its own proof.
+  testWidgets(
+    'BEAUTY TIMELINE rail wires the shared categoryIconFor resolver into '
+    'the rendered AppIcon for both a known categoryKey and an unknown-key/'
+    'name-fallback row',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..timelineRows = <Map<String, dynamic>>[
+          // Known, registered slug — Stage 1 of the resolver must win.
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'INJECTION_COSMETOLOGY',
+            'categoryName': "Ін'єкційна косметологія",
+            'date': '2026-06-20',
+            'masterId': 'master-1',
+            'serviceName': 'Біоревіталізація',
+          },
+          // Legacy/unregistered slug ("PEDICURE" is not in _fromKey's
+          // switch — the real registered slug is "PODOLOGY") paired with a
+          // matching Ukrainian name, so the resolver must fall through to
+          // Stage 2 and land on the Podology asset, not the generic
+          // fallback — the exact fallthrough `category_icons_test.dart`
+          // pins in isolation, now proven wired end to end.
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'PEDICURE',
+            'categoryName': 'Педикюр',
+            'date': '2026-05-02',
+            'masterId': 'master-1',
+            'serviceName': 'Класичний педикюр',
+          },
+        ];
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      // i18n-finder-ok: FakeBackend fixture category names, not translated
+      // UI copy.
+      final AppIcon injectionIcon = _appIconForTile(
+        tester,
+        caption: "Ін'єкційна косметологія",
+      );
+      expect(
+        injectionIcon.asset,
+        categoryIconFor(
+          categoryKey: 'INJECTION_COSMETOLOGY',
+          categoryName: "Ін'єкційна косметологія",
+        ),
+        reason:
+            'the rendered AppIcon for the known-slug row must carry the '
+            'EXACT asset path categoryIconFor resolves for that same input '
+            '— a hard-coded/guessed asset in _TimelineNode would silently '
+            'desync from the resolver and this comparison would fail',
+      );
+      // Independently pin the specific asset too — belt and braces against
+      // both sides of the comparison drifting together.
+      expect(
+        injectionIcon.asset,
+        'assets/icons/category_injection_cosmetology.svg',
+      );
+      expect(
+        injectionIcon.size,
+        39.0,
+        reason:
+            'the rendered AppIcon must carry the current medallion size '
+            '(39dp = 48 × 52/64) — the user-approved 48-in-64dp ratio '
+            're-derived for the medallion\'s 52dp size (see '
+            '`beauty_timeline_section.dart`\'s file header). A same-day '
+            'pass shrank this to 22dp to match the client bottom-nav search '
+            'disc\'s OWN icon-to-disc ratio, alongside copying that disc\'s '
+            'gradient/shadow/bevel onto the medallion — both were reverted '
+            'on user instruction; only the 52dp medallion SIZE match was '
+            'ever requested. The 26/36/32/48/22dp values that preceded this '
+            'never landed on the correct, approved proportion.',
+      );
+      // `injectionIcon.size` above reads the AppIcon CONSTRUCTOR field, which
+      // would stay 39.0 even if a surrounding layout bug silently overrides
+      // what actually paints — that happened for real once already: the
+      // 64×64 medallion `Container` had no `alignment`, so its tight
+      // BoxConstraints forced the icon to render at 64×64 regardless of
+      // `size:` (mobile-qa, 2026-08-26, Phase 110 Part 2 gap-closure — see
+      // `beauty_timeline_section.dart`'s `_TimelineNode` comment and
+      // `test/golden/beauty_timeline_rail_golden_test.dart`'s file header for
+      // the full trace). Assert the ACTUAL laid-out size too, end to end
+      // against the real FakeBackend-served row, so a regressed `alignment`
+      // fails here even though the field-only check above would stay green.
+      expect(
+        tester.getSize(
+          _appIconFinderForTile(tester, caption: "Ін'єкційна косметологія"),
+        ),
+        const Size(39.0, 39.0),
+        reason:
+            'the medallion icon must actually PAINT at 39×39 — a different '
+            'result means the Container alignment fix regressed and the '
+            'icon is silently mis-sized inside the medallion again',
+      );
+
+      // mobile-qa (colour-copy revert, 2026-08-26): every assertion above
+      // (and every prior one in this file's history) only ever pinned
+      // SIZE. It's the MATERIAL a same-day pass changed without being
+      // asked to — camel→mocha gradient face, dual extruded boxShadow, a
+      // bevel sheen, and a cream icon tint, all copied wholesale from the
+      // client bottom-nav's search disc. The user rejected exactly that
+      // ("its mean make CYRCLE SIZE, but u changed the collor - revert it
+      // and fix as expected!"). These two assertions are the ones that
+      // would have caught it, run end to end against the real
+      // FakeBackend-served row — see
+      // `test/golden/beauty_timeline_rail_golden_test.dart`'s "medallion
+      // decoration is FLAT VelvetTouch" group for the mutation-proven
+      // widget-tier counterpart.
+      final Container medallionContainer = tester.widget<Container>(
+        find
+            .ancestor(
+              of: _appIconFinderForTile(
+                tester,
+                caption: "Ін'єкційна косметологія",
+              ),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final BoxDecoration medallionDecoration =
+          medallionContainer.decoration! as BoxDecoration;
+      expect(
+        medallionDecoration.gradient,
+        isNull,
+        reason:
+            'the reverted pass set `gradient: VelvetGradients.'
+            'accentDiscFace` on this exact real-data-rendered medallion — '
+            'must stay null',
+      );
+      expect(
+        medallionDecoration.boxShadow,
+        isNull,
+        reason:
+            'the reverted pass set `boxShadow: VelvetShadows.'
+            'extrudedDiscAccent` on this exact real-data-rendered medallion '
+            '— must stay null',
+      );
+      expect(
+        injectionIcon.color,
+        BrandColors.accentDeep,
+        reason:
+            'the reverted pass flipped this to cream `BrandColors.white` '
+            'so the icon would read against the gradient face it also '
+            'added — must stay the dark accentDeep tint',
+      );
+
+      final AppIcon pedicureIcon = _appIconForTile(tester, caption: 'Педикюр');
+      expect(
+        pedicureIcon.asset,
+        categoryIconFor(categoryKey: 'PEDICURE', categoryName: 'Педикюр'),
+        reason:
+            'the unregistered "PEDICURE" slug must resolve through the '
+            'REAL name-fallback stage (landing on Podology), not the '
+            'generic cosmetology fallback — proves the fallthrough is '
+            'actually reachable on real wire data, not merely declared',
+      );
+      expect(
+        pedicureIcon.asset,
+        'assets/icons/category_podology.svg',
+        reason:
+            'if this ever regresses to the generic fallback '
+            '(category_cosmetology.svg), the assertion above would still '
+            'pass (both sides drift together) — this literal pin catches '
+            'exactly that class of regression',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test N+2 — mobile-qa (Phase 110 Part 2 / Step 2.7 Rule 3b): the ───────
+  //              long category caption genuinely WRAPS to 2 lines on the ────
+  //              real rendered tree, never ellipsis-truncates ───────────────
+  //
+  // WHY THIS EXISTS
+  // ----------------
+  // The overflow-guard suite (`home_hub_overflow_test.dart`) proves the rail
+  // doesn't RenderFlex-overflow at this caption length; it never proves the
+  // caption's own TEXT is fully visible rather than silently ellipsis-
+  // clipped (an ellipsis clip renders a perfectly valid, non-overflowing
+  // layout — the failure mode this test exists to catch is invisible to an
+  // overflow guard). This flow measures the REAL rendered tile width (not a
+  // hard-coded constant — `_tileWidth` is file-private and unreachable from
+  // here) and independently lays out the full caption string at that exact
+  // width with the SAME style/text-scaler the widget uses, asserting Flutter
+  // itself reports no overflow AND that 2 lines were actually used (not
+  // fitting trivially on 1) — proving the tile is genuinely exercising the
+  // Phase 110 Part 2 two-line contract, not merely fitting by coincidence.
+  testWidgets(
+    'BEAUTY TIMELINE rail: the long caption «Ін\'єкційна косметологія» wraps '
+    'to 2 lines and is never ellipsis-truncated',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..timelineRows = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'bookingId': null,
+            'categoryKey': 'INJECTION_COSMETOLOGY',
+            'categoryName': "Ін'єкційна косметологія",
+            'date': '2026-06-20',
+            'masterId': 'master-1',
+            'serviceName': 'Біоревіталізація',
+          },
+        ];
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      await _scrollHubTo(tester, find.byKey(const Key('timeline_rail')));
+
+      const String caption = "Ін'єкційна косметологія";
+      final Finder captionFinder = find.descendant(
+        of: find.byKey(const Key('timeline_rail')),
+        matching: find.text(caption),
+      );
+      expect(
+        captionFinder,
+        findsOneWidget,
+        reason: 'the long-caption fixture row must render on the rail',
+      );
+
+      // The tile's own tight-width SizedBox is the caption's real layout
+      // constraint (see beauty_timeline_section.dart's `_tileWidth` doc
+      // comment) — the closest ancestor SizedBox of the caption Text.
+      final Finder tileBox = find
+          .ancestor(of: captionFinder, matching: find.byType(SizedBox))
+          .first;
+      final double measuredTileWidth = tester.getSize(tileBox).width;
+
+      final Text captionWidget = tester.widget<Text>(captionFinder);
+      final TextPainter probe = TextPainter(
+        text: TextSpan(text: caption, style: captionWidget.style),
+        textDirection: TextDirection.ltr,
+        maxLines: captionWidget.maxLines,
+        textScaler: MediaQuery.textScalerOf(tester.element(captionFinder)),
+      )..layout(maxWidth: measuredTileWidth);
+
+      expect(
+        probe.didExceedMaxLines,
+        isFalse,
+        reason:
+            'laying out the FULL caption string at the ACTUAL measured tile '
+            'width ($measuredTileWidth) with the widget\'s own maxLines '
+            '(${captionWidget.maxLines}) must fit — a truncation regression '
+            '(e.g. maxLines reverting to 1, or the tile shrinking back '
+            'toward 84dp) would make this exceed and go red',
+      );
+      expect(
+        probe.computeLineMetrics().length,
+        2,
+        reason:
+            'this specific caption is the documented binding case that '
+            'NEEDS 2 lines at the current tile width — 1 line here would '
+            'mean the width grew enough to no longer exercise the Part 2 '
+            'wrap contract at all',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+}
+
+/// Returns the [AppIcon] rendered inside the BEAUTY TIMELINE tile whose
+/// caption text is [caption]. Scopes the descendant search to the tile's
+/// own tight-width `SizedBox` wrapper (the closest ancestor `SizedBox` of
+/// the caption `Text` — see `beauty_timeline_section.dart`'s `_tileWidth`
+/// doc comment) so a medallion icon from a DIFFERENT tile can never
+/// false-satisfy this lookup.
+AppIcon _appIconForTile(WidgetTester tester, {required String caption}) {
+  return tester.widget<AppIcon>(
+    _appIconFinderForTile(tester, caption: caption),
+  );
+}
+
+/// The [Finder] half of [_appIconForTile] — split out so callers that need
+/// the actual laid-out size (`tester.getSize`), not just the widget's
+/// constructor fields, can reuse the exact same scoped lookup rather than
+/// re-deriving it (and risking drift between the two).
+Finder _appIconFinderForTile(WidgetTester tester, {required String caption}) {
+  final Finder captionFinder = find.descendant(
+    of: find.byKey(const Key('timeline_rail')),
+    matching: find.text(caption),
+  );
+  expect(
+    captionFinder,
+    findsOneWidget,
+    reason: 'fixture bug: caption "$caption" must render exactly once',
+  );
+  final Finder tileBox = find
+      .ancestor(of: captionFinder, matching: find.byType(SizedBox))
+      .first;
+  final Finder iconFinder = find.descendant(
+    of: tileBox,
+    matching: find.byType(AppIcon),
+  );
+  expect(
+    iconFinder,
+    findsOneWidget,
+    reason: 'the tile for caption "$caption" must render exactly one AppIcon',
+  );
+  return iconFinder;
 }

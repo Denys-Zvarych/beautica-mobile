@@ -26,6 +26,41 @@
 //   bar + categories header) were fixed in production code, so no per-cell
 //   suppression remains.
 //
+// SVG (AppIcon / flutter_svg) decode:
+//   `SvgPicture` (`vector_graphics` under the hood) decodes asynchronously via
+//   `BytesLoader.loadBytes` + `decodeVectorGraphics`, and paints a blank
+//   `SizedBox(width, height)` placeholder until that future resolves
+//   (`vector_graphics-*/lib/src/vector_graphics.dart:538` —
+//   `_VectorGraphicWidgetState.build`). `vector_graphics` ships a documented
+//   fix for exactly that race — `vg.waitForPendingDecodes()` run inside
+//   `tester.runAsync` (see its doc comment at
+//   `vector_graphics.dart:680-706`) — so we call it below on every golden,
+//   after `pumpAndSettle`, as defense-in-depth: `debugGetPendingDecodeTasks`
+//   is empty for any cell with no `VectorGraphic` in the tree, so this is a
+//   provably free no-op everywhere it isn't needed.
+//
+//   CORRECTED DIAGNOSIS (mobile-qa, 2026-08-26, Phase 110 Part 2
+//   gap-closure): the beauty-timeline-rail MEDIUM finding that motivated
+//   adding this call was originally attributed to this exact race — an
+//   earlier chain observed that mutating the medallion `AppIcon`'s `size` to
+//   an absurd value and regenerating produced a byte-identical golden PNG,
+//   and read that as "the SVG never paints." Direct measurement disproved
+//   that: with `waitForPendingDecodes` REMOVED, `pumpAndSettle` alone already
+//   produced a fully-painted icon (confirmed by sampling non-background
+//   pixels in the medallion region) — the SVG was never blank. The actual
+//   cause was a layout bug two levels up, in
+//   `beauty_timeline_section.dart`'s `_TimelineNode`: the fixed 64×64
+//   medallion `Container` had no `alignment`, so its tight BoxConstraints
+//   forced ANY child — including the `AppIcon`'s own `size:`-driven
+//   `SizedBox` — to render at 64×64 regardless of the value passed. `size: 8`
+//   and `size: 32` therefore produced IDENTICAL pixels, not because the icon
+//   was invisible, but because both requests were silently clobbered to the
+//   same 64dp. Fixed by adding `alignment: Alignment.center` to that
+//   `Container` — see its comment there for the `tester.getSize()` proof.
+//   `waitForPendingDecodes` is kept here anyway (see above) since it is
+//   free and is the package-documented answer to a real, if not the
+//   operative, failure mode for this exact widget type.
+//
 // Usage:
 // ```dart
 // goldenTest(
@@ -43,6 +78,7 @@ import 'package:alchemist/alchemist.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart' show vg;
 import 'package:flutter_test/flutter_test.dart';
 
 // Exports — re-export alchemist symbols + flutter layout types so callers
@@ -156,6 +192,16 @@ PumpWidget goldenPumpWidget({
       await tester.pumpAndSettle();
     } else {
       await tester.pump(kLoadingPumpFrame);
+    }
+
+    // Step 4 — wait for any pending flutter_svg / vector_graphics decodes
+    // (see the SVG decode note above), then let the resulting `setState`
+    // (placeholder → decoded picture) flush into a painted frame. Skipped for
+    // the non-settling spinner path — `runAsync` + `pumpAndSettle` there would
+    // fight the deliberately-unsettled perpetual animation.
+    if (settle) {
+      await tester.runAsync(() => vg.waitForPendingDecodes());
+      await tester.pumpAndSettle();
     }
   };
 }

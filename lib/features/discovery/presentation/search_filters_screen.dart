@@ -42,6 +42,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/icons/category_icons.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -950,6 +951,10 @@ class _CategorySection extends ConsumerWidget {
                       child: CategoryRailTile(
                         key: Key('search_service_type_${c.name}'),
                         icon: serviceTypeIcon(c.name),
+                        iconAsset: categoryIconOrNullFor(
+                          categoryKey: c.name,
+                          categoryName: c.displayName,
+                        ),
                         label: c.displayName,
                         selected: selectedKey == c.name,
                         onTap: () => _toggle(ref, c, selectedKey),

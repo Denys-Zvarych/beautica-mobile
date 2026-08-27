@@ -12,6 +12,7 @@ part 'appointment_item_reschedule_request.g.dart';
 ///
 /// Properties:
 /// * [newStartsAt] - The new start of THIS service line only. Siblings keep their windows; the visit's items may end up non-contiguous (gaps are legal, overlaps are not — phase 30.1 L3).
+/// * [allowClientOverlap]
 @BuiltValue()
 abstract class AppointmentItemRescheduleRequest
     implements
@@ -20,6 +21,9 @@ abstract class AppointmentItemRescheduleRequest
   /// The new start of THIS service line only. Siblings keep their windows; the visit's items may end up non-contiguous (gaps are legal, overlaps are not — phase 30.1 L3).
   @BuiltValueField(wireName: r'newStartsAt')
   DateTime get newStartsAt;
+
+  @BuiltValueField(wireName: r'allowClientOverlap')
+  bool? get allowClientOverlap;
 
   AppointmentItemRescheduleRequest._();
 
@@ -56,6 +60,13 @@ class _$AppointmentItemRescheduleRequestSerializer
       object.newStartsAt,
       specifiedType: const FullType(DateTime),
     );
+    if (object.allowClientOverlap != null) {
+      yield r'allowClientOverlap';
+      yield serializers.serialize(
+        object.allowClientOverlap,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -87,6 +98,13 @@ class _$AppointmentItemRescheduleRequestSerializer
             specifiedType: const FullType(DateTime),
           ) as DateTime;
           result.newStartsAt = valueDes;
+          break;
+        case r'allowClientOverlap':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.allowClientOverlap = valueDes;
           break;
         default:
           unhandled.add(key);

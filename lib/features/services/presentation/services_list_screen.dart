@@ -385,6 +385,7 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                 key: Key('category_section_$sectionSlug'),
                 title: group.label,
                 count: group.cards.length,
+                slug: group.key.isEmpty ? null : group.key,
                 initiallyExpanded: initiallyExpanded,
                 children: <Widget>[
                   for (final CategoryGroupEntry entry in group.cards)

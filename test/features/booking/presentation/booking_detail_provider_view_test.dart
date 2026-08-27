@@ -85,7 +85,7 @@ Booking _booking({
     clientLastName: clientLastName,
     serviceId: 's1',
     serviceName: _serviceName,
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     street: 'вул. Городоцька',
     buildingNo: '12',

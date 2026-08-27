@@ -147,6 +147,7 @@ abstract final class BookingMapper {
       serviceId: dto.masterServiceId ?? '',
       serviceName: dto.serviceName ?? '',
       categoryName: dto.categoryName,
+      categoryKey: dto.categoryKey,
       cityLabel: dto.cityLabel,
       districtLabel: dto.districtLabel,
       street: dto.street,

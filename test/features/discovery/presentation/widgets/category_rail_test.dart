@@ -17,9 +17,12 @@
 // All finders are type/widget-based; the label string is fixture data asserted
 // only as rendered content.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/category_rail.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/overflow_guard.dart';
@@ -244,5 +247,123 @@ void main() {
     await tester.pump();
 
     expect(taps, 1);
+  });
+
+  // ── SVG glyph migration (mobile-qa gap-closure) ───────────────────────────
+  //
+  // Before this group, NO test in the suite constructed [CategoryRailTile]
+  // with [CategoryRailTile.iconAsset] at all — the entire additive migration
+  // (production always sets it via `categoryIconFor` in
+  // `search_filters_screen.dart:951`) was unguarded. These pin the additive
+  // contract in both directions and the actual laid-out glyph size.
+  group('CategoryRailTile — iconAsset (SVG) migration', () {
+    testWidgets(
+      'renders the SVG glyph (AppIcon/SvgPicture) when iconAsset is set, '
+      'NOT the Material Icon',
+      (tester) async {
+        await tester.pumpWidget(
+          _host(
+            const CategoryRailTile(
+              icon: Icons.remove_red_eye_outlined,
+              iconAsset: BeauticaAssetIcons.categoryBrows,
+              label: 'Брови',
+              selected: false,
+              onTap: _noop,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AppIcon), findsOneWidget);
+        expect(find.byType(SvgPicture), findsOneWidget);
+        expect(
+          find.byType(Icon),
+          findsNothing,
+          reason: 'the Material glyph must not co-render once iconAsset wins',
+        );
+      },
+    );
+
+    testWidgets(
+      'renders the Material Icon glyph when iconAsset is null (additive '
+      'default — the pre-migration contract every OTHER caller relies on)',
+      (tester) async {
+        await tester.pumpWidget(
+          _host(
+            const CategoryRailTile(
+              icon: Icons.remove_red_eye_outlined,
+              label: 'Брови',
+              selected: false,
+              onTap: _noop,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(Icon), findsOneWidget);
+        expect(find.byType(AppIcon), findsNothing);
+        expect(find.byType(SvgPicture), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the SVG glyph is actually LAID OUT at kGlyphAssetSize (36dp) — not '
+      'merely configured with size: 36',
+      (tester) async {
+        // A `find.widget<AppIcon>(...).size == 36` assertion reads the
+        // CONSTRUCTOR FIELD only — it is satisfied even if a tight-constrained
+        // ancestor silently clobbers the rendered size (exactly the trap that
+        // hid a 64dp-vs-36dp bug in beauty_timeline_section.dart's medallion
+        // for a full chain this session — see
+        // test/golden/beauty_timeline_rail_golden_test.dart's header). Measure
+        // the actual RenderBox instead.
+        await tester.pumpWidget(
+          _host(
+            const CategoryRailTile(
+              icon: Icons.remove_red_eye_outlined,
+              iconAsset: BeauticaAssetIcons.categoryBrows,
+              label: 'Брови',
+              selected: false,
+              onTap: _noop,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Size renderedSize = tester.getSize(find.byType(SvgPicture));
+        expect(
+          renderedSize,
+          const Size(
+            CategoryRailTile.kGlyphAssetSize,
+            CategoryRailTile.kGlyphAssetSize,
+          ),
+          reason:
+              'the SVG glyph must actually PAINT at 36×36 — a mismatch here '
+              'means some ancestor is clobbering the requested size even '
+              'though the AppIcon constructor field still reads 36',
+        );
+      },
+    );
+
+    testWidgets(
+      'the Material glyph stays at kGlyphSize (24dp) when iconAsset is null '
+      '— unaffected by the migration',
+      (tester) async {
+        await tester.pumpWidget(
+          _host(
+            const CategoryRailTile(
+              icon: Icons.remove_red_eye_outlined,
+              label: 'Брови',
+              selected: false,
+              onTap: _noop,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Icon icon = tester.widget<Icon>(find.byType(Icon));
+        expect(icon.size, CategoryRailTile.kGlyphSize);
+      },
+    );
   });
 }

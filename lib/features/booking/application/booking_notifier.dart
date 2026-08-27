@@ -91,12 +91,25 @@ class AppointmentSubmit extends _$AppointmentSubmit {
   /// Moves an existing CONFIRMED booking to [startAt] via
   /// `PATCH /bookings/{id}/reschedule`. Same idle/rethrow contract as
   /// [submitVisit] (no idempotency key or comment on this path).
-  Future<void> reschedule(String bookingId, DateTime startAt) async {
+  ///
+  /// [allowClientOverlap] — backend commit c1c2349 — forwarded unchanged to
+  /// `BookingRepository.rescheduleBooking`; see that method's doc. Defaults
+  /// to `false` so every existing caller is unaffected. Only meaningful for a
+  /// CLIENT-actor reschedule — see that method's doc for why.
+  Future<void> reschedule(
+    String bookingId,
+    DateTime startAt, {
+    bool allowClientOverlap = false,
+  }) async {
     state = const AsyncLoading<void>();
     try {
       await ref
           .read(bookingRepositoryProvider)
-          .rescheduleBooking(bookingId, startAt);
+          .rescheduleBooking(
+            bookingId,
+            startAt,
+            allowClientOverlap: allowClientOverlap,
+          );
       state = const AsyncData<void>(null);
     } catch (e, st) {
       _logFailure(e, st);
@@ -111,16 +124,28 @@ class AppointmentSubmit extends _$AppointmentSubmit {
   /// assigned PROVIDER). Same idle/rethrow contract as [reschedule] — only
   /// this ONE service moves; the visit's siblings are left byte-for-byte
   /// unchanged, so there is no per-service partial state to reconcile.
+  ///
+  /// [allowClientOverlap] — backend commit c1c2349 — forwarded unchanged to
+  /// `AppointmentRepository.rescheduleAppointmentItem`; see that method's
+  /// doc. Defaults to `false` so every existing caller is unaffected. Only
+  /// meaningful for a CLIENT-actor reschedule — see that method's doc for
+  /// why.
   Future<void> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime startAt,
-  ) async {
+    DateTime startAt, {
+    bool allowClientOverlap = false,
+  }) async {
     state = const AsyncLoading<void>();
     try {
       await ref
           .read(appointmentRepositoryProvider)
-          .rescheduleAppointmentItem(appointmentId, bookingId, startAt);
+          .rescheduleAppointmentItem(
+            appointmentId,
+            bookingId,
+            startAt,
+            allowClientOverlap: allowClientOverlap,
+          );
       state = const AsyncData<void>(null);
     } catch (e, st) {
       _logFailure(e, st);

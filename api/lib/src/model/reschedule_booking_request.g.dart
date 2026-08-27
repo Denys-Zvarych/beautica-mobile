@@ -9,12 +9,16 @@ part of 'reschedule_booking_request.dart';
 class _$RescheduleBookingRequest extends RescheduleBookingRequest {
   @override
   final DateTime newStartsAt;
+  @override
+  final bool? allowClientOverlap;
 
   factory _$RescheduleBookingRequest(
           [void Function(RescheduleBookingRequestBuilder)? updates]) =>
       (RescheduleBookingRequestBuilder()..update(updates))._build();
 
-  _$RescheduleBookingRequest._({required this.newStartsAt}) : super._();
+  _$RescheduleBookingRequest._(
+      {required this.newStartsAt, this.allowClientOverlap})
+      : super._();
   @override
   RescheduleBookingRequest rebuild(
           void Function(RescheduleBookingRequestBuilder) updates) =>
@@ -28,13 +32,15 @@ class _$RescheduleBookingRequest extends RescheduleBookingRequest {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is RescheduleBookingRequest &&
-        newStartsAt == other.newStartsAt;
+        newStartsAt == other.newStartsAt &&
+        allowClientOverlap == other.allowClientOverlap;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, newStartsAt.hashCode);
+    _$hash = $jc(_$hash, allowClientOverlap.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -42,7 +48,8 @@ class _$RescheduleBookingRequest extends RescheduleBookingRequest {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'RescheduleBookingRequest')
-          ..add('newStartsAt', newStartsAt))
+          ..add('newStartsAt', newStartsAt)
+          ..add('allowClientOverlap', allowClientOverlap))
         .toString();
   }
 }
@@ -56,6 +63,11 @@ class RescheduleBookingRequestBuilder
   DateTime? get newStartsAt => _$this._newStartsAt;
   set newStartsAt(DateTime? newStartsAt) => _$this._newStartsAt = newStartsAt;
 
+  bool? _allowClientOverlap;
+  bool? get allowClientOverlap => _$this._allowClientOverlap;
+  set allowClientOverlap(bool? allowClientOverlap) =>
+      _$this._allowClientOverlap = allowClientOverlap;
+
   RescheduleBookingRequestBuilder() {
     RescheduleBookingRequest._defaults(this);
   }
@@ -64,6 +76,7 @@ class RescheduleBookingRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _newStartsAt = $v.newStartsAt;
+      _allowClientOverlap = $v.allowClientOverlap;
       _$v = null;
     }
     return this;
@@ -87,6 +100,7 @@ class RescheduleBookingRequestBuilder
         _$RescheduleBookingRequest._(
           newStartsAt: BuiltValueNullFieldError.checkNotNull(
               newStartsAt, r'RescheduleBookingRequest', 'newStartsAt'),
+          allowClientOverlap: allowClientOverlap,
         );
     replace(_$result);
     return _$result;
