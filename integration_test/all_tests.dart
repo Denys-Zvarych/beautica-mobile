@@ -134,6 +134,7 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
@@ -440,6 +441,10 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
+  // profile: real login → salonManageGuard admits a real session → PATCH
+  // dirty-diff proven on the real wire body (mandate 3) → DELETE.
+  group('salon_management_profile_flow', salon_management_profile.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

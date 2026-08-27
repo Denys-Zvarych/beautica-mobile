@@ -18,6 +18,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
@@ -244,6 +245,21 @@ class _FakeSalonRepository implements SalonRepository {
     '_FakeSalonRepository.getBookableMasters is not stubbed — override '
     'salonMasterServiceCoverageProvider directly via _overrides(coverage: …) '
     'instead of routing through this fake repository.',
+  );
+
+  // Phase 21.2 — owner/admin write paths. This screen is the CLIENT-facing
+  // read-only profile, so neither is ever called here.
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
+      throw UnimplementedError(
+        '_FakeSalonRepository.updateSalon is not stubbed — this fake backs '
+        'the CLIENT-facing read-only profile screen.',
+      );
+
+  @override
+  Future<void> deleteSalon(String salonId) async => throw UnimplementedError(
+    '_FakeSalonRepository.deleteSalon is not stubbed — this fake backs the '
+    'CLIENT-facing read-only profile screen.',
   );
 }
 

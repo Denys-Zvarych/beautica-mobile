@@ -1024,6 +1024,39 @@ final class FakeBackend {
   /// unaffected.
   String salonLocationNote = '2 поверх';
 
+  // ── Owner/admin salon management (Phase 21.2) ──────────────────────────
+
+  /// `PATCH /api/v1/salons/{salonId}` call count + the exact last decoded
+  /// wire body — lets a flow assert the dirty-diff contract reached the
+  /// network (e.g. an untouched `phone` key is ABSENT/null in the body).
+  int updateSalonCalls = 0;
+  Map<String, dynamic>? lastUpdateSalonBody;
+
+  /// When set, `PATCH /api/v1/salons/salon-xyz` replies with this status and
+  /// a failure envelope instead of applying the request.
+  int? updateSalonFailureStatusCode;
+
+  /// `DELETE /api/v1/salons/{salonId}` call count.
+  int deleteSalonCalls = 0;
+
+  /// When set, `DELETE /api/v1/salons/salon-xyz` replies with this status and
+  /// a failure envelope instead of succeeding.
+  int? deleteSalonFailureStatusCode;
+
+  /// Mutable PATCH-response state for `salon-xyz`'s owner/admin profile —
+  /// SEPARATE from `_publicSalonDetailEnvelope`'s fields (the public `GET`
+  /// never carries `phone`; see `Salon.phone`'s doc for the Phase 21.2 gap
+  /// this separation exists to preserve). Seeded to the SAME name/description
+  /// the public envelope uses so an untouched-field PATCH round-trip is a
+  /// true no-op; `phone` starts `null` (mirrors a fresh `GET`, which never
+  /// carries it).
+  String _salonManageName = 'Студія Краси «Камелія»';
+  String? _salonManageDescription =
+      'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
+      'та стрижки — довірливий сервіс з 2018 року.';
+  String? _salonManagePhone;
+  String? _salonManageInstagramUrl = '@kamelia_salon';
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -4627,6 +4660,74 @@ final class FakeBackend {
         return _salonPortfolioEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/salons/salon-xyz — owner/admin profile save (Phase 21.2).
+    // Distinct wire shape from the public `GET` above: the response
+    // (`SalonResponse`) DOES carry `phone` (`_publicSalonDetailEnvelope`
+    // above never does — see `Salon.phone`'s doc for the full gap
+    // rationale). Applies only the DIRTY fields the request actually carries
+    // onto the mutable `_salonManage*` state so a flow can prove BOTH halves
+    // of the dirty-diff contract on a real (fake) wire round-trip: an
+    // untouched field never overwrites the persisted value, an edited one
+    // does.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz',
+      (server) =>
+          server.replyCallback(updateSalonFailureStatusCode ?? 200, (req) {
+            updateSalonCalls++;
+            final body = _decodeBody(req.data);
+            lastUpdateSalonBody = body;
+            if (updateSalonFailureStatusCode != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to update salon',
+              };
+            }
+            if (body['name'] is String) {
+              _salonManageName = body['name'] as String;
+            }
+            if (body.containsKey('description')) {
+              _salonManageDescription = body['description'] as String?;
+            }
+            if (body.containsKey('phone')) {
+              _salonManagePhone = body['phone'] as String?;
+            }
+            if (body.containsKey('instagramUrl')) {
+              _salonManageInstagramUrl = body['instagramUrl'] as String?;
+            }
+            return _ok(<String, dynamic>{
+              'id': 'salon-xyz',
+              'name': _salonManageName,
+              'description': _salonManageDescription,
+              'street': (body['street'] as String?) ?? 'вул. Хрещатик',
+              'buildingNo': (body['buildingNo'] as String?) ?? '12',
+              'phone': _salonManagePhone,
+              'instagramUrl': _salonManageInstagramUrl,
+            });
+          }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/salons/salon-xyz — owner-only salon deactivation
+    // (Phase 21.2). Backend soft-deactivates; the fake just counts the call
+    // and lets a flow assert the wire request actually fired.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz',
+      (server) =>
+          server.replyCallback(deleteSalonFailureStatusCode ?? 204, (_) {
+            deleteSalonCalls++;
+            if (deleteSalonFailureStatusCode != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to delete salon',
+              };
+            }
+            return null;
+          }),
+      request: const Request(method: RequestMethods.delete),
     );
 
     // PATCH /api/v1/independent-masters/me/profile

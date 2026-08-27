@@ -183,6 +183,26 @@ abstract interface class SalonRepository {
   /// an empty list when the salon has no portfolio photos.
   Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId);
 
+  /// Applies a partial update to salon [salonId] (Phase 21.2 — owner/admin
+  /// editable profile).
+  ///
+  /// Wraps `PATCH /salons/{salonId}`. [request] should carry ONLY the fields
+  /// the caller actually wants to change — see
+  /// `SalonManagementProfile.save`'s dirty-field diff, which also always
+  /// includes `street`/`buildingNo` because [UpdateSalonRequest] declares
+  /// both non-nullable/required even on a partial update. Returns the
+  /// server's post-update [Salon] snapshot — see [SalonMapper.fromUpdateDto]
+  /// for which fields that snapshot does NOT carry (callers must merge those
+  /// back in from the previous [Salon]).
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request);
+
+  /// Soft-deactivates salon [salonId] (owner-only per backend
+  /// `SalonController.java:104`; the client-side role gate is UX only — the
+  /// server is the real authority).
+  ///
+  /// Wraps `DELETE /salons/{salonId}`.
+  Future<void> deleteSalon(String salonId);
+
   /// Fetches masters actually bookable for [serviceDefId] within [salonId] —
   /// active, actively assigned to the service, AND schedule-usable (backend
   /// Phase 23.x gate; a scheduleless master is simply absent from the
@@ -399,6 +419,59 @@ final class HttpSalonRepository implements SalonRepository {
       if (kDebugMode) {
         log(
           'getSalonPortfolio failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async {
+    try {
+      final res = await _salonApi.updateSalon(
+        salonId: salonId,
+        updateSalonRequest: request,
+      );
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            'updateSalon: ApiResponseSalonResponse.data is null',
+            name: 'salon.repository',
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return SalonMapper.fromUpdateDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'updateSalon failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> deleteSalon(String salonId) async {
+    try {
+      await _salonApi.deactivateSalon(salonId: salonId);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'deleteSalon failed: ${e.type} ${e.response?.statusCode}',
           name: 'salon.repository',
           level: 900,
           stackTrace: st,

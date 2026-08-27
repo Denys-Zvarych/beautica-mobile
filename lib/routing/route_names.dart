@@ -141,6 +141,28 @@ abstract final class RouteNames {
   static String salonPublicProfile(String salonId) =>
       '/salons/${Uri.encodeComponent(salonId)}';
 
+  /// Phase 21.2 — owner/admin editable salon profile (structurally a mirror
+  /// of [salonPublicProfile], with edit/staff-management/delete affordances
+  /// layered on top). `SALON_OWNER` (any owned salon) / `SALON_ADMIN` (their
+  /// own salon only) — gated in `app_router.dart` via `_salonManageGuard`,
+  /// mirroring the `/master/*`/`/salon/*` prefix-gate convention in
+  /// `auth_redirect.dart` (this route sits under `/salons/:salonId/manage`,
+  /// a NESTED child of [salonPublicProfile]'s own literal-path segment, not
+  /// the `/salon/*` prefix those gates cover, so it needs its own).
+  static String salonManage(String salonId) =>
+      '${salonPublicProfile(salonId)}/manage';
+
+  /// Phase 21.2 — the salon settings page the management profile's top-right
+  /// `Icons.tune_rounded` cover control opens. Two rows only: «Редагувати
+  /// профіль» (nav — pops back to [salonManage] with edit mode toggled on)
+  /// and, owner-only, the destructive «Видалити салон». Phase 21.9 later
+  /// supersedes this 2-row page with a full multi-row settings hub (mirroring
+  /// the preview's `salon_settings_screen.dart`) — that phase EXTENDS this
+  /// route/screen rather than replacing it outright, so the path is not
+  /// versioned or phase-suffixed.
+  static String salonManageSettings(String salonId) =>
+      '${salonManage(salonId)}/settings';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

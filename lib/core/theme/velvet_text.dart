@@ -137,6 +137,13 @@ abstract final class VelvetText {
     fontStyle: FontStyle.italic,
   );
 
+  /// Subheading at 13 sp, camel accent — used by the salon management
+  /// profile's «Запросити в команду» add-staff tile label (Phase 21.2).
+  static final TextStyle subheading13Accent = _subheadingStyle.copyWith(
+    fontSize: 13,
+    color: BrandColors.accentDeep,
+  );
+
   /// Subheading at 15 sp — Comfortaa 15/600, espresso. Used by the master
   /// booking wizard's client-step sub-heading («Дані клієнта»). NOT the same
   /// as the pre-existing (mislabelled) [subheading15] below, which actually

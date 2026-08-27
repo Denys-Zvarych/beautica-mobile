@@ -92,6 +92,8 @@ import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
+import '../features/salon/presentation/salon_management_profile_screen.dart';
+import '../features/salon/presentation/salon_settings_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -203,6 +205,49 @@ GoRouter appRouter(Ref ref) {
     final session = ref.read(authProvider).value;
     if (session is Authenticated && session.user.role != UserRole.client) {
       return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 21.2 — per-route SALON_OWNER/SALON_ADMIN gate for the owner/admin
+  // salon management surfaces (`/salons/:salonId/manage`,
+  // `/salons/:salonId/manage/settings`). These sit under the SAME literal
+  // `/salons/:salonId` segment [clientOnlyGuard] gates immediately above (the
+  // CLIENT-facing public profile), not the `/salon/*` (singular) prefix
+  // `auth_redirect.dart` gates for the Phase 250 staff-booking surfaces — so
+  // neither existing gate covers this path and it needs its own, mirroring
+  // [clientOnlyGuard]'s exact shape but for the inverse role set. An
+  // unauthenticated visitor is left to the global [authRedirect] (→ /login).
+  //
+  // mobile-security MEDIUM follow-up (2026-08-27): role-only was not
+  // ownership-bound — a SALON_ADMIN could open ANY salon's `:salonId`, not
+  // just their own (not a privilege-escalation: only public salon data
+  // renders here, and PATCH/DELETE are backend-gated — but a real UX/exposure
+  // gap). `User.salonId` (from `UserProfileResponse.salonId`, mapped in
+  // `UserMapper.fromProfileDto`) now lets SALON_ADMIN be checked for an EXACT
+  // match against the route's `:salonId`.
+  //
+  // SALON_OWNER is deliberately NOT tightened the same way: an owner can own
+  // MANY salons, so a single session-wide `salonId` cannot authorize them.
+  // The authoritative list is `GET /salons/mine`, which belongs to Phase 21.1
+  // (NOT BUILT) — and `redirect:` callbacks are synchronous, so a network
+  // fetch cannot be added here anyway.
+  // TODO(phase-21.1): once `mySalonsProvider` (backed by `GET /salons/mine`)
+  // exists, bind the owner arm to it — redirect unless `state.pathParameters
+  // ['salonId']` is contained in the owner's own salon-id list, mirroring the
+  // admin arm below.
+  String? salonManageGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is! Authenticated) return null;
+    final UserRole role = session.user.role;
+    if (role != UserRole.salonOwner && role != UserRole.salonAdmin) {
+      return roleHomePath(role);
+    }
+    if (role == UserRole.salonAdmin) {
+      final String? routeSalonId = state.pathParameters['salonId'];
+      if (session.user.salonId != routeSalonId) {
+        return roleHomePath(role);
+      }
     }
     return null;
   }
@@ -637,6 +682,38 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) => PublicSalonProfileScreen(
           salonId: state.pathParameters['salonId'] ?? '',
         ),
+      ),
+      // Phase 21.2 — owner/admin editable salon profile + its settings page.
+      //
+      // Registered as STANDALONE top-level routes, NOT nested under
+      // `/salons/:salonId` above, even though the path literally extends it.
+      // go_router's redirect resolution walks the WHOLE match list and runs
+      // every ancestor route's own `redirect` (see `RouteConfiguration
+      // ._processRouteLevelRedirects` → `visitRouteMatches`), not just the
+      // leaf's — nesting here would mean `/salons/:salonId`'s own
+      // `clientOnlyGuard` ALSO ran on every `.../manage` navigation and
+      // bounced every owner/admin away before `salonManageGuard` below ever
+      // got a chance to run. Mirrors [RouteNames.salonStaffBookingNew]'s own
+      // "no shell to nest under" precedent, just for a different reason (a
+      // conflicting ANCESTOR guard, not a missing one).
+      // NOTE: the path below is a literal `:salonId` GoRouter placeholder,
+      // NOT built via `RouteNames.salonManage(...)` — that helper
+      // URL-encodes its argument (`Uri.encodeComponent`), which would mangle
+      // the literal colon into `%3A` and break route matching. Mirrors how
+      // `/salons/:salonId` immediately above is registered as a raw literal
+      // for the same reason.
+      GoRoute(
+        path: '/salons/:salonId/manage',
+        redirect: salonManageGuard,
+        builder: (context, state) => SalonManagementProfileScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/manage/settings',
+        redirect: salonManageGuard,
+        builder: (context, state) =>
+            SalonSettingsScreen(salonId: state.pathParameters['salonId'] ?? ''),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with

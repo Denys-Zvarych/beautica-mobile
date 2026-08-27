@@ -56,5 +56,6 @@ abstract final class UserMapper {
     street: dto.street,
     buildingNo: dto.buildingNo,
     locationNote: dto.locationNote,
+    salonId: dto.salonId,
   );
 }

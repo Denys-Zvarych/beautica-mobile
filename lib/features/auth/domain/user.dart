@@ -87,6 +87,16 @@ abstract class User with _$User {
 
     /// Optional location note (e.g. entrance / floor hints); null when unset.
     String? locationNote,
+
+    /// Backend UUID of the salon this user is staff of; null for roles that
+    /// are not salon staff (CLIENT, INDEPENDENT_MASTER) and for SALON_OWNER
+    /// (an owner can own MANY salons — see `UserProfileResponse.salonId`
+    /// backend doc — so a single session-wide id cannot represent ownership;
+    /// the authoritative list for an owner is `GET /salons/mine`, Phase
+    /// 21.1). Populated by GET /users/me for SALON_ADMIN — the mechanism by
+    /// which an admin is routed to their own salon (`salonManageGuard`,
+    /// `app_router.dart`).
+    String? salonId,
   }) = _User;
 
   factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);

@@ -60,11 +60,64 @@ abstract final class SalonMapper {
       street: dto.street,
       buildingNo: dto.buildingNo,
       locationNote: dto.locationNote,
+      // `PublicSalonResponse` carries no `phone` field — see [Salon.phone]'s
+      // doc comment for the full Phase 21.2 gap explanation. Explicit `null`
+      // (not a fallthrough) so the gap reads as a deliberate mapping
+      // decision, not an oversight.
+      phone: null,
       instagramUrl: dto.instagramUrl,
       avatarUrl: dto.avatarUrl,
       coverImageUrl: dto.coverImageUrl,
       avgRating: dto.avgRating?.toDouble(),
       reviewCount: dto.reviewCount ?? 0,
+    );
+  }
+
+  /// Maps a [SalonResponse] DTO (`PATCH /salons/{salonId}`'s owner/admin-
+  /// facing response) to the domain [Salon] model.
+  ///
+  /// Unlike [fromDto], [SalonResponse] carries `phone` (Phase 21.2 gap-fix —
+  /// see [Salon.phone]) but does NOT carry `coverImageUrl`, `avgRating`, or
+  /// `reviewCount` (those are public-read-only aggregates). This method maps
+  /// every field [SalonResponse] DOES carry and leaves the three it doesn't
+  /// as `null`/`0` — callers (`SalonManagementProfile.save`) MUST merge those
+  /// three back in from the previously-loaded [Salon] via `copyWith` rather
+  /// than rendering this result directly, or the hero card's rating/review
+  /// count/cover photo would incorrectly reset after every save.
+  ///
+  /// Throws [ServerFailure] (statusCode `null`) when [dto.id] is absent,
+  /// mirroring [fromDto].
+  static Salon fromUpdateDto(SalonResponse dto) {
+    final id = dto.id;
+    if (id == null || id.isEmpty) {
+      log(
+        'SalonResponse.id is null — broken backend contract',
+        name: 'feature.salon.mapper',
+        level: 1000,
+      );
+      throw const ServerFailure(statusCode: null);
+    }
+
+    return Salon(
+      id: id,
+      name: dto.name ?? '',
+      description: dto.description,
+      city: dto.city,
+      region: dto.region,
+      address: dto.address,
+      cityId: dto.cityId,
+      districtId: dto.districtId,
+      street: dto.street,
+      buildingNo: dto.buildingNo,
+      locationNote: dto.locationNote,
+      phone: dto.phone,
+      instagramUrl: dto.instagramUrl,
+      avatarUrl: dto.avatarUrl,
+      // Deliberately NOT carried by SalonResponse — see method doc. Callers
+      // must copyWith these back in from the previous [Salon].
+      coverImageUrl: null,
+      avgRating: null,
+      reviewCount: 0,
     );
   }
 }

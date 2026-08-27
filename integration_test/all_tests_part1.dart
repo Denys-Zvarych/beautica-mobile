@@ -79,6 +79,7 @@ import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -226,4 +227,8 @@ void main() {
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('logout_flow', logout.main);
+  // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
+  // profile: real login → salonManageGuard admits a real session → PATCH
+  // dirty-diff proven on the real wire body (mandate 3) → DELETE.
+  group('salon_management_profile_flow', salon_management_profile.main);
 }

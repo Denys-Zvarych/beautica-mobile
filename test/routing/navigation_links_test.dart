@@ -299,6 +299,11 @@ void main() {
       'masterPublicProfile()': RouteNames.masterPublicProfile(kSampleId),
       'masterPublicReviews()': RouteNames.masterPublicReviews(kSampleId),
       'salonPublicProfile()': RouteNames.salonPublicProfile(kSampleId),
+      // Phase 21.2 — owner/admin editable salon profile + its settings page.
+      // Registered as STANDALONE top-level routes (see `app_router.dart`'s
+      // own comment on why they cannot nest under `/salons/:salonId`).
+      'salonManage()': RouteNames.salonManage(kSampleId),
+      'salonManageSettings()': RouteNames.salonManageSettings(kSampleId),
       'bookingNew': RouteNames.bookingNew,
       'bookingSlots': RouteNames.bookingSlots,
       'bookingSlotsTime': RouteNames.bookingSlotsTime,

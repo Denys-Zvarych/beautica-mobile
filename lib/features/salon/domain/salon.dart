@@ -50,6 +50,25 @@ abstract class Salon with _$Salon {
 
     /// Apartment/floor/office note (e.g. "2 поверх, офіс 5").
     String? locationNote,
+
+    /// Salon contact phone number.
+    ///
+    /// Phase 21.2 gap: `GET /salons/{salonId}` returns `PublicSalonResponse`,
+    /// which carries NO `phone` field (confirmed against the committed
+    /// `tool/openapi/api-spec.json` snapshot — `PublicSalonResponse`'s
+    /// property list has no `phone`, unlike the owner/admin-facing
+    /// `SalonResponse` returned by `PATCH /salons/{salonId}`, which does).
+    /// So this is ALWAYS `null` when [Salon] is built from the public read
+    /// path ([SalonMapper.fromDto]) — never a real "salon has no phone on
+    /// file" signal. It is populated only after a successful
+    /// `PATCH /salons/{salonId}` ([SalonMapper.fromUpdateDto], merged in by
+    /// `SalonManagementProfile.save`). The owner/admin edit form seeds this
+    /// field as empty-but-editable rather than fabricating a placeholder, and
+    /// omits `phone` from the PATCH body entirely unless the viewer actually
+    /// typed into it — see `salon_management_profile_notifier.dart` — so an
+    /// untouched field can never silently overwrite a real phone number the
+    /// mobile client was never told about.
+    String? phone,
     String? instagramUrl,
     String? avatarUrl,
 

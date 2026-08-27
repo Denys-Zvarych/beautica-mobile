@@ -49,6 +49,7 @@
 // `integration_test/salon_service_filter_flow_test.dart`. Nothing here weakens
 // it: every assertion below is scoped to ENTRY, before any interaction.
 
+import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -233,6 +234,21 @@ class _CountingSalonRepository implements SalonRepository {
     bookableMastersServiceIds.add(serviceDefId);
     return const <BookableMasterAssignment>[];
   }
+
+  // Phase 21.2 — owner/admin write paths. This fake backs the CLIENT-facing
+  // read-only profile route under test here; neither is ever called.
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
+      throw UnimplementedError(
+        '_CountingSalonRepository.updateSalon is not stubbed — this fake '
+        'backs the CLIENT-facing read-only profile route.',
+      );
+
+  @override
+  Future<void> deleteSalon(String salonId) async => throw UnimplementedError(
+    '_CountingSalonRepository.deleteSalon is not stubbed — this fake backs '
+    'the CLIENT-facing read-only profile route.',
+  );
 }
 
 List<Object> _overrides(_CountingSalonRepository repo) => <Object>[

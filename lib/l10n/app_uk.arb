@@ -5206,6 +5206,54 @@
       "total": { "type": "int", "example": "3" }
     }
   },
+  "salonManageTabStaff": "Персонал",
+  "@salonManageTabStaff": {
+    "description": "Phase 21.2 — the owner/admin salon management profile's second tab label, replacing the client-facing 'Майстри' tab with a staff-management grid."
+  },
+  "salonManageSettingsSemanticLabel": "Налаштування салону",
+  "@salonManageSettingsSemanticLabel": {
+    "description": "Phase 21.2 — semantic label for the tune_rounded cover control on the owner/admin salon management profile, which opens the salon settings page."
+  },
+  "salonManageNameLabel": "Назва салону",
+  "@salonManageNameLabel": {
+    "description": "Phase 21.2 — field label above the salon name input in the owner/admin profile edit form."
+  },
+  "salonManageDescriptionLabel": "Опис",
+  "@salonManageDescriptionLabel": {
+    "description": "Phase 21.2 — field label above the salon description input in the owner/admin profile edit form."
+  },
+  "salonManageNameTooLong": "Максимум 255 символів",
+  "@salonManageNameTooLong": {
+    "description": "mobile-security LOW follow-up, 2026-08-27 — error shown under the salon name field when it exceeds UpdateSalonRequest's backend cap (Size max = 255)."
+  },
+  "salonManageStaffEmpty": "У цього салону ще немає майстрів.",
+  "@salonManageStaffEmpty": {
+    "description": "Phase 21.2 — empty-state message shown above the staff grid's invite tile when the salon has no masters yet."
+  },
+  "salonManageAddStaffLabel": "Запросити в команду",
+  "@salonManageAddStaffLabel": {
+    "description": "Phase 21.2 — label/semantics for the trailing 'invite staff' tile in the owner/admin salon management profile's Персонал grid."
+  },
+  "salonSettingsEditProfile": "Редагувати профіль",
+  "@salonSettingsEditProfile": {
+    "description": "Phase 21.2 — the salon settings page's navigational row that pops back to the management profile with edit mode toggled on."
+  },
+  "deleteSalonAction": "Видалити салон",
+  "@deleteSalonAction": {
+    "description": "Phase 21.2 — the salon settings page's owner-only destructive row label."
+  },
+  "deleteSalonTitle": "Видалити салон?",
+  "@deleteSalonTitle": {
+    "description": "Phase 21.2 — title of the salon delete confirmation dialog."
+  },
+  "deleteSalonBody": "Салон буде деактивовано. Клієнти більше не зможуть його знайти.",
+  "@deleteSalonBody": {
+    "description": "Phase 21.2 — body of the salon delete confirmation dialog. DELETE /salons/{salonId} is a soft-deactivate server-side."
+  },
+  "deleteSalonSuccess": "Салон видалено",
+  "@deleteSalonSuccess": {
+    "description": "Phase 21.2 — success snackbar shown after DELETE /salons/{salonId} succeeds."
+  },
   "professionalTitleLabel": "Професійне звання",
   "@professionalTitleLabel": {
     "description": "Field label above the professional title input on the master edit screen."
