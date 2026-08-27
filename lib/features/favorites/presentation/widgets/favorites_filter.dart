@@ -52,17 +52,18 @@
 // ANYWHERE in the item's list, not whether it equals a single scalar.
 //
 // ONE CONSEQUENCE, FLAGGED RATHER THAN ABSORBED: the chips carry no per-
-// category glyph, because a server-owned category has no icon field and this
-// app has no shared `categoryIconFor`. It has TWO private, already-drifted
-// ones — `booking_card.dart`'s exact-match switch and
-// `beauty_timeline_section.dart`'s substring matcher, which disagree on «Вії»
-// and on their fallback — so writing a third would fork the glyph vocabulary a
-// third time, and unifying them changes what two SHIPPED screens render (a
-// visual diff needing its own review, not a move). The collapsed pill keeps a
-// single generic `tune_rounded` glyph so the control still reads as a filter
-// at rest; the chips are label-only, and selection is carried by depth
-// polarity and colour exactly as the preview specified. Re-adding per-category
-// glyphs is a follow-up gated on a reconciled shared icon helper.
+// category glyph, because a server-owned category has no icon field. A
+// shared `categoryIconFor` now exists (`core/icons/category_icons.dart`) —
+// `beauty_timeline_section.dart` was its FIRST caller (since this rollout's
+// first commit) and `booking_card.dart` and `search_filters_screen.dart`
+// have since migrated onto it too. THIS FILE is the one remaining
+// unmigrated caller: wiring it onto the shared resolver changes what a
+// SHIPPED screen renders (a visual diff needing its own review, not a
+// drive-by move). The collapsed pill keeps a single generic `tune_rounded`
+// glyph so the control still reads as a filter at rest; the chips are
+// label-only, and selection is carried by depth polarity and colour exactly
+// as the preview specified. Re-adding per-category glyphs is a follow-up
+// gated on migrating THIS file onto the shared resolver.
 //
 // ── WHAT MAKES THE CONTROL RENDER NOTHING ───────────────────────────────────
 //

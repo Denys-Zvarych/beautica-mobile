@@ -88,6 +88,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -296,7 +298,10 @@ class _BookingCardState extends State<BookingCard> {
         //    carries the middle of the card on its own.
         _ServiceLine(
           bookingId: _b.id,
-          icon: _categoryIconFor(_b.categoryName),
+          iconAsset: categoryIconOrNullFor(
+            categoryKey: _b.categoryKey,
+            categoryName: _b.categoryName,
+          ),
           text: _b.serviceName,
           price: _b.showsPrice ? _b.priceLabel : null,
           dimmed: _isDead,
@@ -400,18 +405,6 @@ class _BookingCardState extends State<BookingCard> {
     );
   }
 }
-
-/// Maps a booking's category name to its glyph. A private, card-local switch
-/// (mirrors the approved preview) — there is no shared `categoryIconFor`
-/// utility yet (tracked for the discovery feature).
-IconData _categoryIconFor(String? category) => switch (category) {
-  'Манікюр' || 'Нігті' => Icons.front_hand_rounded,
-  'Волосся' => Icons.content_cut_rounded,
-  'Брови' || 'Вії' => Icons.remove_red_eye_rounded,
-  'Масаж' => Icons.spa_rounded,
-  'Косметологія' => Icons.face_retouching_natural_rounded,
-  _ => Icons.auto_awesome_rounded,
-};
 
 /// The two full-height chrome marks, painted behind the content.
 ///
@@ -692,14 +685,19 @@ class _MasterPhoto extends StatelessWidget {
 class _ServiceLine extends StatelessWidget {
   const _ServiceLine({
     required this.bookingId,
-    required this.icon,
+    required this.iconAsset,
     required this.text,
     required this.price,
     required this.dimmed,
   });
 
   final String bookingId;
-  final IconData icon;
+
+  /// SVG asset path from [BeauticaAssetIcons], resolved by
+  /// `categoryIconOrNullFor` — see [BookingCard._body]. `null` means the
+  /// booking's category could not be resolved (no key AND no name); the
+  /// slot still reserves [_iconSize] so the row doesn't reflow.
+  final String? iconAsset;
   final String text;
 
   /// The already-formatted price locked in at booking — «650 ₴» or the band
@@ -709,6 +707,20 @@ class _ServiceLine extends StatelessWidget {
   final String? price;
   final bool dimmed;
 
+  /// Matches the 14 dp the old Material glyph rendered at. The 20 dp size
+  /// seven other list-row surfaces settled on (`service_category_cards.dart`,
+  /// `service_category_list.dart`, `salon_services_accordion.dart`, …) does
+  /// NOT fit here without growing the card: this row's height is set by
+  /// whichever child is taller, icon-column vs. the (up to 2-line) service
+  /// text, and a single-line service name is common enough that a 20+1=21dp
+  /// icon column would win over the 13.75dp one-line text height, adding
+  /// ~6dp to every single-line card — a visible height regression on a
+  /// shipped list. At 14dp the icon column (15dp incl. the 1dp top padding)
+  /// already exceeded the old Material glyph's own footprint, so keeping it
+  /// at 14 is a pure glyph-source swap with NO height change, measured via
+  /// `tester.getSize` in `booking_card_svg_icon_test.dart`.
+  static const double _iconSize = 14;
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -716,10 +728,16 @@ class _ServiceLine extends StatelessWidget {
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.only(top: 1),
-          child: Icon(
-            icon,
-            size: 14,
-            color: dimmed ? BrandColors.faint : BrandColors.accent,
+          child: SizedBox(
+            width: _iconSize,
+            height: _iconSize,
+            child: iconAsset == null
+                ? null
+                : AppIcon(
+                    iconAsset!,
+                    size: _iconSize,
+                    color: dimmed ? BrandColors.faint : BrandColors.accent,
+                  ),
           ),
         ),
         const SizedBox(width: VelvetSpacing.xs),

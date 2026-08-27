@@ -40,7 +40,7 @@ part 'booking_detail_response.g.dart';
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote] - The provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\", \"вхід з двору, дзвонити двічі\"). Resolved by the identical salon-vs-independent rule as street/buildingNo, against the salon THIS BOOKING was made at (bookings.salon_id): a salon booking surfaces that salon's own note — never the master's current salon's, should the master have moved since — and an independent-master booking surfaces the master's own note. Nullable — most providers never set one.
-/// * [categoryName]
+/// * [categoryName] - The RAW category slug (e.g. \"NAIL_SERVICE\"), sourced directly from service_definitions.category — NOT a human-readable display name, despite the field name. The Ukrainian display text lives in platform_categories.display_name, which no booking read path joins. Kept for backward compatibility with existing consumers; do not rename or repoint it to the display name without a coordinated client migration — that would silently change every current consumer's rendered value. New code that needs a stable machine key for icon/category resolution should prefer categoryKey below.
 /// * [canReview]
 /// * [providerCanReviewClient] - TRUE only for the CURRENT authenticated viewer, and only on GET /bookings/{id}: the viewer has provider review-authority over this booking, the booking is COMPLETED (strictly — unlike the client-side canReview flag, an elapsed-but-unclosed CONFIRMED booking does NOT qualify here; see BookingClosureRule#isProviderReviewEligible), it has a real (non-guest) client, and no ClientReview exists for it yet. FALSE for a CLIENT/SALON_MASTER viewer, an unauthorized provider, or any row of the CLIENT listing path of GET /bookings/me (which hardcodes false). The PROVIDER rows of GET /bookings/me carry the real per-row value — see BookingDetailResponse's class javadoc. Gates the \"Залишити відгук про клієнта\" CTA; the write endpoint (POST /client-reviews) re-checks the same conditions server-side regardless of this value.
 /// * [appointmentId] - The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). Strictly additive; when non-null the client can fetch the full visit via GET /appointments/{appointmentId}. Both mapper paths (entity + CLIENT projection) read the SAME appointment_id column, so they never diverge.
@@ -49,6 +49,7 @@ part 'booking_detail_response.g.dart';
 /// * [masterAvgRating] - The master's public average rating, 1.00-5.00, read off the denormalized masters.avg_rating column — the SAME value served by GET /masters/{id} and GET /masters/{id}/reviews/summary, never independently re-aggregated. Agreement across those three endpoints is exact, not eventual: GET /masters/{id} is served from the 5-minute 'master-detail' cache, and ReviewEventListener#onReviewCreated evicts that entry by masterId once the rating recalculation commits, so a client that leaves a review sees the new average on the booking AND on the profile on the very next request. NULL when masterReviewCount is 0: the column stores 0.00 for an unreviewed master (V4 NOT NULL DEFAULT 0.00, and recalculateMasterRating's COALESCE(AVG(...), 0)), which is a storage artefact, not a rating — rendering it would show a brand-new master a damning zero stars. Render the 'no reviews yet' state when null; never substitute 0.
 /// * [masterReviewCount] - How many reviews the master's average is computed from. 0 for an unreviewed master (a true fact, unlike a 0.00 average) and non-null on every path that serves this DTO today; typed nullable so a client treats an absent value as 'unknown' rather than 'zero reviews'.
 /// * [salonId] - The salon this booking was made AT, as snapshotted on the booking row (bookings.salon_id). NULL for an INDEPENDENT_MASTER booking. Exists so a client can invalidate its own salon-scoped caches after leaving a review: ReviewService#createReview stamps the review with booking.getSalon() and ReviewEventListener recalculates THAT salon's avg_rating/review_count, so this is the id whose aggregates moved. As of phase 242 salonName and the street/buildingNo/locationNote/cityLabel/districtLabel block are resolved from this SAME booking snapshot, so salonId != null and salonName != null are one predicate and the id always identifies the premises whose address is displayed alongside it. (Before 242 the address block came from the master's LIVE salon and the two could disagree after a rotation — that divergence is gone.)
+/// * [categoryKey] - Stable machine key for the client-side category-icon resolver — the uppercase slug of the service's category (e.g. \"NAIL_SERVICE\"), or null when the service has no category. Mirrors ClientAggregationRepository#findTimeline's categoryKey/categoryName pair (Beauty Timeline). Prefer this over categoryName for icon resolution — categoryName is for display only. Never a fallback/placeholder value: a null here must render no icon, not a guessed one.
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -144,6 +145,7 @@ abstract class BookingDetailResponse
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
 
+  /// The RAW category slug (e.g. \"NAIL_SERVICE\"), sourced directly from service_definitions.category — NOT a human-readable display name, despite the field name. The Ukrainian display text lives in platform_categories.display_name, which no booking read path joins. Kept for backward compatibility with existing consumers; do not rename or repoint it to the display name without a coordinated client migration — that would silently change every current consumer's rendered value. New code that needs a stable machine key for icon/category resolution should prefer categoryKey below.
   @BuiltValueField(wireName: r'categoryName')
   String? get categoryName;
 
@@ -177,6 +179,10 @@ abstract class BookingDetailResponse
   /// The salon this booking was made AT, as snapshotted on the booking row (bookings.salon_id). NULL for an INDEPENDENT_MASTER booking. Exists so a client can invalidate its own salon-scoped caches after leaving a review: ReviewService#createReview stamps the review with booking.getSalon() and ReviewEventListener recalculates THAT salon's avg_rating/review_count, so this is the id whose aggregates moved. As of phase 242 salonName and the street/buildingNo/locationNote/cityLabel/districtLabel block are resolved from this SAME booking snapshot, so salonId != null and salonName != null are one predicate and the id always identifies the premises whose address is displayed alongside it. (Before 242 the address block came from the master's LIVE salon and the two could disagree after a rotation — that divergence is gone.)
   @BuiltValueField(wireName: r'salonId')
   String? get salonId;
+
+  /// Stable machine key for the client-side category-icon resolver — the uppercase slug of the service's category (e.g. \"NAIL_SERVICE\"), or null when the service has no category. Mirrors ClientAggregationRepository#findTimeline's categoryKey/categoryName pair (Beauty Timeline). Prefer this over categoryName for icon resolution — categoryName is for display only. Never a fallback/placeholder value: a null here must render no icon, not a guessed one.
+  @BuiltValueField(wireName: r'categoryKey')
+  String? get categoryKey;
 
   BookingDetailResponse._();
 
@@ -407,7 +413,7 @@ class _$BookingDetailResponseSerializer
       yield r'categoryName';
       yield serializers.serialize(
         object.categoryName,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.canReview != null) {
@@ -463,6 +469,13 @@ class _$BookingDetailResponseSerializer
       yield r'salonId';
       yield serializers.serialize(
         object.salonId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.categoryKey != null) {
+      yield r'categoryKey';
+      yield serializers.serialize(
+        object.categoryKey,
         specifiedType: const FullType.nullable(String),
       );
     }
@@ -696,8 +709,9 @@ class _$BookingDetailResponseSerializer
         case r'categoryName':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.categoryName = valueDes;
           break;
         case r'canReview':
@@ -760,6 +774,14 @@ class _$BookingDetailResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.salonId = valueDes;
+          break;
+        case r'categoryKey':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.categoryKey = valueDes;
           break;
         default:
           unhandled.add(key);

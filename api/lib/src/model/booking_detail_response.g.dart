@@ -250,6 +250,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final int? masterReviewCount;
   @override
   final String? salonId;
+  @override
+  final String? categoryKey;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -292,7 +294,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.awaitingClosure,
       this.masterAvgRating,
       this.masterReviewCount,
-      this.salonId})
+      this.salonId,
+      this.categoryKey})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -343,7 +346,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         awaitingClosure == other.awaitingClosure &&
         masterAvgRating == other.masterAvgRating &&
         masterReviewCount == other.masterReviewCount &&
-        salonId == other.salonId;
+        salonId == other.salonId &&
+        categoryKey == other.categoryKey;
   }
 
   @override
@@ -386,6 +390,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, masterAvgRating.hashCode);
     _$hash = $jc(_$hash, masterReviewCount.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
+    _$hash = $jc(_$hash, categoryKey.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -429,7 +434,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('awaitingClosure', awaitingClosure)
           ..add('masterAvgRating', masterAvgRating)
           ..add('masterReviewCount', masterReviewCount)
-          ..add('salonId', salonId))
+          ..add('salonId', salonId)
+          ..add('categoryKey', categoryKey))
         .toString();
   }
 }
@@ -608,6 +614,10 @@ class BookingDetailResponseBuilder
   String? get salonId => _$this._salonId;
   set salonId(String? salonId) => _$this._salonId = salonId;
 
+  String? _categoryKey;
+  String? get categoryKey => _$this._categoryKey;
+  set categoryKey(String? categoryKey) => _$this._categoryKey = categoryKey;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -652,6 +662,7 @@ class BookingDetailResponseBuilder
       _masterAvgRating = $v.masterAvgRating;
       _masterReviewCount = $v.masterReviewCount;
       _salonId = $v.salonId;
+      _categoryKey = $v.categoryKey;
       _$v = null;
     }
     return this;
@@ -710,6 +721,7 @@ class BookingDetailResponseBuilder
           masterAvgRating: masterAvgRating,
           masterReviewCount: masterReviewCount,
           salonId: salonId,
+          categoryKey: categoryKey,
         );
     replace(_$result);
     return _$result;

@@ -102,7 +102,7 @@ Booking _b({
     salonName: null,
     serviceId: 's-$id',
     serviceName: serviceName,
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     districtLabel: null,
     street: null,

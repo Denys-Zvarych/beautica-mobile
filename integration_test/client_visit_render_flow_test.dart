@@ -22,6 +22,14 @@
 //   2. `GET /bookings/me` returns TWO per-service rows sharing an
 //      appointmentId + one legacy standalone row → the list renders THREE
 //      ordinary `BookingCard`s — no grouping, no visit chrome.
+//   2.5. Each card's category icon resolves from the REAL `categoryKey`
+//      that traveled over that same round trip — the shared
+//      `categoryIconOrNullFor` resolver (`core/icons/category_icons.dart`),
+//      never the deleted private Ukrainian-literal switch. Also proves the
+//      genuinely-uncategorised row renders NO icon (mobile-qa gap-closure,
+//      2026-08-27 — Step 2.7 Rule 3b: this real-user-flow surface needed
+//      its own extended coverage, not only the widget-tier fixture in
+//      `booking_card_svg_icon_test.dart`).
 //   3. Tapping ONE visit leg opens ITS OWN single-booking detail
 //      (`GET /bookings/{id}`), never `VisitDetailScreen`.
 //   4. Cancelling that leg calls the PER-BOOKING
@@ -53,6 +61,8 @@
 // KEY POLICY (AppHarness): all TAPS are key-/type-based; Ukrainian text appears
 // in CONTENT ASSERTIONS only.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -125,6 +135,14 @@ Map<String, dynamic> _row({
   required DateTime startsAt,
   int minutes = 60,
   String status = 'CONFIRMED',
+  // Real wire shape (mobile-qa gap-closure, 2026-08-27): `categoryKey` is
+  // the backend's stable UPPER_SNAKE slug (`BookingDetailResponse.
+  // categoryKey`, threaded via `booking_mapper.dart:150`), `categoryName`
+  // is its documented Ukrainian-keyword fallback — see
+  // `core/icons/category_icons.dart`'s file header. Both default to null
+  // (the genuinely-uncategorised row `legacy-1` below exercises that).
+  String? categoryKey,
+  String? categoryName,
 }) => <String, dynamic>{
   'id': id,
   'masterId': 'master-aaa',
@@ -135,7 +153,8 @@ Map<String, dynamic> _row({
   'salonName': null,
   'masterServiceId': 'ms-$id',
   'serviceName': serviceName,
-  'categoryName': 'Манікюр',
+  'categoryKey': categoryKey,
+  'categoryName': categoryName,
   'cityLabel': 'Київ',
   'districtLabel': 'Печерський',
   'street': 'вул. Хрещатик',
@@ -196,6 +215,7 @@ void main() {
         serviceName: 'Манікюр з покриттям',
         startsAt: visitStart,
         minutes: 90,
+        categoryKey: 'NAIL_SERVICE',
       ),
       _row(
         id: 'booking-2',
@@ -203,7 +223,12 @@ void main() {
         serviceName: 'Педикюр апаратний',
         startsAt: visitStart.add(const Duration(minutes: 90)),
         minutes: 60,
+        categoryKey: 'PODOLOGY',
       ),
+      // Genuinely uncategorised — neither field on the wire. Proves the
+      // real Dio round trip renders NO icon rather than the cosmetology
+      // fallback (`categoryIconOrNullFor`'s null-gate), not just the
+      // widget-tier fixture in `booking_card_svg_icon_test.dart`.
       _row(id: 'legacy-1', serviceName: 'Стрижка', startsAt: legacyStart),
     ]);
 
@@ -228,6 +253,41 @@ void main() {
     expect(find.byKey(const ValueKey<String>('booking-1')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('booking-2')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('legacy-1')), findsOneWidget);
+
+    // ── Each card's category icon resolves from the REAL fetched
+    //    `categoryKey`, over the genuine `GET /bookings/me` round trip —
+    //    not a widget-tier fixture (mobile-qa gap-closure, 2026-08-27; the
+    //    bug this whole rollout fixed was silently invisible at exactly
+    //    this boundary: the wire carries a slug, the card's OLD private
+    //    mapper matched Ukrainian text, and every card fell through to one
+    //    default glyph). Scoped to each card's own key — `find.byType`
+    //    alone also catches the home-hub bell/nav `AppIcon`s still mounted
+    //    offstage in the shell.
+    final AppIcon nailIcon = tester.widget<AppIcon>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('booking-1')),
+        matching: find.byType(AppIcon),
+      ),
+    );
+    expect(nailIcon.asset, BeauticaAssetIcons.categoryNailService);
+    final AppIcon podologyIcon = tester.widget<AppIcon>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('booking-2')),
+        matching: find.byType(AppIcon),
+      ),
+    );
+    expect(podologyIcon.asset, BeauticaAssetIcons.categoryPodology);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('legacy-1')),
+        matching: find.byType(AppIcon),
+      ),
+      findsNothing,
+      reason:
+          'the uncategorised legacy row must render NO icon, never the '
+          'cosmetology fallback a regression to the never-null '
+          'categoryIconFor at this call site would produce',
+    );
 
     // ── Open ONE leg's OWN detail (GET /bookings/booking-1). ───────────────
     await tester.tap(find.byKey(const ValueKey<String>('booking-1')));

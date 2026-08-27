@@ -39,7 +39,7 @@ Map<String, dynamic> _rowJson({
   'masterType': 'INDEPENDENT_MASTER',
   'masterServiceId': 'pub-assign-1',
   'serviceName': 'Манікюр з покриттям',
-  'categoryName': 'Манікюр',
+  'categoryName': 'NAIL_SERVICE',
   'durationMinutesAtBooking': 90,
   'priceAtBooking': 500,
   'priceMaxAtBooking': null,

@@ -159,7 +159,7 @@ Booking _booking({required String? salonId}) {
     salonId: salonId,
     serviceId: 's1',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Київ',
     durationMinutes: 90,
     price: 650,

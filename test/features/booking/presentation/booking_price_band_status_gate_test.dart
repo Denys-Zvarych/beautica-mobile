@@ -80,7 +80,7 @@ Booking _banded(BookingStatus status, {String id = 'band-1'}) {
     clientLastName: 'Коваль',
     serviceId: 's1',
     serviceName: 'Манікюр з покриттям',
-    categoryName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
     districtLabel: null,
     street: 'вул. Городоцька',

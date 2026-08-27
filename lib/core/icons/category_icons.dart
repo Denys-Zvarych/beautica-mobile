@@ -5,7 +5,7 @@
 // Before this change there were TWO drifted private category-icon mappers —
 // `beauty_timeline_section.dart`'s `_categoryIcon`/`_categoryIconFromName`
 // (substring matcher over Material `IconData`) and
-// `booking_card.dart:407`'s `_categoryIconFor` (exact-match `switch` over
+// `booking_card.dart`'s `_categoryIconFor` (exact-match `switch` over
 // Material `IconData`) — plus `favorites_filter.dart` explicitly declining to
 // add a third because no shared helper existed. The two existing mappers
 // disagree with each other on «Вії» (lash) and on their fallback glyph. See
@@ -17,18 +17,20 @@
 // icons registered on [BeauticaAssetIcons]. Its first caller was the BEAUTY
 // TIMELINE rail (`lib/features/home/presentation/widgets/beauty_timeline_section.dart`);
 // a second caller was added when the CLIENT SEARCH category rail migrated
-// onto it (`lib/features/discovery/presentation/search_filters_screen.dart:953`).
+// onto it (`lib/features/discovery/presentation/search_filters_screen.dart:953`);
+// `booking_card.dart` migrated onto [categoryIconOrNullFor] (the nullable
+// wrapper below) as a third caller, retiring its own `_categoryIconFor`
+// switch entirely.
 //
-// ── SCOPE — DO NOT MIGRATE THE OTHER TWO MAPPERS HERE ──────────────────────
+// ── SCOPE — DO NOT MIGRATE THE REMAINING MAPPER HERE ────────────────────────
 //
-// `booking_card.dart:407` (`_categoryIconFor`) and
-// `favorites_filter.dart:56` (the collapsed-pill glyph) are DELIBERATELY left
-// untouched by this change. Migrating them changes what two SHIPPED screens
-// render — a visual diff that needs its own review, not a drive-by rename.
-// The NEXT author who touches either of those two files should MIGRATE them
-// onto this resolver rather than editing their private mapper or forking a
-// third/fourth one. That is the whole point of promoting this file now
-// instead of waiting for a third caller to justify it.
+// `favorites_filter.dart:56` (the collapsed-pill glyph) is DELIBERATELY left
+// untouched by this change. Migrating it changes what a SHIPPED screen
+// renders — a visual diff that needs its own review, not a drive-by rename.
+// The NEXT author who touches that file should MIGRATE it onto this resolver
+// rather than editing its private mapper or forking another one. That is the
+// whole point of promoting this file now instead of waiting for a third
+// caller to justify it.
 //
 // ── CONTRACT ─────────────────────────────────────────────────────────────
 //

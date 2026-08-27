@@ -287,6 +287,16 @@ class _TimelineNode extends StatelessWidget {
     final bool isTappable =
         onOpen != null && bookingId != null && bookingId.isNotEmpty;
 
+    // `"UNKNOWN"` is the timeline endpoint's literal no-category sentinel
+    // (see `timeline_mapper.dart`'s drop-policy header) — normalised to
+    // null here, before it reaches the shared resolver. See the `child:`
+    // doc comment below for why this lives at the call site rather than in
+    // `categoryIconOrNullFor` itself.
+    final String? iconAsset = categoryIconOrNullFor(
+      categoryKey: _undoUnknownSentinel(entry.categoryKey),
+      categoryName: _undoUnknownSentinel(entry.category),
+    );
+
     final Widget content = Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -324,22 +334,37 @@ class _TimelineNode extends StatelessWidget {
               width: 1.4,
             ),
           ),
-          child: AppIcon(
-            // Phase 110 Part 2: real SVG via the shared categoryIconFor
-            // resolver, replacing the retired Material-icon private mapper.
-            categoryIconFor(
-              categoryKey: entry.categoryKey,
-              categoryName: entry.category,
-            ),
-            // 39dp = 48 × 52/64 — preserves the user-approved 0.75
-            // icon-to-medallion ratio (48dp inside the earlier 64dp
-            // medallion, "a little bit smaller" per that review) at the
-            // medallion's new 52dp size, rather than re-deriving a
-            // different proportion. Flat translucent fill needs the dark
-            // tint back, matching the medallion's pre-disc-match material.
-            size: 39,
-            color: BrandColors.accentDeep,
-          ),
+          // mobile-qa gap-closure (2026-08-27): was `categoryIconFor` (the
+          // never-null variant), which silently painted the cosmetology
+          // glyph on genuinely-uncategorised entries. Switched to
+          // [categoryIconOrNullFor] + a null-safe child so an uncategorised
+          // entry renders NO icon instead of a wrong one. The `"UNKNOWN"`
+          // sentinel is normalised to null HERE, at the call site — not
+          // inside `categoryIconOrNullFor` itself — because `"UNKNOWN"` is
+          // this one endpoint's (`GET /clients/me/timeline`, see
+          // `timeline_mapper.dart`'s drop-policy header) convention for
+          // "no category", not a general resolver concept; the resolver is
+          // shared by `search_filters_screen.dart`, `booking_card.dart`, and
+          // the service-category pickers, none of which speak this sentinel,
+          // and teaching it to all of them would be scope creep the next
+          // caller has to reason about for no benefit. `entry.category` (the
+          // caption text) is deliberately left untouched — it still renders
+          // whatever the backend sent; only icon RESOLUTION treats
+          // `"UNKNOWN"` as absent.
+          child: iconAsset == null
+              ? null
+              : AppIcon(
+                  iconAsset,
+                  // 39dp = 48 × 52/64 — preserves the user-approved 0.75
+                  // icon-to-medallion ratio (48dp inside the earlier 64dp
+                  // medallion, "a little bit smaller" per that review) at
+                  // the medallion's new 52dp size, rather than re-deriving a
+                  // different proportion. Flat translucent fill needs the
+                  // dark tint back, matching the medallion's
+                  // pre-disc-match material.
+                  size: 39,
+                  color: BrandColors.accentDeep,
+                ),
         ),
         const SizedBox(height: VelvetSpacing.sm - 2),
         Text(
@@ -373,6 +398,16 @@ class _TimelineNode extends StatelessWidget {
 // glyphs now come from the shared `categoryIconFor` resolver
 // (`lib/core/icons/category_icons.dart`), called directly above in
 // [_TimelineNode.build]. See that file's header for the resolver contract.
+
+/// Maps the timeline endpoint's literal `"UNKNOWN"` no-category sentinel to
+/// null so it reaches [categoryIconOrNullFor] as "absent" instead of an
+/// unrecognised string that would otherwise fall through to the cosmetology
+/// fallback. Endpoint-specific by design — see the call site's doc comment
+/// for why this does NOT live inside the shared resolver. Blank/whitespace
+/// input passes through unchanged; [categoryIconOrNullFor] already handles
+/// that case.
+String? _undoUnknownSentinel(String? value) =>
+    value == 'UNKNOWN' ? null : value;
 
 // ---------------------------------------------------------------------------
 // Dotted connector line between timeline medallions (ported verbatim)
