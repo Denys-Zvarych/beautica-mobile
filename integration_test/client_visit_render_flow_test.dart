@@ -90,8 +90,9 @@ class _SpyAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) => throw UnimplementedError();
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> completeAppointment(String id) => throw UnimplementedError();

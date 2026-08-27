@@ -175,8 +175,9 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   Future<Appointment> rescheduleAppointmentItem(
     String appointmentId,
     String bookingId,
-    DateTime newStartAt,
-  ) => throw UnimplementedError();
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> cancelAppointment(String id, {String? note}) =>

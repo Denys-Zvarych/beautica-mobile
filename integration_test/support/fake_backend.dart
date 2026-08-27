@@ -2617,6 +2617,40 @@ final class FakeBackend {
   int rescheduleBookingCalls = 0;
   String? lastRescheduleNewStartsAt;
 
+  /// The last `allowClientOverlap` wire value submitted on
+  /// `PATCH /bookings/{id}/reschedule`, decoded on EVERY call regardless of
+  /// [rescheduleClientOverlapConflict] — lets a flow prove the override
+  /// actually reaches the wire on the confirmed resubmit (booking-conflict
+  /// popup track), independent of which status this fake happened to answer.
+  bool? lastRescheduleAllowClientOverlap;
+
+  /// When `true`, `PATCH /bookings/{id}/reschedule` answers HTTP **409** with
+  /// the typed `CLIENT_BOOKING_CONFLICT` envelope
+  /// (`HttpBookingRepository._extractClientBookingConflict`'s exact shape)
+  /// instead of the default 200 success — simulating the CLIENT already
+  /// having a different overlapping booking. Off by default so every other
+  /// reschedule flow keeps its clean 200.
+  ///
+  /// RE-WIRES ON WRITE — see [createRejectDuplicate]'s doc for why a status
+  /// change requires re-registering the route rather than just flipping a
+  /// field `replyCallback` would read too late (status is captured at
+  /// registration time, never per-request).
+  ///
+  /// A real backend re-evaluates the conflict per REQUEST based on whether
+  /// `allowClientOverlap` was set — this fake cannot do that within one
+  /// registration (see [_wireRescheduleBooking]'s doc), so a flow driving the
+  /// "confirm the popup, resubmit succeeds" journey must flip this back to
+  /// `false` itself between the rejected attempt and the resubmit, exactly as
+  /// it would flip [createRejectDuplicate]. [lastRescheduleAllowClientOverlap]
+  /// still proves what the RESUBMIT actually sent, independent of that timing.
+  bool get rescheduleClientOverlapConflict => _rescheduleClientOverlapConflict;
+  set rescheduleClientOverlapConflict(bool value) {
+    _rescheduleClientOverlapConflict = value;
+    _wireRescheduleBooking();
+  }
+
+  bool _rescheduleClientOverlapConflict = false;
+
   /// Track 27.x/MO-6 — the seeded booking's `appointmentId`, `null` by
   /// default (a plain single-service booking). A flow proving the
   /// appointment-child provider-write routing (`BookingDetailScreen`'s
@@ -3478,6 +3512,65 @@ final class FakeBackend {
             return _ok(newService);
           }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `PATCH /api/v1/bookings/booking-1/reschedule` — client
+  /// reschedule (track 24.x auto-confirm). Status is chosen by
+  /// [rescheduleClientOverlapConflict] (that field's doc explains why a
+  /// status-dependent route must be re-registered by a `_wireX` method
+  /// rather than inlined in [_wire] — see [_wireCreateService]'s doc for the
+  /// full `DioAdapter.onRoute` mechanics).
+  ///
+  ///   - `false` (default) — moves the seeded booking to the submitted
+  ///     `newStartsAt`, keeps it CONFIRMED (a reschedule never changes
+  ///     status), and returns the enriched `BookingDetailResponse` the
+  ///     repository maps back (unlike cancel, which is void). The 90-minute
+  ///     span is preserved so the moved booking's end tracks its new start.
+  ///   - `true` — answers HTTP 409 with the exact `CLIENT_BOOKING_CONFLICT`
+  ///     envelope `HttpBookingRepository._extractClientBookingConflict`
+  ///     decodes, simulating the CLIENT already holding a different
+  ///     overlapping booking.
+  ///
+  /// [lastRescheduleAllowClientOverlap] is decoded from the body on EVERY
+  /// call, both branches — see that field's doc for why.
+  void _wireRescheduleBooking() {
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/reschedule',
+      (server) => server.replyCallback(
+        _rescheduleClientOverlapConflict ? 409 : 200,
+        (req) {
+          rescheduleBookingCalls++;
+          final body = _decodeBody(req.data);
+          final String? newStartsAt = body['newStartsAt'] as String?;
+          lastRescheduleNewStartsAt = newStartsAt;
+          lastRescheduleAllowClientOverlap =
+              body['allowClientOverlap'] as bool?;
+          if (_rescheduleClientOverlapConflict) {
+            return <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{
+                'code': 'CLIENT_BOOKING_CONFLICT',
+                'conflictingBookingId': 'booking-existing',
+                'serviceName': 'Стрижка',
+                'masterName': 'Ірина Бондар',
+                'startsAt': bookingStartsAt,
+                'endsAt': bookingEndsAt,
+              },
+              'message': 'Client already has an overlapping booking',
+            };
+          }
+          if (newStartsAt != null) {
+            final DateTime start = DateTime.parse(newStartsAt).toUtc();
+            final DateTime end = start.add(const Duration(minutes: 90));
+            bookingStartsAt = start.toIso8601String();
+            bookingEndsAt = end.toIso8601String();
+          }
+          // A reschedule leaves the booking CONFIRMED — never touches status.
+          return _ok(_seededBookingJson());
+        },
+      ),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
   }
 
@@ -5260,30 +5353,7 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // PATCH /api/v1/bookings/booking-1/reschedule — client reschedule (track
-    // 24.x auto-confirm). Moves the seeded booking to the submitted
-    // `newStartsAt`, keeps it CONFIRMED (a reschedule never changes status),
-    // and returns the enriched `BookingDetailResponse` the repository maps back
-    // (unlike cancel, which is void). The 90-minute span is preserved so the
-    // moved booking's end tracks its new start.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1/reschedule',
-      (server) => server.replyCallback(200, (req) {
-        rescheduleBookingCalls++;
-        final body = _decodeBody(req.data);
-        final String? newStartsAt = body['newStartsAt'] as String?;
-        lastRescheduleNewStartsAt = newStartsAt;
-        if (newStartsAt != null) {
-          final DateTime start = DateTime.parse(newStartsAt).toUtc();
-          final DateTime end = start.add(const Duration(minutes: 90));
-          bookingStartsAt = start.toIso8601String();
-          bookingEndsAt = end.toIso8601String();
-        }
-        // A reschedule leaves the booking CONFIRMED — never touches status.
-        return _ok(_seededBookingJson());
-      }),
-      request: const Request(method: RequestMethods.patch, data: Matchers.any),
-    );
+    _wireRescheduleBooking();
 
     // PATCH /api/v1/bookings/booking-1/cancel — client cancellation. Flips the
     // seeded booking to CANCELLED and stores the free-text comment as the

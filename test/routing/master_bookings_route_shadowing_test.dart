@@ -184,8 +184,11 @@ class _FakeBookingRepository implements BookingRepository {
   Future<void> completeBooking(String id) => throw UnimplementedError();
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError();
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> createReview({

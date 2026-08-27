@@ -12,12 +12,16 @@ part 'reschedule_booking_request.g.dart';
 ///
 /// Properties:
 /// * [newStartsAt]
+/// * [allowClientOverlap]
 @BuiltValue()
 abstract class RescheduleBookingRequest
     implements
         Built<RescheduleBookingRequest, RescheduleBookingRequestBuilder> {
   @BuiltValueField(wireName: r'newStartsAt')
   DateTime get newStartsAt;
+
+  @BuiltValueField(wireName: r'allowClientOverlap')
+  bool? get allowClientOverlap;
 
   RescheduleBookingRequest._();
 
@@ -54,6 +58,13 @@ class _$RescheduleBookingRequestSerializer
       object.newStartsAt,
       specifiedType: const FullType(DateTime),
     );
+    if (object.allowClientOverlap != null) {
+      yield r'allowClientOverlap';
+      yield serializers.serialize(
+        object.allowClientOverlap,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -85,6 +96,13 @@ class _$RescheduleBookingRequestSerializer
             specifiedType: const FullType(DateTime),
           ) as DateTime;
           result.newStartsAt = valueDes;
+          break;
+        case r'allowClientOverlap':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.allowClientOverlap = valueDes;
           break;
         default:
           unhandled.add(key);

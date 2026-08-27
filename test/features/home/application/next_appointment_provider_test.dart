@@ -126,8 +126,11 @@ class _FakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError('not used by nextAppointmentProvider');
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
   Future<void> declineBooking(String id, {String? comment}) =>
@@ -225,8 +228,11 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
       throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
-  Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
-      throw UnimplementedError('not used by nextAppointmentProvider');
+  Future<Booking> rescheduleBooking(
+    String id,
+    DateTime newStartAt, {
+    bool allowClientOverlap = false,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
   Future<void> declineBooking(String id, {String? comment}) =>
