@@ -91,6 +91,9 @@ import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
+import '../features/salon/application/my_salons_notifier.dart';
+import '../features/salon/domain/salon.dart';
+import '../features/salon/presentation/my_salons_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
 import '../features/salon/presentation/salon_management_profile_screen.dart';
 import '../features/salon/presentation/salon_settings_screen.dart';
@@ -227,15 +230,10 @@ GoRouter appRouter(Ref ref) {
   // `UserMapper.fromProfileDto`) now lets SALON_ADMIN be checked for an EXACT
   // match against the route's `:salonId`.
   //
-  // SALON_OWNER is deliberately NOT tightened the same way: an owner can own
-  // MANY salons, so a single session-wide `salonId` cannot authorize them.
-  // The authoritative list is `GET /salons/mine`, which belongs to Phase 21.1
-  // (NOT BUILT) — and `redirect:` callbacks are synchronous, so a network
-  // fetch cannot be added here anyway.
-  // TODO(phase-21.1): once `mySalonsProvider` (backed by `GET /salons/mine`)
-  // exists, bind the owner arm to it — redirect unless `state.pathParameters
-  // ['salonId']` is contained in the owner's own salon-id list, mirroring the
-  // admin arm below.
+  // SALON_OWNER is bound to `mySalonsProvider` (Phase 21.1, `GET
+  // /salons/mine`) below, mirroring the admin arm above but against a LIST
+  // (an owner can own many salons, so no single session-wide `salonId` can
+  // authorize them the way `User.salonId` does for an admin).
   String? salonManageGuard(BuildContext context, GoRouterState state) {
     final session = ref.read(authProvider).value;
     if (session is! Authenticated) return null;
@@ -248,6 +246,69 @@ GoRouter appRouter(Ref ref) {
       if (session.user.salonId != routeSalonId) {
         return roleHomePath(role);
       }
+    }
+    if (role == UserRole.salonOwner) {
+      // `redirect:` is synchronous — NEVER await the network here. Bind
+      // against `mySalonsProvider`'s ALREADY-RESOLVED value only:
+      //   • resolved AND the route's salonId is not in the owner's list →
+      //     redirect (this is the actual authorization check Phase 21.2 left
+      //     as a TODO — `GET /salons/mine` now exists to answer it).
+      //   • not resolved yet (e.g. a cold deep link that never visited the
+      //     hub, so nothing has triggered `mySalonsProvider` before now) →
+      //     ADMIT and let `SalonManagementProfileScreen` itself surface a
+      //     404/error from the backend. Backend `@authz.canManageSalon` is
+      //     the real security boundary regardless — this check is UX-only,
+      //     same as the admin arm above.
+      //
+      // mobile-perf HIGH follow-up (2026-08-28) — `mySalonsProvider` is now
+      // `@Riverpod(keepAlive: true)` (`my_salons_notifier.dart`), so this
+      // `ref.read` genuinely reads an ALREADY-RESOLVED value on every
+      // navigation after the first, instead of re-initializing (and
+      // immediately auto-disposing) a fresh fetch on every hub→manage→
+      // settings hop and every `authProvider` re-emission while parked
+      // there. The "not resolved yet" branch below now fires at most ONCE
+      // per session — a true cold deep link that never visited the hub —
+      // and `SalonManagementProfileScreen` itself closes that residual
+      // window once `mySalonsProvider` resolves (mobile-security LOW
+      // follow-up, same date — see that screen's own doc for the bounce).
+      //
+      // mobile-security MEDIUM follow-up (2026-08-28) — a bare `.value` read
+      // is NOT the same as "resolved". Riverpod's `copyWithPrevious` keeps
+      // the previous `AsyncData`'s `.value` attached to a LATER `AsyncError`
+      // / `AsyncLoading` (e.g. `AsyncLoading(retrying: true)` mid-retry), so
+      // right after a cross-account login on the same device (owner A logs
+      // out, owner B logs in, no app restart) `.value` can still be owner
+      // A's list for one frame while the state itself is not `AsyncData`.
+      // Trusting that stale `.value` would ADMIT a deep link to an ID that
+      // only matched owner A's (no-longer-current) list — the inverse of
+      // this guard's intent. Gate on the concrete `AsyncData` subtype so
+      // only a GENUINELY resolved state is ever trusted; an error/loading
+      // state — stale `.value` or not — falls through to the documented
+      // "not resolved yet" ADMIT fallback below, same as a true cold deep
+      // link.
+      final String? routeSalonId = state.pathParameters['salonId'];
+      final AsyncValue<List<Salon>> mySalonsState = ref.read(mySalonsProvider);
+      final List<Salon>? salons = mySalonsState is AsyncData<List<Salon>>
+          ? mySalonsState.value
+          : null;
+      if (salons != null &&
+          !salons.any((Salon salon) => salon.id == routeSalonId)) {
+        return roleHomePath(role);
+      }
+    }
+    return null;
+  }
+
+  // Phase 21.1 — per-route SALON_OWNER-only gate for the My Salons Hub
+  // (`/salons/mine`). Mirrors [clientOnlyGuard]'s exact shape but for a
+  // single role: any other authenticated role — including SALON_ADMIN, who
+  // always belongs to exactly one salon and has no use for this hub — is
+  // bounced to its own landing. Unauthenticated access is left to the global
+  // [authRedirect] (-> /login).
+  String? mySalonsGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is Authenticated && session.user.role != UserRole.salonOwner) {
+      return roleHomePath(session.user.role);
     }
     return null;
   }
@@ -676,6 +737,20 @@ GoRouter appRouter(Ref ref) {
       // content-agnostic edge sliver. `/masters/:masterId` above received the
       // identical `builder:` treatment in a follow-up fix — see its own route
       // registration comment above for details.
+      // Phase 21.1 — My Salons Hub, the SALON_OWNER's landing. STANDALONE
+      // top-level route registered as a LITERAL path segment ('/salons/mine')
+      // DECLARED BEFORE the dynamic '/salons/:salonId' route immediately
+      // below — go_router resolves literal-vs-dynamic purely by declaration
+      // order, so this ordering is the ONLY thing preventing 'mine' from
+      // being swallowed as a `:salonId` value (see `RouteNames.mySalons`'s
+      // own doc). Not nested under '/salons/:salonId' for the same "an
+      // ancestor route's own redirect always runs" reason [RouteNames
+      // .salonManage] documents two routes down.
+      GoRoute(
+        path: RouteNames.mySalons,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const MySalonsScreen(),
+      ),
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,

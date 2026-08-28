@@ -13,13 +13,16 @@
 // Covered cases:
 //   R1. INDEPENDENT_MASTER → /master/profile (regression guard)
 //   R2. CLIENT             → /home (clientHome) — the bug this file now pins
-//   R3. SALON_OWNER        → / (home) — wildcard branch covers non-master/
-//                            non-client roles; guard against over-correction
+//   R3. SALON_OWNER        → /salons/mine (Phase 21.1 My Salons Hub) — was
+//                            the wildcard branch (-> /home) before Phase
+//                            21.1 gave SALON_OWNER its own landing; guards
+//                            against a future regression collapsing it back
+//                            onto the wildcard.
 //
 // Infrastructure: UncontrolledProviderScope + ProviderContainer mirrors the
 // pattern in done_screen_test.dart. A dedicated GoRouter stub registers /home,
-// /master/profile AND /home (clientHome) so each role's CTA target can land and
-// be asserted by a distinct sentinel marker.
+// /master/profile, /home (clientHome) AND /salons/mine so each role's CTA
+// target can land and be asserted by a distinct sentinel marker.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -81,6 +84,7 @@ const _testTokens = AuthTokens(
 const _homeMarker = 'stub-home-route';
 const _clientHomeMarker = 'stub-client-home-route';
 const _masterProfileMarker = 'stub-master-profile-route';
+const _mySalonsMarker = 'stub-my-salons-route';
 
 GoRouter _makeFullRouter() => GoRouter(
   initialLocation: RouteNames.done,
@@ -106,6 +110,12 @@ GoRouter _makeFullRouter() => GoRouter(
       path: RouteNames.masterProfile,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text(_masterProfileMarker))),
+    ),
+    // Phase 21.1 — the SALON_OWNER landing (My Salons Hub).
+    GoRoute(
+      path: RouteNames.mySalons,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text(_mySalonsMarker))),
     ),
   ],
 );
@@ -270,49 +280,57 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // R3 — SALON_OWNER routes to /home (wildcard branch coverage)
+    // R3 — SALON_OWNER routes to /salons/mine (Phase 21.1 My Salons Hub)
     //
-    // The switch expression uses `_ => RouteNames.home` for all non-master roles.
-    // SALON_OWNER is an invite-only role that can reach DoneScreen via the
-    // accept-invite flow. This test confirms the wildcard arm covers it correctly
-    // and that it does not accidentally resolve to /master/profile.
+    // roleHomePath has a dedicated `UserRole.salonOwner => RouteNames
+    // .mySalons` arm (Phase 21.1) — SALON_OWNER no longer falls through the
+    // `_ => RouteNames.home` wildcard the way it did before that phase. This
+    // test pins the CURRENT landing and guards against a future regression
+    // that collapses SALON_OWNER back onto the wildcard (or onto
+    // /master/profile).
     // -----------------------------------------------------------------------
-    testWidgets(
-      'R3. SALON_OWNER: tapping done_to_app navigates to RouteNames.home (/)',
-      (tester) async {
-        final router = _makeFullRouter();
-        addTearDown(router.dispose);
+    testWidgets('R3. SALON_OWNER: tapping done_to_app navigates to '
+        'RouteNames.mySalons (/salons/mine)', (tester) async {
+      final router = _makeFullRouter();
+      addTearDown(router.dispose);
 
-        await _pumpDoneScreen(
-          tester,
-          authenticatedUser: _salonOwner,
-          router: router,
-        );
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _salonOwner,
+        router: router,
+      );
 
-        expect(find.text(_homeMarker), findsNothing);
-        expect(find.text(_masterProfileMarker), findsNothing);
+      expect(find.text(_mySalonsMarker), findsNothing);
+      expect(find.text(_homeMarker), findsNothing);
+      expect(find.text(_masterProfileMarker), findsNothing);
 
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('done_to_app')),
-        );
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('done_to_app')),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+      await tester.pumpAndSettle();
 
-        expect(
-          find.text(_homeMarker),
-          findsOneWidget,
-          reason:
-              'SALON_OWNER must fall through the wildcard branch to '
-              'RouteNames.home — only INDEPENDENT_MASTER may use /master/profile',
-        );
-        expect(
-          find.text(_masterProfileMarker),
-          findsNothing,
-          reason: 'SALON_OWNER must NOT be routed to /master/profile',
-        );
-      },
-    );
+      expect(
+        find.text(_mySalonsMarker),
+        findsOneWidget,
+        reason:
+            'SALON_OWNER must land on RouteNames.mySalons (the Phase 21.1 '
+            'My Salons Hub) — not the bare /home wildcard placeholder',
+      );
+      expect(
+        find.text(_homeMarker),
+        findsNothing,
+        reason:
+            'SALON_OWNER must NOT fall through to the wildcard '
+            'RouteNames.home — that was the pre-Phase-21.1 placeholder',
+      );
+      expect(
+        find.text(_masterProfileMarker),
+        findsNothing,
+        reason: 'SALON_OWNER must NOT be routed to /master/profile',
+      );
+    });
   });
 }

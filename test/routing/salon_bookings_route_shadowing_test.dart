@@ -39,7 +39,9 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -77,6 +79,17 @@ class _FixedAuthNotifier extends AuthNotifier {
     state = _fixed;
     return _fixed.value ?? const AuthSession.unauthenticated();
   }
+}
+
+/// [MySalons] stub that resolves immediately to an empty list. `mySalonsProvider`
+/// is now `@Riverpod(keepAlive: true)` (mobile-perf HIGH follow-up,
+/// 2026-08-28), so the plain `mySalonsProvider.overrideWith((ref) async =>
+/// ...)` function override this file previously used no longer type-checks —
+/// a keepAlive-class provider's `overrideWith` takes a notifier FACTORY, not
+/// a build function.
+class _SettledMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[];
 }
 
 class _RouterApp extends StatelessWidget {
@@ -119,6 +132,15 @@ void main() {
             (ref, args) async => {},
           ),
           salonServiceCatalogProvider.overrideWith((ref, salonId) async => []),
+          // Phase 21.1 follow-up — the authenticated SALON_OWNER session's
+          // global redirect (isAuthenticated + isAtSplash -> roleHomePath)
+          // resolves to RouteNames.mySalons before this test's own
+          // router.go() navigates away, momentarily mounting MySalonsScreen.
+          // Settling mySalonsProvider keeps that transient mount off the
+          // real Dio-backed salonRepositoryProvider (leaked-timer
+          // regression — same shape every other override in this file
+          // guards against).
+          mySalonsProvider.overrideWith(_SettledMySalons.new),
         ],
       );
       addTearDown(container.dispose);

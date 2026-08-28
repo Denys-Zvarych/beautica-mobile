@@ -52,6 +52,9 @@ class FakeSalonRepository implements SalonRepository {
   Future<void> create({required SalonCreateDto dto}) async {}
 
   @override
+  Future<List<Salon>> getMySalons() async => <Salon>[_salon];
+
+  @override
   Future<Salon> getSalonById(String salonId) async => _salon;
 
   @override

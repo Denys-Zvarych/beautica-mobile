@@ -26,6 +26,15 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'role_landing_chrome_matrix.dart';
 
+/// The known, closed set of intentional "coming-soon"/no-persistent-
+/// bottom-nav-chrome landing paths (Phase 21.1 — see the invariant test
+/// below for why this replaced a single shared literal). An addition here
+/// must be deliberate, paired with a matrix row update.
+const Set<String> kChromelessLandingPaths = <String>{
+  RouteNames.home,
+  RouteNames.mySalons,
+};
+
 void main() {
   group('roleHomePath dispatch contract (matrix-driven)', () {
     test('matrix covers every UserRole exactly once', () {
@@ -77,22 +86,57 @@ void main() {
       },
     );
 
-    // ── No-chrome rows really do resolve to the placeholder. Pins the intended
-    // current state so a future shell that quietly redirects a salon role
-    // elsewhere (without updating the matrix) is caught.
-    test('every intentional no-chrome role resolves to "/" (coming-soon)', () {
-      for (final row in roleLandingMatrix.where((e) => !e.hasChrome)) {
-        expect(
-          roleHomePath(row.role),
-          equals(RouteNames.home),
-          reason:
-              '${row.role.name} is declared coming-soon (no chrome) and must '
-              'land on "${RouteNames.home}". If this changed, update the matrix '
-              'row to reflect the new shell. Reason on record: '
-              '${row.comingSoonReason}',
-        );
-      }
-    });
+    // ── No-chrome rows resolve to a KNOWN chromeless landing path. Pins the
+    // intended current state so a future shell that quietly redirects a
+    // salon role elsewhere (without updating the matrix) is caught.
+    //
+    // Phase 21.1 REVISION: this used to assert every no-chrome row collapsed
+    // onto the ONE bare `/` placeholder — true before Phase 21.1, when all
+    // three no-chrome roles (SALON_OWNER/SALON_ADMIN/SALON_MASTER) genuinely
+    // rendered `_Placeholder('home')` at `/`. SALON_OWNER now lands on a REAL
+    // screen (`MySalonsScreen`, the My Salons Hub, `/salons/mine`) that
+    // simply has no persistent bottom-nav bar of its own — "no chrome" and
+    // "the bare `/` placeholder" are no longer the same concept, so the old
+    // single-literal assertion is not a real invariant any more.
+    //
+    // What replaces it is NOT weaker: [kChromelessLandingPaths] enumerates
+    // the CLOSED set of chromeless destinations (an addition here must be
+    // deliberate), AND every row is still cross-checked against its OWN
+    // matrix-declared `expectedLandingPath` — a row silently drifting onto a
+    // DIFFERENT already-enumerated chromeless path (e.g. SALON_OWNER quietly
+    // resolving to `RouteNames.home` instead of its declared
+    // `RouteNames.mySalons`) still fails the second `expect` below, even
+    // though `RouteNames.home` is itself a known chromeless path.
+    test(
+      'every intentional no-chrome role resolves to a KNOWN chromeless '
+      'landing path — and specifically to the one its matrix row declares',
+      () {
+        for (final row in roleLandingMatrix.where((e) => !e.hasChrome)) {
+          final String resolved = roleHomePath(row.role);
+          expect(
+            kChromelessLandingPaths,
+            contains(resolved),
+            reason:
+                '${row.role.name} is declared coming-soon (no chrome) but '
+                'roleHomePath resolved it to "$resolved", which is NOT one '
+                'of the known chromeless landing paths '
+                '($kChromelessLandingPaths). If this role now has a real '
+                'landing screen, add its path to kChromelessLandingPaths '
+                'AND update the matrix row\'s expectedLandingPath. Reason '
+                'on record: ${row.comingSoonReason}',
+          );
+          expect(
+            resolved,
+            equals(row.expectedLandingPath),
+            reason:
+                '${row.role.name} resolved to a KNOWN chromeless path '
+                '($resolved) but not the ONE its own matrix row declares '
+                '(${row.expectedLandingPath}) — a cross-role mix-up that '
+                'set-membership alone would not catch.',
+          );
+        }
+      },
+    );
 
     // ── Exhaustiveness backstop: roleHomePath must return a non-empty path for
     // every role (no role falls through to '' / an unregistered route).

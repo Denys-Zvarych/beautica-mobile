@@ -40,7 +40,7 @@
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
 //  14.  kAuthPaths has exactly 12 entries — no undocumented extras.
 //  14b. kPiiPaths is a strict superset of kAuthPaths.
-//  15.  kPiiPaths has exactly 21 entries = kAuthPaths (12) + 9 authenticated
+//  15.  kPiiPaths has exactly 22 entries = kAuthPaths (12) + 10 authenticated
 //       PII paths: /api/v1/independent-masters/me,
 //       /api/v1/independent-masters/me/profile, /api/v1/masters/me, the two
 //       auth-gated discovery search paths /api/v1/search/masters +
@@ -48,8 +48,10 @@
 //       redaction), the Phase 14.0 CLIENT booking create endpoint
 //       /api/v1/bookings, the MO-1 CLIENT appointment create endpoint
 //       /api/v1/appointments, the track 7.x Wave B PROVIDER→CLIENT
-//       feedback create endpoint /api/v1/client-reviews, and the Phase 13.x
-//       CLIENT wish-list toggle endpoint /api/v1/favorites.
+//       feedback create endpoint /api/v1/client-reviews, the Phase 13.x
+//       CLIENT wish-list toggle endpoint /api/v1/favorites, and the Phase
+//       21.1 SALON_OWNER hub endpoint /api/v1/salons/mine (mobile-security
+//       MEDIUM follow-up, 2026-08-28 — SalonResponse carries phone + ownerId).
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -362,6 +364,25 @@ void main() {
       );
     });
 
+    test('13i. /api/v1/salons/mine is in kPiiPaths (SalonResponse phone + '
+        'ownerId redaction) but NOT kAuthPaths', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/salons/mine'),
+        reason:
+            'mobile-security MEDIUM follow-up (2026-08-28) — Phase 21.1 '
+            'GET /salons/mine returns SalonResponse, which carries phone and '
+            'ownerId; its body must be redacted in debug logs on any 4xx/5xx.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/salons/mine')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it in '
+            'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+      );
+    });
+
     // -----------------------------------------------------------------------
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
@@ -397,8 +418,8 @@ void main() {
       // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 + the
       // 2026-06-25 address-redaction fix + Phase 14.0 + the MO-1 appointment
       // create endpoint + the track 7.x Wave B client-review create endpoint +
-      // the Phase 13.x wish-list toggle endpoint added 9 authenticated PII
-      // paths that are NOT in kAuthPaths).
+      // the Phase 13.x wish-list toggle endpoint + the Phase 21.1 salons/mine
+      // endpoint added 10 authenticated PII paths that are NOT in kAuthPaths).
       expect(
         kPiiPaths.length,
         greaterThan(kAuthPaths.length),
@@ -407,16 +428,16 @@ void main() {
             '(/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
             '/api/v1/masters/me, /api/v1/search/masters, /api/v1/search/salons, '
             '/api/v1/bookings, /api/v1/appointments, /api/v1/client-reviews, '
-            'and /api/v1/favorites).',
+            '/api/v1/favorites, and /api/v1/salons/mine).',
       );
     });
 
     test(
-      '15. kPiiPaths has exactly 21 entries (kAuthPaths union + 9 authenticated PII paths)',
+      '15. kPiiPaths has exactly 22 entries (kAuthPaths union + 10 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(21),
+          equals(22),
           reason:
               'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
@@ -425,9 +446,10 @@ void main() {
               'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings, '
               'the MO-1 CLIENT appointment create endpoint /api/v1/appointments, '
               'the track 7.x Wave B PROVIDER→CLIENT feedback create '
-              'endpoint /api/v1/client-reviews, and the Phase 13.x CLIENT '
-              'wish-list toggle endpoint /api/v1/favorites '
-              '(9 authenticated PII paths = 21 total). The search paths were '
+              'endpoint /api/v1/client-reviews, the Phase 13.x CLIENT '
+              'wish-list toggle endpoint /api/v1/favorites, and the Phase '
+              '21.1 SALON_OWNER hub endpoint /api/v1/salons/mine '
+              '(10 authenticated PII paths = 22 total). The search paths were '
               'added by commit b550428 (auth-gated address redaction); '
               '/api/v1/bookings was added by the Phase 14.0 security fix '
               '(POST /bookings carries the free-text clientComment field); '
@@ -436,7 +458,10 @@ void main() {
               '/api/v1/client-reviews was added by track 7.x Wave B '
               '(POST /client-reviews carries the provider\'s free-text comment); '
               '/api/v1/favorites was added by the Phase 13.x wish-list track '
-              '(POST/DELETE /favorites echoes the saved service/master ids). '
+              '(POST/DELETE /favorites echoes the saved service/master ids); '
+              '/api/v1/salons/mine was added by the mobile-security MEDIUM '
+              'follow-up 2026-08-28 (GET /salons/mine returns SalonResponse, '
+              'which carries phone + ownerId). '
               'Update this count if new PII endpoints are added.',
         );
       },

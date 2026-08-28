@@ -118,6 +118,14 @@ const Set<String> kPiiPaths = {
   // echoes back the saved service/master identifiers. The `/favorites/services`
   // read route is covered by the prefix in [kPiiPathPrefixes] below.
   '/api/v1/favorites',
+  // mobile-security MEDIUM follow-up (2026-08-28) — Phase 21.1 SALON_OWNER
+  // hub endpoint. Exact match: the bare `/api/v1/salons/mine` path (no
+  // dynamic segment) returns `SalonResponse`, which carries `phone` and
+  // `ownerId` — same class of gap already closed for `/clients/me` and
+  // `/favorites/services` above. Without this entry, `LoggingInterceptor
+  // .onError` logs `err.response?.data` unredacted to `dart:developer` on
+  // any 4xx/5xx from this endpoint in debug builds.
+  '/api/v1/salons/mine',
 };
 
 /// Path PREFIXES whose request/response bodies — and URL query strings — carry

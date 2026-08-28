@@ -20,6 +20,16 @@
 //     client-side role gate — this method itself has no role check of its
 //     own, matching every other repository call in this codebase).
 //
+// mobile-perf MEDIUM follow-up (2026-08-28) — `mySalonsProvider`
+// (`my_salons_notifier.dart`) was promoted to `@Riverpod(keepAlive: true)`
+// so the router's `salonManageGuard` reads an already-resolved value instead
+// of re-fetching on every navigation. Nothing then invalidated that cached
+// list on write, so an edited/deleted salon's name, locality, or «Основний»
+// badge went stale on the «Мої салони» hub for the rest of the session —
+// a regression introduced by the keepAlive promotion, not a pre-existing
+// gap. Both [save] and [deleteSalon] now invalidate `mySalonsProvider` on
+// their success branch so the hub refetches the next time it is watched.
+//
 // `UpdateSalonRequest.street`/`.buildingNo` are non-nullable/required even on
 // this partial-update DTO (see `tool/openapi/api-spec.json`'s
 // `UpdateSalonRequest` schema — `"required": ["buildingNo", "street"]`), so
@@ -43,6 +53,7 @@ import '../../auth/presentation/auth_notifier.dart';
 import '../data/salon_repository.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
+import 'my_salons_notifier.dart';
 
 part 'salon_management_profile_notifier.g.dart';
 
@@ -158,6 +169,13 @@ class SalonManagementProfile extends _$SalonManagementProfile {
         reviewCount: current.reviewCount,
       );
       state = AsyncData((merged, masters));
+      // cycle-safe: mySalonsProvider (MySalons.build()) only watches
+      // authProvider — it never watches salonManagementProfileProvider, so
+      // there is no back-edge here to close into a cycle. See this file's
+      // header doc (mobile-perf MEDIUM follow-up, 2026-08-28) for why this
+      // invalidation exists: keeps the «Мої салони» hub's cached list from
+      // going stale after an edit.
+      ref.invalidate(mySalonsProvider);
       return null;
     } on Failure catch (f) {
       return f;
@@ -173,6 +191,13 @@ class SalonManagementProfile extends _$SalonManagementProfile {
   Future<Failure?> deleteSalon() async {
     try {
       await ref.read(salonRepositoryProvider).deleteSalon(salonId);
+      // cycle-safe: mySalonsProvider (MySalons.build()) only watches
+      // authProvider — it never watches salonManagementProfileProvider, so
+      // there is no back-edge here to close into a cycle. See this file's
+      // header doc (mobile-perf MEDIUM follow-up, 2026-08-28) for why this
+      // invalidation exists: keeps the «Мої салони» hub's cached list from
+      // going stale after a delete.
+      ref.invalidate(mySalonsProvider);
       return null;
     } on Failure catch (f) {
       return f;

@@ -40,6 +40,8 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
@@ -221,6 +223,12 @@ ProviderContainer _authedContainer(UserRole role) {
       // comment prescribes, matching the pattern already applied to the other
       // four home-hub providers above.
       myRatingProvider.overrideWith((ref) async => const ClientRating()),
+      // Phase 21.1 — SALON_OWNER's row now lands on MySalonsScreen
+      // (RouteNames.mySalons). Settle mySalonsProvider synchronously so
+      // that landing does not schedule a real Dio timeout Timer, mirroring
+      // every settled provider above for the exact same leaked-timer
+      // reason.
+      mySalonsProvider.overrideWith(_SettledMySalons.new),
     ],
   );
   addTearDown(container.dispose);
@@ -254,6 +262,18 @@ class _SettledMasterProfileNotifier extends MasterProfile {
     reviewCount: 0,
     type: MasterType.independentMaster,
   );
+}
+
+/// [MySalons] stub that resolves immediately to an empty list — mirrors
+/// `_SettledMasterProfileNotifier` above. `mySalonsProvider` is now
+/// `@Riverpod(keepAlive: true)` (mobile-perf HIGH follow-up, 2026-08-28), so
+/// the plain `mySalonsProvider.overrideWith((ref) async => ...)` function
+/// override this file previously used no longer type-checks — a
+/// keepAlive-class provider's `overrideWith` takes a notifier FACTORY, not a
+/// build function.
+class _SettledMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[];
 }
 
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue].

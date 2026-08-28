@@ -5562,5 +5562,40 @@
   "favoritesShowAllLabel": "Show all favourites",
   "@favoritesShowAllLabel": {
     "description": "«Улюблені» (Phase 111) — semantic label for the «Показати всі» action."
+  },
+  "mySalonsTitle": "My salons",
+  "@mySalonsTitle": {
+    "description": "Phase 21.1 — My Salons Hub (SALON_OWNER landing) screen heading."
+  },
+  "mySalonsSubtitle": "{count, plural, =0{No salons under your management} =1{1 salon under your management} other{{count} salons under your management}}",
+  "@mySalonsSubtitle": {
+    "description": "Phase 21.1 — My Salons Hub subtitle under the heading, stating how many salons the owner manages.",
+    "placeholders": {
+      "count": {"type": "int", "example": "3"}
+    }
+  },
+  "mySalonsAddCta": "Add salon",
+  "@mySalonsAddCta": {
+    "description": "Phase 21.1 — the hub's pinned bottom-shelf CTA label. Its callback is a documented TODO(phase-21.3) no-op — the Register New Salon screen is not built yet."
+  },
+  "mySalonsPrimaryBadgeLabel": "Primary",
+  "@mySalonsPrimaryBadgeLabel": {
+    "description": "Phase 21.1 — the camel pill badge on the owner's designated primary salon card."
+  },
+  "mySalonsCardSemanticLabel": "{name}, {locality}",
+  "@mySalonsCardSemanticLabel": {
+    "description": "Phase 21.1 — semantic label for one salon card in the hub list.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Velvet Salon"},
+      "locality": {"type": "String", "example": "Kyiv, Pecherskyi district"}
+    }
+  },
+  "mySalonsEmptyTitle": "No salons yet",
+  "@mySalonsEmptyTitle": {
+    "description": "Phase 21.1 — hub empty-state title. Not expected in practice (an owner always has ≥1 salon from registration), but rendered defensively."
+  },
+  "mySalonsEmptyBody": "Add your first salon to start managing it here.",
+  "@mySalonsEmptyBody": {
+    "description": "Phase 21.1 — hub empty-state body, paired with mySalonsEmptyTitle."
   }
 }

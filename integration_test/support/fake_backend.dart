@@ -26,6 +26,7 @@
 //  POST /api/v1/auth/register/{role}     — returns verificationRequired envelope
 //  POST /api/v1/auth/verify-email        — returns auth tokens
 //  GET  /api/v1/users/me                 — returns user from current session
+//  GET  /api/v1/salons/mine              — Phase 21.1 My Salons Hub (SALON_OWNER landing)
 //  POST /api/v1/auth/logout              — no-op 200
 //  POST /api/v1/auth/forgot-password     — Beautica OTP task Phase B, generic 200
 //  POST /api/v1/auth/verify-password-reset-otp — Beautica OTP task Phase B, returns {resetTicket}
@@ -331,6 +332,27 @@ final class FakeBackend {
   String? clientStreet;
   String? clientBuildingNo;
   String? clientLocationNote;
+
+  // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
+  //
+  // `GET /api/v1/salons/mine` — `SalonResponse` shape (carries `isPrimary`,
+  // unlike the PUBLIC `PublicSalonResponse`). Mutable list, not a `const`,
+  // so a flow that needs to pin the stagger-crash regression (~12 salons) or
+  // the "no primary among many" edge case can replace it BEFORE boot without
+  // forking a second fixture set. Defaults to exactly ONE primary salon —
+  // the ordinary owner shape (registration always yields ≥1 salon).
+  List<Map<String, dynamic>> mySalons = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'id': 'salon-owner-1',
+      'ownerId': 'user-owner-1',
+      'name': 'Салон Оксани',
+      'city': 'Київ',
+      'street': 'Хрещатик',
+      'buildingNo': '10',
+      'isActive': true,
+      'isPrimary': true,
+    },
+  ];
 
   // ── Service state ─────────────────────────────────────────────────────────
 
@@ -718,6 +740,9 @@ final class FakeBackend {
   String? lastResetPasswordNewPassword;
 
   int getMeCalls = 0; // GET /api/v1/users/me counter
+
+  /// `GET /api/v1/salons/mine` call counter (Phase 21.1 My Salons Hub).
+  int getMySalonsCalls = 0;
 
   /// `GET /api/v1/clients/me/passport` call counter (Phase 13.8 wire-up).
   int getPassportCalls = 0;
@@ -3931,6 +3956,18 @@ final class FakeBackend {
         return currentRole == UserRole.client
             ? _ok(_clientProfileBody())
             : _ok(userJsonForRole(currentRole));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/mine — Phase 21.1 My Salons Hub (the SALON_OWNER
+    // landing, `mySalonsProvider`). `SalonResponse` shape (isPrimary etc.) —
+    // see [mySalons]'s own doc for why it is mutable.
+    _adapter.onRoute(
+      '/api/v1/salons/mine',
+      (server) => server.replyCallback(200, (_) {
+        getMySalonsCalls++;
+        return _okList(mySalons);
       }),
       request: const Request(method: RequestMethods.get),
     );

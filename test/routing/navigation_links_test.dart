@@ -304,6 +304,11 @@ void main() {
       // own comment on why they cannot nest under `/salons/:salonId`).
       'salonManage()': RouteNames.salonManage(kSampleId),
       'salonManageSettings()': RouteNames.salonManageSettings(kSampleId),
+      // Phase 21.1 — My Salons Hub, the SALON_OWNER landing. A literal
+      // `/salons/mine` registered BEFORE the dynamic `/salons/:salonId`
+      // above so it is not shadowed by it (see `RouteNames.mySalons`'s own
+      // doc).
+      'mySalons': RouteNames.mySalons,
       'bookingNew': RouteNames.bookingNew,
       'bookingSlots': RouteNames.bookingSlots,
       'bookingSlotsTime': RouteNames.bookingSlotsTime,

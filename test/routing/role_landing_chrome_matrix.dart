@@ -98,14 +98,23 @@ class RoleLandingExpectation {
 ///   • app_router.dart     — `/home` → ClientShell(StatefulShellRoute),
 ///                           `/master/profile` → MasterProfileScreen
 ///                           (hosts VelvetBottomNavBar), `/` → _Placeholder
-///                           (NO chrome).
+///                           (NO chrome), `/salons/mine` (Phase 21.1) →
+///                           MySalonsScreen (a real screen with its OWN
+///                           pinned bottom CTA shelf, but NO persistent
+///                           bottom-NAV bar — still "no chrome" in this
+///                           matrix's sense).
+///
+/// "No chrome" and "lands on the bare `/` placeholder" are NOT the same
+/// thing (Phase 21.1 split them) — a no-chrome row's `expectedLandingPath`
+/// is checked per-row below, not collapsed onto one shared literal.
 ///
 /// ┌─────────────────────┬──────────────────┬──────────────────────────────┐
 /// │ Role                │ Landing path     │ Expected nav chrome           │
 /// ├─────────────────────┼──────────────────┼──────────────────────────────┤
 /// │ CLIENT              │ /home            │ ClientBottomNav  (REQUIRED)   │
 /// │ INDEPENDENT_MASTER  │ /master/profile  │ VelvetBottomNavBar (REQUIRED) │
-/// │ SALON_OWNER         │ /  (placeholder) │ none — coming soon (intended) │
+/// │ SALON_OWNER         │ /salons/mine     │ none — My Salons Hub has no   │
+/// │                     │ (My Salons Hub)  │ persistent bottom-nav (21.1)  │
 /// │ SALON_ADMIN         │ /  (placeholder) │ none — coming soon (intended) │
 /// │ SALON_MASTER        │ /  (placeholder) │ none — coming soon (intended) │
 /// └─────────────────────┴──────────────────┴──────────────────────────────┘
@@ -129,11 +138,13 @@ final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
   // salon role flips the row (hasChrome → true + a chromeFinder) and is caught.
   const RoleLandingExpectation(
     role: UserRole.salonOwner,
-    expectedLandingPath: RouteNames.home, // '/'
+    expectedLandingPath: RouteNames.mySalons, // '/salons/mine'
     hasChrome: false,
     comingSoonReason:
-        'SALON_OWNER has no mobile shell yet (MVP). Lands on the `/` '
-        'placeholder by design until the owner dashboard ships.',
+        'SALON_OWNER lands on the My Salons Hub (Phase 21.1) — a real '
+        'screen, not the bare `/` placeholder — but it has no persistent '
+        'bottom-nav chrome of its own (no owner dashboard shell ships '
+        'yet); it hosts only its own pinned bottom CTA shelf.',
   ),
   const RoleLandingExpectation(
     role: UserRole.salonAdmin,

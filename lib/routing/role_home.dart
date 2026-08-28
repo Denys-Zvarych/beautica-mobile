@@ -16,10 +16,15 @@ import 'route_names.dart';
 ///     Phase 13.1 5-tab client shell landing).
 ///   * [UserRole.independentMaster] → [RouteNames.masterProfile]
 ///     (`/master/profile`, the Phase 4 master home).
+///   * [UserRole.salonOwner]        → [RouteNames.mySalons] (`/salons/mine`,
+///     the Phase 21.1 My Salons Hub). Previously fell through to the `_`
+///     wildcard below and landed on the bare `_Placeholder('home')` — see
+///     that phase doc's "this phase also owns the owner's LANDING" note.
 ///   * every other role             → [RouteNames.home] (`/`, the home shell
 ///     "coming soon" surface).
 String roleHomePath(UserRole role) => switch (role) {
   UserRole.independentMaster => RouteNames.masterProfile,
   UserRole.client => RouteNames.clientHome,
+  UserRole.salonOwner => RouteNames.mySalons,
   _ => RouteNames.home,
 };

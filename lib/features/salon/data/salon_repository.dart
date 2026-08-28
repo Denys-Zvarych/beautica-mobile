@@ -140,6 +140,16 @@ abstract interface class SalonRepository {
   /// error.
   Future<void> create({required SalonCreateDto dto});
 
+  /// Fetches every salon owned by the authenticated `SALON_OWNER` (Phase
+  /// 21.1 «Мої салони» hub).
+  ///
+  /// Wraps `GET /salons/mine` (the generated `SalonControllerApi
+  /// .getOwnedSalons`). Each entry is the SAME `SalonResponse` shape `PATCH
+  /// /salons/{salonId}` returns — carries `isPrimary`/`phone`/`isActive`/
+  /// `ownerId`, unlike the public `PublicSalonResponse` — so this reuses
+  /// [SalonMapper.fromUpdateDto] per item rather than a fresh mapper.
+  Future<List<Salon>> getMySalons();
+
   /// Fetches the PUBLIC salon detail for [salonId].
   ///
   /// Wraps `GET /salons/{salonId}`. Safe to call from a CLIENT session — it
@@ -246,6 +256,29 @@ final class HttpSalonRepository implements SalonRepository {
       if (kDebugMode) {
         log(
           'salon create failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<List<Salon>> getMySalons() async {
+    try {
+      final res = await _salonApi.getOwnedSalons();
+      final dtos = res.data?.data ?? const <SalonResponse>[];
+      return <Salon>[
+        for (final SalonResponse dto in dtos) SalonMapper.fromUpdateDto(dto),
+      ];
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMySalons failed: ${e.type} ${e.response?.statusCode}',
           name: 'salon.repository',
           level: 900,
           stackTrace: st,

@@ -198,6 +198,11 @@ class _FakeSalonRepository implements SalonRepository {
   @override
   Future<void> create({required SalonCreateDto dto}) async {}
 
+  // Phase 21.1 — this screen (the PUBLIC/client profile) never calls the
+  // owner-scoped `GET /salons/mine`; empty keeps the contract satisfied.
+  @override
+  Future<List<Salon>> getMySalons() async => const <Salon>[];
+
   @override
   Future<Salon> getSalonById(String salonId) => _salon();
 

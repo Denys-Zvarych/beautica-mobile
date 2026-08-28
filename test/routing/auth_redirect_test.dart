@@ -519,7 +519,8 @@ void main() {
       );
     });
 
-    test('SALON_OWNER at /master/working-hours is redirected to /', () {
+    test('SALON_OWNER at /master/working-hours is redirected to '
+        '/salons/mine', () {
       const salonOwnerUser = User(
         id: 'u-so',
         email: 'owner@example.com',
@@ -532,7 +533,7 @@ void main() {
       );
       expect(
         authRedirectForLocation(salonOwnerSession, RouteNames.workingHours),
-        equals(RouteNames.home),
+        equals(RouteNames.mySalons),
       );
     });
 
@@ -745,10 +746,10 @@ void main() {
           );
         });
 
-        test('SALON_OWNER at $route is redirected to /', () {
+        test('SALON_OWNER at $route is redirected to /salons/mine', () {
           expect(
             authRedirectForLocation(salonOwnerSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.mySalons),
           );
         });
 
@@ -808,10 +809,10 @@ void main() {
           },
         );
 
-        test('SALON_OWNER at $route is redirected to /', () {
+        test('SALON_OWNER at $route is redirected to /salons/mine', () {
           expect(
             authRedirectForLocation(salonOwnerSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.mySalons),
           );
         });
 

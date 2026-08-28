@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -88,6 +89,36 @@ const _salonWithKnownPhone = Salon(
 );
 
 const _masters = <SalonMasterSummary>[];
+
+/// The «Мої салони» hub's cached list entry — deliberately a DIFFERENT id
+/// from [_kSalonId]; the invalidation tests below only care whether
+/// `mySalonsProvider` REBUILDS, not what it resolves to.
+const _hubCachedSalon = Salon(id: 'hub-cached-salon', name: 'Hub Salon v1');
+
+/// Mutable box so a `build()` call count survives `mySalonsProvider` being
+/// recreated by `ref.invalidate` — the [MySalons] override factory always
+/// closes over the SAME [_CallCounter] instance, unlike an instance field on
+/// the (possibly-recreated) notifier itself.
+class _CallCounter {
+  int value = 0;
+}
+
+/// [MySalons] stub that increments [counter] on every `build()` — the
+/// invalidation regression pins below assert on [counter], not on the
+/// resolved list (mobile-perf MEDIUM follow-up, 2026-08-28 — see
+/// `salon_management_profile_notifier.dart`'s header doc for the staleness
+/// bug this pins).
+class _CountingMySalons extends MySalons {
+  _CountingMySalons(this.counter);
+
+  final _CallCounter counter;
+
+  @override
+  Future<List<Salon>> build() async {
+    counter.value++;
+    return const <Salon>[_hubCachedSalon];
+  }
+}
 
 class _StubAuthAuthenticated extends AuthNotifier {
   @override
@@ -416,6 +447,113 @@ void main() {
       final failure = await notifier.deleteSalon();
 
       expect(failure, isA<ServerFailure>());
+    });
+  });
+
+  // ── mySalonsProvider invalidation (mobile-perf MEDIUM follow-up) ────────
+  //
+  // `mySalonsProvider` was promoted to `@Riverpod(keepAlive: true)`
+  // (`my_salons_notifier.dart`) so the router guard reads an
+  // already-resolved value instead of refetching on every navigation.
+  // Nothing then invalidated that cached list on write, so an edited/
+  // deleted salon's name/locality/«Основний» badge went stale on the hub
+  // for the rest of the session — this group pins the fix.
+  //
+  // MUTATION-VERIFIED (2026-08-28) — removing either
+  // `ref.invalidate(mySalonsProvider)` call in
+  // `salon_management_profile_notifier.dart` turns its matching test below
+  // RED (`counter.value` stays 1 instead of advancing to 2); restoring it
+  // turns both back GREEN with a clean `git diff`.
+  group('mySalonsProvider invalidation (mobile-perf MEDIUM follow-up)', () {
+    test('a successful save() invalidates mySalonsProvider so the hub '
+        'refetches on its next read', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      when(
+        () => repo.getSalonMasters(_kSalonId),
+      ).thenAnswer((_) async => _masters);
+      when(
+        () => repo.updateSalon(_kSalonId, any()),
+      ).thenAnswer((_) async => _freshSalon.copyWith(name: 'Нова назва'));
+
+      final counter = _CallCounter();
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(_StubAuthAuthenticated.new),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+          mySalonsProvider.overrideWith(() => _CountingMySalons(counter)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // A prior hub visit — mirrors the real "hub, then edit" flow — seeds
+      // the keepAlive cache BEFORE the edit happens.
+      await container.read(mySalonsProvider.future);
+      expect(counter.value, 1);
+
+      final notifier = await _readyNotifier(container, _freshSalon);
+      final failure = await notifier.save(
+        name: 'Нова назва',
+        description: _freshSalon.description!,
+        phone: '',
+        instagramUrl: '',
+      );
+      expect(failure, isNull);
+
+      // Invalidation alone does not eagerly rebuild a keepAlive provider —
+      // it rebuilds on its NEXT read, exactly like the hub screen's own
+      // `ref.watch(mySalonsProvider)` would on remount.
+      await container.read(mySalonsProvider.future);
+      expect(
+        counter.value,
+        2,
+        reason:
+            'save() must invalidate mySalonsProvider — without it the hub '
+            'renders the pre-edit cached list for the rest of the session',
+      );
+    });
+
+    test('a successful deleteSalon() invalidates mySalonsProvider so the hub '
+        'refetches on its next read', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      when(
+        () => repo.getSalonMasters(_kSalonId),
+      ).thenAnswer((_) async => _masters);
+      when(() => repo.deleteSalon(_kSalonId)).thenAnswer((_) async {});
+
+      final counter = _CallCounter();
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(_StubAuthAuthenticated.new),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+          mySalonsProvider.overrideWith(() => _CountingMySalons(counter)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(mySalonsProvider.future);
+      expect(counter.value, 1);
+
+      final notifier = await _readyNotifier(container, _freshSalon);
+      final failure = await notifier.deleteSalon();
+      expect(failure, isNull);
+
+      await container.read(mySalonsProvider.future);
+      expect(
+        counter.value,
+        2,
+        reason:
+            'deleteSalon() must invalidate mySalonsProvider — without it '
+            'the hub keeps listing the deleted salon for the rest of the '
+            'session',
+      );
     });
   });
 }

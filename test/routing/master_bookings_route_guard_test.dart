@@ -117,13 +117,15 @@ void main() {
         );
       });
 
-      test('SALON_OWNER at $route is bounced to the home shell', () {
+      test('SALON_OWNER at $route is bounced to the My Salons Hub', () {
         expect(
           authRedirectForLocation(_salonOwner, route),
-          RouteNames.home,
+          RouteNames.mySalons,
           reason:
               'salon roles have no /master/* surface in MVP — the gate admits '
-              'INDEPENDENT_MASTER only',
+              'INDEPENDENT_MASTER only; a SALON_OWNER lands on its own '
+              'Phase 21.1 landing (RouteNames.mySalons), not the bare home '
+              'shell',
         );
       });
 
@@ -165,8 +167,11 @@ void main() {
         );
       });
 
-      test('SALON_OWNER at $route is bounced to the home shell', () {
-        expect(authRedirectForLocation(_salonOwner, route), RouteNames.home);
+      test('SALON_OWNER at $route is bounced to the My Salons Hub', () {
+        expect(
+          authRedirectForLocation(_salonOwner, route),
+          RouteNames.mySalons,
+        );
       });
 
       test('a signed-out deep link to $route lands on /login', () {

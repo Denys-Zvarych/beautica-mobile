@@ -1343,6 +1343,24 @@ abstract final class VelvetText {
     fontWeight: FontWeight.w700,
   );
 
+  /// Phase 21.1 — My Salons Hub card's locality/street two-line address —
+  /// feedback textSecondary, 12.5 sp, height 1.35 (the taller line-height
+  /// carries the wrapped locality+street pair, mirroring `bookSuccessSubline`
+  /// 's own reason for a non-default height on a multi-line caption).
+  static final TextStyle salonHubAddressLine = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12.5,
+    height: 1.35,
+  );
+
+  /// Phase 21.1 — My Salons Hub card's "Основний" primary badge label —
+  /// feedback white, 10.5 sp, w700.
+  static final TextStyle salonHubPrimaryBadgeLabel = _feedbackBase.copyWith(
+    color: BrandColors.white,
+    fontSize: 10.5,
+    fontWeight: FontWeight.w700,
+  );
+
   // ---------------------------------------------------------------------------
   // Passport table.
   // ---------------------------------------------------------------------------

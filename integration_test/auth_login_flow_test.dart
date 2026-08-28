@@ -5,13 +5,25 @@
 //
 // Three cases:
 //   1. CLIENT        → lands on /home (the Phase 13.1 5-tab client shell)
-//   2. SALON_OWNER   → lands on / (placeholder home; this role is post-MVP)
+//   2. SALON_OWNER   → lands on /salons/mine (Phase 21.1 My Salons Hub)
 //   3. INDEPENDENT_MASTER → lands on /master/profile (Phase 4.2)
+//
+// SALON_OWNER case UPDATED 2026-08-28 (Phase 21.1 Step 5) — `roleHomePath
+// (UserRole.salonOwner)` used to fall through to the `_` wildcard and land on
+// the bare `_Placeholder('home')` at `/`; it now points at
+// `RouteNames.mySalons`. This test previously pinned the OLD placeholder
+// landing and went RED the moment `role_home.dart` shipped the fix (a stale
+// assertion, not a regression) — see `integration_test/
+// salon_owner_landing_flow_test.dart` for the dedicated regression pin
+// (resolved location AND page type) this phase's own Step 7 calls for; this
+// file's case 3 is kept in sync so the pre-existing suite does not
+// contradict it.
 //
 // All taps are key-based — no raw Ukrainian find.text() tap drivers.
 // See integration_test/support/app_harness.dart for the policy rationale.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -75,9 +87,9 @@ void main() {
     expect(fb.loginCalls, equals(1));
   });
 
-  // ── Test 3 — SALON_OWNER → home placeholder ──────────────────────────────
+  // ── Test 3 — SALON_OWNER → My Salons Hub ──────────────────────────────────
 
-  testWidgets('SALON_OWNER login navigates to / (home placeholder)', (
+  testWidgets('SALON_OWNER login navigates to /salons/mine (My Salons Hub)', (
     tester,
   ) async {
     final fb = FakeBackend()..currentRole = UserRole.salonOwner;
@@ -87,22 +99,17 @@ void main() {
 
     await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
 
-    // SALON_OWNER is post-MVP → lands on the `/` home placeholder.
-    //
-    // TIGHTENED (2026-07-22 vacuous-assertion audit): this was
-    // `expectLocation(router, RouteNames.home)`. `RouteNames.home` is '/' and
-    // the helper matched with `startsWith`, so the assertion reduced to
-    // `startsWith('/')` — true for every route in the app. It could not have
-    // failed if SALON_OWNER had landed anywhere at all. `AppHarness
-    // .expectLocation` now REJECTS '/' outright for exactly this reason, so
-    // the exact landing path is asserted directly (the same shape Test 2 above
-    // already uses for CLIENT).
+    // Phase 21.1 Step 5 — SALON_OWNER now lands on the My Salons Hub, not the
+    // `/` placeholder. Assert BOTH the exact resolved location AND the
+    // mounted page TYPE (not merely "some widget rendered") — the same
+    // belt-and-braces shape `salon_owner_landing_flow_test.dart` uses for its
+    // dedicated regression pin.
     expect(
       AppHarness.location(router),
-      equals(RouteNames.home),
-      reason:
-          'SALON_OWNER must land exactly on the ${RouteNames.home} placeholder',
+      equals(RouteNames.mySalons),
+      reason: 'SALON_OWNER must land exactly on ${RouteNames.mySalons}',
     );
+    expect(find.byType(MySalonsScreen), findsOneWidget);
     expect(fb.loginCalls, equals(1));
   });
 }

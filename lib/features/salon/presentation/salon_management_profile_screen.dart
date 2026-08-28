@@ -56,7 +56,11 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
@@ -65,6 +69,7 @@ import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../../master/domain/master.dart' show MasterType;
+import '../application/my_salons_notifier.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
 import '../domain/salon.dart';
@@ -272,8 +277,42 @@ class _SalonManagementProfileScreenState
   // TODO(phase-21.4): open the Invite Staff flow. Currently a no-op.
   void _openInviteStaff() {}
 
+  // mobile-security LOW follow-up (2026-08-28) — `salonManageGuard`'s
+  // `SALON_OWNER` arm (`app_router.dart`) admits a cold deep link BEFORE
+  // `mySalonsProvider` resolves (documented, synchronous-`redirect:`-only
+  // design — see that guard's own comment). `GET /salons/{salonId}` (this
+  // screen's own data source, `salonManagementProfileProvider`) is the SAME
+  // publicly-readable endpoint `public_salon_profile_notifier.dart` uses, so
+  // during that window a SALON_OWNER can see a fully-rendered shell of a
+  // salon they do not own (not a privilege escalation — `PATCH`/`DELETE`
+  // stay backend-gated — but a real exposure gap, same class as the
+  // SALON_ADMIN one the guard already closed). Once `mySalonsProvider`
+  // resolves, close the window here: bounce off this screen the instant the
+  // owner's real salon list turns out not to contain [widget.salonId].
+  // SALON_ADMIN is exempt — its ownership check (`User.salonId`) is already
+  // synchronous in the guard, so there is no window to close, and gating on
+  // role keeps this listener from ever touching `mySalonsProvider` for a
+  // role that has no use for it (would otherwise reintroduce the same
+  // unwanted-fetch shape the mobile-perf HIGH finding on that provider just
+  // closed).
+  void _bounceIfNotOwned(AuthSession? session) {
+    if (session is! Authenticated || session.user.role != UserRole.salonOwner) {
+      return;
+    }
+    ref.listen<AsyncValue<List<Salon>>>(mySalonsProvider, (
+      AsyncValue<List<Salon>>? previous,
+      AsyncValue<List<Salon>> next,
+    ) {
+      final List<Salon>? salons = next.value;
+      if (salons == null) return;
+      if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
+      if (context.mounted) context.go(roleHomePath(session.user.role));
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _bounceIfNotOwned(ref.watch(authProvider).value);
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );

@@ -118,6 +118,12 @@ abstract final class SalonMapper {
       coverImageUrl: null,
       avgRating: null,
       reviewCount: 0,
+      // Phase 21.1 — `SalonResponse.isPrimary` DOES carry this (unlike
+      // `PublicSalonResponse`, which [fromDto] above leaves `null`). Also the
+      // per-item mapping `getMySalons()` reuses for `GET /salons/mine`'s
+      // `List<SalonResponse>` — see that method's own doc for why the SAME
+      // DTO type makes this reuse exact, not a guess.
+      isPrimary: dto.isPrimary,
     );
   }
 }

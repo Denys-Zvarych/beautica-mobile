@@ -78,5 +78,18 @@ abstract class Salon with _$Salon {
     /// Null when [reviewCount] is 0 — no reviews yet.
     double? avgRating,
     @Default(0) int reviewCount,
+
+    /// Whether this is the owner's designated primary salon (Phase 21.1 «Мої
+    /// салони» hub — carries the "Основний" badge).
+    ///
+    /// Additive + nullable so every pre-existing construction site is
+    /// unaffected. Only ever populated from `SalonResponse.isPrimary`
+    /// ([SalonMapper.fromUpdateDto], which backs both `PATCH
+    /// /salons/{salonId}` and `GET /salons/mine`) — the PUBLIC
+    /// `PublicSalonResponse` ([SalonMapper.fromDto]) carries no such field
+    /// (a client has no business knowing which of a stranger's salons is
+    /// "primary"), so it is always `null` on that path, mirroring [phone]'s
+    /// own public/private split.
+    bool? isPrimary,
   }) = _Salon;
 }

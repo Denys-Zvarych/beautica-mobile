@@ -163,6 +163,21 @@ abstract final class RouteNames {
   static String salonManageSettings(String salonId) =>
       '${salonManage(salonId)}/settings';
 
+  /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
+  /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
+  /// as a tappable card, plus the "+ Додати салон" CTA. `SALON_OWNER`-only —
+  /// a `SALON_ADMIN` belongs to exactly one salon and lands straight on
+  /// [salonManage] instead.
+  ///
+  /// A LITERAL path under the same `/salons/` prefix as [salonPublicProfile]
+  /// (`/salons/:salonId`, dynamic). Registered in `app_router.dart` as a
+  /// standalone top-level `GoRoute` (same "cannot nest under `:salonId`"
+  /// rationale as [salonManage]) and declared BEFORE the dynamic
+  /// `/salons/:salonId` route so the literal wins the match instead of being
+  /// shadowed by it — go_router resolves literal-vs-dynamic purely by
+  /// declaration order, not specificity.
+  static const String mySalons = '/salons/mine';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders
