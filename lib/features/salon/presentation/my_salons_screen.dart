@@ -138,8 +138,14 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
     );
   }
 
-  void _openSalon(Salon salon) =>
-      context.push(RouteNames.salonManage(salon.id));
+  // Phase 21.8 — the hub is now a SWITCHER: picking a salon puts the owner
+  // IN it (the salon's own shell, one bottom-nav frame), rather than pushing
+  // the bare management profile on top of the hub. `go`, not `push` — this
+  // is a lateral move between salons, not a drill-down the owner backs out
+  // of; the shell itself owns getting back to «Мої салони» (settings hub →
+  // «Мої салони» row, Phase 21.8 Step M11), same as tapping a different
+  // client-shell bottom-nav tab never leaves a stack entry behind.
+  void _openSalon(Salon salon) => context.go(RouteNames.salonShell(salon.id));
 
   /// Phase 21.3 (Register New Salon) is NOT built and `RouteNames
   /// .registerSalon` does not exist — per the phase doc, this stays an

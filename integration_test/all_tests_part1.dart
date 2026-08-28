@@ -37,6 +37,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
 import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
+import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_favorites_flow_test.dart' as client_favorites;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
@@ -90,6 +91,7 @@ void main() {
   // login AND the post-registration done_to_app CTA both land on the My
   // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
   group('salon_owner_landing_flow', salon_owner_landing.main);
+  group('salon_shell_landing_flow', salon_shell_landing.main);
   // Independent-master MULTI-SERVICE booking (Step 2.7 Rule 3b) — acceptance +
   // partial-failure/same-key-retry (re-authored from the removed
   // client_booking_conflict_flow against the new per-appointment contract).

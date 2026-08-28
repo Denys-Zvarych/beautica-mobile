@@ -520,7 +520,7 @@ void main() {
     });
 
     test('SALON_OWNER at /master/working-hours is redirected to '
-        '/salons/mine', () {
+        '/salons/home', () {
       const salonOwnerUser = User(
         id: 'u-so',
         email: 'owner@example.com',
@@ -533,7 +533,7 @@ void main() {
       );
       expect(
         authRedirectForLocation(salonOwnerSession, RouteNames.workingHours),
-        equals(RouteNames.mySalons),
+        equals(RouteNames.salonHome),
       );
     });
 
@@ -746,17 +746,21 @@ void main() {
           );
         });
 
-        test('SALON_OWNER at $route is redirected to /salons/mine', () {
+        test('SALON_OWNER at $route is redirected to /salons/home', () {
           expect(
             authRedirectForLocation(salonOwnerSession, route),
-            equals(RouteNames.mySalons),
+            equals(RouteNames.salonHome),
           );
         });
 
-        test('SALON_ADMIN at $route is redirected to /', () {
+        test('SALON_ADMIN at $route is redirected to /salons/home', () {
           expect(
             authRedirectForLocation(salonAdminSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.salonHome),
+            reason:
+                'Phase 21.8 — SALON_ADMIN now shares the Salon Shell landing '
+                'with SALON_OWNER instead of falling through to the bare `/` '
+                'wildcard.',
           );
         });
 
@@ -809,10 +813,10 @@ void main() {
           },
         );
 
-        test('SALON_OWNER at $route is redirected to /salons/mine', () {
+        test('SALON_OWNER at $route is redirected to /salons/home', () {
           expect(
             authRedirectForLocation(salonOwnerSession, route),
-            equals(RouteNames.mySalons),
+            equals(RouteNames.salonHome),
           );
         });
 

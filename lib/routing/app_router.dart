@@ -95,8 +95,10 @@ import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
+import '../features/salon/presentation/salon_home_resolver_screen.dart';
 import '../features/salon/presentation/salon_management_profile_screen.dart';
 import '../features/salon/presentation/salon_settings_screen.dart';
+import '../features/salon/presentation/salon_shell_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -308,6 +310,22 @@ GoRouter appRouter(Ref ref) {
   String? mySalonsGuard(BuildContext context, GoRouterState state) {
     final session = ref.read(authProvider).value;
     if (session is Authenticated && session.user.role != UserRole.salonOwner) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 21.8 — per-route role gate for the shared SALON_OWNER/SALON_ADMIN
+  // landing (`/salons/home`, [SalonHomeResolverScreen]). A role-only sibling
+  // of [mySalonsGuard] — admits BOTH salon roles (the resolver itself
+  // branches on which one), bounces every other authenticated role to its
+  // own landing. Unauthenticated access is left to the global [authRedirect]
+  // (-> /login).
+  String? salonHomeGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is Authenticated &&
+        session.user.role != UserRole.salonOwner &&
+        session.user.role != UserRole.salonAdmin) {
       return roleHomePath(session.user.role);
     }
     return null;
@@ -751,6 +769,17 @@ GoRouter appRouter(Ref ref) {
         redirect: mySalonsGuard,
         builder: (context, state) => const MySalonsScreen(),
       ),
+      // Phase 21.8 — the shared SALON_OWNER/SALON_ADMIN landing
+      // (`roleHomePath`). A SECOND literal under the `/salons/` prefix,
+      // registered BEFORE the dynamic `/salons/:salonId` route immediately
+      // below for the identical "declaration order, not specificity" reason
+      // [RouteNames.mySalons] documents — otherwise `/salons/home` resolves
+      // to the public-profile route with `salonId == 'home'`.
+      GoRoute(
+        path: RouteNames.salonHome,
+        redirect: salonHomeGuard,
+        builder: (context, state) => const SalonHomeResolverScreen(),
+      ),
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,
@@ -789,6 +818,21 @@ GoRouter appRouter(Ref ref) {
         redirect: salonManageGuard,
         builder: (context, state) =>
             SalonSettingsScreen(salonId: state.pathParameters['salonId'] ?? ''),
+      ),
+      // Phase 21.8 — the salon-scoped bottom-nav shell
+      // ([RouteNames.salonShell]). Reuses [salonManageGuard] VERBATIM — it
+      // already binds ownership for both SALON_OWNER (against
+      // `mySalonsProvider`) and SALON_ADMIN (against `User.salonId`), the
+      // exact authorization this route needs. A STANDALONE top-level route,
+      // same "an ancestor's own redirect always runs" reason
+      // [salonManage]/[salonManageSettings] document — nesting under
+      // `/salons/:salonId` would let that route's own `clientOnlyGuard` run
+      // first and bounce every owner/admin away.
+      GoRoute(
+        path: '/salons/:salonId/shell',
+        redirect: salonManageGuard,
+        builder: (context, state) =>
+            SalonShellScreen(salonId: state.pathParameters['salonId'] ?? ''),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with

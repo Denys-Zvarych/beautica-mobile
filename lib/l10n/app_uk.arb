@@ -5238,6 +5238,46 @@
   "@salonSettingsEditProfile": {
     "description": "Phase 21.2 — the salon settings page's navigational row that pops back to the management profile with edit mode toggled on."
   },
+  "salonSettingsMySalons": "Мої салони",
+  "@salonSettingsMySalons": {
+    "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."
+  },
+  "salonShellTabSalon": "Салон",
+  "@salonShellTabSalon": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 0 label (SalonBottomNav.ownerAdminItems)."
+  },
+  "salonShellTabBookings": "Записи",
+  "@salonShellTabBookings": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 1 label. The design source's ownerAdminItems literal — NOT «Розклад» (the phase doc's tab list was corrected against the shipped design)."
+  },
+  "salonShellTabTeam": "Команда",
+  "@salonShellTabTeam": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 2 label."
+  },
+  "salonShellTabProfile": "Профіль",
+  "@salonShellTabProfile": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 3 label."
+  },
+  "salonShellBookingsSoonTitle": "Записи скоро з'являться",
+  "@salonShellBookingsSoonTitle": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder title for the Записи tab (no host screen until Phase 21.12)."
+  },
+  "salonShellBookingsSoonBlurb": "Тут з'явиться розклад запитів на бронювання по всьому салону.",
+  "@salonShellBookingsSoonBlurb": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder body for the Записи tab."
+  },
+  "salonShellProfileSoonTitle": "Профіль скоро з'явиться",
+  "@salonShellProfileSoonTitle": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder title for the Профіль tab (no host screen until Phase 21.14 owner / Phase 21.16 admin)."
+  },
+  "salonShellProfileSoonBlurb": "Тут з'явиться ваш особистий профіль у салоні.",
+  "@salonShellProfileSoonBlurb": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder body for the Профіль tab."
+  },
+  "salonHomeResolverLoadingSemantics": "Визначаємо ваш салон",
+  "@salonHomeResolverLoadingSemantics": {
+    "description": "Phase 21.8 — accessibility label for SalonHomeResolverScreen's loading skeleton while it resolves which salon shell to forward to."
+  },
   "deleteSalonAction": "Видалити салон",
   "@deleteSalonAction": {
     "description": "Phase 21.2 — the salon settings page's owner-only destructive row label."

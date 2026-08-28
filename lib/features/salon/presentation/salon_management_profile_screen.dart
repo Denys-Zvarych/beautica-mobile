@@ -94,10 +94,42 @@ const int _salonInstagramMaxLength = 500;
 
 /// Owner/admin editable profile for the salon identified by [salonId].
 class SalonManagementProfileScreen extends ConsumerStatefulWidget {
-  const SalonManagementProfileScreen({super.key, required this.salonId});
+  const SalonManagementProfileScreen({
+    super.key,
+    required this.salonId,
+    this.initialTab,
+    this.embedded = false,
+  });
 
   /// Backend Salon-row UUID of the profile being managed.
   final String salonId;
+
+  /// Phase 21.8 — seeds the initial «Про салон»/«Персонал»/«Послуги»/«Відгуки»
+  /// sub-tab once, on first build. `null` (the default, every pre-Phase-21.8
+  /// call site) keeps the original behaviour of always starting on tab 0
+  /// («Про салон»). The Salon Shell's «Команда» tab passes `1` to land
+  /// directly on `salonManageTabStaff`.
+  final int? initialTab;
+
+  /// Phase 21.8 — `true` when this screen is mounted as one `IndexedStack`
+  /// child of [SalonShellScreen] rather than as its own routed, back-
+  /// navigable page. Additive, defaults to `false` so every existing call
+  /// site (`app_router.dart`'s `/salons/:salonId/manage`) renders IDENTICALLY
+  /// to before this phase.
+  ///
+  /// When `true`:
+  ///   * the cover's `salon-manage-back` [CoverIconButton] is hidden — the
+  ///     shell's own bottom nav is the only navigation surface, and there is
+  ///     nothing on the Navigator stack to pop back to (H1a);
+  ///   * [_bounceIfNotOwned] is skipped entirely (H1b) — the shell mounts
+  ///     this screen TWICE (Салон + Команда) in one `IndexedStack`, so both
+  ///     instances' `ref.listen` would otherwise fire on the same
+  ///     `mySalonsProvider` emission and race two `context.go` calls. The
+  ///     shell's own route guard (`salonManageGuard`, reused verbatim for
+  ///     `/salons/:salonId/shell`) already binds ownership before this
+  ///     screen ever mounts, so the second, screen-level check this bounce
+  ///     exists for is redundant in the embedded context.
+  final bool embedded;
 
   @override
   ConsumerState<SalonManagementProfileScreen> createState() =>
@@ -118,7 +150,7 @@ class _SalonManagementProfileScreenState
     r'^https://(www\.)?instagram\.com/[A-Za-z0-9._]+/?$',
   );
 
-  int _tab = 0;
+  late int _tab;
   bool _editMode = false;
   bool _saving = false;
 
@@ -131,6 +163,14 @@ class _SalonManagementProfileScreenState
   String? _errName;
   String? _errPhone;
   String? _errInstagram;
+
+  @override
+  void initState() {
+    super.initState();
+    // Seeds once from `widget.initialTab` — every pre-Phase-21.8 call site
+    // leaves it `null`, so `_tab` starts at 0 exactly as before.
+    _tab = widget.initialTab ?? 0;
+  }
 
   @override
   void dispose() {
@@ -296,6 +336,22 @@ class _SalonManagementProfileScreenState
   // unwanted-fetch shape the mobile-perf HIGH finding on that provider just
   // closed).
   void _bounceIfNotOwned(AuthSession? session) {
+    // Phase 21.8 H1b / mobile-security MEDIUM follow-up (2026-08-28) —
+    // embedded (i.e. mounted inside `SalonShellScreen`'s `IndexedStack`) is
+    // NOT this screen's job to ownership-bounce. The Salon Shell mounts this
+    // screen TWICE in one `IndexedStack` (Салон + Команда, same `salonId`) —
+    // if each instance carried its own `ref.listen` below, both would fire
+    // on the SAME `mySalonsProvider` emission and race two `context.go`
+    // calls (and since `roleHomePath(salonOwner)` now points at the shell's
+    // own resolver, that race can loop). `SalonShellScreen` itself now owns
+    // exactly ONE such listener for the whole shell instead — see its own
+    // `_bounceIfNotOwned` in `salon_shell_screen.dart` — so this early
+    // return just keeps this screen from adding a second, redundant one when
+    // embedded. NOTE: this is NOT because the route guard already bound
+    // ownership — `salonManageGuard`'s `SALON_OWNER` arm has a documented
+    // "admit while `mySalonsProvider` is unresolved" window, which is
+    // exactly what the shell's own listener (not the guard) closes.
+    if (widget.embedded) return;
     if (session is! Authenticated || session.user.role != UserRole.salonOwner) {
       return;
     }
@@ -303,8 +359,14 @@ class _SalonManagementProfileScreenState
       AsyncValue<List<Salon>>? previous,
       AsyncValue<List<Salon>> next,
     ) {
-      final List<Salon>? salons = next.value;
-      if (salons == null) return;
+      // Concrete-subtype gate — `copyWithPrevious` keeps a stale `.value`
+      // attached to a LATER `AsyncLoading`/`AsyncError` (e.g. mid-retry, or
+      // right after a cross-account login on the same device), so only a
+      // genuinely resolved `AsyncData` is ever trusted here — mirrors
+      // `salonManageGuard`'s own gate in `app_router.dart` and
+      // `SalonShellScreen`'s own `_bounceIfNotOwned`.
+      if (next is! AsyncData<List<Salon>>) return;
+      final List<Salon> salons = next.value;
       if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
       if (context.mounted) context.go(roleHomePath(session.user.role));
     });
@@ -354,6 +416,7 @@ class _SalonManagementProfileScreenState
               salonId: widget.salonId,
               salon: salon,
               masters: masters,
+              embedded: widget.embedded,
               topInset: topInset,
               coverHeight: _coverHeight,
               heroProtrusion: _heroProtrusion,
@@ -391,6 +454,7 @@ class _LoadedBody extends StatelessWidget {
     required this.salonId,
     required this.salon,
     required this.masters,
+    required this.embedded,
     required this.topInset,
     required this.coverHeight,
     required this.heroProtrusion,
@@ -416,6 +480,10 @@ class _LoadedBody extends StatelessWidget {
   final String salonId;
   final Salon salon;
   final List<SalonMasterSummary> masters;
+
+  /// Phase 21.8 — see [SalonManagementProfileScreen.embedded]. Hides the
+  /// `salon-manage-back` cover control (H1a).
+  final bool embedded;
   final double topInset;
   final double coverHeight;
   final double heroProtrusion;
@@ -461,6 +529,7 @@ class _LoadedBody extends StatelessWidget {
           heroProtrusion: heroProtrusion,
           topInset: topInset,
           salon: salon,
+          embedded: embedded,
           onOpenSettings: onOpenSettings,
         ),
         const SizedBox(height: VelvetSpacing.lg),
@@ -532,6 +601,7 @@ class _CoverAndHero extends StatelessWidget {
     required this.heroProtrusion,
     required this.topInset,
     required this.salon,
+    required this.embedded,
     required this.onOpenSettings,
   });
 
@@ -539,6 +609,10 @@ class _CoverAndHero extends StatelessWidget {
   final double heroProtrusion;
   final double topInset;
   final Salon salon;
+
+  /// Phase 21.8 H1a — when `true`, the back control is omitted: the shell has
+  /// no Navigator entry to pop back to for this `IndexedStack` child.
+  final bool embedded;
   final VoidCallback onOpenSettings;
 
   @override
@@ -554,16 +628,17 @@ class _CoverAndHero extends StatelessWidget {
             imageUrl: salon.coverImageUrl,
           ),
         ),
-        Positioned(
-          top: topInset + VelvetSpacing.sm,
-          left: VelvetSpacing.lg,
-          child: CoverIconButton(
-            key: const Key('salon-manage-back'),
-            icon: Icons.arrow_back_ios_new_rounded,
-            semanticLabel: l10n.salonProfileBackLabel,
-            onTap: () => context.pop(),
+        if (!embedded)
+          Positioned(
+            top: topInset + VelvetSpacing.sm,
+            left: VelvetSpacing.lg,
+            child: CoverIconButton(
+              key: const Key('salon-manage-back'),
+              icon: Icons.arrow_back_ios_new_rounded,
+              semanticLabel: l10n.salonProfileBackLabel,
+              onTap: () => context.pop(),
+            ),
           ),
-        ),
         Positioned(
           top: topInset + VelvetSpacing.sm,
           right: VelvetSpacing.lg,

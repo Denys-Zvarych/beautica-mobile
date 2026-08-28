@@ -494,13 +494,16 @@ void main() {
           // the fix, mirroring `role_landing_chrome_test.dart`'s identical
           // fix for the same screen.
           myRatingProvider.overrideWith((ref) async => const ClientRating()),
-          // Phase 21.1 follow-up — roleHomePath(salonOwner) now resolves to
-          // RouteNames.mySalons (MySalonsScreen), which is momentarily
+          // Phase 21.8 follow-up — roleHomePath(salonOwner) now resolves to
+          // RouteNames.salonHome (SalonHomeResolverScreen), momentarily
           // mounted whenever a SALON_OWNER session's redirect chain lands
-          // there in this file's tests. Settling mySalonsProvider avoids the
-          // same leaked-timer shape every other override in this list
-          // guards against — MySalonsScreen would otherwise hit the real
-          // Dio-backed salonRepositoryProvider.
+          // there in this file's tests. `_SettledMySalons` resolves to an
+          // EMPTY list, so the resolver's own "zero salons" branch forwards
+          // to RouteNames.mySalons (MySalonsScreen) — the assertion below
+          // still holds, just via one extra transient hop. Settling
+          // mySalonsProvider avoids the same leaked-timer shape every other
+          // override in this list guards against — the resolver would
+          // otherwise hit the real Dio-backed salonRepositoryProvider.
           mySalonsProvider.overrideWith(_SettledMySalons.new),
         ],
       );
@@ -1053,16 +1056,17 @@ void main() {
     // '/booking/salon/masters'`) — the global gate does not cover `/booking/*`
     // at all, so this route's own role check is the only thing standing there.
     group('/booking/salon/masters role gate (salon roles)', () {
-      // SALON_OWNER exercises `roleHomePath`'s Phase 21.1 branch
-      // (`UserRole.salonOwner => RouteNames.mySalons`). Every other
-      // non-CLIENT assertion in this file uses INDEPENDENT_MASTER, whose
-      // landing (`/master/profile`) is a different path — so a regression
-      // that hard-coded ONE non-CLIENT destination would pass everywhere
-      // else and fail only here.
+      // SALON_OWNER exercises `roleHomePath`'s Phase 21.8 branch
+      // (`UserRole.salonOwner => RouteNames.salonHome`), which forwards (via
+      // the transient resolver) to `RouteNames.mySalons` given this file's
+      // `_SettledMySalons` fixture (empty list, see its own doc above). Every
+      // other non-CLIENT assertion in this file uses INDEPENDENT_MASTER,
+      // whose landing (`/master/profile`) is a different path — so a
+      // regression that hard-coded ONE non-CLIENT destination would pass
+      // everywhere else and fail only here.
       testWidgets('a SALON_OWNER with VALID args is bounced to its role home '
-          '(/salons/mine), not admitted into the salon booking flow', (
-        tester,
-      ) async {
+          '(/salons/mine, via the Salon Shell resolver), not admitted into '
+          'the salon booking flow', (tester) async {
         final router = await pumpRouterAs(tester, _salonOwnerSession);
 
         router.go(
@@ -1075,8 +1079,9 @@ void main() {
           locationOf(router),
           equals(RouteNames.mySalons),
           reason:
-              'roleHomePath(salonOwner) is RouteNames.mySalons (Phase '
-              '21.1 My Salons Hub) — a valid extra must not buy a '
+              'roleHomePath(salonOwner) is RouteNames.salonHome (Phase '
+              '21.8), which forwards a salon-less owner to '
+              'RouteNames.mySalons — a valid extra must not buy a '
               'non-CLIENT role into the salon booking flow, and '
               '/booking/* is NOT covered by the global authRedirect '
               'prefix gate, so this route\'s own clientOnlyGuard is the '

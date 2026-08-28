@@ -23,6 +23,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart'
     show MasterType;
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -33,6 +34,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -104,6 +106,15 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
       path: '/salons/:salonId/manage/settings',
       builder: (context, state) =>
           SalonSettingsScreen(salonId: state.pathParameters['salonId']!),
+    ),
+    // The `_bounceIfNotOwned` bounce target (`roleHomePath(salonOwner)`).
+    // Only reached by the "does not trust a stale .value" group below — a
+    // trivial marker is enough since that group asserts on whether a
+    // navigation happened, not on what the destination renders.
+    GoRoute(
+      path: RouteNames.salonHome,
+      builder: (context, state) =>
+          const Scaffold(key: Key('salon-home-bounce-target')),
     ),
   ],
 );
@@ -464,5 +475,127 @@ void main() {
         expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
       },
     );
+  });
+
+  // -------------------------------------------------------------------
+  // mobile-qa gap-closure (2026-08-28) — `_bounceIfNotOwned`'s
+  // `next is! AsyncData<List<Salon>>` concrete-subtype gate had ZERO direct
+  // coverage on the (non-embedded) screen itself before this group — this
+  // was a live MEDIUM defect (the screen used to trust a bare `.value` read)
+  // until this chain added the gate, mirroring `salonManageGuard`'s own gate
+  // in `app_router.dart` (see that guard's mutation-verified coverage in
+  // `salon_manage_route_guard_test.dart`).
+  //
+  // DEVIATION FROM THE LITERAL "stale value CONTAINS the salonId" framing —
+  // documented, not silent (mobile-qa M14: an assertion must be provable by
+  // mutation, never merely plausible):
+  //
+  // A stale `.value` that CONTAINS the route's salonId is indistinguishable
+  // from the fix under the exact regression this group guards against
+  // (`final salons = next.value; if (salons == null) return;`): both the
+  // weakened code and the fixed code read "contains -> no bounce" / "not
+  // AsyncData -> no bounce" — SAME observable outcome, so that shape cannot
+  // mutation-prove anything (confirmed by hand before writing this group).
+  // The shape that DOES distinguish them is a stale value that does NOT
+  // contain the salonId — mirroring `salon_manage_route_guard_test.dart`'s
+  // OWN already-proven "stale .value that does NOT contain the route
+  // salonId" group for the router guard's identical gate — because only
+  // there do the two readings diverge: weakened code sees "not owned",
+  // bounces the legitimate owner away on stale/wrong data; fixed code sees
+  // "not genuinely resolved", stays put.
+  //
+  // The listener must never be exposed to a genuinely-resolved MISMATCHED
+  // `AsyncData` frame first (that case correctly bounces under BOTH old and
+  // new code — a real, if less interesting, bug class already covered by
+  // `salon_manage_route_guard_test.dart`'s `_bounceIfNotOwned` group). So the
+  // AsyncError-with-stale-mismatched-value is driven directly via the
+  // notifier's own `state` setter — bypassing `build()` entirely — rather
+  // than through two natural rebuilds, which would necessarily pass through
+  // that uninteresting intermediate frame first.
+  //
+  // MUTATION-VERIFIED (mobile-qa, 2026-08-28) — replacing this screen's
+  // `_bounceIfNotOwned` gate (`if (next is! AsyncData<List<Salon>>) return;`)
+  // with `final salons = next.value; if (salons == null) return;` turns the
+  // test below RED (it bounces to RouteNames.salonHome instead of staying);
+  // restoring the gate turns it back GREEN with a clean `git diff`. See the
+  // QA report for the exact commands run.
+  group('_bounceIfNotOwned does not trust a stale .value '
+      '(mobile-security MEDIUM follow-up gap-closure)', () {
+    testWidgets('AsyncError with a previous .value that does NOT contain the '
+        'mounted salonId is treated as UNRESOLVED -> stays mounted, never '
+        'bounced on stale/wrong data', (tester) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: _router(repo),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Sanity: mounted normally (mySalonsProvider's own real build,
+      // via `repo.getMySalons()`, resolves to `[_stubSalon]` — the
+      // owner genuinely owns this salon, so no bounce yet).
+      expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
+
+      // Drive mySalonsProvider DIRECTLY into an AsyncError carrying a
+      // stale, MISMATCHED .value via copyWithPrevious — the shape a
+      // genuine cross-account refresh failure leaves behind (per this
+      // group's own doc, constructed this way specifically to avoid an
+      // intermediate genuinely-resolved mismatched AsyncData frame).
+      // `copyWithPrevious` is `@internal` to the riverpod package — this
+      // is the ONLY public-API-reachable way to construct this EXACT
+      // state shape without first passing the listener through a
+      // genuinely-resolved mismatched AsyncData frame (which would
+      // correctly bounce under BOTH the buggy and fixed gate, proving
+      // nothing — see this group's own doc).
+      final AsyncError<List<Salon>> staleError = AsyncError<List<Salon>>(
+        const NetworkFailure(),
+        StackTrace.current,
+      );
+      const AsyncData<List<Salon>> stalePrevious = AsyncData<List<Salon>>(
+        <Salon>[Salon(id: 'a-different-salon-entirely', name: 'Different')],
+      );
+      // ignore: invalid_use_of_internal_member
+      container.read(mySalonsProvider.notifier).state = staleError
+          // ignore: invalid_use_of_internal_member
+          .copyWithPrevious(stalePrevious);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(mySalonsProvider),
+        isA<AsyncError<List<Salon>>>(),
+        reason:
+            'the state must actually BE an AsyncError for this test to '
+            'exercise the concrete-subtype gate at all',
+      );
+      expect(
+        container.read(mySalonsProvider).value,
+        isNotNull,
+        reason:
+            'copyWithPrevious must retain the stale list on .value — '
+            'this IS the exploitable shape the fix guards against',
+      );
+      expect(
+        find.byKey(const Key('salon-manage-hero-card')),
+        findsOneWidget,
+        reason:
+            'an AsyncError state — even one carrying a stale, '
+            'non-owning .value — must be treated as UNRESOLVED and '
+            'never bounce the screen away',
+      );
+    });
   });
 }

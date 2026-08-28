@@ -160,11 +160,31 @@ const Map<String, dynamic> _masterUserJson = <String, dynamic>{
   'lastName': 'Ковальчук',
 };
 
+/// mobile-qa Phase 21.8 gap-closure (2026-08-28) — SALON_ADMIN had no persona
+/// at all: `userJsonForRole` fell through the `_ => _masterUserJson` default,
+/// so `currentRole = UserRole.salonAdmin` silently logged in as an
+/// INDEPENDENT_MASTER (wrong role string, no `salonId`). No E2E flow could
+/// exercise the admin landing (`SalonHomeResolverScreen`'s synchronous
+/// `session.user.salonId` arm) until this was added. `salonId` is
+/// DELIBERATELY a different id than any row in [FakeBackend.mySalons]
+/// (`salon-owner-1`) — the admin landing must never depend on
+/// `mySalonsProvider` at all; sharing an id with the owner fixture would mask
+/// a regression that made it do so.
+const Map<String, dynamic> _adminUserJson = <String, dynamic>{
+  'id': 'user-admin-1',
+  'email': 'admin@beautica.ua',
+  'role': 'SALON_ADMIN',
+  'firstName': 'Ірина',
+  'lastName': 'Адміністратор',
+  'salonId': 'salon-admin-1',
+};
+
 /// Returns the stub JSON body for [UserRole] in `GET /users/me` shape.
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
     UserRole.salonOwner => _ownerUserJson,
+    UserRole.salonAdmin => _adminUserJson,
     UserRole.independentMaster => _masterUserJson,
     _ => _masterUserJson,
   };

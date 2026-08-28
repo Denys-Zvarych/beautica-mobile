@@ -309,6 +309,13 @@ void main() {
       // above so it is not shadowed by it (see `RouteNames.mySalons`'s own
       // doc).
       'mySalons': RouteNames.mySalons,
+      // Phase 21.8 — the shared SALON_OWNER/SALON_ADMIN landing (Salon Shell
+      // resolver stopover). A SECOND literal under `/salons/`, also
+      // registered before the dynamic `/salons/:salonId` route (see
+      // `RouteNames.salonHome`'s own doc).
+      'salonHome': RouteNames.salonHome,
+      // Phase 21.8 — the salon-scoped bottom-nav shell.
+      'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,
       'bookingSlots': RouteNames.bookingSlots,
       'bookingSlotsTime': RouteNames.bookingSlotsTime,

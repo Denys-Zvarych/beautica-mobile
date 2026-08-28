@@ -13,11 +13,12 @@
 // Covered cases:
 //   R1. INDEPENDENT_MASTER → /master/profile (regression guard)
 //   R2. CLIENT             → /home (clientHome) — the bug this file now pins
-//   R3. SALON_OWNER        → /salons/mine (Phase 21.1 My Salons Hub) — was
-//                            the wildcard branch (-> /home) before Phase
-//                            21.1 gave SALON_OWNER its own landing; guards
-//                            against a future regression collapsing it back
-//                            onto the wildcard.
+//   R3. SALON_OWNER        → /salons/home (Phase 21.8 Salon Shell landing,
+//                            the shared resolver stopover) — was
+//                            /salons/mine (Phase 21.1 My Salons Hub) before
+//                            Phase 21.8 gave SALON_OWNER a real bottom-nav
+//                            shell; guards against a future regression
+//                            collapsing it back.
 //
 // Infrastructure: UncontrolledProviderScope + ProviderContainer mirrors the
 // pattern in done_screen_test.dart. A dedicated GoRouter stub registers /home,
@@ -84,7 +85,7 @@ const _testTokens = AuthTokens(
 const _homeMarker = 'stub-home-route';
 const _clientHomeMarker = 'stub-client-home-route';
 const _masterProfileMarker = 'stub-master-profile-route';
-const _mySalonsMarker = 'stub-my-salons-route';
+const _salonHomeMarker = 'stub-salon-home-route';
 
 GoRouter _makeFullRouter() => GoRouter(
   initialLocation: RouteNames.done,
@@ -111,11 +112,12 @@ GoRouter _makeFullRouter() => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text(_masterProfileMarker))),
     ),
-    // Phase 21.1 — the SALON_OWNER landing (My Salons Hub).
+    // Phase 21.8 — the shared SALON_OWNER/SALON_ADMIN landing (Salon Shell
+    // resolver stopover).
     GoRoute(
-      path: RouteNames.mySalons,
+      path: RouteNames.salonHome,
       builder: (context, state) =>
-          const Scaffold(body: Center(child: Text(_mySalonsMarker))),
+          const Scaffold(body: Center(child: Text(_salonHomeMarker))),
     ),
   ],
 );
@@ -280,17 +282,17 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // R3 — SALON_OWNER routes to /salons/mine (Phase 21.1 My Salons Hub)
+    // R3 — SALON_OWNER routes to /salons/home (Phase 21.8 Salon Shell landing)
     //
     // roleHomePath has a dedicated `UserRole.salonOwner => RouteNames
-    // .mySalons` arm (Phase 21.1) — SALON_OWNER no longer falls through the
+    // .salonHome` arm (Phase 21.8) — SALON_OWNER no longer falls through the
     // `_ => RouteNames.home` wildcard the way it did before that phase. This
     // test pins the CURRENT landing and guards against a future regression
     // that collapses SALON_OWNER back onto the wildcard (or onto
     // /master/profile).
     // -----------------------------------------------------------------------
     testWidgets('R3. SALON_OWNER: tapping done_to_app navigates to '
-        'RouteNames.mySalons (/salons/mine)', (tester) async {
+        'RouteNames.salonHome (/salons/home)', (tester) async {
       final router = _makeFullRouter();
       addTearDown(router.dispose);
 
@@ -300,7 +302,7 @@ void main() {
         router: router,
       );
 
-      expect(find.text(_mySalonsMarker), findsNothing);
+      expect(find.text(_salonHomeMarker), findsNothing);
       expect(find.text(_homeMarker), findsNothing);
       expect(find.text(_masterProfileMarker), findsNothing);
 
@@ -313,11 +315,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text(_mySalonsMarker),
+        find.text(_salonHomeMarker),
         findsOneWidget,
         reason:
-            'SALON_OWNER must land on RouteNames.mySalons (the Phase 21.1 '
-            'My Salons Hub) — not the bare /home wildcard placeholder',
+            'SALON_OWNER must land on RouteNames.salonHome (the Phase 21.8 '
+            'Salon Shell landing) — not the bare /home wildcard placeholder',
       );
       expect(
         find.text(_homeMarker),

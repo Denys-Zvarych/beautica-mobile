@@ -23,7 +23,7 @@
 // See integration_test/support/app_harness.dart for the policy rationale.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -87,29 +87,37 @@ void main() {
     expect(fb.loginCalls, equals(1));
   });
 
-  // ── Test 3 — SALON_OWNER → My Salons Hub ──────────────────────────────────
+  // ── Test 3 — SALON_OWNER → Salon Shell (via the /salons/home resolver) ────
 
-  testWidgets('SALON_OWNER login navigates to /salons/mine (My Salons Hub)', (
-    tester,
-  ) async {
-    final fb = FakeBackend()..currentRole = UserRole.salonOwner;
-    final GoRouter router = await AppHarness.boot(tester, fb);
+  testWidgets(
+    'SALON_OWNER login navigates to the Salon Shell (RouteNames.salonHome '
+    'forwards to RouteNames.salonShell)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+      final GoRouter router = await AppHarness.boot(tester, fb);
 
-    expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
 
-    await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
 
-    // Phase 21.1 Step 5 — SALON_OWNER now lands on the My Salons Hub, not the
-    // `/` placeholder. Assert BOTH the exact resolved location AND the
-    // mounted page TYPE (not merely "some widget rendered") — the same
-    // belt-and-braces shape `salon_owner_landing_flow_test.dart` uses for its
-    // dedicated regression pin.
-    expect(
-      AppHarness.location(router),
-      equals(RouteNames.mySalons),
-      reason: 'SALON_OWNER must land exactly on ${RouteNames.mySalons}',
-    );
-    expect(find.byType(MySalonsScreen), findsOneWidget);
-    expect(fb.loginCalls, equals(1));
-  });
+      // Phase 21.8 — SALON_OWNER now lands on the Salon Shell (via the
+      // transient `/salons/home` resolver), not the My Salons hub and not
+      // the `/` placeholder. Assert BOTH the exact resolved location AND
+      // the mounted page TYPE (not merely "some widget rendered") — the
+      // same belt-and-braces shape `salon_owner_landing_flow_test.dart`
+      // uses for its dedicated regression pin. `salon-owner-1` is
+      // `fake_backend.dart`'s default single-primary `GET /salons/mine`
+      // fixture id.
+      const String primarySalonId = 'salon-owner-1';
+      expect(
+        AppHarness.location(router),
+        equals(RouteNames.salonShell(primarySalonId)),
+        reason:
+            'SALON_OWNER must land exactly on '
+            '${RouteNames.salonShell(primarySalonId)}',
+      );
+      expect(find.byType(SalonShellScreen), findsOneWidget);
+      expect(fb.loginCalls, equals(1));
+    },
+  );
 }

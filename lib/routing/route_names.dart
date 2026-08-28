@@ -163,6 +163,40 @@ abstract final class RouteNames {
   static String salonManageSettings(String salonId) =>
       '${salonManage(salonId)}/settings';
 
+  /// Phase 21.8 — the SHARED `SALON_OWNER`/`SALON_ADMIN` landing
+  /// (`roleHomePath`), rendering [SalonHomeResolverScreen]. A transient
+  /// stopover, not a destination the viewer lingers on: it resolves which
+  /// salon's shell ([salonShell]) to enter and forwards there (a
+  /// `SALON_ADMIN` reads `session.user.salonId` synchronously; a
+  /// `SALON_OWNER` picks the primary salon from `mySalonsProvider`, falling
+  /// back to the My Salons hub when they own none).
+  ///
+  /// A LITERAL top-level path under the SAME `/salons/` prefix as
+  /// [salonPublicProfile] (`/salons/:salonId`, dynamic) — registered BEFORE
+  /// that dynamic route, same "declaration order, not specificity" rationale
+  /// [mySalons] documents (a second literal under this prefix would
+  /// otherwise be swallowed as a `:salonId` value: `/salons/home` would
+  /// resolve to the public-profile route with `salonId == 'home'`).
+  static const String salonHome = '/salons/home';
+
+  /// Phase 21.8 — the salon-scoped bottom-nav shell
+  /// ([SalonHomeResolverScreen] forwards here). `SALON_OWNER`/`SALON_ADMIN`
+  /// only — gated by `salonHomeGuard`'s route-level role check plus
+  /// `salonManageGuard` (reused VERBATIM from [salonManage]/
+  /// [salonManageSettings] — it already binds ownership for both roles) on
+  /// the route itself.
+  ///
+  /// A literal `/shell` suffix on the same `/salons/:salonId` segment
+  /// [salonManage]/[salonManageSettings] extend — registered as a STANDALONE
+  /// top-level route for the identical "an ancestor's own redirect always
+  /// runs" reason those two document, LAST among the four `/salons/:salonId`-
+  /// prefixed siblings (declaration order does not matter among them, since
+  /// none is a literal that a dynamic sibling could shadow — only [mySalons]
+  /// and [salonHome] have that concern, both literals under the shorter
+  /// `/salons/` prefix).
+  static String salonShell(String salonId) =>
+      '${salonPublicProfile(salonId)}/shell';
+
   /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
   /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
   /// as a tappable card, plus the "+ Додати салон" CTA. `SALON_OWNER`-only —

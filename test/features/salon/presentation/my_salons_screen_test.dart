@@ -128,7 +128,8 @@ class _SequencedMySalons extends MySalons {
 
 // ---------------------------------------------------------------------------
 // Router — registers the hub plus BOTH possible tap destinations, so the
-// navigation test can prove it lands on `salonManage`, never `salonProfile`.
+// navigation test can prove it lands on the salon shell, never the public
+// client-facing profile.
 // ---------------------------------------------------------------------------
 
 GoRouter _router() => GoRouter(
@@ -138,10 +139,12 @@ GoRouter _router() => GoRouter(
       path: RouteNames.mySalons,
       builder: (context, state) => const MySalonsScreen(),
     ),
+    // Phase 21.8 — the hub is now a SWITCHER: picking a salon lands in its
+    // shell, not its (separately routed) management profile.
     GoRoute(
-      path: '/salons/:salonId/manage',
+      path: '/salons/:salonId/shell',
       builder: (context, state) => Scaffold(
-        body: Text('manage-screen-${state.pathParameters['salonId']}'),
+        body: Text('shell-screen-${state.pathParameters['salonId']}'),
       ),
     ),
     GoRoute(
@@ -215,10 +218,12 @@ void main() {
 
   group('navigation', () {
     testWidgets(
-      'card tap opens RouteNames.salonManage(id), never salonProfile(id)',
+      'card tap opens RouteNames.salonShell(id) via go, never salonProfile(id)',
       (tester) async {
+        final GoRouter router = _router();
+        addTearDown(router.dispose);
         await tester.pumpRoutedApp(
-          _router(),
+          router,
           overrides: <Object>[
             mySalonsProvider.overrideWith(
               () => _StubMySalons(() async => _salons),
@@ -232,13 +237,20 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('manage-screen-salon-1'), findsOneWidget);
+        expect(find.text('shell-screen-salon-1'), findsOneWidget);
         expect(
           find.text('public-profile-salon-1'),
           findsNothing,
           reason:
               'must NEVER land on the public/client salon profile — the '
               'exact mistake the phase doc calls out',
+        );
+        // Phase 21.8 — the hub is a SWITCHER: `go`, not `push`. The hub's
+        // own route must not remain underneath on the stack.
+        expect(
+          // router-location-ok: only router.go(...) (never push) is used here, so the ImperativeRouteMatch exclusion does not apply.
+          router.routerDelegate.currentConfiguration.uri.toString(),
+          equals(RouteNames.salonShell('salon-1')),
         );
       },
     );

@@ -68,6 +68,7 @@ import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dar
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -302,6 +303,15 @@ void main() {
           salonManagementProfileProvider(
             _kOtherOwnedSalonId,
           ).overrideWith(_SettledSalonManagementProfile.new),
+          // Phase 21.8 — `_otherSalonAdminSession`'s roleHomePath now
+          // forwards (via the Salon Shell resolver) to THEIR OWN salon
+          // (`salon-guard-2`, `_otherSalonAdminUser.salonId`), mounting the
+          // shell's embedded Салон/Команда tabs. Settle it the same way, or
+          // that transient landing hits the real Dio-backed
+          // `salonRepositoryProvider`.
+          salonManagementProfileProvider(
+            'salon-guard-2',
+          ).overrideWith(_SettledSalonManagementProfile.new),
           // Settles the CLIENT redirect target (RouteNames.clientHome →
           // HomeHubScreen's 5 data providers) synchronously — same
           // leaked-Timer avoidance `role_landing_chrome_test.dart` documents
@@ -420,8 +430,22 @@ void main() {
           router.go(RouteNames.salonManage(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.home));
-          expect(find.byType(SalonManagementProfileScreen), findsNothing);
+          // Phase 21.8 — roleHomePath(salonAdmin) now resolves to the shared
+          // Salon Shell landing, which forwards the admin to THEIR OWN salon
+          // (`salon-guard-2`, [_otherSalonAdminUser]'s `User.salonId`) — never
+          // the requested `_kSalonId`.
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell('salon-guard-2')),
+          );
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) =>
+                  w is SalonManagementProfileScreen && w.salonId == _kSalonId,
+            ),
+            findsNothing,
+            reason: 'the unrequested salonId must never be admitted',
+          );
         },
       );
 
@@ -506,7 +530,11 @@ void main() {
           router.go(RouteNames.salonManageSettings(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.home));
+          // Phase 21.8 — see the identical `/manage` case above.
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell('salon-guard-2')),
+          );
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -552,6 +580,101 @@ void main() {
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
+    });
+
+    // -------------------------------------------------------------------
+    // mobile-qa gap-closure (2026-08-28) — `/salons/:salonId/shell`
+    // (Phase 21.8) had NO route-guard coverage at all: `salonManageGuard` is
+    // reused VERBATIM for this route (see `app_router.dart`'s own comment on
+    // that `GoRoute`), so its ownership-binding behaviour is already proven
+    // by every group above — this one just confirms the SAME guard is
+    // actually WIRED onto `/shell`, asserting on `SalonShellScreen` (not
+    // `SalonManagementProfileScreen`, which the shell also mounts internally
+    // for its Салон tab — asserting on the wrong type here would pass for
+    // the wrong reason).
+    // -------------------------------------------------------------------
+    group('/salons/:salonId/shell (Phase 21.8 — reuses salonManageGuard)', () {
+      testWidgets('SALON_OWNER is ADMITTED on a salon they own', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonShell(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals('/salons/$_kSalonId/shell'));
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+      });
+
+      testWidgets(
+        'SALON_OWNER is redirected away from a salon they do NOT own, '
+        'never admitted',
+        (tester) async {
+          final router = await pumpRouterAs(
+            tester,
+            _ownerSession,
+            mySalonsOverride: () => _ResolvedMySalons(const <Salon>[
+              Salon(id: _kOtherOwnedSalonId, name: 'Second Owned Salon'),
+            ]),
+          );
+
+          // `_kSalonId` is NOT in the resolved list above.
+          router.go(RouteNames.salonShell(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell(_kOtherOwnedSalonId)),
+            reason:
+                'roleHomePath(salonOwner) forwards, via the Salon Home '
+                'resolver, to a salon the owner actually owns — never the '
+                'requested, unowned $_kSalonId',
+          );
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) => w is SalonShellScreen && w.salonId == _kSalonId,
+            ),
+            findsNothing,
+            reason: 'the unowned salonId must never be admitted',
+          );
+        },
+      );
+
+      testWidgets('SALON_ADMIN is ADMITTED on their OWN salonId', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _adminSession);
+
+        router.go(RouteNames.salonShell(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals('/salons/$_kSalonId/shell'));
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+      });
+
+      testWidgets('SALON_ADMIN is redirected to their OWN salon on a DIFFERENT '
+          'salonId, never admitted to the requested one', (tester) async {
+        final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+        router.go(RouteNames.salonShell(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals(RouteNames.salonShell('salon-guard-2')),
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is SalonShellScreen && w.salonId == _kSalonId,
+          ),
+          findsNothing,
+          reason: 'the unrequested salonId must never be admitted',
+        );
+      });
     });
 
     // -------------------------------------------------------------------
@@ -608,8 +731,22 @@ void main() {
           router.go(RouteNames.salonManage(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.mySalons));
-          expect(find.byType(SalonManagementProfileScreen), findsNothing);
+          // Phase 21.8 — roleHomePath(salonOwner) now resolves through the
+          // Salon Shell landing (a transient resolver), which forwards to
+          // the salon the owner actually owns (`_kOtherOwnedSalonId`, the
+          // list's only entry) — never the requested, unowned `_kSalonId`.
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell(_kOtherOwnedSalonId)),
+          );
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) =>
+                  w is SalonManagementProfileScreen && w.salonId == _kSalonId,
+            ),
+            findsNothing,
+            reason: 'the unowned salonId must never be admitted',
+          );
         },
       );
 
@@ -683,15 +820,26 @@ void main() {
           ]);
           await tester.pumpAndSettle();
 
+          // Phase 21.8 — `_bounceIfNotOwned` still calls
+          // `context.go(roleHomePath(role))`, but that now resolves to the
+          // Salon Shell landing, which forwards to the salon the owner
+          // actually owns (`_kOtherOwnedSalonId`) rather than the old
+          // `RouteNames.mySalons` hub.
           expect(
             locationOf(router),
-            equals(RouteNames.mySalons),
+            equals(RouteNames.salonShell(_kOtherOwnedSalonId)),
             reason:
                 '_bounceIfNotOwned must fire once mySalonsProvider resolves '
                 'and the owner turns out not to own this salon',
           );
-          expect(find.byType(SalonManagementProfileScreen), findsNothing);
-          expect(find.byType(MySalonsScreen), findsOneWidget);
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) =>
+                  w is SalonManagementProfileScreen && w.salonId == _kSalonId,
+            ),
+            findsNothing,
+          );
+          expect(find.byType(MySalonsScreen), findsNothing);
         },
       );
 
@@ -807,8 +955,22 @@ void main() {
         // keeps the just-resolved (mismatched) list attached to the
         // resulting AsyncError's `.value`, exactly the shape a real
         // cross-account refresh failure leaves behind.
+        //
+        // Phase 21.8 — the initial landing now goes THROUGH the Salon Shell
+        // resolver, which (unlike the old direct `MySalonsScreen` landing)
+        // does not stay mounted watching `mySalonsProvider` once it has
+        // forwarded onward — its embedded `SalonManagementProfileScreen`
+        // children skip `_bounceIfNotOwned` (H1b) entirely, so nothing in
+        // the mounted tree watches `mySalonsProvider` any more. With no
+        // active widget watcher, bare `tester.pump()`s no longer drive the
+        // invalidated rebuild forward (pre-Phase-21.8, `MySalonsScreen`'s own
+        // `ref.watch` did). Await the provider's own `.future` instead — this
+        // reads (and thus drives) the CURRENT rebuild directly, regardless of
+        // whether anything is watching it.
         container.invalidate(mySalonsProvider);
-        await tester.pump();
+        await container.read(mySalonsProvider.future).catchError((_) {
+          return const <Salon>[];
+        });
         await tester.pump();
 
         final AsyncValue<List<Salon>> midState = container.read(

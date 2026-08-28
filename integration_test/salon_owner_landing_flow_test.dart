@@ -42,7 +42,7 @@
 // All taps are key-based — no raw Ukrainian find.text() tap drivers.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,6 +52,11 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
+/// The default single-primary salon FakeBackend seeds `GET /salons/mine`
+/// with (`fake_backend.dart`'s `mySalons` fixture) — the id the resolver
+/// (`SalonHomeResolverScreen`) must forward the owner to.
+const String _primarySalonId = 'salon-owner-1';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -59,8 +64,8 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'fresh login: SALON_OWNER lands on /salons/mine (My Salons Hub), never '
-    'the / placeholder',
+    'fresh login: SALON_OWNER lands on the Salon Shell (via the /salons/home '
+    'resolver), never the / placeholder',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.salonOwner;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -76,11 +81,12 @@ void main() {
       final String landed = AppHarness.location(router);
       expect(
         landed,
-        equals(RouteNames.mySalons),
+        equals(RouteNames.salonShell(_primarySalonId)),
         reason:
-            'SALON_OWNER must land exactly on ${RouteNames.mySalons} — got '
-            '$landed. If this is "/", roleHomePath regressed back to the '
-            'pre-Phase-21.1 wildcard.',
+            'SALON_OWNER must land exactly on '
+            '${RouteNames.salonShell(_primarySalonId)} — got $landed. '
+            'roleHomePath (RouteNames.salonHome, Phase 21.8) forwards, via '
+            'SalonHomeResolverScreen, to the primary salon\'s shell.',
       );
       expect(
         landed,
@@ -90,10 +96,10 @@ void main() {
             'the bare _Placeholder(\'home\') at "/"',
       );
       expect(
-        find.byType(MySalonsScreen),
+        find.byType(SalonShellScreen),
         findsOneWidget,
         reason:
-            'the resolved PAGE TYPE must be the real hub, not merely a '
+            'the resolved PAGE TYPE must be the real shell, not merely a '
             'matching location string (see the route-shadowing sibling test '
             'for why the string alone is not proof)',
       );
@@ -103,7 +109,7 @@ void main() {
 
   testWidgets(
     'post-registration: tapping the Done screen CTA as a SALON_OWNER lands '
-    'on /salons/mine (My Salons Hub)',
+    'on the Salon Shell (via the /salons/home resolver)',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.salonOwner;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -124,15 +130,16 @@ void main() {
       final String landed = AppHarness.location(router);
       expect(
         landed,
-        equals(RouteNames.mySalons),
+        equals(RouteNames.salonShell(_primarySalonId)),
         reason:
             'the done_to_app CTA (done_screen.dart) must route a SALON_OWNER '
-            'through roleHomePath to ${RouteNames.mySalons} — got $landed',
+            'through roleHomePath to RouteNames.salonHome, which forwards to '
+            '${RouteNames.salonShell(_primarySalonId)} — got $landed',
       );
       expect(
-        find.byType(MySalonsScreen),
+        find.byType(SalonShellScreen),
         findsOneWidget,
-        reason: 'resolved page type must be the real hub, not a stub',
+        reason: 'resolved page type must be the real shell, not a stub',
       );
     },
   );

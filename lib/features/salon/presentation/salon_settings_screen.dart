@@ -62,6 +62,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final CurvedAnimation _anim0; // edit profile
+  late final CurvedAnimation _animMySalons; // «Мої салони» (owner-only)
   late final CurvedAnimation _anim1; // hairline
   late final CurvedAnimation _anim2; // delete salon
 
@@ -80,6 +81,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
       duration: const Duration(milliseconds: 700),
     );
     _anim0 = _curve(0.00, 0.55);
+    _animMySalons = _curve(0.10, 0.65);
     _anim1 = _curve(0.20, 0.75);
     _anim2 = _curve(0.35, 0.92);
     _controller.forward();
@@ -93,6 +95,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
   @override
   void dispose() {
     _anim0.dispose();
+    _animMySalons.dispose();
     _anim1.dispose();
     _anim2.dispose();
     _controller.dispose();
@@ -181,6 +184,22 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
               onTap: _editProfile,
             ),
           ),
+
+          // Phase 21.8 Step M11 — «Мої салони», owner-only (a SALON_ADMIN
+          // belongs to exactly one salon and has no use for the multi-salon
+          // hub; `mySalonsGuard` would bounce them straight back out anyway).
+          // `push`, not `go` — cancelling the switch (back) returns to this
+          // shell rather than losing it.
+          if (isOwner)
+            _reveal(
+              _animMySalons,
+              SettingsRow(
+                key: const Key('row-my-salons'),
+                icon: Icons.storefront_outlined,
+                label: l10n.salonSettingsMySalons,
+                onTap: () => context.push(RouteNames.mySalons),
+              ),
+            ),
 
           // Terminal group — owner-only. Both the hairline AND the row are
           // suppressed for an admin viewer (they can never delete a salon —
