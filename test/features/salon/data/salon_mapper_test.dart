@@ -40,6 +40,17 @@ PublicSalonResponse _taxonomyOnlyDto() => PublicSalonResponse(
     ..name = 'Салон «Вельвет»'
     ..reviewCount = 0
     ..cityId = 'city-uuid-1'
+    // Regression (2026-08-28) — `oblastId` shipped alongside
+    // `SalonAddressEditScreen` (backend `dbe27a5`) so
+    // `SalonAddressEditScreen._prePopulateLocality` can resolve the locality
+    // cascade with a single targeted `oblastId -> cities -> districts`
+    // lookup, replacing an earlier "scan every oblast's city list" resolver.
+    // `SalonMapper.fromDto` hardcoded this to `null` in the first cut of
+    // that work — every gate (analyze, guards, ~1900 tests, two audits)
+    // stayed green because nothing asserted the DTO's `oblastId` ever
+    // reached the domain `Salon`, so the cascade silently opened unresolved
+    // for every salon with a real oblast. This is the direct regression pin.
+    ..oblastId = 'oblast-uuid-1'
     ..districtId = 'district-uuid-1'
     ..street = 'вул. Хрещатик'
     ..buildingNo = '22'
@@ -72,6 +83,14 @@ void main() {
       final salon = SalonMapper.fromDto(_taxonomyOnlyDto());
 
       expect(salon.cityId, 'city-uuid-1');
+      expect(
+        salon.oblastId,
+        'oblast-uuid-1',
+        reason:
+            'a mapper that hardcodes oblastId to null (the actual 2026-08-28 '
+            'bug) leaves the SalonAddressEditScreen locality cascade with no '
+            'oblast to resolve — this must go red on that regression.',
+      );
       expect(salon.districtId, 'district-uuid-1');
       expect(salon.street, 'вул. Хрещатик');
       expect(salon.buildingNo, '22');
@@ -98,6 +117,7 @@ void main() {
       final salon = SalonMapper.fromDto(_locationlessDto());
 
       expect(salon.cityId, isNull);
+      expect(salon.oblastId, isNull);
       expect(salon.districtId, isNull);
       expect(salon.street, isNull);
       expect(salon.buildingNo, isNull);
@@ -114,6 +134,43 @@ void main() {
       );
 
       expect(() => SalonMapper.fromDto(dto), throwsA(isA<ServerFailure>()));
+    });
+  });
+
+  // Regression (2026-08-28) — `SalonMapper.fromUpdateDto` (`PATCH
+  // /salons/{salonId}` / `GET /salons/mine`, `SalonResponse`) carries its OWN
+  // `oblastId` mapping line, independent of `fromDto` above — the same
+  // "hardcoded null" bug could regress on this path without moving the
+  // `fromDto` assertion at all. No prior test exercised this method at all.
+  group('SalonMapper.fromUpdateDto', () {
+    test('maps oblastId (and cityId) from a SalonResponse DTO', () {
+      final SalonResponse dto = SalonResponse(
+        (b) => b
+          ..id = 'salon-4'
+          ..name = 'Салон «Оновлений»'
+          ..cityId = 'city-uuid-2'
+          ..oblastId = 'oblast-uuid-2'
+          ..street = 'вул. Саксаганського'
+          ..buildingNo = '5',
+      );
+
+      final salon = SalonMapper.fromUpdateDto(dto);
+
+      expect(salon.cityId, 'city-uuid-2');
+      expect(salon.oblastId, 'oblast-uuid-2');
+    });
+
+    test('leaves oblastId null when the DTO carries no locality', () {
+      final SalonResponse dto = SalonResponse(
+        (b) => b
+          ..id = 'salon-5'
+          ..name = 'Салон без адреси',
+      );
+
+      final salon = SalonMapper.fromUpdateDto(dto);
+
+      expect(salon.oblastId, isNull);
+      expect(salon.cityId, isNull);
     });
   });
 

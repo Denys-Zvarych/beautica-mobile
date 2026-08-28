@@ -82,6 +82,7 @@ import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
+import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -238,4 +239,10 @@ void main() {
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.
   group('salon_management_profile_flow', salon_management_profile.main);
+  // Phase 21.10 QA follow-up (Step 2.7 Rule 3b) — the three new edit-form
+  // routes (profile/address/contacts) reachable end-to-end via a real
+  // SALON_OWNER session, plus the address form's locality-PAIR dirty-diff
+  // regression pin (cityId/districtId diffed independently can submit an
+  // invalid pair — see the file's own header doc).
+  group('salon_edit_forms_flow', salon_edit_forms.main);
 }

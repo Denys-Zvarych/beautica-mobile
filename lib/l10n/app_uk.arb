@@ -5226,6 +5226,22 @@
   "@salonManageNameTooLong": {
     "description": "mobile-security LOW follow-up, 2026-08-27 — error shown under the salon name field when it exceeds UpdateSalonRequest's backend cap (Size max = 255)."
   },
+  "salonProfileEditTitle": "Назва та опис",
+  "@salonProfileEditTitle": {
+    "description": "Phase 21.10 — SectionScaffold title for the dedicated SalonProfileEditScreen (name + description)."
+  },
+  "salonProfileEditSubheading": "Як салон називається та описується для клієнтів.",
+  "@salonProfileEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonProfileEditScreen."
+  },
+  "salonAddressEditSubheading": "Де знаходиться салон. Адреса показується клієнтам у профілі.",
+  "@salonAddressEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonAddressEditScreen. Screen title reuses locationTitle ('Локація')."
+  },
+  "salonContactsEditSubheading": "Як клієнти можуть звʼязатися із салоном.",
+  "@salonContactsEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonContactsEditScreen. Screen title reuses contactsTitle ('Контакти')."
+  },
   "salonManageStaffEmpty": "У цього салону ще немає майстрів.",
   "@salonManageStaffEmpty": {
     "description": "Phase 21.2 — empty-state message shown above the staff grid's invite tile when the salon has no masters yet."

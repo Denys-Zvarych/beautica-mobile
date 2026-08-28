@@ -15,6 +15,7 @@ Name | Type | Description | Notes
 **region** | **String** |  | [optional] 
 **address** | **String** |  | [optional] 
 **cityId** | **String** |  | [optional] 
+**oblastId** | **String** |  | [optional] 
 **districtId** | **String** |  | [optional] 
 **street** | **String** |  | [optional] 
 **buildingNo** | **String** |  | [optional] 

@@ -22,6 +22,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
   @override
   final String? cityId;
   @override
+  final String? oblastId;
+  @override
   final String? districtId;
   @override
   final String? street;
@@ -52,6 +54,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
       this.region,
       this.address,
       this.cityId,
+      this.oblastId,
       this.districtId,
       this.street,
       this.buildingNo,
@@ -82,6 +85,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
         region == other.region &&
         address == other.address &&
         cityId == other.cityId &&
+        oblastId == other.oblastId &&
         districtId == other.districtId &&
         street == other.street &&
         buildingNo == other.buildingNo &&
@@ -103,6 +107,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
     _$hash = $jc(_$hash, region.hashCode);
     _$hash = $jc(_$hash, address.hashCode);
     _$hash = $jc(_$hash, cityId.hashCode);
+    _$hash = $jc(_$hash, oblastId.hashCode);
     _$hash = $jc(_$hash, districtId.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
@@ -126,6 +131,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
           ..add('region', region)
           ..add('address', address)
           ..add('cityId', cityId)
+          ..add('oblastId', oblastId)
           ..add('districtId', districtId)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
@@ -170,6 +176,10 @@ class PublicSalonResponseBuilder
   String? _cityId;
   String? get cityId => _$this._cityId;
   set cityId(String? cityId) => _$this._cityId = cityId;
+
+  String? _oblastId;
+  String? get oblastId => _$this._oblastId;
+  set oblastId(String? oblastId) => _$this._oblastId = oblastId;
 
   String? _districtId;
   String? get districtId => _$this._districtId;
@@ -222,6 +232,7 @@ class PublicSalonResponseBuilder
       _region = $v.region;
       _address = $v.address;
       _cityId = $v.cityId;
+      _oblastId = $v.oblastId;
       _districtId = $v.districtId;
       _street = $v.street;
       _buildingNo = $v.buildingNo;
@@ -259,6 +270,7 @@ class PublicSalonResponseBuilder
           region: region,
           address: address,
           cityId: cityId,
+          oblastId: oblastId,
           districtId: districtId,
           street: street,
           buildingNo: buildingNo,

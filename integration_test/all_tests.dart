@@ -137,6 +137,7 @@ import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
+import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
@@ -452,6 +453,12 @@ void main() {
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.
   group('salon_management_profile_flow', salon_management_profile.main);
+  // Phase 21.10 QA follow-up (Step 2.7 Rule 3b) — the three new edit-form
+  // routes (profile/address/contacts) reachable end-to-end via a real
+  // SALON_OWNER session, plus the address form's locality-PAIR dirty-diff
+  // regression pin (cityId/districtId diffed independently can submit an
+  // invalid pair — see the file's own header doc).
+  group('salon_edit_forms_flow', salon_edit_forms.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

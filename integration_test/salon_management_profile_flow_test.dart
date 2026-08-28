@@ -33,6 +33,8 @@
 // `/api/v1/salons/salon-xyz` are new (Phase 21.2 QA follow-up; the GET was
 // already wired for the public-profile flow).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
@@ -49,6 +51,34 @@ import 'support/app_harness.dart';
 
 const String _kSalonId = 'salon-xyz';
 
+/// mobile-qa fixture-drift fix (2026-08-28) — `salonManageGuard`'s owner arm
+/// (`app_router.dart`) now authorizes `SALON_OWNER` against the REAL
+/// `mySalonsProvider` list (`GET /salons/mine`, keepAlive, resolved during
+/// [AppHarness.loginAs]'s post-login landing on `SalonHomeResolverScreen`),
+/// bouncing any `:salonId` absent from it — the exact ownership check Phase
+/// 21.2 left as a TODO. `FakeBackend.mySalons` defaults to ONLY
+/// `salon-owner-1` (see its own doc), while this flow drives `router.go`
+/// straight at `salon-xyz` (the public-detail fixture this file's PATCH/
+/// DELETE handlers target — see the file header). Without this seed the
+/// guard correctly (per its own contract) bounces `salon-xyz` to
+/// `/salons/salon-owner-1/shell` — this is fixture drift, not a guard bug;
+/// the guard is doing real authorization work and must keep bouncing salons
+/// the owner does not own. `isPrimary: false` deliberately — `salon-owner-1`
+/// stays the primary so widening the list doesn't shift any unrelated
+/// "primary salon" behaviour.
+void _seedSalonXyzIntoMySalons(FakeBackend fb) {
+  fb.mySalons.add(<String, dynamic>{
+    'id': _kSalonId,
+    'ownerId': 'user-owner-1',
+    'name': 'Студія Краси «Камелія»',
+    'city': 'Київ',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'isActive': true,
+    'isPrimary': false,
+  });
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -61,6 +91,7 @@ void main() {
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
         final GoRouter router = await AppHarness.boot(tester, fb);
 
         await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
@@ -158,13 +189,30 @@ void main() {
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
         final GoRouter router = await AppHarness.boot(tester, fb);
 
         await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
         // fixed-wait-ok: settles the real async login/route-transition step.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
-        router.go(RouteNames.salonManageSettings(_kSalonId));
+        // Go to the manage screen FIRST, then PUSH settings on top — mirrors
+        // the real navigation `salon_management_profile_screen.dart:269`
+        // uses (`context.push`, not `.go`). This keeps
+        // `SalonManagementProfileScreen` mounted (offstage) underneath, so
+        // `salonManagementProfileProvider(salonId)` — an autoDispose family
+        // with NO other watcher in this fixture-only flow — stays alive
+        // across the `deleteSalon()` await. A single `router.go` straight to
+        // `.../manage/settings` (the original shape of this test) never
+        // mounts the manage screen, so the provider is watcher-less and gets
+        // torn down mid-flight, throwing `UnmountedRefException` out of
+        // `deleteSalon()`'s `ref.invalidate(mySalonsProvider)` — a TEST
+        // fixture bug (this file skipping the real push-based navigation),
+        // not a production one.
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        unawaited(router.push(RouteNames.salonManageSettings(_kSalonId)));
         // fixed-wait-ok: settles the real async route-push step.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 

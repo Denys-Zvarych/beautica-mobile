@@ -18,6 +18,7 @@ part 'public_salon_response.g.dart';
 /// * [region]
 /// * [address]
 /// * [cityId]
+/// * [oblastId]
 /// * [districtId]
 /// * [street]
 /// * [buildingNo]
@@ -50,6 +51,9 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'cityId')
   String? get cityId;
+
+  @BuiltValueField(wireName: r'oblastId')
+  String? get oblastId;
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
@@ -153,6 +157,13 @@ class _$PublicSalonResponseSerializer
       yield r'cityId';
       yield serializers.serialize(
         object.cityId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.oblastId != null) {
+      yield r'oblastId';
+      yield serializers.serialize(
+        object.oblastId,
         specifiedType: const FullType(String),
       );
     }
@@ -292,6 +303,13 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.cityId = valueDes;
+          break;
+        case r'oblastId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastId = valueDes;
           break;
         case r'districtId':
           final valueDes = serializers.deserialize(

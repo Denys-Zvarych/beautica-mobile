@@ -163,6 +163,29 @@ abstract final class RouteNames {
   static String salonManageSettings(String salonId) =>
       '${salonManage(salonId)}/settings';
 
+  /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
+  /// description), reached from the Phase 21.9 settings hub's own
+  /// navigational row. A literal child of [salonManageSettings], gated by the
+  /// SAME `salonManageGuard` (registered as a standalone top-level route in
+  /// `app_router.dart`, mirroring [salonManage]/[salonManageSettings]'s own
+  /// "an ancestor's own redirect always runs" rationale). No in-app entry
+  /// point exists yet — Phase 21.9 (the settings hub) is what wires a row to
+  /// this route; that phase is unbuilt.
+  static String salonProfileEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/profile-edit';
+
+  /// Phase 21.10 — dedicated «Локація» edit screen (locality cascade +
+  /// street/buildingNo/locationNote). Sibling of [salonProfileEdit] — same
+  /// gating, same "no entry point yet" caveat.
+  static String salonAddressEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/address-edit';
+
+  /// Phase 21.10 — dedicated «Контакти» edit screen (phone + Instagram).
+  /// Sibling of [salonProfileEdit] — same gating, same "no entry point yet"
+  /// caveat.
+  static String salonContactsEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/contacts-edit';
+
   /// Phase 21.8 — the SHARED `SALON_OWNER`/`SALON_ADMIN` landing
   /// (`roleHomePath`), rendering [SalonHomeResolverScreen]. A transient
   /// stopover, not a destination the viewer lingers on: it resolves which

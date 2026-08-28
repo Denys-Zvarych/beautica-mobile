@@ -25,6 +25,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -32,20 +34,44 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// One destination in the salon bottom navigation bar. Carries an
 /// outline/filled icon pair so the active tab swaps to the filled glyph.
+///
+/// Supports two icon sources, mirroring [ClientNavItem]
+/// (`features/shell/presentation/widgets/client_bottom_nav.dart`, REUSE-FIRST
+/// — same field names, same precedence, same fallback):
+///   - **Material** (default): supply [icon] and [activeIcon] as [IconData].
+///   - **SVG asset**: supply [svgIcon] and [svgActiveIcon] as paths from
+///     [BeauticaAssetIcons]. When non-null these take precedence over the
+///     [IconData] fields — a tile renders `AppIcon(path)` instead of `Icon`.
+///
+/// Exactly one source should be provided per item; [svgIcon] always wins
+/// when non-null.
 class SalonNavItem {
   const SalonNavItem({
     required this.label,
-    required this.icon,
-    required this.activeIcon,
+    this.icon,
+    this.activeIcon,
+    this.svgIcon,
+    this.svgActiveIcon,
   });
 
   final String label;
 
-  /// Inactive (outline) glyph.
-  final IconData icon;
+  /// Inactive (outline) glyph. Ignored when [svgIcon] is set.
+  final IconData? icon;
 
-  /// Active (filled) glyph.
-  final IconData activeIcon;
+  /// Active (filled) glyph. Ignored when [svgActiveIcon] is set.
+  final IconData? activeIcon;
+
+  /// SVG asset path (from [BeauticaAssetIcons]) for the inactive state. When
+  /// non-null, [AppIcon] is rendered instead of [Icon].
+  final String? svgIcon;
+
+  /// SVG asset path (from [BeauticaAssetIcons]) for the active/selected
+  /// state. When non-null, [AppIcon] is rendered instead of [Icon].
+  final String? svgActiveIcon;
+
+  /// Whether this item uses SVG rather than Material [IconData].
+  bool get isSvg => svgIcon != null;
 }
 
 /// The salon-role bottom navigation bar. Purely presentational — the parent
@@ -90,22 +116,27 @@ class SalonBottomNav extends StatelessWidget {
       <SalonNavItem>[
         SalonNavItem(
           label: l10n.salonShellTabSalon,
-          icon: Icons.storefront_outlined,
-          activeIcon: Icons.storefront_rounded,
+          svgIcon: BeauticaAssetIcons.homeOutline,
+          svgActiveIcon: BeauticaAssetIcons.homeFilled,
         ),
         SalonNavItem(
           label: l10n.salonShellTabBookings,
-          icon: Icons.calendar_month_outlined,
-          activeIcon: Icons.calendar_month_rounded,
+          // Matches the independent-master shell's «Мої записи» tab glyph —
+          // `velvet_bottom_nav_bar.dart` lines 45–58.
+          icon: Icons.event_note_outlined,
+          activeIcon: Icons.event_note_rounded,
         ),
         SalonNavItem(
           label: l10n.salonShellTabTeam,
-          icon: Icons.groups_outlined,
-          activeIcon: Icons.groups_rounded,
+          svgIcon: BeauticaAssetIcons.teamOutline,
+          svgActiveIcon: BeauticaAssetIcons.teamFilled,
         ),
         SalonNavItem(
           label: l10n.salonShellTabProfile,
-          icon: Icons.person_outline_rounded,
+          // Matches the independent-master shell's «Профіль» tab glyph —
+          // `velvet_bottom_nav_bar.dart` lines 45–58 (note: `person_outline`,
+          // not `person_outline_rounded`, to match exactly).
+          icon: Icons.person_outline,
           activeIcon: Icons.person_rounded,
         ),
       ];
@@ -231,11 +262,21 @@ class _NavCellState extends State<_NavCell> {
                     ? _pillActiveDecoration
                     : _pillInactiveDecoration,
               ),
-              Icon(
-                active ? widget.item.activeIcon : widget.item.icon,
-                size: 22,
-                color: color,
-              ),
+              if (widget.item.isSvg)
+                AppIcon(
+                  active
+                      ? (widget.item.svgActiveIcon ?? widget.item.svgIcon!)
+                      : widget.item.svgIcon!,
+                  size: 22,
+                  color: color,
+                )
+              else
+                Icon(
+                  (active ? widget.item.activeIcon : widget.item.icon) ??
+                      Icons.circle,
+                  size: 22,
+                  color: color,
+                ),
               const SizedBox(height: 2),
               SizedBox(
                 height: _labelBoxHeight,

@@ -182,7 +182,14 @@ class _CycleGuardSalonRepository extends Fake implements SalonRepository {
 
   @override
   Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
-      _cycleGuardSalon.copyWith(name: request.name ?? _cycleGuardSalon.name);
+      _cycleGuardSalon.copyWith(
+        name: request.name ?? _cycleGuardSalon.name,
+        // Phase 21.10 — additive: the `saveAddress()` entrypoint below also
+        // needs `street` applied so its `settle` can assert a real change.
+        street: request.street.isNotEmpty
+            ? request.street
+            : _cycleGuardSalon.street,
+      );
 
   @override
   Future<void> deleteSalon(String salonId) async {}
@@ -533,6 +540,50 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       // No further graph assertion needed — the entrypoint's own `run`
       // already asserted a null Failure; `settle` exists to mirror every
       // other row's shape and to leave a hook for a future stronger check.
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.saveAddress() — Phase
+  // 21.10 (SalonAddressEditScreen). ADDITIVE sibling of the `save()` row
+  // above: same `ref.invalidate(mySalonsProvider)` on success, same
+  // no-back-edge / no-cycle graph shape (`mySalonsProvider` only watches
+  // `authProvider`), so this proves the identical guarantee for the new
+  // method.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.saveAddress() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .saveAddress(
+            street: 'вул. Оновлена',
+            buildingNo: '2',
+            locationNote: '',
+          );
+    },
+    settle: (container) {
+      final state = container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId),
+      );
+      expect(state.hasError, isFalse);
+      expect(state.value?.$1.street, 'вул. Оновлена');
     },
   ),
 ];

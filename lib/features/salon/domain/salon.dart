@@ -33,10 +33,26 @@ abstract class Salon with _$Salon {
     String? address,
 
     /// UUID of the taxonomy city the salon is located in (Phase 10.6+).
-    /// Raw id only — Beautica's `/locations/*` city lookup is oblast-scoped
-    /// and [Salon] carries no `oblastId`, so this cannot be resolved to a
-    /// display name client-side; it is not rendered directly.
+    /// Raw id only — Beautica's `/locations/*` city lookup is oblast-scoped,
+    /// so resolving this to a display name client-side needs [oblastId] too
+    /// (both populated together as of backend `dbe27a5`, or both `null`); it
+    /// is not rendered directly.
     String? cityId,
+
+    /// UUID of the oblast (region) that owns [cityId], resolved server-side
+    /// (backend, added alongside the [SalonAddressEditScreen] work — see that
+    /// screen's own doc). Lets [SalonAddressEditScreen] pre-populate the
+    /// locality cascade with a single targeted `oblastId -> cities ->
+    /// districts` lookup chain instead of scanning every oblast's city list
+    /// to find [cityId].
+    ///
+    /// Populated from both read paths: [SalonMapper.fromUpdateDto] (backs
+    /// `PATCH /salons/{salonId}` and `GET /salons/mine`, both
+    /// `SalonResponse`) and, as of backend `dbe27a5`, [SalonMapper.fromDto]
+    /// (the PUBLIC `GET /salons/{salonId}` read path, `PublicSalonResponse`)
+    /// — unlike [phone], this field is NOT public/private-split. `null`
+    /// means the salon genuinely has no city set, on either path.
+    String? oblastId,
 
     /// UUID of the taxonomy city district, or `null` when the city has no
     /// districts or none was selected. Same resolution caveat as [cityId].

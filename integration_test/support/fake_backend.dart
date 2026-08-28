@@ -1860,7 +1860,14 @@ final class FakeBackend {
         'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
         'та стрижки — довірливий сервіс з 2018 року.',
     'region': 'Київська',
-    'cityId': 'city-uuid-kyiv',
+    // Finding 5 (2026-08-28) — was 'city-uuid-kyiv', which matched none of
+    // the seeded cities (city-kyiv / city-lviv / city-with-districts), so
+    // locality pre-population never resolved for salon-xyz. 'city-kyiv' is a
+    // real seeded id (see the `GET /locations/oblasts/oblast-kyiv/cities`
+    // handler below) — deliberately still a hasDistricts:false city so no
+    // existing flow that assumes an unresolved/leaf cascade for salon-xyz
+    // changes behaviour.
+    'cityId': 'city-kyiv',
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'locationNote': salonLocationNote,
@@ -5138,6 +5145,41 @@ final class FakeBackend {
             'nameUk': 'Львів',
             'nameEn': 'Lviv',
             'hasDistricts': false,
+          },
+          // Phase 21.10 QA follow-up (salon_edit_forms_flow_test.dart) — the
+          // ONLY seeded city with `hasDistricts: true` in this whole fixture
+          // file. Needed to drive the locality-PAIR contract
+          // (`SalonAddressEditScreen.saveAddress`'s per-field cityId/
+          // districtId dirty-diff) against a REAL city that requires a
+          // district, which city-kyiv/city-lviv above cannot exercise.
+          <String, dynamic>{
+            'id': 'city-with-districts',
+            'oblastId': 'oblast-kyiv',
+            'katotthCode': 'UA80000000000093318',
+            'nameUk': 'Дніпро',
+            'nameEn': 'Dnipro',
+            'hasDistricts': true,
+          },
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/locations/cities/city-with-districts/districts — Phase
+    // 21.10 QA follow-up. One seeded district so a flow can drive the REAL
+    // district picker sheet. Shape: CityDistrictResponse { id, cityId,
+    // katotthCode, nameUk, nameEn }.
+    _adapter.onRoute(
+      '/api/v1/locations/cities/city-with-districts/districts',
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'district-podil',
+            'cityId': 'city-with-districts',
+            'katotthCode': 'UA80000000000093319',
+            'nameUk': 'Подільський район',
+            'nameEn': 'Podilskyi district',
           },
         ]),
       ),

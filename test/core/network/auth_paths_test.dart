@@ -468,5 +468,41 @@ void main() {
       expect(isPiiPath('/api/v1/bookings'), isTrue);
       expect(isPiiPath('/api/v1/bookings/booking-1'), isTrue);
     });
+
+    // ── Finding 2 — PATCH /salons/{salonId} PII gap (mobile-security MEDIUM,
+    // 2026-08-28) ────────────────────────────────────────────────────────────
+    //
+    // `PATCH /api/v1/salons/{salonId}` carries name/description/street/
+    // buildingNo/locationNote/phone/instagramUrl (Phase 21.10
+    // SalonAddressEditScreen is the first caller pushing precise street data
+    // through it). Neither an exact [kPiiPaths] member (dynamic {salonId})
+    // nor previously a [kPiiPathPrefixes] entry, so `LoggingInterceptor
+    // .onRequest` wrote the full body unredacted in debug builds. This is the
+    // tripwire guarding that fix — if `/api/v1/salons/` is ever removed from
+    // [kPiiPathPrefixes], this fails loudly.
+    test('PATCH /salons/{salonId} is a PII route via the /salons/ prefix', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123'),
+        isTrue,
+        reason:
+            'PATCH /salons/{salonId} carries name/description/street/'
+            'buildingNo/locationNote/phone/instagramUrl — its body must be '
+            'redacted in debug logs, exactly like PATCH /appointments/{id}.',
+      );
+    });
+
+    test('the exact-match /api/v1/salons/mine entry is unaffected by the new '
+        '/salons/ prefix (both independently resolve true, prefix does not '
+        'supersede or remove the exact entry)', () {
+      expect(kPiiPaths, contains('/api/v1/salons/mine'));
+      expect(isPiiPath('/api/v1/salons/mine'), isTrue);
+    });
+
+    test('a PII salon path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/salons/salon-123?token=secret'),
+        equals('/api/v1/salons/salon-123?[REDACTED]'),
+      );
+    });
   });
 }

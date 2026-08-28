@@ -56,6 +56,9 @@ abstract final class SalonMapper {
       region: dto.region,
       address: dto.address,
       cityId: dto.cityId,
+      // `PublicSalonResponse.oblastId`, shipped backend `dbe27a5` alongside
+      // the SalonAddressEditScreen work — see [Salon.oblastId]'s doc.
+      oblastId: dto.oblastId,
       districtId: dto.districtId,
       street: dto.street,
       buildingNo: dto.buildingNo,
@@ -106,6 +109,9 @@ abstract final class SalonMapper {
       region: dto.region,
       address: dto.address,
       cityId: dto.cityId,
+      // Finding 3 (2026-08-28) — SalonResponse.oblastId, added alongside the
+      // SalonAddressEditScreen work. See [Salon.oblastId]'s doc.
+      oblastId: dto.oblastId,
       districtId: dto.districtId,
       street: dto.street,
       buildingNo: dto.buildingNo,

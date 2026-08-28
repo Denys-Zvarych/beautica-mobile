@@ -359,6 +359,32 @@ abstract final class BeauticaAssetIcons {
       '$_base/category_permanent_makeup.svg';
 
   // ---------------------------------------------------------------------------
+  // Navigation — salon "Команда" (team) tab (Phase 21.8 re-icon)
+  // ---------------------------------------------------------------------------
+
+  /// Outline three-person glyph for the inactive salon-shell «Команда» tab.
+  ///
+  /// Derived in-repo from [teamFilled] — same path geometry stroked at
+  /// width 0.56 (of 24 units) instead of filled, matching the thin-outline
+  /// weight convention (`category_*.svg` Group A / [homeOutline]).
+  /// Local source: `/media/sf_ubuntu_trash/icons_svg/team.svg` (2026-08-28).
+  /// SHA-256: 92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554
+  /// Flaticon source URL not recorded — see `assets/icons/README.md` manifest.
+  ///
+  /// See `assets/icons/team_outline.svg` and `assets/icons/README.md`.
+  static const String teamOutline = '$_base/team_outline.svg';
+
+  /// Filled three-person glyph for the active salon-shell «Команда» tab.
+  ///
+  /// Local source: `/media/sf_ubuntu_trash/icons_svg/team.svg` (2026-08-28),
+  /// already a solid/filled glyph, viewBox 0 0 24 24.
+  /// SHA-256: 92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554
+  /// Flaticon source URL not recorded — see `assets/icons/README.md` manifest.
+  ///
+  /// See `assets/icons/team_filled.svg`.
+  static const String teamFilled = '$_base/team_filled.svg';
+
+  // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
   // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------

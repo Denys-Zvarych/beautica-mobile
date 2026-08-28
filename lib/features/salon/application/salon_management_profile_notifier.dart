@@ -182,6 +182,70 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     }
   }
 
+  /// Saves the «Локація» edit form (Phase 21.10 — [SalonAddressEditScreen]):
+  /// locality (cityId/districtId) + street/buildingNo/locationNote, via a
+  /// partial `PATCH /salons/{salonId}`.
+  ///
+  /// ADDITIVE sibling of [save] — that method covers the name/description/
+  /// phone/Instagram slice only (`street`/`buildingNo` are threaded through
+  /// UNCHANGED there, since Phase 21.2 never exposed address editing). This
+  /// method is the address counterpart: [street]/[buildingNo] are the CURRENT
+  /// text of the screen's own fields (always sent — both are backend-required
+  /// on every PATCH, mirroring [save]'s identical constraint) and
+  /// [cityId]/[districtId]/[locationNote] are each included only when they
+  /// differ from the loaded [Salon]'s value.
+  ///
+  /// Returns `null` on success (state updated, aggregates preserved — see
+  /// [save]'s identical merge note) or the [Failure] on error.
+  Future<Failure?> saveAddress({
+    String? cityId,
+    String? districtId,
+    required String street,
+    required String buildingNo,
+    required String locationNote,
+  }) async {
+    final SalonManagementProfileData? data = state.value;
+    if (data == null) return null;
+    final (Salon current, List<SalonMasterSummary> masters) = data;
+
+    final String trimmedStreet = street.trim();
+    final String trimmedBuildingNo = buildingNo.trim();
+    final String trimmedNote = locationNote.trim();
+
+    final UpdateSalonRequest request = UpdateSalonRequest(
+      (b) => b
+        ..street = trimmedStreet
+        ..buildingNo = trimmedBuildingNo
+        ..cityId = cityId != current.cityId ? cityId : null
+        ..districtId = districtId != current.districtId ? districtId : null
+        ..locationNote = trimmedNote != (current.locationNote ?? '')
+            ? trimmedNote
+            : null,
+    );
+
+    try {
+      final Salon patched = await ref
+          .read(salonRepositoryProvider)
+          .updateSalon(salonId, request);
+      final Salon merged = patched.copyWith(
+        coverImageUrl: current.coverImageUrl,
+        avgRating: current.avgRating,
+        reviewCount: current.reviewCount,
+      );
+      state = AsyncData((merged, masters));
+      // cycle-safe: mySalonsProvider (MySalons.build()) only watches
+      // authProvider — it never watches salonManagementProfileProvider, so
+      // there is no back-edge here to close into a cycle. See this file's
+      // header doc (mobile-perf MEDIUM follow-up, 2026-08-28) for why this
+      // invalidation exists: keeps the «Мої салони» hub's cached list from
+      // going stale after an address edit.
+      ref.invalidate(mySalonsProvider);
+      return null;
+    } on Failure catch (f) {
+      return f;
+    }
+  }
+
   /// Deactivates (soft-deletes) this salon via `DELETE /salons/{salonId}`.
   ///
   /// Owner-only — enforced server-side and by the router's client-side role

@@ -5226,6 +5226,22 @@
   "@salonManageNameTooLong": {
     "description": "mobile-security LOW follow-up, 2026-08-27 — error shown under the salon name field when it exceeds UpdateSalonRequest's backend cap (Size max = 255)."
   },
+  "salonProfileEditTitle": "Name & description",
+  "@salonProfileEditTitle": {
+    "description": "Phase 21.10 — SectionScaffold title for the dedicated SalonProfileEditScreen (name + description)."
+  },
+  "salonProfileEditSubheading": "How the salon is named and described to clients.",
+  "@salonProfileEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonProfileEditScreen."
+  },
+  "salonAddressEditSubheading": "Where the salon is located. The address is shown to clients on the profile.",
+  "@salonAddressEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonAddressEditScreen. Screen title reuses locationTitle ('Location')."
+  },
+  "salonContactsEditSubheading": "How clients can reach the salon.",
+  "@salonContactsEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonContactsEditScreen. Screen title reuses contactsTitle ('Contacts')."
+  },
   "salonManageStaffEmpty": "This salon has no masters yet.",
   "@salonManageStaffEmpty": {
     "description": "Phase 21.2 — empty-state message shown above the staff grid's invite tile when the salon has no masters yet."

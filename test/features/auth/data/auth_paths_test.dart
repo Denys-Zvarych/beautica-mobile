@@ -52,6 +52,15 @@
 //       CLIENT wish-list toggle endpoint /api/v1/favorites, and the Phase
 //       21.1 SALON_OWNER hub endpoint /api/v1/salons/mine (mobile-security
 //       MEDIUM follow-up, 2026-08-28 — SalonResponse carries phone + ownerId).
+//  16.  kPiiPathPrefixes contains /api/v1/salons/ (Finding 2, mobile-security
+//       MEDIUM follow-up, 2026-08-28 — PATCH /salons/{salonId} carries name/
+//       description/street/buildingNo/locationNote/phone/instagramUrl). This
+//       is a PREFIX entry (dynamic {salonId}), NOT an exact [kPiiPaths]
+//       member, so it does NOT change test 15's count of 22 — mirrors the
+//       pre-existing /api/v1/bookings (exact, counted) + /api/v1/bookings/
+//       (prefix, uncounted) pair, and the identical /api/v1/appointments
+//       pair. The exact-match /api/v1/salons/mine entry from test 15 is
+//       UNCHANGED — this prefix is additive alongside it, not a replacement.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -466,5 +475,23 @@ void main() {
         );
       },
     );
+
+    test('16. kPiiPathPrefixes contains /api/v1/salons/ (Finding 2, PATCH '
+        '/salons/{salonId} redaction) — does NOT change test 15\'s count', () {
+      expect(
+        kPiiPathPrefixes,
+        contains('/api/v1/salons/'),
+        reason:
+            'PATCH /salons/{salonId} carries name/description/street/'
+            'buildingNo/locationNote/phone/instagramUrl — a dynamic '
+            '{salonId} path, so it must live in kPiiPathPrefixes (not the '
+            'exact-match kPiiPaths test 15 counts), mirroring the '
+            '/api/v1/bookings/ and /api/v1/appointments/ prefix pairs.',
+      );
+      // The exact-match /api/v1/salons/mine entry (counted in test 15's 22)
+      // is untouched by this prefix addition.
+      expect(kPiiPaths, contains('/api/v1/salons/mine'));
+      expect(kPiiPaths.length, equals(22));
+    });
   });
 }

@@ -14,6 +14,7 @@ Method | HTTP request | Description
 [**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[**getSalonBookings**](BookingControllerApi.md#getsalonbookings) | **GET** /api/v1/bookings/salon/{salonId} | List salon bookings (owner/admin)
 [**getUnclosedCount**](BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [**listMyBookedDays**](BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
@@ -217,6 +218,57 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseBookingDetailResponse**](ApiResponseBookingDetailResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSalonBookings**
+> ApiResponsePageResponseBookingDetailResponse getSalonBookings(salonId, pageable, masterId, status, from, to)
+
+List salon bookings (owner/admin)
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Pageable pageable = ; // Pageable | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Filter to one master's bookings within the salon. Omit for every master.
+final String status = status_example; // String | Filter by a single status. Omit for no status predicate.
+final Date from = 2013-10-20; // Date | Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
+final Date to = 2013-10-20; // Date | Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
+
+try {
+    final response = api.getSalonBookings(salonId, pageable, masterId, status, from, to);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->getSalonBookings: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **pageable** | [**Pageable**](.md)|  | 
+ **masterId** | **String**| Filter to one master's bookings within the salon. Omit for every master. | [optional] 
+ **status** | **String**| Filter by a single status. Omit for no status predicate. | [optional] 
+ **from** | **Date**| Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window. | [optional] 
+ **to** | **Date**| Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window. | [optional] 
+
+### Return type
+
+[**ApiResponsePageResponseBookingDetailResponse**](ApiResponsePageResponseBookingDetailResponse.md)
 
 ### Authorization
 

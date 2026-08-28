@@ -188,6 +188,23 @@ const List<String> kPiiPathPrefixes = <String>[
   // `/favorites` itself and any future sub-path. Same class of gap already
   // fixed for `/api/v1/clients/me` above.
   '/api/v1/favorites',
+  // Finding 2 (mobile-security MEDIUM, 2026-08-28) — Phase 21.10
+  // SalonAddressEditScreen's `PATCH /api/v1/salons/{salonId}` carries
+  // name/description/street/buildingNo/locationNote/phone/instagramUrl.
+  // The dynamic {salonId} segment sits AFTER the meaningful `/salons/` tail
+  // (unlike the `/masters/{masterId}/bookings` segment case below), so a
+  // prefix match works — same shape as the `/api/v1/bookings/` and
+  // `/api/v1/appointments/` pairs above. Deliberately the WIDER `/salons/`
+  // prefix (not a `{salonId}`-specific pattern this simple prefix scheme
+  // cannot express) — every owner/admin-scoped sub-route under it
+  // (services, masters, invite, admins) is PII-adjacent, and this mirrors
+  // the exact-match `/api/v1/salons/mine` entry already in [kPiiPaths]
+  // above (kept, not superseded — that entry stays for the bare `/mine`
+  // path; this prefix additionally covers every `/salons/{salonId}...`
+  // route the exact-match set cannot). Without this entry
+  // `LoggingInterceptor.onRequest` wrote the full PATCH body unredacted via
+  // `dart:developer.log()` in debug builds.
+  '/api/v1/salons/',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

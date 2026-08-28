@@ -890,11 +890,12 @@ class _SalonHeroCard extends StatelessWidget {
   /// The hero card's locality (city) line, or `null` when unavailable.
   ///
   /// Unlike [Master]'s identity card, this never resolves `cityId` to a
-  /// human-readable name: [Salon] carries no `oblastId`, and
-  /// `LocationRepository.fetchCities` requires one to list cities — so a raw
-  /// `cityId` alone cannot be looked up client-side. When the taxonomy
-  /// `street` field is set, this method deliberately returns `null` rather
-  /// than falling back to the legacy `city` field: the backend stopped
+  /// human-readable name — a lookup would need `LocationRepository
+  /// .fetchCities(salon.oblastId)` plus a live network round-trip, which this
+  /// synchronous hero-card builder can't do; the raw id is not rendered
+  /// directly. When the taxonomy `street` field is set, this method
+  /// deliberately returns `null` rather than falling back to the legacy
+  /// `city` field: the backend stopped
   /// writing legacy `city`/`address` once a salon re-saves its location under
   /// the taxonomy (Phase 10.6+), so a still-populated `city` alongside a
   /// fresh `street` would be a STALE value the mapper never clears (mirrors

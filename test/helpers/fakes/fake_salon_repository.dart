@@ -97,6 +97,16 @@ class FakeSalonRepository implements SalonRepository {
       description: request.description ?? _salon.description,
       phone: request.phone ?? _salon.phone,
       instagramUrl: request.instagramUrl ?? _salon.instagramUrl,
+      // Phase 21.10 — additive: the address/contacts edit-form tests also
+      // need street/buildingNo/cityId/districtId/locationNote applied so a
+      // save round-trip is observable, mirroring the four fields above.
+      street: request.street.isNotEmpty ? request.street : _salon.street,
+      buildingNo: request.buildingNo.isNotEmpty
+          ? request.buildingNo
+          : _salon.buildingNo,
+      cityId: request.cityId ?? _salon.cityId,
+      districtId: request.districtId ?? _salon.districtId,
+      locationNote: request.locationNote ?? _salon.locationNote,
     );
     return _salon;
   }
