@@ -35,15 +35,13 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
 import '../../auth/domain/auth_session.dart';
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../master/presentation/widgets/settings_row.dart';
-import '../application/salon_management_profile_notifier.dart';
-import 'widgets/delete_salon_dialog.dart';
+import 'delete_salon_flow.dart';
 
 /// The salon settings page — «Редагувати профіль» + (owner-only) «Видалити
 /// салон».
@@ -128,32 +126,16 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
     }
   }
 
-  Future<void> _deleteSalon() async {
-    final l10n = AppLocalizations.of(context);
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => const DeleteSalonDialog(),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _deleting = true);
-    final failure = await ref
-        .read(salonManagementProfileProvider(widget.salonId).notifier)
-        .deleteSalon();
-    if (!mounted) return;
-
-    if (failure != null) {
-      setState(() => _deleting = false);
-      showErrorSnack(context, failure.userMessage(context));
-      return;
-    }
-
-    showSuccessSnack(context, l10n.deleteSalonSuccess);
-    // No «Мої салони» hub yet (Phase 21.1 unbuilt) — the safest landing spot
-    // for either role is the auth-derived role home.
-    final session = ref.read(authProvider).value;
-    context.go(session is Authenticated ? '/' : RouteNames.login);
-  }
+  // REUSE-FIRST: this confirm→delete→feedback flow is PROMOTED to
+  // `delete_salon_flow.dart` (Phase 21.13) so the shared `SettingsScreen`'s
+  // owner-only `showDeleteSalon` row can call the exact same sequence
+  // instead of a second hand-copied implementation.
+  Future<void> _deleteSalon() => runDeleteSalonFlow(
+    context: context,
+    ref: ref,
+    salonId: widget.salonId,
+    setLoading: (bool loading) => setState(() => _deleting = loading),
+  );
 
   @override
   Widget build(BuildContext context) {

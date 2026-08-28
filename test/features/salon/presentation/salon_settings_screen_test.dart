@@ -217,6 +217,20 @@ void main() {
       // Never navigated away — the settings row is still on screen.
       expect(find.byKey(const Key('row-salon-delete')), findsOneWidget);
       expect(find.text('home'), findsNothing);
+      // Phase 21.13 QA follow-up — `runDeleteSalonFlow`'s `setLoading(false)`
+      // on the failure branch must actually clear the row's spinner, not
+      // just leave the row mounted. A promoted flow that dropped the
+      // setLoading(false) call would leave this row permanently spinning —
+      // this failure test previously only asserted the row still existed,
+      // which passes whether or not loading was ever cleared.
+      expect(
+        find.byKey(const ValueKey<String>('settings_row_loading')),
+        findsNothing,
+        reason:
+            'a failed delete must clear the row\'s loading spinner so the '
+            'owner can retry — a stuck spinner would mean setLoading(false) '
+            'was dropped from runDeleteSalonFlow\'s failure branch',
+      );
     });
   });
 }

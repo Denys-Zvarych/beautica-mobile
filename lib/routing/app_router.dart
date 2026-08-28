@@ -81,6 +81,7 @@ import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
+import '../features/settings/domain/account_settings_extras.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/home/presentation/client_contacts_edit_screen.dart';
 import '../features/home/presentation/client_location_edit_screen.dart';
@@ -675,9 +676,21 @@ GoRouter appRouter(Ref ref) {
           ),
         ],
       ),
+      // Phase 21.13 — `extra` is OPTIONAL: every existing caller pushes with
+      // none at all, which resolves `state.extra` to `null` here and falls
+      // through to `SettingsScreen`'s own all-`false`/`null` defaults,
+      // rendering EXACTLY as before this phase. Only a caller that already
+      // knows a salonId (the owner-only «Загальне» row, Phase 21.9) passes
+      // an [AccountSettingsExtras].
       GoRoute(
         path: RouteNames.settings,
-        builder: (context, state) => const SettingsScreen(),
+        builder: (context, state) {
+          final extras = state.extra as AccountSettingsExtras?;
+          return SettingsScreen(
+            salonId: extras?.salonId,
+            showDeleteSalon: extras?.showDeleteSalon ?? false,
+          );
+        },
       ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
