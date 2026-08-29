@@ -21,15 +21,14 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart'
-    show MasterType;
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -62,14 +61,27 @@ const _stubSalon = Salon(
   reviewCount: 128,
 );
 
-const _stubMasters = <SalonMasterSummary>[
-  SalonMasterSummary(
+const _stubStaff = <SalonStaffMember>[
+  SalonStaffMember(
+    userId: 'master-1',
     masterId: 'master-1',
+    role: SalonStaffRole.master,
     firstName: 'Олена',
     lastName: 'Ковальчук',
     avgRating: 4.9,
     reviewCount: 12,
-    type: MasterType.independentMaster,
+  ),
+  // mobile-qa gap-closure (Phase 21.5) — the «Персонал» tab now renders
+  // admins too (`_StaFfTab` no longer masters-only), but before this fixture
+  // gained an admin entry, EVERY test in this file exercised the master-only
+  // branch — the admin card path (Key('salon-manage-staff-card-...') for a
+  // SalonStaffRole.admin entry, and its DIFFERENT role label) had zero
+  // coverage anywhere in the widget tier.
+  SalonStaffMember(
+    userId: 'admin-1',
+    role: SalonStaffRole.admin,
+    firstName: 'Ірина',
+    lastName: 'Ковальська',
   ),
 ];
 
@@ -128,6 +140,22 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
       path: '/salons/:salonId/manage/invite',
       builder: (context, state) =>
           const Scaffold(key: Key('invite-staff-marker')),
+    ),
+    // mobile-qa gap-closure (Phase 21.5) — the staff-card tap's real
+    // destination (`RouteNames.salonManageStaffMember`, wired via
+    // `_openStaffMember`'s `context.push`). A trivial marker, same pattern
+    // as the invite-staff marker above: this file only asserts THAT tapping
+    // a staff card navigates (and to the RIGHT memberId), not what
+    // `SalonStaffProfileScreen` itself renders — that screen's own
+    // master/admin body coverage lives in
+    // `salon_staff_profile_screen_test.dart`, NOT inline here. The key
+    // embeds `memberId` so the tap test can distinguish "navigated to the
+    // TAPPED card's member" from "navigated to A staff member".
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId',
+      builder: (context, state) => Scaffold(
+        key: Key('staff-profile-marker-${state.pathParameters['memberId']}'),
+      ),
     ),
   ],
 );
@@ -385,10 +413,7 @@ void main() {
     testWidgets('renders staff cards plus the trailing add-staff tile', (
       tester,
     ) async {
-      final repo = FakeSalonRepository(
-        salon: _stubSalon,
-        masters: _stubMasters,
-      );
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
       await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
       await tester.pumpAndSettle();
 
@@ -400,23 +425,80 @@ void main() {
         find.byKey(const Key('salon-manage-staff-card-master-1')),
         findsOneWidget,
       );
+      // mobile-qa gap-closure (Phase 21.5) — the roster now includes admins;
+      // the admin card must render too, with the admin-specific role label
+      // (not the master's), proving the tab actually branches on role and
+      // does not merely render every entry as a master card.
+      final Finder adminCard = find.byKey(
+        const Key('salon-manage-staff-card-admin-1'),
+      );
+      expect(adminCard, findsOneWidget);
+      expect(
+        tester.widget<SalonMasterCard>(adminCard).role,
+        l10n.salonStaffRoleAdmin,
+      );
       expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
       expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
 
-      // Phase 21.4 — the add-staff tile now navigates to InviteStaffScreen
-      // (`RouteNames.salonInviteStaff`), unlike Phase 21.5's still-unwired
-      // staff-card tap covered separately below.
-      await tester.tap(find.byKey(const Key('salon-manage-add-staff')));
+      // Phase 21.4 — the add-staff tile navigates to InviteStaffScreen
+      // (`RouteNames.salonInviteStaff`). mobile-qa gap-closure (Phase 21.5) —
+      // with the admin fixture added above, the grid now spans 2 rows at the
+      // default test surface, pushing the add-staff tile below the fold;
+      // scroll it into view before tapping (mirrors the integration flow's
+      // own `ensureVisible` precedent for this exact tile).
+      final Finder addStaffTile = find.byKey(
+        const Key('salon-manage-add-staff'),
+      );
+      await tester.ensureVisible(addStaffTile);
+      await tester.pumpAndSettle();
+      await tester.tap(addStaffTile);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('invite-staff-marker')), findsOneWidget);
     });
+
+    // mobile-qa gap-closure (Phase 21.5, build-verifier FAIL) — before this
+    // test, the staff-card tap's `context.push(RouteNames
+    // .salonManageStaffMember(...))` wiring (`_openStaffMember`,
+    // `salon_management_profile_screen.dart`) had NO test asserting it was
+    // ever actually invoked. Uses `context.push` (via the real
+    // `_openStaffMember` callback) — never `router.go` — matching this
+    // codebase's documented go_router trap: a pushed leaf's fullPath is
+    // excluded from a naive location comparison, so a `router.go`-based
+    // assertion here would falsely pass even if the tap wired nothing at
+    // all. Asserting on the mounted marker widget (keyed by memberId) sides
+    // steps that trap entirely.
+    testWidgets(
+      'tapping a staff card navigates to that member\'s staff profile route',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('salon-manage-staff-card-master-1')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('staff-profile-marker-master-1')),
+          findsOneWidget,
+          reason:
+              'must navigate to THIS card\'s own memberId, not some other '
+              'staff member',
+        );
+      },
+    );
 
     testWidgets('shows the empty-state message when the salon has no masters', (
       tester,
     ) async {
       final repo = FakeSalonRepository(
         salon: _stubSalon,
-        masters: const <SalonMasterSummary>[],
+        staff: const <SalonStaffMember>[],
       );
       await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
       await tester.pumpAndSettle();
@@ -465,7 +547,7 @@ void main() {
               return _AttemptCountingSalonManagementProfile(() {
                 attempt++;
                 if (attempt == 1) throw const ServerFailure(statusCode: 500);
-                return (_stubSalon, _stubMasters);
+                return (_stubSalon, _stubStaff);
               });
             }),
           ],

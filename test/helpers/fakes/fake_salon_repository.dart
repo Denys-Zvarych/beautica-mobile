@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 
 /// In-memory [SalonRepository] fake for widget tests.
 ///
@@ -49,10 +50,18 @@ class FakeSalonRepository implements SalonRepository {
   FakeSalonRepository({
     required Salon salon,
     this.masters = const <SalonMasterSummary>[],
+    this.staff = const <SalonStaffMember>[],
   }) : _salon = salon;
 
   Salon _salon;
   final List<SalonMasterSummary> masters;
+
+  /// Phase 21.5 — the management-scoped `GET /salons/{salonId}/staff`
+  /// roster (masters + admins). Distinct from [masters] (the public
+  /// `GET /salons/{salonId}/masters` rail, still used by the CLIENT-facing
+  /// public salon profile) — `SalonManagementProfile.build()` reads THIS
+  /// field, not [masters].
+  final List<SalonStaffMember> staff;
 
   final List<UpdateSalonRequest> updateRequests = <UpdateSalonRequest>[];
   final List<SalonCreateDto> createRequests = <SalonCreateDto>[];
@@ -89,6 +98,9 @@ class FakeSalonRepository implements SalonRepository {
   @override
   Future<List<SalonMasterSummary>> getSalonMasters(String salonId) async =>
       masters;
+
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async => staff;
 
   @override
   Future<List<SalonServiceCategoryEntry>> getSalonServiceCatalog(

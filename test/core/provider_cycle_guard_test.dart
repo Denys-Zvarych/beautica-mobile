@@ -90,6 +90,7 @@ import 'package:beautica_mobile/features/salon/application/salon_management_prof
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
@@ -180,6 +181,14 @@ class _CycleGuardSalonRepository extends Fake implements SalonRepository {
   @override
   Future<List<SalonMasterSummary>> getSalonMasters(String salonId) async =>
       const <SalonMasterSummary>[];
+
+  // Phase 21.5 — `SalonManagementProfile.build()` now reads the staff
+  // roster via `getSalonStaff`, not `getSalonMasters` above (still real, but
+  // no longer on this notifier's own build() path — kept for interface
+  // completeness / other callers).
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      const <SalonStaffMember>[];
 
   @override
   Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>

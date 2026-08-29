@@ -69,6 +69,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -266,6 +267,15 @@ class _CountingSalonRepository implements SalonRepository {
     '_CountingSalonRepository.inviteStaff is not stubbed — this fake backs '
     'the CLIENT-facing read-only profile route.',
   );
+
+  // Phase 21.5 — owner/admin read path (staff roster). Same rationale as
+  // [updateSalon]/[deleteSalon]/[inviteStaff] above.
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      throw UnimplementedError(
+        '_CountingSalonRepository.getSalonStaff is not stubbed — this fake '
+        'backs the CLIENT-facing read-only profile route.',
+      );
 }
 
 List<Object> _overrides(_CountingSalonRepository repo) => <Object>[

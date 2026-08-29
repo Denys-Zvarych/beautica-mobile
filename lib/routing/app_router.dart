@@ -105,6 +105,7 @@ import '../features/salon/presentation/salon_management_profile_screen.dart';
 import '../features/salon/presentation/salon_profile_edit_screen.dart';
 import '../features/salon/presentation/salon_settings_screen.dart';
 import '../features/salon/presentation/salon_shell_screen.dart';
+import '../features/salon/presentation/salon_staff_profile_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -865,6 +866,19 @@ GoRouter appRouter(Ref ref) {
         redirect: salonManageGuard,
         builder: (context, state) =>
             InviteStaffScreen(salonId: state.pathParameters['salonId'] ?? ''),
+      ),
+      // Phase 21.5 — staff member (master OR admin) management profile.
+      // STANDALONE for the same reason as `/manage/invite` directly above:
+      // go_router runs every ancestor's redirect, so nesting under
+      // `/salons/:salonId` would let clientOnlyGuard bounce owners/admins
+      // first.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId',
+        redirect: salonManageGuard,
+        builder: (context, state) => SalonStaffProfileScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+        ),
       ),
       // Phase 21.10 — the three lightweight edit-form screens the Phase 21.9
       // settings hub (unbuilt) will push to. STANDALONE top-level routes,

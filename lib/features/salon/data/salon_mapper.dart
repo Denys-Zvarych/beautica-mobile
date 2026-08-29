@@ -26,6 +26,7 @@ import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
+import '../domain/salon_staff_member.dart';
 
 /// Converts generated `beautica_api` types into the domain [Salon] entity and
 /// its related read-model entities.
@@ -178,6 +179,57 @@ abstract final class SalonMasterMapper {
     }
     // Covers SALON_MASTER and any future/unknown value — fail-safe.
     return MasterType.salonMaster;
+  }
+}
+
+/// Maps [SalonStaffMemberResponse] (`GET /salons/{salonId}/staff`, Phase
+/// 21.5) to [SalonStaffMember].
+abstract final class SalonStaffMemberMapper {
+  /// Entries with a null/empty `userId` are dropped (logged) rather than
+  /// thrown — one broken roster entry must not blank the whole staff list.
+  static List<SalonStaffMember> fromDtoList(
+    Iterable<SalonStaffMemberResponse> dtos,
+  ) {
+    final List<SalonStaffMember> out = <SalonStaffMember>[];
+    for (final SalonStaffMemberResponse dto in dtos) {
+      final String? userId = dto.userId;
+      if (userId == null || userId.isEmpty) {
+        log(
+          'SalonStaffMemberResponse.userId is null — dropping roster entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      out.add(
+        SalonStaffMember(
+          userId: userId,
+          masterId: dto.masterId,
+          role: _staffRoleFromDto(dto.role),
+          firstName: dto.firstName ?? '',
+          lastName: dto.lastName ?? '',
+          professionalTitle: dto.professionalTitle,
+          avatarUrl: dto.avatarUrl,
+          phoneNumber: dto.phoneNumber,
+          instagram: dto.instagram,
+          bio: dto.bio,
+          avgRating: dto.avgRating?.toDouble(),
+          reviewCount: dto.reviewCount ?? 0,
+          serviceCount: dto.serviceCount ?? 0,
+        ),
+      );
+    }
+    return out;
+  }
+
+  static SalonStaffRole _staffRoleFromDto(SalonStaffMemberResponseRoleEnum? e) {
+    if (e == SalonStaffMemberResponseRoleEnum.SALON_ADMIN) {
+      return SalonStaffRole.admin;
+    }
+    // Covers SALON_MASTER and any future/unknown value — fail-safe (this
+    // endpoint's contract never returns CLIENT/SALON_OWNER/INDEPENDENT_MASTER
+    // — mirrors [SalonMasterMapper._masterTypeFromDto]'s own precedent).
+    return SalonStaffRole.master;
   }
 }
 

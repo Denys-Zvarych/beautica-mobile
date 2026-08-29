@@ -39,6 +39,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -111,10 +112,13 @@ void main() {
           reason: 'salonManageGuard must ADMIT a real SALON_OWNER session',
         );
 
-        // The REAL repository fired the salon-detail + masters-rail reads.
+        // The REAL repository fired the salon-detail + staff-roster reads.
+        // Phase 21.5 — the management profile now reads the staff roster
+        // (`getSalonStaff`, masters + admins), not the public masters rail
+        // (`getSalonMasters`) — see `salon_management_profile_notifier.dart`.
         expect(fb.getSalonByIdCalls, greaterThanOrEqualTo(1));
         expect(fb.lastGetSalonId, _kSalonId);
-        expect(fb.getSalonMastersCalls, greaterThanOrEqualTo(1));
+        expect(fb.getSalonStaffCalls, greaterThanOrEqualTo(1));
 
         // Hero card renders the real fixture name.
         // i18n-finder-ok: fixture data, not UI copy.
@@ -386,6 +390,149 @@ void main() {
         expect(find.text(l10n.inviteStaffErrorForbidden), findsOneWidget);
         // A failed submit must NOT pop the form.
         AppHarness.expectLocation(router, '/salons/$_kSalonId/manage/invite');
+      });
+    },
+  );
+
+  // ── mobile-qa gap-closure (Phase 21.5, Step 2.7 Rule 3b) ─────────────────
+  //
+  // `salon_staff_profile_screen_test.dart` (widget tier) proves the MASTER-
+  // vs-ADMIN render contract against a mocked `salonStaffMemberProfileProvider`
+  // directly. It CANNOT catch:
+  //   • the real Персонал-tab card tap -> `context.push(RouteNames
+  //     .salonManageStaffMember(...))` -> `salonManageGuard` -> the REAL
+  //     `SalonRepository.getSalonStaff` -> `SalonStaffMemberMapper` chain
+  //     deserializing a REAL (fake) wire envelope end to end;
+  //   • that `salonStaffMemberProfileProvider` genuinely reads the
+  //     ALREADY-CACHED roster (`salonManagementProfileProvider`) instead of
+  //     re-fetching — the mobile-perf INFO follow-up this test pins: a
+  //     future refactor could silently reintroduce a redundant
+  //     `GET /salons/{salonId}/staff` per staff-profile navigation, and
+  //     nothing at the widget tier (which stubs the provider directly)
+  //     would ever observe that regression.
+  //
+  // Drills into BOTH roster roles from the fixture's real staff list
+  // (`master-aaa` + `admin-zzz`, `fake_backend.dart`'s `_salonStaff`), via
+  // the REAL "Персонал" tab -> card tap path, not `router.go`.
+  testWidgets(
+    'SALON_OWNER opens the Персонал tab and drills into a MASTER and an '
+    'ADMIN staff profile via the REAL roster — no redundant GET /staff '
+    '(mobile-perf INFO follow-up)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        expect(fb.getSalonStaffCalls, 1);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        // ── MASTER branch: master-aaa ──────────────────────────────────────
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-master-aaa'),
+        );
+        await tester.ensureVisible(masterCard);
+        await tester.pumpAndSettle();
+        await tester.tap(masterCard);
+        await tester.pumpAndSettle();
+
+        AppHarness.expectLocation(
+          router,
+          '/salons/$_kSalonId/manage/staff/master-aaa',
+        );
+        expect(
+          find.byType(SalonStaffProfileScreen),
+          findsOneWidget,
+          reason: 'salonManageGuard must ADMIT a real SALON_OWNER session',
+        );
+        expect(find.text(l10n.salonStaffProfileMasterTitle), findsOneWidget);
+        // i18n-finder-ok: fixture name, not UI copy.
+        expect(find.text('Софія Бондар'), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-staff-profile-contact-phone')),
+          findsOneWidget,
+        );
+        // The read-only ServiceCategoryCardList section renders from the
+        // REAL `GET /masters/master-aaa/services` fetch — the fixture's
+        // master-aaa carries two active NAILS-category services.
+        expect(
+          find.byKey(const Key('salon-staff-profile-service-categories')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('staff-profile-category-NAILS')),
+          findsOneWidget,
+        );
+
+        // mobile-perf INFO follow-up — reaching a MASTER's profile from the
+        // ALREADY-cached «Персонал» roster must NOT re-fetch GET /staff.
+        expect(
+          fb.getSalonStaffCalls,
+          1,
+          reason:
+              'salonStaffMemberProfileProvider watches the already-cached '
+              'salonManagementProfileProvider roster, not a fresh '
+              'GET /staff round trip',
+        );
+        expect(
+          fb.getPublicMasterServicesCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'a MASTER entry additionally fetches its active services',
+        );
+
+        router.pop();
+        await tester.pumpAndSettle();
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage');
+
+        // ── ADMIN branch: admin-zzz ─────────────────────────────────────────
+        final Finder adminCard = find.byKey(
+          const Key('salon-manage-staff-card-admin-zzz'),
+        );
+        await tester.ensureVisible(adminCard);
+        await tester.pumpAndSettle();
+        await tester.tap(adminCard);
+        await tester.pumpAndSettle();
+
+        AppHarness.expectLocation(
+          router,
+          '/salons/$_kSalonId/manage/staff/admin-zzz',
+        );
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(find.text(l10n.salonStaffProfileAdminTitle), findsOneWidget);
+        // i18n-finder-ok: fixture name, not UI copy.
+        expect(find.text('Ірина Ковальська'), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-staff-profile-contact-phone')),
+          findsOneWidget,
+        );
+        // The admin contract is largely ABSENCE — no stats, no bio, no
+        // service categories — asserted explicitly, not inferred from the
+        // master branch above.
+        expect(
+          find.byKey(const Key('salon-staff-profile-rating-value')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('salon-staff-profile-bio')), findsNothing);
+        expect(
+          find.byKey(const Key('salon-staff-profile-service-categories')),
+          findsNothing,
+        );
+
+        // Still no second GET /staff, and the admin branch never calls
+        // getMasterServices — so master-aaa's own services call count is
+        // unchanged from the master branch above.
+        expect(fb.getSalonStaffCalls, 1);
       });
     },
   );

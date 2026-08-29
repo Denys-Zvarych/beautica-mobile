@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -279,6 +280,15 @@ class _FakeSalonRepository implements SalonRepository {
     '_FakeSalonRepository.inviteStaff is not stubbed — this fake backs the '
     'CLIENT-facing read-only profile screen.',
   );
+
+  // Phase 21.5 — owner/admin read path (staff roster). Same rationale as
+  // [inviteStaff] immediately above.
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      throw UnimplementedError(
+        '_FakeSalonRepository.getSalonStaff is not stubbed — this fake backs '
+        'the CLIENT-facing read-only profile screen.',
+      );
 }
 
 // ---------------------------------------------------------------------------

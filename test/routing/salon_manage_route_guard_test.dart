@@ -63,12 +63,15 @@ import 'package:beautica_mobile/features/rating/application/my_rating_notifier.d
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -96,8 +99,26 @@ const _kSalon = Salon(id: _kSalonId, name: 'Guard Test Salon');
 class _SettledSalonManagementProfile extends SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async =>
-      (_kSalon, const <SalonMasterSummary>[]);
+      (_kSalon, const <SalonStaffMember>[]);
 }
+
+// mobile-security LOW follow-up (2026-08-29) — `/salons/:salonId/manage/
+// staff/:memberId` (Phase 21.5) reused `salonManageGuard` VERBATIM but had
+// ZERO route-guard test coverage of its own: the ONE route in this app that
+// reaches the unmasked-staff-PII endpoint (`GET /salons/{salonId}/staff`,
+// phone numbers included) was never proven to actually admit/reject the same
+// way `/manage` and `/manage/settings` do. See this file's own header doc —
+// before ANY guard test existed, the guard could be deleted and every OTHER
+// test in the suite stayed green.
+const String _kMemberId = 'staff-guard-member-1';
+
+const _kStaffMember = SalonStaffMember(
+  userId: _kMemberId,
+  masterId: 'master-row-guard-1',
+  role: SalonStaffRole.master,
+  firstName: 'Guard',
+  lastName: 'Member',
+);
 
 /// A SECOND salon `_kSalonId`'s owner does NOT own — for the ownership-bound
 /// redirect group below (Phase 21.1 QA follow-up).
@@ -312,6 +333,14 @@ void main() {
           salonManagementProfileProvider(
             'salon-guard-2',
           ).overrideWith(_SettledSalonManagementProfile.new),
+          // Settles `/manage/staff/:memberId`'s own data source
+          // (`salonStaffMemberProfileProvider`, a plain FutureProvider
+          // family — not a class provider, so `.overrideWith((ref) async =>
+          // ...)`, unlike the class-provider overrides above) synchronously,
+          // for the SAME leaked-Dio-request-avoidance reason.
+          salonStaffMemberProfileProvider(_kSalonId, _kMemberId).overrideWith(
+            (ref) async => (_kStaffMember, const <MasterService>[]),
+          ),
           // Settles the CLIENT redirect target (RouteNames.clientHome →
           // HomeHubScreen's 5 data providers) synchronously — same
           // leaked-Timer avoidance `role_landing_chrome_test.dart` documents
@@ -488,6 +517,132 @@ void main() {
 
           expect(locationOf(router), equals(RouteNames.login));
           expect(find.byType(SalonManagementProfileScreen), findsNothing);
+        },
+      );
+    });
+
+    // -------------------------------------------------------------------
+    // mobile-security LOW follow-up (2026-08-29) — `/salons/:salonId/manage/
+    // staff/:memberId` reuses `salonManageGuard` VERBATIM (see
+    // `app_router.dart`'s own Phase 21.5 comment on that `GoRoute`), so its
+    // ownership-binding behaviour is already fully proven by the `/manage`
+    // group above and the dedicated ownership-binding groups further below
+    // — this group only confirms the SAME guard is actually WIRED onto this
+    // leaf, asserting on the resolved page TYPE (not just the URL), per
+    // this codebase's documented go_router trap: declaration order alone
+    // can make a literal route win, and a dynamic sibling absorbing the
+    // path would leave the URL assertion green while the WRONG screen
+    // mounted.
+    // -------------------------------------------------------------------
+    group('/salons/:salonId/manage/staff/:memberId (Phase 21.5)', () {
+      testWidgets('SALON_OWNER is ADMITTED', (tester) async {
+        final router = await pumpRouterAs(tester, _ownerSession);
+
+        router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/manage/staff/$_kMemberId'),
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w is SalonStaffProfileScreen &&
+                w.salonId == _kSalonId &&
+                w.memberId == _kMemberId,
+          ),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('SALON_ADMIN is ADMITTED on their OWN salonId', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _adminSession);
+
+        router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/manage/staff/$_kMemberId'),
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w is SalonStaffProfileScreen &&
+                w.salonId == _kSalonId &&
+                w.memberId == _kMemberId,
+          ),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets(
+        'SALON_ADMIN is redirected to roleHomePath on a DIFFERENT salonId, '
+        'never admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+          router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+          await tester.pumpAndSettle();
+
+          // Phase 21.8 — see the identical `/manage` case above.
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell('salon-guard-2')),
+          );
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) =>
+                  w is SalonStaffProfileScreen && w.salonId == _kSalonId,
+            ),
+            findsNothing,
+            reason: 'the unrequested salonId must never be admitted',
+          );
+        },
+      );
+
+      testWidgets(
+        'CLIENT is redirected to roleHomePath (RouteNames.clientHome), never '
+        'admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonStaffProfileScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'SALON_MASTER is redirected to roleHomePath (RouteNames.home), never '
+        'admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _salonMasterSession);
+
+          router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.home));
+          expect(find.byType(SalonStaffProfileScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'unauthenticated is redirected to /login by the global authRedirect '
+        'gate',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _unauthenticatedSession);
+
+          router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.login));
+          expect(find.byType(SalonStaffProfileScreen), findsNothing);
         },
       );
     });

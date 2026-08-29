@@ -308,6 +308,13 @@ void main() {
       // top-level route, same rationale as `salonManage()`/
       // `salonManageSettings()` above.
       'salonInviteStaff()': RouteNames.salonInviteStaff(kSampleId),
+      // Phase 21.5 — staff member (master OR admin) management profile.
+      // Standalone top-level route, same rationale as `salonManage()`/
+      // `salonManageSettings()` above.
+      'salonManageStaffMember()': RouteNames.salonManageStaffMember(
+        kSampleId,
+        kSampleId,
+      ),
       // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
       // Phase 21.9 settings hub will push to. Standalone top-level routes,
       // same rationale as `salonManage()`/`salonManageSettings()` above.

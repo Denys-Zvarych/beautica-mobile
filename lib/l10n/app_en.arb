@@ -5250,6 +5250,18 @@
   "@salonManageAddStaffLabel": {
     "description": "Phase 21.2 — label/semantics for the trailing 'invite staff' tile in the owner/admin salon management profile's Персонал grid."
   },
+  "salonStaffProfileMasterTitle": "Master profile",
+  "@salonStaffProfileMasterTitle": {
+    "description": "Phase 21.5 — app-bar title on the salon staff member management profile (SalonStaffProfileScreen) when the viewed member is a master."
+  },
+  "salonStaffProfileAdminTitle": "Admin profile",
+  "@salonStaffProfileAdminTitle": {
+    "description": "Phase 21.5 — app-bar title on the salon staff member management profile (SalonStaffProfileScreen) when the viewed member is an admin."
+  },
+  "salonStaffRoleAdmin": "Administrator",
+  "@salonStaffRoleAdmin": {
+    "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Персонал grid card and the staff member profile screen's identity card RoleChip."
+  },
   "salonSettingsEditProfile": "Edit profile",
   "@salonSettingsEditProfile": {
     "description": "Phase 21.2 — the salon settings page's navigational row that pops back to the management profile with edit mode toggled on."

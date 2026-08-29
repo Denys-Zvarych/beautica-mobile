@@ -54,6 +54,7 @@ import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
+import '../domain/salon_staff_member.dart';
 import 'salon_mapper.dart';
 
 part 'salon_repository.g.dart';
@@ -262,6 +263,18 @@ abstract interface class SalonRepository {
     required String email,
     required UserRole role,
   });
+
+  /// Fetches the salon's management-scoped staff roster (masters + admins,
+  /// unmasked contact details) for [salonId] (Phase 21.5).
+  ///
+  /// Wraps `GET /salons/{salonId}/staff` (the generated
+  /// `SalonControllerApi.getSalonStaff`). Requires management access to the
+  /// salon (owner or assigned admin) — the same authorization
+  /// [salonManageGuard] already binds client-side. Returns an empty list when
+  /// the salon has no staff (should not normally happen — the owner
+  /// themself is never listed, but a brand-new salon has no invited staff
+  /// yet).
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId);
 }
 
 /// HTTP implementation of [SalonRepository].
@@ -600,6 +613,27 @@ final class HttpSalonRepository implements SalonRepository {
       if (kDebugMode) {
         log(
           'inviteStaff failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async {
+    try {
+      final res = await _salonApi.getSalonStaff(salonId: salonId);
+      final dtos = res.data?.data ?? const <SalonStaffMemberResponse>[];
+      return SalonStaffMemberMapper.fromDtoList(dtos);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getSalonStaff failed: ${e.type} ${e.response?.statusCode}',
           name: 'salon.repository',
           level: 900,
           stackTrace: st,

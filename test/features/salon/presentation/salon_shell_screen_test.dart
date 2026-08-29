@@ -36,7 +36,7 @@ import 'package:beautica_mobile/features/salon/application/my_salons_notifier.da
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
@@ -99,7 +99,7 @@ class _OwnedMySalons extends MySalons {
 class _SettledSalonManagementProfile extends SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async =>
-      (_stubSalon, const <SalonMasterSummary>[]);
+      (_stubSalon, const <SalonStaffMember>[]);
 }
 
 List<Object> _ownerOverrides() => <Object>[

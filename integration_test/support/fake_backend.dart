@@ -1016,6 +1016,13 @@ final class FakeBackend {
   int getSalonMastersCalls = 0;
   String? lastGetSalonMastersId;
 
+  /// `GET /api/v1/salons/{salonId}/staff` — Phase 21.5 management-scoped
+  /// staff roster (masters + admins, unmasked contacts) backing the
+  /// «Персонал» grid tab. Distinct from [getSalonMastersCalls] above (the
+  /// PUBLIC masters rail the client-facing profile still uses).
+  int getSalonStaffCalls = 0;
+  String? lastGetSalonStaffId;
+
   /// `GET /api/v1/salons/{salonId}/services` — service catalogue ("Послуги").
   int getSalonServiceCatalogCalls = 0;
   String? lastGetSalonServiceCatalogId;
@@ -2024,6 +2031,47 @@ final class FakeBackend {
           'masterType': 'SALON_MASTER',
         },
       ];
+
+  /// Phase 21.5 — management-scoped staff roster for `salon-xyz`
+  /// (`GET /salons/{salonId}/staff`), backing the owner/admin «Персонал»
+  /// grid. One master entry (mirrors `master-aaa`'s public rail identity so
+  /// the two reads agree) plus one admin entry — proving the roster now
+  /// surfaces admins too, unlike [_salonMasters] above. Shape matches
+  /// `SalonStaffMemberResponse`.
+  static const List<Map<String, dynamic>> _salonStaff = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'userId': 'master-aaa',
+      'masterId': 'master-aaa',
+      'role': 'SALON_MASTER',
+      'firstName': 'Софія',
+      'lastName': 'Бондар',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380671112233',
+      'instagram': null,
+      'bio': null,
+      'avgRating': kPublicMasterAvgRatingBeforeReview,
+      'reviewCount': kPublicMasterReviewCountBeforeReview,
+      'serviceCount': 1,
+    },
+    <String, dynamic>{
+      'userId': 'admin-zzz',
+      'masterId': null,
+      'role': 'SALON_ADMIN',
+      'firstName': 'Ірина',
+      'lastName': 'Ковальська',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380509998877',
+      'instagram': null,
+      // Admins carry no bio BY DESIGN — see `SalonStaffMember`'s own header
+      // doc.
+      'bio': null,
+      'avgRating': null,
+      'reviewCount': 0,
+      'serviceCount': 0,
+    },
+  ];
 
   /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
   /// each: NAILS carries the salon's SHARED signature service (offered by
@@ -4769,6 +4817,20 @@ final class FakeBackend {
           totalPages: 1,
           totalElements: _salonMasters.length,
         );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/staff — Phase 21.5 owner/admin «Персонал»
+    // grid (SalonControllerApi.getSalonStaff). Envelope is a PLAIN list under
+    // `data` (`ApiResponseListSalonStaffMemberResponse`), unlike the
+    // paginated `/masters` rail above — `_okList` matches that shape.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/staff',
+      (server) => server.replyCallback(200, (_) {
+        getSalonStaffCalls++;
+        lastGetSalonStaffId = 'salon-xyz';
+        return _okList(_salonStaff);
       }),
       request: const Request(method: RequestMethods.get),
     );

@@ -36,7 +36,7 @@ import 'package:beautica_mobile/features/salon/application/my_salons_notifier.da
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
@@ -88,7 +88,7 @@ const _salonWithKnownPhone = Salon(
   phone: '+380671112233',
 );
 
-const _masters = <SalonMasterSummary>[];
+const _staff = <SalonStaffMember>[];
 
 /// The «Мої салони» hub's cached list entry — deliberately a DIFFERENT id
 /// from [_kSalonId]; the invalidation tests below only care whether
@@ -182,9 +182,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
 
       final container = _makeContainer(repo);
       await container.read(authProvider.future);
@@ -206,9 +204,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => throw const NetworkFailure());
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
 
       final container = ProviderContainer(
         retry: (_, _) => null,
@@ -229,7 +225,7 @@ void main() {
       await container
           .read(salonManagementProfileProvider(_kSalonId).future)
           .catchError(
-            (_) => (const Salon(id: '', name: ''), <SalonMasterSummary>[]),
+            (_) => (const Salon(id: '', name: ''), <SalonStaffMember>[]),
           );
 
       final state = container.read(salonManagementProfileProvider(_kSalonId));
@@ -259,9 +255,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _salonWithKnownPhone);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
 
       UpdateSalonRequest? captured;
       when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
@@ -308,8 +302,8 @@ void main() {
           () => repo.getSalonById(_kSalonId),
         ).thenAnswer((_) async => _freshSalon);
         when(
-          () => repo.getSalonMasters(_kSalonId),
-        ).thenAnswer((_) async => _masters);
+          () => repo.getSalonStaff(_kSalonId),
+        ).thenAnswer((_) async => _staff);
 
         UpdateSalonRequest? captured;
         when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
@@ -347,9 +341,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
 
       UpdateSalonRequest? captured;
       when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
@@ -380,8 +372,8 @@ void main() {
           () => repo.getSalonById(_kSalonId),
         ).thenAnswer((_) async => _freshSalon);
         when(
-          () => repo.getSalonMasters(_kSalonId),
-        ).thenAnswer((_) async => _masters);
+          () => repo.getSalonStaff(_kSalonId),
+        ).thenAnswer((_) async => _staff);
         when(
           () => repo.updateSalon(_kSalonId, any()),
         ).thenThrow(const ServerFailure(statusCode: 500));
@@ -416,9 +408,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
       when(() => repo.deleteSalon(_kSalonId)).thenAnswer((_) async {});
 
       final container = _makeContainer(repo);
@@ -434,9 +424,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
       when(
         () => repo.deleteSalon(_kSalonId),
       ).thenThrow(const ServerFailure(statusCode: 500));
@@ -470,9 +458,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
       when(
         () => repo.updateSalon(_kSalonId, any()),
       ).thenAnswer((_) async => _freshSalon.copyWith(name: 'Нова назва'));
@@ -521,9 +507,7 @@ void main() {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
-      when(
-        () => repo.getSalonMasters(_kSalonId),
-      ).thenAnswer((_) async => _masters);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
       when(() => repo.deleteSalon(_kSalonId)).thenAnswer((_) async {});
 
       final counter = _CallCounter();

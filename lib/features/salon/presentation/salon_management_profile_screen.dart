@@ -42,9 +42,11 @@
 //
 // «Персонал» — Phase 21.4 (Invite Staff, form only) is BUILT: the trailing
 // "+" tile pushes [InviteStaffScreen] via `RouteNames.salonInviteStaff`.
-// Phase 21.5 (Master Management Profile) is still UNBUILT, so staff-card
-// taps have no destination yet — rendered per the design source with the
-// navigation callback left as an explicit TODO.
+// Phase 21.5 (Master Management Profile) is BUILT too: staff-card taps push
+// `RouteNames.salonManageStaffMember` (see [_openStaffMember]). The roster
+// itself now lists both masters and admins — `getSalonStaff` (GET
+// `/salons/{salonId}/staff`), not a masters-only endpoint — a deliberate,
+// user-approved behaviour change landed alongside 21.5.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,13 +71,12 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
-import '../../master/domain/master.dart' show MasterType;
 import '../application/my_salons_notifier.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
 import '../domain/salon.dart';
-import '../domain/salon_master_summary.dart';
 import '../domain/salon_service_catalog.dart';
+import '../domain/salon_staff_member.dart';
 import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
 import 'widgets/salon_reviews_section.dart';
@@ -311,9 +312,12 @@ class _SalonManagementProfileScreenState
     });
   }
 
-  // TODO(phase-21.5): open the master management profile for [master] once
-  // that screen exists. Currently a no-op.
-  void _openStaffMember(SalonMasterSummary master) {}
+  /// Opens the staff management profile for [member] (Phase 21.5) — works for
+  /// both a master and an admin entry; the destination screen branches on
+  /// [member.role] internally.
+  void _openStaffMember(SalonStaffMember member) => context.push(
+    RouteNames.salonManageStaffMember(widget.salonId, member.userId),
+  );
 
   void _openInviteStaff() =>
       context.push(RouteNames.salonInviteStaff(widget.salonId));
@@ -411,12 +415,12 @@ class _SalonManagementProfileScreenState
             ),
           ),
           data: (SalonManagementProfileData data) {
-            final (Salon salon, List<SalonMasterSummary> masters) = data;
+            final (Salon salon, List<SalonStaffMember> staff) = data;
             _initControllers(salon);
             return _LoadedBody(
               salonId: widget.salonId,
               salon: salon,
-              masters: masters,
+              staff: staff,
               embedded: widget.embedded,
               topInset: topInset,
               coverHeight: _coverHeight,
@@ -454,7 +458,7 @@ class _LoadedBody extends StatelessWidget {
   const _LoadedBody({
     required this.salonId,
     required this.salon,
-    required this.masters,
+    required this.staff,
     required this.embedded,
     required this.topInset,
     required this.coverHeight,
@@ -480,7 +484,7 @@ class _LoadedBody extends StatelessWidget {
 
   final String salonId;
   final Salon salon;
-  final List<SalonMasterSummary> masters;
+  final List<SalonStaffMember> staff;
 
   /// Phase 21.8 — see [SalonManagementProfileScreen.embedded]. Hides the
   /// `salon-manage-back` cover control (H1a).
@@ -509,7 +513,7 @@ class _LoadedBody extends StatelessWidget {
   final ValueChanged<String> onInstagramChanged;
 
   final VoidCallback onOpenSettings;
-  final ValueChanged<SalonMasterSummary> onOpenStaffMember;
+  final ValueChanged<SalonStaffMember> onOpenStaffMember;
   final VoidCallback onInviteStaff;
 
   @override
@@ -565,7 +569,7 @@ class _LoadedBody extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
               child: _StaffTab(
                 salonId: salonId,
-                masters: masters,
+                staff: staff,
                 onOpenMember: onOpenStaffMember,
                 onInvite: onInviteStaff,
               ),
@@ -1074,14 +1078,14 @@ class _EditFooter extends StatelessWidget {
 class _StaffTab extends StatelessWidget {
   const _StaffTab({
     required this.salonId,
-    required this.masters,
+    required this.staff,
     required this.onOpenMember,
     required this.onInvite,
   });
 
   final String salonId;
-  final List<SalonMasterSummary> masters;
-  final ValueChanged<SalonMasterSummary> onOpenMember;
+  final List<SalonStaffMember> staff;
+  final ValueChanged<SalonStaffMember> onOpenMember;
   final VoidCallback onInvite;
 
   @override
@@ -1091,7 +1095,7 @@ class _StaffTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        if (masters.isEmpty)
+        if (staff.isEmpty)
           Padding(
             key: const Key('salon-manage-staff-empty'),
             padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
@@ -1110,41 +1114,38 @@ class _StaffTab extends StatelessWidget {
             crossAxisSpacing: VelvetSpacing.md,
             mainAxisExtent: kSalonMasterCardHeight,
           ),
-          itemCount: masters.length + 1,
+          itemCount: staff.length + 1,
           itemBuilder: (BuildContext context, int i) {
-            if (i == masters.length) {
+            if (i == staff.length) {
               return _AddStaffTile(onTap: onInvite);
             }
-            final SalonMasterSummary master = masters[i];
-            final String? ownTitle = master.professionalTitle?.trim();
-            final String role = (ownTitle != null && ownTitle.isNotEmpty)
+            final SalonStaffMember member = staff[i];
+            final bool isAdmin = member.role == SalonStaffRole.admin;
+            final String? ownTitle = member.professionalTitle?.trim();
+            // Phase 21.5 — the roster now includes admins (previously
+            // masters-only): an admin has no professional title, so it
+            // always shows the admin role label; a master falls back to the
+            // generic salon-master label when no own title is set.
+            final String role = isAdmin
+                ? l10n.salonStaffRoleAdmin
+                : (ownTitle != null && ownTitle.isNotEmpty)
                 ? ownTitle
-                : _roleLabel(master.type, l10n);
+                : l10n.masterRoleSalonMaster;
             return SalonMasterCard(
-              key: Key('salon-manage-staff-card-${master.masterId}'),
-              name: master.firstName,
+              key: Key('salon-manage-staff-card-${member.userId}'),
+              name: member.firstName,
               role: role,
-              ratingLabel: master.reviewCount > 0
-                  ? (master.avgRating?.toStringAsFixed(1) ?? '—')
+              // Admins carry no service rating — always the placeholder.
+              ratingLabel: !isAdmin && member.reviewCount > 0
+                  ? (member.avgRating?.toStringAsFixed(1) ?? '—')
                   : '—',
               avatarIndex: i,
-              onTap: () => onOpenMember(master),
+              onTap: () => onOpenMember(member),
             );
           },
         ),
       ],
     );
-  }
-
-  static String _roleLabel(MasterType type, AppLocalizations l10n) {
-    switch (type) {
-      case MasterType.independentMaster:
-        return l10n.masterRoleIndependent;
-      case MasterType.salonMaster:
-        return l10n.masterRoleSalonMaster;
-      case MasterType.salonOwner:
-        return l10n.masterRoleSalonOwner;
-    }
   }
 }
 

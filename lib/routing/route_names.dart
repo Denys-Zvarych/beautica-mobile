@@ -177,6 +177,21 @@ abstract final class RouteNames {
   static String salonInviteStaff(String salonId) =>
       '${salonManage(salonId)}/invite';
 
+  /// Phase 21.5 — the staff member (master OR admin) management profile,
+  /// reached from a «Персонал» grid card tap. A literal `/staff/:memberId`
+  /// leaf below the ALREADY-RESOLVED [salonManage] `:salonId` capture — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents. Registered as a STANDALONE top-level route in
+  /// `app_router.dart`, same "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonInviteStaff] document — nesting under
+  /// `/salons/:salonId` would let `clientOnlyGuard` bounce owners/admins
+  /// first. Reuses `salonManageGuard` VERBATIM.
+  ///
+  /// [memberId] is the roster entry's `userId` (works for both a master and
+  /// an admin entry — an admin has no `masterId`).
+  static String salonManageStaffMember(String salonId, String memberId) =>
+      '${salonManage(salonId)}/staff/${Uri.encodeComponent(memberId)}';
+
   /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
   /// description), reached from the Phase 21.9 settings hub's own
   /// navigational row. A literal child of [salonManageSettings], gated by the

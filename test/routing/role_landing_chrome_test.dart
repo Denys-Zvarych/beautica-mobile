@@ -45,7 +45,7 @@ import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -346,7 +346,7 @@ class _H1bSettledSalonManagementProfile extends SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async => (
     const Salon(id: _kH1bSalonId, name: 'H1b Probe Salon'),
-    const <SalonMasterSummary>[],
+    const <SalonStaffMember>[],
   );
 }
 
@@ -540,7 +540,7 @@ class _SettledSalonManagementProfile extends SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async => (
     const Salon(id: _kLandingSalonId, name: 'Test Salon'),
-    const <SalonMasterSummary>[],
+    const <SalonStaffMember>[],
   );
 }
 

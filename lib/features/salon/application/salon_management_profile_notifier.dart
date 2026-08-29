@@ -52,16 +52,21 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/salon_repository.dart';
 import '../domain/salon.dart';
-import '../domain/salon_master_summary.dart';
+import '../domain/salon_staff_member.dart';
 import 'my_salons_notifier.dart';
 
 part 'salon_management_profile_notifier.g.dart';
 
 /// The data the owner/admin salon management screen renders: the salon
-/// detail (editable) paired with its masters rail (the «Персонал» tab).
+/// detail (editable) paired with its staff roster (the «Персонал» tab).
+///
+/// Phase 21.5 — the roster is now the management-scoped `GET
+/// /salons/{salonId}/staff` read (masters AND admins, unmasked contacts),
+/// replacing the earlier public `GET /salons/{salonId}/masters` rail read —
+/// see [SalonRepository.getSalonStaff]'s own doc.
 typedef SalonManagementProfileData = (
   Salon salon,
-  List<SalonMasterSummary> masters,
+  List<SalonStaffMember> staff,
 );
 
 /// Loads + mutates the owner/admin salon profile for [salonId].
@@ -88,18 +93,18 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     // identical unwrap (this notifier's own header doc names that file as
     // the read pattern this build() extends).
     try {
-      final (Salon salon, List<SalonMasterSummary> masters) = await (
+      final (Salon salon, List<SalonStaffMember> staff) = await (
         repo.getSalonById(salonId),
-        repo.getSalonMasters(salonId),
+        repo.getSalonStaff(salonId),
       ).wait;
-      return (salon, masters);
+      return (salon, staff);
     } on async.ParallelWaitError<
-      (Salon?, List<SalonMasterSummary>?),
+      (Salon?, List<SalonStaffMember>?),
       (async.AsyncError?, async.AsyncError?)
     > catch (error, stackTrace) {
-      final (async.AsyncError? salonError, async.AsyncError? mastersError) =
+      final (async.AsyncError? salonError, async.AsyncError? staffError) =
           error.errors;
-      final async.AsyncError? firstError = salonError ?? mastersError;
+      final async.AsyncError? firstError = salonError ?? staffError;
       if (firstError != null) {
         Error.throwWithStackTrace(firstError.error, firstError.stackTrace);
       }
@@ -131,7 +136,7 @@ class SalonManagementProfile extends _$SalonManagementProfile {
   }) async {
     final SalonManagementProfileData? data = state.value;
     if (data == null) return null;
-    final (Salon current, List<SalonMasterSummary> masters) = data;
+    final (Salon current, List<SalonStaffMember> staff) = data;
 
     final String trimmedName = name.trim();
     final String trimmedDescription = description.trim();
@@ -168,7 +173,7 @@ class SalonManagementProfile extends _$SalonManagementProfile {
         avgRating: current.avgRating,
         reviewCount: current.reviewCount,
       );
-      state = AsyncData((merged, masters));
+      state = AsyncData((merged, staff));
       // cycle-safe: mySalonsProvider (MySalons.build()) only watches
       // authProvider — it never watches salonManagementProfileProvider, so
       // there is no back-edge here to close into a cycle. See this file's
@@ -206,7 +211,7 @@ class SalonManagementProfile extends _$SalonManagementProfile {
   }) async {
     final SalonManagementProfileData? data = state.value;
     if (data == null) return null;
-    final (Salon current, List<SalonMasterSummary> masters) = data;
+    final (Salon current, List<SalonStaffMember> staff) = data;
 
     final String trimmedStreet = street.trim();
     final String trimmedBuildingNo = buildingNo.trim();
@@ -232,7 +237,7 @@ class SalonManagementProfile extends _$SalonManagementProfile {
         avgRating: current.avgRating,
         reviewCount: current.reviewCount,
       );
-      state = AsyncData((merged, masters));
+      state = AsyncData((merged, staff));
       // cycle-safe: mySalonsProvider (MySalons.build()) only watches
       // authProvider — it never watches salonManagementProfileProvider, so
       // there is no back-edge here to close into a cycle. See this file's
