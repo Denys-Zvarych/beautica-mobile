@@ -32,9 +32,6 @@
 // phase doc's own Step 4 prose omits it — preview wins per this phase's
 // locked 2026-08-28 decision.
 
-import 'dart:developer';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -48,8 +45,9 @@ import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
-import 'package:beautica_mobile/features/location/state/location_providers.dart';
+import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/building_validator.dart';
@@ -101,69 +99,31 @@ class _SalonAddressEditScreenState
   }
 
   /// Resolves [Oblast], [City], [CityDistrict] objects from [salon.oblastId]/
-  /// [salon.cityId]/[salon.districtId] via a single targeted lookup chain —
-  /// mirrors `LocationEditScreen._prePopulateLocality`'s exact shape.
+  /// [salon.cityId]/[salon.districtId].
+  ///
+  /// Phase 21.14 — the by-id scan itself (oblast -> city -> district, one
+  /// targeted lookup chain) moved to the shared [resolvedLocalityProvider]
+  /// (REUSE-FIRST — it was hand-copied here AND in
+  /// `LocationEditScreen._prePopulateLocality`; a third near-identical
+  /// private copy is exactly what that promotion prevents). This method is
+  /// now just the one-shot `ref.read(...future)` call plus the `setState`
+  /// that seeds the cascade's mutable local selection — error handling
+  /// (never throws; logs in debug builds only) lives in the provider, so
+  /// this method needs no try/catch of its own any more.
   Future<void> _prePopulateLocality(Salon salon) async {
-    final String? oblastId = salon.oblastId;
-    final String? cityId = salon.cityId;
-    if (oblastId == null || cityId == null || cityId.isEmpty) return;
-
-    Oblast? matchedOblast;
-    City? matchedCity;
-    CityDistrict? matchedDistrict;
-
-    try {
-      final List<Oblast> oblasts = await ref.read(oblastListProvider.future);
-      for (final Oblast o in oblasts) {
-        if (o.id == oblastId) {
-          matchedOblast = o;
-          break;
-        }
-      }
-
-      final Oblast? oblast = matchedOblast;
-      if (oblast != null) {
-        final List<City> cities = await ref.read(
-          cityListProvider(oblast.id).future,
-        );
-        for (final City c in cities) {
-          if (c.id == cityId) {
-            matchedCity = c;
-            break;
-          }
-        }
-      }
-
-      final String? districtId = salon.districtId;
-      final City? city = matchedCity;
-      if (districtId != null && city != null && city.hasDistricts) {
-        final List<CityDistrict> districts = await ref.read(
-          districtListProvider(city.id).future,
-        );
-        for (final CityDistrict d in districts) {
-          if (d.id == districtId) {
-            matchedDistrict = d;
-            break;
-          }
-        }
-      }
-    } on Object catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'Locality pre-population failed — cascade will be empty',
-          name: 'feature.salon.edit.address',
-          level: 800,
-          error: e,
-          stackTrace: st,
-        );
-      }
-    }
+    final ResolvedLocality resolved = await ref.read(
+      resolvedLocalityProvider(
+        oblastId: salon.oblastId,
+        cityId: salon.cityId,
+        districtId: salon.districtId,
+      ).future,
+    );
 
     if (!mounted) return;
     setState(() {
-      _selectedOblast = matchedOblast;
-      _selectedCity = matchedCity;
-      _selectedDistrict = matchedDistrict;
+      _selectedOblast = resolved.oblast;
+      _selectedCity = resolved.city;
+      _selectedDistrict = resolved.district;
     });
   }
 

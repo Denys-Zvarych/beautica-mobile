@@ -63,6 +63,8 @@ import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -71,6 +73,7 @@ import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 
 import '../application/my_salons_notifier.dart';
 import '../application/salon_management_profile_notifier.dart';
@@ -694,25 +697,102 @@ class _CoverAndHero extends StatelessWidget {
 }
 
 /// The owner/admin identity card — logo + name + ★ rating · review count,
-/// then a single combined address line. No inline edit affordances (editing
-/// lives behind the settings hub → «Редагувати профіль»).
-class _ManagementHeroCard extends StatelessWidget {
+/// then the full resolved location (oblast → city → district → street +
+/// building) and an optional location note. No inline edit affordances
+/// (editing lives behind the settings hub → «Редагувати профіль»).
+///
+/// `ConsumerWidget` (Phase 21.14 — was `StatelessWidget`) so it can
+/// `ref.watch` [resolvedLocalityProvider] for the oblast/city/district
+/// display names — see [build] for the fallback chain and why
+/// `salon.city`/`salon.region` are never read.
+class _ManagementHeroCard extends ConsumerWidget {
   const _ManagementHeroCard({required this.salon});
 
   final Salon salon;
 
   static const double _logoDiameter = 68;
 
+  /// Icon width (15) + the gap after it (`VelvetSpacing.xs + 1`) — the exact
+  /// horizontal offset the address row's `Icon` + `SizedBox` already produce
+  /// below, reused here so the location note lines up under the address
+  /// TEXT, not under its leading pin icon.
+  static const double _addressTextIndent = 15 + VelvetSpacing.xs + 1;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final String? monogram = salon.name.trim().isEmpty
         ? null
         : salon.name.trim()[0].toUpperCase();
     final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
+
+    // Phase 21.14 — this hero card renders the FULL resolved location
+    // (oblast → city → district → street/building) rather than the legacy
+    // free-text `city` + street/buildingNo it showed before. This is a
+    // DELIBERATE extension beyond the approved design
+    // (`docs/signup-designs/SalonManagementDesign/lib/screens/
+    // salon_profile_screen.dart:513-519`, which renders only
+    // `'${salon.locality}, ${salon.address}'` — two segments, no region/
+    // district, and no note row at all) — requested by the user 2026-08-29.
+    // Do NOT "restore" the design's two-segment line.
+    //
+    // `salon.city`/`salon.region` are never read here: both are legacy
+    // free-text fields the backend stopped writing at Phase 10.6
+    // (`SalonService.updateSalon` — see `Salon.city`'s own doc), so either
+    // one can be stale (frozen at whatever it was before the salon's last
+    // taxonomy edit) the moment a resolved oblast/city name is also on
+    // screen — rendering both next to each other risks showing two
+    // DIFFERENT addresses for the same salon.
+    //
+    // `resolvedLocalityProvider` resolves the taxonomy `oblastId`/`cityId`/
+    // `districtId` UUIDs to display names via the SAME memoized
+    // (`keepAlive: true`) `oblastList`/`cityList`/`districtList` provider
+    // chain `SalonAddressEditScreen` uses — this scan was promoted out of
+    // that screen's own private method into the shared provider (REUSE-FIRST;
+    // see that provider's doc) rather than re-implemented here.
+    //
+    // ASYNC FALLBACK (chosen deliberately): `AsyncValue.value` is nullable in
+    // Riverpod 3.x (the removed `valueOrNull` — see `auth_selectors.dart`)
+    // and collapses BOTH "still loading" and "resolution failed" down to
+    // `null` uniformly — no spinner, no error box ever enters this card.
+    // Whatever is already known SYNCHRONOUSLY from `salon` itself
+    // (street/buildingNo — plain fields, no lookup needed) renders on the
+    // very first frame via [buildFullAddressLine]'s independent-per-segment
+    // composition; the oblast/city/district text simply fills in on the
+    // rebuild once the provider resolves. A salon whose lookup never
+    // resolves (or fails) still shows its street/building line (or the
+    // legacy `address` fallback below) — never nothing, never an error.
+    final ResolvedLocality? resolved = ref
+        .watch(
+          resolvedLocalityProvider(
+            oblastId: salon.oblastId,
+            cityId: salon.cityId,
+            districtId: salon.districtId,
+          ),
+        )
+        .value;
     final String? addressLine =
-        buildCombinedAddressLine(salon.city, salon.street, salon.buildingNo) ??
+        buildFullAddressLine(
+          oblastName: resolved?.oblast?.name,
+          cityName: resolved?.city?.name,
+          districtName: resolved?.district?.name,
+          street: salon.street,
+          buildingNo: salon.buildingNo,
+        ) ??
+        // Last resort: a salon that predates Phase 10.6 (or was never
+        // re-saved since) has no taxonomy fields at all — only the legacy
+        // pre-composed `address` string is left. Mirrors the identical
+        // fallback `public_salon_profile_screen.dart`'s `_streetLine` uses,
+        // for the same reason (that field is frozen, not stale — it was
+        // never overwritten because the salon was never re-saved).
         (salon.address?.trim().isNotEmpty ?? false ? salon.address : null);
+    // Sanitization happens INSIDE `ExpandableNote` (must run on the exact
+    // same string the widget measures for overflow AND renders) — mirrors
+    // `public_master_profile_screen.dart`'s identical convention; not
+    // pre-sanitized here.
+    final String? noteText = (salon.locationNote?.trim().isNotEmpty ?? false)
+        ? salon.locationNote
+        : null;
 
     return NeumorphicCard(
       key: const Key('salon-manage-hero-card'),
@@ -789,6 +869,23 @@ class _ManagementHeroCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                ],
+                // Phase 21.14 — `locationNote` on its own row beneath the
+                // address, never folded into the address line itself
+                // (mirrors `public_salon_profile_screen.dart`'s identical
+                // separation). Gated independently of `addressLine != null`
+                // — a salon with a note but no resolvable address (or no
+                // address at all) must still show the note, not silently
+                // drop it.
+                if (noteText != null) ...<Widget>[
+                  SizedBox(height: addressLine != null ? 2 : 5),
+                  Padding(
+                    padding: const EdgeInsets.only(left: _addressTextIndent),
+                    child: ExpandableNote(
+                      key: const Key('salon-manage-location-note'),
+                      text: noteText,
+                    ),
                   ),
                 ],
               ],

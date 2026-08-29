@@ -440,4 +440,109 @@ void main() {
       }
     });
   });
+
+  // mobile-qa gap-closure (2026-08-29) — `buildFullAddressLine` shipped
+  // (Phase 21.14) with zero unit coverage in this file: the salon
+  // management/hub widget tests exercise it only THROUGH a full provider +
+  // widget pump, which cannot cheaply enumerate the oblast × city × district
+  // × street × buildingNo presence matrix the way a pure-Dart unit test can.
+  group('buildFullAddressLine', () {
+    test('all five segments present — hierarchy order: oblast, city, '
+        'district, street, building', () {
+      expect(
+        buildFullAddressLine(
+          oblastName: 'Львівська область',
+          cityName: 'Львів',
+          districtName: 'Галицький',
+          street: 'вул. Личаківська',
+          buildingNo: '20',
+        ),
+        'Львівська область, Львів, Галицький, вул. Личаківська, 20',
+      );
+    });
+
+    test('district omitted — the remaining segments stay in order with no '
+        'dangling comma', () {
+      final String? result = buildFullAddressLine(
+        oblastName: 'Львівська область',
+        cityName: 'Львів',
+        street: 'вул. Личаківська',
+        buildingNo: '20',
+      );
+      expect(result, 'Львівська область, Львів, вул. Личаківська, 20');
+      _expectNoDanglingComma(result);
+    });
+
+    test('oblast + city only, no street/building/district', () {
+      expect(
+        buildFullAddressLine(
+          oblastName: 'Львівська область',
+          cityName: 'Львів',
+        ),
+        'Львівська область, Львів',
+      );
+    });
+
+    test('street + buildingNo only, no oblast/city/district — the promotion '
+        'path a pre-taxonomy salon\'s fallback relies on', () {
+      expect(
+        buildFullAddressLine(street: 'вул. Личаківська', buildingNo: '20'),
+        'вул. Личаківська, 20',
+      );
+    });
+
+    test('buildingNo with NO street is dropped — never dangles alone or '
+        'beside oblast/city', () {
+      final String? result = buildFullAddressLine(
+        oblastName: 'Львівська область',
+        cityName: 'Львів',
+        buildingNo: '20',
+      );
+      expect(result, 'Львівська область, Львів');
+      _expectNoDanglingComma(result);
+    });
+
+    test('nothing set at all — null, so the caller can fall back to the '
+        'legacy salon.address', () {
+      expect(buildFullAddressLine(), isNull);
+    });
+
+    test('every field blank/whitespace-only — null, exactly like every '
+        'field being absent', () {
+      expect(
+        buildFullAddressLine(
+          oblastName: '   ',
+          cityName: '',
+          districtName: '   ',
+          street: '',
+          buildingNo: '   ',
+        ),
+        isNull,
+      );
+    });
+
+    test('a zero-width-only district is treated as absent — no doubled '
+        'comma between city and street', () {
+      final String? result = buildFullAddressLine(
+        oblastName: 'Львівська область',
+        cityName: 'Львів',
+        districtName: '​',
+        street: 'вул. Личаківська',
+      );
+      expect(result, 'Львівська область, Львів, вул. Личаківська');
+      _expectNoDanglingComma(result);
+    });
+
+    test('routed through sanitizeDisplayText like the other three builders '
+        '— surrounding whitespace is trimmed on every segment', () {
+      expect(
+        buildFullAddressLine(
+          oblastName: '  Львівська область  ',
+          cityName: '  Львів  ',
+          street: '  вул. Личаківська  ',
+        ),
+        'Львівська область, Львів, вул. Личаківська',
+      );
+    });
+  });
 }

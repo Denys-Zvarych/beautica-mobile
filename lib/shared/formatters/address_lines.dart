@@ -143,3 +143,56 @@ String? buildCombinedAddressLine(
   if (parts.isEmpty) return null;
   return parts.join(', ');
 }
+
+/// Phase 21.14 — the FULL address, hierarchy-ordered: oblast (region) ->
+/// city -> district -> street + building. An intentional extension of
+/// [buildCombinedAddressLine] (which only ever had city/street/buildingNo to
+/// work with) for callers that have resolved oblast/city/district DISPLAY
+/// NAMES available — see `features/location/state/resolved_locality_provider
+/// .dart`, which resolves those names from the `oblastId`/`cityId`/
+/// `districtId` UUIDs a [Salon]/[Master] actually carries.
+///
+/// Every parameter is a plain display-name string, deliberately NOT the
+/// legacy free-text `city`/`region` fields on those domain entities — both
+/// are frozen (no longer written by the backend since Phase 10.6, see
+/// `Salon.city`/`Salon.region`'s own doc) and must never be mixed in here;
+/// pass the resolved [Oblast.name]/[City.name]/[CityDistrict.name] instead.
+///
+/// Same composition contract as [buildCombinedAddressLine] and
+/// [buildStreetLine] — each shares [_visibleOrNull], so all four builders
+/// agree on what counts as "no visible content" (null, blank, whitespace-
+/// only, or reducible to nothing by `sanitizeDisplayText`) and a segment
+/// with none is omitted with no dangling separator:
+///   - [buildingNo] rides on [street] or not at all (same rule as the other
+///     two builders — a building number with no street to attach to is
+///     dropped entirely);
+///   - every other segment is independently optional;
+///   - nothing visible anywhere returns `null`, so the caller can fall back
+///     to a legacy pre-taxonomy `address` string or hide the line entirely.
+///
+/// The `", "` separator is punctuation, not copy — no ARB entry, nothing
+/// here is translated.
+String? buildFullAddressLine({
+  String? oblastName,
+  String? cityName,
+  String? districtName,
+  String? street,
+  String? buildingNo,
+}) {
+  final String? region = _visibleOrNull(oblastName);
+  final String? locality = _visibleOrNull(cityName);
+  final String? district = _visibleOrNull(districtName);
+  final String? road = _visibleOrNull(street);
+  // A building number rides on the street or not at all.
+  final String? building = road == null ? null : _visibleOrNull(buildingNo);
+
+  final List<String> parts = <String>[
+    ?region,
+    ?locality,
+    ?district,
+    ?road,
+    ?building,
+  ];
+  if (parts.isEmpty) return null;
+  return parts.join(', ');
+}

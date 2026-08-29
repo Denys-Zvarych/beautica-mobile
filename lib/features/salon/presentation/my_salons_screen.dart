@@ -19,6 +19,10 @@
 //   [ErrorState]                         — `shared/widgets/error_state.dart`
 //   [SkeletonShimmerScope]/[SkeletonBlock] — `shared/widgets/skeleton_shimmer.dart`
 //   [buildLocalityLine]/[buildStreetLine]  — `shared/formatters/address_lines.dart`
+//   [resolvedLocalityProvider]           — `features/location/state/
+//     resolved_locality_provider.dart` (Phase 21.14 follow-up — resolves
+//     `_SalonHubCard`'s locality from taxonomy `cityId`, same provider
+//     `_ManagementHeroCard` uses; see `_SalonHubCardState.build`)
 // NOT reused: the preview's `_HubTopBar`/`_BellButton` mirror the shipped
 // `ClientTopBar`/`BellButton` (`features/shell/presentation/widgets/
 // client_top_bar.dart`) by design, but that widget lives in the `shell`
@@ -49,6 +53,8 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
@@ -390,23 +396,74 @@ class _BellButton extends StatelessWidget {
 
 /// A salon card in the hub: logo + name + "Основний" badge (primary only) +
 /// locality/address. Depresses on press.
-class _SalonHubCard extends StatefulWidget {
+///
+/// `ConsumerStatefulWidget` (Phase 21.14 follow-up — was `StatefulWidget`)
+/// so [_SalonHubCardState.build] can `ref.watch` [resolvedLocalityProvider]
+/// for the taxonomy city name — see that method for the fallback chain and
+/// why `salon.city` is not read directly. Mirrors `_ManagementHeroCard` in
+/// `salon_management_profile_screen.dart`, reusing the SAME promoted
+/// provider rather than a second resolution path.
+class _SalonHubCard extends ConsumerStatefulWidget {
   const _SalonHubCard({super.key, required this.salon, required this.onTap});
 
   final Salon salon;
   final VoidCallback onTap;
 
   @override
-  State<_SalonHubCard> createState() => _SalonHubCardState();
+  ConsumerState<_SalonHubCard> createState() => _SalonHubCardState();
 }
 
-class _SalonHubCardState extends State<_SalonHubCard> {
+class _SalonHubCardState extends ConsumerState<_SalonHubCard> {
   bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final Salon s = widget.salon;
-    final String? locality = buildLocalityLine(s.city);
+    // `salon.city` is legacy free-text, frozen (no longer written by the
+    // backend since Phase 10.6 — see `Salon.city`'s own doc): once a salon's
+    // address has been edited through the taxonomy cascade, `city` can be
+    // stale or blank while `cityId`/`oblastId` carry the real location. This
+    // watches the SAME promoted `resolvedLocalityProvider`
+    // (`features/location/state/resolved_locality_provider.dart`)
+    // `_ManagementHeroCard` uses — no second by-id scan here.
+    //
+    // PER-ROW watch, not hoisted above the list: `resolvedLocalityProvider`
+    // is a family, but the `oblastList`/`cityList(oblastId)`/
+    // `districtList(cityId)` providers it reads underneath are
+    // `keepAlive: true` and memoized for the app's lifetime. An owner's
+    // salons are typically in the same oblast/city, so distinct
+    // `(oblastId, cityId, districtId)` triples across N cards collapse to at
+    // most a handful of family instances — and even those only ever hit the
+    // network once per distinct oblast/city/district; every other card
+    // resolving the same triple (or a triple sharing an already-fetched
+    // oblast/city) re-scans an in-memory list, not a fresh HTTP round trip.
+    // Hoisting a single resolve above the list would only help if every
+    // salon shared one identical triple, which the model doesn't guarantee
+    // (an owner can have salons in different cities) — per-row is both
+    // simpler and correct here.
+    //
+    // `AsyncValue.value` is nullable (Riverpod 3.x) and collapses BOTH
+    // "still loading" and "resolution failed" to `null` uniformly — no
+    // spinner, no error box, no layout jump. `city` falls back to the legacy
+    // `s.city` ONLY when the salon genuinely has no taxonomy id at all
+    // (`s.cityId` null/blank) — a pre-Phase-10.6 salon that was never
+    // re-saved. While `cityId` IS set but resolution hasn't completed yet,
+    // the line is simply blank until it fills in — never the stale legacy
+    // text, which would risk showing a WRONG city before the correct one
+    // arrives.
+    final ResolvedLocality? resolved = ref
+        .watch(
+          resolvedLocalityProvider(
+            oblastId: s.oblastId,
+            cityId: s.cityId,
+            districtId: s.districtId,
+          ),
+        )
+        .value;
+    final bool hasTaxonomyCity = s.cityId?.trim().isNotEmpty ?? false;
+    final String? locality = buildLocalityLine(
+      resolved?.city?.name ?? (hasTaxonomyCity ? null : s.city),
+    );
     final String? street = buildStreetLine(s.street, s.buildingNo);
     final String? monogram = s.name.trim().isEmpty
         ? null

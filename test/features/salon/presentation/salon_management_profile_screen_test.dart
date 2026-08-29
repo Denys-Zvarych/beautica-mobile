@@ -15,6 +15,8 @@
 // overridden by an in-memory fake — mirrors
 // `public_salon_profile_screen_test.dart`'s harness shape.
 
+import 'dart:async';
+
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -22,6 +24,10 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
@@ -34,6 +40,7 @@ import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,6 +93,114 @@ const _stubStaff = <SalonStaffMember>[
     lastName: 'Ковальська',
   ),
 ];
+
+// ---------------------------------------------------------------------------
+// mobile-qa gap-closure (2026-08-29) — resolved-locality fixtures.
+//
+// `_stubSalon` above carries no oblastId/cityId/districtId and no
+// locationNote, so the ENTIRE Phase 21.14 hero-card extension (resolved
+// oblast/city/district names + the location-note row) had zero coverage —
+// the existing "hero card logo vertical centering" group only ever exercised
+// the pre-existing street/buildingNo path. These fixtures give the hero card
+// a full triple to resolve AND a note, so the new rows actually render.
+// ---------------------------------------------------------------------------
+
+const _heroOblast = Oblast(
+  id: 'ob-1',
+  name: 'Львівська область',
+  katotthCode: 'A',
+);
+const _heroCity = City(
+  id: 'ct-1',
+  oblastId: 'ob-1',
+  name: 'Львів',
+  katotthCode: 'B',
+  hasDistricts: true,
+);
+const _heroDistrict = CityDistrict(
+  id: 'd-1',
+  cityId: 'ct-1',
+  name: 'Галицький',
+  katotthCode: 'C',
+);
+
+/// Full resolved address, hierarchy-ordered, exactly as
+/// `buildFullAddressLine` composes it — the expected on-screen string for
+/// [_stubSalonWithTaxonomy].
+const String _expectedResolvedAddress =
+    'Львівська область, Львів, Галицький, вул. Велика Васильківська, 44';
+
+const _stubSalonWithTaxonomy = Salon(
+  id: _kSalonId,
+  name: 'Салон «Вельвет»',
+  street: 'вул. Велика Васильківська',
+  buildingNo: '44',
+  oblastId: 'ob-1',
+  cityId: 'ct-1',
+  districtId: 'd-1',
+  locationNote: 'Вхід через двір, домофон 42',
+  avgRating: 4.9,
+  reviewCount: 128,
+);
+
+/// Same taxonomy triple, but no [Salon.address] and no street — so the
+/// hero card has NOTHING synchronous to fall back on and the address line
+/// depends entirely on the resolved names arriving.
+const _stubSalonTaxonomyOnly = Salon(
+  id: _kSalonId,
+  name: 'Салон «Вельвет»',
+  oblastId: 'ob-1',
+  cityId: 'ct-1',
+  avgRating: 4.9,
+  reviewCount: 128,
+);
+
+/// A genuinely pre-Phase-10.6 salon: no taxonomy ids, no street — only the
+/// legacy composed `address` string is left.
+const _stubSalonLegacyAddressOnly = Salon(
+  id: _kSalonId,
+  name: 'Салон «Вельвет»',
+  address: 'м. Одеса, вул. Дерибасівська, 1',
+  avgRating: 4.9,
+  reviewCount: 128,
+);
+
+class _FakeLocationRepository implements LocationRepository {
+  _FakeLocationRepository({this.oblastsCompleter});
+
+  /// When set, `fetchOblasts` awaits this instead of resolving immediately —
+  /// used to hold the resolution cascade open indefinitely.
+  final Completer<List<Oblast>>? oblastsCompleter;
+
+  @override
+  Future<List<Oblast>> fetchOblasts() =>
+      oblastsCompleter?.future ??
+      Future<List<Oblast>>.value(const <Oblast>[_heroOblast]);
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const <City>[
+    _heroCity,
+  ];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      const <CityDistrict>[_heroDistrict];
+}
+
+/// Always throws on `fetchOblasts` — proves a resolution FAILURE (caught
+/// internally by `resolvedLocalityProvider`, never rethrown) still renders
+/// the synchronous street/building line, never a spinner or error box.
+class _ThrowingLocationRepository implements LocationRepository {
+  @override
+  Future<List<Oblast>> fetchOblasts() async => throw const NetworkFailure();
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const <City>[];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      const <CityDistrict>[];
+}
 
 class _StubAuthNotifier extends AuthNotifier {
   @override
@@ -165,6 +280,17 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
 List<Object> _overrides(FakeSalonRepository repo) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   salonRepositoryProvider.overrideWithValue(repo),
+];
+
+/// Same as [_overrides], plus a [locationRepositoryProvider] override —
+/// needed by every test that exercises `resolvedLocalityProvider`'s actual
+/// resolve path rather than its null-id short-circuit.
+List<Object> _overridesWithLocation(
+  FakeSalonRepository repo,
+  LocationRepository locationRepo,
+) => <Object>[
+  ..._overrides(repo),
+  locationRepositoryProvider.overrideWith((_) => locationRepo),
 ];
 
 void main() {
@@ -897,5 +1023,204 @@ void main() {
             'never bounce the screen away',
       );
     });
+  });
+
+  // mobile-qa gap-closure (2026-08-29) — `_stubSalon` (used by every test
+  // above, including the existing "hero card logo vertical centering"
+  // group) carries no oblastId/cityId/districtId and no locationNote, so
+  // the resolved-name address AND the location-note row had zero coverage
+  // — the logo-centering guard "passed" only because those rows were
+  // ABSENT, proving the OLD layout, not the new one.
+  group('resolved locality + location note (mobile-qa gap-closure)', () {
+    testWidgets('a salon with a full oblast/city/district triple renders the '
+        'RESOLVED names, hierarchy-ordered ahead of street/building', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalonWithTaxonomy);
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder addressFinder = find.byKey(
+        const Key('salon-manage-address'),
+      );
+      expect(addressFinder, findsOneWidget);
+      final Text addressWidget = tester.widget<Text>(addressFinder);
+      expect(
+        addressWidget.data,
+        _expectedResolvedAddress,
+        reason:
+            'oblast -> city -> district -> street -> building, exactly '
+            'the hierarchy order buildFullAddressLine composes — a '
+            'reordered or dropped segment fails this exact-match',
+      );
+    });
+
+    testWidgets(
+      'a salon with locationNote renders the note row beneath the address',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalonWithTaxonomy);
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder noteFinder = find.byKey(
+          const Key('salon-manage-location-note'),
+        );
+        expect(noteFinder, findsOneWidget);
+        expect(
+          tester.widget<ExpandableNote>(noteFinder).text,
+          _stubSalonWithTaxonomy.locationNote,
+        );
+      },
+    );
+
+    testWidgets(
+      'logo centre still coincides with the card centre when BOTH the '
+      'resolved multi-part address AND the location note are present',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalonWithTaxonomy);
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+        );
+        await tester.pumpAndSettle();
+
+        // Sanity: both new rows are actually present — otherwise this test
+        // would silently degrade back into the OLD (already-covered)
+        // address-only shape the pre-existing centering group checks.
+        expect(find.byKey(const Key('salon-manage-address')), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-manage-location-note')),
+          findsOneWidget,
+        );
+
+        final Offset logoCenter = tester.getCenter(find.byType(SalonLogo));
+        final Offset cardCenter = tester.getCenter(
+          find.byKey(const Key('salon-manage-hero-card')),
+        );
+
+        expect(
+          logoCenter.dy,
+          closeTo(cardCenter.dy, 2),
+          reason:
+              'logo must still centre against the FULL card content (name '
+              '+ rating + resolved address + note), not just the rows the '
+              'pre-existing address-only guard happened to cover',
+        );
+      },
+    );
+
+    testWidgets('while resolution is still pending, the hero card renders '
+        'street/building immediately — never a spinner or error box', (
+      tester,
+    ) async {
+      final oblastsCompleter = Completer<List<Oblast>>();
+      final repo = FakeSalonRepository(salon: _stubSalonWithTaxonomy);
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _overridesWithLocation(
+          repo,
+          _FakeLocationRepository(oblastsCompleter: oblastsCompleter),
+        ),
+      );
+      // Bounded pumps only — the resolution cascade is deliberately held
+      // open (oblastsCompleter never completes in this test), so
+      // pumpAndSettle would hang.
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
+      final Finder addressFinder = find.byKey(
+        const Key('salon-manage-address'),
+      );
+      expect(addressFinder, findsOneWidget);
+      expect(
+        tester.widget<Text>(addressFinder).data,
+        contains('вул. Велика Васильківська'),
+        reason:
+            'street/buildingNo are plain salon fields — must render on '
+            'the FIRST frame, never waiting on the async lookup',
+      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(ErrorState), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'a resolution FAILURE (repository throws) is swallowed — the hero '
+      'card still renders street/building, no error box',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalonWithTaxonomy);
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _overridesWithLocation(
+            repo,
+            _ThrowingLocationRepository(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder addressFinder = find.byKey(
+          const Key('salon-manage-address'),
+        );
+        expect(addressFinder, findsOneWidget);
+        expect(
+          tester.widget<Text>(addressFinder).data,
+          contains('вул. Велика Васильківська'),
+        );
+        expect(find.byType(ErrorState), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'a genuinely pre-taxonomy salon (no oblastId/cityId, no street) still '
+      'falls back to the legacy composed salon.address',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalonLegacyAddressOnly);
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder addressFinder = find.byKey(
+          const Key('salon-manage-address'),
+        );
+        expect(addressFinder, findsOneWidget);
+        expect(
+          tester.widget<Text>(addressFinder).data,
+          _stubSalonLegacyAddressOnly.address,
+          reason:
+              'no taxonomy ids and no street/buildingNo -> the legacy '
+              'salon.address is the only thing left to fall back to',
+        );
+      },
+    );
+
+    testWidgets(
+      'a salon with ONLY taxonomy ids (no street, no legacy address) shows '
+      'nothing until resolution completes, then shows the resolved city',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalonTaxonomyOnly);
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder addressFinder = find.byKey(
+          const Key('salon-manage-address'),
+        );
+        expect(addressFinder, findsOneWidget);
+        expect(tester.widget<Text>(addressFinder).data, contains('Львів'));
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

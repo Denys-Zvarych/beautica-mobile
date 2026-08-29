@@ -51,6 +51,10 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
@@ -63,6 +67,71 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// mobile-qa gap-closure (2026-08-29) — `resolvedLocalityProvider` fixtures.
+//
+// The resolved-taxonomy-city branch of `_SalonHubCardState.build` (Phase
+// 21.14 follow-up) had ZERO coverage: every existing fixture above sets
+// `city:` with NO `cityId`/`oblastId`, so `hasTaxonomyCity` was always false
+// and only the legacy fallback ever ran. These fixtures deliberately give
+// the resolved city a DIFFERENT name than any legacy `city` string used
+// alongside it, so a test asserting the resolved name is present PROVES the
+// legacy value was not what rendered (see the "resolved city" group below).
+// ---------------------------------------------------------------------------
+
+const _resolvedOblast = Oblast(
+  id: 'ob-1',
+  name: 'Львівська область',
+  katotthCode: 'A',
+);
+const _resolvedCity = City(
+  id: 'ct-1',
+  oblastId: 'ob-1',
+  name: 'Львів', // deliberately NOT the same as any fixture's legacy `city`
+  katotthCode: 'B',
+  hasDistricts: false,
+);
+
+class _FakeLocationRepository implements LocationRepository {
+  _FakeLocationRepository({this.oblastsCompleter});
+
+  /// When set, `fetchOblasts` awaits this instead of resolving immediately —
+  /// lets the async-fallback test hold the whole cascade in AsyncLoading
+  /// indefinitely (never completed in that test), proving the card renders
+  /// street/building synchronously without waiting on it.
+  final Completer<List<Oblast>>? oblastsCompleter;
+
+  @override
+  Future<List<Oblast>> fetchOblasts() =>
+      oblastsCompleter?.future ??
+      Future<List<Oblast>>.value(const <Oblast>[_resolvedOblast]);
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const <City>[
+    _resolvedCity,
+  ];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      const <CityDistrict>[];
+}
+
+/// A repository whose `fetchOblasts` always throws — proves a resolution
+/// FAILURE (caught internally by `resolvedLocalityProvider`, never
+/// rethrown — see that provider's own doc) still renders street/building
+/// with no error box, exactly like the still-loading case.
+class _ThrowingLocationRepository implements LocationRepository {
+  @override
+  Future<List<Oblast>> fetchOblasts() async => throw const NetworkFailure();
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const <City>[];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      const <CityDistrict>[];
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -93,6 +162,33 @@ const List<Salon> _salons = <Salon>[
 List<Salon> _manySalons(int n) => List<Salon>.generate(
   n,
   (int i) => Salon(id: 'salon-many-$i', name: 'Салон №$i', isPrimary: i == 0),
+);
+
+// mobile-qa gap-closure (2026-08-29) — a salon that HAS the taxonomy
+// `cityId`/`oblastId`. Its legacy `city` field is deliberately set to a
+// DIFFERENT, stale value ('Одеса') so a test asserting the RESOLVED name
+// ('Львів', see `_resolvedCity` above) renders — and the stale legacy value
+// does NOT — actually proves the fix, not just that some city text exists.
+const _salonWithTaxonomyCity = Salon(
+  id: 'salon-taxonomy',
+  name: 'Салон з таксономією',
+  city: 'Одеса', // stale legacy value — must NOT be what renders
+  oblastId: 'ob-1',
+  cityId: 'ct-1',
+  street: 'вул. Франка',
+  buildingNo: '7',
+);
+
+// A genuinely pre-Phase-10.6 salon: no taxonomy ids at all, only the legacy
+// free-text `city`. Must still render its legacy value — the
+// `hasTaxonomyCity` gate exists precisely to distinguish this case from the
+// one above.
+const _salonPreTaxonomy = Salon(
+  id: 'salon-legacy',
+  name: 'Старий салон',
+  city: 'Одеса',
+  street: 'вул. Дерибасівська',
+  buildingNo: '1',
 );
 
 // ---------------------------------------------------------------------------
@@ -459,6 +555,168 @@ void main() {
               'ListView.builder regression back to eager Column layout '
               'would make this find a widget',
         );
+      },
+    );
+  });
+
+  // mobile-qa gap-closure (2026-08-29) — closes the coverage gap named in the
+  // QA brief: EVERY existing fixture above sets `city:` with no `cityId`/
+  // `oblastId`, so `hasTaxonomyCity` was always false and the resolved-name
+  // branch of `_SalonHubCardState.build` had zero coverage. `mobile-dev`
+  // reported "test assertions changed — none" for exactly this reason.
+  group('resolved taxonomy city (mobile-qa gap-closure)', () {
+    testWidgets(
+      'a salon WITH cityId renders the RESOLVED city, never the stale '
+      'legacy salon.city even when it is present and DIFFERENT',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(() async => <Salon>[_salonWithTaxonomyCity]),
+            ),
+            locationRepositoryProvider.overrideWith(
+              (_) => _FakeLocationRepository(),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const ValueKey<String>('my_salons_card_salon-taxonomy'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(of: card, matching: find.textContaining('Львів')),
+          findsOneWidget,
+          reason: 'the RESOLVED city name must render',
+        );
+        expect(
+          find.descendant(of: card, matching: find.textContaining('Одеса')),
+          findsNothing,
+          reason:
+              'the stale legacy salon.city ("Одеса") must NEVER render '
+              'once a resolved taxonomy city is available — this is the '
+              'actual bug the gate exists to prevent',
+        );
+      },
+    );
+
+    testWidgets(
+      'a genuinely pre-taxonomy salon (cityId null, legacy city set) still '
+      'shows the legacy value',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(() async => <Salon>[_salonPreTaxonomy]),
+            ),
+            locationRepositoryProvider.overrideWith(
+              (_) => _FakeLocationRepository(),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const ValueKey<String>('my_salons_card_salon-legacy'),
+        );
+        expect(
+          find.descendant(of: card, matching: find.textContaining('Одеса')),
+          findsOneWidget,
+          reason:
+              'no cityId at all -> hasTaxonomyCity is false -> the legacy '
+              'value is the only thing there is to show',
+        );
+      },
+    );
+
+    testWidgets(
+      'while resolution is still pending, the card renders street/building '
+      'immediately and never a spinner or error box',
+      (tester) async {
+        final oblastsCompleter = Completer<List<Oblast>>();
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(() async => <Salon>[_salonWithTaxonomyCity]),
+            ),
+            locationRepositoryProvider.overrideWith(
+              (_) =>
+                  _FakeLocationRepository(oblastsCompleter: oblastsCompleter),
+            ),
+          ],
+        );
+        // ONE bounded pump — mySalonsProvider's own Future resolves, but the
+        // resolvedLocalityProvider cascade is deliberately held open
+        // (oblastsCompleter never completes in this test).
+        await tester.pump();
+        await tester.pump();
+
+        final Finder card = find.byKey(
+          const ValueKey<String>('my_salons_card_salon-taxonomy'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.textContaining('вул. Франка'),
+          ),
+          findsOneWidget,
+          reason:
+              'street/building are plain salon fields — they must render '
+              'on the FIRST frame, never waiting on the async lookup',
+        );
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsNothing,
+          reason:
+              'AsyncValue.value collapses loading to null — never a '
+              'spinner inside the card',
+        );
+        expect(
+          find.descendant(of: card, matching: find.byType(ErrorState)),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'a resolution FAILURE (repository throws) is swallowed — the card '
+      'still renders street/building, no error box',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(() async => <Salon>[_salonWithTaxonomyCity]),
+            ),
+            locationRepositoryProvider.overrideWith(
+              (_) => _ThrowingLocationRepository(),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const ValueKey<String>('my_salons_card_salon-taxonomy'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.textContaining('вул. Франка'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byType(ErrorState), findsNothing);
+        expect(tester.takeException(), isNull);
       },
     );
   });
