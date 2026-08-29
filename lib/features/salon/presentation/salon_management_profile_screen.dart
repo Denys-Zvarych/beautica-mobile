@@ -74,6 +74,7 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
 import '../application/my_salons_notifier.dart';
 import '../application/salon_management_profile_notifier.dart';
@@ -832,10 +833,10 @@ class _ManagementHeroCard extends ConsumerWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    const Icon(
-                      Icons.star_rounded,
+                    RatingStar(
+                      rating: salon.avgRating,
                       size: 16,
-                      color: BrandColors.accentDeep,
+                      showLabel: false,
                     ),
                     const SizedBox(width: 4),
                     Text(ratingLabel, style: VelvetText.bodyStrong14),

@@ -7,7 +7,7 @@
 //      screen flips into edit mode (fields + Save/Cancel footer appear).
 //   3. Save round-trips through the (mocked) repository's updateSalon — only
 //      the DIRTY fields are sent, `street`/`buildingNo` always pass through.
-//   4. Персонал tab: staff grid renders master cards + the trailing add tile.
+//   4. Команда tab: staff grid renders master cards + the trailing add tile.
 //
 // Strategy: a real GoRouter (via `pumpRoutedApp`) registering both
 // `/salons/:salonId/manage` and `/salons/:salonId/manage/settings`, mirroring
@@ -41,6 +41,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,7 +81,7 @@ const _stubStaff = <SalonStaffMember>[
     avgRating: 4.9,
     reviewCount: 12,
   ),
-  // mobile-qa gap-closure (Phase 21.5) — the «Персонал» tab now renders
+  // mobile-qa gap-closure (Phase 21.5) — the «Команда» tab now renders
   // admins too (`_StaFfTab` no longer masters-only), but before this fixture
   // gained an admin entry, EVERY test in this file exercised the master-only
   // branch — the admin card path (Key('salon-manage-staff-card-...') for a
@@ -250,7 +251,7 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
     ),
     // Phase 21.4 — the «+» staff tile's real destination
     // (`RouteNames.salonInviteStaff`). A trivial marker, same pattern as the
-    // salonHome bounce target above: the «Персонал» tab group below only
+    // salonHome bounce target above: the «Команда» tab group below only
     // asserts THAT the add-staff tile navigates, not what InviteStaffScreen
     // itself renders — that screen's own form/role-toggle/error/re-entry-
     // guard coverage lives in
@@ -660,7 +661,7 @@ void main() {
     );
   });
 
-  group('Персонал tab', () {
+  group('Команда tab', () {
     testWidgets('renders staff cards plus the trailing add-staff tile', (
       tester,
     ) async {
@@ -761,6 +762,42 @@ void main() {
       expect(find.byKey(const Key('salon-manage-staff-empty')), findsOneWidget);
       expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
     });
+
+    // mobile-qa LOW closure (2026-08-29) — previously reported "accepted,
+    // not fixed" on the claim that no widget-tier hook could pin
+    // `salonManageTabStaff`'s rendered value without tripping
+    // `forbid_cyrillic_finder.sh`. That claim was wrong on both counts: the
+    // guard only forbids a Cyrillic literal INSIDE a `find.text(...)` call
+    // (`scripts/forbid_cyrillic_finder.sh:53`), and an agent cannot
+    // self-accept its own finding regardless. This LOCATES the tab by its
+    // stable `Key('salon-tab-1')` (never by text) and compares the rendered
+    // `Text.data` against the literal — proving the string a user actually
+    // sees, not merely restating the ARB file back at itself (an
+    // `l10n.salonManageTabStaff == 'Команда'` assertion would do that and
+    // catch nothing).
+    testWidgets(
+      'staff tab renders the current «Команда» label, not the retired '
+      '«Персонал» one',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final Finder staffTabLabel = find.descendant(
+          of: find.byKey(const Key('salon-tab-1')),
+          matching: find.byType(Text),
+        );
+        expect(staffTabLabel, findsOneWidget);
+        expect(
+          tester.widget<Text>(staffTabLabel).data,
+          'Команда',
+          reason:
+              'salonManageTabStaff was renamed from «Персонал» to «Команда» '
+              '2026-08-29 (see app_uk.arb); this must go red if that value '
+              'regresses, independent of the getter under test.',
+        );
+      },
+    );
   });
 
   // The logo used to centre against the name+rating row only, leaving it
@@ -843,6 +880,115 @@ void main() {
         expect(addressWidget.maxLines, 2);
         expect(addressWidget.overflow, TextOverflow.ellipsis);
         expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  group('hero card rating star (mobile-qa gap-closure — Icon→RatingStar '
+      'swap)', () {
+    // Phase 21.2 follow-up (2026-08-29) — the hero card swapped a decorative
+    // `Icon(Icons.star_rounded)` for `RatingStar(rating: salon.avgRating,
+    // size: 16, showLabel: false)`, matching salon_staff_profile_screen.dart.
+    // Every existing test in this file only asserted the SIBLING
+    // `Text(ratingLabel)` (the '4.9' / '—' string), which renders identically
+    // either way — so nothing here pinned the widget swap or the fractional
+    // fill it exists to provide. These three close that gap.
+
+    Finder heroRatingStar() => find.descendant(
+      of: find.byKey(const Key('salon-manage-hero-card')),
+      matching: find.byType(RatingStar),
+    );
+
+    testWidgets(
+      'hero card renders a RatingStar (not a Material star Icon) wired to '
+      "the salon's own avgRating",
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon); // avgRating 4.9
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        expect(
+          heroRatingStar(),
+          findsOneWidget,
+          reason:
+              'a revert to Icon(Icons.star_rounded) inside the hero card '
+              'must fail here',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon-manage-hero-card')),
+            matching: find.byWidgetPredicate(
+              (w) => w is Icon && w.icon == Icons.star_rounded,
+            ),
+          ),
+          findsNothing,
+          reason:
+              'the Material star Icon must be fully gone, not merely '
+              'joined by RatingStar',
+        );
+
+        final RatingStar star = tester.widget<RatingStar>(heroRatingStar());
+        expect(
+          star.rating,
+          _stubSalon.avgRating,
+          reason:
+              "RatingStar.rating must reach the screen's real "
+              'salon.avgRating, not a hardcoded/default value',
+        );
+        expect(star.showLabel, isFalse);
+      },
+    );
+
+    testWidgets(
+      "RatingStar's rating tracks salon.avgRating, not a fixed constant "
+      '(a hardcoded rating would pass the 4.9 fixture above but fail here)',
+      (tester) async {
+        const distinctRatingSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          avgRating: 2.3,
+          reviewCount: 5,
+        );
+        final repo = FakeSalonRepository(salon: distinctRatingSalon);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final RatingStar star = tester.widget<RatingStar>(heroRatingStar());
+        expect(star.rating, 2.3);
+        expect(
+          RatingStar.fillFor(star.rating),
+          closeTo(RatingStar.fillFor(2.3), 0.0001),
+          reason:
+              'the fractional fill this widget exists to provide must '
+              'actually derive from the passed-through rating',
+        );
+        // Sanity: 2.3 and 4.9 must not coincidentally fill the same amount —
+        // otherwise the fill assertion above would be unable to distinguish
+        // a correct wiring from a hardcoded one.
+        expect(
+          RatingStar.fillFor(2.3),
+          isNot(closeTo(RatingStar.fillFor(4.9), 0.0001)),
+        );
+      },
+    );
+
+    testWidgets(
+      'null avgRating renders an empty RatingStar and the "—" label, never '
+      'a numeric or default-filled star',
+      (tester) async {
+        const noRatingSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон без рейтингу',
+          // avgRating omitted — defaults to null (0 reviews).
+        );
+        final repo = FakeSalonRepository(salon: noRatingSalon);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final RatingStar star = tester.widget<RatingStar>(heroRatingStar());
+        expect(star.rating, isNull);
+        expect(RatingStar.fillFor(star.rating), 0.0);
+        expect(find.text('—'), findsOneWidget);
       },
     );
   });

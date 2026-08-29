@@ -5202,9 +5202,9 @@
       "total": { "type": "int", "example": "3" }
     }
   },
-  "salonManageTabStaff": "Staff",
+  "salonManageTabStaff": "Team",
   "@salonManageTabStaff": {
-    "description": "Phase 21.2 — the owner/admin salon management profile's second tab label, replacing the client-facing 'Майстри' tab with a staff-management grid."
+    "description": "Phase 21.2 — the owner/admin salon management profile's second tab label, replacing the client-facing 'Майстри' tab with a staff-management grid. Renamed from 'Staff' to 'Team' 2026-08-29 (key kept for stability)."
   },
   "salonManageSettingsSemanticLabel": "Salon settings",
   "@salonManageSettingsSemanticLabel": {
@@ -5248,7 +5248,7 @@
   },
   "salonManageAddStaffLabel": "Invite to the team",
   "@salonManageAddStaffLabel": {
-    "description": "Phase 21.2 — label/semantics for the trailing 'invite staff' tile in the owner/admin salon management profile's Персонал grid."
+    "description": "Phase 21.2 — label/semantics for the trailing 'invite staff' tile in the owner/admin salon management profile's Команда grid."
   },
   "salonStaffProfileMasterTitle": "Master profile",
   "@salonStaffProfileMasterTitle": {
@@ -5260,7 +5260,7 @@
   },
   "salonStaffRoleAdmin": "Administrator",
   "@salonStaffRoleAdmin": {
-    "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Персонал grid card and the staff member profile screen's identity card RoleChip."
+    "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Команда grid card and the staff member profile screen's identity card RoleChip."
   },
   "salonSettingsEditProfile": "Edit profile",
   "@salonSettingsEditProfile": {
