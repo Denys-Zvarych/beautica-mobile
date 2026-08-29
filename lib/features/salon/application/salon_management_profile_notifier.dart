@@ -36,6 +36,17 @@
 // [save] always threads the CURRENT loaded values through for those two,
 // regardless of whether the viewer edited them (this phase does not expose
 // address editing at all — see the screen's own doc for why).
+//
+// `cityId`/`districtId` get the SAME unconditional echo (Finding, 2026-08-29)
+// — the backend's `SalonService.updateSalon` calls `validateProviderLocality`
+// on every PATCH regardless of which fields changed (`LocalityWriteValidator`
+// throws `BusinessException: City is required` the moment `cityId` is null),
+// so [save] must always send the loaded [Salon]'s current cityId/districtId
+// even though this screen never edits them — never diff them against the
+// snapshot like the other fields, since an untouched (identical) selection
+// would fold to `null` and trip the same 400 on every save, whichever field
+// the viewer actually edited. Mirrors [MasterRepository.updateLocality]'s
+// `required` (non-diffable) `cityId` parameter.
 
 // Prefixed: `dart:async`'s non-generic [async.AsyncError] (carried by the
 // records `.wait` [async.ParallelWaitError]) must NOT be confused with
@@ -121,8 +132,9 @@ class SalonManagementProfile extends _$SalonManagementProfile {
   /// screen's editable fields (trimmed by the caller or here). Each is
   /// included in the request only when it differs from the loaded [Salon]'s
   /// value — see this file's header doc for why that matters for [phone]
-  /// specifically. `street`/`buildingNo` are always threaded through
-  /// unmodified (backend-required on every PATCH).
+  /// specifically. `street`/`buildingNo`/`cityId`/`districtId` are always
+  /// threaded through unmodified (backend-required locality validation runs
+  /// on every PATCH — see this file's header doc's 2026-08-29 finding).
   ///
   /// Returns `null` on success (state is updated with the server's response,
   /// merged with the previous snapshot's read-only aggregates — see
@@ -147,6 +159,8 @@ class SalonManagementProfile extends _$SalonManagementProfile {
       (b) => b
         ..street = current.street ?? ''
         ..buildingNo = current.buildingNo ?? ''
+        ..cityId = current.cityId
+        ..districtId = current.districtId
         ..name = trimmedName != current.name ? trimmedName : null
         ..description = trimmedDescription != (current.description ?? '')
             ? trimmedDescription
@@ -192,18 +206,26 @@ class SalonManagementProfile extends _$SalonManagementProfile {
   /// partial `PATCH /salons/{salonId}`.
   ///
   /// ADDITIVE sibling of [save] — that method covers the name/description/
-  /// phone/Instagram slice only (`street`/`buildingNo` are threaded through
-  /// UNCHANGED there, since Phase 21.2 never exposed address editing). This
-  /// method is the address counterpart: [street]/[buildingNo] are the CURRENT
-  /// text of the screen's own fields (always sent — both are backend-required
-  /// on every PATCH, mirroring [save]'s identical constraint) and
-  /// [cityId]/[districtId]/[locationNote] are each included only when they
-  /// differ from the loaded [Salon]'s value.
+  /// phone/Instagram slice only (`street`/`buildingNo`/`cityId`/`districtId`
+  /// are threaded through UNMODIFIED there — see this file's header doc).
+  /// This method is the address counterpart: THIS screen owns locality, so
+  /// [street]/[buildingNo]/[cityId] are the CURRENT (always sent, never
+  /// diffed) selection/text of the screen's own fields — [cityId] is
+  /// `required` and non-nullable at the Dart type level for exactly the
+  /// reason [MasterRepository.updateLocality]'s `cityId` parameter is:
+  /// diffing it against the loaded snapshot (Finding, 2026-08-29 — the prior
+  /// `cityId != current.cityId ? cityId : null` shape) folded an UNCHANGED
+  /// selection to `null`, which the backend's `LocalityWriteValidator`
+  /// rejects with `BusinessException: City is required`. [districtId]
+  /// remains nullable/optional (a city without districts has none to send)
+  /// and [locationNote] is the only field still included conditionally
+  /// (optional field, differs-from-snapshot is fine since omitting it is not
+  /// a validation failure).
   ///
   /// Returns `null` on success (state updated, aggregates preserved — see
   /// [save]'s identical merge note) or the [Failure] on error.
   Future<Failure?> saveAddress({
-    String? cityId,
+    required String cityId,
     String? districtId,
     required String street,
     required String buildingNo,
@@ -221,8 +243,8 @@ class SalonManagementProfile extends _$SalonManagementProfile {
       (b) => b
         ..street = trimmedStreet
         ..buildingNo = trimmedBuildingNo
-        ..cityId = cityId != current.cityId ? cityId : null
-        ..districtId = districtId != current.districtId ? districtId : null
+        ..cityId = cityId
+        ..districtId = districtId
         ..locationNote = trimmedNote != (current.locationNote ?? '')
             ? trimmedNote
             : null,

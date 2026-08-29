@@ -88,6 +88,22 @@ const _salonWithKnownPhone = Salon(
   phone: '+380671112233',
 );
 
+/// Loaded state WITH a real locality on file (both [Salon.cityId] and
+/// [Salon.districtId] set) — the fixture the 2026-08-29 regression tests
+/// need: `save()` must echo BOTH back onto the wire regardless of which
+/// other field the viewer actually edited. Distinct id values from
+/// [_freshSalon]/[_salonWithKnownPhone] so a mixed-up fixture would surface
+/// as a visibly wrong id, not a coincidental pass.
+const _salonWithLocality = Salon(
+  id: _kSalonId,
+  name: 'Салон «Вельвет»',
+  description: 'Затишний салон краси.',
+  street: 'вул. Велика Васильківська',
+  buildingNo: '44',
+  cityId: 'city-locality-01',
+  districtId: 'district-locality-01',
+);
+
 const _staff = <SalonStaffMember>[];
 
 /// The «Мої салони» hub's cached list entry — deliberately a DIFFERENT id
@@ -396,6 +412,340 @@ void main() {
           reason:
               'a failed save must leave the previously-loaded state alone '
               'so the screen can offer a retry',
+        );
+      },
+    );
+  });
+
+  // ── save() — locality echoed regardless of dirty field (Finding, ───────
+  // ── 2026-08-29) ──────────────────────────────────────────────────────
+  //
+  // The user-reported bug: `save()` used to thread `street`/`buildingNo`
+  // through unconditionally but left `cityId`/`districtId` OFF the request
+  // entirely, so the serializer omitted the keys and the backend's
+  // unconditional `LocalityWriteValidator` 400'd EVERY save — «Про салон»
+  // and «Контакти» alike, regardless of which field the viewer actually
+  // edited. This group pins that `cityId`/`districtId` now ride along on
+  // every `save()`, independent of the edited field.
+  group('save() — locality echoed regardless of dirty field (2026-08-29 '
+      'regression)', () {
+    test(
+      'cityId/districtId are present when ONLY description is edited',
+      () async {
+        when(
+          () => repo.getSalonById(_kSalonId),
+        ).thenAnswer((_) async => _salonWithLocality);
+        when(
+          () => repo.getSalonStaff(_kSalonId),
+        ).thenAnswer((_) async => _staff);
+
+        UpdateSalonRequest? captured;
+        when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
+          invocation,
+        ) async {
+          captured = invocation.positionalArguments[1] as UpdateSalonRequest;
+          return _salonWithLocality.copyWith(description: 'Нова назва');
+        });
+
+        final container = _makeContainer(repo);
+        final notifier = await _readyNotifier(container, _salonWithLocality);
+
+        // name/phone/instagram stay at their loaded values (untouched) —
+        // ONLY description is edited.
+        final failure = await notifier.save(
+          name: _salonWithLocality.name,
+          description: 'Нова назва салону',
+          phone: '',
+          instagramUrl: '',
+        );
+
+        expect(failure, isNull);
+        expect(captured, isNotNull);
+        expect(captured!.description, 'Нова назва салону');
+        expect(
+          captured!.cityId,
+          _salonWithLocality.cityId,
+          reason:
+              'this is the shipped bug: an edit to ANY field other than '
+              'locality must still echo cityId, or the backend 400s the '
+              'whole save with "City is required".',
+        );
+        expect(captured!.districtId, _salonWithLocality.districtId);
+      },
+    );
+
+    test('cityId/districtId are present when ONLY phone is edited', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _salonWithLocality);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+
+      UpdateSalonRequest? captured;
+      when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
+        invocation,
+      ) async {
+        captured = invocation.positionalArguments[1] as UpdateSalonRequest;
+        return _salonWithLocality.copyWith(phone: '+380671112233');
+      });
+
+      final container = _makeContainer(repo);
+      final notifier = await _readyNotifier(container, _salonWithLocality);
+
+      final failure = await notifier.save(
+        name: _salonWithLocality.name,
+        description: _salonWithLocality.description!,
+        phone: '+380671112233',
+        instagramUrl: '',
+      );
+
+      expect(failure, isNull);
+      expect(captured, isNotNull);
+      expect(captured!.phone, '+380671112233');
+      expect(captured!.cityId, _salonWithLocality.cityId);
+      expect(captured!.districtId, _salonWithLocality.districtId);
+    });
+
+    // mobile-security INFO follow-up (2026-08-29) — [Salon.cityId] is
+    // nullable and "null means the salon genuinely has no city set" (see
+    // that field's own doc). `save()` echoes whatever is loaded, so a salon
+    // with NO city on file still gets `cityId: null` PATCHed back — the
+    // backend's `LocalityWriteValidator` will 400 that save too, exactly as
+    // it did before this fix, for a narrower reason (no client-side path
+    // ever lets the viewer SET a city from this screen; only
+    // `SalonAddressEditScreen` does). This test documents that CURRENT,
+    // UNCHANGED gap — it is not a regression this fix introduces, and it is
+    // NOT a fix: the product decision on how a cityless salon should recover
+    // (route to the address screen? block the profile-edit save entirely?)
+    // has not been made. Do not "fix" this by inventing a fallback here.
+    test('KNOWN LIMITATION — a salon with NO city on file still echoes '
+        'cityId: null, which the backend will still reject (untouched by '
+        'this fix, not a fix itself)', () async {
+      // _freshSalon has no cityId set (null) — the real GET-time shape for
+      // a salon that has never had its locality set.
+      expect(_freshSalon.cityId, isNull);
+
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+
+      UpdateSalonRequest? captured;
+      when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
+        invocation,
+      ) async {
+        captured = invocation.positionalArguments[1] as UpdateSalonRequest;
+        return _freshSalon.copyWith(description: 'Нова назва');
+      });
+
+      final container = _makeContainer(repo);
+      final notifier = await _readyNotifier(container, _freshSalon);
+
+      final failure = await notifier.save(
+        name: _freshSalon.name,
+        description: 'Нова назва салону',
+        phone: '',
+        instagramUrl: '',
+      );
+
+      expect(
+        failure,
+        isNull,
+        reason:
+            'the FAKE repository never rejects '
+            'a null cityId the way the real backend would — this test pins '
+            "the mobile CLIENT's current behaviour (what it sends), not the "
+            'server response.',
+      );
+      expect(
+        captured!.cityId,
+        isNull,
+        reason:
+            'documents the known gap: this screen has no way to recover '
+            'a cityless salon, so it echoes null and a real save would '
+            'still 400. Flip this assertion deliberately, with a product '
+            "decision behind it, if a fallback is ever added — don't let "
+            'it flip by accident.',
+      );
+    });
+  });
+
+  // ── saveAddress() ────────────────────────────────────────────────────
+  //
+  // No unit-test group existed for this method at all before this changeset
+  // — the exact hole the regression fell through (per this file's own
+  // MANDATE-3 precedent for `save()`'s phone diff, nothing pinned
+  // `saveAddress()`'s locality handling until now). The prior implementation
+  // diffed `cityId` against `current.cityId` (`cityId != current.cityId ?
+  // cityId : null`), which folded an UNCHANGED selection to `null` and
+  // tripped the backend's "City is required" 400 whenever the viewer edited
+  // street/note without re-touching the city dropdown — the subtler half of
+  // the shipped bug, since the widget tier's own city fixture never
+  // exercised "selection equals current" until this group.
+  group('saveAddress()', () {
+    test('cityId is sent even when the selection is UNCHANGED from the '
+        'currently-loaded value', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _salonWithLocality);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+
+      UpdateSalonRequest? captured;
+      when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
+        invocation,
+      ) async {
+        captured = invocation.positionalArguments[1] as UpdateSalonRequest;
+        return _salonWithLocality.copyWith(street: 'вул. Хрещатик');
+      });
+
+      final container = _makeContainer(repo);
+      final notifier = await _readyNotifier(container, _salonWithLocality);
+
+      // The picked city/district are the SAME ids already on the loaded
+      // salon — only street is genuinely new. This is exactly the shape
+      // the old diff formula folded to null.
+      final failure = await notifier.saveAddress(
+        cityId: _salonWithLocality.cityId!,
+        districtId: _salonWithLocality.districtId,
+        street: 'вул. Хрещатик',
+        buildingNo: _salonWithLocality.buildingNo!,
+        locationNote: _salonWithLocality.locationNote ?? '',
+      );
+
+      expect(failure, isNull);
+      expect(captured, isNotNull);
+      expect(captured!.street, 'вул. Хрещатик');
+      expect(
+        captured!.cityId,
+        _salonWithLocality.cityId,
+        reason:
+            'the OLD diff (`cityId != current.cityId ? cityId : null`) '
+            'folded this exact case — an unchanged selection — to null, '
+            'which is precisely what made every non-city edit on this '
+            'screen 400. cityId must never be null when a real city was '
+            'passed in.',
+      );
+      expect(captured!.cityId, isNotNull);
+    });
+
+    test(
+      'cityId is sent when the viewer picks a genuinely NEW city too',
+      () async {
+        when(
+          () => repo.getSalonById(_kSalonId),
+        ).thenAnswer((_) async => _salonWithLocality);
+        when(
+          () => repo.getSalonStaff(_kSalonId),
+        ).thenAnswer((_) async => _staff);
+
+        UpdateSalonRequest? captured;
+        when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
+          invocation,
+        ) async {
+          captured = invocation.positionalArguments[1] as UpdateSalonRequest;
+          return _salonWithLocality.copyWith(cityId: 'city-locality-02');
+        });
+
+        final container = _makeContainer(repo);
+        final notifier = await _readyNotifier(container, _salonWithLocality);
+
+        final failure = await notifier.saveAddress(
+          cityId: 'city-locality-02',
+          districtId: null,
+          street: _salonWithLocality.street!,
+          buildingNo: _salonWithLocality.buildingNo!,
+          locationNote: _salonWithLocality.locationNote ?? '',
+        );
+
+        expect(failure, isNull);
+        expect(captured!.cityId, 'city-locality-02');
+        expect(
+          captured!.districtId,
+          isNull,
+          reason: 'a leaf city legitimately has no district to send.',
+        );
+      },
+    );
+
+    test('locationNote is diffed — omitted when unchanged, included when '
+        'edited', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _salonWithLocality);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+
+      final captures = <UpdateSalonRequest>[];
+      when(() => repo.updateSalon(_kSalonId, any())).thenAnswer((
+        invocation,
+      ) async {
+        final req = invocation.positionalArguments[1] as UpdateSalonRequest;
+        captures.add(req);
+        return _salonWithLocality;
+      });
+
+      final container = _makeContainer(repo);
+      final notifier = await _readyNotifier(container, _salonWithLocality);
+
+      await notifier.saveAddress(
+        cityId: _salonWithLocality.cityId!,
+        districtId: _salonWithLocality.districtId,
+        street: _salonWithLocality.street!,
+        buildingNo: _salonWithLocality.buildingNo!,
+        // Unchanged — still the loaded value (null baseline in this
+        // fixture, so pass '' to match `salon.locationNote ?? ''`).
+        locationNote: _salonWithLocality.locationNote ?? '',
+      );
+
+      expect(
+        captures.single.locationNote,
+        isNull,
+        reason: 'unchanged optional field — omitted, not a validation risk.',
+      );
+
+      await notifier.saveAddress(
+        cityId: _salonWithLocality.cityId!,
+        districtId: _salonWithLocality.districtId,
+        street: _salonWithLocality.street!,
+        buildingNo: _salonWithLocality.buildingNo!,
+        locationNote: '3 поверх',
+      );
+
+      expect(captures.last.locationNote, '3 поверх');
+      // Even on the locationNote-only edit, cityId still rides along.
+      expect(captures.last.cityId, _salonWithLocality.cityId);
+    });
+
+    test(
+      'a repository Failure is returned and state is left untouched',
+      () async {
+        when(
+          () => repo.getSalonById(_kSalonId),
+        ).thenAnswer((_) async => _salonWithLocality);
+        when(
+          () => repo.getSalonStaff(_kSalonId),
+        ).thenAnswer((_) async => _staff);
+        when(
+          () => repo.updateSalon(_kSalonId, any()),
+        ).thenThrow(const ServerFailure(statusCode: 500));
+
+        final container = _makeContainer(repo);
+        final notifier = await _readyNotifier(container, _salonWithLocality);
+
+        final failure = await notifier.saveAddress(
+          cityId: _salonWithLocality.cityId!,
+          districtId: _salonWithLocality.districtId,
+          street: 'вул. Хрещатик',
+          buildingNo: _salonWithLocality.buildingNo!,
+          locationNote: _salonWithLocality.locationNote ?? '',
+        );
+
+        expect(failure, isA<ServerFailure>());
+        final state = container.read(salonManagementProfileProvider(_kSalonId));
+        expect(
+          state.value!.$1.street,
+          _salonWithLocality.street,
+          reason:
+              'a failed saveAddress must leave the previously-loaded state '
+              'alone so the screen can offer a retry',
         );
       },
     );

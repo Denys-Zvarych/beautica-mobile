@@ -586,6 +586,13 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       await container
           .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
           .saveAddress(
+            // cityId is `required` (Finding, 2026-08-29 — see
+            // `salon_management_profile_notifier.dart`'s header doc): the
+            // screen always sends its selected city, never a diff against
+            // the loaded snapshot. This harness's `_cycleGuardSalon` has no
+            // cityId of its own; any non-null id exercises the same
+            // cycle-guard path the street-only edit did before.
+            cityId: 'city-cycle-guard-1',
             street: 'вул. Оновлена',
             buildingNo: '2',
             locationNote: '',

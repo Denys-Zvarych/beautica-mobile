@@ -209,6 +209,10 @@ void main() {
         // Backend-required on every PATCH — always threaded through.
         expect(sent.street, _stubSalon.street);
         expect(sent.buildingNo, _stubSalon.buildingNo);
+        // Finding (2026-08-29) — cityId/districtId ride along UNCONDITIONALLY
+        // too, even though this screen never edits locality; omitting them
+        // is what made every «Про салон» save 400 with "City is required".
+        expect(sent.cityId, _stubSalon.cityId);
 
         // Success pops back to the marker screen.
         expect(find.byKey(const Key('manage-marker')), findsOneWidget);
@@ -283,6 +287,9 @@ void main() {
       expect(sent.description, isNull);
       expect(sent.street, _stubSalon.street);
       expect(sent.buildingNo, _stubSalon.buildingNo);
+      // Finding (2026-08-29) — same unconditional locality echo as the
+      // profile-edit screen above.
+      expect(sent.cityId, _stubSalon.cityId);
 
       expect(find.byKey(const Key('manage-marker')), findsOneWidget);
       await pumpPastVelvetSnack(tester);
@@ -355,7 +362,7 @@ void main() {
       },
     );
 
-    testWidgets('Save sends the edited street and omits unchanged locality', (
+    testWidgets('Save sends the edited street and the echoed locality', (
       tester,
     ) async {
       final repo = FakeSalonRepository(salon: _stubSalon);
@@ -381,8 +388,13 @@ void main() {
       expect(sent.street, 'вул. Хрещатик');
       // buildingNo is unchanged but backend-required — always sent.
       expect(sent.buildingNo, _stubSalon.buildingNo);
-      // cityId resolved to the SAME salon.cityId — omitted as unchanged.
-      expect(sent.cityId, isNull);
+      // Finding (2026-08-29) — cityId is now sent UNCONDITIONALLY (the
+      // screen owns locality and always echoes its resolved selection; see
+      // `SalonManagementProfile.saveAddress`'s doc). The prior assertion
+      // here (`isNull`, "omitted as unchanged") was pinning the very bug
+      // that made every `PATCH /salons/{id}` 400 with `City is required`
+      // whenever the city dropdown itself wasn't touched.
+      expect(sent.cityId, _stubSalon.cityId);
 
       expect(find.byKey(const Key('manage-marker')), findsOneWidget);
       await pumpPastVelvetSnack(tester);
@@ -579,6 +591,115 @@ void main() {
               'oblast resolver (the pattern this field replaced) would fire '
               'this at least once.',
         );
+      },
+    );
+
+    // Mirrors `location_edit_screen_test.dart`'s "validation blocks save
+    // when street is filled but no city is selected" — the master's
+    // equivalent guard, and the test whose ABSENCE on this screen let the
+    // Finding (2026-08-29) ship: no client-side "city is required" check at
+    // all meant Save always reached `saveAddress`, and the wire either
+    // carried a stale/null cityId or relied entirely on the backend's 400.
+    testWidgets(
+      'Save is blocked with no city selected at all, and the city row '
+      'shows an inline error',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalonNoCity);
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            authProvider.overrideWith(_StubAuthNotifier.new),
+            salonRepositoryProvider.overrideWithValue(repo),
+            oblastListProvider.overrideWith(
+              (ref) async => const <Oblast>[_oblast],
+            ),
+            cityListProvider('oblast-01').overrideWith(
+              (ref) async => const <City>[_city, _cityWithDistricts],
+            ),
+            districtListProvider(
+              _cityWithDistricts.id,
+            ).overrideWith((ref) async => const <CityDistrict>[_district]),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
+        await tester.pumpAndSettle();
+
+        // Street/building are already valid (pre-populated from the
+        // fixture) — the missing city must be the ONLY thing blocking Save.
+        await tester.tap(find.byKey(const Key('save_salon_address')));
+        await tester.pumpAndSettle();
+
+        expect(
+          repo.updateRequests,
+          isEmpty,
+          reason:
+              'no city selected at all must block Save client-side — this '
+              'is the exact guard whose absence let saveAddress() reach the '
+              'wire relying solely on an opaque backend 400 instead of an '
+              'inline field error.',
+        );
+        expect(find.byKey(const Key('manage-marker')), findsNothing);
+        final LocalityTapRow cityRow = tester.widget<LocalityTapRow>(
+          find.byKey(const Key('locality_row_city')),
+        );
+        expect(
+          cityRow.errorText,
+          isNotNull,
+          reason: 'the city row must show an inline required-field error.',
+        );
+      },
+    );
+
+    // Finding (2026-08-29) — `_onOblast` unconditionally resets the city (and
+    // district) selection. Without re-validating on Save, a stale
+    // pre-populated cityId could otherwise survive an oblast change in the
+    // NOTIFIER call even though the visible cascade now shows nothing
+    // selected. This proves the reset actually blocks Save, not just that
+    // the row LOOKS empty.
+    testWidgets(
+      'changing the oblast resets the previously pre-populated city and '
+      're-blocks Save',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon);
+        final router = _router();
+        await tester.pumpRoutedApp(router, overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
+        await tester.pumpAndSettle();
+
+        // Confirm the city really did pre-populate before disturbing it.
+        expect(find.text(_city.name), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('locality_row_oblast')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(ValueKey<String>('locality_picker_tile_${_oblast.id}')),
+        );
+        await tester.pumpAndSettle();
+
+        // The city selection must be gone — _onOblast reset it.
+        expect(find.text(_city.name), findsNothing);
+
+        await tester.tap(find.byKey(const Key('save_salon_address')));
+        await tester.pumpAndSettle();
+
+        expect(
+          repo.updateRequests,
+          isEmpty,
+          reason:
+              'the oblast reset cleared the city selection; Save must block '
+              'exactly as it would for a salon that never had a city, not '
+              'silently reuse the pre-populated (now-stale) cityId.',
+        );
+        expect(find.byKey(const Key('manage-marker')), findsNothing);
+        final LocalityTapRow cityRow = tester.widget<LocalityTapRow>(
+          find.byKey(const Key('locality_row_city')),
+        );
+        expect(cityRow.errorText, isNotNull);
       },
     );
   });

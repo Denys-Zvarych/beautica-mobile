@@ -87,6 +87,7 @@ class _SalonAddressEditScreenState
   bool _saving = false;
   String? _errStreet;
   String? _errBuildingNo;
+  String? _errCity;
   String? _errDistrict;
 
   void _initControllers(Salon salon) {
@@ -142,6 +143,14 @@ class _SalonAddressEditScreenState
       _selectedOblast = o;
       _selectedCity = null;
       _selectedDistrict = null;
+      // Finding (2026-08-29) — an oblast change resets the city to null,
+      // which un-does whatever satisfied _errCity a moment ago; a stale
+      // `null` here left Save un-blocked even though no city is selected
+      // any more (the field-level error only re-evaluates in _validateLocality,
+      // which only runs on Save). Clearing both here mirrors
+      // LocationEditScreen's cascade handlers, which never carry a stale
+      // error across a selection reset either.
+      _errCity = null;
       _errDistrict = null;
     });
   }
@@ -150,6 +159,7 @@ class _SalonAddressEditScreenState
     setState(() {
       _selectedCity = c;
       _selectedDistrict = null;
+      if (c != null) _errCity = null;
       _errDistrict = null;
     });
   }
@@ -161,30 +171,39 @@ class _SalonAddressEditScreenState
     });
   }
 
-  /// Finding 1 (2026-08-28) — mirrors `LocationEditScreen._validateLocation`'s
-  /// district-required rule: a city that subdivides into districts
-  /// ([City.hasDistricts]) MUST have a district picked before Save, or the
-  /// per-field cityId/districtId dirty-diff in [SalonManagementProfile.
-  /// saveAddress] can PATCH a cityId that requires a district while
-  /// districtId reads as "unchanged" (still null) — an invalid locality pair
-  /// the backend's `LocalityWriteValidator` rejects. `LocalityCascade`
-  /// exposes `districtRequired`/`districtError` for exactly this; wired here.
-  bool _validateDistrict() {
+  /// Mirrors `LocationEditScreen._validateLocation`'s locality rules: the
+  /// city is UNCONDITIONALLY required (Finding, 2026-08-29 — this screen had
+  /// no client-side city-required guard at all, so Save was never blocked on
+  /// a missing city; the missing guard is what let the notifier's since-fixed
+  /// city/district dirty-diff surface as a bare backend 400 instead of an
+  /// inline field error), and a city that subdivides into districts
+  /// ([City.hasDistricts]) MUST also have a district picked before Save —
+  /// Finding 1 (2026-08-28), otherwise `saveAddress` can PATCH a cityId that
+  /// requires a district while districtId is still unset, an invalid
+  /// locality pair the backend's `LocalityWriteValidator` rejects.
+  /// `LocalityCascade` exposes `cityError`/`districtError` for exactly this;
+  /// wired here.
+  bool _validateLocality() {
     final l10n = AppLocalizations.of(context);
+    final bool citySelected = _selectedCity != null;
     final bool cityHasDistricts = _selectedCity?.hasDistricts ?? false;
+    final String? errCity = !citySelected ? l10n.errRequired : null;
     final String? errDistrict = (cityHasDistricts && _selectedDistrict == null)
         ? l10n.errRequired
         : null;
-    setState(() => _errDistrict = errDistrict);
-    return errDistrict == null;
+    setState(() {
+      _errCity = errCity;
+      _errDistrict = errDistrict;
+    });
+    return errCity == null && errDistrict == null;
   }
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context);
     final String? streetErr = validateStreet(_streetCtrl.text, l10n);
     final String? buildingErr = validateBuilding(_buildingCtrl.text, l10n);
-    final bool districtOk = _validateDistrict();
-    if (streetErr != null || buildingErr != null || !districtOk) {
+    final bool localityOk = _validateLocality();
+    if (streetErr != null || buildingErr != null || !localityOk) {
       setState(() {
         _errStreet = streetErr;
         _errBuildingNo = buildingErr;
@@ -193,11 +212,21 @@ class _SalonAddressEditScreenState
       return;
     }
 
+    final City? selectedCity = _selectedCity;
+    if (selectedCity == null) {
+      // Defensive: unreachable once _validateLocality() returns true, since
+      // the city is now unconditionally required (it sets _errCity and
+      // returns false when no city is chosen). Mirrors
+      // `LocationEditScreen._save()`'s identical guard — never fall through
+      // to `saveAddress` with a null city.
+      return;
+    }
+
     setState(() => _saving = true);
     final Failure? failure = await ref
         .read(salonManagementProfileProvider(widget.salonId).notifier)
         .saveAddress(
-          cityId: _selectedCity?.id,
+          cityId: selectedCity.id,
           districtId: _selectedDistrict?.id,
           street: _streetCtrl.text,
           buildingNo: _buildingCtrl.text,
@@ -262,6 +291,7 @@ class _SalonAddressEditScreenState
             selectedCity: _selectedCity,
             selectedDistrict: _selectedDistrict,
             districtRequired: true,
+            cityError: _errCity,
             districtError: _errDistrict,
             onOblast: _onOblast,
             onCity: _onCity,
