@@ -1336,13 +1336,6 @@ abstract final class VelvetText {
     height: 1.0,
   );
 
-  /// Cover edit-pill label — feedback white, 11 sp, w700.
-  static final TextStyle salonCoverEditPill = _feedbackBase.copyWith(
-    color: BrandColors.white,
-    fontSize: 11,
-    fontWeight: FontWeight.w700,
-  );
-
   /// Phase 21.1 — My Salons Hub card's locality/street two-line address —
   /// feedback textSecondary, 12.5 sp, height 1.35 (the taller line-height
   /// carries the wrapped locality+street pair, mirroring `bookSuccessSubline`

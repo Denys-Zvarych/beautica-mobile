@@ -17,6 +17,7 @@
 
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -28,6 +29,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -185,6 +187,126 @@ void main() {
       expect(find.byKey(const Key('row-salon-edit-profile')), findsOneWidget);
       // Still no inline edit fields — settings is a SEPARATE page.
       expect(find.byKey(const Key('field-salon-name')), findsNothing);
+    });
+  });
+
+  // mobile-qa gap-closure (salon-cover work, 2026-08-29) — the notification
+  // bell shipped on this cover's top-right control row (ported verbatim
+  // from `docs/signup-designs/SalonManagementDesign/lib/screens/
+  // salon_profile_screen.dart:369-425`) with zero coverage anywhere: no
+  // golden renders this screen's cover, and no widget test asserted the
+  // bell's key, its wired asset, its position relative to the settings
+  // gear, or its accessible name's deliberately-plain wording (the control
+  // is inert — `onTap: () {}` — so its label must not claim an unread
+  // state a screen-reader user could not act on or dismiss).
+  group('notification bell (cover redesign)', () {
+    testWidgets(
+      'renders before the settings button in the top-right row, wired to '
+      'the notificationUnread asset',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final Finder bellFinder = find.byKey(
+          const Key('salon-manage-notifications'),
+        );
+        final Finder settingsFinder = find.byKey(
+          const Key('salon-manage-settings'),
+        );
+        expect(bellFinder, findsOneWidget);
+        expect(settingsFinder, findsOneWidget);
+
+        final CoverIconButton bell = tester.widget<CoverIconButton>(bellFinder);
+        expect(
+          bell.svgIcon,
+          BeauticaAssetIcons.notificationUnread,
+          reason:
+              'the bell must render the baked-in-unread-dot asset per the '
+              'approved design',
+        );
+        expect(
+          bell.icon,
+          isNull,
+          reason: 'icon/svgIcon are mutually exclusive on CoverIconButton',
+        );
+
+        final CoverIconButton settings = tester.widget<CoverIconButton>(
+          settingsFinder,
+        );
+        expect(settings.icon, Icons.tune_rounded);
+        expect(settings.svgIcon, isNull);
+
+        // Order is real: the design places notifications LEFT of settings
+        // in the row. A geometric proof (rendered x-offset), not a
+        // source-order read — a change that kept the Row's child order but
+        // flipped the visual result would still be caught here.
+        final double bellX = tester.getTopLeft(bellFinder).dx;
+        final double settingsX = tester.getTopLeft(settingsFinder).dx;
+        expect(
+          bellX,
+          lessThan(settingsX),
+          reason:
+              'the bell must render to the LEFT of the settings gear — '
+              'matching the approved design\'s top-right control row order',
+        );
+      },
+    );
+
+    testWidgets(
+      'accessible name stays plain — must NOT claim an unread state the '
+      'inert control cannot dismiss',
+      (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        final repo = FakeSalonRepository(salon: _stubSalon);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final String label = tester
+            .getSemantics(find.byKey(const Key('salon-manage-notifications')))
+            .getSemanticsData()
+            .label;
+
+        final ukL10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(
+          label,
+          ukL10n.salonManageNotificationsSemanticLabel,
+          reason:
+              'pins the exact accessible name to the ARB key — a future '
+              'edit concatenating an unread claim onto this label must '
+              'fail here',
+        );
+        expect(
+          label.toLowerCase(),
+          isNot(contains('непрочит')),
+          reason:
+              'onTap is a no-op — a screen-reader user must never be told '
+              'about unread notifications they cannot act on or dismiss',
+        );
+
+        final enL10n = await AppLocalizations.delegate.load(const Locale('en'));
+        expect(
+          enL10n.salonManageNotificationsSemanticLabel.toLowerCase(),
+          isNot(contains('unread')),
+          reason: 'same contract, English locale — ARB parity',
+        );
+
+        handle.dispose();
+      },
+    );
+
+    testWidgets('tapping the bell neither navigates nor throws', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-manage-notifications')));
+      await tester.pumpAndSettle();
+
+      // Still on the management screen — no crash, no navigation away.
+      expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
     });
   });
 

@@ -54,6 +54,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -647,12 +648,38 @@ class _CoverAndHero extends StatelessWidget {
         Positioned(
           top: topInset + VelvetSpacing.sm,
           right: VelvetSpacing.lg,
-          child: CoverIconButton(
-            key: const Key('salon-manage-settings'),
-            icon: Icons.tune_rounded,
-            iconColor: BrandColors.accentDeep,
-            semanticLabel: l10n.salonManageSettingsSemanticLabel,
-            onTap: onOpenSettings,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              // Static demo unread state; tap is a placeholder — the
+              // notification centre is out of scope (all notifications stay
+              // dark until release, see mobile-backlog).
+              //
+              // The glyph keeps its baked-in unread dot verbatim per the
+              // approved design (docs/signup-designs/SalonManagementDesign/
+              // lib/screens/salon_profile_screen.dart:407-425) — do not add
+              // an overlay dot or swap the icon. But the accessible name
+              // deliberately does NOT say "unread": onTap is a no-op, so a
+              // screen-reader user would be told about unread notifications
+              // with no way to act on or dismiss the claim. Keep the label
+              // plain ("Сповіщення" / "Notifications") until a real
+              // notification centre exists — do not restore the longer
+              // "…, unread" label from the preview app.
+              CoverIconButton(
+                key: const Key('salon-manage-notifications'),
+                svgIcon: BeauticaAssetIcons.notificationUnread,
+                semanticLabel: l10n.salonManageNotificationsSemanticLabel,
+                onTap: () {},
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+              CoverIconButton(
+                key: const Key('salon-manage-settings'),
+                icon: Icons.tune_rounded,
+                iconColor: BrandColors.accentDeep,
+                semanticLabel: l10n.salonManageSettingsSemanticLabel,
+                onTap: onOpenSettings,
+              ),
+            ],
           ),
         ),
         Positioned(

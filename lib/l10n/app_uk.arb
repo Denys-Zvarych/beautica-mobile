@@ -4637,10 +4637,6 @@
   "@salonCoverSemanticLabel": {
     "description": "Accessibility label for the salon profile's cover photo image."
   },
-  "salonCoverEditPillLabel": "Обкладинка",
-  "@salonCoverEditPillLabel": {
-    "description": "Small pill on the cover photo signalling it is the salon's uploadable cover slot."
-  },
   "salonLogoSemanticLabel": "Логотип салону",
   "@salonLogoSemanticLabel": {
     "description": "Accessibility label for the salon logo monogram on the hero card."
@@ -5213,6 +5209,10 @@
   "salonManageSettingsSemanticLabel": "Налаштування салону",
   "@salonManageSettingsSemanticLabel": {
     "description": "Phase 21.2 — semantic label for the tune_rounded cover control on the owner/admin salon management profile, which opens the salon settings page."
+  },
+  "salonManageNotificationsSemanticLabel": "Сповіщення",
+  "@salonManageNotificationsSemanticLabel": {
+    "description": "Semantic label for the notification bell cover control on the owner/admin salon management profile cover. Deliberately omits the unread state: the glyph shows the baked-in unread dot per the approved design, but the control is inert (notification centre out of scope, tap is a placeholder), so the accessible name must not assert a state the user cannot act on or dismiss."
   },
   "salonManageNameLabel": "Назва салону",
   "@salonManageNameLabel": {

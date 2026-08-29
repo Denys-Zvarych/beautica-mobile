@@ -1517,75 +1517,39 @@ void main() {
     );
   });
 
-  // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill
-  // used to be `Positioned(left, bottom: VelvetSpacing.md)` inside the
-  // cover's OWN stack, on the assumption the bottom-left corner sits "clear
-  // of the hero". The hero card's height is variable — a 2-line name, a
-  // 2-line address, and (Phase 224) a `locationNote` can all add height —
-  // and it used to eat into the cover's bottom edge and overlap the pill.
-  //
-  // Phase 224 fixed the hero card's overlap into the cover at a constant
-  // (`_CoverAndHero._cardCoverOverlap`, 25px — see that class's doc) instead
-  // of deriving it from the card's own content height, so ANY extra height
-  // the card needs now grows it downward, never upward into the cover. This
-  // pumps the worst case (2-line name + the fixed 2-line locality/street
-  // address + a `locationNote`, which now renders on the hero card itself)
-  // and asserts the pill's rendered Rect never intersects the hero card's
-  // Rect — true by construction now, but pinned here in case a future
-  // change reintroduces content-driven overlap.
-  group('cover edit pill layout', () {
-    testWidgets(
-      'cover edit pill never overlaps the hero card, even at worst-case '
-      'hero height (2-line name + the fixed 2-line locality/street address)',
-      (tester) async {
-        const String longName =
-            'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
-        const worstCaseSalon = Salon(
-          id: _kSalonId,
-          name: longName,
-          description: 'Затишний салон краси в серці Печерська.',
-          cityId: 'city-uuid-1',
-          street: 'вул. Велика Васильківська',
-          buildingNo: '44/2',
-          locationNote: 'вхід з двору, 2 поверх, домофон 12',
-          avgRating: 4.9,
-          reviewCount: 128,
-        );
+  // Regression pin: the "Обкладинка" cover-edit pill (the small camel pill
+  // that used to float over the cover's top control row) was removed
+  // outright — the cover is read-only chrome with no owner-edit affordance
+  // yet. This asserts the pill never renders, so a future change can't
+  // silently reintroduce it.
+  group('cover edit pill removal', () {
+    testWidgets('cover edit pill no longer renders', (tester) async {
+      const String longName =
+          'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
+      const worstCaseSalon = Salon(
+        id: _kSalonId,
+        name: longName,
+        description: 'Затишний салон краси в серці Печерська.',
+        cityId: 'city-uuid-1',
+        street: 'вул. Велика Васильківська',
+        buildingNo: '44/2',
+        locationNote: 'вхід з двору, 2 поверх, домофон 12',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
 
-        await tester.pumpApp(
-          const PublicSalonProfileScreen(salonId: _kSalonId),
-          overrides: _overrides(
-            repo: _FakeSalonRepository(salon: () async => worstCaseSalon),
-          ),
-          width: 390,
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => worstCaseSalon),
+        ),
+        width: 390,
+      );
+      await tester.pumpAndSettle();
 
-        final Finder pillFinder = find.byKey(
-          const Key('salon-cover-edit-pill'),
-        );
-        final Finder heroFinder = find.byKey(
-          const Key('salon-profile-hero-card'),
-        );
-        expect(pillFinder, findsOneWidget);
-        expect(heroFinder, findsOneWidget);
-
-        final Rect pillRect = tester.getRect(pillFinder);
-        final Rect heroRect = tester.getRect(heroFinder);
-
-        expect(
-          pillRect.overlaps(heroRect),
-          isFalse,
-          reason:
-              'the "Обкладинка" edit pill must never overlap the hero '
-              'card — the hero\'s overlap into the cover is now a FIXED '
-              '`_cardCoverOverlap` (25px) regardless of content height '
-              '(2-line name + the fixed 2-line locality/street address + '
-              'a locationNote), so any extra content height grows the '
-              'card downward, not further into the cover.',
-        );
-      },
-    );
+      expect(find.byKey(const Key('salon-cover-edit-pill')), findsNothing);
+      expect(find.byKey(const Key('salon-profile-hero-card')), findsOneWidget);
+    });
   });
 
   // ── mobile-qa regression pin: the actual bug Phase 223 (b) fixed, still
