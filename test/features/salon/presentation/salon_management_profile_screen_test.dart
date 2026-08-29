@@ -126,9 +126,12 @@ const _heroDistrict = CityDistrict(
 
 /// Full resolved address, hierarchy-ordered, exactly as
 /// `buildFullAddressLine` composes it — the expected on-screen string for
-/// [_stubSalonWithTaxonomy].
+/// [_stubSalonWithTaxonomy]. The oblast (`_heroOblast`) is resolved by
+/// [_FakeLocationRepository] to drive the city cascade but deliberately does
+/// NOT appear here — product decision 2026-08-29: a salon's oblast never
+/// renders to the client.
 const String _expectedResolvedAddress =
-    'Львівська область, Львів, Галицький, вул. Велика Васильківська, 44';
+    'Львів, Галицький, вул. Велика Васильківська, 44';
 
 const _stubSalonWithTaxonomy = Salon(
   id: _kSalonId,
@@ -1032,8 +1035,9 @@ void main() {
   // — the logo-centering guard "passed" only because those rows were
   // ABSENT, proving the OLD layout, not the new one.
   group('resolved locality + location note (mobile-qa gap-closure)', () {
-    testWidgets('a salon with a full oblast/city/district triple renders the '
-        'RESOLVED names, hierarchy-ordered ahead of street/building', (
+    testWidgets('a salon with a full city/district pair renders the '
+        'RESOLVED names, hierarchy-ordered ahead of street/building — the '
+        'oblast is resolved for the cascade but never rendered', (
       tester,
     ) async {
       final repo = FakeSalonRepository(salon: _stubSalonWithTaxonomy);
@@ -1052,9 +1056,17 @@ void main() {
         addressWidget.data,
         _expectedResolvedAddress,
         reason:
-            'oblast -> city -> district -> street -> building, exactly '
-            'the hierarchy order buildFullAddressLine composes — a '
-            'reordered or dropped segment fails this exact-match',
+            'city -> district -> street -> building, exactly the '
+            'hierarchy order buildFullAddressLine composes — a reordered '
+            'or dropped segment fails this exact-match; the oblast name '
+            '("Львівська область") must NOT appear anywhere in this string',
+      );
+      expect(
+        addressWidget.data,
+        isNot(contains('Львівська область')),
+        reason:
+            'even if hierarchy order drifted, the oblast text must never '
+            'leak into the rendered address line',
       );
     });
 

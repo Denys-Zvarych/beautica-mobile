@@ -144,19 +144,23 @@ String? buildCombinedAddressLine(
   return parts.join(', ');
 }
 
-/// Phase 21.14 — the FULL address, hierarchy-ordered: oblast (region) ->
-/// city -> district -> street + building. An intentional extension of
-/// [buildCombinedAddressLine] (which only ever had city/street/buildingNo to
-/// work with) for callers that have resolved oblast/city/district DISPLAY
-/// NAMES available — see `features/location/state/resolved_locality_provider
-/// .dart`, which resolves those names from the `oblastId`/`cityId`/
-/// `districtId` UUIDs a [Salon]/[Master] actually carries.
+/// Phase 21.14 — the FULL address, hierarchy-ordered: city -> district ->
+/// street + building. An intentional extension of [buildCombinedAddressLine]
+/// (which only ever had city/street/buildingNo to work with) for callers
+/// that have resolved city/district DISPLAY NAMES available — see
+/// `features/location/state/resolved_locality_provider.dart`, which resolves
+/// those names from the `cityId`/`districtId` UUIDs a [Salon]/[Master]
+/// actually carries. The oblast (region) is deliberately NOT included in
+/// this line — product decision 2026-08-29: a salon's oblast never renders
+/// to the client, even though `resolvedLocalityProvider` still resolves it
+/// (the cascade needs `oblastId` to fetch the city list, and the address
+/// edit screen pre-populates its picker from it).
 ///
 /// Every parameter is a plain display-name string, deliberately NOT the
 /// legacy free-text `city`/`region` fields on those domain entities — both
 /// are frozen (no longer written by the backend since Phase 10.6, see
 /// `Salon.city`/`Salon.region`'s own doc) and must never be mixed in here;
-/// pass the resolved [Oblast.name]/[City.name]/[CityDistrict.name] instead.
+/// pass the resolved [City.name]/[CityDistrict.name] instead.
 ///
 /// Same composition contract as [buildCombinedAddressLine] and
 /// [buildStreetLine] — each shares [_visibleOrNull], so all four builders
@@ -173,26 +177,18 @@ String? buildCombinedAddressLine(
 /// The `", "` separator is punctuation, not copy — no ARB entry, nothing
 /// here is translated.
 String? buildFullAddressLine({
-  String? oblastName,
   String? cityName,
   String? districtName,
   String? street,
   String? buildingNo,
 }) {
-  final String? region = _visibleOrNull(oblastName);
   final String? locality = _visibleOrNull(cityName);
   final String? district = _visibleOrNull(districtName);
   final String? road = _visibleOrNull(street);
   // A building number rides on the street or not at all.
   final String? building = road == null ? null : _visibleOrNull(buildingNo);
 
-  final List<String> parts = <String>[
-    ?region,
-    ?locality,
-    ?district,
-    ?road,
-    ?building,
-  ];
+  final List<String> parts = <String>[?locality, ?district, ?road, ?building];
   if (parts.isEmpty) return null;
   return parts.join(', ');
 }

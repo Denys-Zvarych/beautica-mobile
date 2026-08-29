@@ -697,13 +697,15 @@ class _CoverAndHero extends StatelessWidget {
 }
 
 /// The owner/admin identity card — logo + name + ★ rating · review count,
-/// then the full resolved location (oblast → city → district → street +
-/// building) and an optional location note. No inline edit affordances
-/// (editing lives behind the settings hub → «Редагувати профіль»).
+/// then the full resolved location (city → district → street + building)
+/// and an optional location note. No inline edit affordances (editing lives
+/// behind the settings hub → «Редагувати профіль»).
 ///
 /// `ConsumerWidget` (Phase 21.14 — was `StatelessWidget`) so it can
-/// `ref.watch` [resolvedLocalityProvider] for the oblast/city/district
-/// display names — see [build] for the fallback chain and why
+/// `ref.watch` [resolvedLocalityProvider] for the city/district display
+/// names (the provider also resolves the oblast, needed internally to drive
+/// the cascade, but the oblast itself never renders here — product decision
+/// 2026-08-29) — see [build] for the fallback chain and why
 /// `salon.city`/`salon.region` are never read.
 class _ManagementHeroCard extends ConsumerWidget {
   const _ManagementHeroCard({required this.salon});
@@ -727,14 +729,17 @@ class _ManagementHeroCard extends ConsumerWidget {
     final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
 
     // Phase 21.14 — this hero card renders the FULL resolved location
-    // (oblast → city → district → street/building) rather than the legacy
-    // free-text `city` + street/buildingNo it showed before. This is a
-    // DELIBERATE extension beyond the approved design
-    // (`docs/signup-designs/SalonManagementDesign/lib/screens/
-    // salon_profile_screen.dart:513-519`, which renders only
-    // `'${salon.locality}, ${salon.address}'` — two segments, no region/
-    // district, and no note row at all) — requested by the user 2026-08-29.
-    // Do NOT "restore" the design's two-segment line.
+    // (city → district → street/building) rather than the legacy free-text
+    // `city` + street/buildingNo it showed before. This is a DELIBERATE
+    // extension beyond the approved design (`docs/signup-designs/
+    // SalonManagementDesign/lib/screens/salon_profile_screen.dart:513-519`,
+    // which renders only `'${salon.locality}, ${salon.address}'` — two
+    // segments, no district, and no note row at all) — requested by the
+    // user 2026-08-29. Do NOT "restore" the design's two-segment line.
+    // The oblast (region) is deliberately excluded from this line too —
+    // separate product decision, same date: a salon's oblast never renders
+    // to the client, even though it is resolved below (see the doc on
+    // `resolvedLocalityProvider`'s watch just above [addressLine]).
     //
     // `salon.city`/`salon.region` are never read here: both are legacy
     // free-text fields the backend stopped writing at Phase 10.6
@@ -758,7 +763,7 @@ class _ManagementHeroCard extends ConsumerWidget {
     // Whatever is already known SYNCHRONOUSLY from `salon` itself
     // (street/buildingNo — plain fields, no lookup needed) renders on the
     // very first frame via [buildFullAddressLine]'s independent-per-segment
-    // composition; the oblast/city/district text simply fills in on the
+    // composition; the city/district text simply fills in on the
     // rebuild once the provider resolves. A salon whose lookup never
     // resolves (or fails) still shows its street/building line (or the
     // legacy `address` fallback below) — never nothing, never an error.
@@ -773,7 +778,6 @@ class _ManagementHeroCard extends ConsumerWidget {
         .value;
     final String? addressLine =
         buildFullAddressLine(
-          oblastName: resolved?.oblast?.name,
           cityName: resolved?.city?.name,
           districtName: resolved?.district?.name,
           street: salon.street,
