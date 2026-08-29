@@ -718,81 +718,82 @@ class _ManagementHeroCard extends StatelessWidget {
       key: const Key('salon-manage-hero-card'),
       color: const Color(0xFFEDE4D5),
       padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      // Logo centres against the FULL name+rating(+address) stack, not just
+      // the name+rating row — a deliberate departure from
+      // docs/signup-designs/SalonManagementDesign/lib/screens/
+      // salon_profile_screen.dart:501-510, which keeps address in a second
+      // band below an empty gutter (the logo then centres above the card's
+      // true midpoint whenever an address is present). Requested by the
+      // user 2026-08-29; the preview's two-band shape is intentionally NOT
+      // restored.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              SalonLogo(diameter: _logoDiameter, monogram: monogram),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          SalonLogo(diameter: _logoDiameter, monogram: monogram),
+          const SizedBox(width: VelvetSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  salon.name,
+                  key: const Key('salon-manage-name'),
+                  style: VelvetText.displayName20,
+                  maxLines: 2,
+                  softWrap: true,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 5),
+                Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Text(
-                      salon.name,
-                      key: const Key('salon-manage-name'),
-                      style: VelvetText.displayName20,
-                      maxLines: 2,
-                      softWrap: true,
-                      overflow: TextOverflow.ellipsis,
+                    const Icon(
+                      Icons.star_rounded,
+                      size: 16,
+                      color: BrandColors.accentDeep,
                     ),
-                    const SizedBox(height: 5),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const Icon(
-                          Icons.star_rounded,
-                          size: 16,
-                          color: BrandColors.accentDeep,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(ratingLabel, style: VelvetText.bodyStrong14),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                            style: VelvetText.feedbackMuted13,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(width: 4),
+                    Text(ratingLabel, style: VelvetText.bodyStrong14),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
+                        style: VelvetText.feedbackMuted13,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          if (addressLine != null) ...<Widget>[
-            const SizedBox(height: 5),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const SizedBox(width: _logoDiameter + VelvetSpacing.md),
-                const Padding(
-                  padding: EdgeInsets.only(top: 1),
-                  child: Icon(
-                    Icons.location_on_outlined,
-                    size: 15,
-                    color: BrandColors.accentDeep,
+                if (addressLine != null) ...<Widget>[
+                  const SizedBox(height: 5),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Padding(
+                        padding: EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.location_on_outlined,
+                          size: 15,
+                          color: BrandColors.accentDeep,
+                        ),
+                      ),
+                      const SizedBox(width: VelvetSpacing.xs + 1),
+                      Expanded(
+                        child: Text(
+                          addressLine,
+                          key: const Key('salon-manage-address'),
+                          style: VelvetText.bookFeedbackSec13,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: VelvetSpacing.xs + 1),
-                Expanded(
-                  child: Text(
-                    addressLine,
-                    key: const Key('salon-manage-address'),
-                    style: VelvetText.bookFeedbackSec13,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+                ],
               ],
             ),
-          ],
+          ),
         ],
       ),
     );

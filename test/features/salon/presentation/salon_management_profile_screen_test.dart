@@ -634,6 +634,90 @@ void main() {
     });
   });
 
+  // The logo used to centre against the name+rating row only, leaving it
+  // above the card's true midpoint whenever an address line added a second
+  // band below (root-caused 2026-08-29: the address row reserved an empty
+  // gutter under the logo instead of extending the height the logo centres
+  // against). Fixed by folding the address into the same right-hand column
+  // as name+rating, so the outer Row's `center` alignment spans the whole
+  // stack. `_stubSalon` carries street/buildingNo, so `addressLine` is
+  // non-null here — exactly the case that was broken.
+  group('hero card logo vertical centering', () {
+    testWidgets(
+      'logo centre coincides with the card centre when an address line is '
+      'present',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('salon-manage-address')), findsOneWidget);
+
+        final Offset logoCenter = tester.getCenter(find.byType(SalonLogo));
+        final Offset cardCenter = tester.getCenter(
+          find.byKey(const Key('salon-manage-hero-card')),
+        );
+
+        expect(
+          logoCenter.dy,
+          closeTo(cardCenter.dy, 2),
+          reason:
+              'logo must centre against the FULL card content (name + '
+              'rating + address), not just the top row',
+        );
+      },
+    );
+
+    testWidgets('no-address salon still renders the hero card without '
+        'overflow (single-row case unaffected by the restructure)', (
+      tester,
+    ) async {
+      const noAddressSalon = Salon(
+        id: _kSalonId,
+        name: 'Салон без адреси',
+        avgRating: 4.5,
+        reviewCount: 3,
+      );
+      final repo = FakeSalonRepository(salon: noAddressSalon);
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
+      expect(find.byKey(const Key('salon-manage-address')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'long address respects maxLines 2 + ellipsis at 320dp with no overflow',
+      (tester) async {
+        const longAddressSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          street:
+              'вулиця Дуже-Дуже Довга Назва Вулиці Яка Точно Не Поміститься',
+          buildingNo: '144-Б, корпус 12, офіс 305',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        final repo = FakeSalonRepository(salon: longAddressSalon);
+        tester.view.physicalSize = const Size(320, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('salon-manage-address')), findsOneWidget);
+        final Text addressWidget = tester.widget<Text>(
+          find.byKey(const Key('salon-manage-address')),
+        );
+        expect(addressWidget.maxLines, 2);
+        expect(addressWidget.overflow, TextOverflow.ellipsis);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
   group('loading / error states (mobile-qa M3)', () {
     testWidgets('shows a spinner while the initial load is in flight', (
       tester,
