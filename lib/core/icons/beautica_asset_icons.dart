@@ -364,10 +364,11 @@ abstract final class BeauticaAssetIcons {
 
   /// Outline three-person glyph for the inactive salon-shell «Команда» tab.
   ///
-  /// Derived in-repo from [teamFilled] — same path geometry stroked at
-  /// width 0.56 (of 24 units) instead of filled, matching the thin-outline
-  /// weight convention (`category_*.svg` Group A / [homeOutline]).
-  /// Local source: `/media/sf_ubuntu_trash/icons_svg/team.svg` (2026-08-28).
+  /// Independent solid-fill source glyph (own contour, not derived from
+  /// [teamFilled]) — matches the set's solid-fill convention, same as
+  /// [homeOutline] / [homeFilled].
+  /// Local source: `/media/sf_ubuntu_trash/icons_svg/team.svg` (2026-08-29),
+  /// viewBox 0 0 24 24, no stroke.
   /// SHA-256: 92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554
   /// Flaticon source URL not recorded — see `assets/icons/README.md` manifest.
   ///
@@ -376,9 +377,12 @@ abstract final class BeauticaAssetIcons {
 
   /// Filled three-person glyph for the active salon-shell «Команда» tab.
   ///
-  /// Local source: `/media/sf_ubuntu_trash/icons_svg/team.svg` (2026-08-28),
-  /// already a solid/filled glyph, viewBox 0 0 24 24.
-  /// SHA-256: 92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554
+  /// Independent solid-fill source glyph (own contour, not derived from
+  /// [teamOutline]) — matches the set's solid-fill convention, same as
+  /// [homeOutline] / [homeFilled].
+  /// Local source: `/media/sf_ubuntu_trash/icons_svg/people-group.svg`
+  /// (2026-08-29), viewBox 0 0 24 24, no stroke.
+  /// SHA-256: 1361953d49b1d7b73edf799512b1923cfcb081d9838c00a2862137f36f1650f6
   /// Flaticon source URL not recorded — see `assets/icons/README.md` manifest.
   ///
   /// See `assets/icons/team_filled.svg`.
