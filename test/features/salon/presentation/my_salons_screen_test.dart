@@ -139,6 +139,17 @@ GoRouter _router() => GoRouter(
       path: RouteNames.mySalons,
       builder: (context, state) => const MySalonsScreen(),
     ),
+    // Phase 21.3 — the «+ Додати салон» CTA's destination. A literal under
+    // `/salons/`, registered BEFORE the dynamic `/salons/:salonId` route
+    // below — same literal-before-dynamic ordering `RouteNames.registerSalon`
+    // itself documents; declaring it AFTER would shadow it as
+    // `salonId == 'register'` and silently resolve to the public-profile
+    // route instead.
+    GoRoute(
+      path: RouteNames.registerSalon,
+      builder: (context, state) =>
+          const Scaffold(body: Text('register-salon-screen')),
+    ),
     // Phase 21.8 — the hub is now a SWITCHER: picking a salon lands in its
     // shell, not its (separately routed) management profile.
     GoRoute(
@@ -254,6 +265,35 @@ void main() {
         );
       },
     );
+
+    testWidgets('the «+ Додати салон» CTA pushes RouteNames.registerSalon', (
+      tester,
+    ) async {
+      final GoRouter router = _router();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          mySalonsProvider.overrideWith(
+            () => _StubMySalons(() async => _salons),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('my_salons_add_cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('register-salon-screen'), findsOneWidget);
+      expect(
+        find.text('public-profile-register'),
+        findsNothing,
+        reason:
+            'if the dynamic /salons/:salonId sibling absorbed "register" as '
+            'a salonId, this would render instead — the exact literal-vs-'
+            'dynamic shadowing mistake RouteNames.registerSalon documents',
+      );
+    });
   });
 
   group('async states', () {

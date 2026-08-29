@@ -83,6 +83,7 @@ import 'independent_multi_service_booking_flow_test.dart'
 import 'logout_flow_test.dart' as logout;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
+import 'register_salon_flow_test.dart' as register_salon;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -245,4 +246,10 @@ void main() {
   // regression pin (cityId/districtId diffed independently can submit an
   // invalid pair — see the file's own header doc).
   group('salon_edit_forms_flow', salon_edit_forms.main);
+  // Phase 21.3 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER registers a new
+  // salon end to end: real hub -> real «+ Додати салон» CTA push -> real
+  // form fill -> real POST /api/v1/salons -> real pop -> the new salon
+  // rendered on the hub via the real ref.invalidate(mySalonsProvider)
+  // refetch, no manual refresh.
+  group('register_salon_flow', register_salon.main);
 }

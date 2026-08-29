@@ -85,6 +85,7 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/register_salon_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -193,6 +194,9 @@ class _CycleGuardSalonRepository extends Fake implements SalonRepository {
 
   @override
   Future<void> deleteSalon(String salonId) async {}
+
+  @override
+  Future<void> create({required SalonCreateDto dto}) async {}
 }
 
 SalonRepository _buildCycleGuardSalonRepo() => _CycleGuardSalonRepository();
@@ -584,6 +588,47 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       );
       expect(state.hasError, isFalse);
       expect(state.value?.$1.street, 'вул. Оновлена');
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // registerSalonProvider.notifier.submit() — Phase 21.3 (RegisterSalonScreen,
+  // «+ Додати салон»). Same `ref.invalidate(mySalonsProvider)`-on-success
+  // shape as the three `salonManagementProfileProvider` rows above, mirrored
+  // for the CREATE path rather than an edit: `mySalonsProvider` only watches
+  // `authProvider` — never `registerSalonProvider` — so there is no back-edge
+  // and no cycle here either.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'registerSalonProvider.notifier.submit() -> mySalonsProvider '
+        'invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      final Failure? failure = await container
+          .read(registerSalonProvider.notifier)
+          .submit(
+            name: 'Новий салон',
+            cityId: 'city-1',
+            street: 'вул. Нова',
+            buildingNo: '1',
+          );
+      expect(failure, isNull);
+    },
+    settle: (container) {
+      // No further graph assertion needed — the entrypoint's own `run`
+      // already asserted a null Failure; `settle` exists to mirror every
+      // other row's shape and to leave a hook for a future stronger check.
     },
   ),
 ];

@@ -320,6 +320,10 @@ void main() {
       // registered before the dynamic `/salons/:salonId` route (see
       // `RouteNames.salonHome`'s own doc).
       'salonHome': RouteNames.salonHome,
+      // Phase 21.3 — the «+ Додати салон» form. A THIRD literal under
+      // `/salons/`, also registered before the dynamic `/salons/:salonId`
+      // route (see `RouteNames.registerSalon`'s own doc).
+      'registerSalon': RouteNames.registerSalon,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

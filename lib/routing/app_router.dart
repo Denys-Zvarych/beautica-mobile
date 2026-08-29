@@ -96,6 +96,7 @@ import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
+import '../features/salon/presentation/register_salon_screen.dart';
 import '../features/salon/presentation/salon_home_resolver_screen.dart';
 import '../features/salon/presentation/salon_address_edit_screen.dart';
 import '../features/salon/presentation/salon_contacts_edit_screen.dart';
@@ -795,6 +796,19 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.salonHome,
         redirect: salonHomeGuard,
         builder: (context, state) => const SalonHomeResolverScreen(),
+      ),
+      // Phase 21.3 — the «+ Додати салон» form ([RouteNames.registerSalon]).
+      // A THIRD literal under the `/salons/` prefix, registered BEFORE the
+      // dynamic `/salons/:salonId` route immediately below for the identical
+      // "declaration order, not specificity" reason [RouteNames.mySalons] /
+      // [RouteNames.salonHome] document — otherwise `/salons/register` would
+      // resolve to the public-profile route with `salonId == 'register'`.
+      // Reuses [mySalonsGuard] VERBATIM — identical SALON_OWNER-only
+      // semantics, so no second guard closure was written.
+      GoRoute(
+        path: RouteNames.registerSalon,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const RegisterSalonScreen(),
       ),
       GoRoute(
         path: '/salons/:salonId',

@@ -764,6 +764,17 @@ final class FakeBackend {
   /// `GET /api/v1/salons/mine` call counter (Phase 21.1 My Salons Hub).
   int getMySalonsCalls = 0;
 
+  /// `POST /api/v1/salons` call counter (Phase 21.3 «Register New Salon»,
+  /// `RegisterSalonScreen`/`RegisterSalon.submit`).
+  int createSalonCalls = 0;
+
+  /// The full decoded body of the most recent `POST /api/v1/salons` request.
+  Map<String, dynamic>? lastCreateSalonBody;
+
+  /// When set, `POST /api/v1/salons` replies with this status instead of 200
+  /// — lets a flow exercise `RegisterSalonScreen`'s error-snack path.
+  int? createSalonFailureStatusCode;
+
   /// `GET /api/v1/clients/me/passport` call counter (Phase 13.8 wire-up).
   int getPassportCalls = 0;
 
@@ -3997,6 +4008,49 @@ final class FakeBackend {
         return _okList(mySalons);
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // POST /api/v1/salons — Phase 21.3 «Register New Salon»
+    // (RegisterSalonScreen → RegisterSalon.submit → HttpSalonRepository
+    // .create). Appends the new salon onto the SAME mutable [mySalons] list
+    // `GET /api/v1/salons/mine` serves, so a flow that drives the real
+    // `ref.invalidate(mySalonsProvider)` round trip sees the new salon on
+    // the hub's NEXT read without a manual refresh — the exact contract
+    // `register_salon_notifier.dart`'s own doc describes.
+    // `HttpSalonRepository.create` returns `Future<void>` and never parses
+    // the response body, so the returned envelope's `data` shape does not
+    // need to mirror the real `SalonResponse` beyond `success: true`.
+    _adapter.onRoute(
+      '/api/v1/salons',
+      (server) =>
+          server.replyCallback(createSalonFailureStatusCode ?? 200, (req) {
+            createSalonCalls++;
+            final body = _decodeBody(req.data);
+            lastCreateSalonBody = body;
+            if (createSalonFailureStatusCode != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to create salon',
+              };
+            }
+            final String newId = 'salon-created-$createSalonCalls';
+            mySalons.add(<String, dynamic>{
+              'id': newId,
+              'ownerId': 'user-owner-1',
+              'name': body['name'] as String? ?? '',
+              'city': 'Київ',
+              'street': body['street'] as String? ?? '',
+              'buildingNo': body['buildingNo'] as String? ?? '',
+              'isActive': true,
+              'isPrimary': false,
+              if (body['phone'] != null) 'phone': body['phone'],
+              if (body['instagramUrl'] != null)
+                'instagramUrl': body['instagramUrl'],
+            });
+            return _ok(<String, dynamic>{'id': newId, 'name': body['name']});
+          }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
     // GET /api/v1/users/me/rating — CLIENT's own aggregate two-sided rating

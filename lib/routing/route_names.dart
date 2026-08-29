@@ -235,6 +235,21 @@ abstract final class RouteNames {
   /// declaration order, not specificity.
   static const String mySalons = '/salons/mine';
 
+  /// Phase 21.3 — the «+ Додати салон» form, reached from the [mySalons]
+  /// hub's own CTA. `SALON_OWNER`-only.
+  ///
+  /// A THIRD literal under the same `/salons/` prefix as [salonPublicProfile]
+  /// (`/salons/:salonId`, dynamic) — mirrors [mySalons]/[salonHome]'s own
+  /// "declaration order, not specificity" rationale: `app_router.dart`
+  /// registers this route BEFORE the dynamic `/salons/:salonId` route so the
+  /// literal `register` segment is never swallowed as a `:salonId` value
+  /// (otherwise `/salons/register` would resolve to the public-profile route
+  /// with `salonId == 'register'`). Gated by `mySalonsGuard` REUSED VERBATIM
+  /// — identical "SALON_OWNER only, bounce every other authenticated role to
+  /// its own landing" semantics [mySalons] already needs, so no second guard
+  /// closure was written.
+  static const String registerSalon = '/salons/register';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

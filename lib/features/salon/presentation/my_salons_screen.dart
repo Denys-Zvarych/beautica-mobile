@@ -64,8 +64,8 @@ import 'widgets/salon_cover_widgets.dart';
 ///
 /// Tapping a card opens [RouteNames.salonManage] (Phase 21.2, already
 /// shipped) — NOT [RouteNames.salonPublicProfile], which is the CLIENT-
-/// facing public profile. The CTA's destination (Phase 21.3, Register New
-/// Salon) is not built yet — its callback is a documented no-op below.
+/// facing public profile. The «+ Додати салон» CTA pushes
+/// [RouteNames.registerSalon] (Phase 21.3).
 class MySalonsScreen extends ConsumerStatefulWidget {
   const MySalonsScreen({super.key});
 
@@ -147,12 +147,12 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
   // client-shell bottom-nav tab never leaves a stack entry behind.
   void _openSalon(Salon salon) => context.go(RouteNames.salonShell(salon.id));
 
-  /// Phase 21.3 (Register New Salon) is NOT built and `RouteNames
-  /// .registerSalon` does not exist — per the phase doc, this stays an
-  /// explicit no-op rather than inventing a placeholder screen or wiring the
-  /// signup wizard.
-  // TODO(phase-21.3): push the Register New Salon screen once it exists.
-  void _addSalon() {}
+  /// Phase 21.3 — pushes the «+ Додати салон» form. A `push` (not `go`) so
+  /// [RegisterSalonScreen]'s own `context.pop()` on a successful submit
+  /// returns cleanly to this still-scrolled hub — `mySalonsProvider` is
+  /// already invalidated by that submit, so the hub re-renders the new
+  /// salon on its own the moment it rebuilds, no manual refresh needed.
+  void _addSalon() => context.push(RouteNames.registerSalon);
 
   @override
   Widget build(BuildContext context) {

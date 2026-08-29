@@ -131,6 +131,89 @@ void main() {
       );
       expect(dto.toJson().containsKey('phone'), isFalse);
     });
+
+    // Phase 21.3 QA follow-up — instagramUrl is an ADDITIVE field this phase
+    // added to SalonCreateDto (RegisterSalonScreen is the first caller that
+    // ever collects one). Mirrors the phone omission group above exactly —
+    // this coverage was missing entirely before this file: neither the
+    // "includes all fields when present" nor any omission case above ever
+    // set instagramUrl, so nothing pinned that it reaches the wire OR that
+    // it is correctly omitted when empty.
+    test('includes instagramUrl when non-null and non-empty', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        instagramUrl: 'velvet_salon',
+      );
+      expect(dto.toJson()['instagramUrl'], 'velvet_salon');
+    });
+
+    test('omits instagramUrl when null', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        // instagramUrl: null (default)
+      );
+      expect(dto.toJson().containsKey('instagramUrl'), isFalse);
+    });
+
+    test('omits instagramUrl when empty string', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        instagramUrl: '',
+      );
+      expect(dto.toJson().containsKey('instagramUrl'), isFalse);
+    });
+
+    test('omits instagramUrl when whitespace-only', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        instagramUrl: '   ',
+      );
+      expect(dto.toJson().containsKey('instagramUrl'), isFalse);
+    });
+
+    test('POSTs a body carrying instagramUrl when set (real wire round '
+        'trip through create())', () async {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        instagramUrl: 'velvet_salon',
+      );
+      when(
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: dto.toJson(),
+        ),
+      ).thenAnswer((_) async => _okEnvelope());
+
+      await repository.create(dto: dto);
+
+      verify(
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: <String, dynamic>{
+            'name': 'Salon',
+            'cityId': 'city-1',
+            'street': 'St.',
+            'buildingNo': '8',
+            'instagramUrl': 'velvet_salon',
+          },
+        ),
+      ).called(1);
+    });
   });
 
   group('create', () {

@@ -78,6 +78,7 @@ final class SalonCreateDto {
     required this.buildingNo,
     this.locationNote,
     this.phone,
+    this.instagramUrl,
   });
 
   /// Salon display name (collected in Step 2 as `salonName`).
@@ -105,10 +106,22 @@ final class SalonCreateDto {
   /// when present, so an empty string is also omitted rather than sent.
   final String? phone;
 
+  /// Optional Instagram handle/URL for the new salon.
+  ///
+  /// ADDITIVE (Phase 21.3) — the backend's `CreateSalonRequest` has always
+  /// accepted `instagramUrl` (`CreateSalonRequest.java`), but this DTO never
+  /// carried it: the only pre-existing caller (`VerificationScreen`'s
+  /// post-registration `POST /salons`) never collects an Instagram handle at
+  /// that point in the flow, so the gap went unnoticed until
+  /// [RegisterSalonScreen] needed to send one. Nullable/omitted like [phone]
+  /// — every existing caller that never sets it renders/sends identically.
+  final String? instagramUrl;
+
   /// Serialises to the backend body, omitting empty optionals.
   Map<String, dynamic> toJson() {
     final trimmedNote = locationNote?.trim();
     final trimmedPhone = phone?.trim();
+    final trimmedInstagram = instagramUrl?.trim();
     final json = <String, dynamic>{
       'name': name.trim(),
       'cityId': cityId,
@@ -123,6 +136,9 @@ final class SalonCreateDto {
     }
     if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
       json['phone'] = trimmedPhone;
+    }
+    if (trimmedInstagram != null && trimmedInstagram.isNotEmpty) {
+      json['instagramUrl'] = trimmedInstagram;
     }
     return json;
   }

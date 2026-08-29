@@ -15,6 +15,14 @@
 // (`features/master/presentation/`). Phone mask reuses [UaPhoneInputFormatter]
 // verbatim (the design source's locked "+380 __ ___ __ __" mask).
 //
+// Phase 21.3 — this screen's own phone/Instagram validation (formerly two
+// private methods) is now PROMOTED to `shared/validators/salon_phone_validator
+// .dart` / `shared/validators/salon_instagram_validator.dart` so
+// `RegisterSalonScreen`'s own phone/Instagram fields can reuse the SAME rules
+// instead of a third near-duplicate. Behaviour is unchanged — same error
+// keys, same regexes, same max lengths — proven by this screen's own
+// pre-existing widget tests (`salon_edit_forms_test.dart`) staying green.
+//
 // Design source: `docs/signup-designs/SalonManagementDesign/lib/screens/
 // salon_contacts_edit_screen.dart` — ported onto production's
 // `SectionScaffold` + `VelvetField` + `UaPhoneInputFormatter`.
@@ -32,21 +40,12 @@ import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
+import 'package:beautica_mobile/shared/validators/salon_instagram_validator.dart';
+import 'package:beautica_mobile/shared/validators/salon_phone_validator.dart';
 
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../domain/salon.dart';
-
-// Mirrors UpdateSalonRequest.phone's backend @Pattern / @Size(max = 20).
-const int _kPhoneMaxLength = 20;
-final RegExp _kPhoneAllowedChars = RegExp(r'^[+\d\s\-()/]*$');
-// Mirrors UpdateSalonRequest.instagramUrl's backend @Pattern — a bare/`@`
-// handle, or a full instagram.com URL.
-final RegExp _kInstagramHandle = RegExp(r'^@?[A-Za-z0-9._]{1,30}$');
-final RegExp _kInstagramUrlPattern = RegExp(
-  r'^https://(www\.)?instagram\.com/[A-Za-z0-9._]+/?$',
-);
-const int _kInstagramMaxLength = 500;
 
 /// Dedicated «Контакти» edit screen for [salonId].
 class SalonContactsEditScreen extends ConsumerStatefulWidget {
@@ -89,38 +88,23 @@ class _SalonContactsEditScreenState
     super.dispose();
   }
 
-  String? _validatePhone(String v, AppLocalizations l10n) {
-    if (v.trim().isEmpty) return l10n.errPhoneRequired;
-    if (v.trim().length > _kPhoneMaxLength) return l10n.errPhoneTooLongEdit;
-    if (!_kPhoneAllowedChars.hasMatch(v.trim())) {
-      return l10n.errPhoneInvalidEdit;
-    }
-    return null;
-  }
-
-  String? _validateInstagram(String v, AppLocalizations l10n) {
-    if (v.trim().isEmpty) return null; // optional
-    if (!_kInstagramHandle.hasMatch(v.trim()) &&
-        !_kInstagramUrlPattern.hasMatch(v.trim())) {
-      return l10n.masterEditInstagramError;
-    }
-    return null;
-  }
-
   void _onPhoneChanged(String v) {
-    final next = _validatePhone(v, AppLocalizations.of(context));
+    final next = validateSalonPhone(v, AppLocalizations.of(context));
     if (next != _errPhone) setState(() => _errPhone = next);
   }
 
   void _onInstagramChanged(String v) {
-    final next = _validateInstagram(v, AppLocalizations.of(context));
+    final next = validateSalonInstagram(v, AppLocalizations.of(context));
     if (next != _errInstagram) setState(() => _errInstagram = next);
   }
 
   Future<void> _save(Salon current) async {
     final l10n = AppLocalizations.of(context);
-    final String? phoneErr = _validatePhone(_phoneCtrl.text, l10n);
-    final String? instagramErr = _validateInstagram(_instagramCtrl.text, l10n);
+    final String? phoneErr = validateSalonPhone(_phoneCtrl.text, l10n);
+    final String? instagramErr = validateSalonInstagram(
+      _instagramCtrl.text,
+      l10n,
+    );
     if (phoneErr != null || instagramErr != null) {
       setState(() {
         _errPhone = phoneErr;
@@ -217,7 +201,7 @@ class _SalonContactsEditScreenState
             optional: true,
             prefixText: '@',
             hint: l10n.masterEditInstagramHint,
-            maxLength: _kInstagramMaxLength,
+            maxLength: kSalonInstagramMaxLength,
             errorText: _errInstagram,
             onChanged: _onInstagramChanged,
           ),

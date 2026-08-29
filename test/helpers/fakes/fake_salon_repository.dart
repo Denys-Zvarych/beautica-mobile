@@ -16,6 +16,12 @@
 // [salon] is a required constructor param (no hidden default) — each caller
 // passes its own fixture explicitly so assertions that compare against a
 // local `_stubSalon` stay obviously correct.
+//
+// Phase 21.3 — ADDITIVE: [createRequests] records every [SalonCreateDto]
+// passed to [create] (previously a bare no-op) and [createError] lets a test
+// inject a failure, mirroring [updateError]/[deleteError]'s shape exactly.
+// Every pre-existing caller that never sets [createError] sees [create]
+// succeed silently, same as before this phase.
 
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -44,12 +50,17 @@ class FakeSalonRepository implements SalonRepository {
   final List<SalonMasterSummary> masters;
 
   final List<UpdateSalonRequest> updateRequests = <UpdateSalonRequest>[];
+  final List<SalonCreateDto> createRequests = <SalonCreateDto>[];
   int deleteCalls = 0;
   Failure? updateError;
   Failure? deleteError;
+  Failure? createError;
 
   @override
-  Future<void> create({required SalonCreateDto dto}) async {}
+  Future<void> create({required SalonCreateDto dto}) async {
+    createRequests.add(dto);
+    if (createError != null) throw createError!;
+  }
 
   @override
   Future<List<Salon>> getMySalons() async => <Salon>[_salon];
