@@ -40,10 +40,11 @@
 // here — no media-upload endpoint is wired for this phase's Implementation
 // Steps, so the read-only description + contacts are all «Про салон» shows.
 //
-// «Персонал» — Phase 21.4 (Invite Staff) and 21.5 (Master Management
-// Profile) are both UNBUILT, so the trailing "+" tile and staff-card taps
-// have no destination yet; both are rendered per the design source with
-// their navigation callbacks left as explicit TODOs.
+// «Персонал» — Phase 21.4 (Invite Staff, form only) is BUILT: the trailing
+// "+" tile pushes [InviteStaffScreen] via `RouteNames.salonInviteStaff`.
+// Phase 21.5 (Master Management Profile) is still UNBUILT, so staff-card
+// taps have no destination yet — rendered per the design source with the
+// navigation callback left as an explicit TODO.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -314,8 +315,8 @@ class _SalonManagementProfileScreenState
   // that screen exists. Currently a no-op.
   void _openStaffMember(SalonMasterSummary master) {}
 
-  // TODO(phase-21.4): open the Invite Staff flow. Currently a no-op.
-  void _openInviteStaff() {}
+  void _openInviteStaff() =>
+      context.push(RouteNames.salonInviteStaff(widget.salonId));
 
   // mobile-security LOW follow-up (2026-08-28) — `salonManageGuard`'s
   // `SALON_OWNER` arm (`app_router.dart`) admits a cold deep link BEFORE

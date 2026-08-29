@@ -493,5 +493,24 @@ void main() {
       expect(kPiiPaths, contains('/api/v1/salons/mine'));
       expect(kPiiPaths.length, equals(22));
     });
+
+    test('17. kPiiPathSegments contains /invite (Phase 21.4, staff-invite '
+        'body redaction) — does NOT change test 15\'s count', () {
+      expect(
+        kPiiPathSegments,
+        contains('/invite'),
+        reason:
+            'POST /salons/{salonId}/invite carries the invitee\'s raw email '
+            'address — a dynamic {salonId} segment BEFORE the meaningful '
+            'tail, so it must live in kPiiPathSegments (neither the '
+            'exact-match kPiiPaths test 15 counts, nor kPiiPathPrefixes\' '
+            '/api/v1/salons/ entry alone, resolves this route without the '
+            'segment match), mirroring the /working-hours and /bookings '
+            'segment entries.',
+      );
+      // kPiiPathSegments is a separate list from kPiiPaths — adding to it
+      // must NOT move test 15's exact-count ledger.
+      expect(kPiiPaths.length, equals(22));
+    });
   });
 }

@@ -36,6 +36,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -243,6 +244,148 @@ void main() {
         // could never fail); the concrete equality check below is the real
         // assertion.
         expect(AppHarness.location(router), equals(RouteNames.home));
+      });
+    },
+  );
+
+  // ── Phase 21.4 QA follow-up (2026-08-29) — Invite Staff (Step 2.7 Rule 3b)
+  //
+  // The widget tier (`invite_staff_screen_test.dart`) proves the form/role-
+  // toggle/error-copy/re-entry-guard/PopScope contract against a mocked
+  // `salonRepositoryProvider`. It CANNOT catch a contract drift between
+  // `HttpSalonRepository.inviteStaff` -> `SalonControllerApi.inviteMaster`
+  // and a real (fake) HTTP round trip, nor that `salonManageGuard` admits a
+  // REAL authenticated SALON_OWNER on `/salons/{salonId}/manage/invite`
+  // specifically (a standalone top-level route, not nested under `/manage`
+  // — see `app_router.dart`'s own Phase 21.4 doc on why). This flow drives
+  // the REAL UI path (Персонал tab -> add-staff tile), not `router.go`, so
+  // the tile's own `context.push(RouteNames.salonInviteStaff(...))` wiring
+  // is exercised end to end too.
+  testWidgets(
+    'SALON_OWNER opens the Персонал tab, invites a new admin via the REAL '
+    'POST endpoint, and pops back to the management profile',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        // The add-staff tile sits below the fold on the default flutter_test
+        // surface (below the master cards) — scroll it into view before
+        // tapping, mirroring `TapCalendarDay`'s own reasoning
+        // (`test/helpers/pump_app.dart`): a blind tap at an off-screen offset
+        // does not fail loudly, it silently mis-hits.
+        final Finder addStaffTile = find.byKey(
+          const Key('salon-manage-add-staff'),
+        );
+        await tester.ensureVisible(addStaffTile);
+        await tester.pumpAndSettle();
+        await tester.tap(addStaffTile);
+        await tester.pumpAndSettle();
+
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage/invite');
+        expect(
+          find.byType(InviteStaffScreen),
+          findsOneWidget,
+          reason:
+              'salonManageGuard must ADMIT a real SALON_OWNER session on '
+              'the standalone /invite route too',
+        );
+
+        // Switch to Адміністратор — proves the SELECTED role (not just the
+        // default) reaches the real wire body.
+        await tester.tap(find.byIcon(Icons.admin_panel_settings_outlined));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_email')),
+          'new.admin@beautica.ua',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('send_invite')));
+        await tester.pumpAndSettle();
+        // fixed-wait-ok: settles the real async POST round-trip + the
+        // success-snack/pop sequence before the next assertion.
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpAndSettle();
+
+        expect(
+          fb.inviteStaffCalls,
+          1,
+          reason: 'submit must fire the REAL POST /salons/{salonId}/invite',
+        );
+        final body = fb.lastInviteStaffBody!;
+        expect(body['email'], 'new.admin@beautica.ua');
+        expect(body['role'], 'SALON_ADMIN');
+
+        expect(find.text(l10n.inviteStaffSuccess), findsOneWidget);
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage');
+        expect(find.byType(InviteStaffScreen), findsNothing);
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'a REAL 403 from POST /invite surfaces the forbidden-specific copy and '
+    'does NOT pop',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        fb.forceInviteStaffFailure(403);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        // `.go` to the manage screen FIRST, then PUSH the invite route on
+        // top — mirrors the delete-salon test's own reasoning above: a bare
+        // `router.go` straight to `.../invite` leaves NOTHING on the stack
+        // beneath it, so if this test's own premise (submit must NOT pop on
+        // failure) were ever violated, `context.pop()` would crash the
+        // harness with a `GoError` instead of just failing this test's own
+        // assertions — this is also the realistic path (the tile always
+        // pushes on top of the manage screen).
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        unawaited(router.push(RouteNames.salonInviteStaff(_kSalonId)));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_email')),
+          'blocked@beautica.ua',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('send_invite')));
+        await tester.pumpAndSettle();
+        // fixed-wait-ok: settles the real async POST round-trip before the
+        // next assertion.
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpAndSettle();
+
+        expect(fb.inviteStaffCalls, 1);
+        expect(find.text(l10n.inviteStaffErrorForbidden), findsOneWidget);
+        // A failed submit must NOT pop the form.
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage/invite');
       });
     },
   );

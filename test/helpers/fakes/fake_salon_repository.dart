@@ -22,9 +22,14 @@
 // inject a failure, mirroring [updateError]/[deleteError]'s shape exactly.
 // Every pre-existing caller that never sets [createError] sees [create]
 // succeed silently, same as before this phase.
+//
+// Phase 21.4 — ADDITIVE: [inviteRequests] records every `(salonId, email,
+// role)` tuple passed to [inviteStaff] and [inviteError] lets a test inject
+// a failure, mirroring [createError]'s shape exactly.
 
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -51,15 +56,28 @@ class FakeSalonRepository implements SalonRepository {
 
   final List<UpdateSalonRequest> updateRequests = <UpdateSalonRequest>[];
   final List<SalonCreateDto> createRequests = <SalonCreateDto>[];
+  final List<({String salonId, String email, UserRole role})> inviteRequests =
+      <({String salonId, String email, UserRole role})>[];
   int deleteCalls = 0;
   Failure? updateError;
   Failure? deleteError;
   Failure? createError;
+  Failure? inviteError;
 
   @override
   Future<void> create({required SalonCreateDto dto}) async {
     createRequests.add(dto);
     if (createError != null) throw createError!;
+  }
+
+  @override
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
+  }) async {
+    inviteRequests.add((salonId: salonId, email: email, role: role));
+    if (inviteError != null) throw inviteError!;
   }
 
   @override

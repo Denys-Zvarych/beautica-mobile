@@ -304,6 +304,10 @@ void main() {
       // own comment on why they cannot nest under `/salons/:salonId`).
       'salonManage()': RouteNames.salonManage(kSampleId),
       'salonManageSettings()': RouteNames.salonManageSettings(kSampleId),
+      // Phase 21.4 — the «Запросити персонал» form (form only). Standalone
+      // top-level route, same rationale as `salonManage()`/
+      // `salonManageSettings()` above.
+      'salonInviteStaff()': RouteNames.salonInviteStaff(kSampleId),
       // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
       // Phase 21.9 settings hub will push to. Standalone top-level routes,
       // same rationale as `salonManage()`/`salonManageSettings()` above.

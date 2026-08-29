@@ -254,6 +254,18 @@ class _CountingSalonRepository implements SalonRepository {
     '_CountingSalonRepository.deleteSalon is not stubbed — this fake backs '
     'the CLIENT-facing read-only profile route.',
   );
+
+  // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as
+  // [updateSalon]/[deleteSalon] immediately above.
+  @override
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.inviteStaff is not stubbed — this fake backs '
+    'the CLIENT-facing read-only profile route.',
+  );
 }
 
 List<Object> _overrides(_CountingSalonRepository repo) => <Object>[

@@ -504,5 +504,48 @@ void main() {
         equals('/api/v1/salons/salon-123?[REDACTED]'),
       );
     });
+
+    // ── Phase 21.4 (mobile-security MEDIUM, 2026-08-29) — staff-invite PII
+    // fix ─────────────────────────────────────────────────────────────────
+    //
+    // `POST /api/v1/salons/{salonId}/invite` carries the invitee's raw email
+    // address. The dynamic {salonId} segment sits BEFORE the meaningful
+    // `/invite` tail (same shape as `/working-hours`/`/bookings` above), so
+    // neither exact membership in [kPiiPaths] nor the `/api/v1/salons/`
+    // prefix in [kPiiPathPrefixes] is enough on its own to justify skipping a
+    // dedicated tripwire — this pins the actual [isPiiPath] resolution, not
+    // just presence in one of the underlying sets. If `/invite` is ever
+    // removed from [kPiiPathSegments], this fails loudly.
+    test('salon staff-invite route is a PII route via the /invite segment '
+        '(dynamic {salonId} precedes the tail, mirrors /working-hours and '
+        '/bookings)', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123/invite'),
+        isTrue,
+        reason:
+            'POST /salons/{salonId}/invite carries the invitee\'s raw '
+            'email address in the request body — must be redacted.',
+      );
+    });
+
+    test('a PII staff-invite path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/salons/salon-123/invite?token=secret'),
+        equals('/api/v1/salons/salon-123/invite?[REDACTED]'),
+      );
+    });
+
+    test('/api/v1/salons/{salonId}/invite is NOT in kAuthPaths (it is '
+        'authenticated — SALON_OWNER/SALON_ADMIN only)', () {
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/salons/salon-123/invite')),
+        reason:
+            'POST .../invite requires a Bearer token from an authenticated '
+            'owner/admin — listing it in kAuthPaths would strip the token '
+            'and cause a 401, mirroring the independent-masters/me '
+            'precedent above.',
+      );
+    });
   });
 }

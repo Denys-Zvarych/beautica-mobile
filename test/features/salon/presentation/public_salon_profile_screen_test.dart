@@ -266,6 +266,19 @@ class _FakeSalonRepository implements SalonRepository {
     '_FakeSalonRepository.deleteSalon is not stubbed — this fake backs the '
     'CLIENT-facing read-only profile screen.',
   );
+
+  // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as
+  // [updateSalon]/[deleteSalon] immediately above: this fake backs the
+  // CLIENT-facing read-only profile screen, which never invites staff.
+  @override
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.inviteStaff is not stubbed — this fake backs the '
+    'CLIENT-facing read-only profile screen.',
+  );
 }
 
 // ---------------------------------------------------------------------------

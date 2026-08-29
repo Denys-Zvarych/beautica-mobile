@@ -5681,5 +5681,73 @@
   "registerSalonSubmitInProgressHint": "Зачекайте, салон ще створюється…",
   "@registerSalonSubmitInProgressHint": {
     "description": "Phase 21.3 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on RegisterSalonScreen because POST /salons is still in flight."
+  },
+  "inviteStaffTitle": "Запросити персонал",
+  "@inviteStaffTitle": {
+    "description": "Phase 21.4 — SectionScaffold title for InviteStaffScreen, the SALON_OWNER/SALON_ADMIN's «Запросити персонал» form."
+  },
+  "inviteStaffSubtitle": "Надішліть запрошення приєднатися до вашого салону. Людина отримає лист із посиланням для входу.",
+  "@inviteStaffSubtitle": {
+    "description": "Phase 21.4 — subheading under the title on InviteStaffScreen. Generic (does not interpolate the salon name) — InviteStaffScreen is reached with only `salonId`, mirroring the route's own `state.pathParameters['salonId']` builder; the approved preview's own salon-name interpolation was dropped for this production port."
+  },
+  "inviteStaffRoleSectionLabel": "РОЛЬ",
+  "@inviteStaffRoleSectionLabel": {
+    "description": "Phase 21.4 — label above the compact Адміністратор/Майстер role toggle on InviteStaffScreen."
+  },
+  "inviteStaffRoleAdmin": "Адміністратор",
+  "@inviteStaffRoleAdmin": {
+    "description": "Phase 21.4 — full label for the SALON_ADMIN segment of InviteStaffScreen's role toggle."
+  },
+  "inviteStaffRoleMaster": "Майстер",
+  "@inviteStaffRoleMaster": {
+    "description": "Phase 21.4 — full label for the SALON_MASTER segment of InviteStaffScreen's role toggle."
+  },
+  "inviteStaffRoleAdminDescription": "Керує салоном, послугами та командою",
+  "@inviteStaffRoleAdminDescription": {
+    "description": "Phase 21.4 — one-line description shown beneath the role toggle when Адміністратор is selected."
+  },
+  "inviteStaffRoleMasterDescription": "Працює за розкладом і послугами, які задає салон",
+  "@inviteStaffRoleMasterDescription": {
+    "description": "Phase 21.4 — one-line description shown beneath the role toggle when Майстер is selected."
+  },
+  "inviteStaffEmailLabel": "Електронна пошта",
+  "@inviteStaffEmailLabel": {
+    "description": "Phase 21.4 — label for InviteStaffScreen's email NeumorphicTextField."
+  },
+  "inviteStaffEmailHint": "name@example.com",
+  "@inviteStaffEmailHint": {
+    "description": "Phase 21.4 — placeholder hint for InviteStaffScreen's email field."
+  },
+  "inviteStaffEmailHelper": "Запрошення дійсне 48 годин.",
+  "@inviteStaffEmailHelper": {
+    "description": "Phase 21.4 — helper text under InviteStaffScreen's email field."
+  },
+  "inviteStaffSubmitCta": "Надіслати запрошення",
+  "@inviteStaffSubmitCta": {
+    "description": "Phase 21.4 — InviteStaffScreen's primary submit CTA label."
+  },
+  "inviteStaffSuccess": "Запрошення надіслано",
+  "@inviteStaffSuccess": {
+    "description": "Phase 21.4 — success VelvetSnack shown after POST /salons/{salonId}/invite succeeds on InviteStaffScreen, immediately before context.pop()."
+  },
+  "inviteStaffErrorForbidden": "У вас немає прав запрошувати персонал до цього салону.",
+  "@inviteStaffErrorForbidden": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite returns HTTP 403 (the caller does not own/administer this salon)."
+  },
+  "inviteStaffErrorRateLimited": "Забагато запрошень. Зачекайте хвилину і спробуйте ще раз.",
+  "@inviteStaffErrorRateLimited": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite returns HTTP 429 (backend's per-IP salonInviteBuckets rate limit, 15 requests/60s)."
+  },
+  "inviteStaffErrorGeneric": "Не вдалося надіслати запрошення. Спробуйте ще раз.",
+  "@inviteStaffErrorGeneric": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
+  },
+  "inviteStaffBackSemanticLabel": "Назад",
+  "@inviteStaffBackSemanticLabel": {
+    "description": "Phase 21.4 — semantic label for InviteStaffScreen's SectionScaffold back icon."
+  },
+  "inviteStaffSubmitInProgressHint": "Зачекайте, запрошення ще надсилається…",
+  "@inviteStaffSubmitInProgressHint": {
+    "description": "Phase 21.4 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on InviteStaffScreen because POST /salons/{salonId}/invite is still in flight. Mirrors RegisterSalonScreen's registerSalonSubmitInProgressHint guard (mobile-qa CRITICAL fix precedent) — added beyond the architect's enumerated key list because the mandated back-navigation-mid-submit guard needs its own accurate copy rather than reusing salon-creation-specific wording."
   }
 }

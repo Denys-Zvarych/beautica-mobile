@@ -95,6 +95,7 @@ import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
+import '../features/salon/presentation/invite_staff_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
 import '../features/salon/presentation/register_salon_screen.dart';
 import '../features/salon/presentation/salon_home_resolver_screen.dart';
@@ -848,6 +849,22 @@ GoRouter appRouter(Ref ref) {
         redirect: salonManageGuard,
         builder: (context, state) =>
             SalonSettingsScreen(salonId: state.pathParameters['salonId'] ?? ''),
+      ),
+      // Phase 21.4 — invite an admin/master to this salon. Literal `/invite`
+      // leaf below the ALREADY-RESOLVED `:salonId` capture, so no
+      // literal-vs-dynamic shadowing applies (that concern is limited to a
+      // literal declared after a dynamic SIBLING at the SAME segment, e.g.
+      // /salons/mine vs /salons/:salonId). STANDALONE top-level route for
+      // the same "an ancestor's own redirect always runs" reason /manage and
+      // /manage/settings document — nesting under /salons/:salonId would let
+      // clientOnlyGuard bounce every owner/admin first. Reuses
+      // salonManageGuard VERBATIM: it already binds SALON_OWNER (against
+      // mySalonsProvider) and SALON_ADMIN (against User.salonId).
+      GoRoute(
+        path: '/salons/:salonId/manage/invite',
+        redirect: salonManageGuard,
+        builder: (context, state) =>
+            InviteStaffScreen(salonId: state.pathParameters['salonId'] ?? ''),
       ),
       // Phase 21.10 — the three lightweight edit-form screens the Phase 21.9
       // settings hub (unbuilt) will push to. STANDALONE top-level routes,

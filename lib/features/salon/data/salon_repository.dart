@@ -42,6 +42,7 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -240,6 +241,26 @@ abstract interface class SalonRepository {
   Future<List<BookableMasterAssignment>> getBookableMasters({
     required String salonId,
     required String serviceDefId,
+  });
+
+  /// Invites a new admin or master to join salon [salonId] (Phase 21.4 —
+  /// form-only; the pending-invites list/cancel pair is descoped to Phase
+  /// 21.11, once backend Phase 23.1's `GET/DELETE /salons/{salonId}/invites/
+  /// ...` endpoints exist).
+  ///
+  /// Wraps `POST /salons/{salonId}/invite` (the generated
+  /// `SalonControllerApi.inviteMaster`). [role] must be
+  /// [UserRole.salonAdmin] or [UserRole.salonMaster] — any other value
+  /// throws [ArgumentError] before a request is made (this repository never
+  /// invites a CLIENT/SALON_OWNER/INDEPENDENT_MASTER). Throws a typed
+  /// [Failure] on any transport or server error, including a 403 (caller
+  /// does not own/administer this salon) and 429 (backend's per-IP
+  /// `salonInviteBuckets`, 15 requests/60s) — the CALLER maps those
+  /// [ServerFailure.statusCode] values to distinct copy, not this method.
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
   });
 }
 
@@ -557,6 +578,46 @@ final class HttpSalonRepository implements SalonRepository {
       throw _mapDioException(e);
     }
   }
+
+  @override
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
+  }) async {
+    try {
+      await _salonApi.inviteMaster(
+        salonId: salonId,
+        inviteRequest: InviteRequest(
+          (InviteRequestBuilder b) => b
+            ..email = email
+            ..role = _inviteRoleWireValue(role),
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'inviteStaff failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  /// Maps the domain [UserRole] to the generated invite wire enum. [role]
+  /// must be [UserRole.salonAdmin] or [UserRole.salonMaster] — this
+  /// repository never invites any other role (see [inviteStaff]'s own doc).
+  InviteRequestRoleEnum _inviteRoleWireValue(UserRole role) => switch (role) {
+    UserRole.salonAdmin => InviteRequestRoleEnum.SALON_ADMIN,
+    UserRole.salonMaster => InviteRequestRoleEnum.SALON_MASTER,
+    UserRole.client || UserRole.salonOwner || UserRole.independentMaster =>
+      throw ArgumentError('inviteStaff: unsupported role $role'),
+  };
 
   /// Deserializes a raw JSON [data] map via the SAME [standardSerializers]
   /// the generated client uses. Returns `null` when [data] is null (an empty

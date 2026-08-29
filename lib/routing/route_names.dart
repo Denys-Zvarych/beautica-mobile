@@ -163,6 +163,20 @@ abstract final class RouteNames {
   static String salonManageSettings(String salonId) =>
       '${salonManage(salonId)}/settings';
 
+  /// Phase 21.4 — the «Запросити персонал» form (form only — the «Очікують
+  /// підтвердження» pending-invites list/cancel pair is descoped to Phase
+  /// 21.11, once backend Phase 23.1's `GET/DELETE /salons/{salonId}/invites/
+  /// ...` endpoints exist). A literal `/invite` leaf below the
+  /// ALREADY-RESOLVED [salonManage] `:salonId` capture, so declaration-order
+  /// literal-vs-dynamic shadowing does not apply here (that concern is
+  /// limited to a literal declared after a dynamic SIBLING at the SAME
+  /// segment, e.g. `/salons/mine` vs `/salons/:salonId` — see [salonHome]'s
+  /// own doc). Registered as a STANDALONE top-level route in
+  /// `app_router.dart`, same "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonManageSettings] document.
+  static String salonInviteStaff(String salonId) =>
+      '${salonManage(salonId)}/invite';
+
   /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
   /// description), reached from the Phase 21.9 settings hub's own
   /// navigational row. A literal child of [salonManageSettings], gated by the

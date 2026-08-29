@@ -5681,5 +5681,73 @@
   "registerSalonSubmitInProgressHint": "Please wait, the salon is still being created…",
   "@registerSalonSubmitInProgressHint": {
     "description": "Phase 21.3 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on RegisterSalonScreen because POST /salons is still in flight."
+  },
+  "inviteStaffTitle": "Invite staff",
+  "@inviteStaffTitle": {
+    "description": "Phase 21.4 — SectionScaffold title for InviteStaffScreen, the SALON_OWNER/SALON_ADMIN's «Invite staff» form."
+  },
+  "inviteStaffSubtitle": "Send an invitation to join your salon. The recipient will get an email with a sign-in link.",
+  "@inviteStaffSubtitle": {
+    "description": "Phase 21.4 — subheading under the title on InviteStaffScreen. Generic (does not interpolate the salon name) — InviteStaffScreen is reached with only `salonId`, mirroring the route's own `state.pathParameters['salonId']` builder; the approved preview's own salon-name interpolation was dropped for this production port."
+  },
+  "inviteStaffRoleSectionLabel": "ROLE",
+  "@inviteStaffRoleSectionLabel": {
+    "description": "Phase 21.4 — label above the compact Admin/Master role toggle on InviteStaffScreen."
+  },
+  "inviteStaffRoleAdmin": "Admin",
+  "@inviteStaffRoleAdmin": {
+    "description": "Phase 21.4 — full label for the SALON_ADMIN segment of InviteStaffScreen's role toggle."
+  },
+  "inviteStaffRoleMaster": "Master",
+  "@inviteStaffRoleMaster": {
+    "description": "Phase 21.4 — full label for the SALON_MASTER segment of InviteStaffScreen's role toggle."
+  },
+  "inviteStaffRoleAdminDescription": "Manages the salon, its services, and the team",
+  "@inviteStaffRoleAdminDescription": {
+    "description": "Phase 21.4 — one-line description shown beneath the role toggle when Admin is selected."
+  },
+  "inviteStaffRoleMasterDescription": "Works the schedule and services the salon sets",
+  "@inviteStaffRoleMasterDescription": {
+    "description": "Phase 21.4 — one-line description shown beneath the role toggle when Master is selected."
+  },
+  "inviteStaffEmailLabel": "Email",
+  "@inviteStaffEmailLabel": {
+    "description": "Phase 21.4 — label for InviteStaffScreen's email NeumorphicTextField."
+  },
+  "inviteStaffEmailHint": "name@example.com",
+  "@inviteStaffEmailHint": {
+    "description": "Phase 21.4 — placeholder hint for InviteStaffScreen's email field."
+  },
+  "inviteStaffEmailHelper": "The invite is valid for 48 hours.",
+  "@inviteStaffEmailHelper": {
+    "description": "Phase 21.4 — helper text under InviteStaffScreen's email field."
+  },
+  "inviteStaffSubmitCta": "Send invite",
+  "@inviteStaffSubmitCta": {
+    "description": "Phase 21.4 — InviteStaffScreen's primary submit CTA label."
+  },
+  "inviteStaffSuccess": "Invite sent",
+  "@inviteStaffSuccess": {
+    "description": "Phase 21.4 — success VelvetSnack shown after POST /salons/{salonId}/invite succeeds on InviteStaffScreen, immediately before context.pop()."
+  },
+  "inviteStaffErrorForbidden": "You don't have permission to invite staff to this salon.",
+  "@inviteStaffErrorForbidden": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite returns HTTP 403 (the caller does not own/administer this salon)."
+  },
+  "inviteStaffErrorRateLimited": "Too many invites. Wait a minute and try again.",
+  "@inviteStaffErrorRateLimited": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite returns HTTP 429 (backend's per-IP salonInviteBuckets rate limit, 15 requests/60s)."
+  },
+  "inviteStaffErrorGeneric": "Couldn't send the invite. Please try again.",
+  "@inviteStaffErrorGeneric": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
+  },
+  "inviteStaffBackSemanticLabel": "Back",
+  "@inviteStaffBackSemanticLabel": {
+    "description": "Phase 21.4 — semantic label for InviteStaffScreen's SectionScaffold back icon."
+  },
+  "inviteStaffSubmitInProgressHint": "Please wait, the invite is still being sent…",
+  "@inviteStaffSubmitInProgressHint": {
+    "description": "Phase 21.4 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on InviteStaffScreen because POST /salons/{salonId}/invite is still in flight. Mirrors RegisterSalonScreen's registerSalonSubmitInProgressHint guard (mobile-qa CRITICAL fix precedent) — added beyond the architect's enumerated key list because the mandated back-navigation-mid-submit guard needs its own accurate copy rather than reusing salon-creation-specific wording."
   }
 }

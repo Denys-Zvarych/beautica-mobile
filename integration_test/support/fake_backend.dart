@@ -1099,6 +1099,32 @@ final class FakeBackend {
   /// a failure envelope instead of succeeding.
   int? deleteSalonFailureStatusCode;
 
+  /// Phase 21.4 — `POST /api/v1/salons/{salonId}/invite` call count + the
+  /// exact last decoded wire body (email/role), so a flow can assert the
+  /// REAL serialized request reached the network — mirrors
+  /// [updateSalonCalls]/[lastUpdateSalonBody]'s shape exactly.
+  int inviteStaffCalls = 0;
+  Map<String, dynamic>? lastInviteStaffBody;
+
+  /// Status code `POST /api/v1/salons/salon-xyz/invite` fails with, or null
+  /// for the default 200. Set via [forceInviteStaffFailure] — never assign
+  /// directly: `DioAdapter.onRoute` bakes the reply's status code in at
+  /// REGISTRATION time (`RequestHandler.replyCallback`'s `statusCode` param
+  /// is captured the instant the route is registered, not read fresh per
+  /// request), so the route has to be RE-REGISTERED for a status change to
+  /// take effect — same device as [forceListMasterFavoritesFailure]/
+  /// [forceRemoveFavoriteFailure]. A direct assignment silently does
+  /// nothing once the constructor's initial registration has already run.
+  int? _inviteStaffFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `POST /api/v1/salons/salon-xyz
+  /// /invite` fail with [statusCode]. Call again with `null` to restore the
+  /// default 200 success.
+  void forceInviteStaffFailure(int? statusCode) {
+    _inviteStaffFailureStatusCode = statusCode;
+    _wireInviteStaff();
+  }
+
   /// Mutable PATCH-response state for `salon-xyz`'s owner/admin profile —
   /// SEPARATE from `_publicSalonDetailEnvelope`'s fields (the public `GET`
   /// never carries `phone`; see `Salon.phone`'s doc for the Phase 21.2 gap
@@ -3670,6 +3696,36 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `POST /api/v1/salons/salon-xyz/invite`.
+  /// See [forceInviteStaffFailure]. The fake just records the decoded body
+  /// (email/role) and counts the call, mirroring the PATCH/DELETE salon
+  /// handlers above; a real `InviteResponse` only carries
+  /// `invitedEmail`/`expiresAt`, both nullable, so an empty data object is a
+  /// valid success envelope.
+  void _wireInviteStaff() {
+    final int? failStatus = _inviteStaffFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/invite',
+      (server) => server.replyCallback(failStatus ?? 200, (req) {
+        inviteStaffCalls++;
+        final body = _decodeBody(req.data);
+        lastInviteStaffBody = body;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to invite staff',
+          };
+        }
+        return _ok(<String, dynamic>{
+          'invitedEmail': body['email'],
+          'expiresAt': null,
+        });
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
   /// (Re-)registers `GET /api/v1/favorites/masters`.
   /// See [forceListMasterFavoritesFailure].
   void _wireListMasterFavorites() {
@@ -4847,6 +4903,10 @@ final class FakeBackend {
           }),
       request: const Request(method: RequestMethods.delete),
     );
+
+    // POST /api/v1/salons/salon-xyz/invite — owner/admin staff-invite form
+    // (Phase 21.4). See [_wireInviteStaff] / [forceInviteStaffFailure].
+    _wireInviteStaff();
 
     // PATCH /api/v1/independent-masters/me/profile
     _adapter.onRoute(

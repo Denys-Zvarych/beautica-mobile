@@ -238,6 +238,18 @@ const List<String> kPiiPathSegments = <String>[
   // the success-path and `onError` loggers in logging_interceptor.dart would
   // write it to `dart:developer.log()` verbatim on debug builds.
   '/bookings',
+  // Phase 21.4 (mobile-security MEDIUM) — SALON_OWNER/SALON_ADMIN staff
+  // invite endpoint: `POST /api/v1/salons/{salonId}/invite`. The dynamic
+  // {salonId} segment sits BEFORE the meaningful `/invite` tail, same shape
+  // as `/working-hours`/`/bookings` above, so neither exact membership in
+  // [kPiiPaths] nor a fixed prefix in [kPiiPathPrefixes] can match it (the
+  // existing `/api/v1/salons/` prefix covers PATCH /salons/{salonId} but a
+  // segment match is still needed here since this route has its OWN
+  // request-body PII beyond what the prefix documents). The request body
+  // carries the invitee's raw email address, so without this entry both the
+  // success-path and `onError` loggers in logging_interceptor.dart would
+  // write it to `dart:developer.log()` verbatim on debug builds.
+  '/invite',
 ];
 
 /// Query-parameter keys whose VALUES must be masked in debug logs on ANY route

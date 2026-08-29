@@ -116,6 +116,19 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
       builder: (context, state) =>
           const Scaffold(key: Key('salon-home-bounce-target')),
     ),
+    // Phase 21.4 — the «+» staff tile's real destination
+    // (`RouteNames.salonInviteStaff`). A trivial marker, same pattern as the
+    // salonHome bounce target above: the «Персонал» tab group below only
+    // asserts THAT the add-staff tile navigates, not what InviteStaffScreen
+    // itself renders — that screen's own form/role-toggle/error/re-entry-
+    // guard coverage lives in
+    // `invite_staff_screen_test.dart` (mobile-qa follow-up, 2026-08-29),
+    // NOT inline here.
+    GoRoute(
+      path: '/salons/:salonId/manage/invite',
+      builder: (context, state) =>
+          const Scaffold(key: Key('invite-staff-marker')),
+    ),
   ],
 );
 
@@ -390,13 +403,12 @@ void main() {
       expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
       expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
 
-      // TODO(phase-21.4/21.5): tapping either does not navigate yet — both
-      // callbacks are explicit no-ops until those phases ship. Assert the
-      // tap is at least safe (no crash), matching the phase brief's
-      // "render per the preview, leave the navigation unwired" instruction.
+      // Phase 21.4 — the add-staff tile now navigates to InviteStaffScreen
+      // (`RouteNames.salonInviteStaff`), unlike Phase 21.5's still-unwired
+      // staff-card tap covered separately below.
       await tester.tap(find.byKey(const Key('salon-manage-add-staff')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
+      expect(find.byKey(const Key('invite-staff-marker')), findsOneWidget);
     });
 
     testWidgets('shows the empty-state message when the salon has no masters', (
