@@ -5270,6 +5270,26 @@
   "@salonSettingsMySalons": {
     "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."
   },
+  "salonSettingsAbout": "Про салон",
+  "@salonSettingsAbout": {
+    "description": "Phase 21.9 — salon settings hub row label (owner-only) that pushes RouteNames.salonProfileEdit (name + description). Distinct from salonTabAbout, which labels the public/management profile's own tab, not this settings row."
+  },
+  "salonSettingsLocation": "Локація",
+  "@salonSettingsLocation": {
+    "description": "Phase 21.9 — salon settings hub row label (owner-only) that pushes RouteNames.salonAddressEdit. Distinct from locationTitle, which is that destination screen's own top-bar title."
+  },
+  "salonSettingsContacts": "Контакти",
+  "@salonSettingsContacts": {
+    "description": "Phase 21.9 — salon settings hub row label (owner-only) that pushes RouteNames.salonContactsEdit. Distinct from contactsTitle, which is that destination screen's own top-bar title."
+  },
+  "salonSettingsSentInvites": "Надіслані запрошення",
+  "@salonSettingsSentInvites": {
+    "description": "Phase 21.9 — salon settings hub row for the sent-invitations screen (Phase 21.11, not yet built). The row renders fully and looks enabled; onTap is a no-op placeholder until that phase wires the real screen — mirrors the salon management profile cover's notification-bell placeholder treatment."
+  },
+  "salonSettingsGeneral": "Загальне",
+  "@salonSettingsGeneral": {
+    "description": "Phase 21.9 — salon settings hub row that pushes RouteNames.settings (the shared account page), carrying the owner-only «Видалити салон» capability via AccountSettingsExtras."
+  },
   "salonShellTabSalon": "Салон",
   "@salonShellTabSalon": {
     "description": "Phase 21.8 — Salon Shell bottom-nav tab 0 label (SalonBottomNav.ownerAdminItems)."

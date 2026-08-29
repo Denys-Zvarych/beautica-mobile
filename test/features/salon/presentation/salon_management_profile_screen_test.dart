@@ -1,13 +1,20 @@
 // Phase 21.2 — Widget tests for SalonManagementProfileScreen.
 //
+// The inline edit-mode form (settings row popping `true` to flip this
+// screen into an edit form) was removed once the settings screen was
+// rebuilt to the design — editing now lives in three dedicated screens
+// (`SalonProfileEditScreen`, `SalonContactsEditScreen`,
+// `SalonAddressEditScreen`) reached from `SalonSettingsScreen`. The 7 tests
+// that drove that dead path (top-right-cover-control round-trip, edit mode
+// round-trip ×2, edit-form validation ×4) were deleted alongside the
+// screen's inline-edit code — see `salon_management_profile_screen.dart`'s
+// own file-header EDIT note.
+//
 // Covers:
-//   1. Top-right cover control opens SalonSettingsScreen (not inline edit
-//      directly).
-//   2. «Редагувати профіль» round-trips: settings pops(true) → the profile
-//      screen flips into edit mode (fields + Save/Cancel footer appear).
-//   3. Save round-trips through the (mocked) repository's updateSalon — only
-//      the DIRTY fields are sent, `street`/`buildingNo` always pass through.
-//   4. Команда tab: staff grid renders master cards + the trailing add tile.
+//   1. Notification bell + settings gear (top-right cover control row).
+//   2. Команда tab: staff grid renders master cards + the trailing add tile.
+//   3. Hero card geometry/rating, loading/error states, ownership bounce,
+//      resolved-locality address line.
 //
 // Strategy: a real GoRouter (via `pumpRoutedApp`) registering both
 // `/salons/:salonId/manage` and `/salons/:salonId/manage/settings`, mirroring
@@ -17,7 +24,6 @@
 
 import 'dart:async';
 
-import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -49,7 +55,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/pump_app.dart';
-import '../../../helpers/velvet_snack_matchers.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -298,28 +303,6 @@ List<Object> _overridesWithLocation(
 ];
 
 void main() {
-  group('top-right cover control', () {
-    testWidgets('opens SalonSettingsScreen, not inline edit directly', (
-      tester,
-    ) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-      await tester.pumpAndSettle();
-
-      // No edit fields visible yet — the profile starts read-only.
-      expect(find.byKey(const Key('field-salon-name')), findsNothing);
-
-      await tester.tap(find.byKey(const Key('salon-manage-settings')));
-      await tester.pumpAndSettle();
-
-      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-      expect(find.text(l10n.settingsTitle), findsOneWidget);
-      expect(find.byKey(const Key('row-salon-edit-profile')), findsOneWidget);
-      // Still no inline edit fields — settings is a SEPARATE page.
-      expect(find.byKey(const Key('field-salon-name')), findsNothing);
-    });
-  });
-
   // mobile-qa gap-closure (salon-cover work, 2026-08-29) — the notification
   // bell shipped on this cover's top-right control row (ported verbatim
   // from `docs/signup-designs/SalonManagementDesign/lib/screens/
@@ -438,227 +421,6 @@ void main() {
       // Still on the management screen — no crash, no navigation away.
       expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
     });
-  });
-
-  group('edit mode round-trip', () {
-    testWidgets(
-      '«Редагувати профіль» pops back with edit mode toggled on, and Save '
-      'sends only the dirty fields',
-      (tester) async {
-        final repo = FakeSalonRepository(salon: _stubSalon);
-        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('salon-manage-settings')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-        await tester.pumpAndSettle();
-
-        // Back on the profile screen, now in edit mode.
-        expect(find.byKey(const Key('field-salon-name')), findsOneWidget);
-        expect(
-          find.byKey(const Key('field-salon-description')),
-          findsOneWidget,
-        );
-        expect(find.byKey(const Key('field-salon-phone')), findsOneWidget);
-        expect(find.byKey(const Key('field-salon-instagram')), findsOneWidget);
-        expect(find.byKey(const Key('btn-salon-save-edit')), findsOneWidget);
-        expect(find.byKey(const Key('btn-salon-cancel-edit')), findsOneWidget);
-
-        // Phone starts BLANK (Phase 21.2 gap — GET never returns it), even
-        // though every other field seeds from the loaded salon.
-        // `fieldKey` is forwarded straight onto VelvetField's inner
-        // `TextField` (see `velvet_field.dart`'s own doc), so the key finds
-        // the TextField directly — no `.descendant()` needed.
-        final phoneField = tester.widget<TextField>(
-          find.byKey(const Key('field-salon-phone')),
-        );
-        expect(phoneField.controller!.text, isEmpty);
-
-        // Type a phone number — the ONLY field the viewer touches.
-        await tester.enterText(
-          find.byKey(const Key('field-salon-phone')),
-          '+380501234567',
-        );
-        await tester.pump();
-
-        await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
-        await tester.pumpAndSettle();
-
-        expect(repo.updateRequests, hasLength(1));
-        final UpdateSalonRequest sent = repo.updateRequests.single;
-        // Untouched name/description/instagram are OMITTED (not re-sent
-        // verbatim) — only phone (the field actually edited) is present.
-        expect(sent.name, isNull);
-        expect(sent.description, isNull);
-        expect(sent.instagramUrl, isNull);
-        expect(sent.phone, '+380501234567');
-        // street/buildingNo are backend-REQUIRED even on a partial update —
-        // always threaded through from the loaded salon.
-        expect(sent.street, _stubSalon.street);
-        expect(sent.buildingNo, _stubSalon.buildingNo);
-
-        // Edit mode closes on a successful save.
-        await tester.pump();
-        expect(find.byKey(const Key('field-salon-name')), findsNothing);
-      },
-    );
-
-    testWidgets('Cancel discards edits without calling updateSalon', (
-      tester,
-    ) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('salon-manage-settings')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const Key('field-salon-name')),
-        'Змінена назва',
-      );
-      await tester.pump();
-
-      await tester.tap(find.byKey(const Key('btn-salon-cancel-edit')));
-      await tester.pumpAndSettle();
-
-      expect(repo.updateRequests, isEmpty);
-      expect(find.byKey(const Key('field-salon-name')), findsNothing);
-      // i18n-finder-ok: salon name is fixture data, not UI copy
-      expect(find.text(_stubSalon.name), findsOneWidget);
-    });
-  });
-
-  // mobile-security LOW follow-up (2026-08-27) — client-side field
-  // validation on name/phone/instagram before Save reaches the repository.
-  group('edit-form validation (mobile-security LOW follow-up)', () {
-    testWidgets('a blank name blocks Save and shows an inline error', (
-      tester,
-    ) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('salon-manage-settings')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(find.byKey(const Key('field-salon-name')), '');
-      await tester.pump();
-
-      await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
-      await tester.pumpAndSettle();
-
-      expect(repo.updateRequests, isEmpty);
-      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-      expect(find.text(l10n.errNameRequired), findsOneWidget);
-      // Edit mode stays open — Save never went through.
-      expect(find.byKey(const Key('field-salon-name')), findsOneWidget);
-    });
-
-    testWidgets(
-      'an invalid phone value blocks Save and shows an inline error',
-      (tester) async {
-        final repo = FakeSalonRepository(salon: _stubSalon);
-        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('salon-manage-settings')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const Key('field-salon-phone')),
-          'not-a-phone-number',
-        );
-        await tester.pump();
-
-        await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
-        await tester.pumpAndSettle();
-
-        expect(repo.updateRequests, isEmpty);
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-        expect(find.text(l10n.errPhoneInvalidEdit), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'an invalid Instagram value blocks Save and shows an inline error',
-      (tester) async {
-        final repo = FakeSalonRepository(salon: _stubSalon);
-        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('salon-manage-settings')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const Key('field-salon-instagram')),
-          '!!!not valid!!!',
-        );
-        await tester.pump();
-
-        await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
-        await tester.pumpAndSettle();
-
-        expect(repo.updateRequests, isEmpty);
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-        expect(find.text(l10n.masterEditInstagramError), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'correcting an invalid field clears its inline error and allows Save',
-      (tester) async {
-        final repo = FakeSalonRepository(salon: _stubSalon);
-        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const Key('salon-manage-settings')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const Key('field-salon-phone')),
-          'not-a-phone-number',
-        );
-        await tester.pump();
-        await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
-        await tester.pumpAndSettle();
-
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-        expect(find.text(l10n.errPhoneInvalidEdit), findsOneWidget);
-
-        // The failed attempt's editValidationSummary VelvetSnack floats above
-        // the footer and can still be absorbing pointer events there even
-        // after pumpAndSettle — drive it through its own lifecycle (REUSE-
-        // FIRST: `velvet_snack_matchers.dart`'s documented mechanism) before
-        // the next tap targets the Save button underneath.
-        await pumpPastVelvetSnack(tester);
-
-        await tester.enterText(
-          find.byKey(const Key('field-salon-phone')),
-          '+380501234567',
-        );
-        await tester.pumpAndSettle();
-
-        expect(find.text(l10n.errPhoneInvalidEdit), findsNothing);
-
-        await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
-        await tester.pumpAndSettle();
-
-        expect(repo.updateRequests, hasLength(1));
-        expect(repo.updateRequests.single.phone, '+380501234567');
-      },
-    );
   });
 
   group('Команда tab', () {

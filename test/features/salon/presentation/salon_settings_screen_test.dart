@@ -1,31 +1,56 @@
-// Phase 21.2 — Widget tests for SalonSettingsScreen.
+// Phase 21.9 — widget tests for the REBUILT SalonSettingsScreen (the full
+// 8-row settings hub the salon management profile's top-right
+// `Icons.tune_rounded` cover control opens). SUPERSEDES the Phase 21.2 2-row
+// suite this file used to hold («Редагувати профіль» + owner-only «Видалити
+// салон») — see git history for that version. See the screen's own header
+// doc-comment (`salon_settings_screen.dart`) for the full design rationale;
+// this file only re-derives what each test needs to make its assertion
+// meaningful.
 //
 // Covers:
-//   1. «Редагувати профіль» row present for both owner and admin; tapping it
-//      pops the settings page with a `true` result.
-//   2. «Видалити салон» row + its divider render ONLY for the owner —
-//      admin sees neither.
-//   3. Delete confirmation dialog: confirming calls the repository's
-//      deleteSalon and navigates away on success; cancelling leaves the
-//      screen untouched and never calls the repository.
-//   4. Delete error path: a Failure from the repository shows an error
-//      snackbar and leaves the settings page mounted (no navigation).
+//   1. All 8 rows (+ terminal hairline) render, in the design's order, for
+//      the owner.
+//   2. Owner gating: an admin viewer sees NEITHER the four owner-only rows
+//      NOR the row order shifts — only the four all-viewer rows + hairline
+//      render.
+//   3. Each of the three newly-wired edit rows («Про салон» / «Локація» /
+//      «Контакти») pushes its OWN distinct route — the headline case: these
+//      routes had no entry point at all before this rebuild, so a swapped
+//      wiring here would leave one permanently unreachable while looking
+//      identical on screen (all three rows render, all three navigate
+//      *somewhere*).
+//   4. «Мої салони» and «Допомога» push their routes too (owner-only /
+//      all-viewer respectively).
+//   5. «Надіслані запрошення» renders but its `onTap` is a deliberate
+//      Phase-21.11 no-op — tapping it must change no route.
+//   6. «Загальне» forwards `AccountSettingsExtras(salonId, showDeleteSalon:
+//      isOwner)` — asserted via the pushed screen's own resolved payload,
+//      for both the owner (flag true) and the admin (flag false) case.
+//   7. «Видалити салон» (`row-salon-delete`) and the superseded «Редагувати
+//      профіль» (`row-salon-edit-profile`) are BOTH absent — regression pin
+//      so a future edit cannot quietly reintroduce either.
+//   8. The close button falls back to `RouteNames.salonManage` when there is
+//      no history to pop (this router has none).
+//   9. The logout row still raises the shared confirm dialog — proving the
+//      row is wired to `runLogoutFlow`. The full logout mechanics (secure
+//      storage wipe, double-tap guard, failure snack, …) are exhaustively
+//      covered by `settings_hub_screen_test.dart` and
+//      `settings_screen_test.dart` against the SAME shared helper; repeating
+//      that whole suite here would be pure duplication, not new coverage.
+//
+// Finders use widget Keys — never Cyrillic literals (M2 / `forbid_cyrillic_
+// finder`). Layer: Widget.
 
-import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
-import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/settings/domain/account_settings_extras.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _kSalonId = 'salon-1';
@@ -46,13 +71,6 @@ const _stubAdmin = User(
   lastName: 'Бойко',
 );
 
-const _stubSalon = Salon(
-  id: _kSalonId,
-  name: 'Салон «Вельвет»',
-  street: 'вул. Велика Васильківська',
-  buildingNo: '44',
-);
-
 class _StubAuthNotifier extends AuthNotifier {
   _StubAuthNotifier(this._user);
 
@@ -63,174 +81,388 @@ class _StubAuthNotifier extends AuthNotifier {
       AuthSession.authenticated(user: _user, accessToken: 'tok');
 }
 
+/// Router rooted at the salon settings hub with sentinel stub destinations
+/// for every route the hub can push — mirrors `settings_hub_screen_test.dart`'s
+/// proven shape. Each sentinel key embeds the captured `:salonId` so a test
+/// pins the SPECIFIC route resolved, not merely "some screen appeared".
 GoRouter _router() => GoRouter(
-  initialLocation: RouteNames.salonManageSettings(_kSalonId),
+  initialLocation: '/salons/$_kSalonId/manage/settings',
   routes: <RouteBase>[
     GoRoute(
       path: '/salons/:salonId/manage/settings',
       builder: (context, state) =>
           SalonSettingsScreen(salonId: state.pathParameters['salonId']!),
     ),
-    GoRoute(path: '/', builder: (context, state) => const _Probe('home')),
     GoRoute(
-      path: RouteNames.login,
-      builder: (context, state) => const _Probe('login'),
+      path: '/salons/:salonId/manage/settings/profile-edit',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-about-${state.pathParameters['salonId']}'),
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/settings/address-edit',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-location-${state.pathParameters['salonId']}'),
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/settings/contacts-edit',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-contacts-${state.pathParameters['salonId']}'),
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/salons/mine',
+      builder: (context, state) =>
+          const Scaffold(body: SizedBox(key: Key('stub-my-salons'))),
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) {
+        final Object? extra = state.extra;
+        final AccountSettingsExtras? typed = extra is AccountSettingsExtras
+            ? extra
+            : null;
+        return Scaffold(
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const SizedBox(key: Key('stub-account')),
+              SizedBox(key: Key('stub-account-salonId-${typed?.salonId}')),
+              if (typed?.showDeleteSalon ?? false)
+                const SizedBox(key: Key('stub-account-show-delete-salon')),
+            ],
+          ),
+        );
+      },
+    ),
+    GoRoute(
+      path: '/support/contact',
+      builder: (context, state) =>
+          const Scaffold(body: SizedBox(key: Key('stub-help'))),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-manage-${state.pathParameters['salonId']}'),
+        ),
+      ),
     ),
   ],
 );
 
-class _Probe extends StatelessWidget {
-  const _Probe(this.label);
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(body: Text(label));
-}
-
-List<Object> _overrides(User user, FakeSalonRepository repo) => <Object>[
+List<Object> _overrides(User user) => <Object>[
   authProvider.overrideWith(() => _StubAuthNotifier(user)),
-  salonRepositoryProvider.overrideWithValue(repo),
+];
+
+/// The eight row keys the screen renders for an OWNER, in the design's
+/// declared order (plus the terminal hairline divider).
+const List<String> _ownerOrderedKeys = <String>[
+  'row-my-salons',
+  'row-salon-about',
+  'row-salon-location',
+  'row-salon-contacts',
+  'row-salon-sent-invites',
+  'row-salon-general',
+  'row-salon-help',
+  'salon-settings-divider',
+  'row-logout',
+];
+
+/// The rows an ADMIN sees — the owner-only quartet dropped, same relative
+/// order for the rest.
+const List<String> _adminOrderedKeys = <String>[
+  'row-salon-sent-invites',
+  'row-salon-general',
+  'row-salon-help',
+  'salon-settings-divider',
+  'row-logout',
 ];
 
 void main() {
-  group('«Редагувати профіль» row', () {
-    testWidgets('present for the owner; tapping pops with a true result', (
+  group('SalonSettingsScreen — owner view', () {
+    testWidgets('all eight rows + the hairline render in design order', (
       tester,
     ) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubOwner, repo),
-      );
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('row-salon-edit-profile')), findsOneWidget);
+      for (final key in _ownerOrderedKeys) {
+        expect(
+          find.byKey(Key(key)),
+          findsOneWidget,
+          reason: '$key must render for the owner',
+        );
+      }
 
-      // Nothing to pop back to inside this isolated router (no parent
-      // route pushed it) — assert the row exists and is tappable without
-      // throwing; the actual pop(true) contract is exercised end-to-end by
-      // salon_management_profile_screen_test.dart's round-trip test.
-      await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
-      await tester.pumpAndSettle();
-    });
-
-    testWidgets('present identically for an admin', (tester) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubAdmin, repo),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('row-salon-edit-profile')), findsOneWidget);
+      // Order: each row's top edge must sit strictly below the previous
+      // row's — a vacuous "all present" check cannot catch a reordered list.
+      double previousDy = -1;
+      for (final key in _ownerOrderedKeys) {
+        final double dy = tester.getTopLeft(find.byKey(Key(key))).dy;
+        expect(
+          dy,
+          greaterThan(previousDy),
+          reason: '$key must render BELOW the preceding row (design order)',
+        );
+        previousDy = dy;
+      }
     });
   });
 
-  group('«Видалити салон» — owner-only', () {
-    testWidgets('row AND its divider render for the owner', (tester) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubOwner, repo),
-      );
+  group('SalonSettingsScreen — admin view (owner gating)', () {
+    testWidgets(
+      'owner-only rows (my-salons / about / location / contacts) are absent',
+      (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router, overrides: _overrides(_stubAdmin));
+        await tester.pumpAndSettle();
+
+        for (final key in <String>[
+          'row-my-salons',
+          'row-salon-about',
+          'row-salon-location',
+          'row-salon-contacts',
+        ]) {
+          expect(
+            find.byKey(Key(key)),
+            findsNothing,
+            reason: '$key is owner-only and must not render for an admin',
+          );
+        }
+      },
+    );
+
+    testWidgets('the four all-viewer rows still render for an admin', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubAdmin));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('row-salon-delete')), findsOneWidget);
-      expect(find.byKey(const Key('salon-settings-divider')), findsOneWidget);
-    });
-
-    testWidgets('row AND its divider are ABSENT for an admin', (tester) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubAdmin, repo),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('row-salon-delete')), findsNothing);
-      expect(find.byKey(const Key('salon-settings-divider')), findsNothing);
+      for (final key in _adminOrderedKeys) {
+        expect(
+          find.byKey(Key(key)),
+          findsOneWidget,
+          reason: '$key must still render for an admin',
+        );
+      }
     });
   });
 
-  group('delete confirmation flow', () {
-    testWidgets('confirming deletes and navigates away', (tester) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubOwner, repo),
-      );
-      await tester.pumpAndSettle();
+  group('navigation — owner-only edit rows push distinct routes', () {
+    // (rowKey, destinationSentinelKey) — the three edit rows are the
+    // headline case: wired to the SAME target by mistake, this table would
+    // still show three green rows while two of the three edit screens stay
+    // unreachable.
+    const cases = <(String, String)>[
+      ('row-my-salons', 'stub-my-salons'),
+      ('row-salon-about', 'stub-about-$_kSalonId'),
+      ('row-salon-location', 'stub-location-$_kSalonId'),
+      ('row-salon-contacts', 'stub-contacts-$_kSalonId'),
+    ];
 
-      await tester.tap(find.byKey(const Key('row-salon-delete')));
-      await tester.pumpAndSettle();
+    for (final (rowKey, destKey) in cases) {
+      testWidgets('tapping $rowKey pushes to $destKey', (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
 
-      expect(find.byKey(const Key('delete-salon-dialog')), findsOneWidget);
+        await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key(rowKey)));
+        await tester.pumpAndSettle();
 
-      expect(repo.deleteCalls, 1);
-      // Owner lands on the role home probe after a successful delete.
-      expect(find.text('home'), findsOneWidget);
+        expect(
+          find.byKey(Key(destKey)),
+          findsOneWidget,
+          reason: '$rowKey must push the route whose screen carries $destKey',
+        );
+      });
+    }
+  });
 
-      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-      expect(find.text(l10n.deleteSalonSuccess), findsOneWidget);
-    });
-
-    testWidgets('cancelling never calls deleteSalon and stays on the page', (
+  group('navigation — «Допомога»', () {
+    testWidgets('tapping row-salon-help pushes to contactSupport', (
       tester,
     ) async {
-      final repo = FakeSalonRepository(salon: _stubSalon);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubOwner, repo),
-      );
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('row-salon-delete')));
+      await tester.ensureVisible(find.byKey(const Key('row-salon-help')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('row-salon-help')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('btn-cancel-delete-salon')));
-      await tester.pumpAndSettle();
-
-      expect(repo.deleteCalls, 0);
-      expect(find.byKey(const Key('row-salon-delete')), findsOneWidget);
+      expect(find.byKey(const Key('stub-help')), findsOneWidget);
     });
+  });
 
-    testWidgets('a repository Failure shows an error snackbar and stays put', (
+  group('navigation — «Надіслані запрошення» placeholder', () {
+    testWidgets('renders but tapping it changes no route (Phase 21.11 no-op)', (
       tester,
     ) async {
-      final repo = FakeSalonRepository(salon: _stubSalon)
-        ..deleteError = const ServerFailure(statusCode: 500);
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: _overrides(_stubOwner, repo),
-      );
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('row-salon-delete')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
+      expect(find.byKey(const Key('row-salon-sent-invites')), findsOneWidget);
+      final String before = router.routeInformationProvider.value.uri
+          .toString();
+
+      await tester.tap(find.byKey(const Key('row-salon-sent-invites')));
       await tester.pumpAndSettle();
 
-      expect(repo.deleteCalls, 1);
-      // Never navigated away — the settings row is still on screen.
-      expect(find.byKey(const Key('row-salon-delete')), findsOneWidget);
-      expect(find.text('home'), findsNothing);
-      // Phase 21.13 QA follow-up — `runDeleteSalonFlow`'s `setLoading(false)`
-      // on the failure branch must actually clear the row's spinner, not
-      // just leave the row mounted. A promoted flow that dropped the
-      // setLoading(false) call would leave this row permanently spinning —
-      // this failure test previously only asserted the row still existed,
-      // which passes whether or not loading was ever cleared.
+      final String after = router.routeInformationProvider.value.uri.toString();
       expect(
-        find.byKey(const ValueKey<String>('settings_row_loading')),
-        findsNothing,
+        after,
+        before,
         reason:
-            'a failed delete must clear the row\'s loading spinner so the '
-            'owner can retry — a stuck spinner would mean setLoading(false) '
-            'was dropped from runDeleteSalonFlow\'s failure branch',
+            'the invites row is a Phase 21.11 placeholder — tapping it must '
+            'not change the resolved route',
       );
+      // Still on the hub — none of the sentinel destinations were reached.
+      expect(find.byKey(const Key('row-salon-general')), findsOneWidget);
+    });
+  });
+
+  group('navigation — «Загальне» forwards showDeleteSalon', () {
+    testWidgets('owner: forwards salonId AND showDeleteSalon: true', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('row-salon-general')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-account')), findsOneWidget);
+      expect(
+        find.byKey(const Key('stub-account-salonId-$_kSalonId')),
+        findsOneWidget,
+        reason: 'the account page must receive the salon id regardless of role',
+      );
+      expect(
+        find.byKey(const Key('stub-account-show-delete-salon')),
+        findsOneWidget,
+        reason: 'an owner must forward showDeleteSalon: true',
+      );
+    });
+
+    testWidgets('admin: forwards salonId but showDeleteSalon: false', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubAdmin));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('row-salon-general')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-account')), findsOneWidget);
+      expect(
+        find.byKey(const Key('stub-account-salonId-$_kSalonId')),
+        findsOneWidget,
+        reason: 'the account page must receive the salon id regardless of role',
+      );
+      expect(
+        find.byKey(const Key('stub-account-show-delete-salon')),
+        findsNothing,
+        reason: 'an admin must NOT forward showDeleteSalon: true',
+      );
+    });
+  });
+
+  group('regression — superseded rows never come back', () {
+    testWidgets(
+      'row-salon-delete and row-salon-edit-profile are absent for the owner',
+      (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('row-salon-delete')), findsNothing);
+        expect(find.byKey(const Key('row-salon-edit-profile')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'row-salon-delete and row-salon-edit-profile are absent for an admin',
+      (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router, overrides: _overrides(_stubAdmin));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('row-salon-delete')), findsNothing);
+        expect(find.byKey(const Key('row-salon-edit-profile')), findsNothing);
+      },
+    );
+  });
+
+  group('close button', () {
+    testWidgets(
+      'falls back to RouteNames.salonManage when there is no history to pop',
+      (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('btn-close-salon-settings')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-manage-$_kSalonId')), findsOneWidget);
+      },
+    );
+  });
+
+  group('logout row', () {
+    testWidgets('tapping row-logout raises the shared confirm dialog', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byKey(const Key('btn-logout-cancel')), findsOneWidget);
+      expect(find.byKey(const Key('btn-logout-confirm')), findsOneWidget);
     });
   });
 }

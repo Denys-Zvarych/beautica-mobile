@@ -26,15 +26,15 @@
 // rather than pulling in geometry built for a feature (the location note)
 // this screen never renders.
 //
-// EDIT MODE — the top-right `Icons.tune_rounded` cover control never toggles
-// inline edit directly; it pushes [SalonSettingsScreen], whose «Редагувати
-// профіль» row pops back here with a `true` result, which is what flips
-// [_editMode] on (see [_openSettings]). In edit mode the «Про салон» tab body
-// swaps to a form (name/description/phone/Instagram — see the phase's Phase
-// 21.2 gap note on why phone starts blank) with a pinned Save/Cancel footer.
-// Address (city/street/buildingNo) is NOT editable here — it isn't in this
-// phase's Implementation Steps, and `UpdateSalonRequest.street`/`.buildingNo`
-// are threaded through unmodified by the notifier regardless.
+// EDIT — the top-right `Icons.tune_rounded` cover control pushes
+// [SalonSettingsScreen]; editing itself now lives entirely in three
+// dedicated screens reached from there — `SalonProfileEditScreen` (name/
+// description), `SalonContactsEditScreen` (phone/Instagram) and
+// `SalonAddressEditScreen` (street/building/note). This screen's «Про салон»
+// tab is read-only (see [_AboutReadView]) and never mutates state itself; the
+// inline edit-mode form this comment used to describe was removed once the
+// settings screen stopped popping a `true` result to trigger it (dead code,
+// deleted — see git history for `_editMode` if it's ever needed again).
 //
 // Portfolio management (an owner "+" add-photo tile) is likewise NOT built
 // here — no media-upload endpoint is wired for this phase's Implementation
@@ -59,7 +59,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -86,18 +85,6 @@ import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
 import 'widgets/salon_reviews_section.dart';
 import 'widgets/salon_services_accordion.dart';
-
-// mobile-security LOW follow-up (2026-08-27) — client-side field caps for the
-// «Про салон» edit form, mirroring `UpdateSalonRequest`'s backend Bean
-// Validation `@Size` limits (`beautica-backend/.../salon/dto/
-// UpdateSalonRequest.java`) so a value the backend WOULD reject with a 400
-// surfaces an inline error instead. Shared between the validators in
-// `_SalonManagementProfileScreenState` and the `maxLength` caps in
-// [_AboutEditForm].
-const int _salonNameMaxLength = 255;
-const int _salonDescriptionMaxLength = 2000;
-const int _salonPhoneMaxLength = 20;
-const int _salonInstagramMaxLength = 500;
 
 /// Owner/admin editable profile for the salon identified by [salonId].
 class SalonManagementProfileScreen extends ConsumerStatefulWidget {
@@ -148,28 +135,7 @@ class _SalonManagementProfileScreenState
   static const double _coverHeight = 232;
   static const double _heroProtrusion = 116;
 
-  // Mirrors UpdateSalonRequest.phone's backend @Pattern.
-  static final RegExp _phoneAllowedChars = RegExp(r'^[+\d\s\-()/]*$');
-  // Mirrors UpdateSalonRequest.instagramUrl's backend @Pattern — a bare/`@`
-  // handle, or a full instagram.com URL.
-  static final RegExp _instagramHandle = RegExp(r'^@?[A-Za-z0-9._]{1,30}$');
-  static final RegExp _instagramUrlPattern = RegExp(
-    r'^https://(www\.)?instagram\.com/[A-Za-z0-9._]+/?$',
-  );
-
   late int _tab;
-  bool _editMode = false;
-  bool _saving = false;
-
-  bool _controllersReady = false;
-  late final TextEditingController _nameCtrl;
-  late final TextEditingController _descCtrl;
-  late final TextEditingController _phoneCtrl;
-  late final TextEditingController _instagramCtrl;
-
-  String? _errName;
-  String? _errPhone;
-  String? _errInstagram;
 
   @override
   void initState() {
@@ -179,142 +145,8 @@ class _SalonManagementProfileScreenState
     _tab = widget.initialTab ?? 0;
   }
 
-  @override
-  void dispose() {
-    if (_controllersReady) {
-      _nameCtrl.dispose();
-      _descCtrl.dispose();
-      _phoneCtrl.dispose();
-      _instagramCtrl.dispose();
-    }
-    super.dispose();
-  }
-
-  void _initControllers(Salon salon) {
-    if (_controllersReady) return;
-    _controllersReady = true;
-    _nameCtrl = TextEditingController(text: salon.name);
-    _descCtrl = TextEditingController(text: salon.description ?? '');
-    _phoneCtrl = TextEditingController(text: salon.phone ?? '');
-    _instagramCtrl = TextEditingController(text: salon.instagramUrl ?? '');
-  }
-
-  void _resetControllers(Salon salon) {
-    _nameCtrl.text = salon.name;
-    _descCtrl.text = salon.description ?? '';
-    _phoneCtrl.text = salon.phone ?? '';
-    _instagramCtrl.text = salon.instagramUrl ?? '';
-  }
-
-  void _clearErrors() {
-    _errName = null;
-    _errPhone = null;
-    _errInstagram = null;
-  }
-
-  String? _validateName(String v) {
-    final l10n = AppLocalizations.of(context);
-    if (v.trim().isEmpty) return l10n.errNameRequired;
-    if (v.trim().length > _salonNameMaxLength) {
-      return l10n.salonManageNameTooLong;
-    }
-    return null;
-  }
-
-  String? _validatePhone(String v) {
-    if (v.trim().isEmpty) return null; // optional
-    final l10n = AppLocalizations.of(context);
-    if (v.trim().length > _salonPhoneMaxLength) return l10n.errPhoneTooLongEdit;
-    if (!_phoneAllowedChars.hasMatch(v.trim())) {
-      return l10n.errPhoneInvalidEdit;
-    }
-    return null;
-  }
-
-  String? _validateInstagram(String v) {
-    if (v.trim().isEmpty) return null; // optional
-    final l10n = AppLocalizations.of(context);
-    if (!_instagramHandle.hasMatch(v.trim()) &&
-        !_instagramUrlPattern.hasMatch(v.trim())) {
-      return l10n.masterEditInstagramError;
-    }
-    return null;
-  }
-
-  /// Re-validates all three fields, updates the inline error state, and
-  /// returns whether the form is valid. Mirrors `ContactsEditScreen
-  /// ._validateAndUpdateErrors` / `PersonalInfoEditScreen`'s identical
-  /// validate-then-block Save convention.
-  bool _validateAndUpdateErrors() {
-    final String? nameErr = _validateName(_nameCtrl.text);
-    final String? phoneErr = _validatePhone(_phoneCtrl.text);
-    final String? instagramErr = _validateInstagram(_instagramCtrl.text);
-    setState(() {
-      _errName = nameErr;
-      _errPhone = phoneErr;
-      _errInstagram = instagramErr;
-    });
-    return nameErr == null && phoneErr == null && instagramErr == null;
-  }
-
-  void _onNameChanged(String v) {
-    final next = _validateName(v);
-    if (next != _errName) setState(() => _errName = next);
-  }
-
-  void _onPhoneChanged(String v) {
-    final next = _validatePhone(v);
-    if (next != _errPhone) setState(() => _errPhone = next);
-  }
-
-  void _onInstagramChanged(String v) {
-    final next = _validateInstagram(v);
-    if (next != _errInstagram) setState(() => _errInstagram = next);
-  }
-
-  Future<void> _openSettings() async {
-    final bool? toggleEdit = await context.push<bool>(
-      RouteNames.salonManageSettings(widget.salonId),
-    );
-    if (toggleEdit == true && mounted) {
-      setState(() => _editMode = true);
-    }
-  }
-
-  void _cancelEdit(Salon salon) {
-    _resetControllers(salon);
-    setState(() {
-      _editMode = false;
-      _clearErrors();
-    });
-  }
-
-  Future<void> _save() async {
-    final l10n = AppLocalizations.of(context);
-    if (!_validateAndUpdateErrors()) {
-      showErrorSnack(context, l10n.editValidationSummary);
-      return;
-    }
-    setState(() => _saving = true);
-    final Failure? failure = await ref
-        .read(salonManagementProfileProvider(widget.salonId).notifier)
-        .save(
-          name: _nameCtrl.text,
-          description: _descCtrl.text,
-          phone: _phoneCtrl.text,
-          instagramUrl: _instagramCtrl.text,
-        );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    if (failure != null) {
-      showErrorSnack(context, failure.userMessage(context));
-      return;
-    }
-    showSuccessSnack(context, l10n.savedSnackbar);
-    setState(() {
-      _editMode = false;
-      _clearErrors();
-    });
+  void _openSettings() {
+    context.push(RouteNames.salonManageSettings(widget.salonId));
   }
 
   /// Opens the staff management profile for [member] (Phase 21.5) — works for
@@ -392,16 +224,6 @@ class _SalonManagementProfileScreenState
 
     return Scaffold(
       backgroundColor: BrandColors.base,
-      bottomNavigationBar: async.maybeWhen(
-        data: (SalonManagementProfileData data) => _editMode
-            ? _EditFooter(
-                saving: _saving,
-                onCancel: () => _cancelEdit(data.$1),
-                onSave: _save,
-              )
-            : null,
-        orElse: () => null,
-      ),
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
@@ -421,7 +243,6 @@ class _SalonManagementProfileScreenState
           ),
           data: (SalonManagementProfileData data) {
             final (Salon salon, List<SalonStaffMember> staff) = data;
-            _initControllers(salon);
             return _LoadedBody(
               salonId: widget.salonId,
               salon: salon,
@@ -432,18 +253,6 @@ class _SalonManagementProfileScreenState
               heroProtrusion: _heroProtrusion,
               tab: _tab,
               onTabSelected: (int i) => setState(() => _tab = i),
-              editMode: _editMode,
-              nameCtrl: _nameCtrl,
-              descCtrl: _descCtrl,
-              phoneCtrl: _phoneCtrl,
-              instagramCtrl: _instagramCtrl,
-              saving: _saving,
-              errName: _errName,
-              errPhone: _errPhone,
-              errInstagram: _errInstagram,
-              onNameChanged: _onNameChanged,
-              onPhoneChanged: _onPhoneChanged,
-              onInstagramChanged: _onInstagramChanged,
               onOpenSettings: _openSettings,
               onOpenStaffMember: _openStaffMember,
               onInviteStaff: _openInviteStaff,
@@ -470,18 +279,6 @@ class _LoadedBody extends StatelessWidget {
     required this.heroProtrusion,
     required this.tab,
     required this.onTabSelected,
-    required this.editMode,
-    required this.nameCtrl,
-    required this.descCtrl,
-    required this.phoneCtrl,
-    required this.instagramCtrl,
-    required this.saving,
-    required this.errName,
-    required this.errPhone,
-    required this.errInstagram,
-    required this.onNameChanged,
-    required this.onPhoneChanged,
-    required this.onInstagramChanged,
     required this.onOpenSettings,
     required this.onOpenStaffMember,
     required this.onInviteStaff,
@@ -499,23 +296,6 @@ class _LoadedBody extends StatelessWidget {
   final double heroProtrusion;
   final int tab;
   final ValueChanged<int> onTabSelected;
-
-  final bool editMode;
-  final TextEditingController nameCtrl;
-  final TextEditingController descCtrl;
-  final TextEditingController phoneCtrl;
-  final TextEditingController instagramCtrl;
-  final bool saving;
-
-  /// mobile-security LOW follow-up (2026-08-27) — inline field-validation
-  /// error state, driven by `_SalonManagementProfileScreenState`'s
-  /// validators; `null` renders no error.
-  final String? errName;
-  final String? errPhone;
-  final String? errInstagram;
-  final ValueChanged<String> onNameChanged;
-  final ValueChanged<String> onPhoneChanged;
-  final ValueChanged<String> onInstagramChanged;
 
   final VoidCallback onOpenSettings;
   final ValueChanged<SalonStaffMember> onOpenStaffMember;
@@ -555,21 +335,7 @@ class _LoadedBody extends StatelessWidget {
         KeyedSubtree(
           key: ValueKey<String>('salon-manage-tab-body-${_tabKeys[tab]}'),
           child: switch (tab) {
-            0 => _AboutTab(
-              salon: salon,
-              editMode: editMode,
-              nameCtrl: nameCtrl,
-              descCtrl: descCtrl,
-              phoneCtrl: phoneCtrl,
-              instagramCtrl: instagramCtrl,
-              saving: saving,
-              errName: errName,
-              errPhone: errPhone,
-              errInstagram: errInstagram,
-              onNameChanged: onNameChanged,
-              onPhoneChanged: onPhoneChanged,
-              onInstagramChanged: onInstagramChanged,
-            ),
+            0 => _AboutReadView(salon: salon),
             1 => Padding(
               padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
               child: _StaffTab(
@@ -903,60 +669,9 @@ class _ManagementHeroCard extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Про салон tab — read view / edit form
+// Про салон tab — read-only view (editing lives in the dedicated edit
+// screens reached from the settings hub — see the file-header EDIT note)
 // ---------------------------------------------------------------------------
-
-class _AboutTab extends StatelessWidget {
-  const _AboutTab({
-    required this.salon,
-    required this.editMode,
-    required this.nameCtrl,
-    required this.descCtrl,
-    required this.phoneCtrl,
-    required this.instagramCtrl,
-    required this.saving,
-    required this.errName,
-    required this.errPhone,
-    required this.errInstagram,
-    required this.onNameChanged,
-    required this.onPhoneChanged,
-    required this.onInstagramChanged,
-  });
-
-  final Salon salon;
-  final bool editMode;
-  final TextEditingController nameCtrl;
-  final TextEditingController descCtrl;
-  final TextEditingController phoneCtrl;
-  final TextEditingController instagramCtrl;
-  final bool saving;
-  final String? errName;
-  final String? errPhone;
-  final String? errInstagram;
-  final ValueChanged<String> onNameChanged;
-  final ValueChanged<String> onPhoneChanged;
-  final ValueChanged<String> onInstagramChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    if (editMode) {
-      return _AboutEditForm(
-        nameCtrl: nameCtrl,
-        descCtrl: descCtrl,
-        phoneCtrl: phoneCtrl,
-        instagramCtrl: instagramCtrl,
-        saving: saving,
-        errName: errName,
-        errPhone: errPhone,
-        errInstagram: errInstagram,
-        onNameChanged: onNameChanged,
-        onPhoneChanged: onPhoneChanged,
-        onInstagramChanged: onInstagramChanged,
-      );
-    }
-    return _AboutReadView(salon: salon);
-  }
-}
 
 class _AboutReadView extends StatelessWidget {
   const _AboutReadView({required this.salon});
@@ -1047,156 +762,6 @@ class _AboutReadView extends StatelessWidget {
     showErrorSnack(
       context,
       AppLocalizations.of(context).masterInstagramOpenError,
-    );
-  }
-}
-
-class _AboutEditForm extends StatelessWidget {
-  const _AboutEditForm({
-    required this.nameCtrl,
-    required this.descCtrl,
-    required this.phoneCtrl,
-    required this.instagramCtrl,
-    required this.saving,
-    required this.errName,
-    required this.errPhone,
-    required this.errInstagram,
-    required this.onNameChanged,
-    required this.onPhoneChanged,
-    required this.onInstagramChanged,
-  });
-
-  final TextEditingController nameCtrl;
-  final TextEditingController descCtrl;
-  final TextEditingController phoneCtrl;
-  final TextEditingController instagramCtrl;
-  final bool saving;
-
-  /// mobile-security LOW follow-up (2026-08-27) — inline field-validation
-  /// error state; `null` renders no error.
-  final String? errName;
-  final String? errPhone;
-  final String? errInstagram;
-  final ValueChanged<String> onNameChanged;
-  final ValueChanged<String> onPhoneChanged;
-  final ValueChanged<String> onInstagramChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          VelvetField(
-            fieldKey: const Key('field-salon-name'),
-            label: l10n.salonManageNameLabel,
-            controller: nameCtrl,
-            enabled: !saving,
-            maxLength: _salonNameMaxLength,
-            errorText: errName,
-            onChanged: onNameChanged,
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          VelvetField(
-            fieldKey: const Key('field-salon-description'),
-            label: l10n.salonManageDescriptionLabel,
-            controller: descCtrl,
-            enabled: !saving,
-            maxLines: 4,
-            maxLength: _salonDescriptionMaxLength,
-            showCounter: true,
-            optional: true,
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          VelvetField(
-            fieldKey: const Key('field-salon-phone'),
-            label: l10n.phoneLabel,
-            controller: phoneCtrl,
-            enabled: !saving,
-            keyboardType: TextInputType.phone,
-            maxLength: _salonPhoneMaxLength,
-            optional: true,
-            errorText: errPhone,
-            onChanged: onPhoneChanged,
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          VelvetField(
-            fieldKey: const Key('field-salon-instagram'),
-            label: l10n.instagramLabel,
-            controller: instagramCtrl,
-            enabled: !saving,
-            optional: true,
-            prefixText: '@',
-            maxLength: _salonInstagramMaxLength,
-            errorText: errInstagram,
-            onChanged: onInstagramChanged,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EditFooter extends StatelessWidget {
-  const _EditFooter({
-    required this.saving,
-    required this.onCancel,
-    required this.onSave,
-  });
-
-  final bool saving;
-  final VoidCallback onCancel;
-  final VoidCallback onSave;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: BrandColors.shadowDarkCard,
-            offset: Offset(0, -9),
-            blurRadius: 24,
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm,
-            VelvetSpacing.lg,
-            VelvetSpacing.md,
-          ),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: TextButton(
-                  key: const Key('btn-salon-cancel-edit'),
-                  onPressed: saving ? null : onCancel,
-                  child: Text(l10n.masterCancelButton),
-                ),
-              ),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                flex: 2,
-                child: NeumorphicButton(
-                  key: const Key('btn-salon-save-edit'),
-                  label: l10n.masterSaveButton,
-                  icon: Icons.check_rounded,
-                  loading: saving,
-                  onPressed: saving ? null : onSave,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

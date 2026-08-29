@@ -65,9 +65,13 @@ import 'package:beautica_mobile/features/salon/application/my_salons_notifier.da
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_address_edit_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
@@ -733,6 +737,254 @@ void main() {
 
           expect(locationOf(router), equals(RouteNames.login));
           expect(find.byType(SalonSettingsScreen), findsNothing);
+        },
+      );
+    });
+
+    // -------------------------------------------------------------------
+    // mobile-security HIGH follow-up (2026-08-29) — `salonManageOwnerOnlyGuard`
+    // for the three Phase 21.10 edit-form routes. Unlike every other group in
+    // this file, these three routes now REJECT a SALON_ADMIN even on their
+    // OWN `salonId` — the approved design is explicit that only the owner may
+    // edit salon info (`salon_settings_screen.dart:274`). Before this guard,
+    // `salonManageGuard` alone admitted a same-salon SALON_ADMIN cleanly.
+    //
+    // The owner-admitted cases pass a RESOLVED `mySalonsOverride` deliberately
+    // (unlike the `/manage`/`/manage/settings` groups above, which leave
+    // `mySalonsProvider` unoverridden to exercise the "unresolved -> ADMIT"
+    // cold-deep-link fallback): `salonManageOwnerOnlyGuard` does NOT inherit
+    // that fallback for these three routes — an unresolved owner is bounced,
+    // not admitted (see the guard's own doc in `app_router.dart`) — so a
+    // resolved override is required for the ADMIT path to be reachable here.
+    // -------------------------------------------------------------------
+    group('owner-only edit-form routes (mobile-security HIGH follow-up, '
+        'salonManageOwnerOnlyGuard)', () {
+      testWidgets('SALON_OWNER reaches profile-edit', (tester) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonProfileEdit(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/manage/settings/profile-edit'),
+        );
+        expect(find.byType(SalonProfileEditScreen), findsOneWidget);
+      });
+
+      testWidgets('SALON_OWNER reaches address-edit', (tester) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonAddressEdit(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/manage/settings/address-edit'),
+        );
+        expect(find.byType(SalonAddressEditScreen), findsOneWidget);
+      });
+
+      testWidgets('SALON_OWNER reaches contacts-edit', (tester) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonContactsEdit(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/manage/settings/contacts-edit'),
+        );
+        expect(find.byType(SalonContactsEditScreen), findsOneWidget);
+      });
+
+      testWidgets(
+        'SALON_ADMIN on their OWN salonId is redirected OFF profile-edit, '
+        'never admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(RouteNames.salonProfileEdit(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell(_kSalonId)),
+            reason:
+                'roleHomePath(salonAdmin) forwards, via the Salon Home '
+                'resolver, to the admin\'s OWN salon — this route is '
+                'owner-only regardless of salonId matching',
+          );
+          expect(find.byType(SalonProfileEditScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'SALON_ADMIN on their OWN salonId is redirected OFF address-edit, '
+        'never admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(RouteNames.salonAddressEdit(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.salonShell(_kSalonId)));
+          expect(find.byType(SalonAddressEditScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'SALON_ADMIN on their OWN salonId is redirected OFF contacts-edit, '
+        'never admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(RouteNames.salonContactsEdit(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.salonShell(_kSalonId)));
+          expect(find.byType(SalonContactsEditScreen), findsNothing);
+        },
+      );
+
+      testWidgets('SALON_ADMIN on a DIFFERENT salonId is also redirected OFF '
+          'profile-edit (salonManageGuard\'s own ownership check still '
+          'applies first)', (tester) async {
+        final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+        router.go(RouteNames.salonProfileEdit(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals(RouteNames.salonShell('salon-guard-2')),
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is SalonProfileEditScreen && w.salonId == _kSalonId,
+          ),
+          findsNothing,
+        );
+      });
+
+      testWidgets(
+        'SALON_OWNER with mySalonsProvider still UNRESOLVED is redirected '
+        'OFF profile-edit, NOT admitted — narrower than salonManageGuard\'s '
+        'own cold-deep-link fallback',
+        (tester) async {
+          // NOT pumpAndSettle anywhere in this test: with mySalonsProvider
+          // NEVER resolving, both the initial landing AND the post-redirect
+          // landing render `SalonHomeResolverScreen`'s `_LoadingBody` ->
+          // `SkeletonShimmerScope`, whose repeating shimmer
+          // `AnimationController` never settles — mirrors the
+          // `_bounceIfNotOwned` group's own `initialSettle: false`
+          // precedent above, applied to BOTH pumps here.
+          final router = await pumpRouterAs(
+            tester,
+            _ownerSession,
+            mySalonsOverride: _NeverResolvingMySalons.new,
+            initialSettle: false,
+          );
+
+          router.go(RouteNames.salonProfileEdit(_kSalonId));
+          await tester.pump();
+
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonHome),
+            reason:
+                'roleHomePath(salonOwner) is the Salon Home resolver; it '
+                'cannot forward further because mySalonsProvider is still '
+                'unresolved for the resolver either — the important '
+                'assertion is that the edit screen never mounts',
+          );
+          expect(find.byType(SalonProfileEditScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'CLIENT is redirected to roleHomePath (RouteNames.clientHome), '
+        'never admitted to profile-edit',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonProfileEdit(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonProfileEditScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'unauthenticated is redirected to /login by the global authRedirect '
+        'gate, never admitted to profile-edit',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _unauthenticatedSession);
+
+          router.go(RouteNames.salonProfileEdit(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.login));
+          expect(find.byType(SalonProfileEditScreen), findsNothing);
+        },
+      );
+
+      // Proves the guard change was NARROWED to these three routes, not
+      // broadened onto the admin-permitted surfaces.
+      testWidgets('SALON_ADMIN on their OWN salonId still reaches /manage', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _adminSession);
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals('/salons/$_kSalonId/manage'));
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+      });
+
+      testWidgets(
+        'SALON_ADMIN on their OWN salonId still reaches /manage/settings',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(RouteNames.salonManageSettings(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals('/salons/$_kSalonId/manage/settings'),
+          );
+          expect(find.byType(SalonSettingsScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'SALON_ADMIN on their OWN salonId still reaches /manage/invite',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(RouteNames.salonInviteStaff(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals('/salons/$_kSalonId/manage/invite'),
+          );
+          expect(find.byType(InviteStaffScreen), findsOneWidget);
         },
       );
     });

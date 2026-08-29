@@ -308,6 +308,70 @@ GoRouter appRouter(Ref ref) {
     return null;
   }
 
+  // mobile-security HIGH follow-up (2026-08-29) — owner-only gate for the
+  // three Phase 21.10 edit-form routes (`/manage/settings/profile-edit`,
+  // `/address-edit`, `/contacts-edit`). The approved design is explicit
+  // (`docs/signup-designs/SalonManagementDesign/lib/screens/
+  // salon_settings_screen.dart:274`: "Owner-only: admins cannot edit salon
+  // info.") and `salon_settings_screen.dart` already gates the three rows
+  // that push these routes behind `isOwner` — but [salonManageGuard] itself
+  // does not distinguish these routes from the admin-permitted ones
+  // (`/manage`, `/manage/settings`, `/manage/invite`, `/manage/staff/
+  // :memberId`, `/shell`): a SALON_ADMIN of the salon passes it cleanly via
+  // deep link or back-stack and can reach a form that actually persists
+  // (`PATCH /salons/{salonId}` is `@PreAuthorize("hasAnyRole('SALON_OWNER',
+  // 'SALON_ADMIN') and ...")` backend-side).
+  //
+  // REUSE-FIRST: delegates to [salonManageGuard] FIRST — it already owns the
+  // role check, the admin `User.salonId` binding, and the owner
+  // `mySalonsProvider` ownership binding (including its documented
+  // "unresolved -> ADMIT" cold-deep-link fallback). This wrapper only adds
+  // the ADDITIONAL owner-only restriction these three routes need, rather
+  // than re-implementing any of that.
+  //
+  // Fail-closed on the unresolved-ownership window: [salonManageGuard]'s own
+  // SALON_OWNER arm deliberately ADMITS while `mySalonsProvider` has not
+  // resolved yet (`salons == null` below) — a UX-only tradeoff acceptable for
+  // `/manage`/`/manage/settings` because [SalonManagementProfileScreen]
+  // itself self-heals via `_bounceIfNotOwned` once the list resolves, and the
+  // backend is the real boundary regardless. These three routes are the
+  // actual PATCH-triggering forms, so this guard does NOT inherit that
+  // admit-while-unresolved tolerance: an owner whose `mySalonsProvider` has
+  // not resolved yet is bounced the same as an unowned salon, until
+  // ownership can be confirmed synchronously. A non-`Authenticated` session
+  // reaching this point (should be unreachable — the top-level [authRedirect]
+  // already requires a settled, authenticated session before any per-route
+  // redirect runs) is likewise bounced to `/login` rather than silently
+  // admitted.
+  String? salonManageOwnerOnlyGuard(BuildContext context, GoRouterState state) {
+    final String? baseRedirect = salonManageGuard(context, state);
+    if (baseRedirect != null) return baseRedirect;
+
+    final session = ref.read(authProvider).value;
+    if (session is! Authenticated) {
+      // Defensive fail-closed only — see doc above on why this should be
+      // unreachable in practice.
+      return RouteNames.login;
+    }
+    final UserRole role = session.user.role;
+    if (role != UserRole.salonOwner) {
+      // SALON_ADMIN already passed [salonManageGuard]'s ownership binding
+      // above but these three forms are owner-only regardless.
+      return roleHomePath(role);
+    }
+
+    final String? routeSalonId = state.pathParameters['salonId'];
+    final AsyncValue<List<Salon>> mySalonsState = ref.read(mySalonsProvider);
+    final List<Salon>? salons = mySalonsState is AsyncData<List<Salon>>
+        ? mySalonsState.value
+        : null;
+    if (salons == null ||
+        !salons.any((Salon salon) => salon.id == routeSalonId)) {
+      return roleHomePath(role);
+    }
+    return null;
+  }
+
   // Phase 21.1 — per-route SALON_OWNER-only gate for the My Salons Hub
   // (`/salons/mine`). Mirrors [clientOnlyGuard]'s exact shape but for a
   // single role: any other authenticated role — including SALON_ADMIN, who
@@ -881,7 +945,7 @@ GoRouter appRouter(Ref ref) {
         ),
       ),
       // Phase 21.10 — the three lightweight edit-form screens the Phase 21.9
-      // settings hub (unbuilt) will push to. STANDALONE top-level routes,
+      // settings hub pushes to. STANDALONE top-level routes,
       // same "an ancestor's own redirect always runs" reason
       // [salonManage]/[salonManageSettings] document immediately above — and
       // literal children of the ALREADY-literal `.../manage/settings` chain,
@@ -890,24 +954,32 @@ GoRouter appRouter(Ref ref) {
       // the SAME segment, e.g. `/salons/mine` vs `/salons/:salonId` above —
       // these three segments sit strictly BELOW the already-resolved
       // `:salonId` capture, so declaration order among them doesn't matter).
-      // No in-app entry point yet — see each RouteNames helper's own doc.
+      //
+      // mobile-security HIGH follow-up (2026-08-29) — these three routes are
+      // owner-only (design: "Owner-only: admins cannot edit salon info.") but
+      // were still gated by the shared [salonManageGuard], which admits any
+      // SALON_ADMIN of the salon. Now Phase 21.9 wired real in-app entry
+      // points (the settings hub's owner-only rows), a SALON_ADMIN could
+      // reach these actually-persisting PATCH forms by deep link or
+      // back-stack. [salonManageOwnerOnlyGuard] composes [salonManageGuard]
+      // (unchanged) with an additional owner-only check — see its own doc.
       GoRoute(
         path: '/salons/:salonId/manage/settings/profile-edit',
-        redirect: salonManageGuard,
+        redirect: salonManageOwnerOnlyGuard,
         builder: (context, state) => SalonProfileEditScreen(
           salonId: state.pathParameters['salonId'] ?? '',
         ),
       ),
       GoRoute(
         path: '/salons/:salonId/manage/settings/address-edit',
-        redirect: salonManageGuard,
+        redirect: salonManageOwnerOnlyGuard,
         builder: (context, state) => SalonAddressEditScreen(
           salonId: state.pathParameters['salonId'] ?? '',
         ),
       ),
       GoRoute(
         path: '/salons/:salonId/manage/settings/contacts-edit',
-        redirect: salonManageGuard,
+        redirect: salonManageOwnerOnlyGuard,
         builder: (context, state) => SalonContactsEditScreen(
           salonId: state.pathParameters['salonId'] ?? '',
         ),
