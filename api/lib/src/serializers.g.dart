@@ -31,9 +31,11 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListMasterServiceResponse.serializer)
       ..add(ApiResponseListMasterWorkingDayResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
+      ..add(ApiResponseListPendingInviteResponse.serializer)
       ..add(ApiResponseListPlatformCategoryUsageResponse.serializer)
       ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
+      ..add(ApiResponseListSalonStaffMemberResponse.serializer)
       ..add(ApiResponseListScheduleOverrideResponse.serializer)
       ..add(ApiResponseListWeeklyScheduleResponse.serializer)
       ..add(ApiResponseListWorkingHoursResponse.serializer)
@@ -188,6 +190,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(Pageable.serializer)
       ..add(PageableObject.serializer)
       ..add(PassportResponse.serializer)
+      ..add(PendingInviteResponse.serializer)
       ..add(PhoneOtpSendRequest.serializer)
       ..add(PhoneOtpVerifyRequest.serializer)
       ..add(PlatformCategoryResponse.serializer)
@@ -220,6 +223,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SalonSearchResult.serializer)
       ..add(SalonServiceCatalogResponse.serializer)
       ..add(SalonServiceCategoryGroup.serializer)
+      ..add(SalonStaffMemberResponse.serializer)
+      ..add(SalonStaffMemberResponseRoleEnum.serializer)
       ..add(ScheduleOverrideRequest.serializer)
       ..add(ScheduleOverrideRequestKindEnum.serializer)
       ..add(ScheduleOverrideRequestModeEnum.serializer)
@@ -391,6 +396,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<OverrideConflictResponse>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(PendingInviteResponse)]),
+          () => ListBuilder<PendingInviteResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(PlatformCategoryUsageResponse)]),
           () => ListBuilder<PlatformCategoryUsageResponse>())
       ..addBuilderFactory(
@@ -445,6 +458,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(SalonServiceCategoryGroup)]),
           () => ListBuilder<SalonServiceCategoryGroup>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(SalonStaffMemberResponse)]),
+          () => ListBuilder<SalonStaffMemberResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ScheduleOverrideResponse)]),

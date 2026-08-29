@@ -37,9 +37,11 @@ import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
+import 'package:beautica_api/src/model/api_response_list_pending_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
@@ -169,6 +171,7 @@ import 'package:beautica_api/src/model/page_response_timeline_item_response.dart
 import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/pageable_object.dart';
 import 'package:beautica_api/src/model/passport_response.dart';
+import 'package:beautica_api/src/model/pending_invite_response.dart';
 import 'package:beautica_api/src/model/phone_otp_send_request.dart';
 import 'package:beautica_api/src/model/phone_otp_verify_request.dart';
 import 'package:beautica_api/src/model/platform_category_response.dart';
@@ -199,6 +202,7 @@ import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
 import 'package:beautica_api/src/model/salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/salon_service_category_group.dart';
+import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
@@ -253,9 +257,11 @@ part 'serializers.g.dart';
   ApiResponseListMasterServiceResponse,
   ApiResponseListMasterWorkingDayResponse,
   ApiResponseListOblastResponse,
+  ApiResponseListPendingInviteResponse,
   ApiResponseListPlatformCategoryUsageResponse,
   ApiResponseListPlatformServiceTypeResponse,
   ApiResponseListSalonResponse,
+  ApiResponseListSalonStaffMemberResponse,
   ApiResponseListScheduleOverrideResponse,
   ApiResponseListWeeklyScheduleResponse,
   ApiResponseListWorkingHoursResponse,
@@ -385,6 +391,7 @@ part 'serializers.g.dart';
   Pageable,
   PageableObject,
   PassportResponse,
+  PendingInviteResponse,
   PhoneOtpSendRequest,
   PhoneOtpVerifyRequest,
   PlatformCategoryResponse,
@@ -415,6 +422,7 @@ part 'serializers.g.dart';
   SalonSearchResult,
   SalonServiceCatalogResponse,
   SalonServiceCategoryGroup,
+  SalonStaffMemberResponse,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,

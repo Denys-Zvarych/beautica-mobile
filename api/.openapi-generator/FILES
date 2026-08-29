@@ -24,9 +24,11 @@ doc/ApiResponseListLocalDate.md
 doc/ApiResponseListMasterServiceResponse.md
 doc/ApiResponseListMasterWorkingDayResponse.md
 doc/ApiResponseListOblastResponse.md
+doc/ApiResponseListPendingInviteResponse.md
 doc/ApiResponseListPlatformCategoryUsageResponse.md
 doc/ApiResponseListPlatformServiceTypeResponse.md
 doc/ApiResponseListSalonResponse.md
+doc/ApiResponseListSalonStaffMemberResponse.md
 doc/ApiResponseListScheduleOverrideResponse.md
 doc/ApiResponseListWeeklyScheduleResponse.md
 doc/ApiResponseListWorkingHoursResponse.md
@@ -170,6 +172,7 @@ doc/PageResponseTimelineItemResponse.md
 doc/Pageable.md
 doc/PageableObject.md
 doc/PassportResponse.md
+doc/PendingInviteResponse.md
 doc/PhoneOtpControllerApi.md
 doc/PhoneOtpSendRequest.md
 doc/PhoneOtpVerifyRequest.md
@@ -205,6 +208,7 @@ doc/SalonSearchRequest.md
 doc/SalonSearchResult.md
 doc/SalonServiceCatalogResponse.md
 doc/SalonServiceCategoryGroup.md
+doc/SalonStaffMemberResponse.md
 doc/ScheduleOverrideRequest.md
 doc/ScheduleOverrideResponse.md
 doc/SearchControllerApi.md
@@ -295,9 +299,11 @@ lib/src/model/api_response_list_local_date.dart
 lib/src/model/api_response_list_master_service_response.dart
 lib/src/model/api_response_list_master_working_day_response.dart
 lib/src/model/api_response_list_oblast_response.dart
+lib/src/model/api_response_list_pending_invite_response.dart
 lib/src/model/api_response_list_platform_category_usage_response.dart
 lib/src/model/api_response_list_platform_service_type_response.dart
 lib/src/model/api_response_list_salon_response.dart
+lib/src/model/api_response_list_salon_staff_member_response.dart
 lib/src/model/api_response_list_schedule_override_response.dart
 lib/src/model/api_response_list_weekly_schedule_response.dart
 lib/src/model/api_response_list_working_hours_response.dart
@@ -428,6 +434,7 @@ lib/src/model/page_response_timeline_item_response.dart
 lib/src/model/pageable.dart
 lib/src/model/pageable_object.dart
 lib/src/model/passport_response.dart
+lib/src/model/pending_invite_response.dart
 lib/src/model/phone_otp_send_request.dart
 lib/src/model/phone_otp_verify_request.dart
 lib/src/model/platform_category_response.dart
@@ -458,6 +465,7 @@ lib/src/model/salon_search_request.dart
 lib/src/model/salon_search_result.dart
 lib/src/model/salon_service_catalog_response.dart
 lib/src/model/salon_service_category_group.dart
+lib/src/model/salon_staff_member_response.dart
 lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/service_definition_response.dart
