@@ -1140,19 +1140,40 @@ final class FakeBackend {
     _wireInviteStaff();
   }
 
-  /// Mutable PATCH-response state for `salon-xyz`'s owner/admin profile —
-  /// SEPARATE from `_publicSalonDetailEnvelope`'s fields (the public `GET`
-  /// never carries `phone`; see `Salon.phone`'s doc for the Phase 21.2 gap
-  /// this separation exists to preserve). Seeded to the SAME name/description
-  /// the public envelope uses so an untouched-field PATCH round-trip is a
-  /// true no-op; `phone` starts `null` (mirrors a fresh `GET`, which never
-  /// carries it).
+  /// Mutable profile state for `salon-xyz`, shared by BOTH read paths — the
+  /// PUBLIC `GET /salons/salon-xyz` (`_publicSalonDetailEnvelope`) and the
+  /// owner/admin `PATCH /salons/salon-xyz` response.
+  ///
+  /// These three fields used to be PATCH-response-only, deliberately kept
+  /// SEPARATE from the public envelope because `PublicSalonResponse` carried
+  /// no `phone` at all (the Phase 21.2 gap) — the phone field even
+  /// started `null` to mirror a `GET` that could never return one. That gap
+  /// is CLOSED: the backend now serves `phone` on the public DTO and the
+  /// regenerated client declares it
+  /// (`api/lib/src/model/public_salon_response.dart`), so keeping two
+  /// divergent sources of truth would let a flow "prove" the phone renders
+  /// while the public envelope it actually reads never carried one. ONE
+  /// source now; the public envelope reads these directly.
+  ///
+  /// PUBLIC and mutable so a flow can shape the «Контакти» block BEFORE
+  /// [FakeBackend]'s constructor wires its routes — e.g. `salonInstagramUrl =
+  /// null` for the phone-only combination, or `salonPhone = ''` to exercise
+  /// the backend's `""`-verbatim-for-a-cleared-field wire contract that
+  /// `SalonMapper._blankToNull` exists to absorb.
+  ///
+  /// [salonPhone] is seeded to a REAL number on purpose. A `null` seed would
+  /// defang every phone assertion in this file's dependants: the pre-fix
+  /// `SalonMapper.fromDto` hard-coded `phone: null`, so a null fixture makes
+  /// "no phone row renders" pass identically before and after the fix. The
+  /// value is deliberately DIFFERENT from the one
+  /// `salon_management_profile_flow_test.dart` types into the contacts form,
+  /// so an edit still produces a genuine dirty diff.
   String _salonManageName = 'Студія Краси «Камелія»';
-  String? _salonManageDescription =
+  String? salonDescription =
       'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
       'та стрижки — довірливий сервіс з 2018 року.';
-  String? _salonManagePhone;
-  String? _salonManageInstagramUrl = '@kamelia_salon';
+  String? salonPhone = '+380 44 500 10 20';
+  String? salonInstagramUrl = '@kamelia_salon';
 
   /// RESUME §4 step D (mobile half) — `SalonResponse.cityId`/`.oblastId` are
   /// now non-null on the wire (backend `ec22d91`, `salons.city_id` DB-level
@@ -1932,12 +1953,20 @@ final class FakeBackend {
   /// now pre-populates correctly instead of opening blank; the two dependent
   /// tests' explanatory comments were updated to match (they still function
   /// unchanged — re-selecting an already-resolved oblast/city is a no-op).
+  ///
+  /// mobile-qa (2026-08-30) — `description`/`phone`/`instagramUrl` now read
+  /// the SHARED mutable [salonDescription]/[salonPhone]/[salonInstagramUrl]
+  /// state instead of hard-coded literals. `phone` is on this envelope AT ALL
+  /// only because the backend gap-fix put `PublicSalonResponse.phone` on the
+  /// wire; a fixture that kept omitting it would have made the mobile
+  /// gap-fix untestable end to end — every "the phone renders on first load"
+  /// assertion would have been satisfiable only by the very PATCH round-trip
+  /// the fix exists to make unnecessary. See those fields' own doc.
   Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(<String, dynamic>{
     'id': 'salon-xyz',
     'name': 'Студія Краси «Камелія»',
-    'description':
-        'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
-        'та стрижки — довірливий сервіс з 2018 року.',
+    'description': salonDescription,
+    'phone': salonPhone,
     'region': 'Київська',
     // 'city-kyiv' is a real seeded id (see the `GET /locations/oblasts/
     // oblast-kyiv/cities` handler below) — deliberately still a
@@ -1948,7 +1977,7 @@ final class FakeBackend {
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'locationNote': salonLocationNote,
-    'instagramUrl': '@kamelia_salon',
+    'instagramUrl': salonInstagramUrl,
     'avatarUrl': null,
     'coverImageUrl': null,
     // ONE reconciled number per field, shared with the review-summary envelope
@@ -4941,11 +4970,66 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // ── SALON_ADMIN's own salon (`salon-admin-1`) ─────────────────────────
+    //
+    // mobile-qa (2026-08-30) — until now the admin persona
+    // (`_adminUserJson.salonId == 'salon-admin-1'`) had NO salon-detail or
+    // staff fixture at all, so every admin flow that reached the Salon Shell
+    // rendered an error state and no flow could assert anything the
+    // management profile actually draws. `salonManageGuard`'s admin arm is an
+    // exact `session.user.salonId == :salonId` check, so an admin can ONLY
+    // ever reach this id — there is no way to borrow `salon-xyz`'s fixtures.
+    //
+    // Deliberately shaped as the EMPTY-CONTACTS, EMPTY-DESCRIPTION salon:
+    // both owner-only «Додати …» links WOULD render here for a SALON_OWNER,
+    // which is exactly what makes "an admin sees neither" a real assertion
+    // rather than one satisfied by the salon simply having a description and
+    // an Instagram on file (M14 — a negative assertion that passes for the
+    // wrong reason is indistinguishable from a real one).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1',
+      (server) => server.replyCallback(200, (_) {
+        getSalonByIdCalls++;
+        lastGetSalonId = 'salon-admin-1';
+        return _ok(<String, dynamic>{
+          'id': 'salon-admin-1',
+          'name': 'Салон Адміністратора',
+          'description': null,
+          'region': 'Київська',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Січових Стрільців',
+          'buildingNo': '7',
+          'locationNote': null,
+          'phone': null,
+          'instagramUrl': null,
+          'avatarUrl': null,
+          'coverImageUrl': null,
+          'avgRating': null,
+          'reviewCount': 0,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-admin-1/staff — empty roster. The «Персонал»
+    // grid's own empty state (`salon-manage-staff-empty`) is already pinned at
+    // the widget tier; nothing here depends on a populated roster.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1/staff',
+      (server) => server.replyCallback(200, (_) {
+        getSalonStaffCalls++;
+        lastGetSalonStaffId = 'salon-admin-1';
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // PATCH /api/v1/salons/salon-xyz — owner/admin profile save (Phase 21.2).
-    // Distinct wire shape from the public `GET` above: the response
-    // (`SalonResponse`) DOES carry `phone` (`_publicSalonDetailEnvelope`
-    // above never does — see `Salon.phone`'s doc for the full gap
-    // rationale). Applies only the DIRTY fields the request actually carries
+    // Distinct wire shape from the public `GET` above (`SalonResponse` vs
+    // `PublicSalonResponse`), but the two now agree on `phone`: both read the
+    // SAME mutable [salonPhone], because the backend gap-fix put `phone` on
+    // the public DTO too. Applies only the DIRTY fields the request carries
     // onto the mutable `_salonManage*` state so a flow can prove BOTH halves
     // of the dirty-diff contract on a real (fake) wire round-trip: an
     // untouched field never overwrites the persisted value, an edited one
@@ -4968,13 +5052,13 @@ final class FakeBackend {
               _salonManageName = body['name'] as String;
             }
             if (body.containsKey('description')) {
-              _salonManageDescription = body['description'] as String?;
+              salonDescription = body['description'] as String?;
             }
             if (body.containsKey('phone')) {
-              _salonManagePhone = body['phone'] as String?;
+              salonPhone = body['phone'] as String?;
             }
             if (body.containsKey('instagramUrl')) {
-              _salonManageInstagramUrl = body['instagramUrl'] as String?;
+              salonInstagramUrl = body['instagramUrl'] as String?;
             }
             // `saveAddress` sends `cityId` UNCONDITIONALLY (never diffed —
             // see this handler's own doc above), so a real save always
@@ -4991,14 +5075,14 @@ final class FakeBackend {
             return _ok(<String, dynamic>{
               'id': 'salon-xyz',
               'name': _salonManageName,
-              'description': _salonManageDescription,
+              'description': salonDescription,
               'cityId': _salonManageCityId,
               'oblastId': _salonManageOblastId,
               'districtId': _salonManageDistrictId,
               'street': (body['street'] as String?) ?? 'вул. Хрещатик',
               'buildingNo': (body['buildingNo'] as String?) ?? '12',
-              'phone': _salonManagePhone,
-              'instagramUrl': _salonManageInstagramUrl,
+              'phone': salonPhone,
+              'instagramUrl': salonInstagramUrl,
             });
           }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),

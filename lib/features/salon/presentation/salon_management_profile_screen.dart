@@ -91,19 +91,37 @@ class SalonManagementProfileScreen extends ConsumerStatefulWidget {
   const SalonManagementProfileScreen({
     super.key,
     required this.salonId,
-    this.initialTab,
+    this.tab,
+    this.onTabSelected,
     this.embedded = false,
   });
 
   /// Backend Salon-row UUID of the profile being managed.
   final String salonId;
 
-  /// Phase 21.8 — seeds the initial «Про салон»/«Персонал»/«Послуги»/«Відгуки»
-  /// sub-tab once, on first build. `null` (the default, every pre-Phase-21.8
-  /// call site) keeps the original behaviour of always starting on tab 0
-  /// («Про салон»). The Salon Shell's «Команда» tab passes `1` to land
-  /// directly on `salonManageTabStaff`.
-  final int? initialTab;
+  /// CONTROLLED sub-tab index for the in-screen
+  /// «Про салон»/«Команда»/«Послуги»/«Відгуки» switcher.
+  ///
+  /// `null` (the default, and every routed call site — `app_router.dart`'s
+  /// `/salons/:salonId/manage`) leaves the switcher UNCONTROLLED: the screen
+  /// keeps its own `_tab` in `State` and behaves exactly as it did before,
+  /// starting on 0. Non-null hands ownership of the index to the caller —
+  /// [SalonShellScreen] drives it from `salonManageTabProvider(salonId)` so
+  /// the in-screen row and the shell's bottom nav stay one shared selection
+  /// rather than two that silently disagree.
+  ///
+  /// Replaces the former `initialTab` (Phase 21.8), which was a one-way
+  /// seed: it flowed shell -> screen on first build only and could never
+  /// report a later in-screen tap back, which is precisely the desync this
+  /// pair fixes. `initialTab: 1` becomes `tab: <watched>` +
+  /// [onTabSelected].
+  final int? tab;
+
+  /// Fired on every in-screen tab tap, with the newly-selected index —
+  /// including when [tab] is `null` (uncontrolled), where the screen ALSO
+  /// updates its own `_tab`. `null` (the default) makes every existing
+  /// routed call site behave identically to before.
+  final ValueChanged<int>? onTabSelected;
 
   /// Phase 21.8 — `true` when this screen is mounted as one `IndexedStack`
   /// child of [SalonShellScreen] rather than as its own routed, back-
@@ -135,18 +153,29 @@ class _SalonManagementProfileScreenState
   static const double _coverHeight = 232;
   static const double _heroProtrusion = 116;
 
-  late int _tab;
-
-  @override
-  void initState() {
-    super.initState();
-    // Seeds once from `widget.initialTab` — every pre-Phase-21.8 call site
-    // leaves it `null`, so `_tab` starts at 0 exactly as before.
-    _tab = widget.initialTab ?? 0;
-  }
+  /// UNCONTROLLED fallback — read ONLY when `widget.tab == null`. A
+  /// controlled caller ([SalonShellScreen]) owns the index in a provider and
+  /// this field is never consulted, so the two can never drift apart.
+  int _tab = 0;
 
   void _openSettings() {
     context.push(RouteNames.salonManageSettings(widget.salonId));
+  }
+
+  void _openProfileEdit() =>
+      context.push(RouteNames.salonProfileEdit(widget.salonId));
+
+  void _openContactsEdit() =>
+      context.push(RouteNames.salonContactsEdit(widget.salonId));
+
+  /// Handles an in-screen tab tap. Updates local state only in the
+  /// uncontrolled case, then ALWAYS reports upward so a controlled caller can
+  /// reconcile its own (and, in the shell's case, the bottom nav's) index.
+  void _onTabSelected(int index) {
+    if (widget.tab == null) {
+      setState(() => _tab = index);
+    }
+    widget.onTabSelected?.call(index);
   }
 
   /// Opens the staff management profile for [member] (Phase 21.5) — works for
@@ -216,7 +245,13 @@ class _SalonManagementProfileScreenState
 
   @override
   Widget build(BuildContext context) {
-    _bounceIfNotOwned(ref.watch(authProvider).value);
+    final AuthSession? session = ref.watch(authProvider).value;
+    _bounceIfNotOwned(session);
+    // Same `isOwner` predicate `salon_settings_screen.dart` uses to gate its
+    // owner-only rows — see [_AboutReadView.canEdit] for why the two "add"
+    // links must not be offered to a SALON_ADMIN.
+    final bool isOwner =
+        session is Authenticated && session.user.role == UserRole.salonOwner;
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );
@@ -251,11 +286,14 @@ class _SalonManagementProfileScreenState
               topInset: topInset,
               coverHeight: _coverHeight,
               heroProtrusion: _heroProtrusion,
-              tab: _tab,
-              onTabSelected: (int i) => setState(() => _tab = i),
+              tab: widget.tab ?? _tab,
+              onTabSelected: _onTabSelected,
+              canEdit: isOwner,
               onOpenSettings: _openSettings,
               onOpenStaffMember: _openStaffMember,
               onInviteStaff: _openInviteStaff,
+              onAddDescription: _openProfileEdit,
+              onAddInstagram: _openContactsEdit,
             );
           },
         ),
@@ -279,9 +317,12 @@ class _LoadedBody extends StatelessWidget {
     required this.heroProtrusion,
     required this.tab,
     required this.onTabSelected,
+    required this.canEdit,
     required this.onOpenSettings,
     required this.onOpenStaffMember,
     required this.onInviteStaff,
+    required this.onAddDescription,
+    required this.onAddInstagram,
   });
 
   final String salonId;
@@ -297,9 +338,14 @@ class _LoadedBody extends StatelessWidget {
   final int tab;
   final ValueChanged<int> onTabSelected;
 
+  /// See [_AboutReadView.canEdit] — `true` only for a `SALON_OWNER`.
+  final bool canEdit;
+
   final VoidCallback onOpenSettings;
   final ValueChanged<SalonStaffMember> onOpenStaffMember;
   final VoidCallback onInviteStaff;
+  final VoidCallback onAddDescription;
+  final VoidCallback onAddInstagram;
 
   @override
   Widget build(BuildContext context) {
@@ -335,7 +381,12 @@ class _LoadedBody extends StatelessWidget {
         KeyedSubtree(
           key: ValueKey<String>('salon-manage-tab-body-${_tabKeys[tab]}'),
           child: switch (tab) {
-            0 => _AboutReadView(salon: salon),
+            0 => _AboutReadView(
+              salon: salon,
+              canEdit: canEdit,
+              onAddDescription: onAddDescription,
+              onAddInstagram: onAddInstagram,
+            ),
             1 => Padding(
               padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
               child: _StaffTab(
@@ -674,9 +725,26 @@ class _ManagementHeroCard extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _AboutReadView extends StatelessWidget {
-  const _AboutReadView({required this.salon});
+  const _AboutReadView({
+    required this.salon,
+    required this.canEdit,
+    required this.onAddDescription,
+    required this.onAddInstagram,
+  });
 
   final Salon salon;
+
+  /// `true` only for a `SALON_OWNER` — the two "add" links below push the
+  /// `/manage/settings/{profile-edit,contacts-edit}` routes, which are gated
+  /// by `salonManageOwnerOnlyGuard` (owner-only by locked design: "admins
+  /// cannot edit salon info"). Offering an admin a link that would bounce
+  /// them straight back is worse than not offering it, so the predicate here
+  /// is deliberately the SAME `isOwner` one `salon_settings_screen.dart`
+  /// already uses to gate the rows that push those very routes.
+  final bool canEdit;
+
+  final VoidCallback onAddDescription;
+  final VoidCallback onAddInstagram;
 
   @override
   Widget build(BuildContext context) {
@@ -691,19 +759,44 @@ class _AboutReadView extends StatelessWidget {
         ? salon.instagramUrl
         : null;
 
+    // COMPOSITION — the «Контакти» section is normally gated on "at least one
+    // contact exists" (the same gate `public_salon_profile_screen.dart`
+    // uses). The owner's add-link needs somewhere to live when NEITHER
+    // contact is on file, so it joins that gate as a third term rather than
+    // being hoisted into its own section: the heading stays a real heading
+    // for the rows beneath it, and a non-owner (admin) viewer still sees the
+    // exact two-term behaviour — section hidden when both are empty.
+    final bool showAddInstagram = canEdit && instagram == null;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            description ?? l10n.salonAboutEmpty,
-            key: const Key('salon-manage-about-text'),
-            style: description == null
-                ? VelvetText.feedback(BrandColors.muted)
-                : VelvetText.bodyStrong(),
-          ),
-          if (phone != null || instagram != null) ...<Widget>[
+          if (description != null)
+            Text(
+              description,
+              key: const Key('salon-manage-about-text'),
+              style: VelvetText.bodyStrong(),
+            )
+          else if (canEdit)
+            // The muted «Опис салону поки не додано» placeholder was dead
+            // text on an editable screen — an empty state is an invitation to
+            // act, so the owner gets the action instead of the observation.
+            _AddLink(
+              key: const Key('salon-manage-add-description'),
+              label: l10n.salonManageAddDescriptionLink,
+              onTap: onAddDescription,
+            )
+          else
+            Text(
+              l10n.salonAboutEmpty,
+              key: const Key('salon-manage-about-text'),
+              style: VelvetText.feedback(BrandColors.muted),
+            ),
+          if (phone != null ||
+              instagram != null ||
+              showAddInstagram) ...<Widget>[
             const SizedBox(height: VelvetSpacing.xl),
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
@@ -722,7 +815,7 @@ class _AboutReadView extends StatelessWidget {
                 // editing (not calling) is the affordance this tab offers.
                 onTap: () {},
               ),
-            if (phone != null && instagram != null)
+            if (phone != null && (instagram != null || showAddInstagram))
               const SizedBox(height: VelvetSpacing.sm + 2),
             if (instagram != null)
               ContactTile(
@@ -732,6 +825,12 @@ class _AboutReadView extends StatelessWidget {
                 value: instagram,
                 semanticLabel: l10n.masterInstagramLabel,
                 onTap: () => _openInstagram(context, instagram),
+              )
+            else if (showAddInstagram)
+              _AddLink(
+                key: const Key('salon-manage-add-instagram'),
+                label: l10n.salonManageAddInstagramLink,
+                onTap: onAddInstagram,
               ),
           ],
         ],
@@ -762,6 +861,62 @@ class _AboutReadView extends StatelessWidget {
     showErrorSnack(
       context,
       AppLocalizations.of(context).masterInstagramOpenError,
+    );
+  }
+}
+
+/// A small inline "add this" text link — a leading `+` glyph and a mocha
+/// [VelvetText.link] label, nothing else. Used twice by [_AboutReadView]
+/// («Додати опис», «Додати посилання»).
+///
+/// REUSE-FIRST note: no existing widget fits. `NeumorphicButton` (the
+/// `masterAddServices` empty-state affordance) is a full-height 54 dp
+/// gradient CTA — the brief here is explicitly a text link, and a CTA button
+/// inside a read-only tab would outrank the tab's real content. The
+/// `masterAllServices`/`salonMastersShowAll` inline link is the closest
+/// shape, but it is a bare `Text` + trailing chevron built inline at each
+/// call site with no shared widget to import, and its trailing chevron means
+/// "go see more of what is already here" — the opposite of these two links.
+/// The LEADING `+` is borrowed from [_AddStaffTile] on this very screen, so
+/// the tab already speaks that vocabulary.
+///
+/// PRIVATE deliberately: the only consumer is this screen. The links are
+/// owner-only and must never appear on `public_salon_profile_screen.dart`
+/// (a client viewing a stranger's salon is not invited to describe it), so
+/// there is no second call site to promote this to.
+class _AddLink extends StatelessWidget {
+  const _AddLink({super.key, required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          // Vertical padding only — the link stays flush with the column's
+          // left edge, exactly where the placeholder text it replaces sat,
+          // while still clearing a comfortable touch target.
+          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.add_rounded,
+                size: 14,
+                color: BrandColors.accentDeep,
+              ),
+              const SizedBox(width: 3),
+              Text(label, style: VelvetText.link()),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

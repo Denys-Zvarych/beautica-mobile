@@ -253,4 +253,62 @@ void main() {
       expect(summaries.single.professionalTitle, isNull);
     });
   });
+
+  // The Phase 21.2 gap: `PublicSalonResponse` carried no `phone` at all, so
+  // `fromDto` hard-coded `null` and the owner's «Контакти» block stayed empty
+  // until an unrelated PATCH echoed a `SalonResponse` back. The DTO now ships
+  // the field; these pin BOTH halves — that it is read, and that the
+  // backend's `""`-for-cleared wire value is normalised to `null` rather than
+  // reaching the UI as a present-but-empty contact row.
+  group('SalonMapper.fromDto — contact fields', () {
+    PublicSalonResponse dtoWith({String? phone, String? instagram}) =>
+        PublicSalonResponse(
+          (b) => b
+            ..id = 'salon-1'
+            ..name = 'Салон «Вельвет»'
+            ..reviewCount = 0
+            ..cityId = 'city-uuid-1'
+            ..oblastId = 'oblast-uuid-1'
+            ..phone = phone
+            ..instagramUrl = instagram,
+        );
+
+    test(
+      'reads phone off the PUBLIC DTO (it is no longer hard-coded null)',
+      () {
+        final salon = SalonMapper.fromDto(dtoWith(phone: '+380671112233'));
+        expect(
+          salon.phone,
+          '+380671112233',
+          reason:
+              'a mapper that hard-codes phone to null is the exact bug this '
+              'pins — the owner then sees no phone until an unrelated PATCH.',
+        );
+      },
+    );
+
+    test('maps instagramUrl off the PUBLIC DTO', () {
+      final salon = SalonMapper.fromDto(dtoWith(instagram: '@velvet'));
+      expect(salon.instagramUrl, '@velvet');
+    });
+
+    test('normalises a CLEARED field ("" on the wire) to null, for both '
+        'contact fields', () {
+      final salon = SalonMapper.fromDto(dtoWith(phone: '', instagram: ''));
+      expect(salon.phone, isNull);
+      expect(salon.instagramUrl, isNull);
+    });
+
+    test('normalises a whitespace-only value to null too', () {
+      final salon = SalonMapper.fromDto(dtoWith(phone: '   ', instagram: ' '));
+      expect(salon.phone, isNull);
+      expect(salon.instagramUrl, isNull);
+    });
+
+    test('an absent field stays null', () {
+      final salon = SalonMapper.fromDto(dtoWith());
+      expect(salon.phone, isNull);
+      expect(salon.instagramUrl, isNull);
+    });
+  });
 }

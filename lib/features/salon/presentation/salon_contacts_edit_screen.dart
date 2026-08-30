@@ -1,8 +1,9 @@
 // Phase 21.10 — SalonContactsEditScreen («Контакти»).
 //
 // One of the three lightweight edit-form screens reached from the Phase 21.9
-// settings hub (unbuilt — this screen has no in-app entry point yet, per this
-// phase's own scope note). Edits ONLY phone + Instagram.
+// settings hub (now BUILT — its owner-only «Контакти» row pushes here, and so
+// does the «Додати посилання» link on the management profile's empty
+// Instagram state). Edits ONLY phone + Instagram.
 //
 // REUSE-FIRST: no new save path. Calls the EXISTING
 // [SalonManagementProfile.save] (Phase 21.2) — the same method the inline
@@ -72,9 +73,10 @@ class _SalonContactsEditScreenState
   void _initControllers(Salon salon) {
     if (_initialized) return;
     _initialized = true;
-    // Phase 21.2 gap: `GET /salons/{salonId}` never returns `phone` — see
-    // `Salon.phone`'s doc — so this field seeds empty even for a salon with a
-    // real phone on file, exactly like the inline «Про салон» edit form.
+    // Both fields pre-populate from the loaded salon: the public read path
+    // now carries `phone` (Phase 21.2 gap closed — see `Salon.phone`'s doc),
+    // and both arrive blank-normalised, so `?? ''` only ever fires for a
+    // genuinely absent value.
     _phoneCtrl = TextEditingController(text: salon.phone ?? '');
     _instagramCtrl = TextEditingController(text: salon.instagramUrl ?? '');
   }

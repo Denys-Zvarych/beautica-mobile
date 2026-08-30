@@ -3456,6 +3456,86 @@ void main() {
       },
     );
   });
+
+  // The «Контакти» block used to gate its ENTIRE section (heading included) on
+  // `instagram != null` and had no phone row at all, so a phone-only salon
+  // showed no contacts whatsoever. Both rows are now gated independently and
+  // the heading on "either present" — the same structure the owner/admin
+  // management screen already used.
+  group('«Контакти» block — four combinations', () {
+    Future<void> pumpWith(WidgetTester tester, Salon salon) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => salon),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final Finder phoneRow = find.byKey(const Key('salon-contact-phone'));
+    final Finder instagramRow = find.byKey(
+      const Key('salon-contact-instagram'),
+    );
+    // l10n-sourced, never a Cyrillic literal (scripts/forbid_cyrillic_finder).
+    Finder heading(WidgetTester tester) => find.text(
+      AppLocalizations.of(
+        tester.element(find.byType(PublicSalonProfileScreen)),
+      ).masterContactsLabel,
+    );
+
+    testWidgets('phone only — phone row and the section heading render', (
+      tester,
+    ) async {
+      await pumpWith(tester, _stubSalon.copyWith(phone: '+380671112233'));
+      expect(phoneRow, findsOneWidget);
+      expect(instagramRow, findsNothing);
+      expect(heading(tester), findsOneWidget);
+      expect(find.text('+380671112233'), findsOneWidget);
+    });
+
+    testWidgets('instagram only — instagram row renders, no phone row', (
+      tester,
+    ) async {
+      await pumpWith(tester, _stubSalon.copyWith(instagramUrl: '@velvet'));
+      expect(phoneRow, findsNothing);
+      expect(instagramRow, findsOneWidget);
+      expect(heading(tester), findsOneWidget);
+    });
+
+    testWidgets('both — both rows render, phone above Instagram', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        _stubSalon.copyWith(phone: '+380671112233', instagramUrl: '@velvet'),
+      );
+      expect(phoneRow, findsOneWidget);
+      expect(instagramRow, findsOneWidget);
+      expect(
+        tester.getRect(phoneRow).bottom,
+        lessThanOrEqualTo(tester.getRect(instagramRow).top),
+      );
+    });
+
+    testWidgets('neither — the whole section is hidden', (tester) async {
+      await pumpWith(tester, _stubSalon);
+      expect(phoneRow, findsNothing);
+      expect(instagramRow, findsNothing);
+      expect(heading(tester), findsNothing);
+    });
+
+    testWidgets(
+      'a BLANK phone from the wire is treated as absent, not as an empty row '
+      '(the backend serves "" verbatim for a cleared field)',
+      (tester) async {
+        await pumpWith(tester, _stubSalon.copyWith(phone: '   '));
+        expect(phoneRow, findsNothing);
+        expect(heading(tester), findsNothing);
+      },
+    );
+  });
 }
 
 /// True when [result]'s hit-test path passes through [target] itself, or

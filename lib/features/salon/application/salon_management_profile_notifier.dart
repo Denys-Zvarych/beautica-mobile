@@ -5,16 +5,17 @@
 // shape) with the owner/admin write paths this screen needs:
 //   • [save] — a partial `PATCH /salons/{salonId}`, built from a DIRTY-FIELD
 //     diff against the currently-loaded [Salon] rather than always sending
-//     every editable field. This is the Phase 21.2 gap workaround: `GET
-//     /salons/{salonId}` never returns `phone` (see [Salon.phone]'s doc), so
-//     the edit form always seeds that field empty. If Save always sent
-//     `phone` verbatim, an owner who saves WITHOUT touching the phone field
-//     would silently wipe a real phone number already on file (empty string
-//     PATCHed over it). Diffing against the loaded snapshot means an
-//     untouched field is simply OMITTED from the request body — the backend
-//     never sees it, so it can't be cleared by accident — while a field the
-//     viewer DID type into is always included, however it compares to the
-//     (possibly-unknown) baseline.
+//     every editable field. HISTORY: this diff started life as the Phase 21.2
+//     gap workaround — `GET /salons/{salonId}` returned no `phone`, so the
+//     edit form always seeded that field EMPTY and an unconditional send
+//     would have wiped a real number the client was never told about. That
+//     gap is CLOSED (`PublicSalonResponse.phone` now ships; see
+//     [Salon.phone]'s doc), so `current.phone` is a real, seeded baseline and
+//     the edit forms pre-populate. The diff STAYS, and is kept correct rather
+//     than unwound: it is now a plain partial-update contract — an untouched
+//     field is OMITTED from the request body, a field the viewer edited is
+//     always included (clearing one sends `''`, which the backend persists
+//     verbatim — the `""`-vs-null wire contract [Salon.phone] documents).
 //   • [deleteSalon] — `DELETE /salons/{salonId}` (soft-deactivate
 //     server-side; owner-only, enforced by the backend AND the router's
 //     client-side role gate — this method itself has no role check of its
@@ -165,9 +166,12 @@ class SalonManagementProfile extends _$SalonManagementProfile {
         ..description = trimmedDescription != (current.description ?? '')
             ? trimmedDescription
             : null
-        // Phase 21.2 gap workaround — see file header doc. `current.phone` is
-        // always null unless a previous save already resolved it, so an
-        // untouched field (still empty) never diffs true here.
+        // `current.phone` is now a REAL baseline on every read path (the
+        // Phase 21.2 gap is closed — see file header doc), and is never a
+        // blank-but-present string (`SalonMapper._blankToNull`), so
+        // `current.phone ?? ''` compares exactly against the trimmed field
+        // text: an untouched pre-populated field folds to `null` (omitted),
+        // a cleared one sends `''`.
         ..phone = trimmedPhone != (current.phone ?? '') ? trimmedPhone : null
         ..instagramUrl = trimmedInstagram != (current.instagramUrl ?? '')
             ? trimmedInstagram

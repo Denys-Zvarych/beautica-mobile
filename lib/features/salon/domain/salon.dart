@@ -70,7 +70,8 @@ abstract class Salon with _$Salon {
     /// `PATCH /salons/{salonId}` and `GET /salons/mine`, both
     /// `SalonResponse`) and, as of backend `dbe27a5`, [SalonMapper.fromDto]
     /// (the PUBLIC `GET /salons/{salonId}` read path, `PublicSalonResponse`)
-    /// — unlike [phone], this field is NOT public/private-split.
+    /// — this field is not public/private-split (nor, since the gap-fix, is
+    /// [phone]; [isPrimary] is now the only one that still is).
     ///
     /// Non-nullable for the same reason, and defaulted the same way, as
     /// [cityId] — see that field's doc for why `@Default('')` and not
@@ -91,24 +92,36 @@ abstract class Salon with _$Salon {
     /// Apartment/floor/office note (e.g. "2 поверх, офіс 5").
     String? locationNote,
 
-    /// Salon contact phone number.
+    /// Salon contact phone number, or `null` when the salon has none on file.
     ///
-    /// Phase 21.2 gap: `GET /salons/{salonId}` returns `PublicSalonResponse`,
-    /// which carries NO `phone` field (confirmed against the committed
-    /// `tool/openapi/api-spec.json` snapshot — `PublicSalonResponse`'s
-    /// property list has no `phone`, unlike the owner/admin-facing
-    /// `SalonResponse` returned by `PATCH /salons/{salonId}`, which does).
-    /// So this is ALWAYS `null` when [Salon] is built from the public read
-    /// path ([SalonMapper.fromDto]) — never a real "salon has no phone on
-    /// file" signal. It is populated only after a successful
-    /// `PATCH /salons/{salonId}` ([SalonMapper.fromUpdateDto], merged in by
-    /// `SalonManagementProfile.save`). The owner/admin edit form seeds this
-    /// field as empty-but-editable rather than fabricating a placeholder, and
-    /// omits `phone` from the PATCH body entirely unless the viewer actually
-    /// typed into it — see `salon_management_profile_notifier.dart` — so an
-    /// untouched field can never silently overwrite a real phone number the
-    /// mobile client was never told about.
+    /// Populated from BOTH read paths: the public `GET /salons/{salonId}`
+    /// (`PublicSalonResponse.phone`, [SalonMapper.fromDto]) and the
+    /// owner/admin `PATCH /salons/{salonId}` (`SalonResponse.phone`,
+    /// [SalonMapper.fromUpdateDto]). The Phase 21.2 gap this doc used to
+    /// describe — `PublicSalonResponse` carrying no `phone` at all, so the
+    /// value only ever appeared after an unrelated PATCH — is CLOSED: the
+    /// backend now serves it on the public DTO and the generated client
+    /// declares it (`api/lib/src/model/public_salon_response.dart`). `null`
+    /// here is therefore a REAL "no phone on file" signal on either path, and
+    /// the «Контакти» blocks may hide the row on it.
+    ///
+    /// WIRE CONTRACT — `""` vs `null`: the backend serves an empty STRING
+    /// (not `null`) when an owner clears the field; that is deliberate and
+    /// pinned by backend tests, so the mobile side must absorb it. Both
+    /// mappers route this field through `SalonMapper._blankToNull`, which
+    /// collapses `null` and whitespace-only alike to `null` — so a [Salon]
+    /// built from a real backend read NEVER carries a blank-but-present
+    /// phone, and consumers may treat `phone != null` as "renderable".
+    ///
+    /// `SalonManagementProfile.save` still omits `phone` from the PATCH body
+    /// unless it differs from the loaded value; that dirty-diff is now a
+    /// plain no-op-avoidance optimisation rather than the data-loss guard it
+    /// was while the read path was blind to this field.
     String? phone,
+
+    /// Salon Instagram handle/URL, or `null` when none is on file. Same
+    /// `""`-vs-null wire contract and the same `SalonMapper._blankToNull`
+    /// normalisation as [phone].
     String? instagramUrl,
     String? avatarUrl,
 
@@ -128,8 +141,9 @@ abstract class Salon with _$Salon {
     /// /salons/{salonId}` and `GET /salons/mine`) — the PUBLIC
     /// `PublicSalonResponse` ([SalonMapper.fromDto]) carries no such field
     /// (a client has no business knowing which of a stranger's salons is
-    /// "primary"), so it is always `null` on that path, mirroring [phone]'s
-    /// own public/private split.
+    /// "primary"), so it is always `null` on that path. This is now the ONLY
+    /// remaining public/private field split on [Salon] — [phone] used to
+    /// share it and no longer does.
     bool? isPrimary,
   }) = _Salon;
 }

@@ -32,6 +32,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
   @override
   final String? locationNote;
   @override
+  final String? phone;
+  @override
   final String? instagramUrl;
   @override
   final String? avatarUrl;
@@ -59,6 +61,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
       this.street,
       this.buildingNo,
       this.locationNote,
+      this.phone,
       this.instagramUrl,
       this.avatarUrl,
       this.coverImageUrl,
@@ -90,6 +93,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
+        phone == other.phone &&
         instagramUrl == other.instagramUrl &&
         avatarUrl == other.avatarUrl &&
         coverImageUrl == other.coverImageUrl &&
@@ -112,6 +116,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, phone.hashCode);
     _$hash = $jc(_$hash, instagramUrl.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, coverImageUrl.hashCode);
@@ -136,6 +141,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
+          ..add('phone', phone)
           ..add('instagramUrl', instagramUrl)
           ..add('avatarUrl', avatarUrl)
           ..add('coverImageUrl', coverImageUrl)
@@ -197,6 +203,10 @@ class PublicSalonResponseBuilder
   String? get locationNote => _$this._locationNote;
   set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
+  String? _phone;
+  String? get phone => _$this._phone;
+  set phone(String? phone) => _$this._phone = phone;
+
   String? _instagramUrl;
   String? get instagramUrl => _$this._instagramUrl;
   set instagramUrl(String? instagramUrl) => _$this._instagramUrl = instagramUrl;
@@ -237,6 +247,7 @@ class PublicSalonResponseBuilder
       _street = $v.street;
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
+      _phone = $v.phone;
       _instagramUrl = $v.instagramUrl;
       _avatarUrl = $v.avatarUrl;
       _coverImageUrl = $v.coverImageUrl;
@@ -277,6 +288,7 @@ class PublicSalonResponseBuilder
           street: street,
           buildingNo: buildingNo,
           locationNote: locationNote,
+          phone: phone,
           instagramUrl: instagramUrl,
           avatarUrl: avatarUrl,
           coverImageUrl: coverImageUrl,

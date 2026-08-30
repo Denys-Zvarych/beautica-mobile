@@ -5250,6 +5250,14 @@
   "@salonManageAddStaffLabel": {
     "description": "Phase 21.2 — label/semantics for the trailing 'invite staff' tile in the owner/admin salon management profile's Команда grid."
   },
+  "salonManageAddDescriptionLink": "Додати опис",
+  "@salonManageAddDescriptionLink": {
+    "description": "Owner-only inline text link shown in place of the empty-description placeholder on the salon management profile's «Про салон» tab. Opens the «Про салон» profile-edit screen."
+  },
+  "salonManageAddInstagramLink": "Додати посилання",
+  "@salonManageAddInstagramLink": {
+    "description": "Owner-only inline text link shown in the «Контакти» block of the salon management profile when the salon has no Instagram on file. Opens the «Контакти» contacts-edit screen."
+  },
   "salonStaffProfileMasterTitle": "Профіль майстра",
   "@salonStaffProfileMasterTitle": {
     "description": "Phase 21.5 — app-bar title on the salon staff member management profile (SalonStaffProfileScreen) when the viewed member is a master."

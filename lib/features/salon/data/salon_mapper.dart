@@ -9,7 +9,10 @@
 // Error contract (backlog pattern — ServerFailure for a missing required id):
 //   - [SalonMapper.fromDto] requires [PublicSalonResponse.id]; a null value
 //     indicates a broken backend contract and surfaces as [ServerFailure].
-//   - All other nullable fields are passed through as `null`.
+//   - All other nullable fields are passed through as `null`, except the two
+//     optional contact fields (`phone`, `instagramUrl`), which are normalised
+//     through `SalonMapper._blankToNull` — see that helper's doc for the
+//     `""`-vs-null wire contract it exists to absorb.
 
 import 'dart:developer';
 
@@ -64,12 +67,14 @@ abstract final class SalonMapper {
       street: dto.street,
       buildingNo: dto.buildingNo,
       locationNote: dto.locationNote,
-      // `PublicSalonResponse` carries no `phone` field — see [Salon.phone]'s
-      // doc comment for the full Phase 21.2 gap explanation. Explicit `null`
-      // (not a fallthrough) so the gap reads as a deliberate mapping
-      // decision, not an oversight.
-      phone: null,
-      instagramUrl: dto.instagramUrl,
+      // `PublicSalonResponse.phone` now ships on the PUBLIC read path too
+      // (backend + regenerated client — `public_salon_response.dart`), closing
+      // the Phase 21.2 gap this line used to hard-code `null` for. Both
+      // contact fields go through [_blankToNull]: the backend serves `""`
+      // verbatim for a cleared field, which must not reach the UI as a
+      // present-but-empty contact row — see [Salon.phone]'s doc.
+      phone: _blankToNull(dto.phone),
+      instagramUrl: _blankToNull(dto.instagramUrl),
       avatarUrl: dto.avatarUrl,
       coverImageUrl: dto.coverImageUrl,
       avgRating: dto.avgRating?.toDouble(),
@@ -80,8 +85,9 @@ abstract final class SalonMapper {
   /// Maps a [SalonResponse] DTO (`PATCH /salons/{salonId}`'s owner/admin-
   /// facing response) to the domain [Salon] model.
   ///
-  /// Unlike [fromDto], [SalonResponse] carries `phone` (Phase 21.2 gap-fix —
-  /// see [Salon.phone]) but does NOT carry `coverImageUrl`, `avgRating`, or
+  /// [SalonResponse] carries `phone` — and so, as of the backend change that
+  /// closed the Phase 21.2 gap, does [PublicSalonResponse] ([fromDto]) — but
+  /// it does NOT carry `coverImageUrl`, `avgRating`, or
   /// `reviewCount` (those are public-read-only aggregates). This method maps
   /// every field [SalonResponse] DOES carry and leaves the three it doesn't
   /// as `null`/`0` — callers (`SalonManagementProfile.save`) MUST merge those
@@ -117,8 +123,13 @@ abstract final class SalonMapper {
       street: dto.street,
       buildingNo: dto.buildingNo,
       locationNote: dto.locationNote,
-      phone: dto.phone,
-      instagramUrl: dto.instagramUrl,
+      // Same blank-guard as [fromDto] — `PATCH /salons/{salonId}` echoes a
+      // cleared contact field back as `""`, and the merged state this feeds
+      // is rendered by the same two «Контакти» blocks. Keeping BOTH read
+      // paths on [_blankToNull] is what makes "a blank contact never reaches
+      // the domain" a real invariant rather than a per-screen guard.
+      phone: _blankToNull(dto.phone),
+      instagramUrl: _blankToNull(dto.instagramUrl),
       avatarUrl: dto.avatarUrl,
       // Deliberately NOT carried by SalonResponse — see method doc. Callers
       // must copyWith these back in from the previous [Salon].
@@ -132,6 +143,19 @@ abstract final class SalonMapper {
       // DTO type makes this reuse exact, not a guess.
       isPrimary: dto.isPrimary,
     );
+  }
+
+  /// Normalises a blank optional contact field to `null`.
+  ///
+  /// LOCKED WIRE CONTRACT: the backend serves `""` VERBATIM when an owner
+  /// clears `phone`/`instagramUrl` — it is NOT normalised to `null`
+  /// server-side (pinned by backend tests). A raw pass-through would therefore
+  /// hand the UI a present-but-empty contact, rendering an empty
+  /// [ContactTile] row and an empty «Контакти» section heading. Returns `null`
+  /// for a null or whitespace-only value, the trimmed value otherwise.
+  static String? _blankToNull(String? value) {
+    final String? trimmed = value?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
 }
 

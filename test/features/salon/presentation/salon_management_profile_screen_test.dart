@@ -283,8 +283,45 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
         key: Key('staff-profile-marker-${state.pathParameters['memberId']}'),
       ),
     ),
+    // Destinations of the «Про салон» tab's two owner-only "add" links. Same
+    // trivial-marker pattern as the routes above — this file asserts THAT
+    // each link navigates to the right edit form; those forms' own coverage
+    // lives in `salon_edit_forms_test.dart`.
+    GoRoute(
+      path: '/salons/:salonId/manage/settings/profile-edit',
+      builder: (context, state) =>
+          const Scaffold(key: Key('profile-edit-marker')),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/settings/contacts-edit',
+      builder: (context, state) =>
+          const Scaffold(key: Key('contacts-edit-marker')),
+    ),
   ],
 );
+
+const _stubAdmin = User(
+  id: 'admin-1',
+  email: 'admin@beautica.ua',
+  role: UserRole.salonAdmin,
+  firstName: 'Ірина',
+  lastName: 'Адміністратор',
+  salonId: _kSalonId,
+);
+
+/// SALON_ADMIN session — this screen renders identically for an admin except
+/// that the owner-only "add" links must NOT appear (their destinations are
+/// gated by `salonManageOwnerOnlyGuard`).
+class _AdminAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async =>
+      const AuthSession.authenticated(user: _stubAdmin, accessToken: 'tok');
+}
+
+List<Object> _adminOverrides(FakeSalonRepository repo) => <Object>[
+  authProvider.overrideWith(_AdminAuthNotifier.new),
+  salonRepositoryProvider.overrideWithValue(repo),
+];
 
 List<Object> _overrides(FakeSalonRepository repo) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
@@ -1142,5 +1179,175 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // «Про салон» tab — contacts block + the two owner-only "add" links
+  // ---------------------------------------------------------------------
+  group('«Про салон» tab — contacts + add links', () {
+    Future<void> pumpAs(
+      WidgetTester tester,
+      Salon salon, {
+      bool owner = true,
+    }) async {
+      final repo = FakeSalonRepository(salon: salon);
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: owner ? _overrides(repo) : _adminOverrides(repo),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final Finder phoneRow = find.byKey(const Key('salon-manage-contact-phone'));
+    final Finder instagramRow = find.byKey(
+      const Key('salon-manage-contact-instagram'),
+    );
+    final Finder addDescription = find.byKey(
+      const Key('salon-manage-add-description'),
+    );
+    final Finder addInstagram = find.byKey(
+      const Key('salon-manage-add-instagram'),
+    );
+    // Every string finder below is l10n-sourced, never a Cyrillic literal
+    // (scripts/forbid_cyrillic_finder.sh).
+    AppLocalizations l10nOf(WidgetTester tester) => AppLocalizations.of(
+      tester.element(find.byType(SalonManagementProfileScreen)),
+    );
+    Finder contactsHeadingOf(WidgetTester tester) =>
+        find.text(l10nOf(tester).masterContactsLabel);
+
+    // The public read path now carries `phone`, so these four combinations
+    // are reachable on a first load rather than only after a PATCH.
+    testWidgets('phone only — phone row renders, no Instagram row', (
+      tester,
+    ) async {
+      await pumpAs(
+        tester,
+        _stubSalon.copyWith(phone: '+380671112233'),
+        owner: false,
+      );
+      expect(phoneRow, findsOneWidget);
+      expect(instagramRow, findsNothing);
+      expect(contactsHeadingOf(tester), findsOneWidget);
+    });
+
+    testWidgets('instagram only — Instagram row renders, no phone row', (
+      tester,
+    ) async {
+      await pumpAs(
+        tester,
+        _stubSalon.copyWith(instagramUrl: '@velvet'),
+        owner: false,
+      );
+      expect(phoneRow, findsNothing);
+      expect(instagramRow, findsOneWidget);
+    });
+
+    testWidgets('both — both rows render', (tester) async {
+      await pumpAs(
+        tester,
+        _stubSalon.copyWith(phone: '+380671112233', instagramUrl: '@velvet'),
+        owner: false,
+      );
+      expect(phoneRow, findsOneWidget);
+      expect(instagramRow, findsOneWidget);
+    });
+
+    testWidgets(
+      'neither, NON-owner — the whole «Контакти» section is hidden (the '
+      'add-link is owner-only, so there is nothing to host)',
+      (tester) async {
+        await pumpAs(tester, _stubSalon, owner: false);
+        expect(phoneRow, findsNothing);
+        expect(instagramRow, findsNothing);
+        expect(addInstagram, findsNothing);
+        expect(contactsHeadingOf(tester), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'neither, OWNER — the section renders with the «Додати посилання» link '
+      'as its only row',
+      (tester) async {
+        await pumpAs(tester, _stubSalon);
+        expect(contactsHeadingOf(tester), findsOneWidget);
+        expect(addInstagram, findsOneWidget);
+        expect(
+          find.text(l10nOf(tester).salonManageAddInstagramLink),
+          findsOneWidget,
+        );
+        expect(phoneRow, findsNothing);
+        expect(instagramRow, findsNothing);
+      },
+    );
+
+    testWidgets(
+      'phone on file but no Instagram, OWNER — phone row AND the add-link',
+      (tester) async {
+        await pumpAs(tester, _stubSalon.copyWith(phone: '+380671112233'));
+        expect(phoneRow, findsOneWidget);
+        expect(addInstagram, findsOneWidget);
+        expect(instagramRow, findsNothing);
+      },
+    );
+
+    testWidgets('an Instagram on file replaces the add-link with the tile', (
+      tester,
+    ) async {
+      await pumpAs(tester, _stubSalon.copyWith(instagramUrl: '@velvet'));
+      expect(instagramRow, findsOneWidget);
+      expect(addInstagram, findsNothing);
+    });
+
+    testWidgets(
+      'empty description, OWNER — the «Додати опис» link replaces the dead '
+      'muted placeholder',
+      (tester) async {
+        await pumpAs(tester, _stubSalon.copyWith(description: null));
+        expect(addDescription, findsOneWidget);
+        expect(
+          find.text(l10nOf(tester).salonManageAddDescriptionLink),
+          findsOneWidget,
+        );
+        expect(find.text(l10nOf(tester).salonAboutEmpty), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'empty description, NON-owner — the muted placeholder stays, no link',
+      (tester) async {
+        await pumpAs(
+          tester,
+          _stubSalon.copyWith(description: null),
+          owner: false,
+        );
+        expect(addDescription, findsNothing);
+        expect(find.text(l10nOf(tester).salonAboutEmpty), findsOneWidget);
+      },
+    );
+
+    testWidgets('a description on file renders it, never the link', (
+      tester,
+    ) async {
+      await pumpAs(tester, _stubSalon);
+      expect(addDescription, findsNothing);
+      expect(find.byKey(const Key('salon-manage-about-text')), findsOneWidget);
+    });
+
+    testWidgets('«Додати опис» pushes the profile-edit screen', (tester) async {
+      await pumpAs(tester, _stubSalon.copyWith(description: null));
+      await tester.tap(addDescription);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('profile-edit-marker')), findsOneWidget);
+    });
+
+    testWidgets('«Додати посилання» pushes the contacts-edit screen', (
+      tester,
+    ) async {
+      await pumpAs(tester, _stubSalon);
+      await tester.tap(addInstagram);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('contacts-edit-marker')), findsOneWidget);
+    });
   });
 }

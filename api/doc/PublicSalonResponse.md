@@ -20,6 +20,7 @@ Name | Type | Description | Notes
 **street** | **String** |  | [optional] 
 **buildingNo** | **String** |  | [optional] 
 **locationNote** | **String** |  | [optional] 
+**phone** | **String** | Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none. | [optional] 
 **instagramUrl** | **String** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
 **coverImageUrl** | **String** |  | [optional] 

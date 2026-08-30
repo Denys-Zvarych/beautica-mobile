@@ -234,6 +234,22 @@ void main() {
         findsOneWidget,
         reason: 'a non-empty instagramUrl must render the contact tile',
       );
+      // mobile-qa (2026-08-30) — the CLIENT-facing half of the phone
+      // read-path fix. `PublicSalonResponse` now carries `phone`, and this
+      // tab gained a row for it; before the fix the whole «Контакти» block
+      // hung off `instagram != null` and had NO phone row at all. Asserted on
+      // the DEFAULT tab of the ordinary journey — no PATCH exists on this
+      // screen at all, so a client could never have seen a phone here by any
+      // route.
+      expect(
+        find.byKey(const Key('salon-contact-phone')),
+        findsOneWidget,
+        reason:
+            'the public About tab must render the phone the real GET '
+            '/salons/{id} now returns',
+      );
+      // i18n-finder-ok: the fixture's wire value, not UI copy.
+      expect(find.text('+380 44 500 10 20'), findsOneWidget);
 
       // ── Explicit relocation guard: the About tab is confirmed on-screen
       // above (this is the default tab, rendered simultaneously with the
@@ -883,6 +899,61 @@ void main() {
           find.text(rawNote),
           findsNothing,
           reason: 'the raw control character must never reach a real render',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ── mobile-qa (2026-08-30) — PART A on the client-facing screen ──────────
+  //
+  // The PHONE-ONLY combination is the one that produced ZERO output before
+  // the fix: the whole «Контакти» block, heading included, was gated on
+  // `instagram != null`, so a salon with a phone and no Instagram rendered
+  // nothing at all. The ordinary journey above covers "both present"; this
+  // covers the combination that was actually broken, end to end against a
+  // real GET.
+  //
+  // The remaining two combinations (Instagram-only, neither) are covered at
+  // the WIDGET tier — `public_salon_profile_screen_test.dart`'s «Контакти»
+  // block group — which is the cheapest tier that can observe them: neither
+  // exercises any wiring this tier owns that "phone only" does not.
+  testWidgets(
+    'a PHONE-ONLY salon renders the «Контакти» section and its phone tile — '
+    'the combination that rendered nothing at all before the fix',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          // Pre-boot knob — see `FakeBackend.salonPhone`'s own doc.
+          ..salonInstagramUrl = null;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
+
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        await AppHarness.settle(tester);
+
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(
+          find.text(l10n.masterContactsLabel),
+          findsOneWidget,
+          reason:
+              'the section heading must be gated on "either contact", not on '
+              'the Instagram alone',
+        );
+        expect(find.byKey(const Key('salon-contact-phone')), findsOneWidget);
+        // i18n-finder-ok: the fixture's wire value, not UI copy.
+        expect(find.text('+380 44 500 10 20'), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-contact-instagram')),
+          findsNothing,
+          reason:
+              'the Instagram row is gated INDEPENDENTLY — a null handle must '
+              'not render an empty tile just because the section is open',
         );
       });
     },

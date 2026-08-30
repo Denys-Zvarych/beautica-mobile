@@ -47,6 +47,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -61,6 +62,22 @@ import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
 const String _kSalonId = 'salon-xyz';
+
+/// The phone `FakeBackend` serves on the PUBLIC `GET /salons/salon-xyz`
+/// ([FakeBackend.salonPhone]'s seed) — the value the read path must surface
+/// with no PATCH of any kind.
+const String _kSeededPhone = '+380 44 500 10 20';
+
+/// A DIFFERENT number, typed into the contacts form, so an edit produces a
+/// genuine dirty diff against [_kSeededPhone] and the post-save read view can
+/// be told apart from the pre-save one.
+const String _kEditedPhone = '+380 67 111 22 33';
+
+/// Matches `fake_backend.dart`'s `_adminUserJson.salonId`. `salonManageGuard`'s
+/// admin arm is an exact `session.user.salonId == :salonId` check, so this is
+/// the ONLY salon a SALON_ADMIN can reach — `salon-xyz`'s fixtures cannot be
+/// borrowed for an admin scenario.
+const String _kAdminSalonId = 'salon-admin-1';
 
 /// mobile-qa fixture-drift fix (2026-08-28) — `salonManageGuard`'s owner arm
 /// (`app_router.dart`) now authorizes `SALON_OWNER` against the REAL
@@ -171,13 +188,22 @@ void main() {
         expect(find.byType(SalonContactsEditScreen), findsOneWidget);
 
         expect(find.byKey(const Key('salon_phone')), findsOneWidget);
-        // Phone starts BLANK — the real Phase 21.2 gap (GET never returns
-        // it) — even against a REAL wire response, not just the widget-tier
-        // fake.
+        // The form PRE-POPULATES from the phone the public `GET` already
+        // returned. This assertion is the inverse of what it used to be
+        // (`controller.text, isEmpty`, with a comment calling the empty field
+        // "the real Phase 21.2 gap"): the gap is closed, so an empty field
+        // here is now a REGRESSION, not the contract.
         final phoneField = tester.widget<TextField>(
           find.byKey(const Key('salon_phone')),
         );
-        expect(phoneField.controller!.text, isEmpty);
+        expect(
+          phoneField.controller!.text,
+          _kSeededPhone,
+          reason:
+              'SalonContactsEditScreen seeds from `salon.phone`, which the '
+              'PUBLIC GET now carries — an empty field would mean the read '
+              'path dropped it again',
+        );
 
         // Edit ONLY the phone — name/description/instagram stay untouched.
         // [UaPhoneInputFormatter] masks as-typed (proven by
@@ -186,7 +212,7 @@ void main() {
         // masked-phone flow (`client_profile_settings_flow_test.dart`).
         await tester.enterText(
           find.byKey(const Key('salon_phone')),
-          '+380 67 111 22 33',
+          _kEditedPhone,
         );
         await tester.pump();
 
@@ -203,7 +229,7 @@ void main() {
         final body = fb.lastUpdateSalonBody!;
         expect(
           body['phone'],
-          '+380 67 111 22 33',
+          _kEditedPhone,
           reason: 'the EDITED field must reach the wire',
         );
         expect(
@@ -226,16 +252,28 @@ void main() {
         expect(find.byKey(const Key('salon_phone')), findsNothing);
         expect(find.byType(SalonSettingsScreen), findsOneWidget);
 
-        // Close the settings hub and confirm the read view now shows the
-        // saved phone — proves the notifier's merged state actually reached
+        // Close the settings hub and confirm the read view shows the NEWLY
+        // SAVED phone — proves the notifier's merged state actually reached
         // the still-mounted (offstage) [SalonManagementProfileScreen], not
         // just the edit screen's own local form state.
+        //
+        // The row's mere PRESENCE is no longer the interesting half (it is
+        // asserted on FIRST LOAD, before any PATCH, by the dedicated test
+        // below) — the VALUE is: it must be the edited number, not the
+        // seeded one that was already on screen before the save.
         await tester.tap(find.byKey(const Key('btn-close-salon-settings')));
         await tester.pumpAndSettle();
         expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
         expect(
           find.byKey(const Key('salon-manage-contact-phone')),
           findsOneWidget,
+        );
+        // i18n-finder-ok: the number just typed into the form, not UI copy.
+        expect(find.text(_kEditedPhone), findsOneWidget);
+        expect(
+          find.text(_kSeededPhone),
+          findsNothing,
+          reason: 'the read view must show the SAVED value, not the stale one',
         );
       });
     },
@@ -597,6 +635,292 @@ void main() {
         // getMasterServices — so master-aaa's own services call count is
         // unchanged from the master branch above.
         expect(fb.getSalonStaffCalls, 1);
+      });
+    },
+  );
+
+  // ── mobile-qa (2026-08-30) — PART A: the phone read-path bug, end to end ──
+  //
+  // THE BUG: after registering a salon the owner's «Контакти» block showed no
+  // phone at all; saving ANYTHING on the contacts screen made it appear. The
+  // public `GET /salons/{id}` DTO carried no `phone`, so `salon_mapper.dart`
+  // hard-coded `null`; the PATCH response (`SalonResponse`, which DOES carry
+  // it) merged the real value in afterwards and masked the read-path hole.
+  //
+  // THIS FILE ENCODED THAT BUG AS THE CONTRACT. The phone-edit journey above
+  // used to assert `salon-manage-contact-phone` only AFTER the PATCH
+  // round-trip, and asserted the edit form's phone field started EMPTY with a
+  // comment calling that "the real Phase 21.2 gap". Both are inverted now;
+  // this test is the one that pins the actual fix, and the ONLY thing it
+  // touches is a first load.
+  testWidgets(
+    'PART A — the «Контакти» phone renders on FIRST LOAD of the management '
+    'profile, with ZERO PATCH round-trips',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.settle(tester);
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        await AppHarness.settle(tester);
+
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+        expect(
+          fb.getSalonByIdCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'the value below must come from a REAL public GET',
+        );
+
+        expect(
+          find.byKey(const Key('salon-manage-contact-phone')),
+          findsOneWidget,
+          reason:
+              'PublicSalonResponse.phone now ships and SalonMapper.fromDto '
+              'maps it — the row must be there before any write happens',
+        );
+        // i18n-finder-ok: the fixture's wire value, not UI copy. Asserting the
+        // VALUE (not just the row key) is what proves the number travelled the
+        // whole GET -> mapper -> domain -> tile path rather than a row being
+        // rendered from some other source.
+        expect(find.text(_kSeededPhone), findsOneWidget);
+
+        // THE LOAD-BEARING HALF: no write of any kind has happened. Before the
+        // fix this could only have been satisfied by a PATCH.
+        expect(
+          fb.updateSalonCalls,
+          0,
+          reason:
+              'the whole point of the fix — the phone must NOT require a '
+              'PATCH round-trip to become visible',
+        );
+      });
+    },
+  );
+
+  // The `""`-vs-null wire contract `SalonMapper._blankToNull` exists to
+  // absorb, proven against a REAL (fake) wire response rather than a
+  // hand-built domain fixture: the backend serves an empty STRING verbatim
+  // when an owner clears a contact field, and a raw pass-through would render
+  // a present-but-empty tile under a real «Контакти» heading.
+  testWidgets(
+    'PART A — a BLANK phone on the wire renders NO contact row (not an empty '
+    'one), and with no Instagram either the whole section is hidden',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          // Pre-boot knobs — see `FakeBackend.salonPhone`'s own doc.
+          ..salonPhone = ''
+          ..salonInstagramUrl = '';
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.settle(tester);
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        await AppHarness.settle(tester);
+
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-manage-contact-phone')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-manage-contact-instagram')),
+          findsNothing,
+        );
+
+        // A blank Instagram normalising to ABSENT is observable here in a
+        // stronger way than "the heading is gone": for an OWNER it flips the
+        // empty-state branch on, so the add-link renders. If `""` had reached
+        // the domain as a present value, this link could not exist and an
+        // empty `ContactTile` would have rendered in its place.
+        expect(
+          find.byKey(const Key('salon-manage-add-instagram')),
+          findsOneWidget,
+        );
+        // The "neither contact, no add-link, whole section hidden"
+        // combination is covered end to end by the SALON_ADMIN test below —
+        // an owner always has the add-link, so it is unobservable here.
+      });
+    },
+  );
+
+  // ── mobile-qa (2026-08-30) — PART B: the add-link guard seam ─────────────
+  //
+  // mobile-security flagged that the new widget-tier push tests assert against
+  // a STUB `profile-edit-marker` route with no guard attached, while guard
+  // enforcement is pinned separately in
+  // `test/routing/salon_manage_route_guard_test.dart`. Neither tier proves the
+  // two halves meet: that the link's `context.push` target is the REAL,
+  // `salonManageOwnerOnlyGuard`-protected route and that the guard ADMITS the
+  // owner who was offered the link. This test drives the REAL router and the
+  // REAL screens end to end.
+  //
+  // Fixture: description AND Instagram blanked BEFORE boot, which is the only
+  // state in which either link renders at all.
+  testWidgets(
+    'PART B — a SALON_OWNER taps «Додати посилання» / «Додати опис» and lands '
+    'on the REAL owner-only edit screens through the REAL guard',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..salonDescription = null
+          ..salonInstagramUrl = null;
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.settle(tester);
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        await AppHarness.settle(tester);
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+
+        // The empty-description placeholder is REPLACED by the link for an
+        // owner — asserting the placeholder's absence is what makes this a
+        // test of the new branch rather than of the link merely existing
+        // somewhere on screen.
+        expect(find.byKey(const Key('salon-manage-about-text')), findsNothing);
+
+        // ── «Додати посилання» -> /manage/settings/contacts-edit ───────────
+        final Finder addInstagram = find.byKey(
+          const Key('salon-manage-add-instagram'),
+        );
+        await tester.ensureVisible(addInstagram);
+        await tester.pumpAndSettle();
+        await tester.tap(addInstagram);
+        await tester.pumpAndSettle();
+
+        AppHarness.expectLocation(
+          router,
+          '/salons/$_kSalonId/manage/settings/contacts-edit',
+        );
+        expect(
+          find.byType(SalonContactsEditScreen),
+          findsOneWidget,
+          reason:
+              'the link must reach the REAL guarded screen — the widget tier '
+              'only ever proved it reached an unguarded stub route',
+        );
+
+        router.pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+
+        // ── «Додати опис» -> /manage/settings/profile-edit ─────────────────
+        final Finder addDescription = find.byKey(
+          const Key('salon-manage-add-description'),
+        );
+        await tester.ensureVisible(addDescription);
+        await tester.pumpAndSettle();
+        await tester.tap(addDescription);
+        await tester.pumpAndSettle();
+
+        AppHarness.expectLocation(
+          router,
+          '/salons/$_kSalonId/manage/settings/profile-edit',
+        );
+        expect(find.byType(SalonProfileEditScreen), findsOneWidget);
+      });
+    },
+  );
+
+  // The other half of the same seam. NOTE (mobile-qa, stated deliberately):
+  // the brief asked for "tapping `salon-manage-add-instagram` as a
+  // SALON_ADMIN" — that tap is UNREACHABLE by construction, because
+  // `_AddLink` is gated on `isOwner` and never renders for an admin. The
+  // honest end-to-end closure is therefore both layers of the defence:
+  //   1. the admin is never OFFERED the link (the UI gate), and
+  //   2. the route it would have pushed BOUNCES the admin anyway (the
+  //      `salonManageOwnerOnlyGuard` gate) — reached here by direct
+  //      navigation, the exact deep-link/back-stack path mobile-security's
+  //      finding is about.
+  //
+  // `salon-admin-1` (the admin persona's OWN salon — `salonManageGuard`'s
+  // admin arm admits no other id) is fixtured with a null description AND
+  // null contacts, so both links WOULD render here for an owner. Without that
+  // shaping this would be a vacuous negative assertion (M14): "no link" would
+  // pass simply because the salon had a description and an Instagram.
+  testWidgets(
+    'PART B — a SALON_ADMIN is offered NEITHER add-link, and the owner-only '
+    'edit route bounces them even by direct navigation',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+        await AppHarness.settle(tester);
+
+        router.go(RouteNames.salonManage(_kAdminSalonId));
+        await AppHarness.settle(tester);
+        expect(
+          find.byType(SalonManagementProfileScreen),
+          findsOneWidget,
+          reason: 'salonManageGuard ADMITS an admin on their own salon',
+        );
+
+        expect(
+          find.byKey(const Key('salon-manage-add-description')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-manage-add-instagram')),
+          findsNothing,
+        );
+        // POSITIVE control for the two absences above: the admin gets the
+        // muted placeholder the owner's link replaces. Without this, both
+        // `findsNothing`s would also pass on a screen that failed to render
+        // the About tab at all.
+        expect(
+          find.byKey(const Key('salon-manage-about-text')),
+          findsOneWidget,
+        );
+
+        // The "neither contact on file, and no owner add-link to host" case:
+        // the whole «Контакти» section — heading included — must be gone.
+        // This is the fourth combination of the contacts block, unobservable
+        // in the owner flows above (an owner always gets the add-link).
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(
+          find.byKey(const Key('salon-manage-contact-phone')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-manage-contact-instagram')),
+          findsNothing,
+        );
+        expect(
+          find.text(l10n.masterContactsLabel),
+          findsNothing,
+          reason: 'no bare «Контакти» heading standing over nothing',
+        );
+
+        // Deep-link straight at the route the link would have pushed.
+        router.go(RouteNames.salonContactsEdit(_kAdminSalonId));
+        await AppHarness.settle(tester);
+
+        expect(
+          find.byType(SalonContactsEditScreen),
+          findsNothing,
+          reason:
+              'salonManageOwnerOnlyGuard must bounce a SALON_ADMIN who '
+              'already passed the ownership check — owner-only by locked '
+              'design',
+        );
+        expect(
+          AppHarness.location(router),
+          isNot(
+            equals('/salons/$_kAdminSalonId/manage/settings/contacts-edit'),
+          ),
+        );
       });
     },
   );

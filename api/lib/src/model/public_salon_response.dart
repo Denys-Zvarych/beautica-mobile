@@ -23,6 +23,7 @@ part 'public_salon_response.g.dart';
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [phone] - Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none.
 /// * [instagramUrl]
 /// * [avatarUrl]
 /// * [coverImageUrl]
@@ -68,6 +69,10 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  /// Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none.
+  @BuiltValueField(wireName: r'phone')
+  String? get phone;
 
   @BuiltValueField(wireName: r'instagramUrl')
   String? get instagramUrl;
@@ -190,6 +195,13 @@ class _$PublicSalonResponseSerializer
       yield r'locationNote';
       yield serializers.serialize(
         object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.phone != null) {
+      yield r'phone';
+      yield serializers.serialize(
+        object.phone,
         specifiedType: const FullType(String),
       );
     }
@@ -336,6 +348,13 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'phone':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.phone = valueDes;
           break;
         case r'instagramUrl':
           final valueDes = serializers.deserialize(

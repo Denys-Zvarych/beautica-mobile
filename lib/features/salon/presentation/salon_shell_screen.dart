@@ -10,12 +10,52 @@
 // (unbuilt: its source field `UserProfileResponse.masterProfile` does not
 // exist yet) and is NOT ported here.
 //
-// Tab hosts (Phase 21.8 scope — see the phase's own scope table):
+// Nav destinations (Phase 21.8 scope — see the phase's own scope table):
 //   0 Салон    — REAL: `SalonManagementProfileScreen(salonId, embedded: true)`
 //   1 Записи   — placeholder (`/salon/bookings` has no screen — Phase 21.12)
-//   2 Команда  — REAL: the SAME screen, `initialTab: 1` (its internal
-//                `salonManageTabStaff` sub-tab)
+//   2 Команда  — the SAME screen instance as destination 0, on its staff
+//                sub-tab (see NAV INDEX vs STACK SLOT below)
 //   3 Профіль  — placeholder (owner: Phase 21.14: admin: Phase 21.16)
+//
+// NAV INDEX vs STACK SLOT (mobile-perf LOW follow-up, 2026-08-30) — these two
+// indices are NOT the same number and must never be conflated; the mapping is
+// [_navToStackSlot] / [_stackSlotFor], and it is the ONLY place either index
+// is converted into the other.
+//
+//   nav 0 «Салон»   ─┐
+//                    ├─> stack slot 0 — the ONE hosted profile screen
+//   nav 2 «Команда» ─┘
+//   nav 1 «Записи»  ───> stack slot 1 — bookings placeholder
+//   nav 3 «Профіль» ───> stack slot 2 — own-profile placeholder
+//
+// Destinations 0 and 2 were previously two SEPARATE children of the same
+// `IndexedStack`, built from byte-identical configurations (same `salonId`,
+// `embedded`, `tab`, `onTabSelected`) and differing only by `Key`. Since the
+// tab-sync fix made both CONTROLLED from the one shared sub-tab index, that
+// second instance rendered, offstage, a pixel-for-pixel duplicate of whatever
+// the user was already looking at — a whole second cover image, hero card,
+// tab body and set of `TextEditingController`s, plus a second
+// `_SalonReviewsSectionState` holding its own `_sort` and therefore keeping a
+// second `salonReviewsProvider(salonId, <stale sort>)` family instance alive
+// after any sort change. Hosting ONE instance and pointing both destinations
+// at it removes both costs by construction, with no `Consumer`/`select`
+// narrowing needed (the watched value is an `int`; narrowing would only ever
+// have spared a cheap nav bar).
+//
+// `SalonBottomNav.currentIndex` is still the NAV index — the shell's selected
+// destination is what the highlight means, and it stays 0..3 even though the
+// stack now only has 3 slots.
+//
+// TAB SYNC — destinations 0 and 2 are two views of ONE screen, whose own
+// 4-tab in-screen switcher used to be private `setState` state that touched
+// no provider. The nav highlight therefore never moved when the in-screen
+// «Команда» tab was tapped, and (because `IndexedStack` never disposes a
+// visited child) the «Салон» destination could keep rendering the staff grid
+// after a round trip. The screen is now CONTROLLED from
+// `salonManageTabProvider(salonId)`, and the two directions of the sync live
+// in [_onSubTabSelected] / [_onNavSelected]. This stays SHARED STATE, not
+// routing: the shell is deliberately a standalone `GoRoute`, not a
+// `StatefulShellRoute`, so the four sub-tabs get no sub-routes of their own.
 //
 // `salonId` comes from the go_router PATH PARAM (the caller,
 // `app_router.dart`); `isOwner` is derived from `authProvider`'s role, never
@@ -23,26 +63,25 @@
 // arriving straight from `SalonHomeResolverScreen`, or any bookmarked URL),
 // so reading role from the extra would silently misclassify that path.
 //
-// LAZY TABS (mobile-perf MEDIUM follow-up, 2026-08-28) — `IndexedStack` lays
+// LAZY SLOTS (mobile-perf MEDIUM follow-up, 2026-08-28) — `IndexedStack` lays
 // out ALL of its children on every parent rebuild, not just the visible one,
-// so unconditionally listing all 4 tabs here meant every bottom-nav tap paid
-// to build+layout both full `SalonManagementProfileScreen` subtrees (each
-// holding 4 `TextEditingController`s plus cover/hero/tab-bar/staff-grid
-// state) regardless of whether either had ever been opened. `_visitedTabs`
-// gates each slot: an unvisited tab renders a trivial `SizedBox.shrink()`
-// until its index is first selected, then the real widget takes its place —
-// permanently, at the SAME list position and Key, which is what makes this
-// safe: `IndexedStack` does not use `TickerMode`/`Offstage` for its
-// non-current children (unlike a covered go_router route), so it never
-// disposes an already-built child on its own. Once built, a tab's element is
-// simply left in the tree, so its `State` (a half-scrolled Команда tab, an
-// open edit form) survives every subsequent switch exactly as it did when
-// all 4 were built eagerly — no `AutomaticKeepAliveClientMixin` needed,
-// because there is nothing here for it to protect against. The Салон/Команда
-// pair still share ONE `salonManagementProfileProvider(salonId)` fetch
-// regardless of visit order: the family is keyed on `salonId`, not on
-// mount timing, so whichever of the two mounts first resolves the request
-// and the other reads the same cached `AsyncData`.
+// so unconditionally listing every slot here meant every bottom-nav tap paid
+// to build+layout the full `SalonManagementProfileScreen` subtree (4
+// `TextEditingController`s plus cover/hero/tab-bar/staff-grid state)
+// regardless of whether it had ever been opened. `_visitedSlots` gates each
+// STACK SLOT (not each nav destination — see the mapping above): an unvisited
+// slot renders a trivial `SizedBox.shrink()` until a destination that maps to
+// it is first selected, then the real widget takes its place — permanently,
+// at the SAME list position and Key, which is what makes this safe:
+// `IndexedStack` does not use `TickerMode`/`Offstage` for its non-current
+// children (unlike a covered go_router route), so it never disposes an
+// already-built child on its own. Once built, a slot's element is simply left
+// in the tree, so its `State` (a half-scrolled staff grid, an open edit form)
+// survives every subsequent switch exactly as it did when all slots were
+// built eagerly — no `AutomaticKeepAliveClientMixin` needed, because there is
+// nothing here for it to protect against. Slot 0 is the first frame's slot
+// (`SalonShell.build` seeds nav 0), so the shared profile host is built
+// exactly when it always was; deduping removed a build, it added none.
 //
 // OWNERSHIP BOUNCE (mobile-security MEDIUM follow-up, 2026-08-28) — see
 // [_bounceIfNotOwned].
@@ -78,11 +117,12 @@ class SalonShellScreen extends ConsumerStatefulWidget {
 }
 
 class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
-  /// Tab indices that have been selected at least once this shell visit —
-  /// gates lazy child construction (see the file header LAZY TABS note).
-  /// Tab 0 is always the first frame's `tab` value (`SalonShell.build` seeds
+  /// `IndexedStack` SLOT indices (never nav indices — see the file header's
+  /// NAV INDEX vs STACK SLOT note) that have been reached at least once this
+  /// shell visit — gates lazy child construction (see the LAZY SLOTS note).
+  /// Slot 0 is always the first frame's slot (`SalonShell.build` seeds nav
   /// `0`), so it is populated by the first `build()` call, not eagerly here.
-  final Set<int> _visitedTabs = <int>{};
+  final Set<int> _visitedSlots = <int>{};
 
   List<SalonNavItem>? _navItemsCache;
   AppLocalizations? _navItemsCacheL10n;
@@ -114,14 +154,16 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// does not own, for the life of that navigation.
   ///
   /// Lives on [SalonShellScreen] itself, NOT inside the embedded
-  /// `SalonManagementProfileScreen` instances it hosts (which is exactly why
-  /// that screen's own listener early-returns when `embedded == true` — see
-  /// its doc). The shell mounts that screen TWICE in one `IndexedStack`
-  /// (Салон + Команда, same `salonId`); two `ref.listen`s on the same
-  /// `mySalonsProvider` emission would race two `context.go` calls (the
-  /// original H1b hazard). ONE listener here, for the whole shell, makes
-  /// that race impossible by construction — `build()` runs once per frame no
-  /// matter how many tabs it hosts.
+  /// `SalonManagementProfileScreen` it hosts (which is exactly why that
+  /// screen's own listener early-returns when `embedded == true` — see its
+  /// doc). The shell used to mount that screen TWICE in one `IndexedStack`
+  /// (Салон + Команда, same `salonId`), and two `ref.listen`s on the same
+  /// `mySalonsProvider` emission would have raced two `context.go` calls (the
+  /// original H1b hazard). The duplicate host is gone as of the 2026-08-30
+  /// dedupe, but this listener stays HERE regardless: one listener for the
+  /// whole shell keeps that race impossible by construction, independently of
+  /// how many hosts a future phase adds — `build()` runs once per frame no
+  /// matter how many slots it holds.
   ///
   /// `SALON_ADMIN` is exempt — `salonManageGuard`'s admin arm is an exact
   /// synchronous `User.salonId` check with no unresolved window to close.
@@ -145,13 +187,86 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
     });
   }
 
-  /// Renders [build] only once tab [index] has been visited; otherwise a
-  /// trivial placeholder. See the file header LAZY TABS note for why this is
+  /// Renders [build] only once stack [slot] has been reached; otherwise a
+  /// trivial placeholder. See the file header LAZY SLOTS note for why this is
   /// safe to leave un-kept-alive.
-  Widget _lazyChild(int index, Widget Function() build) =>
-      _visitedTabs.contains(index)
+  ///
+  /// [slot] is a STACK SLOT, not a nav index — the lazy placeholder's own Key
+  /// says `slot` for exactly that reason.
+  Widget _lazySlot(int slot, Widget Function() build) =>
+      _visitedSlots.contains(slot)
       ? build()
-      : SizedBox.shrink(key: Key('salon-shell-tab-$index-lazy'));
+      : SizedBox.shrink(key: Key('salon-shell-slot-$slot-lazy'));
+
+  /// Bottom-nav destination index -> `IndexedStack` child index.
+  ///
+  /// Indexed BY nav destination (0..3, `SalonBottomNav.ownerAdminItems`);
+  /// the value is the stack slot that destination renders. «Салон» (0) and
+  /// «Команда» (2) deliberately share slot 0 — they are two sub-tabs of ONE
+  /// hosted `SalonManagementProfileScreen`, not two screens (see the file
+  /// header's NAV INDEX vs STACK SLOT note). The stack therefore has 3
+  /// children while the nav still has 4 destinations.
+  static const List<int> _navToStackSlot = <int>[0, 1, 0, 2];
+
+  /// The `IndexedStack` child index that bottom-nav destination [navIndex]
+  /// renders. The single conversion point between the two index spaces.
+  static int _stackSlotFor(int navIndex) => _navToStackSlot[navIndex];
+
+  /// Bottom-nav destinations that map to the shared profile host (slot 0).
+  static const int _navSalon = 0;
+  static const int _navTeam = 2;
+
+  /// The in-screen sub-tab index that the bottom-nav destination implies.
+  /// [_navTeam] IS the profile screen's staff sub-tab (1); [_navSalon] is its
+  /// «Про салон» sub-tab (0). Any other destination hosts no profile screen
+  /// at all and leaves the sub-tab untouched.
+  static const int _staffSubTab = 1;
+  static const int _aboutSubTab = 0;
+
+  /// Reconciles BOTH indices after an in-screen tab tap.
+  ///
+  /// The in-screen row is the source of the change here, so the sub-tab is
+  /// set verbatim and the bottom-nav highlight follows it: the staff sub-tab
+  /// is the «Команда» destination, every other sub-tab («Про салон»,
+  /// «Послуги», «Відгуки») is the «Салон» destination. Without the second
+  /// half the reported bug appears — tapping the in-screen «Команда» leaves
+  /// the nav highlight on the previous destination. The FIRST half is what
+  /// keeps the mirror case honest: from «Команда», tapping in-screen
+  /// «Послуги» moves the nav back to «Салон», and because both destinations
+  /// now render the SAME host the two can no longer disagree about which
+  /// sub-tab is showing.
+  ///
+  /// Both destinations map to stack slot 0, so this never changes
+  /// `IndexedStack.index` — only the nav highlight and the sub-tab move.
+  void _onSubTabSelected(int subTab) {
+    ref.read(salonManageTabProvider(widget.salonId).notifier).select(subTab);
+    ref
+        .read(salonShellProvider(widget.salonId).notifier)
+        .select(subTab == _staffSubTab ? _navTeam : _navSalon);
+  }
+
+  /// Reconciles the sub-tab after a BOTTOM-NAV tap — the other direction of
+  /// the same sync. Without this, selecting «Команда» from the nav would
+  /// leave the sub-tab wherever an earlier in-screen tap had parked it, and
+  /// the «Команда» destination would render «Про салон». Destinations that
+  /// host no profile screen (1 «Записи», 3 «Профіль») leave the sub-tab alone
+  /// so coming back to «Салон»/«Команда» restores what was there.
+  ///
+  /// This is also what makes the shared host safe: since one instance serves
+  /// both destinations, the sub-tab write below is the ONLY thing that
+  /// distinguishes them.
+  void _onNavSelected(int navIndex) {
+    ref.read(salonShellProvider(widget.salonId).notifier).select(navIndex);
+    if (navIndex == _navSalon) {
+      ref
+          .read(salonManageTabProvider(widget.salonId).notifier)
+          .select(_aboutSubTab);
+    } else if (navIndex == _navTeam) {
+      ref
+          .read(salonManageTabProvider(widget.salonId).notifier)
+          .select(_staffSubTab);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -163,25 +278,45 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
     _bounceIfNotOwned(session);
 
-    final int tab = ref.watch(salonShellProvider(widget.salonId));
-    _visitedTabs.add(tab);
+    final int navIndex = ref.watch(salonShellProvider(widget.salonId));
+    // The SHARED in-screen sub-tab index. The one hosted profile screen below
+    // is driven from it, which is what keeps the in-screen row and the bottom
+    // nav one selection instead of two.
+    final int subTab = ref.watch(salonManageTabProvider(widget.salonId));
+    final int stackSlot = _stackSlotFor(navIndex);
+    _visitedSlots.add(stackSlot);
 
     final List<Widget> children = <Widget>[
-      // Салон — REAL host, embedded (no back chevron; ownership is bound by
-      // this shell's own `_bounceIfNotOwned` above, not by the embedded
-      // screen — see that screen's `embedded` doc for why it skips its own
-      // equivalent check).
-      _lazyChild(
+      // Slot 0 — «Салон» (nav 0) AND «Команда» (nav 2). ONE embedded host for
+      // both destinations (no back chevron; ownership is bound by this shell's
+      // own `_bounceIfNotOwned` above, not by the embedded screen — see that
+      // screen's `embedded` doc for why it skips its own equivalent check).
+      //
+      // The two destinations differ ONLY in which sub-tab they select, which
+      // is why a second instance was pure duplication (see the file header).
+      // Switching between them changes neither this child's position nor its
+      // `Key`, so the element and its `State` are reused — no dispose, no
+      // re-mount, no lost scroll offset, no refetch.
+      //
+      // CONTROLLED, not merely seeded: `IndexedStack` never disposes a
+      // visited child (see the LAZY SLOTS note above), so an uncontrolled
+      // host would keep whatever sub-tab an earlier in-screen tap left in its
+      // `State` — a round trip through «Команда» and back would land the
+      // «Салон» destination on the staff grid.
+      _lazySlot(
         0,
         () => SalonManagementProfileScreen(
-          key: const Key('salon-shell-tab-salon'),
+          key: const Key('salon-shell-slot-profile'),
           salonId: widget.salonId,
           embedded: true,
+          tab: subTab,
+          onTabSelected: _onSubTabSelected,
         ),
       ),
-      // Записи — no host screen exists yet (`/salon/bookings` — see
-      // `app_router.dart`'s own note on why this route is unregistered).
-      _lazyChild(
+      // Slot 1 — «Записи» (nav 1). No host screen exists yet
+      // (`/salon/bookings` — see `app_router.dart`'s own note on why this
+      // route is unregistered).
+      _lazySlot(
         1,
         () => SalonShellTabPlaceholder(
           key: const Key('salon-shell-tab-bookings'),
@@ -192,20 +327,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       ),
       // TODO(phase-21.12): swap in the real salon-wide schedule host.
 
-      // Команда — the SAME real host, opened on its internal
-      // `salonManageTabStaff` sub-tab.
-      _lazyChild(
+      // Slot 2 — «Профіль» (nav 3). No host screen exists yet for either role.
+      _lazySlot(
         2,
-        () => SalonManagementProfileScreen(
-          key: const Key('salon-shell-tab-team'),
-          salonId: widget.salonId,
-          embedded: true,
-          initialTab: 1,
-        ),
-      ),
-      // Профіль — no host screen exists yet for either role.
-      _lazyChild(
-        3,
         () => SalonShellTabPlaceholder(
           key: Key('salon-shell-tab-profile-${isOwner ? 'owner' : 'admin'}'),
           icon: Symbols.person_rounded,
@@ -220,13 +344,18 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
     return Scaffold(
       key: const Key('salon-shell-screen'),
       backgroundColor: BrandColors.base,
-      body: IndexedStack(index: tab, children: children),
+      // STACK SLOT here…
+      body: IndexedStack(index: stackSlot, children: children),
       bottomNavigationBar: SalonBottomNav(
         key: const Key('salon-shell-bottom-nav'),
-        currentIndex: tab,
+        // …but the NAV index here: the highlight tracks the destination the
+        // user chose, which stays 0..3 even though «Салон» and «Команда»
+        // resolve to the same stack slot. Passing `stackSlot` would light up
+        // «Салон» while standing on «Команда» — the exact desync this chain
+        // just fixed.
+        currentIndex: navIndex,
         items: _navItems(l10n),
-        onSelect: (int i) =>
-            ref.read(salonShellProvider(widget.salonId).notifier).select(i),
+        onSelect: _onNavSelected,
       ),
     );
   }
