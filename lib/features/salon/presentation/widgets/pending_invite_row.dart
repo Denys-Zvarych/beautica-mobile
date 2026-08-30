@@ -133,25 +133,13 @@ class PendingInviteRow extends StatelessWidget {
                       const SizedBox(width: VelvetSpacing.sm),
                       Flexible(
                         child: Text(
-                          // `now` DELIBERATELY left at its default (mobile-perf
-                          // LOW, reviewed and declined 2026-08-30). The default
-                          // is a Kyiv-anchored, `instant-ok`-annotated host read
-                          // inside `formatRelativeDate` — and it is the
-                          // formatter's ONE app-wide convention: `ReviewCard`
-                          // (`review_card.dart:91`), its only other production
-                          // caller, uses the same default. Threading
-                          // `clockProvider` in HERE ONLY would change nothing in
-                          // production (`clockProvider`'s production value IS
-                          // `DateTime.now`) while leaving two conflicting
-                          // conventions for one formatter. The correct fix is a
-                          // sweep, not a patch: drop the `now` default in
-                          // `shared/formatters/relative_date.dart`, delete the
-                          // `_resolveNowKyiv` cache that exists only to serve
-                          // it, and thread the clock through `ReviewCard` +
-                          // `salon_reviews_section.dart:370` +
-                          // `master_reviews_body.dart:249` and both
-                          // `PendingInviteRow` call sites at once. Out of Phase
-                          // 21.11's scope — tracked, not silently dropped.
+                          // `now` DELIBERATELY left at its default. The
+                          // `clockProvider` sweep this used to propose is
+                          // DECLINED, not deferred — Phase 284 D2
+                          // (`docs/mobile-phases/
+                          // phase-284-relative-date-dst-safe-day-arithmetic.md`)
+                          // records the reasoning and the seam that replaces
+                          // it. Do not re-raise it here.
                           l10n.salonPendingInvitesSentAgo(
                             formatRelativeDate(l10n, invite.createdAt),
                           ),

@@ -23,7 +23,7 @@
 # `lib/core/time/clock_provider.dart`'s own doc comment taught the bad pattern
 # as the canonical override example — fixed alongside this gate.
 #
-# THIS SCRIPT NOW ENFORCES SIX RULES
+# THIS SCRIPT NOW ENFORCES SEVEN RULES
 # -------------------------------------
 # RULE 1 (original, below) is scoped to "zone-critical" files — ones whose
 # raw text already touches the Kyiv-anchored clock seam by name. RULE 2 (added
@@ -720,6 +720,101 @@
 # returns garbage. That is the one place in the tree where performing the
 # banned operation is the point, and it is annotated rather than left to pass
 # by accident of the declaration happening to span lines.
+#
+# RULE 7 (added 2026-08-30, Phase 284 D4 — DATE TOKEN reaching .difference,
+# the arity-3 hole RULE 1's own exclusion #2 opened)
+# ------------------------------------------------------------------------
+# WHAT SHIPPED, AND WHY EVERY EXISTING RULE WAVED IT THROUGH.
+# `lib/shared/formatters/relative_date.dart` computed its calendar-day delta
+# as:
+#     final DateTime todayStart = DateTime(nowKyiv.year, nowKyiv.month, nowKyiv.day);
+#     final DateTime thenStart  = DateTime(then.year, then.month, then.day);
+#     final int days = todayStart.difference(thenStart).inDays;
+# Both operands carry KYIV calendar components but are constructed as
+# HOST-LOCAL `DateTime`s — i.e. they are DATE TOKENS. `DateTime.difference`
+# measures elapsed ABSOLUTE time, so when the host zone crosses a DST
+# transition between the two midnights the span is 23 h (spring forward) or
+# 25 h (fall back) and `.inDays` truncates toward zero. On a Europe/Kyiv host
+# — the market's own devices, and most installs — a review or invite from
+# 29 March rendered «Сьогодні» on 30 March. Annually, silently, in production.
+#
+#   - RULE 1 requires ARITY >= 4 (rule 3) *and* a LITERAL DIGIT first argument
+#     (rule 2). This construction is arity 3 with a `.year` component read, so
+#     it misses on BOTH counts — and rule 2's own comment says why it excludes
+#     the derived form: "reads a real calendar day rather than pinning an
+#     arbitrary host-resolved one". That is true of the VALUE and false of the
+#     ARITHMETIC, which is exactly the gap.
+#   - RULE 2 only inspects values reaching a `clock:` named argument.
+#   - RULES 3/4/5 are about `DateTime.now`; there is no clock read here.
+#   - RULE 6 gates `.toUtc()`/`.toLocal()` on a token, and its own header
+#     explains why it stops there: `.difference(...)` is ILLEGAL against an
+#     INSTANT but explicitly LEGAL against another date token, and deciding
+#     which side you have is dataflow. TRUE IN GENERAL — but there is one
+#     syntactic shape where BOTH sides are provably tokens, and that is the
+#     shape below.
+#
+# THE RULE — DELIBERATELY NARROW, AND MEASURED BEFORE IT WAS WRITTEN. Under
+# `lib/`, `test/` and `integration_test/` (`${token_scan_dirs[@]}` — the same
+# WIDER roots as Rule 6, because this defect shipped in `lib/`, not in a
+# fixture), flag a `.difference(` whose RECEIVER or ARGUMENT is a
+# COMPONENT-DERIVED DATE TOKEN, in two forms:
+#   (a) DIRECT — the construction inlined at the call site:
+#           DateTime(a.year, a.month, a.day).difference(b)
+#   (b) INDIRECT — an identifier whose SAME-FILE declaration's initializer is
+#       that construction (the shape that actually shipped), used either as
+#       the receiver (`todayStart.difference(...)`) or as the argument
+#       (`x.difference(thenStart)`).
+# A COMPONENT-DERIVED DATE TOKEN is, precisely: a bare local `DateTime(` call
+# (not preceded by `.` or a word character — so `DateTime.utc(` and
+# `tz.TZDateTime(` never match, same exclusion as Rule 1's rule 1), of ARITY
+# EXACTLY 3 (depth-tracked comma counting, never a `[^)]*` regex), whose first
+# argument — whitespace skipped — is a `<expr>.year` component read. That is
+# the hand-rolled-`dateOnly` idiom and nothing else.
+#
+# WHY NOT THE BROADER "ANY DATE TOKEN REACHING .difference". It was BUILT AND
+# MEASURED, not imagined. Widening the token definition to include
+# `dateOnly(...)` / `_dateOnly(...)` / `kyivDayOf(...)` / `kyivToday(...)`
+# initializers and any arity-3 `DateTime(` gives SIX hits on the real tree:
+#     lib/features/schedule/domain/schedule_date_math.dart:44,156
+#     lib/features/schedule/presentation/master_schedule_screen.dart:267
+#     test/features/schedule/presentation/master_schedule_screen_test.dart:3330
+#     test/shared/time/kyiv_day_test.dart:164,226   (deliberate demonstrations)
+# Precision on that set is excellent — a hand audit found ALL FOUR non-
+# demonstration hits to be genuine latent DST off-by-ones, and a further two
+# the same audit found (`schedule_model.dart:743`,
+# `day_off_conflict_dialog.dart:226`, `schedule_repository.dart:138`) that
+# this text rule cannot reach because their operands are class FIELDS rather
+# than same-file locals. So the broad rule is NOT rejected on precision, the
+# way the widened Rule 1 classifier was (1 defect in 74). It is deferred for
+# one reason only: its baseline on the real tree is NOT EMPTY, and this
+# script's "NO LEGACY BASELINE" section forbids both an allow-list and the
+# rubber-stamping of four `date-token-ok:` markers onto code that is genuinely
+# wrong. Fixing those four — one of which
+# (`master_schedule_screen.dart:267`, live week re-anchoring) changes real
+# navigation behaviour and needs the schedule suite plus its goldens behind it
+# — is a phase of its own, not a side effect of this one. IT IS WRITTEN DOWN
+# HERE RATHER THAN LEFT SILENT, WHICH IS THE WHOLE POINT: the narrow rule
+# below ships with an empty baseline today and closes the shape that actually
+# reached production; widening it is a scoped, costed follow-up with a named
+# residue, not an open question.
+#
+# BASELINE: EMPTY on the real tree, with NO allow-list and NO annotations —
+# verified after the Phase 284 fix, and verified to FIRE on the pre-fix
+# content of `relative_date.dart` (which is the only reason to believe it).
+#
+# MARKER — `// date-token-ok: <reason>`, shared with Rule 6. Same question
+# ("why is treating a KYIV DAY TOKEN as an instant correct here"), so the same
+# vocabulary; a `host-tz-ok:` or `instant-ok:` marker does NOT suppress it.
+#
+# ACCEPTED FIX (RULE 7)
+# ----------------------
+#     kyivDaysBetween(earlierToken, laterToken)   // lib/shared/time/kyiv_day.dart
+# It re-anchors both tokens at UTC midnight before subtracting. UTC observes
+# no transitions, so every calendar day there is uniformly 24 h and the count
+# is always exact. `calendarDayCount` in
+# `features/booking/presentation/widgets/bookings_day_rail.dart` is a
+# delegating alias of it; there is no third implementation and there should
+# never be one.
 #
 # NO LEGACY BASELINE — AND NONE SHOULD EVER BE ADDED
 # ---------------------------------------------------
@@ -1630,6 +1725,165 @@ scan_file_rule6() {
 }
 
 # ---------------------------------------------------------------------------
+# scan_file_rule7 <path>
+#   Emits "R7:<path>:<line>:<text>" for each un-annotated, live-code
+#   `.difference(` whose RECEIVER or ARGUMENT is a COMPONENT-DERIVED DATE
+#   TOKEN — a bare local `DateTime(x.year, x.month, x.day)`, inlined at the
+#   call site or resolved through a same-file declaration. See header "RULE 7".
+#   A separate awk program because its BEGIN pre-pass builds a THIRD table
+#   (component-derived-token names), distinct from scan_file's DateTime-typed
+#   declarations and scan_file_rule6's seam-initialised ones.
+# ---------------------------------------------------------------------------
+scan_file_rule7() {
+  awk -v file="$1" -v tok_ann="$token_annotation" '
+    function strip_strings(s,   out, c, i, q, esc) {
+      out = ""; q = ""; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (esc) { esc = 0; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == q) { q = "" }
+          continue
+        }
+        if (c == "\"" || c == "'"'"'") { q = c; continue }
+        out = out c
+      }
+      return out
+    }
+    function comment_start(s,   i, c) {
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == "/" && substr(s, i + 1, 1) == "/") { return i }
+      }
+      return 0
+    }
+    # Top-level commas between s[start] (the "(" of a call) and its MATCHING
+    # ")". Depth-tracked forward; stops the instant depth returns to 0, so a
+    # nested call never leaks commas in and an enclosing one never leaks in.
+    # Deliberately not a `[^)]*` regex.
+    function count_top_commas(s, start,   i, c, depth, commas, n) {
+      n = length(s); depth = 0; commas = 0
+      for (i = start; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "(" || c == "[" || c == "{") { depth++ }
+        else if (c == ")" || c == "]" || c == "}") {
+          depth--
+          if (depth == 0) { return commas }
+        } else if (c == "," && depth == 1) { commas++ }
+      }
+      return commas
+    }
+    # The text of the FIRST argument of the call whose "(" is at s[start],
+    # trimmed. Same depth tracking, stopping at the first depth-1 comma.
+    function first_arg(s, start,   i, c, depth, n, out) {
+      n = length(s); depth = 0; out = ""
+      for (i = start; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "(" || c == "[" || c == "{") {
+          depth++
+          if (depth == 1) { continue }
+        } else if (c == ")" || c == "]" || c == "}") {
+          depth--
+          if (depth == 0) { break }
+        } else if (c == "," && depth == 1) { break }
+        if (depth >= 1) { out = out c }
+      }
+      sub(/^[[:space:]]+/, "", out); sub(/[[:space:]]+$/, "", out)
+      return out
+    }
+    # Index of the matching ")" for the "(" at s[start]; 0 if unbalanced on
+    # this line.
+    function match_close(s, start,   i, c, depth, n) {
+      n = length(s); depth = 0
+      for (i = start; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "(" || c == "[" || c == "{") { depth++ }
+        else if (c == ")" || c == "]" || c == "}") {
+          depth--
+          if (depth == 0) { return i }
+        }
+      }
+      return 0
+    }
+    # 1 iff s[abs..] begins a COMPONENT-DERIVED DATE TOKEN construction:
+    # a bare local `DateTime(` (abs is the index of the "D"), arity EXACTLY 3,
+    # first argument a `<expr>.year` component read. `prevok` is the caller"s
+    # already-checked "not preceded by . or a word char" verdict.
+    function is_component_token(s, abs,   op, fa) {
+      if (substr(s, abs, 9) != "DateTime(") { return 0 }
+      op = abs + 8
+      if (count_top_commas(s, op) != 2) { return 0 }
+      fa = first_arg(s, op)
+      return (fa ~ /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\.year$/)
+    }
+    # Pre-pass: same-file declarations whose initializer IS a component-derived
+    # token construction. Recognises the same declaration forms Rule 6 does.
+    BEGIN {
+      while ((getline draw < file) > 0) {
+        dcode = strip_strings(draw)
+        dcs = comment_start(dcode); if (dcs > 0) { dcode = substr(dcode, 1, dcs - 1) }
+        dtrim = dcode; sub(/^[[:space:]]+/, "", dtrim)
+        sub(/^(final|const|var)[[:space:]]+/, "", dtrim)
+        sub(/^DateTime\??[[:space:]]+/, "", dtrim)
+        sub(/^get[[:space:]]+/, "", dtrim)
+        if (!match(dtrim, /^[A-Za-z_][A-Za-z0-9_]*/) || RSTART != 1) { continue }
+        dname = substr(dtrim, 1, RLENGTH)
+        dafter = substr(dtrim, RLENGTH + 1)
+        sub(/^[[:space:]]*/, "", dafter)
+        if (substr(dafter, 1, 2) == "()") {
+          dafter = substr(dafter, 3); sub(/^[[:space:]]*/, "", dafter)
+        }
+        dinit = ""
+        if (substr(dafter, 1, 2) == "=>") { dinit = substr(dafter, 3) }
+        else if (substr(dafter, 1, 1) == "=" && substr(dafter, 2, 1) != "=") {
+          dinit = substr(dafter, 2)
+        }
+        if (dinit == "") { continue }
+        sub(/^[[:space:]]*/, "", dinit)
+        if (is_component_token(dinit, 1) && !(dname in tok)) { tok[dname] = 1 }
+      }
+      close(file)
+    }
+    {
+      raw = $0
+      firsttok = raw; sub(/^[[:space:]]+/, "", firsttok)
+      code = strip_strings(raw)
+      cs = comment_start(code); if (cs > 0) { code = substr(code, 1, cs - 1) }
+      if (firsttok ~ /^[/][/]/) { code = "" }
+      annotated = (raw ~ tok_ann || prev ~ tok_ann)
+      hit = 0
+      n = length(code)
+
+      for (i = 1; i <= n; i++) {
+        if (substr(code, i, 1) !~ /[A-Za-z_]/) { continue }
+        if (i > 1 && substr(code, i - 1, 1) ~ /[A-Za-z0-9_.]/) { continue }
+        rest = substr(code, i)
+        if (!match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)) { continue }
+        nm = substr(rest, 1, RLENGTH)
+
+        # (a) DIRECT — the construction inlined, then `.difference(`.
+        if (nm == "DateTime" && is_component_token(code, i)) {
+          cl = match_close(code, i + 8)
+          if (cl > 0 && substr(code, cl + 1) ~ /^\.difference\(/) { hit = 1 }
+        }
+
+        # (b) INDIRECT — a resolved token name as RECEIVER, or as ARGUMENT.
+        if (nm in tok) {
+          tail = substr(rest, RLENGTH + 1)
+          if (substr(tail, 1, 2) == "()") { tail = substr(tail, 3) }
+          if (tail ~ /^\.difference\(/) { hit = 1 }
+          if (i > 12 && substr(code, i - 12, 12) == ".difference(") { hit = 1 }
+        }
+      }
+
+      if (hit && !annotated) { printf "R7:%s:%d:%s\n", file, NR, raw }
+      prev = raw
+    }
+  ' "$1"
+}
+
+# ---------------------------------------------------------------------------
 # run_scan <tree_root>
 #   Emits "R1:..." / "R2:..." offenders across every *.dart file under each
 #   of ${scan_dirs[@]}, resolved relative to <tree_root>. RULE 1 is restricted
@@ -1687,6 +1941,23 @@ run_scan() {
       # 2026-08-02 incident class from Rule 2.
       grep -qF -e '.toUtc(' -e '.toLocal(' "$f" 2>/dev/null || continue
       scan_file_rule6 "$f"
+    done < <(find "$tree_root/$d" -type f -name '*.dart' -print0 2>/dev/null | sort -z)
+  done
+
+  # RULE 7 walks the SAME wider root set as Rule 6 (`lib/` included) — the
+  # defect it gates shipped in `lib/`, not in a fixture. Kept as its own loop
+  # for the same reason Rule 6's is: the wider root must not be able to leak
+  # into Rules 1-5, whose scope is deliberately the test tiers only, and the
+  # performance prefilter differs (`.difference(` rather than `.toUtc(`).
+  for d in "${token_scan_dirs[@]}"; do
+    while IFS= read -r -d '' f; do
+      [ -z "$f" ] && continue
+      # PURE PERFORMANCE PREFILTER, exactly as Rule 6's — and subject to the
+      # same standing warning: do NOT extend it with anything semantic. A file
+      # containing no `.difference(` anywhere in its RAW text cannot produce a
+      # Rule 7 hit, since both detection forms end in matching that literal.
+      grep -qF -e '.difference(' "$f" 2>/dev/null || continue
+      scan_file_rule7 "$f"
     done < <(find "$tree_root/$d" -type f -name '*.dart' -print0 2>/dev/null | sort -z)
   done
 }
@@ -2349,9 +2620,116 @@ EOF
   token_offender_lines=(20 23 26 29 33 36 41 44)
   token_clean_lines=(49 54 57 61 64 68 71 74 77 80)
 
+  # RULE 7 probe — a component-derived date token reaching .difference(.
+  # Lives under `lib/` for the same reason Rule 6's does: `lib/` is a root
+  # ONLY Rules 6 and 7 walk, so a positive probe there pins that root
+  # independently of the matching logic. It is a SEPARATE file from the Rule 6
+  # probe so neither rule's hits can be mistaken for the other's, and it
+  # carries NO `.toUtc(`/`.toLocal(` so Rule 6's prefilter skips it entirely.
+  seam_probe="lib/features/booking/presentation/token_difference_probe.dart"
+  mkdir -p "$tmp/$(dirname "$seam_probe")"
+  cat > "$tmp/$seam_probe" <<'EOF'
+// Probe for RULE 7 (date token subtracted with .difference), row by row.
+// Sits under lib/, which only Rules 6 and 7 scan.
+
+// ---- component-derived token declarations the indirect form resolves against ----
+final DateTime todayStart = DateTime(nowKyiv.year, nowKyiv.month, nowKyiv.day);
+final DateTime thenStart = DateTime(then.year, then.month, then.day);
+DateTime tokFn() => DateTime(a.year, a.month, a.day);
+final loose = DateTime(deep.nested.value.year, deep.nested.value.month, deep.nested.value.day);
+// NOT component-derived — a literal-year arity-3 token. Rule 7 deliberately
+// does not claim this shape; see the header's "WHY NOT THE BROADER" section.
+final DateTime literalTok = DateTime(2026, 3, 29);
+// NOT a token at all — genuine instants.
+final DateTime realInstant = DateTime.utc(2026, 3, 29, 12);
+final DateTime otherInstant = DateTime.utc(2026, 3, 30, 12);
+
+// ---- flagged rows ----
+
+// (r7-1) INDIRECT, receiver form — the EXACT shape that shipped in
+// relative_date.dart. MUST be flagged.
+final int d1 = todayStart.difference(thenStart).inDays;
+
+// (r7-2) INDIRECT, ARGUMENT form — the token is the subtrahend and the
+// RECEIVER is a genuine instant, so a gate that only inspects receivers
+// misses this half entirely. MUST be flagged.
+final int d2 = realInstant.difference(thenStart).inDays;
+
+// (r7-3) INDIRECT through a zero-arg function declaration. MUST be flagged.
+final int d3 = tokFn().difference(otherInstant).inDays;
+
+// (r7-4) INDIRECT through an UNTYPED final whose initializer reads a deeply
+// qualified `.year`. MUST be flagged.
+final int d4 = loose.difference(otherInstant).inDays;
+
+// (r7-5) DIRECT — the construction inlined at the call site. MUST be flagged.
+final int d5 = DateTime(x.year, x.month, x.day).difference(otherInstant).inDays;
+
+// (r7-6) DIRECT, NESTED inside an enclosing call — pins that the token's
+// matching ")" is found by depth tracking, not by a [^)]* regex that would
+// run past it to the ENCLOSING call's ")". MUST be flagged.
+final int d6 = wrap(DateTime(x.year, x.month, x.day).difference(otherInstant).inDays, 3);
+
+// ---- clean rows ----
+
+// (r7-7) DateTime.utc — a qualified constructor, never a host-local token.
+final int c1 = DateTime.utc(2026, 3, 29).difference(realInstant).inDays;
+
+// (r7-8) tz.TZDateTime — contains "DateTime(" as a SUBSTRING, preceded by a
+// word character. MUST stay clean (same exclusion as Rule 1's rule 1).
+final int c2 = tz.TZDateTime(zone, a.year, a.month, a.day).difference(o).inMinutes;
+
+// (r7-9) ARITY 4 — carries a time-of-day component, so it is an INSTANT, not
+// a date token. Rule 1's territory, not Rule 7's; this row is what separates
+// the two rules.
+final int c3 = DateTime(a.year, a.month, a.day, 12).difference(otherInstant).inDays;
+
+// (r7-10) LITERAL-year arity-3 token on BOTH sides — deliberately out of this
+// rule's claim; see the header's measured residue.
+final int c4 = literalTok.difference(literalTok2).inDays;
+
+// (r7-11) genuine instants on both sides.
+final int c5 = realInstant.difference(otherInstant).inDays;
+
+// (r7-12) a LEGAL operation on a token — comparison, not subtraction.
+final bool c6 = todayStart.isBefore(thenStart);
+
+// (r7-13) an identifier not declared as a token in this file, on BOTH sides
+// (the same-file honest limit — a cross-file declaration is never looked up).
+final int c7 = someOtherThing.difference(thenStart2).inDays;
+
+// (r7-14) same-line date-token-ok marker.
+final int c8 = todayStart.difference(thenStart).inDays; // date-token-ok: demo
+
+// (r7-15) marker on the line directly above.
+// date-token-ok: demonstrating the failure
+final int c9 = todayStart.difference(thenStart).inDays;
+
+// (r7-16) whole-line comment.
+// final int c10 = todayStart.difference(thenStart).inDays;
+
+// (r7-17) inside a string literal.
+const String c11 = "todayStart.difference(thenStart)";
+
+// (r7-18) trailing comment hides it.
+final int c12 = z; // todayStart.difference(thenStart)
+
+// (r7-19) a LONGER identifier merely ENDING in a token name, on both sides.
+final int c13 = myTodayStart.difference(myThenStart).inDays;
+EOF
+  seam_offender_lines=(20 25 28 32 35 40)
+  seam_clean_lines=(45 49 54 58 61 64 68 71 75 81 84 87)
+
+  # RULE 7 SCAN-ROOT CONTROL — the same flagged shape under a root Rule 7 does
+  # NOT walk. `token_scan_dirs` is lib/ + test/ + integration_test/, all of
+  # which it DOES walk, so there is no out-of-scope root to control against;
+  # instead this control proves the reverse direction, which is the one that
+  # can silently regress: Rule 7's probe must contribute nothing to Rules 1-6.
+  # (Asserted below rather than with a separate file.)
+
   out="$(run_scan "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
-  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} + ${#mix_offender_lines[@]} + ${#read_offender_lines[@]} + ${#token_offender_lines[@]} + ${#read_control_r3_lines[@]} ))
+  expected=$(( ${#probe_paths[@]} * offenders_per_probe + ${#clock_probe_paths[@]} * clock_offenders_per_probe + identifier_offenders_total + ${#now_offender_lines[@]} + ${#mix_offender_lines[@]} + ${#read_offender_lines[@]} + ${#token_offender_lines[@]} + ${#seam_offender_lines[@]} + ${#read_control_r3_lines[@]} ))
   if [ "$flagged" -ne "$expected" ]; then
     echo "SELF-TEST FAIL: expected exactly $expected offenders"
     echo "                ($offenders_per_probe Rule-1 hits × ${#probe_paths[@]}"
@@ -2597,6 +2975,57 @@ EOF
     fi
   done
 
+  # ---- RULE 7 assertions -----------------------------------------------
+  for ln in "${seam_offender_lines[@]}"; do
+    if ! printf '%s\n' "$out" | grep -q "^R7:$tmp/$seam_probe:$ln:"; then
+      echo "SELF-TEST FAIL: expected a Rule-7 offender at $seam_probe:$ln,"
+      echo "                none found. This probe lives under lib/ — is 'lib'"
+      echo "                still in token_scan_dirs AND actually walked by"
+      echo "                run_scan's THIRD loop (the .difference( prefilter"
+      echo "                one)? Line 16 is the EXACT shape that shipped in"
+      echo "                relative_date.dart; line 20 pins the ARGUMENT form"
+      echo "                (a gate that only checks the receiver misses half"
+      echo "                the defect); line 30 pins depth-tracked paren"
+      echo "                matching against a nested call in the token's own"
+      echo "                argument list."
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  for ln in "${seam_clean_lines[@]}"; do
+    if printf '%s\n' "$out" | grep -q "^R7:$tmp/$seam_probe:$ln:"; then
+      echo "SELF-TEST FAIL: line $ln of $seam_probe should NOT be flagged by"
+      echo "                Rule 7 (qualified constructor / TZDateTime /"
+      echo "                arity 4 = an instant / literal-year token,"
+      echo "                deliberately unclaimed / genuine instants / a LEGAL"
+      echo "                token comparison / undeclared name / date-token-ok"
+      echo "                annotated / comment / string literal / longer"
+      echo "                identifier), but was. Line 44 in particular pins"
+      echo "                the TZDateTime substring exclusion, and line 48"
+      echo "                pins that arity is what separates Rule 7 from"
+      echo "                Rule 1:"
+      printf '%s\n' "$out"
+      exit 1
+    fi
+  done
+  if printf '%s\n' "$out" | grep -qE "^R[123456]:$tmp/$seam_probe:"; then
+    echo "SELF-TEST FAIL: $seam_probe was flagged by Rules 1-6. It contains no"
+    echo "                clock read and no .toUtc()/.toLocal(), sits outside"
+    echo "                the test tiers Rules 1-5 scan, and its only arity>=4"
+    echo "                DateTime( has a DERIVED first argument (which Rule 1"
+    echo "                excludes) — so a hit here means a rule's scope has"
+    echo "                leaked:"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  if printf '%s\n' "$out" | grep -q "^R7:$tmp/$token_probe:"; then
+    echo "SELF-TEST FAIL: the RULE 6 probe was flagged by Rule 7 — it contains"
+    echo "                no .difference( at all, so Rule 7's matching is"
+    echo "                firing on something other than the subtraction:"
+    printf '%s\n' "$out"
+    exit 1
+  fi
+
   echo "SELF-TEST PASS: RULE 1 — qualified constructors (DateTime.utc,"
   echo "                TZDateTime), derived first args, comments (whole-line"
   echo "                and trailing), string-literal contents, and both"
@@ -2692,6 +3121,25 @@ EOF
   echo "                Its probe lives under lib/ — the one root only Rule 6"
   echo "                walks — which pins that wider scan root independently"
   echo "                of the matching logic."
+  echo "                RULE 7 — a COMPONENT-DERIVED date token"
+  echo "                (DateTime(x.year, x.month, x.day)) reaching"
+  echo "                .difference( is flagged both DIRECTLY at the call site"
+  echo "                (including with a nested call inside the token's own"
+  echo "                argument list, pinning depth-tracked paren matching)"
+  echo "                and INDIRECTLY through a same-file declaration, in"
+  echo "                BOTH the receiver and the ARGUMENT position — the"
+  echo "                receiver form is the exact shape that shipped in"
+  echo "                relative_date.dart and rendered «Сьогодні» for"
+  echo "                «Вчора» every March; while DateTime.utc,"
+  echo "                tz.TZDateTime, an arity-4 instant (Rule 1's"
+  echo "                territory, and what separates the two rules), a"
+  echo "                literal-year token (deliberately unclaimed — see the"
+  echo "                header's measured six-hit residue), a LEGAL token"
+  echo "                comparison, an undeclared name, a date-token-ok"
+  echo "                annotation, comments, string literals and a longer"
+  echo "                identifier all stay clean. Its probe also lives under"
+  echo "                lib/ and contributes nothing to Rules 1-6, pinning"
+  echo "                that the wider root has not leaked."
   echo "SELF-TEST OK: forbid_host_local_instant_anchor.sh"
   exit 0
 fi
@@ -2706,6 +3154,7 @@ rule3_offenders="$(printf '%s\n' "$offenders" | grep '^R3:' | sed 's/^R3://' || 
 rule4_offenders="$(printf '%s\n' "$offenders" | grep '^R4:' | sed 's/^R4://' || true)"
 rule5_offenders="$(printf '%s\n' "$offenders" | grep '^R5:' | sed 's/^R5://' || true)"
 rule6_offenders="$(printf '%s\n' "$offenders" | grep '^R6:' | sed 's/^R6://' || true)"
+rule7_offenders="$(printf '%s\n' "$offenders" | grep '^R7:' | sed 's/^R7://' || true)"
 
 failed=0
 
@@ -2908,6 +3357,44 @@ if [ -n "$rule6_offenders" ]; then
   echo "is exactly ONE such place in this tree — kyiv_day_test.dart's runnable"
   echo "demonstration that it returns garbage), annotate it:"
   echo "    // date-token-ok: <why treating a Kyiv day token as an instant is correct here>"
+  echo
+  echo "There is no allow-list for this gate and none should be added."
+  echo
+fi
+
+if [ -n "$rule7_offenders" ]; then
+  failed=1
+  echo "DATE TOKEN subtracted with .difference(), under ${token_scan_dirs[*]}"
+  echo "(RULE 7 — the second rule here that also scans lib/):"
+  echo "$rule7_offenders"
+  echo
+  echo "DateTime(x.year, x.month, x.day) is a DATE TOKEN — a HOST-LOCAL"
+  echo "DateTime at host-local MIDNIGHT whose .year/.month/.day carry a"
+  echo "calendar day. DateTime.difference measures elapsed ABSOLUTE time, so"
+  echo "when the HOST zone crosses a DST transition between the two midnights"
+  echo "the span is 23 h (spring forward) or 25 h (fall back) and .inDays"
+  echo "truncates toward zero — silently returning ONE DAY FEWER than the"
+  echo "calendar spans. Fall-back is benign (25 h still truncates to 1), which"
+  echo "is precisely what makes the spring-forward half so easy to miss."
+  echo
+  echo "This shipped: lib/shared/formatters/relative_date.dart counted this way"
+  echo "until Phase 284, so on a Europe/Kyiv device — the market's own, i.e."
+  echo "most installs — a review or invite from 29 March rendered «Сьогодні»"
+  echo "on 30 March, every year. RULE 1 waved it through because it requires"
+  echo "arity >= 4 AND a literal-digit first argument; this construction is"
+  echo "arity 3 with a component read, and misses on both counts."
+  echo
+  echo "Subtract through the sanctioned helper instead:"
+  echo "    kyivDaysBetween(earlierToken, laterToken)  // lib/shared/time/kyiv_day.dart"
+  echo "It re-anchors both tokens at UTC midnight first. UTC observes no"
+  echo "transitions, so every calendar day there is uniformly 24 h and the"
+  echo "count is exact. (calendarDayCount in bookings_day_rail.dart is a"
+  echo "delegating alias of it — do not write a third implementation.)"
+  echo
+  echo "If performing the banned subtraction is genuinely the subject here —"
+  echo "e.g. a runnable demonstration that it returns the wrong answer —"
+  echo "annotate it with the same marker Rule 6 uses:"
+  echo "    // date-token-ok: <why subtracting a Kyiv day token raw is correct here>"
   echo
   echo "There is no allow-list for this gate and none should be added."
   echo
