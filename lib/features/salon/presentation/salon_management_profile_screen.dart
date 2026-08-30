@@ -827,9 +827,23 @@ class _AboutReadView extends StatelessWidget {
                 onTap: () => _openInstagram(context, instagram),
               )
             else if (showAddInstagram)
-              _AddLink(
+              // Renders as the SAME ContactTile row shape the populated
+              // Instagram value uses (glyph well + «Instagram» caption +
+              // chevron) so the empty state reads as "this field, unset"
+              // rather than a disconnected inline link. `valueIsPlaceholder`
+              // swaps the value slot to the link-weight mocha style so
+              // «Додати посилання» still reads as an invitation, not as a
+              // real handle.
+              ContactTile(
                 key: const Key('salon-manage-add-instagram'),
-                label: l10n.salonManageAddInstagramLink,
+                icon: Icons.alternate_email,
+                label: l10n.masterInstagramLabel,
+                value: l10n.salonManageAddInstagramLink,
+                valueIsPlaceholder: true,
+                // Distinct from the populated tile's semantic label — a
+                // screen-reader user must hear that this ADDS a link, not
+                // that it opens an existing Instagram.
+                semanticLabel: l10n.salonManageAddInstagramLink,
                 onTap: onAddInstagram,
               ),
           ],
@@ -866,8 +880,15 @@ class _AboutReadView extends StatelessWidget {
 }
 
 /// A small inline "add this" text link — a leading `+` glyph and a mocha
-/// [VelvetText.link] label, nothing else. Used twice by [_AboutReadView]
-/// («Додати опис», «Додати посилання»).
+/// [VelvetText.link] label, nothing else. Used by [_AboutReadView]'s empty
+/// «Додати опис» description state.
+///
+/// The Instagram empty state used to share this widget too («Додати
+/// посилання»), but now renders as a [ContactTile] instead (glyph well +
+/// «Instagram» caption + chevron, matching the populated row's shape) — see
+/// the `showAddInstagram` branch below. `_AddLink` has no description
+/// counterpart to fold into, since a description has no icon/label pair to
+/// echo the way a contact field does.
 ///
 /// REUSE-FIRST note: no existing widget fits. `NeumorphicButton` (the
 /// `masterAddServices` empty-state affordance) is a full-height 54 dp
@@ -876,11 +897,11 @@ class _AboutReadView extends StatelessWidget {
 /// `masterAllServices`/`salonMastersShowAll` inline link is the closest
 /// shape, but it is a bare `Text` + trailing chevron built inline at each
 /// call site with no shared widget to import, and its trailing chevron means
-/// "go see more of what is already here" — the opposite of these two links.
-/// The LEADING `+` is borrowed from [_AddStaffTile] on this very screen, so
-/// the tab already speaks that vocabulary.
+/// "go see more of what is already here" — the opposite of this link. The
+/// LEADING `+` is borrowed from [_AddStaffTile] on this very screen, so the
+/// tab already speaks that vocabulary.
 ///
-/// PRIVATE deliberately: the only consumer is this screen. The links are
+/// PRIVATE deliberately: the only consumer is this screen. The link is
 /// owner-only and must never appear on `public_salon_profile_screen.dart`
 /// (a client viewing a stranger's salon is not invited to describe it), so
 /// there is no second call site to promote this to.

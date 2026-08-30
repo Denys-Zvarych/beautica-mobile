@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_settings_scree
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -835,6 +836,19 @@ void main() {
         );
         await tester.ensureVisible(addInstagram);
         await tester.pumpAndSettle();
+
+        // mobile-qa (2026-08-31): the empty-state Instagram row now renders
+        // as the SAME ContactTile row shape the populated tile uses, not the
+        // old bare `_AddLink`. Pin the resolved type here too — this drives
+        // the REAL router/screens end to end, so it is the one place that
+        // proves the tap target the user actually sees (not a widget-tier
+        // fake) is the new tile, and that the tap still lands and navigates.
+        expect(tester.widget(addInstagram), isA<ContactTile>());
+        expect(
+          tester.widget<ContactTile>(addInstagram).valueIsPlaceholder,
+          isTrue,
+        );
+
         await tester.tap(addInstagram);
         await tester.pumpAndSettle();
 

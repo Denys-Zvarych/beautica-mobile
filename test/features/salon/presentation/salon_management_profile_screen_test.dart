@@ -43,8 +43,10 @@ import 'package:beautica_mobile/features/salon/presentation/salon_management_pro
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
@@ -1282,6 +1284,37 @@ void main() {
     );
 
     testWidgets(
+      'neither, OWNER — the add-link node is a ContactTile (not the old '
+      '_AddLink) carrying the placeholder field contract',
+      (tester) async {
+        // mobile-qa (2026-08-31): the key-only assertion above passed
+        // UNCHANGED across the _AddLink -> ContactTile swap — a plain
+        // GestureDetector+Text and a StatefulWidget with a glyph well, a
+        // two-line label/value column and a chevron both satisfy
+        // `find.byKey(...), findsOneWidget`. This test pins the RESOLVED
+        // TYPE, which the key alone cannot distinguish.
+        await pumpAs(tester, _stubSalon);
+
+        // 1. Resolved widget TYPE — the assertion the key-only test above
+        // could never make.
+        expect(tester.widget(addInstagram), isA<ContactTile>());
+
+        // 2. Field contract. NOTE: these are constructor-field reads, not
+        // render/behaviour assertions — they prove the SCREEN wired the
+        // right values into ContactTile, not that ContactTile renders them
+        // correctly (that half is covered by contact_tile_test.dart, which
+        // tests ContactTile in isolation against the actual rendered
+        // Text/TextStyle).
+        final ContactTile tile = tester.widget<ContactTile>(addInstagram);
+        expect(tile.valueIsPlaceholder, isTrue);
+        expect(tile.value, l10nOf(tester).salonManageAddInstagramLink);
+        expect(tile.label, l10nOf(tester).masterInstagramLabel);
+        expect(tile.icon, Icons.alternate_email);
+        expect(tile.semanticLabel, l10nOf(tester).salonManageAddInstagramLink);
+      },
+    );
+
+    testWidgets(
       'phone on file but no Instagram, OWNER — phone row AND the add-link',
       (tester) async {
         await pumpAs(tester, _stubSalon.copyWith(phone: '+380671112233'));
@@ -1298,6 +1331,27 @@ void main() {
       expect(instagramRow, findsOneWidget);
       expect(addInstagram, findsNothing);
     });
+
+    testWidgets(
+      'a populated Instagram tile renders the value in bodyStrong, NOT the '
+      'placeholder link style — the two branches are visibly different on '
+      'the real screen render',
+      (tester) async {
+        // This is the one assertion in this group that would catch
+        // `valueIsPlaceholder` being silently dropped or hard-coded true/
+        // false at the CALL SITE (the screen), reading the actually
+        // rendered TextStyle rather than a constructor field.
+        await pumpAs(tester, _stubSalon.copyWith(instagramUrl: '@velvet'));
+
+        final Text valueText = tester.widget<Text>(
+          find
+              .descendant(of: instagramRow, matching: find.text('@velvet'))
+              .last,
+        );
+        expect(valueText.style, VelvetText.bodyStrong());
+        expect(valueText.style, isNot(VelvetText.link()));
+      },
+    );
 
     testWidgets(
       'empty description, OWNER — the «Додати опис» link replaces the dead '
