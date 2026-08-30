@@ -42,25 +42,22 @@
 // /logout_action.dart`) — the same confirm→logout→navigate sequence every
 // other hub's logout row runs, not a re-implementation.
 //
-// NOT ported: the design's decorative top subheading (salon logo + name row,
-// its own `_anim0`). This screen only receives a `salonId` (no `Salon`
-// object), and fetching one solely to render that row is outside this
-// rebuild's scope — see the handoff report for the explicit call-out.
-//
-// KNOWN COLLATERAL — flagged, not silently fixed: removing «Редагувати
-// профіль» orphans `SalonManagementProfileScreen._openSettings()`'s inline
-// edit-mode toggle (`_editMode`, tested end-to-end by
-// `salon_management_profile_screen_test.dart`'s "edit mode round-trip"
-// group). That inline form (name/description/phone/Instagram) is superseded
-// by the dedicated edit screens this rebuild finally wires up, but its own
-// code + tests are UNTOUCHED here — out of this task's scope. See the
-// handoff report.
+// Context subheading (design `:227-254`) — NOW PORTED (2026-08-30). It was
+// held back on the grounds that this screen receives only a `salonId` and
+// fetching a `Salon` for a decorative row was out of scope. That no longer
+// holds: [salonManagementProfileProvider] already carries the `Salon` and is
+// warm on every real entry path (the `tune_rounded` control lives on
+// [SalonManagementProfileScreen], inside the shell that watches the SAME
+// family key), so the row costs a `select` on an existing provider — no new
+// fetch, no new repository call. See [_ContextSubheading] for how it
+// degrades when the value is not there.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -71,6 +68,8 @@ import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../master/presentation/widgets/settings_row.dart';
 import '../../settings/domain/account_settings_extras.dart';
 import '../../settings/presentation/logout_action.dart';
+import '../application/salon_management_profile_notifier.dart';
+import 'widgets/salon_cover_widgets.dart';
 
 /// The salon settings hub — «Мої салони» / «Про салон» / «Локація» /
 /// «Контакти» (all owner-only) / «Надіслані запрошення» / «Загальне» /
@@ -92,6 +91,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
   final ValueNotifier<bool> _loggingOut = ValueNotifier<bool>(false);
 
   late final AnimationController _controller;
+  late final CurvedAnimation _animContext; // salon logo + name subheading
   late final CurvedAnimation _animMySalons; // «Мої салони» (owner-only)
   late final CurvedAnimation _animAbout; // «Про салон» (owner-only)
   late final CurvedAnimation _animLocation; // «Локація» (owner-only)
@@ -114,7 +114,13 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
-    _animMySalons = _curve(0.00, 0.40);
+    // Head of the cascade — the design's own `_anim0` / `_anim9` values
+    // (preview `:113`, `:122-123`: "top «Мої салони» — reveals just after
+    // subhead"). «Мої салони» moved off 0.00 to make room for the
+    // subheading, exactly as the preview stages it; every row below keeps
+    // the interval it already shipped with.
+    _animContext = _curve(0.00, 0.36);
+    _animMySalons = _curve(0.04, 0.42);
     _animAbout = _curve(0.06, 0.50);
     _animLocation = _curve(0.14, 0.58);
     _animContacts = _curve(0.22, 0.66);
@@ -133,6 +139,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
 
   @override
   void dispose() {
+    _animContext.dispose();
     _animMySalons.dispose();
     _animAbout.dispose();
     _animLocation.dispose();
@@ -201,6 +208,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // Context subheading — WHICH salon these settings belong to.
+          _reveal(_animContext, _ContextSubheading(salonId: widget.salonId)),
+
           // Navigational group — owner-only. Admins cannot edit salon info
           // (design doc `:274`) and have no multi-salon list to return to.
           if (isOwner) ...<Widget>[
@@ -316,6 +326,75 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
               destructive: true,
               showChevron: false,
               onTap: () => runLogoutFlow(context, ref, _loggingOut),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The design's context subheading (`docs/signup-designs/SalonManagementDesign
+/// /lib/screens/salon_settings_screen.dart:227-254`) — the salon's [SalonLogo]
+/// mark beside its name, so a hub whose every row says «Про салон» / «Локація»
+/// / «Контакти» still says WHICH salon.
+///
+/// Reads the name off [salonManagementProfileProvider] — the family the
+/// management profile and the salon shell already watch under this same
+/// [salonId] — via a `select` down to the single `String?` it renders, so this
+/// widget rebuilds on a name change and on nothing else. It adds no fetch and
+/// no repository call of its own; on every real entry path the family is
+/// already warm.
+///
+/// DEGRADATION — the row is orientation, not chrome, so when it has nothing
+/// true to say it says nothing: no name (loading, error, or a blank name from
+/// the backend) renders `SizedBox.shrink()`, never a spinner, a skeleton, an
+/// error line, or an orphaned logo with no label beside it. It can therefore
+/// never block, delay, or displace the rows below. Deliberately read through
+/// `valueOrNull` rather than `hasValue`/`hasError`: `valueOrNull` keeps the
+/// PREVIOUS name visible across a seamless invalidate (no flicker), and it
+/// sidesteps `AsyncValue.hasError` being satisfied by `AsyncLoading(retrying:
+/// true)`.
+class _ContextSubheading extends ConsumerWidget {
+  const _ContextSubheading({required this.salonId});
+
+  final String salonId;
+
+  /// Diameter of the mark in this subheading — smaller than the hero's
+  /// [SalonLogo], matching the design's `:238`.
+  static const double _logoDiameter = 34;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final String? name = ref.watch(
+      salonManagementProfileProvider(
+        salonId,
+      ).select((AsyncValue<SalonManagementProfileData> s) => s.value?.$1.name),
+    );
+    final String trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      return const SizedBox.shrink(key: Key('salon-settings-context-absent'));
+    }
+
+    return Padding(
+      key: const Key('salon-settings-context'),
+      padding: const EdgeInsets.only(
+        left: VelvetSpacing.xs,
+        bottom: VelvetSpacing.lg,
+      ),
+      child: Row(
+        children: <Widget>[
+          SalonLogo(
+            diameter: _logoDiameter,
+            monogram: trimmed[0].toUpperCase(),
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          Flexible(
+            child: Text(
+              trimmed,
+              style: VelvetText.body(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

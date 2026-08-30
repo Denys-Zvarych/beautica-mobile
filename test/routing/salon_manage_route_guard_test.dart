@@ -733,6 +733,67 @@ void main() {
         },
       );
 
+      // mobile-qa follow-up (2026-08-30), closing the guard-test gap
+      // `mobile-security` named at the Phase 21.9 close-out. The
+      // DIFFERENT-salonId case immediately above asserts a LOCATION plus the
+      // ABSENCE of `SalonSettingsScreen`; neither pins what actually
+      // rendered. Two known traps make that insufficient on this route:
+      //
+      //  1. A literal route declared before a dynamic sibling wins on
+      //     declaration order alone (`my_salons_route_shadowing_test.dart`,
+      //     `register_salon_route_shadowing_test.dart`), so a location
+      //     string can be right while the resolved PAGE is another one
+      //     entirely. Pin the resolved page TYPE.
+      //  2. `context.push` produces an `ImperativeRouteMatch`, which carries
+      //     no `fullPath` — a guard that happens to work for `go` and NOT
+      //     for `push` (the way the settings hub's own rows navigate:
+      //     `salon_settings_screen.dart` uses `context.push` throughout)
+      //     would be invisible to every `router.go` case in this file.
+      //
+      // Both are covered at once by landing the admin on their OWN salon's
+      // settings first (`go`, admitted — one `SalonSettingsScreen` mounted),
+      // then PUSHING the foreign salon's settings on top. A working guard
+      // leaves the count at one and mounts the roleHomePath page type; a
+      // broken one mounts a SECOND `SalonSettingsScreen` — which the
+      // arithmetic below distinguishes without reading a location at all.
+      testWidgets('SALON_ADMIN who PUSHES a DIFFERENT salonId resolves to the '
+          'roleHomePath PAGE TYPE (SalonShellScreen), never a second '
+          'SalonSettingsScreen', (tester) async {
+        final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+        // `push`, deliberately — see trap 2 above. `unawaited`: a push
+        // Future completes only when the pushed route is POPPED, so awaiting
+        // it here would hang the test forever.
+        unawaited(router.push(RouteNames.salonManageSettings(_kSalonId)));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(SalonSettingsScreen, skipOffstage: false),
+          findsNothing,
+          reason:
+              'the foreign salon-1 settings page must never be built at '
+              'all — `skipOffstage: false` so a page mounted BELOW the '
+              'top route (which the Navigator marks offstage) still '
+              'counts',
+        );
+        expect(
+          find.byType(SalonShellScreen),
+          findsOneWidget,
+          reason:
+              'the page actually on screen is the roleHomePath page TYPE '
+              '(the salon shell) — asserted as a TYPE, not as a path '
+              'string, because a literal-vs-dynamic shadow can satisfy '
+              'the path while building a different page',
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is SalonShellScreen && w.salonId == 'salon-guard-2',
+          ),
+          findsOneWidget,
+          reason: "the redirect lands on the admin's OWN salon shell",
+        );
+      });
+
       testWidgets(
         'CLIENT is redirected to roleHomePath (RouteNames.clientHome), never '
         'admitted',

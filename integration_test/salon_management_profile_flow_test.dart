@@ -17,18 +17,20 @@
 //   • `salonManageGuard` admitting a REAL, fully-authenticated SALON_OWNER
 //     session (not a stubbed `AuthNotifier`) end to end.
 //
-// No UI entry point reaches `/salons/:salonId/manage` itself yet (Phase
-// 21.1's "Мої салони" hub is unbuilt — see `salon_settings_screen.dart`'s own
-// header doc), so this flow drives the router directly via `router.go(...)`
-// after a REAL login, exactly like `edit_profile_flow_test.dart`'s
-// `professionalTitle` case does for `RouteNames.masterEditPersonal`. From
-// `/manage` onward, both the phone-edit and delete journeys below now drive
+// This flow ENTERS `/salons/:salonId/manage` by driving the router directly
+// via `router.go(...)` after a REAL login — exactly like
+// `edit_profile_flow_test.dart`'s `professionalTitle` case does for
+// `RouteNames.masterEditPersonal` — rather than walking the Phase 21.1
+// «Мої салони» hub that now reaches it in the app. That keeps this file
+// scoped to the management surface itself; the hub's own entry path is
+// covered by `salon_owner_landing_flow_test.dart`.
+//
+// From `/manage` onward, both the phone-edit and delete journeys below drive
 // the REAL Phase 21.9/21.10/21.13 UI path (settings hub -> dedicated edit
-// screen / -> «Загальне» -> account page), not a synthetic key — the old
-// inline «Редагувати профіль» edit mode and the old 2-row settings hub with
-// its own «Видалити салон» row (`row-salon-edit-profile` / `field-salon-phone`
-// / `btn-salon-save-edit` / `row-salon-delete`) were replaced by commit
-// `209cea0`'s Phase 21.10/21.13 rebuild; see `salon_settings_screen.dart`'s
+// screen / -> «Загальне» -> account page), not a synthetic key. The Phase
+// 21.2 shape they replaced — an inline «Редагувати профіль» edit mode and a
+// 2-row settings hub carrying its own «Видалити салон» — is GONE as of commit
+// `209cea0`, and so are all of its keys; see `salon_settings_screen.dart`'s
 // own header doc for the full shape of that rebuild.
 //
 // NO PATROL FLOW: nothing here touches an OS permission dialog, deep link,
@@ -179,6 +181,40 @@ void main() {
         await tester.tap(find.byKey(const Key('salon-manage-settings')));
         await tester.pumpAndSettle();
         expect(find.byType(SalonSettingsScreen), findsOneWidget);
+
+        // Phase 21.9 close-out — the context subheading's ONE claim no widget
+        // test can reach. `salon_settings_screen_test.dart` OVERRIDES
+        // `salonManagementProfileProvider`, so it proves the row renders
+        // GIVEN a resolved family; it cannot prove the family is genuinely
+        // warm when the real cover control opens the hub against the real
+        // repository. The screen's own header doc rests entirely on that
+        // ("on every real entry path the family is already warm"), and if it
+        // were false the user would land on a silently blank subheading with
+        // every widget test still green — the degradation path is deliberate,
+        // so nothing else would flag it.
+        //
+        // Mutation-probed (2026-08-30): forcing the widget onto the absent
+        // path, and separately onto a DIFFERENT (cold) family key, each turn
+        // this pair RED.
+        final Finder subheading = find.byKey(
+          const Key('salon-settings-context'),
+        );
+        expect(
+          subheading,
+          findsOneWidget,
+          reason:
+              'the family is warm on the REAL entry path, so the subheading '
+              'resolves immediately — never the degraded absent path',
+        );
+        expect(
+          find.descendant(
+            of: subheading,
+            // i18n-finder-ok: fixture data, not UI copy.
+            matching: find.text('Студія Краси «Камелія»'),
+          ),
+          findsOneWidget,
+          reason: 'and it names THIS salon, off the real repository read',
+        );
 
         final Finder contactsRow = find.byKey(const Key('row-salon-contacts'));
         await tester.ensureVisible(contactsRow);

@@ -5270,10 +5270,6 @@
   "@salonStaffRoleAdmin": {
     "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Команда grid card and the staff member profile screen's identity card RoleChip."
   },
-  "salonSettingsEditProfile": "Редагувати профіль",
-  "@salonSettingsEditProfile": {
-    "description": "Phase 21.2 — the salon settings page's navigational row that pops back to the management profile with edit mode toggled on."
-  },
   "salonSettingsMySalons": "Мої салони",
   "@salonSettingsMySalons": {
     "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."

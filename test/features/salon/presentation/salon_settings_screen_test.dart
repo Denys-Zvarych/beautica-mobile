@@ -34,7 +34,12 @@
 //      so a future edit cannot quietly reintroduce either.
 //   8. The close button falls back to `RouteNames.salonManage` when there is
 //      no history to pop (this router has none).
-//   9. The logout row still raises the shared confirm dialog — proving the
+//   9. The context subheading (salon logo + name) renders the name off the
+//      already-warm `salonManagementProfileProvider`, and DEGRADES SILENTLY —
+//      a still-loading or errored family renders nothing at all (no spinner,
+//      no error line, no orphan logo) and, critically, never displaces the
+//      rows below it.
+//  10. The logout row still raises the shared confirm dialog — proving the
 //      row is wired to `runLogoutFlow`. The full logout mechanics (secure
 //      storage wipe, double-tap guard, failure snack, …) are exhaustively
 //      covered by `settings_hub_screen_test.dart` and
@@ -48,7 +53,14 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/settings/domain/account_settings_extras.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -57,6 +69,12 @@ import 'package:go_router/go_router.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _kSalonId = 'salon-1';
+
+/// Deliberately Latin: the subheading renders the salon's own NAME — backend
+/// data, identical in every locale — so a `find.text` on it is locale-safe.
+/// A Cyrillic fixture here would read as a localized-copy finder and trip
+/// `forbid_cyrillic_finder` for no benefit.
+const String _kSalonName = 'Velvet Studio';
 
 const _stubOwner = User(
   id: 'owner-1',
@@ -169,8 +187,71 @@ GoRouter _router() => GoRouter(
   ],
 );
 
-List<Object> _overrides(User user) => <Object>[
+/// [SalonManagementProfile] stub resolving immediately to a named salon —
+/// the state the context subheading renders from. Keeps the whole suite off
+/// the real Dio stack: without it, watching the family from the subheading
+/// would drive a live repository read in every test in this file.
+class _SettledSalonManagementProfile extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: _kSalonId, name: _kSalonName),
+    const <SalonStaffMember>[],
+  );
+}
+
+/// [SalonManagementProfile] stub that never resolves — pins the subheading's
+/// degradation contract against a family stuck in `AsyncLoading` (the
+/// deep-link cold-start case), which must render nothing rather than a
+/// spinner, a placeholder, or a reserved gap.
+class _PendingSalonManagementProfile extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) =>
+      Completer<SalonManagementProfileData>().future;
+}
+
+/// [SalonManagementProfile] stub that fails — the subheading must swallow it
+/// exactly like the loading case. `AsyncValue.value` (not `hasError`) is what
+/// the widget reads, so this also pins that an errored family cannot leak an
+/// error surface into a decorative row.
+class _FailedSalonManagementProfile extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async =>
+      throw const NetworkFailure();
+}
+
+/// [SalonManagementProfile] stub resolving to a salon whose name is
+/// WHITESPACE ONLY — the third absent-path branch
+/// (`salon_settings_screen.dart:374`), and the only one that exercises the
+/// `.trim()` guard rather than the `AsyncValue` shape: the family is a clean
+/// `AsyncData` here, so `valueOrNull` hands the widget a real String and the
+/// blankness check is the ONLY thing standing between it and a subheading
+/// rendering a space as its monogram. Whitespace, not `''`, deliberately:
+/// dropping the `.trim()` makes `'   '.isEmpty` false and this test RED,
+/// whereas an empty-string fixture would stay green either way.
+class _BlankNamedSalonManagementProfile extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async =>
+      (const Salon(id: _kSalonId, name: '   '), const <SalonStaffMember>[]);
+}
+
+/// [SalonManagementProfile] stub whose resolution the test drives, so the
+/// loading→resolved transition can be observed inside ONE mounted app.
+class _ControlledSalonManagementProfile extends SalonManagementProfile {
+  _ControlledSalonManagementProfile(this._future);
+
+  final Future<SalonManagementProfileData> _future;
+
+  @override
+  Future<SalonManagementProfileData> build(String salonId) => _future;
+}
+
+List<Object> _overrides(
+  User user, {
+  SalonManagementProfile Function() profile =
+      _SettledSalonManagementProfile.new,
+}) => <Object>[
   authProvider.overrideWith(() => _StubAuthNotifier(user)),
+  salonManagementProfileProvider(_kSalonId).overrideWith(profile),
 ];
 
 /// The eight row keys the screen renders for an OWNER, in the design's
@@ -464,6 +545,214 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byKey(const Key('stub-manage-$_kSalonId')), findsOneWidget);
+      },
+    );
+  });
+
+  group('context subheading', () {
+    testWidgets('renders the salon logo + name ABOVE the first row', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+      await tester.pumpAndSettle();
+
+      final Finder subheading = find.byKey(const Key('salon-settings-context'));
+      expect(subheading, findsOneWidget);
+      expect(
+        find.descendant(of: subheading, matching: find.byType(SalonLogo)),
+        findsOneWidget,
+        reason: 'the subheading reuses the shared SalonLogo, not a fork',
+      );
+      expect(
+        find.descendant(of: subheading, matching: find.text(_kSalonName)),
+        findsOneWidget,
+        reason: 'the name comes off salonManagementProfileProvider',
+      );
+      expect(
+        tester.getTopLeft(subheading).dy,
+        lessThan(tester.getTopLeft(find.byKey(const Key('row-my-salons'))).dy),
+        reason: 'the subheading heads the list, above the first row',
+      );
+    });
+
+    testWidgets('renders for an admin too (it is not owner-gated)', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubAdmin));
+      await tester.pumpAndSettle();
+
+      // Asserts the same rendered PAYLOAD the owner case pins, not merely
+      // that the key is present: an admin subheading that resolved to a bare
+      // logo, or to a logo beside an empty label, is a real regression the
+      // key alone cannot see.
+      final Finder subheading = find.byKey(const Key('salon-settings-context'));
+      expect(subheading, findsOneWidget);
+      expect(
+        find.descendant(of: subheading, matching: find.byType(SalonLogo)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: subheading, matching: find.text(_kSalonName)),
+        findsOneWidget,
+        reason:
+            'the admin sees the salon NAME, not an unlabelled mark — the '
+            'row is owner-ungated in its content as well as its presence',
+      );
+    });
+
+    // The degradation contract: the row is decorative, so a family that has
+    // not resolved (or has failed) renders NOTHING — no spinner, no skeleton,
+    // no reserved gap — and never blocks the rows below.
+    //
+    // ONE app per test, deliberately: pumping a second `ProviderScope` into
+    // the same tester reuses the first scope's Element and does NOT re-apply
+    // a changed family override, so a "resolved app then degraded app"
+    // comparison silently measures the resolved tree twice.
+    for (final (label, stub) in <(String, SalonManagementProfile Function())>[
+      ('loading', _PendingSalonManagementProfile.new),
+      ('errored', _FailedSalonManagementProfile.new),
+      ('blank-named', _BlankNamedSalonManagementProfile.new),
+    ]) {
+      testWidgets('$label: renders nothing, and every row still renders', (
+        tester,
+      ) async {
+        final router = _router();
+        addTearDown(router.dispose);
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides(_stubOwner, profile: stub),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('salon-settings-context')), findsNothing);
+
+        // NOT merely "the resolved row is absent" — the absent path must
+        // occupy EXACTLY zero height. `findsNothing` on the resolved key is
+        // equally satisfied by a `SizedBox(height: 40)` skeleton standing in
+        // its place, which is a reserved gap by any other name.
+        final Finder absent = find.byKey(
+          const Key('salon-settings-context-absent'),
+        );
+        expect(absent, findsOneWidget);
+        expect(
+          tester.getSize(absent).height,
+          0.0,
+          reason:
+              'the absent path reserves NO vertical space at all — any '
+              'non-zero height here is a phantom gap above the first row',
+        );
+
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsNothing,
+          reason: 'a decorative row never shows a loading affordance',
+        );
+        expect(
+          find.byType(SalonLogo),
+          findsNothing,
+          reason: 'never an orphan logo with no name beside it',
+        );
+
+        // Absence never blocks the hub.
+        for (final key in _ownerOrderedKeys) {
+          expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+        }
+      });
+    }
+
+    // The non-vacuous half of the contract: the subheading DOES occupy real
+    // height once it resolves, so "absent" above is genuinely "no reserved
+    // gap" rather than "a zero-height row either way". Driven inside ONE app
+    // by completing the family mid-test — which is also the real deep-link
+    // cold-start sequence.
+    testWidgets(
+      'loading reserves NO space: the first row moves down only once the '
+      'name arrives',
+      (tester) async {
+        final completer = Completer<SalonManagementProfileData>();
+        addTearDown(() {
+          if (!completer.isCompleted) {
+            completer.complete((
+              const Salon(id: _kSalonId, name: _kSalonName),
+              const <SalonStaffMember>[],
+            ));
+          }
+        });
+
+        final router = _router();
+        addTearDown(router.dispose);
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides(
+            _stubOwner,
+            profile: () => _ControlledSalonManagementProfile(completer.future),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final double loadingFirstRowDy = tester
+            .getTopLeft(find.byKey(const Key('row-my-salons')))
+            .dy;
+        expect(find.byKey(const Key('salon-settings-context')), findsNothing);
+
+        // PRIMARY pin — an absolute bound at zero, independent of every
+        // other row's geometry.
+        //
+        // The earlier form of this test bounded the gap only RELATIVE to the
+        // resolved tree (`resolvedDy > loadingDy`). That is weaker than it
+        // reads: the resolved subheading is 58dp tall (34dp `SalonLogo` +
+        // 24dp `VelvetSpacing.lg`), so `greaterThan` still passes for ANY
+        // phantom gap below 58dp — a skeleton-sized reservation survives it
+        // untouched. Mutating the absent path to `SizedBox(height: 40)` left
+        // the whole suite green; only `height: 100` turned it red. Bound the
+        // absent widget itself instead: `height == 0` admits nothing.
+        final Finder absent = find.byKey(
+          const Key('salon-settings-context-absent'),
+        );
+        expect(absent, findsOneWidget);
+        expect(
+          tester.getSize(absent).height,
+          0.0,
+          reason:
+              'the absent path reserves NO vertical space at all — any '
+              'non-zero height here is a phantom gap above the first row',
+        );
+
+        completer.complete((
+          const Salon(id: _kSalonId, name: _kSalonName),
+          const <SalonStaffMember>[],
+        ));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('salon-settings-context')), findsOneWidget);
+        expect(absent, findsNothing);
+
+        // SECONDARY, independent pin on the same fact, expressed as the
+        // no-subheading control the absolute bound is derived from: the
+        // first row's displacement must equal the resolved subheading's own
+        // height EXACTLY, i.e. the loading tree contributed precisely zero.
+        // Stated relationally it survives a future change to the
+        // subheading's own dimensions, which a hard-coded 58.0 would not.
+        expect(
+          tester.getTopLeft(find.byKey(const Key('row-my-salons'))).dy -
+              loadingFirstRowDy,
+          moreOrLessEquals(
+            tester
+                .getSize(find.byKey(const Key('salon-settings-context')))
+                .height,
+            epsilon: 0.01,
+          ),
+          reason:
+              'the ENTIRE downward shift of the first row is the resolved '
+              'subheading itself; any smaller shift means the loading state '
+              'had already reserved the difference',
+        );
       },
     );
   });
