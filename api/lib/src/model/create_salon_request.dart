@@ -48,7 +48,7 @@ abstract class CreateSalonRequest
   String? get instagramUrl;
 
   @BuiltValueField(wireName: r'cityId')
-  String? get cityId;
+  String get cityId;
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
@@ -135,13 +135,11 @@ class _$CreateSalonRequestSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.cityId != null) {
-      yield r'cityId';
-      yield serializers.serialize(
-        object.cityId,
-        specifiedType: const FullType(String),
-      );
-    }
+    yield r'cityId';
+    yield serializers.serialize(
+      object.cityId,
+      specifiedType: const FullType(String),
+    );
     if (object.districtId != null) {
       yield r'districtId';
       yield serializers.serialize(

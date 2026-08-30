@@ -2066,6 +2066,127 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 18b — SALON_OWNER with null cityId: verify submit shows
+    //            ProviderMissingCityFailure and NEVER calls SalonRepository
+    //            .create (Fix 3 regression guard, SALON_OWNER side).
+    //
+    // _saveProviderProfile's isCityMissing guard is a single `switch` whose
+    // `case UserRole.independentMaster:` falls through into
+    // `case UserRole.salonOwner:` before the shared `throw
+    // ProviderMissingCityFailure()`. Test 18 above only exercises the
+    // INDEPENDENT_MASTER arm — a later edit that splits the two cases apart
+    // (e.g. to special-case one role) could silently drop the guard for
+    // SALON_OWNER while Test 18 stays green. This is the SALON_OWNER-side
+    // pin: with cityId missing, salonRepo.create must NEVER be invoked, i.e.
+    // no request reaches the backend for a cityless salon.
+    // -----------------------------------------------------------------------
+    testWidgets('18b. SALON_OWNER with null cityId: verify success then '
+        '_saveProviderProfile throws ProviderMissingCityFailure and never calls '
+        'SalonRepository.create', (tester) async {
+      final repo = FakeAuthRepository();
+      final salonRepo = _MockSalonRepository();
+      // salonRepo.create must NOT be called — the guard throws before reaching it.
+
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      final storage = FakeSecureStorage();
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          salonRepositoryProvider.overrideWith((_) => salonRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Seed a SALON_OWNER draft WITHOUT a Step 3 cityId.
+      // The draft has Step 1 + Step 2 only — Step 3 was never completed,
+      // so cityId is null and isCityMissing is true.
+      final notifier = container.read(registerDraftProvider.notifier)
+        ..start(UserRole.salonOwner);
+      notifier.updateStep1(
+        email: _testEmail,
+        password: 'Password1!',
+        confirmPassword: 'Password1!',
+      );
+      notifier.updateStep2(
+        firstName: 'Олена',
+        lastName: 'Мороз',
+        phone: '+380671234567',
+        salonName: 'Salon Lumière',
+      );
+      // No updateStep3 — cityId stays null.
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // No error banner before submit.
+      expect(find.byType(AuthBanner), findsNothing);
+
+      await _fillOtp(tester, '654321');
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+      // Cannot pumpAndSettle: the resend timer may fire setState every second
+      // after resetCooldown() is invoked by the Fix 2B path in _submit.
+      await tester.pump(); // begin async
+      await tester.pump(); // microtasks (verifyEmail success)
+      await tester.pump(); // microtasks (_saveProviderProfile throw)
+      await tester.pump(const Duration(milliseconds: 50)); // animations
+
+      // Must remain on the verification screen — NOT navigate to /done.
+      expect(
+        find.text('home'),
+        findsNothing,
+        reason:
+            'SALON_OWNER with null cityId must NOT navigate to /done '
+            '— _saveProviderProfile threw ProviderMissingCityFailure.',
+      );
+
+      // An error banner must appear.
+      expect(
+        find.byType(AuthBanner),
+        findsOneWidget,
+        reason:
+            'An AuthBanner must appear after ProviderMissingCityFailure '
+            '(Fix 3 — provider roles must not silently create accounts without city).',
+      );
+
+      // The banner message must be the verificationErrProviderMissingCity copy.
+      final l10n = AppLocalizations.of(tester.element(find.byType(AuthBanner)));
+      expect(
+        tester
+            .widgetList<Text>(find.byType(Text))
+            .any((t) => t.data == l10n.verificationErrProviderMissingCity),
+        isTrue,
+        reason:
+            'Expected verificationErrProviderMissingCity banner copy after '
+            'ProviderMissingCityFailure. '
+            'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+      );
+
+      // SalonRepository.create must NOT have been called — the guard threw
+      // before reaching the POST /salons call. This is the behavioural
+      // guarantee behind "cityId required on salon creation": no request for
+      // a cityless salon is ever sent.
+      verifyNever(() => salonRepo.create(dto: any(named: 'dto')));
+    });
+
+    // -----------------------------------------------------------------------
     // Test 20 — INDEPENDENT_MASTER happy path: verifyEmail succeeds and
     //           updateLocality succeeds — no UnauthorizedFailure, no 401.
     //
