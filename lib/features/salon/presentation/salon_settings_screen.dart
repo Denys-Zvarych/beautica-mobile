@@ -17,15 +17,10 @@
 //    [SalonContactsEditScreen], all already built by Phase 21.10 with no
 //    entry point until now).
 //  * «Надіслані запрошення» is shown to ALL viewers (owner AND admin,
-//    outside the owner-only block) but [SalonPendingInvitesScreen] itself is
-//    Phase 21.11 and does not exist yet. Per explicit product direction
-//    (2026-08-29), the row still RENDERS — normal, enabled, same styling as
-//    every sibling — with a no-op `onTap`, mirroring the salon management
-//    profile cover's own notification-bell placeholder
-//    (`Key('salon-manage-notifications')`, `salon_management_profile_screen
-//    .dart`): a real, tappable-looking row whose action isn't wired yet, not
-//    a disabled/greyed-out stub. TODO(phase-21.11) sits directly on the row
-//    below.
+//    outside the owner-only block). Phase 21.11 built
+//    [SalonPendingInvitesScreen] and wired this row to it
+//    ([RouteNames.salonPendingInvites]); it shipped in Phase 21.9 as a
+//    deliberate no-op placeholder row until then.
 //  * «Видалити салон» is explicitly NOT on this screen (design `:44`, `:51`,
 //    `:168`, `:339`: "«Видалити салон» is NOT here — it lives at the bottom
 //    of the Акаунт screen"). It lives at the bottom of the shared account
@@ -78,8 +73,8 @@ import '../../settings/domain/account_settings_extras.dart';
 import '../../settings/presentation/logout_action.dart';
 
 /// The salon settings hub — «Мої салони» / «Про салон» / «Локація» /
-/// «Контакти» (all owner-only) / «Надіслані запрошення» (placeholder) /
-/// «Загальне» / «Допомога» / «Вийти».
+/// «Контакти» (all owner-only) / «Надіслані запрошення» / «Загальне» /
+/// «Допомога» / «Вийти».
 class SalonSettingsScreen extends ConsumerStatefulWidget {
   const SalonSettingsScreen({super.key, required this.salonId});
 
@@ -256,22 +251,19 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
 
           // «Надіслані запрошення» — shown to ALL viewers (owner AND admin,
           // outside the owner-only block above), matching the design.
-          // TODO(phase-21.11): SalonPendingInvitesScreen doesn't exist yet.
-          // Once it lands, replace this no-op with
-          // `context.push(RouteNames.salonPendingInvites(widget.salonId))`
-          // (route name + screen both still to be added). Renders as a full,
-          // normal, enabled row — not disabled/greyed — mirroring the salon
-          // management profile cover's notification-bell placeholder
-          // (`Key('salon-manage-notifications')`); its `Semantics` label
-          // (derived automatically by `SettingsRow` from `label`) is the
-          // plain row text and promises no navigation the row can't deliver.
+          // Phase 21.11 replaced this row's no-op placeholder with the real
+          // push: [SalonPendingInvitesScreen] now exists, and its route is
+          // gated by `salonManageGuard` (owner + admin) rather than the
+          // owner-only guard the three edit forms above use — matching this
+          // row's position outside the owner-only block.
           _reveal(
             _animInvites,
             SettingsRow(
               key: const Key('row-salon-sent-invites'),
               icon: Icons.mark_email_unread_outlined,
               label: l10n.salonSettingsSentInvites,
-              onTap: () {},
+              onTap: () =>
+                  context.push(RouteNames.salonPendingInvites(widget.salonId)),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),

@@ -21,8 +21,11 @@
 //      *somewhere*).
 //   4. «Мої салони» and «Допомога» push their routes too (owner-only /
 //      all-viewer respectively).
-//   5. «Надіслані запрошення» renders but its `onTap` is a deliberate
-//      Phase-21.11 no-op — tapping it must change no route.
+//   5. «Надіслані запрошення» pushes `RouteNames.salonPendingInvites` —
+//      wired in Phase 21.11, which replaced the Phase-21.9 no-op placeholder
+//      this row shipped with. It is the ONLY all-viewer navigational row
+//      whose destination is owner+admin (not owner-only), so the assertion
+//      pins the resolved `:salonId` too.
 //   6. «Загальне» forwards `AccountSettingsExtras(salonId, showDeleteSalon:
 //      isOwner)` — asserted via the pushed screen's own resolved payload,
 //      for both the owner (flag true) and the admin (flag false) case.
@@ -114,6 +117,14 @@ GoRouter _router() => GoRouter(
       builder: (context, state) => Scaffold(
         body: SizedBox(
           key: Key('stub-contacts-${state.pathParameters['salonId']}'),
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/pending-invites',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-pending-invites-${state.pathParameters['salonId']}'),
         ),
       ),
     ),
@@ -315,8 +326,11 @@ void main() {
     });
   });
 
-  group('navigation — «Надіслані запрошення» placeholder', () {
-    testWidgets('renders but tapping it changes no route (Phase 21.11 no-op)', (
+  group('navigation — «Надіслані запрошення»', () {
+    // Phase 21.11 wired this row; before that it was a deliberate no-op. The
+    // sentinel key embeds the captured `:salonId`, so this pins the SPECIFIC
+    // resolved route rather than merely "some screen appeared".
+    testWidgets('owner: pushes the pending-invites route with this salonId', (
       tester,
     ) async {
       final router = _router();
@@ -325,23 +339,32 @@ void main() {
       await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('row-salon-sent-invites')), findsOneWidget);
-      final String before = router.routeInformationProvider.value.uri
-          .toString();
+      await tester.tap(find.byKey(const Key('row-salon-sent-invites')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('stub-pending-invites-$_kSalonId')),
+        findsOneWidget,
+      );
+    });
+
+    // The row sits OUTSIDE the hub's owner-only block and its route is gated
+    // by `salonManageGuard` (owner + admin), not the owner-only guard the
+    // three edit-form rows use — so an admin must reach it too.
+    testWidgets('admin: pushes the same route', (tester) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubAdmin));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('row-salon-sent-invites')));
       await tester.pumpAndSettle();
 
-      final String after = router.routeInformationProvider.value.uri.toString();
       expect(
-        after,
-        before,
-        reason:
-            'the invites row is a Phase 21.11 placeholder — tapping it must '
-            'not change the resolved route',
+        find.byKey(const Key('stub-pending-invites-$_kSalonId')),
+        findsOneWidget,
       );
-      // Still on the hub — none of the sentinel destinations were reached.
-      expect(find.byKey(const Key('row-salon-general')), findsOneWidget);
     });
   });
 

@@ -85,6 +85,7 @@ import 'logout_flow_test.dart' as logout;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'register_salon_flow_test.dart' as register_salon;
+import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -254,4 +255,11 @@ void main() {
   // rendered on the hub via the real ref.invalidate(mySalonsProvider)
   // refetch, no manual refresh.
   group('register_salon_flow', register_salon.main);
+  // Phase 21.11 QA follow-up (Step 2.7 Rule 3b) — «Надіслані запрошення»:
+  // real settings-hub row push -> real GET /invites/pending -> real per-row
+  // DELETE -> the cancel PERSISTS across a genuine autoDispose refetch (the
+  // one thing an optimistic client-side removal cannot be told apart from at
+  // the widget tier). Also carries the deliberately-RED pin for the missing
+  // `pendingInvitesProvider` invalidation on invite-send.
+  group('salon_pending_invites_flow', salon_pending_invites.main);
 }

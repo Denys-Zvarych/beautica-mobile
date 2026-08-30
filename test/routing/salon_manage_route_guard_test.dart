@@ -62,8 +62,10 @@ import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/pending_invites_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/pending_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
@@ -71,6 +73,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_address_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_pending_invites_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -104,6 +107,28 @@ class _SettledSalonManagementProfile extends SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async =>
       (_kSalon, const <SalonStaffMember>[]);
+}
+
+/// [PendingInvites] stub that resolves IMMEDIATELY to an empty list — for the
+/// Phase 21.11 `/salons/:salonId/pending-invites` group below.
+///
+/// Mandatory, not merely tidy: [SalonPendingInvitesScreen]'s LOADING branch
+/// renders `_PendingInvitesSkeleton` -> `SkeletonShimmerScope`, whose
+/// `AnimationController` is `..repeat(reverse: true)` and NEVER settles, so an
+/// unoverridden (real, Dio-backed) fetch would hang `pumpAndSettle()` forever
+/// on every ADMITTED case — the same trap `pumpRouterAs`'s own
+/// `initialSettle: false` escape hatch documents for MySalonsScreen. Resolving
+/// to EMPTY also lands the screen on its static `_PendingInvitesEmptyState`
+/// (no shimmer, no timers), which is all a guard test needs: this file asserts
+/// WHO reaches the route, never what the list renders (that is
+/// `salon_pending_invites_screen_test.dart`'s job).
+class _SettledPendingInvites extends PendingInvites {
+  @override
+  Future<PendingInvitesState> build(String salonId) async => (
+    invites: const <PendingInvite>[],
+    cancelling: const <String>{},
+    failed: const <String>{},
+  );
 }
 
 // mobile-security LOW follow-up (2026-08-29) — `/salons/:salonId/manage/
@@ -345,6 +370,16 @@ void main() {
           salonStaffMemberProfileProvider(_kSalonId, _kMemberId).overrideWith(
             (ref) async => (_kStaffMember, const <MasterService>[]),
           ),
+          // Phase 21.11 — settles `/salons/:salonId/pending-invites`'s own
+          // data source for BOTH salon ids any test in this file can land on.
+          // See [_SettledPendingInvites]: without it the ADMITTED cases hang
+          // on a never-settling shimmer, not merely leak a Dio request.
+          pendingInvitesProvider(
+            _kSalonId,
+          ).overrideWith(_SettledPendingInvites.new),
+          pendingInvitesProvider(
+            _kOtherOwnedSalonId,
+          ).overrideWith(_SettledPendingInvites.new),
           // Settles the CLIENT redirect target (RouteNames.clientHome →
           // HomeHubScreen's 5 data providers) synchronously — same
           // leaked-Timer avoidance `role_landing_chrome_test.dart` documents
@@ -1082,6 +1117,170 @@ void main() {
           reason: 'the unrequested salonId must never be admitted',
         );
       });
+    });
+
+    // -------------------------------------------------------------------
+    // mobile-security follow-up (2026-08-30) — Phase 21.11's
+    // `/salons/:salonId/pending-invites` reuses `salonManageGuard` VERBATIM
+    // (`app_router.dart`'s own Phase 21.11 doc) but shipped with NO group of
+    // its own here, so the route was in exactly the state this file's header
+    // describes: `redirect: salonManageGuard` could be deleted from that
+    // GoRoute outright and every test in the repo stayed green
+    // (`navigation_links_test.dart`'s NL-R01 only calls `findMatch`, which
+    // never invokes `redirect`; `salon_pending_invites_screen_test.dart`
+    // builds its OWN router with no `redirect:` wired).
+    //
+    // This matters more here than on a read-only surface: the screen behind
+    // this route both LISTS invitee email addresses (PII) and exposes a
+    // DESTRUCTIVE `DELETE .../invites/{inviteId}`, so a lost guard is an
+    // any-authenticated-user "cancel someone else's salon's invitations"
+    // hole, not just an information leak.
+    //
+    // Matrix mirrors the `/salons/:salonId/manage` exemplar exactly (same
+    // guard, so the same admit/redirect contract), plus the ownership-bound
+    // SALON_OWNER case the `/shell` group pins for its own route.
+    // -------------------------------------------------------------------
+    group('/salons/:salonId/pending-invites (Phase 21.11)', () {
+      testWidgets('SALON_OWNER is ADMITTED on a salon they own', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonPendingInvites(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/pending-invites'),
+        );
+        expect(find.byType(SalonPendingInvitesScreen), findsOneWidget);
+      });
+
+      testWidgets('SALON_OWNER is redirected off a salon they do NOT own once '
+          'mySalonsProvider RESOLVES, never admitted', (tester) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[
+            Salon(id: _kOtherOwnedSalonId, name: 'Second Owned Salon'),
+          ]),
+        );
+
+        // `_kSalonId` is NOT in the resolved list above.
+        router.go(RouteNames.salonPendingInvites(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          isNot(equals('/salons/$_kSalonId/pending-invites')),
+          reason:
+              'the guard must bounce an owner off a salon absent from '
+              'their RESOLVED mySalonsProvider list',
+        );
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w is SalonPendingInvitesScreen && w.salonId == _kSalonId,
+          ),
+          findsNothing,
+          reason:
+              'the unowned salonId must never reach the invite list — that '
+              'screen both renders invitee emails and can DELETE the '
+              'invitations',
+        );
+      });
+
+      testWidgets('SALON_ADMIN is ADMITTED on their OWN salonId', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _adminSession);
+
+        router.go(RouteNames.salonPendingInvites(_kSalonId));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/pending-invites'),
+        );
+        expect(find.byType(SalonPendingInvitesScreen), findsOneWidget);
+      });
+
+      testWidgets(
+        'SALON_ADMIN of salon A is redirected OFF salon B\'s pending-invites '
+        'path, never admitted',
+        (tester) async {
+          // `_otherSalonAdminSession` is bound to `salon-guard-2`; the route
+          // below asks for `_kSalonId` — a DIFFERENT salon.
+          final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+          router.go(RouteNames.salonPendingInvites(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(RouteNames.salonShell('salon-guard-2')),
+            reason:
+                'roleHomePath(salonAdmin) forwards, via the Salon Shell '
+                'resolver, to the admin\'s OWN salon — never the requested one',
+          );
+          expect(
+            find.byWidgetPredicate(
+              (Widget w) =>
+                  w is SalonPendingInvitesScreen && w.salonId == _kSalonId,
+            ),
+            findsNothing,
+            reason:
+                'an admin must never read or cancel another salon\'s '
+                'invitations',
+          );
+        },
+      );
+
+      testWidgets(
+        'CLIENT is redirected to roleHomePath (RouteNames.clientHome), never '
+        'admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonPendingInvites(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonPendingInvitesScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'SALON_MASTER is redirected to roleHomePath (RouteNames.home), never '
+        'admitted',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _salonMasterSession);
+
+          router.go(RouteNames.salonPendingInvites(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.home));
+          expect(find.byType(SalonPendingInvitesScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'unauthenticated is redirected to /login by the global authRedirect '
+        'gate',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _unauthenticatedSession);
+
+          router.go(RouteNames.salonPendingInvites(_kSalonId));
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.login));
+          expect(find.byType(SalonPendingInvitesScreen), findsNothing);
+        },
+      );
     });
 
     // -------------------------------------------------------------------

@@ -5789,5 +5789,53 @@
   "inviteStaffSubmitInProgressHint": "Please wait, the invite is still being sent…",
   "@inviteStaffSubmitInProgressHint": {
     "description": "Phase 21.4 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on InviteStaffScreen because POST /salons/{salonId}/invite is still in flight. Mirrors RegisterSalonScreen's registerSalonSubmitInProgressHint guard (mobile-qa CRITICAL fix precedent) — added beyond the architect's enumerated key list because the mandated back-navigation-mid-submit guard needs its own accurate copy rather than reusing salon-creation-specific wording."
+  },
+  "salonPendingInvitesBackSemanticLabel": "Back",
+  "@salonPendingInvitesBackSemanticLabel": {
+    "description": "Phase 21.11 — semantic label for SalonPendingInvitesScreen's SectionScaffold back icon. Its own key rather than reusing inviteStaffBackSemanticLabel: the two screens are separate surfaces and their back affordances may diverge (the app's per-screen back-label convention)."
+  },
+  "salonPendingInvitesSectionLabel": "Awaiting acceptance",
+  "@salonPendingInvitesSectionLabel": {
+    "description": "Phase 21.11 — section header above the list of sent, not-yet-accepted staff invitations. Rendered on BOTH SalonPendingInvitesScreen and the pending block appended under InviteStaffScreen's form; a count sits in the header's trailing slot."
+  },
+  "salonPendingInvitesSentAgo": "sent {when}",
+  "@salonPendingInvitesSentAgo": {
+    "description": "Phase 21.11 — meta caption beside the role chip on a pending-invite row, e.g. «надіслано 2 дні тому». {when} is the already-localized relative-date phrase from formatRelativeDate (relativeDateToday / relativeDateYesterday / relativeDateDaysAgo …), so this key supplies only the leading verb.",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "2 дні тому"
+      }
+    }
+  },
+  "salonPendingInvitesCancelCta": "Cancel",
+  "@salonPendingInvitesCancelCta": {
+    "description": "Phase 21.11 — the destructive ghost text action on a pending-invite row; revokes the invitation (DELETE /salons/{salonId}/invites/{inviteId})."
+  },
+  "salonPendingInvitesCancelSemanticLabel": "Cancel the invitation for {email}",
+  "@salonPendingInvitesCancelSemanticLabel": {
+    "description": "Phase 21.11 — screen-reader label for a pending-invite row's «Скасувати» action. {email} is the recipient address, so a viewer with several outstanding invitations can tell the rows apart.",
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "olena@example.com"
+      }
+    }
+  },
+  "salonPendingInvitesCancelError": "Couldn't cancel. Try again.",
+  "@salonPendingInvitesCancelError": {
+    "description": "Phase 21.11 — in-row error chip shown when DELETE /salons/{salonId}/invites/{inviteId} fails. Scoped to the one row that failed (which is restored to the list), never a full-screen error: the other rows are unaffected."
+  },
+  "salonPendingInvitesEmptyTitle": "No invitations are pending",
+  "@salonPendingInvitesEmptyTitle": {
+    "description": "Phase 21.11 — heading of SalonPendingInvitesScreen's empty state, shown when the salon has no outstanding invitations."
+  },
+  "salonPendingInvitesEmptyBody": "Once you invite an admin or a master, the invitation appears here until it's accepted.",
+  "@salonPendingInvitesEmptyBody": {
+    "description": "Phase 21.11 — body copy of SalonPendingInvitesScreen's empty state; explains when a row will appear here."
+  },
+  "salonPendingInvitesInviteCta": "Invite to the team",
+  "@salonPendingInvitesInviteCta": {
+    "description": "Phase 21.11 — pinned bottom CTA on SalonPendingInvitesScreen; pushes the «Запросити персонал» form (RouteNames.salonInviteStaff). Deliberately worded differently from inviteStaffSubmitCta («Надіслати запрошення»), which is that form's own submit button."
   }
 }

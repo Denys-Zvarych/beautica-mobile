@@ -30,6 +30,13 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'day_schedule.dart';
 import 'slot_colors.dart';
 
+// [SectionHeader] now lives in `lib/shared/widgets/` — re-exported here so
+// this library's existing consumers keep their single
+// `import 'widgets/schedule_widgets.dart';`. See the note at its former
+// position below.
+export 'package:beautica_mobile/shared/widgets/section_header.dart'
+    show SectionHeader;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Small shared pieces for the calendar-first Master Schedule screen.
 // All depth comes from the neumorphic shadow recipes in velvet_geometry; the
@@ -37,42 +44,12 @@ import 'slot_colors.dart';
 // (slot_colors.dart).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Section heading: a title, an optional info glyph, and an optional trailing
-/// outlined action (e.g. "Налаштування").
-class SectionHeader extends StatelessWidget {
-  const SectionHeader({
-    super.key,
-    required this.title,
-    this.info,
-    this.trailing,
-  });
-
-  final String title;
-  final String? info;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Text(title, style: VelvetText.headingSm),
-        if (info != null) ...<Widget>[
-          const SizedBox(width: VelvetSpacing.sm),
-          Tooltip(
-            message: info!,
-            child: const Icon(
-              Icons.info_outline_rounded,
-              size: 18,
-              color: BrandColors.muted,
-            ),
-          ),
-        ],
-        const Spacer(),
-        ?trailing,
-      ],
-    );
-  }
-}
+// [SectionHeader] was PROMOTED to `lib/shared/widgets/section_header.dart`
+// (Phase 21.11, REUSE-FIRST) so a second feature could consume it without
+// importing this feature's `presentation/` or forking a near-duplicate. Moved
+// verbatim — this file's own caller
+// (`master_schedule_screen.dart`'s «Календар» heading) renders identically
+// and reaches it through the re-export in this file's directive block above.
 
 /// A compact outlined (ghost) button — the recessed counterpart to the filled
 /// [NeumorphicButton]. Rendered as a flat-bordered camel pill; used for

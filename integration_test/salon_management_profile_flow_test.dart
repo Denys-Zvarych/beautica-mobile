@@ -411,8 +411,12 @@ void main() {
         );
 
         // Switch to Адміністратор — proves the SELECTED role (not just the
-        // default) reaches the real wire body.
-        await tester.tap(find.byIcon(Icons.admin_panel_settings_outlined));
+        // default) reaches the real wire body. Addressed by KEY, not by the
+        // segment's glyph: `Icons.admin_panel_settings_outlined` is also the
+        // `PendingInviteRow` admin role-chip glyph, so a `find.byIcon` here
+        // goes ambiguous the moment this screen's pending block renders a
+        // single admin invitation.
+        await tester.tap(find.byKey(kInviteRoleAdminKey));
         await tester.pumpAndSettle();
 
         await tester.enterText(

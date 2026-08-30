@@ -184,6 +184,15 @@ abstract final class VelvetText {
     color: BrandColors.accent,
   );
 
+  /// Destructive inline link — the same Nunito/700 link weight as [link], in
+  /// [BrandColors.error]. Phase 21.11: the pending-invite row's «Скасувати»
+  /// ghost action, which the approved preview renders as an error-red text
+  /// link rather than a filled destructive button (the row is a list item,
+  /// not a confirmation surface).
+  static final TextStyle linkDestructive = _linkStyle.copyWith(
+    color: BrandColors.error,
+  );
+
   // ---------------------------------------------------------------------------
   // Pre-composed variants for PasswordChecklist _RuleRow (Batch-2 A5).
   //

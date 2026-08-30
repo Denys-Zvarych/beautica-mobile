@@ -49,6 +49,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../domain/bookable_master_assignment.dart';
+import '../domain/pending_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -275,6 +276,32 @@ abstract interface class SalonRepository {
   /// themself is never listed, but a brand-new salon has no invited staff
   /// yet).
   Future<List<SalonStaffMember>> getSalonStaff(String salonId);
+
+  /// Lists the salon's outbound staff invitations that are still awaiting
+  /// acceptance (Phase 21.11).
+  ///
+  /// Wraps `GET /salons/{salonId}/invites/pending` (the generated
+  /// `SalonControllerApi.listPendingInvites`). Owner + admin scoped
+  /// backend-side — the same authorization [salonManageGuard] binds
+  /// client-side. Returns an empty list when nothing is outstanding (200
+  /// `[]`), which is the NORMAL state, not an error. The response DTO carries
+  /// no token material (`inviteId`/`recipientEmail`/`role`/`createdAt`/
+  /// `expiresAt` only).
+  Future<List<PendingInvite>> listPendingInvites(String salonId);
+
+  /// Cancels the pending invitation [inviteId] of salon [salonId] (Phase
+  /// 21.11).
+  ///
+  /// Wraps `DELETE /salons/{salonId}/invites/{inviteId}` (the generated
+  /// `SalonControllerApi.cancelInvite`). Backend-side this marks the token
+  /// `used = true` rather than deleting the row, after which
+  /// `POST /auth/invite/accept` rejects it — so a cancel is idempotent from
+  /// the caller's point of view. Throws a typed [Failure] on any transport or
+  /// server error.
+  Future<void> cancelInvite({
+    required String salonId,
+    required String inviteId,
+  });
 }
 
 /// HTTP implementation of [SalonRepository].
@@ -683,6 +710,49 @@ final class HttpSalonRepository implements SalonRepository {
       if (kDebugMode) {
         log(
           'getSalonStaff failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<List<PendingInvite>> listPendingInvites(String salonId) async {
+    try {
+      final res = await _salonApi.listPendingInvites(salonId: salonId);
+      final dtos = res.data?.data ?? const <PendingInviteResponse>[];
+      return PendingInviteMapper.fromDtoList(dtos);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'listPendingInvites failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> cancelInvite({
+    required String salonId,
+    required String inviteId,
+  }) async {
+    try {
+      await _salonApi.cancelInvite(salonId: salonId, inviteId: inviteId);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'cancelInvite failed: ${e.type} ${e.response?.statusCode}',
           name: 'salon.repository',
           level: 900,
           stackTrace: st,

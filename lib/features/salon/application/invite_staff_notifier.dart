@@ -15,14 +15,15 @@
 // CRITICAL fix (an autoDispose notifier's element disposed mid-`await`
 // throws `UnmountedRefException` on the next `ref` access). Unlike
 // `RegisterSalon.submit`, THIS method never touches `ref` after its own
-// `await` (there is no `mySalonsProvider`-style cache to invalidate this
-// phase — see the file header above), so it cannot itself reproduce that
-// exact crash. The guarding is still reproduced on the WATCHING side
+// `await`, so it cannot itself reproduce that exact crash — the
+// pending-invites cache invalidation Phase 21.11 added lives on the CALLING
+// side (`InviteStaffScreen._submit`, behind that screen's own `mounted`
+// guard) rather than here, so this notifier stays a pure write path. The
+// guarding is still reproduced on the WATCHING side
 // (`InviteStaffScreen.build()`'s `ref.watch(inviteStaffProvider)` +
 // `PopScope`) per the architect's brief, both to keep this notifier's
 // element alive for the whole in-flight request (defensive — a future edit
-// that adds a post-await `ref` call here, e.g. once Phase 21.11 wires a
-// pending-invites cache to invalidate, inherits the same protection for
+// that adds a post-await `ref` call here inherits the same protection for
 // free) and to keep the back-navigation-mid-submit path — which IS a real
 // hazard regardless of what [submit] does internally, since disposing the
 // screen mid-request would otherwise abandon the in-flight POST with no

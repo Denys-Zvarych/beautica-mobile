@@ -102,6 +102,7 @@ import '../features/salon/presentation/salon_home_resolver_screen.dart';
 import '../features/salon/presentation/salon_address_edit_screen.dart';
 import '../features/salon/presentation/salon_contacts_edit_screen.dart';
 import '../features/salon/presentation/salon_management_profile_screen.dart';
+import '../features/salon/presentation/salon_pending_invites_screen.dart';
 import '../features/salon/presentation/salon_profile_edit_screen.dart';
 import '../features/salon/presentation/salon_settings_screen.dart';
 import '../features/salon/presentation/salon_shell_screen.dart';
@@ -930,6 +931,26 @@ GoRouter appRouter(Ref ref) {
         redirect: salonManageGuard,
         builder: (context, state) =>
             InviteStaffScreen(salonId: state.pathParameters['salonId'] ?? ''),
+      ),
+      // Phase 21.11 — «Надіслані запрошення», the sent-but-unaccepted staff
+      // invitations. Reuses [salonManageGuard] VERBATIM (owner + admin, each
+      // bound to their own salon) rather than
+      // [salonManageOwnerOnlyGuard]: this surface is admin-permitted by
+      // design — the Phase 21.9 settings hub renders its entry row OUTSIDE
+      // the owner-only block, and backend 23.1's
+      // `GET/DELETE /salons/{salonId}/invites/...` pair is itself owner+admin
+      // scoped. The owner-only guard exists for the three Phase 21.10 salon
+      // EDIT forms ("admins cannot edit salon info"), which this is not.
+      // STANDALONE top-level route for the same "an ancestor's own redirect
+      // always runs" reason `/manage` and `/manage/invite` document — nesting
+      // under `/salons/:salonId` would let `clientOnlyGuard` bounce every
+      // owner/admin first.
+      GoRoute(
+        path: '/salons/:salonId/pending-invites',
+        redirect: salonManageGuard,
+        builder: (context, state) => SalonPendingInvitesScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
       ),
       // Phase 21.5 — staff member (master OR admin) management profile.
       // STANDALONE for the same reason as `/manage/invite` directly above:

@@ -308,6 +308,11 @@ void main() {
       // top-level route, same rationale as `salonManage()`/
       // `salonManageSettings()` above.
       'salonInviteStaff()': RouteNames.salonInviteStaff(kSampleId),
+      // Phase 21.11 — «Надіслані запрошення», the sent-but-unaccepted staff
+      // invitations. Standalone top-level route (owner + admin, gated by
+      // `salonManageGuard`), same rationale as `salonManage()`/
+      // `salonInviteStaff()` above.
+      'salonPendingInvites()': RouteNames.salonPendingInvites(kSampleId),
       // Phase 21.5 — staff member (master OR admin) management profile.
       // Standalone top-level route, same rationale as `salonManage()`/
       // `salonManageSettings()` above.

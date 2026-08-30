@@ -63,6 +63,7 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/pending_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
@@ -254,6 +255,24 @@ class _CountingSalonRepository implements SalonRepository {
   Future<void> deleteSalon(String salonId) async => throw UnimplementedError(
     '_CountingSalonRepository.deleteSalon is not stubbed — this fake backs '
     'the CLIENT-facing read-only profile route.',
+  );
+
+  // Phase 21.11 — owner/admin-only invite management; unreachable from this
+  // CLIENT-facing surface, so the same UnimplementedError guard as
+  // [deleteSalon] above rather than a silent empty stub.
+  @override
+  Future<List<PendingInvite>> listPendingInvites(
+    String salonId,
+  ) async => throw UnimplementedError(
+    '_CountingSalonRepository.listPendingInvites is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> cancelInvite({
+    required String salonId,
+    required String inviteId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.cancelInvite is not stubbed — owner/admin only.',
   );
 
   // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as

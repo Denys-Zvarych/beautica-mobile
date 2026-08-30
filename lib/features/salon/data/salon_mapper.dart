@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart'
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
 import '../domain/bookable_master_assignment.dart';
+import '../domain/pending_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -255,6 +256,52 @@ abstract final class SalonStaffMemberMapper {
     // — mirrors [SalonMasterMapper._masterTypeFromDto]'s own precedent).
     return SalonStaffRole.master;
   }
+}
+
+/// Maps [PendingInviteResponse] (`GET /salons/{salonId}/invites/pending`) to
+/// the domain [PendingInvite] (Phase 21.11).
+abstract final class PendingInviteMapper {
+  /// Entries with a null/empty `inviteId` are dropped (logged) rather than
+  /// thrown — one broken row must not blank the whole pending list, and an
+  /// entry with no id could not be cancelled anyway. Mirrors
+  /// [SalonStaffMemberMapper.fromDtoList]'s own precedent.
+  ///
+  /// A null `createdAt` falls back to the Unix epoch rather than dropping the
+  /// row: the timestamp only drives a soft "надіслано …" caption, so a
+  /// missing one must not hide an invite the viewer needs to cancel.
+  static List<PendingInvite> fromDtoList(Iterable<PendingInviteResponse> dtos) {
+    final List<PendingInvite> out = <PendingInvite>[];
+    for (final PendingInviteResponse dto in dtos) {
+      final String? inviteId = dto.inviteId;
+      if (inviteId == null || inviteId.isEmpty) {
+        log(
+          'PendingInviteResponse.inviteId is null — dropping invite entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      out.add(
+        PendingInvite(
+          inviteId: inviteId,
+          recipientEmail: dto.recipientEmail ?? '',
+          role: _inviteRoleFromWire(dto.role),
+          createdAt:
+              dto.createdAt ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// The wire `role` is a bare String on this DTO (not a generated enum), so
+  /// it is matched literally. Anything other than `SALON_ADMIN` — including a
+  /// null or an unknown future value — falls back to
+  /// [SalonStaffRole.master], the same fail-safe direction
+  /// [SalonStaffMemberMapper._staffRoleFromDto] takes.
+  static SalonStaffRole _inviteRoleFromWire(String? role) =>
+      role == 'SALON_ADMIN' ? SalonStaffRole.admin : SalonStaffRole.master;
 }
 
 /// Maps [BookableMasterResponse] (`GET

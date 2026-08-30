@@ -1140,6 +1140,117 @@ final class FakeBackend {
     _wireInviteStaff();
   }
 
+  // ─── Phase 21.11 — pending (sent, unaccepted) staff invitations ──────────
+  //
+  // The salon's OUTBOUND invitation rows, served by
+  // `GET /api/v1/salons/salon-xyz/invites/pending` and mutated by BOTH
+  // `POST .../invite` (appends) and `DELETE .../invites/{inviteId}`
+  // (removes). Genuinely stateful on purpose: the two journeys this backs —
+  // "cancel one and it STAYS gone across a refetch" and "an invite you just
+  // sent APPEARS in the list" — are exactly the ones a stateless canned
+  // response could not tell apart from the broken behaviour.
+  //
+  // `createdAt` is anchored to [kFixedNow] (the instant the harness injects
+  // through `clockProvider`), matching `_clientPublicReview`'s own convention.
+  // NOTE: `PendingInviteRow`'s «надіслано …» caption goes through
+  // `formatRelativeDate`, whose `now` defaults to the HOST clock rather than
+  // `clockProvider` (pre-existing, app-wide — `ReviewCard` does the same), so
+  // that ONE caption is host-relative regardless of what is seeded here. No
+  // flow asserts on it; the assertions are on the invitee email, which is
+  // clock-free.
+
+  /// Two ready-made pending-invite rows — a MASTER and an ADMIN invitation,
+  /// so a flow that opts in exercises both `PendingInviteMapper` role
+  /// branches. Copy them in with [seedPendingInvites].
+  static List<Map<String, dynamic>> get seedPendingInviteRows =>
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'inviteId': 'invite-seed-a',
+          'recipientEmail': 'anna.master@beautica.ua',
+          'role': 'SALON_MASTER',
+          'createdAt': '2026-06-12T09:00:00Z',
+          'expiresAt': null,
+        },
+        <String, dynamic>{
+          'inviteId': 'invite-seed-b',
+          'recipientEmail': 'borys.admin@beautica.ua',
+          'role': 'SALON_ADMIN',
+          'createdAt': '2026-06-13T09:00:00Z',
+          'expiresAt': null,
+        },
+      ];
+
+  /// Rows served by `GET /api/v1/salons/salon-xyz/invites/pending`.
+  /// Mutable and read INSIDE the route callback (never captured at
+  /// registration), so a POST/DELETE landing mid-flow is visible to the very
+  /// next GET.
+  ///
+  /// EMPTY BY DEFAULT, deliberately. `InviteStaffScreen` renders its pending
+  /// block on `pending.invites.isNotEmpty`, so seeding rows here globally
+  /// would inject two extra `PendingInviteRow`s into the tree of EVERY flow
+  /// that opens the invite form, and one extra
+  /// `GET .../invites/pending` into its call ledger. A shared fake must not
+  /// silently change what an unrelated flow renders or counts — opt in with
+  /// [seedPendingInvites] instead.
+  ///
+  /// This default originally ALSO worked around
+  /// `salon_management_profile_flow_test.dart`'s role-toggle tap going
+  /// ambiguous (the pending row's admin role chip reuses the toggle's own
+  /// `Icons.admin_panel_settings_outlined`). That workaround is spent: the
+  /// toggle segments now carry `kInviteRoleAdminKey`/`kInviteRoleMasterKey`
+  /// and that flow taps by key, so it is immune to extra role glyphs. The
+  /// empty default is kept on the tree/ledger-hygiene grounds above alone.
+  List<Map<String, dynamic>> pendingInvites = <Map<String, dynamic>>[];
+
+  /// Loads [seedPendingInviteRows] (deep-copied, so a mutation in one test
+  /// cannot leak into the next) into [pendingInvites].
+  void seedPendingInvites() {
+    pendingInvites = seedPendingInviteRows;
+  }
+
+  /// `GET /api/v1/salons/salon-xyz/invites/pending` call count — lets a flow
+  /// prove a REFETCH actually happened (or, for the optimistic-cancel
+  /// contract, that one did NOT).
+  int listPendingInvitesCalls = 0;
+
+  /// `DELETE /api/v1/salons/salon-xyz/invites/{inviteId}` call count + the
+  /// id of the last one, so a flow can prove the RIGHT invitation was
+  /// addressed — a cancel that removed the wrong row would still "make a row
+  /// disappear".
+  int cancelInviteCalls = 0;
+  String? lastCancelInviteId;
+
+  /// Monotonic suffix for ids minted by `POST .../invite`. Starts past the
+  /// seeded rows so a minted id can never collide with one of them.
+  int _mintedInviteSeq = 0;
+
+  /// Status code the pending-invites GET fails with, or null for 200. Set via
+  /// [forcePendingInvitesFailure] — never assign directly (see
+  /// [_inviteStaffFailureStatusCode]'s doc for why a status change needs the
+  /// route RE-REGISTERED).
+  int? _pendingInvitesFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent)
+  /// `GET /api/v1/salons/salon-xyz/invites/pending` fail with [statusCode].
+  /// Call again with `null` to restore the default 200.
+  void forcePendingInvitesFailure(int? statusCode) {
+    _pendingInvitesFailureStatusCode = statusCode;
+    _wirePendingInvites();
+  }
+
+  /// Status code the cancel DELETE fails with, or null for 204. Set via
+  /// [forceCancelInviteFailure] — never assign directly.
+  int? _cancelInviteFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent)
+  /// `DELETE /api/v1/salons/salon-xyz/invites/{inviteId}` fail with
+  /// [statusCode]. A failed cancel must leave the row in [pendingInvites] —
+  /// the handler only removes it on the success path.
+  void forceCancelInviteFailure(int? statusCode) {
+    _cancelInviteFailureStatusCode = statusCode;
+    _wireCancelInvite();
+  }
+
   /// Mutable profile state for `salon-xyz`, shared by BOTH read paths — the
   /// PUBLIC `GET /salons/salon-xyz` (`_publicSalonDetailEnvelope`) and the
   /// owner/admin `PATCH /salons/salon-xyz` response.
@@ -3827,12 +3938,91 @@ final class FakeBackend {
             'message': 'Failed to invite staff',
           };
         }
+        // Phase 21.11 — a real POST does not just answer 200, it CREATES an
+        // `InviteToken` row that the pending-invites GET then returns. The
+        // fake mints one here for the same reason the DELETE handler below
+        // really removes one: without it, "the invite you just sent appears
+        // in the list" would be indistinguishable from the bug where the
+        // list is never invalidated, and the fixture would silently defang
+        // the assertion.
+        pendingInvites.add(<String, dynamic>{
+          'inviteId': 'invite-minted-${++_mintedInviteSeq}',
+          'recipientEmail': body['email'],
+          'role': body['role'],
+          'createdAt': kFixedNow.toUtc().toIso8601String(),
+          'expiresAt': null,
+        });
         return _ok(<String, dynamic>{
           'invitedEmail': body['email'],
           'expiresAt': null,
         });
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `GET /api/v1/salons/salon-xyz/invites/pending`
+  /// (backend Phase 23.1). See [forcePendingInvitesFailure].
+  ///
+  /// Serves a COPY of [pendingInvites] read at REQUEST time — the list is
+  /// mutated by `_wireInviteStaff`'s append and `_wireCancelInvite`'s remove,
+  /// and capturing it at registration time would freeze the very state these
+  /// journeys exist to observe.
+  void _wirePendingInvites() {
+    final int? failStatus = _pendingInvitesFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/invites/pending',
+      (server) => server.replyCallback(failStatus ?? 200, (req) {
+        listPendingInvitesCalls++;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to list pending invites',
+          };
+        }
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            pendingInvites.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// (Re-)registers `DELETE /api/v1/salons/salon-xyz/invites/{inviteId}`
+  /// (backend Phase 23.1 — marks the token `used = true`, so the row stops
+  /// appearing in the pending list). See [forceCancelInviteFailure].
+  ///
+  /// A RegExp route: the id segment varies per request AND new ids are minted
+  /// mid-flow by `POST .../invite`, so the "register one literal route per
+  /// seeded id" device used elsewhere in this file cannot cover them. The
+  /// negative lookahead keeps it off the `/invites/pending` sibling — the
+  /// `RequestMethods.delete` matcher already separates the two, but a route
+  /// whose pattern can match a DIFFERENT endpoint is the kind of thing that
+  /// only bites once someone adds a DELETE there.
+  void _wireCancelInvite() {
+    final int? failStatus = _cancelInviteFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/invites/(?!pending$)[^/]+$'),
+      (server) => server.replyCallback(failStatus ?? 204, (req) {
+        cancelInviteCalls++;
+        final String inviteId = req.path.split('/').last;
+        lastCancelInviteId = inviteId;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to cancel invite',
+          };
+        }
+        pendingInvites.removeWhere(
+          (Map<String, dynamic> row) => row['inviteId'] == inviteId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.delete),
     );
   }
 
@@ -5111,6 +5301,14 @@ final class FakeBackend {
     // POST /api/v1/salons/salon-xyz/invite — owner/admin staff-invite form
     // (Phase 21.4). See [_wireInviteStaff] / [forceInviteStaffFailure].
     _wireInviteStaff();
+    // GET/DELETE /api/v1/salons/salon-xyz/invites/... — the Phase 21.11
+    // pending-invite list and its per-row cancel (backend Phase 23.1).
+    // Registered AFTER the POST above so a future overlapping-prefix change
+    // keeps the same insertion-order semantics the rest of this file relies
+    // on; the three routes are disjoint today (POST /invite vs GET
+    // /invites/pending vs DELETE /invites/{id}).
+    _wirePendingInvites();
+    _wireCancelInvite();
 
     // PATCH /api/v1/independent-masters/me/profile
     _adapter.onRoute(

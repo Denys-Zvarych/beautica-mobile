@@ -26,12 +26,24 @@
 // Phase 21.4 — ADDITIVE: [inviteRequests] records every `(salonId, email,
 // role)` tuple passed to [inviteStaff] and [inviteError] lets a test inject
 // a failure, mirroring [createError]'s shape exactly.
+//
+// Phase 21.11 — ADDITIVE: [pendingInvites] (a growable list, empty by
+// default) backs [listPendingInvites]; [cancelInvite] records its
+// `(salonId, inviteId)` tuples in [cancelInviteRequests] and removes the
+// matching entry on success. [listPendingInvitesError] / [cancelInviteError]
+// inject failures, and [cancelInviteGate] blocks a cancel so the in-flight
+// row spinner is observable across a real frame. Every pre-existing caller
+// passes none of these and sees an empty pending list — the branch both
+// consuming screens already render as "no pending block at all".
+
+import 'dart:async';
 
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
+import 'package:beautica_mobile/features/salon/domain/pending_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
@@ -51,7 +63,12 @@ class FakeSalonRepository implements SalonRepository {
     required Salon salon,
     this.masters = const <SalonMasterSummary>[],
     this.staff = const <SalonStaffMember>[],
-  }) : _salon = salon;
+    List<PendingInvite>? pendingInvites,
+  }) : _salon = salon,
+       // A GROWABLE copy — `cancelInvite` mutates it so a refetch after a
+       // cancel observes the removal (the default `const []` of every
+       // pre-existing caller would throw on `removeWhere`).
+       pendingInvites = <PendingInvite>[...?pendingInvites];
 
   Salon _salon;
   final List<SalonMasterSummary> masters;
@@ -67,11 +84,30 @@ class FakeSalonRepository implements SalonRepository {
   final List<SalonCreateDto> createRequests = <SalonCreateDto>[];
   final List<({String salonId, String email, UserRole role})> inviteRequests =
       <({String salonId, String email, UserRole role})>[];
+
+  /// Phase 21.11 — the pending-invite list `listPendingInvites` returns.
+  /// Mutable: a successful [cancelInvite] removes the matching entry, so a
+  /// later refetch sees what the backend would have.
+  final List<PendingInvite> pendingInvites;
+
+  /// Every `(salonId, inviteId)` tuple passed to [cancelInvite].
+  final List<({String salonId, String inviteId})> cancelInviteRequests =
+      <({String salonId, String inviteId})>[];
+
   int deleteCalls = 0;
+  int listPendingInvitesCalls = 0;
   Failure? updateError;
   Failure? deleteError;
   Failure? createError;
   Failure? inviteError;
+  Failure? listPendingInvitesError;
+  Failure? cancelInviteError;
+
+  /// When non-null, [cancelInvite] blocks on this until the test completes
+  /// it — the only way to observe the in-flight row spinner across a real
+  /// frame. Mirrors `invite_staff_screen_test.dart`'s own Completer-gated
+  /// notifier precedent.
+  Completer<void>? cancelInviteGate;
 
   @override
   Future<void> create({required SalonCreateDto dto}) async {
@@ -156,5 +192,24 @@ class FakeSalonRepository implements SalonRepository {
   Future<void> deleteSalon(String salonId) async {
     deleteCalls++;
     if (deleteError != null) throw deleteError!;
+  }
+
+  @override
+  Future<List<PendingInvite>> listPendingInvites(String salonId) async {
+    listPendingInvitesCalls++;
+    if (listPendingInvitesError != null) throw listPendingInvitesError!;
+    return List<PendingInvite>.unmodifiable(pendingInvites);
+  }
+
+  @override
+  Future<void> cancelInvite({
+    required String salonId,
+    required String inviteId,
+  }) async {
+    cancelInviteRequests.add((salonId: salonId, inviteId: inviteId));
+    final Completer<void>? gate = cancelInviteGate;
+    if (gate != null) await gate.future;
+    if (cancelInviteError != null) throw cancelInviteError!;
+    pendingInvites.removeWhere((PendingInvite i) => i.inviteId == inviteId);
   }
 }

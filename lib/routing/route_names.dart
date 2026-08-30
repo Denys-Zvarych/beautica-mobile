@@ -177,6 +177,26 @@ abstract final class RouteNames {
   static String salonInviteStaff(String salonId) =>
       '${salonManage(salonId)}/invite';
 
+  /// Phase 21.11 — «Надіслані запрошення», the list of sent-but-unaccepted
+  /// staff invitations, reached from the Phase 21.9 settings hub's own row.
+  ///
+  /// Owner AND admin (that hub renders the row outside its owner-only block,
+  /// and backend 23.1's `GET/DELETE /salons/{salonId}/invites/...` pair is
+  /// owner+admin scoped), so `app_router.dart` gates it with
+  /// `salonManageGuard` — NOT the owner-only `salonManageOwnerOnlyGuard` the
+  /// three Phase 21.10 edit forms use.
+  ///
+  /// A literal `/pending-invites` leaf below the ALREADY-RESOLVED
+  /// [salonPublicProfile] `:salonId` capture, so declaration-order
+  /// literal-vs-dynamic shadowing does not apply (that concern is limited to
+  /// a literal declared after a dynamic SIBLING at the SAME segment, e.g.
+  /// `/salons/mine` vs `/salons/:salonId` — see [salonHome]'s own doc).
+  /// Registered as a STANDALONE top-level route in `app_router.dart`, same
+  /// "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonInviteStaff] document.
+  static String salonPendingInvites(String salonId) =>
+      '${salonPublicProfile(salonId)}/pending-invites';
+
   /// Phase 21.5 — the staff member (master OR admin) management profile,
   /// reached from a «Персонал» grid card tap. A literal `/staff/:memberId`
   /// leaf below the ALREADY-RESOLVED [salonManage] `:salonId` capture — same
