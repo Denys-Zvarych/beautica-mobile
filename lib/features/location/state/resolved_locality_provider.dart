@@ -62,7 +62,19 @@ Future<ResolvedLocality> resolvedLocality(
   required String? cityId,
   required String? districtId,
 }) async {
-  if (oblastId == null || cityId == null || cityId.isEmpty) {
+  // RESUME §4 step D (mobile half, 2026-08-30) — the null checks stay: this
+  // provider is shared with callers whose ids are genuinely nullable at the
+  // type level (`Master.oblastId`/`.cityId` — CLIENT/master locality is
+  // optional by locked product decision). `oblastId.isEmpty` is new: since
+  // [Salon.cityId]/[Salon.oblastId] flipped `String? -> String` with a
+  // `@Default('')` (never `null`) for fixtures that don't set them, a blank
+  // (not null) pair must trip the SAME short-circuit `null` used to, or a
+  // salon fixture with no real locality would spuriously await
+  // `oblastListProvider` and scan for an id that matches nothing.
+  if (oblastId == null ||
+      oblastId.isEmpty ||
+      cityId == null ||
+      cityId.isEmpty) {
     return const ResolvedLocality();
   }
 

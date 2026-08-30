@@ -446,11 +446,13 @@ class _SalonHubCardState extends ConsumerState<_SalonHubCard> {
     // "still loading" and "resolution failed" to `null` uniformly — no
     // spinner, no error box, no layout jump. `city` falls back to the legacy
     // `s.city` ONLY when the salon genuinely has no taxonomy id at all
-    // (`s.cityId` null/blank) — a pre-Phase-10.6 salon that was never
-    // re-saved. While `cityId` IS set but resolution hasn't completed yet,
-    // the line is simply blank until it fills in — never the stale legacy
-    // text, which would risk showing a WRONG city before the correct one
-    // arrives.
+    // (`s.cityId` blank — [Salon.cityId] is non-nullable, `@Default('')`,
+    // RESUME §4 step D) — a pre-Phase-10.6 salon that was never re-saved (in
+    // practice no longer reachable from a real backend read, which now
+    // always populates it, but the fixture-only shape stays representable).
+    // While `cityId` IS set but resolution hasn't completed yet, the line is
+    // simply blank until it fills in — never the stale legacy text, which
+    // would risk showing a WRONG city before the correct one arrives.
     final ResolvedLocality? resolved = ref
         .watch(
           resolvedLocalityProvider(
@@ -460,7 +462,7 @@ class _SalonHubCardState extends ConsumerState<_SalonHubCard> {
           ),
         )
         .value;
-    final bool hasTaxonomyCity = s.cityId?.trim().isNotEmpty ?? false;
+    final bool hasTaxonomyCity = s.cityId.trim().isNotEmpty;
     final String? locality = buildLocalityLine(
       resolved?.city?.name ?? (hasTaxonomyCity ? null : s.city),
     );

@@ -35,9 +35,29 @@ abstract class Salon with _$Salon {
     /// UUID of the taxonomy city the salon is located in (Phase 10.6+).
     /// Raw id only — Beautica's `/locations/*` city lookup is oblast-scoped,
     /// so resolving this to a display name client-side needs [oblastId] too
-    /// (both populated together as of backend `dbe27a5`, or both `null`); it
-    /// is not rendered directly.
-    String? cityId,
+    /// (always populated together, backend `dbe27a5`).
+    ///
+    /// Non-nullable as of the RESUME §4 step D flip (backend `ec22d91`):
+    /// `salons.city_id` is now a DB-level `NOT NULL` column (V150/V151) and
+    /// `SalonService.updateSalon` can no longer 400 or null it out on a
+    /// partial PATCH — every [Salon] built from a real backend read
+    /// ([SalonMapper.fromDto]/[SalonMapper.fromUpdateDto]), including legacy
+    /// pre-Phase-10.6 rows, is backend-guaranteed to carry a real city. It is
+    /// not rendered directly.
+    ///
+    /// `@Default('')` rather than `required`: dozens of pre-existing test
+    /// fixtures across unrelated features (booking/favorites/routing route
+    /// guards) construct a bare `Salon(id: ..., name: ...)` with no interest
+    /// in locality at all — making this `required` would force irrelevant
+    /// edits to all of them. `''` is deliberately indistinguishable from the
+    /// old `null` short-circuit to every consumer: [resolvedLocalityProvider]
+    /// already treats an empty [cityId] as "nothing to resolve" (the SAME
+    /// guard `null` used to trip), so this default is a no-op for every
+    /// existing call site that never set the field. Every PRODUCTION
+    /// construction site (the two [SalonMapper] factories above) always
+    /// supplies the backend's real, non-empty value — this default only
+    /// ever fires in a test fixture that doesn't care.
+    @Default('') String cityId,
 
     /// UUID of the oblast (region) that owns [cityId], resolved server-side
     /// (backend, added alongside the [SalonAddressEditScreen] work — see that
@@ -50,9 +70,13 @@ abstract class Salon with _$Salon {
     /// `PATCH /salons/{salonId}` and `GET /salons/mine`, both
     /// `SalonResponse`) and, as of backend `dbe27a5`, [SalonMapper.fromDto]
     /// (the PUBLIC `GET /salons/{salonId}` read path, `PublicSalonResponse`)
-    /// — unlike [phone], this field is NOT public/private-split. `null`
-    /// means the salon genuinely has no city set, on either path.
-    String? oblastId,
+    /// — unlike [phone], this field is NOT public/private-split.
+    ///
+    /// Non-nullable for the same reason, and defaulted the same way, as
+    /// [cityId] — see that field's doc for why `@Default('')` and not
+    /// `required`. [resolvedLocalityProvider]'s guard treats a blank
+    /// [oblastId] the same as the old `null` short-circuit too.
+    @Default('') String oblastId,
 
     /// UUID of the taxonomy city district, or `null` when the city has no
     /// districts or none was selected. Same resolution caveat as [cityId].

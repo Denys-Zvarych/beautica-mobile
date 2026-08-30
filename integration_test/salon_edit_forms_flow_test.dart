@@ -110,6 +110,22 @@ const String _kSalonId = 'salon-xyz';
 /// admitted by the fallback — this is a REAL SALON_OWNER's shape too (they
 /// can only ever reach `/manage` for a salon `GET /salons/mine` actually
 /// lists), so seeding it here is the correct fixture, not a workaround.
+/// mobile-qa fix (RESUME §4 step D mobile-half QA, 2026-08-30) — this fixture
+/// used to omit `cityId`/`oblastId` entirely. `SalonResponse.cityId`/
+/// `.oblastId` are non-null on the wire as of backend `ec22d91`
+/// (`salons.city_id` DB-level `NOT NULL`), so `GET /salons/mine` deserializing
+/// THIS row threw `BuiltValueNullFieldError` inside `mySalonsProvider.build()`
+/// — fired unconditionally by `SalonHomeResolverScreen`'s post-login
+/// SALON_OWNER redirect (see this function's own 2026-08-28 doc above), i.e.
+/// BEFORE any of this file's `router.go(...)` calls ever ran. Every one of
+/// this file's 4 tests landed on the resolver's `ErrorState` instead of the
+/// intended edit screen and failed with "Found 0 widgets with type
+/// SalonAddressEditScreen" / "...SalonProfileEditScreen" — a 0/4 break this
+/// diff introduced, invisible to `flutter analyze` (fixture data, not a type
+/// error) and to unit/widget tests (this file's `FakeBackend`-backed E2E tier
+/// is the only one that boots a real login through the real resolver). Seeded
+/// to the SAME `city-kyiv`/`oblast-kyiv` pair every other fixture in this file
+/// and `fake_backend.dart`'s own default resolve against.
 FakeBackend _salonOwnerBackend() => FakeBackend()
   ..currentRole = UserRole.salonOwner
   ..mySalons = <Map<String, dynamic>>[
@@ -118,6 +134,8 @@ FakeBackend _salonOwnerBackend() => FakeBackend()
       'ownerId': 'user-owner-1',
       'name': 'Студія Краси «Камелія»',
       'city': 'Київ',
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
       'street': 'Хрещатик',
       'buildingNo': '12',
       'isActive': true,
@@ -204,12 +222,15 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expect(find.byType(SalonAddressEditScreen), findsOneWidget);
 
-    // salon-xyz's real GET response carries a valid `cityId` (`city-kyiv`,
-    // Finding 5) but NO `oblastId` — the PUBLIC `GET /salons/{salonId}`
-    // path this screen loads through never carries one (see [Salon.
-    // oblastId]'s doc), so `_prePopulateLocality` bails out before ever
-    // reading `cityId` and the cascade opens fully unresolved regardless —
-    // pick a fresh Oblast → City pair through the REAL picker sheets.
+    // RESUME §4 step D (mobile half, 2026-08-30) — `salon-xyz`'s real GET
+    // response now carries a real `cityId`/`oblastId` pair (`city-kyiv`/
+    // `oblast-kyiv` — `PublicSalonResponse.oblastId` is non-null on the wire
+    // as of backend `ec22d91`), so `_prePopulateLocality` DOES resolve the
+    // cascade to `oblast-kyiv` / `city-kyiv` on open. Re-tapping
+    // `oblast-kyiv` below is a no-op re-selection of the already-resolved
+    // value; the city tap then switches AWAY from the pre-populated leaf
+    // city to the one city that requires a district, which is the actual
+    // point of this test.
     await tester.tap(find.byKey(const Key('locality_row_oblast')));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -352,30 +373,31 @@ void main() {
   testWidgets('REGRESSION PIN — editing ONLY the street field, without ever '
       're-touching the city row after picking it once, still carries cityId '
       'on the real PATCH body', (tester) async {
-    // WHY THIS TEST, AND WHY IT PICKS THE CITY FIRST RATHER THAN RELYING
-    // ON PRE-POPULATION: `salon-xyz`'s PUBLIC salon-detail envelope
-    // (`_publicSalonDetailEnvelope`, `support/fake_backend.dart`) carries
-    // a real `cityId` ('city-kyiv') but deliberately NO `oblastId`
-    // (Finding 5, 2026-08-28 — a separate, older fixture decision that
-    // predates backend `dbe27a5`'s oblastId-on-the-public-path fix and is
-    // reused by other flows that assume an unresolved cascade for this
-    // salon). `_prePopulateLocality` needs `oblastId` to resolve the
-    // cascade, so it bails out and the screen opens with NO city visibly
-    // selected regardless of the real `cityId` on file — meaning the
-    // exact shipped-bug shape ("GET already resolved a city, viewer edits
-    // only street") is not reachable through THIS fixture without editing
-    // the shared envelope (used by several other flows that depend on its
-    // unresolved-cascade shape — out of this fix's scope).
+    // RESUME §4 step D (mobile half, 2026-08-30) — this comment used to
+    // explain why the test picks the city THROUGH THE REAL PICKER rather
+    // than relying on pre-population: `salon-xyz`'s PUBLIC salon-detail
+    // envelope used to carry a real `cityId` but deliberately NO `oblastId`
+    // (`PublicSalonResponse.oblastId` was nullable then), so
+    // `_prePopulateLocality` bailed out and the screen opened with NO city
+    // visibly selected. That fixture gap is now closed —
+    // `PublicSalonResponse.oblastId` is non-null on the wire (backend
+    // `ec22d91`) and `_publicSalonDetailEnvelope` now carries a real
+    // `oblast-kyiv`, so the screen DOES pre-populate `city-kyiv` on open.
     //
-    // This test instead picks the city ONCE via the real picker sheets
-    // (unavoidable given the fixture), then edits ONLY the street field —
-    // never re-opening the city/oblast rows again — and confirms the real
-    // wire body still carries `cityId`. This exercises the exact notifier
-    // code path the shipped bug broke (`saveAddress`'s unconditional,
-    // never-diffed `cityId` parameter) through the REAL OpenAPI JSON
-    // serializer and the real `FakeBackend` PATCH handler, which the
-    // widget tier (a hand-rolled `FakeSalonRepository` that never
-    // serializes anything) cannot exercise.
+    // The tap sequence below is kept as-is rather than deleted: re-picking
+    // the already-resolved `oblast-kyiv` → `city-kyiv` pair through the real
+    // picker sheets is a harmless no-op re-selection, and the test still
+    // proves what it always meant to — that editing ONLY the street field
+    // afterwards (never re-opening the city/oblast rows again) still sends
+    // `cityId` on the real wire body. This exercises the exact notifier code
+    // path the shipped bug broke (`saveAddress`'s unconditional, never-diffed
+    // `cityId` parameter) through the REAL OpenAPI JSON serializer and the
+    // real `FakeBackend` PATCH handler, which the widget tier (a hand-rolled
+    // `FakeSalonRepository` that never serializes anything) cannot exercise.
+    // A tighter version of this test could now drop the manual city pick
+    // entirely and rely on pre-population directly — left as-is here since
+    // reworking an integration-test assertion is mobile-qa's call, not this
+    // fixture fix's.
     final fb = _salonOwnerBackend();
     final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -445,5 +467,122 @@ void main() {
           'confirmed absent over a real JSON-serialized PATCH body.',
     );
     expect(body['cityId'], 'city-kyiv');
+  });
+
+  testWidgets('REGRESSION PIN — RESUME §4 step E: editing ONLY the '
+      'description on SalonProfileEditScreen succeeds and does not blank '
+      'the salon\'s existing cityId', (tester) async {
+    // THE USER-REPORTED BUG this test exists for: editing a salon's
+    // description alone (never touching name/phone/Instagram/locality)
+    // returned `BusinessException: City is required`. `save()`
+    // (`salon_management_profile_notifier.dart`) used to build the
+    // `UpdateSalonRequest` WITHOUT threading `cityId`/`districtId` through at
+    // all — the backend's `LocalityWriteValidator` runs on every PATCH
+    // regardless of which field changed, so an omitted `cityId` 400'd even
+    // though the viewer never meant to touch locality. The fix (2026-08-29,
+    // see that notifier's header doc) makes `save()` always echo the
+    // CURRENTLY LOADED `cityId`/`districtId` unconditionally, never diffed.
+    // `salon_management_profile_notifier_test.dart` already pins this at the
+    // MOCKED-repository tier; this is the real-wire counterpart — the real
+    // OpenAPI JSON serializer, the real `SalonProfileEditScreen` form, and
+    // the real `FakeBackend` PATCH handler, none of which the mocked-repo
+    // unit test touches.
+    final fb = _salonOwnerBackend();
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+    // fixed-wait-ok: settles the real async login/route-transition step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // PUSH, not go — `_save()` calls `context.pop()` on success (see
+    // `SalonProfileEditScreen._save`), so the leaf needs a real base beneath
+    // it to pop back onto, exactly like the address-edit tests above.
+    router.go(RouteNames.salonManage(_kSalonId));
+    // fixed-wait-ok: settles the real async route-push step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    unawaited(router.push(RouteNames.salonProfileEdit(_kSalonId)));
+    // fixed-wait-ok: settles the real async route-push step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expect(find.byType(SalonProfileEditScreen), findsOneWidget);
+
+    // Edit ONLY the description — name is never touched.
+    await tester.enterText(
+      find.byKey(const Key('salon_description')),
+      'Оновлений опис салону — без змін локації.',
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('save_salon_profile')));
+    await tester.pumpAndSettle();
+    // fixed-wait-ok: gives a real async PATCH round-trip a chance to land
+    // before the assertion below.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // ── HALF 1 — the PATCH succeeds (no client-side block, no error snack)
+    expect(
+      fb.updateSalonCalls,
+      1,
+      reason: 'a description-only edit must still reach the wire',
+    );
+    expect(
+      find.byType(SalonProfileEditScreen),
+      findsNothing,
+      reason:
+          'a successful save calls context.pop() — if the notifier had '
+          'returned a Failure (the shipped 400), the screen would still be '
+          'mounted showing an error snackbar instead of popping.',
+    );
+    final Map<String, dynamic> body = fb.lastUpdateSalonBody!;
+    expect(
+      body['description'],
+      'Оновлений опис салону — без змін локації.',
+      reason: 'the edited field must reach the real PATCH body',
+    );
+    expect(
+      body['name'],
+      isNull,
+      reason: 'an UNTOUCHED name must be OMITTED — not re-sent verbatim',
+    );
+
+    // ── HALF 2 — the salon's existing cityId is unchanged, never blanked ──
+    expect(
+      body['cityId'],
+      isNotNull,
+      reason:
+          'THE REGRESSION: a description-only edit must still carry cityId '
+          'on the real PATCH body. Before the fix, save() never set '
+          'cityId/districtId on the UpdateSalonRequest at all, so the '
+          'serializer omitted the keys and the real backend '
+          '(LocalityWriteValidator) 400s with "City is required" on every '
+          'save — regardless of which field the viewer actually edited.',
+    );
+    expect(
+      body['cityId'],
+      'city-kyiv',
+      reason:
+          "salon-xyz's real loaded cityId (from the public GET envelope) — "
+          'proves the value is the UNCHANGED existing locality, not merely '
+          'some non-null placeholder.',
+    );
+
+    // The resulting notifier state also carries the unchanged cityId forward
+    // (merged from the PATCH response) — re-opening the address-edit screen
+    // afterwards would show the SAME city was never blanked.
+    unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
+    // fixed-wait-ok: settles the real async route-push step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expect(find.byType(SalonAddressEditScreen), findsOneWidget);
+    expect(
+      // i18n-finder-ok: locale-invariant fixture-seeded locality data
+      // (city-kyiv/oblast-kyiv), asserted here to prove the oblast/city was
+      // never blanked by the description-only save — not UI copy.
+      find.text('Київ'),
+      findsWidgets,
+      reason:
+          'the oblast pre-populates from the SAME (unchanged) cityId/'
+          'oblastId this test just proved were never blanked by the '
+          'description-only save.',
+    );
   });
 }

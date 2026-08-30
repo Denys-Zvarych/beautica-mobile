@@ -64,12 +64,21 @@ const _stubUser = User(
 /// Loaded state simulating a FRESH `GET /salons/{salonId}` — `phone` is
 /// `null` (the real Phase 21.2 gap; see [Salon.phone]'s doc), `street`/
 /// `buildingNo` are present (backend-required on every PATCH).
+///
+/// RESUME §4 step D (mobile half, 2026-08-30) — carries a real `cityId`/
+/// `oblastId` pair (distinct from [_salonWithLocality]'s, so a mixed-up
+/// fixture would surface as a visibly wrong id): the backend guarantees
+/// every salon has one (`salons.city_id` DB-level `NOT NULL`, backend
+/// `ec22d91`) and [Salon.cityId]/[Salon.oblastId] are non-nullable to match,
+/// so there is no longer a "fresh, cityless salon" shape to model.
 const _freshSalon = Salon(
   id: _kSalonId,
   name: 'Салон «Вельвет»',
   description: 'Затишний салон краси.',
   street: 'вул. Велика Васильківська',
   buildingNo: '44',
+  cityId: 'city-fresh-01',
+  oblastId: 'oblast-fresh-01',
   phone: null,
 );
 
@@ -505,24 +514,21 @@ void main() {
       expect(captured!.districtId, _salonWithLocality.districtId);
     });
 
-    // mobile-security INFO follow-up (2026-08-29) — [Salon.cityId] is
-    // nullable and "null means the salon genuinely has no city set" (see
-    // that field's own doc). `save()` echoes whatever is loaded, so a salon
-    // with NO city on file still gets `cityId: null` PATCHed back — the
-    // backend's `LocalityWriteValidator` will 400 that save too, exactly as
-    // it did before this fix, for a narrower reason (no client-side path
-    // ever lets the viewer SET a city from this screen; only
-    // `SalonAddressEditScreen` does). This test documents that CURRENT,
-    // UNCHANGED gap — it is not a regression this fix introduces, and it is
-    // NOT a fix: the product decision on how a cityless salon should recover
-    // (route to the address screen? block the profile-edit save entirely?)
-    // has not been made. Do not "fix" this by inventing a fallback here.
-    test('KNOWN LIMITATION — a salon with NO city on file still echoes '
-        'cityId: null, which the backend will still reject (untouched by '
-        'this fix, not a fix itself)', () async {
-      // _freshSalon has no cityId set (null) — the real GET-time shape for
-      // a salon that has never had its locality set.
-      expect(_freshSalon.cityId, isNull);
+    // RESUME §4 step D (mobile half, 2026-08-30) — RETIRED the
+    // "KNOWN LIMITATION — a salon with NO city on file" test this comment
+    // used to introduce. That limitation documented a `Salon` loaded with
+    // `cityId: null` (a salon that had never had its locality set) still
+    // echoing `cityId: null` on save, which the backend would 400. That
+    // STATE IS NOW IMPOSSIBLE: `salons.city_id` is DB-level `NOT NULL`
+    // (backend `ec22d91`, migrations V150/V151, every legacy row backfilled)
+    // and [Salon.cityId] flipped from `String?` to `String` in the same
+    // step — the domain type itself no longer admits a cityless salon, so
+    // there is nothing left to document as a gap. Replaced with a positive
+    // pin of the NEW guarantee below rather than silently dropping the
+    // coverage.
+    test('a real salon ALWAYS carries a non-empty cityId (backend-guaranteed) '
+        '— save() echoes it, never blank', () async {
+      expect(_freshSalon.cityId, isNotEmpty);
 
       when(
         () => repo.getSalonById(_kSalonId),
@@ -547,24 +553,15 @@ void main() {
         instagramUrl: '',
       );
 
-      expect(
-        failure,
-        isNull,
-        reason:
-            'the FAKE repository never rejects '
-            'a null cityId the way the real backend would — this test pins '
-            "the mobile CLIENT's current behaviour (what it sends), not the "
-            'server response.',
-      );
+      expect(failure, isNull);
       expect(
         captured!.cityId,
-        isNull,
+        _freshSalon.cityId,
         reason:
-            'documents the known gap: this screen has no way to recover '
-            'a cityless salon, so it echoes null and a real save would '
-            'still 400. Flip this assertion deliberately, with a product '
-            "decision behind it, if a fallback is ever added — don't let "
-            'it flip by accident.',
+            'save() must always echo the loaded cityId — the backend '
+            'guarantee means this can never legitimately be blank, and a '
+            'regression that folds it to null/empty would 400 with '
+            '"City is required" on every save.',
       );
     });
   });
@@ -604,7 +601,7 @@ void main() {
       // salon — only street is genuinely new. This is exactly the shape
       // the old diff formula folded to null.
       final failure = await notifier.saveAddress(
-        cityId: _salonWithLocality.cityId!,
+        cityId: _salonWithLocality.cityId,
         districtId: _salonWithLocality.districtId,
         street: 'вул. Хрещатик',
         buildingNo: _salonWithLocality.buildingNo!,
@@ -686,7 +683,7 @@ void main() {
       final notifier = await _readyNotifier(container, _salonWithLocality);
 
       await notifier.saveAddress(
-        cityId: _salonWithLocality.cityId!,
+        cityId: _salonWithLocality.cityId,
         districtId: _salonWithLocality.districtId,
         street: _salonWithLocality.street!,
         buildingNo: _salonWithLocality.buildingNo!,
@@ -702,7 +699,7 @@ void main() {
       );
 
       await notifier.saveAddress(
-        cityId: _salonWithLocality.cityId!,
+        cityId: _salonWithLocality.cityId,
         districtId: _salonWithLocality.districtId,
         street: _salonWithLocality.street!,
         buildingNo: _salonWithLocality.buildingNo!,
@@ -731,7 +728,7 @@ void main() {
         final notifier = await _readyNotifier(container, _salonWithLocality);
 
         final failure = await notifier.saveAddress(
-          cityId: _salonWithLocality.cityId!,
+          cityId: _salonWithLocality.cityId,
           districtId: _salonWithLocality.districtId,
           street: 'вул. Хрещатик',
           buildingNo: _salonWithLocality.buildingNo!,

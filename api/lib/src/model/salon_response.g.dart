@@ -22,9 +22,9 @@ class _$SalonResponse extends SalonResponse {
   @override
   final String? address;
   @override
-  final String? cityId;
+  final String cityId;
   @override
-  final String? oblastId;
+  final String oblastId;
   @override
   final String? districtId;
   @override
@@ -57,8 +57,8 @@ class _$SalonResponse extends SalonResponse {
       this.city,
       this.region,
       this.address,
-      this.cityId,
-      this.oblastId,
+      required this.cityId,
+      required this.oblastId,
       this.districtId,
       this.street,
       this.buildingNo,
@@ -288,8 +288,10 @@ class SalonResponseBuilder
           city: city,
           region: region,
           address: address,
-          cityId: cityId,
-          oblastId: oblastId,
+          cityId: BuiltValueNullFieldError.checkNotNull(
+              cityId, r'SalonResponse', 'cityId'),
+          oblastId: BuiltValueNullFieldError.checkNotNull(
+              oblastId, r'SalonResponse', 'oblastId'),
           districtId: districtId,
           street: street,
           buildingNo: buildingNo,

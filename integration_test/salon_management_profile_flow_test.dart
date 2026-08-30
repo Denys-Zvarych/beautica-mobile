@@ -17,11 +17,19 @@
 //   • `salonManageGuard` admitting a REAL, fully-authenticated SALON_OWNER
 //     session (not a stubbed `AuthNotifier`) end to end.
 //
-// No UI entry point reaches `/salons/:salonId/manage` yet (Phase 21.1's "Мої
-// салони" hub is unbuilt — see `salon_settings_screen.dart`'s own header
-// doc), so this flow drives the router directly via `router.go(...)` after a
-// REAL login, exactly like `edit_profile_flow_test.dart`'s
-// `professionalTitle` case does for `RouteNames.masterEditPersonal`.
+// No UI entry point reaches `/salons/:salonId/manage` itself yet (Phase
+// 21.1's "Мої салони" hub is unbuilt — see `salon_settings_screen.dart`'s own
+// header doc), so this flow drives the router directly via `router.go(...)`
+// after a REAL login, exactly like `edit_profile_flow_test.dart`'s
+// `professionalTitle` case does for `RouteNames.masterEditPersonal`. From
+// `/manage` onward, both the phone-edit and delete journeys below now drive
+// the REAL Phase 21.9/21.10/21.13 UI path (settings hub -> dedicated edit
+// screen / -> «Загальне» -> account page), not a synthetic key — the old
+// inline «Редагувати профіль» edit mode and the old 2-row settings hub with
+// its own «Видалити салон» row (`row-salon-edit-profile` / `field-salon-phone`
+// / `btn-salon-save-edit` / `row-salon-delete`) were replaced by commit
+// `209cea0`'s Phase 21.10/21.13 rebuild; see `salon_settings_screen.dart`'s
+// own header doc for the full shape of that rebuild.
 //
 // NO PATROL FLOW: nothing here touches an OS permission dialog, deep link,
 // notification, WebView, or biometric — this is a pure screen/route/
@@ -37,6 +45,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
@@ -68,12 +77,32 @@ const String _kSalonId = 'salon-xyz';
 /// the owner does not own. `isPrimary: false` deliberately — `salon-owner-1`
 /// stays the primary so widening the list doesn't shift any unrelated
 /// "primary salon" behaviour.
+///
+/// mobile-qa fixture-drift fix (2026-08-30, discovered while re-authoring
+/// this file's phone-edit journey onto the Phase 21.10 dedicated edit
+/// screens) — this row used to omit `cityId`/`oblastId`. `SalonResponse
+/// .cityId`/`.oblastId` are non-null on the wire as of backend `ec22d91`
+/// (`salons.city_id` DB-level `NOT NULL`), so `GET /salons/mine`
+/// deserializing THIS row throws `BuiltValueNullFieldError` inside
+/// `mySalonsProvider.build()` — invisible to the OLDER `/manage` and
+/// `/manage/invite` routes this file already exercised, since
+/// `salonManageGuard`'s SALON_OWNER arm ADMITS while `mySalonsProvider` has
+/// not resolved (its documented cold-deep-link fallback), but FATAL to
+/// `salonManageOwnerOnlyGuard` — the guard on the three Phase 21.10 dedicated
+/// edit routes (`profile-edit`/`address-edit`/`contacts-edit`) — which
+/// deliberately does NOT inherit that tolerance and fails closed, bouncing
+/// to `roleHomePath` (`/salons/home`) whenever `mySalonsProvider` is not a
+/// genuinely resolved `AsyncData`. `salon_edit_forms_flow_test.dart` hit and
+/// fixed this identical gap first; seeded here to the SAME `city-kyiv`/
+/// `oblast-kyiv` pair for consistency.
 void _seedSalonXyzIntoMySalons(FakeBackend fb) {
   fb.mySalons.add(<String, dynamic>{
     'id': _kSalonId,
     'ownerId': 'user-owner-1',
     'name': 'Студія Краси «Камелія»',
     'city': 'Київ',
+    'cityId': 'city-kyiv',
+    'oblastId': 'oblast-kyiv',
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'isActive': true,
@@ -124,34 +153,47 @@ void main() {
         // i18n-finder-ok: fixture data, not UI copy.
         expect(find.text('Студія Краси «Камелія»'), findsOneWidget);
 
-        // ── Cover control -> settings -> «Редагувати профіль» -> edit mode ──
+        // ── Cover control -> settings -> «Контакти» -> dedicated edit screen
+        // Phase 21.10 replaced the old single «Редагувати профіль» inline
+        // edit mode with three dedicated edit screens — «Контакти»
+        // (`SalonContactsEditScreen`) is the one that owns phone + Instagram,
+        // exactly the fields the old inline form used to combine with
+        // name/description (see `salon_settings_screen.dart`'s header doc).
         await tester.tap(find.byKey(const Key('salon-manage-settings')));
         await tester.pumpAndSettle();
         expect(find.byType(SalonSettingsScreen), findsOneWidget);
 
-        await tester.tap(find.byKey(const Key('row-salon-edit-profile')));
+        final Finder contactsRow = find.byKey(const Key('row-salon-contacts'));
+        await tester.ensureVisible(contactsRow);
         await tester.pumpAndSettle();
+        await tester.tap(contactsRow);
+        await tester.pumpAndSettle();
+        expect(find.byType(SalonContactsEditScreen), findsOneWidget);
 
-        expect(find.byKey(const Key('field-salon-phone')), findsOneWidget);
+        expect(find.byKey(const Key('salon_phone')), findsOneWidget);
         // Phone starts BLANK — the real Phase 21.2 gap (GET never returns
         // it) — even against a REAL wire response, not just the widget-tier
         // fake.
         final phoneField = tester.widget<TextField>(
-          find.byKey(const Key('field-salon-phone')),
+          find.byKey(const Key('salon_phone')),
         );
         expect(phoneField.controller!.text, isEmpty);
 
         // Edit ONLY the phone — name/description/instagram stay untouched.
+        // [UaPhoneInputFormatter] masks as-typed (proven by
+        // `ua_phone_input_formatter_test.dart`); the wire value is the
+        // masked text verbatim (no strip step), same as every other
+        // masked-phone flow (`client_profile_settings_flow_test.dart`).
         await tester.enterText(
-          find.byKey(const Key('field-salon-phone')),
-          '+380671112233',
+          find.byKey(const Key('salon_phone')),
+          '+380 67 111 22 33',
         );
         await tester.pump();
 
-        await tester.tap(find.byKey(const Key('btn-salon-save-edit')));
+        await tester.tap(find.byKey(const Key('save_salon_contacts')));
         await tester.pumpAndSettle();
         // fixed-wait-ok: settles the real async PATCH round-trip + the
-        // notifier's state-merge/edit-mode-close before the next assertion.
+        // notifier's state-merge/pop sequence before the next assertion.
         await tester.pump(const Duration(milliseconds: 500));
         await tester.pumpAndSettle();
 
@@ -161,7 +203,7 @@ void main() {
         final body = fb.lastUpdateSalonBody!;
         expect(
           body['phone'],
-          '+380671112233',
+          '+380 67 111 22 33',
           reason: 'the EDITED field must reach the wire',
         );
         expect(
@@ -178,8 +220,19 @@ void main() {
         expect(body['street'], isNotNull);
         expect(body['buildingNo'], isNotNull);
 
-        // Edit mode closed and the read view now shows the saved phone.
-        expect(find.byKey(const Key('field-salon-phone')), findsNothing);
+        // A successful save pops back to the settings hub — not the manage
+        // screen directly (`SalonContactsEditScreen._save` calls
+        // `context.pop()`, mirroring every other Phase 21.10 edit screen).
+        expect(find.byKey(const Key('salon_phone')), findsNothing);
+        expect(find.byType(SalonSettingsScreen), findsOneWidget);
+
+        // Close the settings hub and confirm the read view now shows the
+        // saved phone — proves the notifier's merged state actually reached
+        // the still-mounted (offstage) [SalonManagementProfileScreen], not
+        // just the edit screen's own local form state.
+        await tester.tap(find.byKey(const Key('btn-close-salon-settings')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
         expect(
           find.byKey(const Key('salon-manage-contact-phone')),
           findsOneWidget,
@@ -221,8 +274,19 @@ void main() {
         // fixed-wait-ok: settles the real async route-push step.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
-        expect(find.byKey(const Key('row-salon-delete')), findsOneWidget);
-        await tester.tap(find.byKey(const Key('row-salon-delete')));
+        // Phase 21.13 moved «Видалити салон» OFF the settings hub and onto
+        // the bottom of the shared account page («Загальне» ->
+        // [SettingsScreen], `showDeleteSalon: isOwner`) — see
+        // `salon_settings_screen.dart`'s own header doc. Drive the REAL
+        // «Загальне» tap (not `router.go`) so the settings hub's own
+        // `context.push(RouteNames.settings, extra: AccountSettingsExtras(...))`
+        // wiring — the thing that actually threads `showDeleteSalon: true`
+        // through — is exercised end to end, not bypassed.
+        await tester.tap(find.byKey(const Key('row-salon-general')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('row-delete-salon')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('row-delete-salon')));
         await tester.pumpAndSettle();
 
         expect(find.byKey(const Key('delete-salon-dialog')), findsOneWidget);

@@ -17,8 +17,8 @@ part 'public_salon_response.g.dart';
 /// * [city]
 /// * [region]
 /// * [address]
-/// * [cityId]
-/// * [oblastId]
+/// * [cityId] - Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire.
+/// * [oblastId] - Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire.
 /// * [districtId]
 /// * [street]
 /// * [buildingNo]
@@ -49,11 +49,13 @@ abstract class PublicSalonResponse
   @BuiltValueField(wireName: r'address')
   String? get address;
 
+  /// Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire.
   @BuiltValueField(wireName: r'cityId')
-  String? get cityId;
+  String get cityId;
 
+  /// Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire.
   @BuiltValueField(wireName: r'oblastId')
-  String? get oblastId;
+  String get oblastId;
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
@@ -153,20 +155,16 @@ class _$PublicSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.cityId != null) {
-      yield r'cityId';
-      yield serializers.serialize(
-        object.cityId,
-        specifiedType: const FullType(String),
-      );
-    }
-    if (object.oblastId != null) {
-      yield r'oblastId';
-      yield serializers.serialize(
-        object.oblastId,
-        specifiedType: const FullType(String),
-      );
-    }
+    yield r'cityId';
+    yield serializers.serialize(
+      object.cityId,
+      specifiedType: const FullType(String),
+    );
+    yield r'oblastId';
+    yield serializers.serialize(
+      object.oblastId,
+      specifiedType: const FullType(String),
+    );
     if (object.districtId != null) {
       yield r'districtId';
       yield serializers.serialize(

@@ -367,6 +367,14 @@ final class FakeBackend {
       'ownerId': 'user-owner-1',
       'name': 'Салон Оксани',
       'city': 'Київ',
+      // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/`.oblastId`
+      // are non-null on the wire (backend `ec22d91`); reusing the SAME
+      // `city-kyiv`/`oblast-kyiv` pair every other salon fixture in this
+      // file resolves against (see the `/locations/oblasts/oblast-kyiv/
+      // cities` handler below) rather than a free-floating id that would
+      // resolve to nothing.
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
       'street': 'Хрещатик',
       'buildingNo': '10',
       'isActive': true,
@@ -1146,6 +1154,18 @@ final class FakeBackend {
   String? _salonManagePhone;
   String? _salonManageInstagramUrl = '@kamelia_salon';
 
+  /// RESUME §4 step D (mobile half) — `SalonResponse.cityId`/`.oblastId` are
+  /// now non-null on the wire (backend `ec22d91`, `salons.city_id` DB-level
+  /// `NOT NULL`), so the PATCH response below must always echo a real pair
+  /// or `SalonMapper.fromUpdateDto`'s deserialization throws. Seeded to the
+  /// SAME `city-kyiv`/`oblast-kyiv` pair `_publicSalonDetailEnvelope` uses,
+  /// mirroring the "untouched field round-trips unchanged" contract the
+  /// other `_salonManage*` fields already follow. `districtId` stays
+  /// nullable — `city-kyiv` has none.
+  String _salonManageCityId = 'city-kyiv';
+  final String _salonManageOblastId = 'oblast-kyiv';
+  String? _salonManageDistrictId;
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -1883,20 +1903,35 @@ final class FakeBackend {
 
   /// PUBLIC salon-detail envelope for `salon-xyz`. Shape matches
   /// `PublicSalonResponse` (id/name/description/city/region/address/cityId/
-  /// districtId/street/buildingNo/locationNote/instagramUrl/avatarUrl/
-  /// coverImageUrl/avgRating/reviewCount).
+  /// oblastId/districtId/street/buildingNo/locationNote/instagramUrl/
+  /// avatarUrl/coverImageUrl/avgRating/reviewCount).
   ///
   /// Deliberately carries ONLY the Phase 10.6+ taxonomy locality fields
-  /// (`cityId`/`street`/`buildingNo`/`locationNote`) and leaves the legacy
-  /// `city`/`address` pair null — this is the real shape of every salon
-  /// created/edited since Phase 10.6, and is the exact fixture shape the
-  /// "public salon profile shows no location" regression needed: a fixture
-  /// with the legacy pair populated would pass through the OLD (broken)
-  /// `SalonMapper.fromDto`, which silently dropped the taxonomy fields, just
-  /// as easily as the fixed one. See `salon_mapper_test.dart` for the
-  /// mapper-level unit-test counterpart and
+  /// (`cityId`/`oblastId`/`street`/`buildingNo`/`locationNote`) and leaves
+  /// the legacy `city`/`address` pair null — this is the real shape of every
+  /// salon created/edited since Phase 10.6, and is the exact fixture shape
+  /// the "public salon profile shows no location" regression needed: a
+  /// fixture with the legacy pair populated would pass through the OLD
+  /// (broken) `SalonMapper.fromDto`, which silently dropped the taxonomy
+  /// fields, just as easily as the fixed one. See `salon_mapper_test.dart`
+  /// for the mapper-level unit-test counterpart and
   /// `public_salon_profile_flow_test.dart` for the assertion that reads the
   /// rendered address text.
+  ///
+  /// RESUME §4 step D (mobile half, 2026-08-30) — `oblastId` used to be
+  /// OMITTED here on purpose (see the now-stale "Finding 5" comment this
+  /// replaced): `PublicSalonResponse.oblastId` was nullable and several
+  /// flows (`salon_edit_forms_flow_test.dart`'s Test 2/3) were deliberately
+  /// built around `_prePopulateLocality` bailing out on the missing field
+  /// so the cascade opened fully unresolved. `oblastId` is now non-null on
+  /// the wire (backend `ec22d91`, `salons.city_id`/`cities.oblast_id` are
+  /// both DB-level `NOT NULL`) — omitting it would throw at deserialization,
+  /// not just leave the field blank — so it MUST be populated. `oblast-kyiv`
+  /// is the real seeded parent of `city-kyiv` (see the `GET /locations/
+  /// oblasts/oblast-kyiv/cities` handler below), so `salon-xyz`'s cascade
+  /// now pre-populates correctly instead of opening blank; the two dependent
+  /// tests' explanatory comments were updated to match (they still function
+  /// unchanged — re-selecting an already-resolved oblast/city is a no-op).
   Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(<String, dynamic>{
     'id': 'salon-xyz',
     'name': 'Студія Краси «Камелія»',
@@ -1904,14 +1939,12 @@ final class FakeBackend {
         'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
         'та стрижки — довірливий сервіс з 2018 року.',
     'region': 'Київська',
-    // Finding 5 (2026-08-28) — was 'city-uuid-kyiv', which matched none of
-    // the seeded cities (city-kyiv / city-lviv / city-with-districts), so
-    // locality pre-population never resolved for salon-xyz. 'city-kyiv' is a
-    // real seeded id (see the `GET /locations/oblasts/oblast-kyiv/cities`
-    // handler below) — deliberately still a hasDistricts:false city so no
-    // existing flow that assumes an unresolved/leaf cascade for salon-xyz
-    // changes behaviour.
+    // 'city-kyiv' is a real seeded id (see the `GET /locations/oblasts/
+    // oblast-kyiv/cities` handler below) — deliberately still a
+    // hasDistricts:false city so no existing flow that assumes a leaf
+    // (no-district) cascade for salon-xyz changes behaviour.
     'cityId': 'city-kyiv',
+    'oblastId': 'oblast-kyiv',
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'locationNote': salonLocationNote,
@@ -4144,6 +4177,16 @@ final class FakeBackend {
               'ownerId': 'user-owner-1',
               'name': body['name'] as String? ?? '',
               'city': 'Київ',
+              // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/
+              // `.oblastId` are non-null on the wire. `register_salon_
+              // notifier.dart` always sends a real `cityId` on `POST
+              // /salons`, so echo it back rather than a hard-coded value;
+              // every seeded city (`city-kyiv`/`city-lviv`/
+              // `city-with-districts`) resolves to the SAME seeded
+              // `oblast-kyiv`, so that half is always correct regardless of
+              // which city was picked.
+              'cityId': (body['cityId'] as String?) ?? 'city-kyiv',
+              'oblastId': 'oblast-kyiv',
               'street': body['street'] as String? ?? '',
               'buildingNo': body['buildingNo'] as String? ?? '',
               'isActive': true,
@@ -4933,10 +4976,25 @@ final class FakeBackend {
             if (body.containsKey('instagramUrl')) {
               _salonManageInstagramUrl = body['instagramUrl'] as String?;
             }
+            // `saveAddress` sends `cityId` UNCONDITIONALLY (never diffed —
+            // see this handler's own doc above), so a real save always
+            // carries it; `districtId` stays diffed-by-omission (a leaf
+            // city legitimately sends none). Falls back to the current
+            // mutable value so an untouched-locality PATCH (e.g. Test 4,
+            // editing only `street`) still echoes a valid, non-null pair.
+            if (body['cityId'] is String) {
+              _salonManageCityId = body['cityId'] as String;
+            }
+            if (body.containsKey('districtId')) {
+              _salonManageDistrictId = body['districtId'] as String?;
+            }
             return _ok(<String, dynamic>{
               'id': 'salon-xyz',
               'name': _salonManageName,
               'description': _salonManageDescription,
+              'cityId': _salonManageCityId,
+              'oblastId': _salonManageOblastId,
+              'districtId': _salonManageDistrictId,
               'street': (body['street'] as String?) ?? 'вул. Хрещатик',
               'buildingNo': (body['buildingNo'] as String?) ?? '12',
               'phone': _salonManagePhone,

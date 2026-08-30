@@ -57,23 +57,45 @@ PublicSalonResponse _taxonomyOnlyDto() => PublicSalonResponse(
     ..locationNote = '2 поверх',
 );
 
-/// Builds a DTO carrying ONLY the legacy free-text pair — a salon that
-/// predates Phase 10.6 and has never been re-saved since.
+/// Builds a DTO carrying the legacy free-text pair ALONGSIDE the now-mandatory
+/// `cityId`/`oblastId` — a salon that predates Phase 10.6 and has never been
+/// re-saved since (so the legacy strings linger), backfilled with a real city
+/// by the RESUME §4 step D migration (backend `ec22d91`, V150/V151) rather
+/// than having them cleared. `street`/`buildingNo`/`locationNote` stay unset —
+/// the backfill only ever populated the mandatory city/oblast pair, not a
+/// full taxonomy address.
+///
+/// RESUME §4 step D (mobile half, 2026-08-30) — this DTO used to carry NO
+/// `cityId` at all (`PublicSalonResponse.cityId` was nullable then); that
+/// shape is no longer constructible (`cityId`/`oblastId` are non-null on the
+/// wire) or representative (the backend now guarantees every row, including
+/// this one, has a real city).
 PublicSalonResponse _legacyOnlyDto() => PublicSalonResponse(
   (b) => b
     ..id = 'salon-2'
     ..name = 'Салон «Гармонія»'
     ..reviewCount = 0
+    ..cityId = 'city-uuid-legacy'
+    ..oblastId = 'oblast-uuid-legacy'
     ..city = 'Київ'
     ..address = 'вул. Велика Васильківська, 44',
 );
 
-/// Builds a DTO with NEITHER taxonomy NOR legacy location fields.
+/// Builds a DTO with the mandatory `cityId`/`oblastId` pair but no other
+/// address detail at all (no legacy free-text, no taxonomy street/building/
+/// district/note) — the minimal valid shape.
+///
+/// RESUME §4 step D (mobile half, 2026-08-30) — used to be constructible with
+/// NEITHER taxonomy NOR legacy fields at all; `cityId`/`oblastId` are now
+/// non-null on the wire (backend `ec22d91`), so that all-blank shape can no
+/// longer be built — every real salon has at least this much.
 PublicSalonResponse _locationlessDto() => PublicSalonResponse(
   (b) => b
     ..id = 'salon-3'
     ..name = 'Салон без адреси'
-    ..reviewCount = 0,
+    ..reviewCount = 0
+    ..cityId = 'city-uuid-3'
+    ..oblastId = 'oblast-uuid-3',
 );
 
 void main() {
@@ -100,24 +122,26 @@ void main() {
       expect(salon.address, isNull);
     });
 
-    test('maps the legacy city/address pair when the DTO carries no taxonomy '
-        'fields (backward compat for pre-Phase-10.6 salons)', () {
+    test('maps the mandatory cityId/oblastId ALONGSIDE the lingering legacy '
+        'city/address pair for a pre-Phase-10.6 salon backfilled with a real '
+        'city (RESUME §4 step D)', () {
       final salon = SalonMapper.fromDto(_legacyOnlyDto());
 
       expect(salon.city, 'Київ');
       expect(salon.address, 'вул. Велика Васильківська, 44');
-      expect(salon.cityId, isNull);
+      expect(salon.cityId, 'city-uuid-legacy');
+      expect(salon.oblastId, 'oblast-uuid-legacy');
       expect(salon.street, isNull);
       expect(salon.buildingNo, isNull);
       expect(salon.locationNote, isNull);
     });
 
-    test('leaves every locality field null when the DTO carries neither '
-        'taxonomy nor legacy location data', () {
+    test('leaves every OPTIONAL locality field null when the DTO carries only '
+        'the mandatory cityId/oblastId pair', () {
       final salon = SalonMapper.fromDto(_locationlessDto());
 
-      expect(salon.cityId, isNull);
-      expect(salon.oblastId, isNull);
+      expect(salon.cityId, 'city-uuid-3');
+      expect(salon.oblastId, 'oblast-uuid-3');
       expect(salon.districtId, isNull);
       expect(salon.street, isNull);
       expect(salon.buildingNo, isNull);
@@ -130,7 +154,9 @@ void main() {
       final PublicSalonResponse dto = PublicSalonResponse(
         (b) => b
           ..name = 'Без ідентифікатора'
-          ..reviewCount = 0,
+          ..reviewCount = 0
+          ..cityId = 'city-uuid-4'
+          ..oblastId = 'oblast-uuid-4',
       );
 
       expect(() => SalonMapper.fromDto(dto), throwsA(isA<ServerFailure>()));
@@ -160,17 +186,32 @@ void main() {
       expect(salon.oblastId, 'oblast-uuid-2');
     });
 
-    test('leaves oblastId null when the DTO carries no locality', () {
+    // RESUME §4 step D (mobile half, 2026-08-30) — RETITLED and updated: this
+    // used to construct a `SalonResponse` with NO `cityId`/`oblastId` at all
+    // to pin "leaves oblastId null when the DTO carries no locality".
+    // `SalonResponse.cityId`/`.oblastId` are now non-null on the wire
+    // (backend `ec22d91`) — that shape can no longer be built (built_value
+    // throws at construction) or occur on a real PATCH response. This now
+    // pins the adjacent, still-real gap instead: every OTHER optional
+    // address field (street/buildingNo/districtId/locationNote) can still be
+    // absent even though cityId/oblastId cannot.
+    test('leaves street/buildingNo/districtId null when the DTO carries only '
+        'the mandatory cityId/oblastId pair', () {
       final SalonResponse dto = SalonResponse(
         (b) => b
           ..id = 'salon-5'
-          ..name = 'Салон без адреси',
+          ..name = 'Салон без адреси'
+          ..cityId = 'city-uuid-5'
+          ..oblastId = 'oblast-uuid-5',
       );
 
       final salon = SalonMapper.fromUpdateDto(dto);
 
-      expect(salon.oblastId, isNull);
-      expect(salon.cityId, isNull);
+      expect(salon.cityId, 'city-uuid-5');
+      expect(salon.oblastId, 'oblast-uuid-5');
+      expect(salon.street, isNull);
+      expect(salon.buildingNo, isNull);
+      expect(salon.districtId, isNull);
     });
   });
 

@@ -335,6 +335,25 @@ final class HttpSalonRepository implements SalonRepository {
         );
       }
       throw _mapDioException(e);
+    } catch (e, st) {
+      // A malformed response (e.g. a row missing the now-required
+      // `cityId`/`oblastId`) throws `BuiltValueNullFieldError` — a Dart
+      // `Error`, not an `Exception`, so it matches neither arm above and
+      // would otherwise propagate with no breadcrumb at all. Log it, then
+      // rethrow UNCHANGED — Riverpod's `AsyncNotifier` machinery still maps
+      // it to a graceful `UnknownFailure` error screen with retry (see
+      // `salon_shell_landing_flow_test.dart`'s mobile-security INFO-1 pin);
+      // this only makes that path diagnosable.
+      if (kDebugMode) {
+        log(
+          'getMySalons: malformed response, deserialization failed: $e',
+          name: 'salon.repository',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
     }
   }
 
@@ -366,6 +385,21 @@ final class HttpSalonRepository implements SalonRepository {
         );
       }
       throw _mapDioException(e);
+    } catch (e, st) {
+      // See `getMySalons`'s identical catch above — a malformed response
+      // (missing `cityId`/`oblastId`) throws `BuiltValueNullFieldError`, a
+      // Dart `Error` neither arm above matches. Log it, then rethrow
+      // UNCHANGED so the resulting `UnknownFailure` error screen is unaffected.
+      if (kDebugMode) {
+        log(
+          'getSalonById: malformed response, deserialization failed: $e',
+          name: 'salon.repository',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
     }
   }
 
@@ -542,6 +576,21 @@ final class HttpSalonRepository implements SalonRepository {
         );
       }
       throw _mapDioException(e);
+    } catch (e, st) {
+      // See `getMySalons`'s identical catch above — a malformed response
+      // (missing `cityId`/`oblastId`) throws `BuiltValueNullFieldError`, a
+      // Dart `Error` neither arm above matches. Log it, then rethrow
+      // UNCHANGED so the resulting `UnknownFailure` error screen is unaffected.
+      if (kDebugMode) {
+        log(
+          'updateSalon: malformed response, deserialization failed: $e',
+          name: 'salon.repository',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
     }
   }
 

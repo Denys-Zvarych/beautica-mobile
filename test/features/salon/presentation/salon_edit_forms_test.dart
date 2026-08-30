@@ -74,12 +74,18 @@ const _stubSalon = Salon(
 // produced for EVERY salon regardless of whether it had a real city.
 // `_prePopulateLocality` must return early on this without touching any
 // locality provider — see `no fan-out` test below.
+//
+// RESUME §4 step D (mobile half, 2026-08-30) — [Salon.cityId]/[Salon.
+// oblastId] flipped `String? -> String` with `@Default('')` (the backend now
+// guarantees every REAL salon has a city; this fixture models a fixture-only
+// "unset" shape, not a state a real backend read can produce anymore).
+// Simply omitting both fields below is the direct equivalent of the old
+// `cityId: null, oblastId: null` — [resolvedLocalityProvider]'s guard treats
+// an empty id exactly the same as the old `null` short-circuit.
 const _stubSalonNoCity = Salon(
   id: _kSalonId,
   name: 'Салон «Вельвет»',
   description: 'Затишний салон краси в серці Печерська.',
-  cityId: null,
-  oblastId: null,
   street: 'вул. Велика Васильківська',
   buildingNo: '44',
   locationNote: '2 поверх',
