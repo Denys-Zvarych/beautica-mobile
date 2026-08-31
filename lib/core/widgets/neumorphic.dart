@@ -1066,6 +1066,7 @@ class NeumorphicIconButton extends StatelessWidget {
     this.iconWidget,
     required this.onTap,
     required this.semanticLabel,
+    this.enabled = true,
   }) : assert(
          icon != null || iconWidget != null,
          'NeumorphicIconButton: supply either an `icon` (IconData) or an '
@@ -1083,6 +1084,30 @@ class NeumorphicIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final String semanticLabel;
 
+  /// Phase 21.14 — `false` renders the button as PRESENT BUT NOT YET
+  /// AVAILABLE, the exact convention [SettingsRow]'s own `enabled` parameter
+  /// established (`lib/features/master/presentation/widgets/settings_row.dart`):
+  /// dimmed to 0.6, taps absorbed, and `Semantics(enabled: false)` so a screen
+  /// reader announces it as unavailable rather than letting a tap fall
+  /// silently on the floor. Geometry is untouched — the button occupies
+  /// exactly the same 48×48 box it does when enabled, so a disabled trailing
+  /// action never shifts the top bar's title.
+  ///
+  /// The dim reads as DISABLED and not as PRESSED because a pressed
+  /// neumorphic surface in this design system is signalled by REMOVING the
+  /// shadow pair (see [NeumorphicButton] / [SettingsRow]), not by lowering
+  /// opacity: at 0.6 the raised light/dark shadow pair is still present and
+  /// still offset, so the extrusion survives.
+  ///
+  /// It exists for the `tune_rounded` action on `OwnerOwnProfileScreen`, whose
+  /// destination (the Phase 21.15 Owner Settings Hub) is unbuilt — the control
+  /// must be visibly inert, never a dead tap or a fake route.
+  ///
+  /// Defaults to `true`, and the `true` branch emits the byte-identical widget
+  /// tree this button shipped with before this parameter existed, so every
+  /// pre-existing call site renders and behaves EXACTLY as before.
+  final bool enabled;
+
   /// Fixed square extent of the button (width == height). Exposed so callers
   /// that lay this button out alongside shorter siblings (e.g. the CLIENT top
   /// bar's bell) can pin their own cross-axis height to the burger extent and
@@ -1097,22 +1122,38 @@ class NeumorphicIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget face = Container(
+      height: extent,
+      width: extent,
+      decoration: const BoxDecoration(
+        color: BrandColors.base,
+        borderRadius: _buttonRadius,
+        boxShadow: VelvetShadows.extrudedSmall,
+      ),
+      child:
+          iconWidget ?? Icon(icon, color: BrandColors.textSecondary, size: 22),
+    );
+
+    // The `enabled` branch is deliberately additive-by-omission: when enabled
+    // (the default) NO extra wrapper is inserted, so the tree is identical to
+    // what every existing call site — and every existing golden — already
+    // renders. Only the disabled branch adds the dim/absorb layers.
+    if (enabled) {
+      return Semantics(
+        button: true,
+        label: semanticLabel,
+        child: GestureDetector(onTap: onTap, child: face),
+      );
+    }
+
     return Semantics(
       button: true,
+      enabled: false,
       label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: extent,
-          width: extent,
-          decoration: const BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: _buttonRadius,
-            boxShadow: VelvetShadows.extrudedSmall,
-          ),
-          child:
-              iconWidget ??
-              Icon(icon, color: BrandColors.textSecondary, size: 22),
+      child: AbsorbPointer(
+        child: Opacity(
+          opacity: 0.6,
+          child: GestureDetector(onTap: onTap, child: face),
         ),
       ),
     );

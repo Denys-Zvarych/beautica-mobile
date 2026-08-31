@@ -27,6 +27,11 @@
 // The [targetId] guard + one-shot consume already prevent cross-target leakage;
 // the auth watch closes the cross-session hole.
 
+// `ProviderListenable.select` (used below to narrow the `authProvider` watch to
+// the identity-bearing slice via [authUserIdOrNull]) is not part of
+// `riverpod_annotation`'s show-list — same reason `bookings_day_notifier.dart`
+// reaches for the full package.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/presentation/auth_notifier.dart';
@@ -43,7 +48,17 @@ class PendingServicePreselectionController
   PendingServicePreselection? build() {
     // Reset on a session flip (logout → login) so one user's search never
     // pre-checks services in the next user's booking flow.
-    ref.watch(authProvider);
+    //
+    // NARROWED to the user id (mobile-perf LOW, 2026-09-01) — and here the
+    // narrowing is a CORRECTNESS fix, not only waste. Rebuilding this notifier
+    // resets `state` to null, so the bare `ref.watch(authProvider)` meant that
+    // a silent token refresh (`AuthNotifier.setAccessToken` re-emits
+    // `Authenticated` with a new accessToken) WIPED the pending pre-selection
+    // the user was mid-flow with: search with a service filter → tap a result
+    // → refresh lands during the push → the booking step opens with nothing
+    // pre-checked. Only a different signed-in identity may clear it, which is
+    // exactly the cross-session hole this watch was added to close.
+    ref.watch(authProvider.select(authUserIdOrNull));
     return null;
   }
 

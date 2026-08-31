@@ -26,6 +26,7 @@
 // height 2400 (unchanged legacy behaviour) for existing call sites.
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -199,7 +200,8 @@ extension PumpUntil on WidgetTester {
 /// on whatever widget is actually visible at that offset (e.g. the bottom
 /// summary bar), silently swallowing the tap and cascading into a confusing
 /// downstream assertion failure. Real users simply scroll; this helper does
-/// the same via [WidgetTester.ensureVisible] before tapping. Any full-screen
+/// the same via [WidgetTester.ensureVisible] before tapping — but only when
+/// the cell is genuinely out of reach (see the reveal semantics below). Any full-screen
 /// test that taps a `booking-calendar-day-*` key *expecting the tap to
 /// register* should go through this instead of a blind
 /// `tester.tap(find.byKey(...))`.
@@ -224,12 +226,42 @@ extension TapCalendarDay on WidgetTester {
   /// the flows' own `withinSlide` helpers so a kept-alive-but-scrolled-off
   /// slide's cell is still reachable. Omitted (the default, every pre-
   /// existing caller), the lookup is unscoped exactly as before.
+  /// SEMANTICS OF THE REVEAL (settled by experiment, 2026-09-01 — there is ONE
+  /// behaviour here, no opt-in flag). The [ensureVisible] fires ONLY when a
+  /// `tap()` at the cell's centre would not currently land on the cell; a cell
+  /// that is already hittable is tapped where it stands, untouched.
+  ///
+  /// It has to be conditional because [ensureVisible] walks EVERY ancestor
+  /// `Scrollable`, not just the vertical one this helper is about. Inside
+  /// `BookingsMonthCalendarPanel`'s expanded grid that includes the horizontal
+  /// MONTH pager — and that pager runs `pageSnapping: false` with
+  /// `LowThresholdPageScrollPhysics` (commit fraction 0.25), so even the small
+  /// nudge needed to align a mid-row cell to the viewport's leading edge
+  /// COMMITS a page turn. A committed page turn there is not cosmetic: the
+  /// pager's settle handler SELECTS that month (`_resolveMonthPage` →
+  /// `_stepMonth` → `_selectImmediate`), so an unconditional reveal silently
+  /// changes the selection before the tap lands and the tap then hits the NEXT
+  /// month's cell of the same number. Measured on 1 October 2026 (a Thursday,
+  /// column 4 of the grid): the reveal moved the pager a whole page and the
+  /// resulting fetch was for 1 NOVEMBER, with the cell fully visible the whole
+  /// time. A helper that silently mutates the state under test is a landmine,
+  /// so not-mutating-it is the default rather than an opt-in.
+  ///
+  /// And it has to be a HIT TEST, not a bounds check: on the slot-picker
+  /// screens a last-row cell sits inside the 800×600 surface yet is painted
+  /// over by the bottom summary bar. "Rect is on screen" calls that visible,
+  /// [_wouldTapLandOnCell] calls it obscured, and only the latter agrees with
+  /// the `tap()` that follows — the bounds-check version of this predicate
+  /// broke `slot_picker_test.dart`'s guaranteed-LAST-row test, which is
+  /// precisely the clipping case the reveal exists for.
   Future<void> tapCalendarDay(int day, {Finder? within}) async {
     final Finder cellKey = find.byKey(Key('booking-calendar-day-$day'));
     final Finder finder = within == null
         ? cellKey
         : find.descendant(of: within, matching: cellKey, skipOffstage: false);
-    await ensureVisible(finder);
+    if (!_wouldTapLandOnCell(this, finder)) {
+      await ensureVisible(finder);
+    }
     await pumpAndSettle();
 
     // HANDLER PRESENCE CHECK — the blind spot `warnIfMissed` cannot cover.
@@ -278,6 +310,31 @@ extension TapCalendarDay on WidgetTester {
 
     await tap(finder);
   }
+}
+
+/// True when a `tap()` at [finder]'s centre would land ON [finder] itself.
+///
+/// This is deliberately the SAME question `WidgetController.tap` asks
+/// (`_getElementPoint` → hit test → `warnIfMissed`), not the weaker "is the
+/// cell's rect inside the screen rect". A calendar cell can sit fully within
+/// the 800×600 surface and still be untappable because the slot-picker's
+/// bottom summary bar paints over it — screen-bounds containment says
+/// "visible", the hit test says "obscured", and only the hit test matches
+/// what the subsequent `tap()` will do. Returns `false` for a finder that
+/// does not resolve to exactly one element, so the caller falls back to
+/// [WidgetTester.ensureVisible] (which enforces the same single-match rule).
+bool _wouldTapLandOnCell(WidgetTester tester, Finder finder) {
+  if (finder.evaluate().length != 1) return false;
+  final RenderObject? box = finder.evaluate().single.renderObject;
+  if (box is! RenderBox) return false;
+  final Offset centre = box.localToGlobal(box.size.center(Offset.zero));
+  final Rect surface =
+      Offset.zero & (tester.view.physicalSize / tester.view.devicePixelRatio);
+  if (!surface.contains(centre)) return false;
+  return tester
+      .hitTestOnBinding(centre)
+      .path
+      .any((HitTestEntry<HitTestTarget> e) => identical(e.target, box));
 }
 
 /// Applies the [PumpApp.pumpApp] `textScaleFactor` knob.

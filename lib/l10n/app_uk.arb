@@ -5965,5 +5965,25 @@
         "example": "Вельвет"
       }
     }
+  },
+  "ownerOwnProfileTitle": "Мій профіль",
+  "@ownerOwnProfileTitle": {
+    "description": "Phase 21.14 — top-bar title of the salon owner's own first-person profile screen."
+  },
+  "ownerOwnProfileSettingsSemanticLabel": "Налаштування акаунта",
+  "@ownerOwnProfileSettingsSemanticLabel": {
+    "description": "Phase 21.14 — screen-reader label for the trailing tune action on the owner's own profile. Rendered disabled until the Phase 21.15 Owner Settings Hub ships."
+  },
+  "ownerOwnProfileBioLabel": "Про мене",
+  "@ownerOwnProfileBioLabel": {
+    "description": "Phase 21.14 — section label above the owner-as-master bio block on the owner's own profile."
+  },
+  "ownerOwnProfileCategoriesLabel": "Мої категорії",
+  "@ownerOwnProfileCategoriesLabel": {
+    "description": "Phase 21.14 — section label above the owner-as-master service categories on the owner's own profile."
+  },
+  "ownerOwnProfileNoServices": "У вас поки немає послуг",
+  "@ownerOwnProfileNoServices": {
+    "description": "Phase 21.14 — empty state under the owner's «Мої категорії» section when the owner works as a master but has configured no services yet."
   }
 }

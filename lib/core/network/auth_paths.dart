@@ -126,6 +126,14 @@ const Set<String> kPiiPaths = {
   // .onError` logs `err.response?.data` unredacted to `dart:developer` on
   // any 4xx/5xx from this endpoint in debug builds.
   '/api/v1/salons/mine',
+  // NOTE (mobile-security LOW, 2026-09-01): `/api/v1/users/me` was MOVED from
+  // this exact-match set to [kPiiPathPrefixes] below. Its original entry
+  // justified staying exact with "no other `/users/me/...` sub-route exists
+  // today" — that claim was FALSE when it was written: `GET
+  // /api/v1/users/me/rating` is live (`user_controller_api.dart`, reached via
+  // `myRatingProvider`) and the exact entry did not cover it. The whole
+  // self-scoped family is now covered by one prefix, mirroring the
+  // `/api/v1/clients/me` precedent. Do NOT re-add an exact entry here.
 };
 
 /// Path PREFIXES whose request/response bodies — and URL query strings — carry
@@ -180,6 +188,33 @@ const List<String> kPiiPathPrefixes = <String>[
   // entry) is what covers the `/passport` tail and any future sub-route.
   // Same rationale as `/api/v1/search/masters` above.
   '/api/v1/clients/me',
+  // Finding S1 (mobile-security MEDIUM, 2026-08-31) PROMOTED to a prefix
+  // (mobile-security LOW, 2026-09-01) — the shared self-profile family.
+  //
+  // The bare `/api/v1/users/me` path is BOTH the `GET` every role's own-profile
+  // screen reads and the `PATCH` the edit forms write, and its
+  // `UserProfileResponse` / `UpdateUserProfileRequest` bodies carry `email`,
+  // `phoneNumber`, `firstName`/`lastName`, `bio`, `instagram` and
+  // `professionalTitle`. It matched NOTHING in [kPiiPaths], this list or
+  // [kPiiPathSegments] before Finding S1, so `LoggingInterceptor.onRequest`
+  // wrote the whole PATCH body — and `onError` the whole error response — to
+  // `dart:developer.log()` verbatim in debug builds.
+  //
+  // A PREFIX, not the exact [kPiiPaths] entry S1 originally added. That entry
+  // justified staying exact with "no other `/users/me/...` sub-route exists
+  // today", which was already FALSE: `GET /api/v1/users/me/rating` is live
+  // (`api/lib/src/api/user_controller_api.dart`, `rating_repository.dart`,
+  // reached via `myRatingProvider`) and an exact entry cannot match it. Its
+  // `UserRatingResponse` is aggregate-only (`avgRating`, `reviewCount`,
+  // `ratingDistribution`) so nothing leaked — but the exact entry was resting
+  // on a false premise, and the next sub-route the backend adds would inherit
+  // the same silent gap. Deliberately the WIDER `/users/me` prefix, exactly
+  // like `/api/v1/clients/me` directly above: every self-scoped user route
+  // under it is PII-bearing or PII-adjacent, the authenticated sibling
+  // `/users/me/change-password/request-otp` (see the [kAuthPaths] header)
+  // carries no body so redacting it costs nothing, and a prefix covers every
+  // future tail without another ledger move.
+  '/api/v1/users/me',
   // Phase 13.x — CLIENT wish-list read endpoint. `GET /favorites/services`
   // returns the client's saved service names, master names and prices —
   // booking-intent PII. Without this entry `LoggingInterceptor.onError` logs
@@ -250,6 +285,26 @@ const List<String> kPiiPathSegments = <String>[
   // success-path and `onError` loggers in logging_interceptor.dart would
   // write it to `dart:developer.log()` verbatim on debug builds.
   '/invite',
+  // Finding S2 (mobile-security LOW, 2026-08-31) — the PUBLIC per-master
+  // catalogue read `GET /api/v1/masters/{masterId}/services`
+  // (`ServiceRepository.getMasterServices`, `service_repository.dart:327`),
+  // hit by the public master profile, the salon staff-member profile and the
+  // owner's own profile. The dynamic {masterId} segment sits BEFORE the
+  // meaningful `/services` tail, exactly like `/bookings` above, so neither
+  // exact membership in [kPiiPaths] nor a fixed prefix in [kPiiPathPrefixes]
+  // can match it — the `/api/v1/services/` prefix is a DIFFERENT path family
+  // (the master's own `{serviceDefId}` write routes) and does not cover this
+  // one.
+  //
+  // The payload is public catalogue data (service names, durations, prices),
+  // so the exposure is low — this closes the path family for completeness and
+  // for the query string, which `redactLogPath` masks wholesale on a PII
+  // route. The substring is deliberately the bare `/services` tail: it also
+  // subsumes `/api/v1/independent-masters/me/services` and
+  // `/api/v1/salons/{salonId}/services` (both already covered by their own
+  // prefix entries, so this adds no new breadth there), and it does NOT match
+  // `/api/v1/service-types/...`.
+  '/services',
 ];
 
 /// Query-parameter keys whose VALUES must be masked in debug logs on ANY route

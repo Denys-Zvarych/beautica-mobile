@@ -97,6 +97,34 @@ abstract class User with _$User {
     /// which an admin is routed to their own salon (`salonManageGuard`,
     /// `app_router.dart`).
     String? salonId,
+
+    /// Free-text "about me" copy. Populated by GET /users/me; absent on the
+    /// login response. Null/empty means the user never wrote one.
+    String? bio,
+
+    /// Verbatim stored Instagram contact (bare handle, "@"-prefixed, or a full
+    /// URL — the backend stores exactly what the user typed). Populated by
+    /// GET /users/me; absent on the login response.
+    String? instagram,
+
+    /// Self-declared professional title (e.g. «Барбер»), shown in place of the
+    /// generic role label. Populated by GET /users/me.
+    String? professionalTitle,
+
+    /// Backend Phase 265 — whether an ACTIVE `masterType = SALON_OWNER` master
+    /// row exists for this user, i.e. whether a `SALON_OWNER` also performs
+    /// services themselves. It is the render gate for the master section of
+    /// `OwnerOwnProfileScreen`.
+    ///
+    /// Deliberately NULLABLE, and `null` does NOT mean `false`: it means the
+    /// response predates the field (an older backend, or a `User` rehydrated
+    /// from a secure-storage blob cached before this field existed). Since the
+    /// backend auto-creates the row on first-salon registration, the default
+    /// for an existing owner is ON — so treating an absent field as `false`
+    /// would hide the master section from an owner who has one. Only an
+    /// explicit `false` is a proven negative; `null` is resolved by probing
+    /// `GET /masters/me` (see `owner_own_profile_notifier.dart`).
+    bool? hasMasterProfile,
   }) = _User;
 
   factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);

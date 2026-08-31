@@ -46,6 +46,25 @@ class _StubAuthNotifier extends AuthNotifier {
   );
 }
 
+/// Same settled session as [_StubAuthNotifier], but a test can push a NEW
+/// [AuthSession] afterwards — needed by the narrowed-watch pair at the bottom
+/// of this file, which must tell a token-only re-emission apart from a real
+/// identity change. `state =` is only reachable from inside an [AsyncNotifier]
+/// subclass, hence this stub rather than an external poke.
+class _ControllableAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'client-1',
+      email: 'client@beautica.ua',
+      role: UserRole.client,
+    ),
+    accessToken: 'test-token',
+  );
+
+  void emit(AuthSession session) => state = AsyncData<AuthSession>(session);
+}
+
 const String _kMasterId = 'master-1';
 
 const _master = Master(
@@ -206,5 +225,116 @@ void main() {
         );
       },
     );
+  });
+
+  // ── The authProvider watch is NARROWED to the user id ────────────────────
+  //
+  // mobile-perf LOW (2026-09-01). The auth-boundary watch at the top of this
+  // loader used to be a bare `ref.watch(authProvider)`. Because the loader
+  // holds a 5-minute `ref.keepAlive()` window, and
+  // `AuthNotifier.setAccessToken` re-emits `Authenticated` with the SAME user
+  // and a new accessToken on EVERY silent token refresh, an un-narrowed watch
+  // threw away a live cache entry and refetched `GET /masters/{id}` +
+  // `GET /masters/{id}/services` mid-scroll on each refresh.
+  //
+  // The pair: the token-only re-emission must be INERT, and a real identity
+  // change must STILL rebuild — the session-flip eviction is the entire reason
+  // this watch exists, and a `.select` returning a constant would silently
+  // remove it while passing the first test.
+  group('publicMasterProfile — narrowed authProvider watch', () {
+    ProviderContainer makeControllableContainer(
+      _ControllableAuthNotifier auth,
+    ) {
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authProvider.overrideWith(() => auth),
+          masterRepositoryProvider.overrideWithValue(masterRepo),
+          publicServiceRepositoryProvider.overrideWithValue(serviceRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('a silent token refresh (same user id, new accessToken) does NOT '
+        'refetch the master or the services', () async {
+      when(
+        () => masterRepo.getMasterById(_kMasterId),
+      ).thenAnswer((_) async => _master);
+      when(
+        () => serviceRepo.getMasterServices(_kMasterId),
+      ).thenAnswer((_) async => _services);
+
+      final auth = _ControllableAuthNotifier();
+      final container = makeControllableContainer(auth);
+      await container.read(authProvider.future);
+      final sub = container.listen(
+        publicMasterProfileProvider(_kMasterId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(publicMasterProfileProvider(_kMasterId).future);
+      verify(() => masterRepo.getMasterById(_kMasterId)).called(1);
+      verify(() => serviceRepo.getMasterServices(_kMasterId)).called(1);
+
+      // Exactly what `refresh_interceptor.dart` does after a 401 → refresh.
+      container.read(authProvider.notifier).setAccessToken('token-rotated-2');
+      await pumpEventQueue();
+
+      verifyNever(() => masterRepo.getMasterById(any()));
+      verifyNever(() => serviceRepo.getMasterServices(any()));
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>()
+            .having(
+              (Authenticated a) => a.accessToken,
+              'accessToken',
+              'token-rotated-2',
+            )
+            .having((Authenticated a) => a.user.id, 'user.id', 'client-1'),
+        reason:
+            'sanity: the session really did re-emit, with a NEW token and the '
+            'SAME user — so the no-refetch assertions above are about the '
+            '.select narrowing, not about setAccessToken having no-opped',
+      );
+    });
+
+    test('a real identity change (different user id) DOES rebuild', () async {
+      when(
+        () => masterRepo.getMasterById(_kMasterId),
+      ).thenAnswer((_) async => _master);
+      when(
+        () => serviceRepo.getMasterServices(_kMasterId),
+      ).thenAnswer((_) async => _services);
+
+      final auth = _ControllableAuthNotifier();
+      final container = makeControllableContainer(auth);
+      await container.read(authProvider.future);
+      final sub = container.listen(
+        publicMasterProfileProvider(_kMasterId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(publicMasterProfileProvider(_kMasterId).future);
+      verify(() => masterRepo.getMasterById(_kMasterId)).called(1);
+      verify(() => serviceRepo.getMasterServices(_kMasterId)).called(1);
+
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'client-2',
+            email: 'other@beautica.ua',
+            role: UserRole.client,
+          ),
+          accessToken: 'test-token',
+        ),
+      );
+      await pumpEventQueue();
+      await container.read(publicMasterProfileProvider(_kMasterId).future);
+
+      verify(() => masterRepo.getMasterById(_kMasterId)).called(1);
+      verify(() => serviceRepo.getMasterServices(_kMasterId)).called(1);
+    });
   });
 }

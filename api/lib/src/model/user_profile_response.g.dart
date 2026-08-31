@@ -49,6 +49,8 @@ class _$UserProfileResponse extends UserProfileResponse {
   final bool? emailVerified;
   @override
   final String? salonId;
+  @override
+  final bool? hasMasterProfile;
 
   factory _$UserProfileResponse(
           [void Function(UserProfileResponseBuilder)? updates]) =>
@@ -75,7 +77,8 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.professionalTitle,
       this.isActive,
       this.emailVerified,
-      this.salonId})
+      this.salonId,
+      this.hasMasterProfile})
       : super._();
   @override
   UserProfileResponse rebuild(
@@ -110,7 +113,8 @@ class _$UserProfileResponse extends UserProfileResponse {
         professionalTitle == other.professionalTitle &&
         isActive == other.isActive &&
         emailVerified == other.emailVerified &&
-        salonId == other.salonId;
+        salonId == other.salonId &&
+        hasMasterProfile == other.hasMasterProfile;
   }
 
   @override
@@ -137,6 +141,7 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, emailVerified.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
+    _$hash = $jc(_$hash, hasMasterProfile.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -164,7 +169,8 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('professionalTitle', professionalTitle)
           ..add('isActive', isActive)
           ..add('emailVerified', emailVerified)
-          ..add('salonId', salonId))
+          ..add('salonId', salonId)
+          ..add('hasMasterProfile', hasMasterProfile))
         .toString();
   }
 }
@@ -259,6 +265,11 @@ class UserProfileResponseBuilder
   String? get salonId => _$this._salonId;
   set salonId(String? salonId) => _$this._salonId = salonId;
 
+  bool? _hasMasterProfile;
+  bool? get hasMasterProfile => _$this._hasMasterProfile;
+  set hasMasterProfile(bool? hasMasterProfile) =>
+      _$this._hasMasterProfile = hasMasterProfile;
+
   UserProfileResponseBuilder() {
     UserProfileResponse._defaults(this);
   }
@@ -287,6 +298,7 @@ class UserProfileResponseBuilder
       _isActive = $v.isActive;
       _emailVerified = $v.emailVerified;
       _salonId = $v.salonId;
+      _hasMasterProfile = $v.hasMasterProfile;
       _$v = null;
     }
     return this;
@@ -329,6 +341,7 @@ class UserProfileResponseBuilder
           isActive: isActive,
           emailVerified: emailVerified,
           salonId: salonId,
+          hasMasterProfile: hasMasterProfile,
         );
     replace(_$result);
     return _$result;

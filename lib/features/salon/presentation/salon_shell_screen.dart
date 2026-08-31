@@ -15,7 +15,8 @@
 //   1 Записи   — placeholder (`/salon/bookings` has no screen — Phase 21.12)
 //   2 Команда  — the SAME screen instance as destination 0, on its staff
 //                sub-tab (see NAV INDEX vs STACK SLOT below)
-//   3 Профіль  — placeholder (owner: Phase 21.14: admin: Phase 21.16)
+//   3 Профіль  — owner: REAL: `OwnerOwnProfileScreen(embedded: true)`
+//                (Phase 21.14); admin: still a placeholder (Phase 21.16)
 //
 // NAV INDEX vs STACK SLOT (mobile-perf LOW follow-up, 2026-08-30) — these two
 // indices are NOT the same number and must never be conflated; the mapping is
@@ -26,7 +27,8 @@
 //                    ├─> stack slot 0 — the ONE hosted profile screen
 //   nav 2 «Команда» ─┘
 //   nav 1 «Записи»  ───> stack slot 1 — bookings placeholder
-//   nav 3 «Профіль» ───> stack slot 2 — own-profile placeholder
+//   nav 3 «Профіль» ───> stack slot 2 — own profile (owner: real; admin:
+//                        placeholder)
 //
 // Destinations 0 and 2 were previously two SEPARATE children of the same
 // `IndexedStack`, built from byte-identical configurations (same `salonId`,
@@ -102,6 +104,7 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import '../application/my_salons_notifier.dart';
 import '../application/salon_shell_provider.dart';
 import '../domain/salon.dart';
+import 'owner_own_profile_screen.dart';
 import 'salon_management_profile_screen.dart';
 import 'widgets/salon_shell_tab_placeholder.dart';
 
@@ -335,17 +338,42 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       ),
       // TODO(phase-21.12): swap in the real salon-wide schedule host.
 
-      // Slot 2 — «Профіль» (nav 3). No host screen exists yet for either role.
+      // Slot 2 — «Профіль» (nav 3). Phase 21.14 shipped the OWNER host; the
+      // ADMIN branch keeps its placeholder until Phase 21.16.
+      //
+      // Both branches keep their existing `Key`s
+      // (`salon-shell-tab-profile-owner` / `-admin`) — those are the handles
+      // the shell's own tests use to assert WHICH role's profile a slot
+      // renders, and they must stay stable across this swap so the admin case
+      // is still distinguishable from the owner case by key alone.
+      //
+      // `embedded: true` — this is a tab ROOT: there is nothing to pop, so no
+      // back chevron, and the shell already supplies the `SalonBottomNav`.
+      //
+      // `visible:` (mobile-perf MEDIUM + LOW follow-up, 2026-08-31) — a raw
+      // `IndexedStack` sets neither `Offstage` nor `TickerMode` on its
+      // non-current children (see the LAZY SLOTS note above), so an
+      // off-screen slot has no way to know it is off-screen. This slot's
+      // screen needs that signal for two things — spending its one-shot
+      // entrance animation on a VISIBLE frame, and holding the PII
+      // screen-protection refcount only while its own phone/Instagram is
+      // actually on screen — so the shell, which owns the index, passes it
+      // down. See `OwnerOwnProfileScreen.visible` for the two defects.
       _lazySlot(
         2,
-        () => SalonShellTabPlaceholder(
-          key: Key('salon-shell-tab-profile-${isOwner ? 'owner' : 'admin'}'),
-          icon: Symbols.person_rounded,
-          title: l10n.salonShellProfileSoonTitle,
-          blurb: l10n.salonShellProfileSoonBlurb,
-        ),
+        () => isOwner
+            ? OwnerOwnProfileScreen(
+                key: const Key('salon-shell-tab-profile-owner'),
+                embedded: true,
+                visible: stackSlot == 2,
+              )
+            : SalonShellTabPlaceholder(
+                key: const Key('salon-shell-tab-profile-admin'),
+                icon: Symbols.person_rounded,
+                title: l10n.salonShellProfileSoonTitle,
+                blurb: l10n.salonShellProfileSoonBlurb,
+              ),
       ),
-      // TODO(phase-21.14): swap in the real owner own-profile host.
       // TODO(phase-21.16): swap in the real admin own-profile host.
     ];
 

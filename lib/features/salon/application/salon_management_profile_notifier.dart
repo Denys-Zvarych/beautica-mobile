@@ -56,6 +56,11 @@
 // unwrap — see that file's own header note on the mis-resolution risk.
 import 'dart:async' as async;
 
+// `ProviderListenable.select` (used below to narrow the `authProvider` watch to
+// the identity-bearing slice via [authUserIdOrNull]) is not part of
+// `riverpod_annotation`'s show-list — same reason `bookings_day_notifier.dart`
+// reaches for the full package.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
@@ -92,7 +97,19 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     // Auth-boundary eviction, mirrors `publicSalonProfileProvider` — this
     // keepAlive-free family is torn down on logout / session change so a
     // stale owner/admin salon never survives into the next signed-in user.
-    ref.watch(authProvider);
+    //
+    // NARROWED to the user id (mobile-perf LOW, 2026-09-01). What this watch
+    // means is "rebuild when the signed-in IDENTITY changes"; a bare
+    // `ref.watch(authProvider)` also fired on every silent token refresh
+    // (`AuthNotifier.setAccessToken` re-emits `Authenticated` with a new
+    // accessToken), refetching BOTH `GET /salons/{id}` and `GET
+    // /salons/{id}/staff` while the owner sat on the management screen.
+    // Identity is the whole trigger here: neither read is role-scoped (the
+    // owner and the admin fetch the same salon + the same roster — the ROLE
+    // only gates which controls `SalonManagementProfileScreen` renders, and
+    // that screen reads the role from `authProvider` itself), so nothing but
+    // a different signed-in user can invalidate this data.
+    ref.watch(authProvider.select(authUserIdOrNull));
 
     final SalonRepository repo = ref.read(salonRepositoryProvider);
     // Load both in parallel — neither read depends on the other. Unwraps

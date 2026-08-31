@@ -60,6 +60,40 @@ import '../state/register_draft_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
+/// The ONE selector every provider that only cares about WHO is signed in
+/// passes to `authProvider.select(...)`.
+///
+/// Returns the authenticated user's id, or `null` for every non-authenticated
+/// shape (`Unauthenticated`, and the cold-start `AsyncLoading` whose `.value`
+/// is still `null`).
+///
+/// WHY IT EXISTS (mobile-perf MEDIUM/LOW sweep, 2026-08-31 → 2026-09-01):
+/// [AuthNotifier.setAccessToken] is called by `refresh_interceptor.dart` on
+/// EVERY silent token refresh and emits a brand-new
+/// `AsyncData(Authenticated(...))` carrying the SAME user with a new
+/// `accessToken`. A bare `ref.watch(authProvider)` cannot tell that refresh
+/// apart from a logout, so every such provider re-ran (refetching its
+/// endpoint, or — for the keepAlive state holders — WIPING state the user was
+/// mid-flow with). Narrowing to the user id makes the subscription say what it
+/// actually means: "rebuild when the signed-in IDENTITY changes".
+///
+/// PROMOTED, not copied (REUSE-FIRST): the switch below was hand-copied into
+/// `master_profile_notifier.dart` and `client_edit_profile_notifier.dart`
+/// first, and five more sites needed the identical narrowing. Seven hand-made
+/// copies of one `switch` is the drift pattern this repo has been bitten by
+/// before, so there is exactly one definition and every site watches through
+/// it. `.select` compares the RESULT (`String?`), never the closure identity,
+/// so sharing a top-level function is behaviourally identical to inlining it.
+///
+/// Callers that ALSO need the role, the token, or the whole session must NOT
+/// use this — they either watch `authProvider` un-narrowed or write their own
+/// `.select` for the field they actually read.
+String? authUserIdOrNull(AsyncValue<AuthSession> session) =>
+    switch (session.value) {
+      Authenticated(:final User user) => user.id,
+      Unauthenticated() || null => null,
+    };
+
 /// Manages the user's authentication session for the Beautica app lifetime.
 ///
 /// Exposes [AsyncValue<AuthSession>] so that all consumers — interceptors,

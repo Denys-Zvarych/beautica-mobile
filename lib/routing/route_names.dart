@@ -326,6 +326,26 @@ abstract final class RouteNames {
   /// closure was written.
   static const String registerSalon = '/salons/register';
 
+  /// Phase 21.14 — the `SALON_OWNER`'s own first-person profile
+  /// (`OwnerOwnProfileScreen`), pushed STAND-ALONE with a back button. The
+  /// same screen is ALSO hosted, without a route of its own, as the «Профіль»
+  /// tab of `SalonShellScreen`'s owner branch (`embedded: true`) — the tab is
+  /// an `IndexedStack` slot, not a nested route, so this constant is only ever
+  /// the stand-alone entry.
+  ///
+  /// SHADOWING — unlike [mySalons]/[registerSalon]/[salonHome], this path has
+  /// NO dynamic sibling to lose a match to: `/profile` is a fresh top-level
+  /// prefix and `app_router.dart` registers no `/:something` route at the root
+  /// level, so there is nothing for go_router's declaration-order
+  /// literal-vs-dynamic resolution to shadow it with. Adding any future
+  /// `/profile/:id` route WOULD reintroduce that hazard and must be declared
+  /// AFTER this one.
+  ///
+  /// Gated by `mySalonsGuard` REUSED VERBATIM — identical "SALON_OWNER only,
+  /// bounce every other authenticated role to its own landing" semantics, so
+  /// no second guard closure was written.
+  static const String ownerOwnProfile = '/profile/owner';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

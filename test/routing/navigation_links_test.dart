@@ -354,6 +354,11 @@ void main() {
       // `/salons/`, also registered before the dynamic `/salons/:salonId`
       // route (see `RouteNames.registerSalon`'s own doc).
       'registerSalon': RouteNames.registerSalon,
+      // Phase 21.14 — the owner's own first-person profile, pushed
+      // stand-alone. The SAME screen is also hosted as the owner shell's
+      // «Профіль» tab, but that is an `IndexedStack` slot rather than a
+      // nested route, so this constant is the only registration.
+      'ownerOwnProfile': RouteNames.ownerOwnProfile,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

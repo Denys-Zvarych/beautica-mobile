@@ -144,12 +144,22 @@ const Map<String, dynamic> _clientUserJson = <String, dynamic>{
   'lastName': 'Клієнт',
 };
 
+/// `phoneNumber` and `instagram` are POPULATED (mobile-qa 21.14 F3). The owner
+/// «Профіль» tab renders its phone tile unconditionally and its Instagram tile
+/// only when one is set, so an owner persona with neither contact let the E2E
+/// exercise the em-dash arm ONLY — the populated arm was covered at widget
+/// level, where the fixture is a Dart `User` and can therefore never prove the
+/// two keys survive the `UserProfileResponse` decode. Both values are
+/// obviously synthetic and follow the other personas' pattern
+/// (`masterPhone` = `+380501111111`, `masterInstagram` = `@olena_nails`).
 const Map<String, dynamic> _ownerUserJson = <String, dynamic>{
   'id': 'user-owner-1',
   'email': 'owner@beautica.ua',
   'role': 'SALON_OWNER',
   'firstName': 'Оксана',
   'lastName': 'Власник',
+  'phoneNumber': '+380502222222',
+  'instagram': '@oksana_salon',
 };
 
 const Map<String, dynamic> _masterUserJson = <String, dynamic>{
@@ -256,8 +266,10 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
 /// Each test creates a fresh instance so state never leaks between tests.
 /// The [dio] field is the instance to inject into [dioProvider].
 final class FakeBackend {
-  FakeBackend({this.masterRowId = 'user-master-1'})
-    : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
+  FakeBackend({
+    this.masterRowId = 'user-master-1',
+    this.masterMeNotFound = false,
+  }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
     // PARITY WITH PRODUCTION. `dioProvider` (lib/core/network/dio_provider.dart)
@@ -326,6 +338,41 @@ final class FakeBackend {
   String? masterStreet;
   String? masterBuildingNo;
   String? masterLocationNote;
+
+  // ── Phase 21.14 — the owner-as-master gate ────────────────────────────────
+
+  /// Backend Phase 265's `UserProfileResponse.hasMasterProfile`, as served by
+  /// `GET /users/me` for every NON-CLIENT persona.
+  ///
+  /// TRI-STATE, matching the wire exactly — `null` is not `false`:
+  ///   • `null` (the DEFAULT) — the key is OMITTED from the body entirely, the
+  ///     shape an older backend produces. `owner_own_profile_notifier.dart`
+  ///     resolves that by probing `GET /masters/me`. Defaulting to null keeps
+  ///     every pre-existing flow byte-identical.
+  ///   • `true`  — proven positive; the master section loads.
+  ///   • `false` — proven negative; the section renders ABSENT and the
+  ///     `/masters/me` probe's result is discarded.
+  ///
+  /// Set BEFORE login (the value is read per-request by the `/users/me`
+  /// handler, so a mid-flow change takes effect on the next read).
+  bool? hasMasterProfile;
+
+  /// When true, `GET /masters/me` replies **404** with the standard
+  /// not-found envelope instead of the master detail.
+  ///
+  /// This is the real backend's answer for a `SALON_OWNER` who has no ACTIVE
+  /// `masterType = SALON_OWNER` row — NOT 403, since backend `c4d69ac`
+  /// widened that endpoint's `@PreAuthorize` to admit `SALON_OWNER`. It is
+  /// also the shape of the RACE the loader degrades: `hasMasterProfile` was
+  /// true when `/users/me` answered and the row was deactivated before
+  /// `/masters/me` was reached. Defaults false so every existing flow keeps
+  /// its 200.
+  ///
+  /// CONSTRUCTOR-TIME, unlike [hasMasterProfile]: `DioAdapter.onRoute` fixes a
+  /// route's STATUS CODE at registration (only the BODY is resolved per
+  /// request, by `replyCallback`), and `_wire()` runs from the constructor —
+  /// so this cannot be a mutable field the way the body-level knobs are.
+  final bool masterMeNotFound;
 
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
@@ -4495,7 +4542,14 @@ final class FakeBackend {
         getMeCalls++;
         return currentRole == UserRole.client
             ? _ok(_clientProfileBody())
-            : _ok(userJsonForRole(currentRole));
+            // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
+            // it, so the default body is byte-identical to the pre-21.14 one
+            // and `null` stays a genuine "key absent", not a serialized null.
+            : _ok(<String, dynamic>{
+                ...userJsonForRole(currentRole),
+                if (hasMasterProfile != null)
+                  'hasMasterProfile': hasMasterProfile,
+              });
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -4681,12 +4735,22 @@ final class FakeBackend {
     );
 
     // GET /api/v1/masters/me
+    //
+    // Phase 21.14: [masterMeNotFound] flips this to the 404 a SALON_OWNER with
+    // no active master row really receives — 404 and not 403, since backend
+    // `c4d69ac` widened this endpoint's @PreAuthorize to admit SALON_OWNER.
+    // Chosen at wire time (see that field's doc).
     _adapter.onRoute(
       '/api/v1/masters/me',
-      (server) => server.replyCallback(200, (_) {
-        getMasterCalls++;
-        return _masterDetailEnvelope();
-      }),
+      (server) => masterMeNotFound
+          ? server.replyCallback(404, (_) {
+              getMasterCalls++;
+              return _masterNotFoundEnvelope();
+            })
+          : server.replyCallback(200, (_) {
+              getMasterCalls++;
+              return _masterDetailEnvelope();
+            }),
       request: const Request(method: RequestMethods.get),
     );
 

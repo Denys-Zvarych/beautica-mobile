@@ -13,10 +13,10 @@
 // bandwidth. Each edit screen calls `ref.invalidate(clientEditProfileProvider)`
 // after a successful save to force a re-fetch.
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
-import '../../auth/domain/auth_session.dart';
 import '../../auth/domain/user.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/client_profile_repository.dart';
@@ -30,8 +30,20 @@ part 'client_edit_profile_notifier.g.dart';
 class ClientEditProfile extends _$ClientEditProfile {
   @override
   Future<User> build() {
-    final session = ref.watch(authProvider).value;
-    if (session is! Authenticated) {
+    // NARROWED with `.select` (mobile-perf MEDIUM follow-through, 2026-08-31)
+    // — the same fix, for the same reason, as `master_profile_notifier.dart`'s
+    // own `build()`. `AuthNotifier.setAccessToken` re-emits `Authenticated`
+    // with a new accessToken on EVERY silent token refresh; watching the whole
+    // `AsyncValue<AuthSession>` refetched `GET /users/me` each time. Narrowing
+    // only `masterProfileProvider` would have closed half the leak: this
+    // provider is the OTHER upstream of `ownerOwnProfileProvider`, so a silent
+    // refresh would still have re-run that loader (and its uncached
+    // `GET /masters/{id}/services`) while the owner sat on another tab.
+    //
+    // The selector itself was PROMOTED to [authUserIdOrNull] (2026-09-01) —
+    // see its doc for why there is one definition rather than a copy per site.
+    final String? userId = ref.watch(authProvider.select(authUserIdOrNull));
+    if (userId == null) {
       throw const UnauthorizedFailure();
     }
     // clientProfileRepositoryProvider is a keepAlive singleton that never emits

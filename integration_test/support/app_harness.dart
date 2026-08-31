@@ -922,6 +922,13 @@ abstract final class AppHarness {
     final email = switch (role) {
       UserRole.client => 'client@beautica.ua',
       UserRole.salonOwner => 'owner@beautica.ua',
+      // Must match `_adminUserJson.email` in fake_backend.dart. Without this
+      // arm an admin login fell through to the master persona's address; that
+      // is harmless ONLY because the fake's login handler ignores the
+      // submitted credentials and branches on `currentRole` — the moment it
+      // actually checks them, the omission becomes a silent wrong-persona
+      // login. (mobile-qa 21.14 F2.)
+      UserRole.salonAdmin => 'admin@beautica.ua',
       UserRole.independentMaster => 'master@beautica.ua',
       _ => 'master@beautica.ua',
     };

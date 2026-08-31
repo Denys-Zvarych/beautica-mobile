@@ -95,6 +95,7 @@ import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
+import '../features/salon/presentation/owner_own_profile_screen.dart';
 import '../features/salon/presentation/admin_settings_screen.dart';
 import '../features/salon/presentation/invite_staff_screen.dart';
 import '../features/salon/presentation/move_admin_salon_screen.dart';
@@ -878,6 +879,42 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.registerSalon,
         redirect: mySalonsGuard,
         builder: (context, state) => const RegisterSalonScreen(),
+      ),
+      // Phase 21.14 — the owner's own first-person profile
+      // ([RouteNames.ownerOwnProfile]), pushed STAND-ALONE (`embedded: false`
+      // → keeps a back chevron). The SAME screen is hosted as the owner
+      // shell's «Профіль» tab with `embedded: true`, but that is an
+      // `IndexedStack` slot built directly by `SalonShellScreen`, not a nested
+      // route — so this registration is the stand-alone entry only.
+      //
+      // `/profile` is a fresh top-level prefix with no dynamic sibling, so
+      // unlike the three `/salons/` literals above there is no
+      // literal-vs-dynamic shadowing to order around here. A future
+      // `/profile/:id` would have to be declared AFTER this route.
+      //
+      // Reuses [mySalonsGuard] VERBATIM — identical SALON_OWNER-only
+      // semantics, so no second guard closure was written.
+      //
+      // DOUBLE MOUNT (mobile-perf LOW, 2026-08-31) — pushed from INSIDE the
+      // shell this mounts a second `OwnerOwnProfileScreen` alongside the
+      // retained `IndexedStack` slot-2 instance (that stack never disposes a
+      // visited child). That is now BALANCED BY CONSTRUCTION rather than by
+      // luck, which is why the route is kept rather than deleted:
+      //   • screen protection is REF-COUNTED and each instance holds exactly
+      //     one reference while it is visible, releasing it on its own
+      //     visibility flip or dispose (`OwnerOwnProfileScreen.visible`), so
+      //     count 2 → 1 on pop is correct, not a leak;
+      //   • the shell's instance has already spent its one-shot entrance and
+      //     is `TickerMode`-muted by go_router while covered, so its
+      //     `AnimationController` costs nothing;
+      //   • both instances watch the SAME keepAlive `ownerOwnProfileProvider`,
+      //     so the second subscription issues no extra request.
+      // A future caller must still pass through [mySalonsGuard]; nothing
+      // links here today, so this is the stand-alone entry only.
+      GoRoute(
+        path: RouteNames.ownerOwnProfile,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const OwnerOwnProfileScreen(),
       ),
       GoRoute(
         path: '/salons/:salonId',

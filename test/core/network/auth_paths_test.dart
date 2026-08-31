@@ -547,5 +547,110 @@ void main() {
             'precedent above.',
       );
     });
+
+    // ── Finding S1 (mobile-security MEDIUM, 2026-08-31) — the shared
+    // self-profile endpoint ────────────────────────────────────────────────
+    //
+    // `/api/v1/users/me` matched NOTHING in [kPiiPaths], [kPiiPathPrefixes]
+    // or [kPiiPathSegments], so `isPiiPath` returned false and
+    // `LoggingInterceptor.onRequest` wrote the whole `PATCH /users/me` body —
+    // and `onError` the whole error response — to `dart:developer.log()` in
+    // debug builds. That body carries email, phoneNumber, firstName,
+    // lastName, bio, instagram and professionalTitle. This pins the actual
+    // [isPiiPath] resolution, not just presence in the set.
+    //
+    // 2026-09-01 (mobile-security LOW): S1's fix was an EXACT [kPiiPaths]
+    // entry justified by "no other `/users/me/...` sub-route exists today".
+    // That was false — `GET /api/v1/users/me/rating` is live — so the entry
+    // was PROMOTED to a `/api/v1/users/me` [kPiiPathPrefixes] entry covering
+    // the whole self-scoped family. The sub-route case is pinned below.
+    test('GET/PATCH /api/v1/users/me is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/users/me'),
+        isTrue,
+        reason:
+            'PATCH /users/me carries email, phoneNumber, names, bio, '
+            'instagram and professionalTitle — the whole request body and '
+            'the whole error response must be redacted in debug logs.',
+      );
+    });
+
+    test('the whole /api/v1/users/me family is redacted, not just the bare '
+        'path (GET /users/me/rating)', () {
+      expect(
+        isPiiPath('/api/v1/users/me/rating'),
+        isTrue,
+        reason:
+            'GET /users/me/rating is a live sub-route '
+            '(user_controller_api.dart, reached via myRatingProvider). The '
+            'original exact kPiiPaths entry did NOT cover it and claimed no '
+            'such sub-route existed. It is covered now because /api/v1/users/'
+            'me lives in kPiiPathPrefixes — reverting to an exact entry '
+            'reopens the gap for this route and every future one.',
+      );
+      expect(
+        isPiiPath('/api/v1/users/me/change-password/request-otp'),
+        isTrue,
+        reason:
+            'The authenticated change-password sibling carries no body, so '
+            'redacting it costs nothing — but it must resolve through the '
+            'same prefix so the family has no unclassified member.',
+      );
+    });
+
+    test('a PII /users/me path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/users/me?expand=profile'),
+        equals('/api/v1/users/me?[REDACTED]'),
+      );
+    });
+
+    test('/api/v1/users/me is NOT in kAuthPaths (it is authenticated)', () {
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/users/me')),
+        reason:
+            'GET/PATCH /users/me requires a Bearer token — listing it in '
+            'kAuthPaths would strip the token and cause a 401, mirroring the '
+            'independent-masters/me precedent above.',
+      );
+    });
+
+    // ── Finding S2 (mobile-security LOW, 2026-08-31) — the public per-master
+    // catalogue read ───────────────────────────────────────────────────────
+    //
+    // `GET /api/v1/masters/{masterId}/services` puts its dynamic {masterId}
+    // BEFORE the meaningful `/services` tail, so only the [kPiiPathSegments]
+    // substring match can resolve it. The `/api/v1/services/` prefix already
+    // in [kPiiPathPrefixes] is a DIFFERENT path family (the master's own
+    // {serviceDefId} write routes) — the negative assertion below is what
+    // keeps that distinction honest. If `/services` is ever removed from
+    // [kPiiPathSegments], this fails loudly.
+    test('GET /api/v1/masters/{masterId}/services is a PII route via the '
+        '/services segment', () {
+      expect(
+        isPiiPath('/api/v1/masters/master-123/services'),
+        isTrue,
+        reason:
+            'The dynamic {masterId} precedes the /services tail, so neither '
+            'kPiiPaths nor kPiiPathPrefixes can match it — it needs the '
+            'kPiiPathSegments substring entry, mirroring /bookings.',
+      );
+    });
+
+    test('the /api/v1/services/ PREFIX does not, on its own, cover the '
+        '/masters/{masterId}/services family', () {
+      // Sanity pin on WHY the segment entry is required: a prefix match on
+      // `/api/v1/services/` never sees this path at all.
+      expect(
+        '/api/v1/masters/master-123/services'.startsWith('/api/v1/services/'),
+        isFalse,
+      );
+    });
+
+    test('a bare master detail path stays NON-PII (the /services segment did '
+        'not widen it)', () {
+      expect(isPiiPath('/api/v1/masters/master-123'), isFalse);
+    });
   });
 }

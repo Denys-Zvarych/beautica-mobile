@@ -29,6 +29,12 @@
 //      then authProvider flips to a DIFFERENT Authenticated session (Owner
 //      B): the resolved list must be Owner B's, and must NEVER equal Owner
 //      A's (the actual leak shape a keepAlive singleton risks).
+//   6. NARROWED WATCH — a silent token refresh (`setAccessToken`: same user,
+//      new accessToken) must NOT refire `GET /salons/mine`.
+//   7. NARROWED WATCH — a real identity change (Owner A → Owner B) must
+//      STILL refire it. Tests 6 and 7 are a PAIR: 6 alone passes against a
+//      `.select` that returns a constant, 7 alone passes against the old
+//      un-narrowed watch.
 //
 // Strategy mirrors `master_profile_notifier_test.dart` (MasterProfile is the
 // shape `mySalonsProvider` was promoted to mirror) — a fresh
@@ -337,5 +343,89 @@ void main() {
         );
       },
     );
+  });
+
+  // ── build() — the authProvider watch is NARROWED to the user id ───────────
+  //
+  // mobile-perf MEDIUM (2026-09-01), the THIRD instance of the defect already
+  // closed in `master_profile_notifier.dart` and `client_edit_profile_notifier
+  // .dart`. `build()` used to `ref.watch(authProvider)` un-narrowed.
+  // `AuthNotifier.setAccessToken` is called by `refresh_interceptor.dart` on
+  // EVERY silent token refresh and emits a NEW `Authenticated` carrying the
+  // SAME user with a new accessToken — and because this is a `keepAlive`
+  // provider that the salon shell keeps subscribed for the whole session
+  // (`salon_shell_screen.dart` reads it as its ownership source), the
+  // un-narrowed watch refired `GET /salons/mine` on every refresh while the
+  // owner just sat in the shell.
+  //
+  // These two tests are the PAIR, mirroring `master_profile_notifier_test
+  // .dart`'s: the token-only re-emission must be INERT, and a genuine identity
+  // change must STILL rebuild. A `.select` that returned a constant would pass
+  // the first one alone, so neither test is meaningful without the other. The
+  // eviction group above is the third leg — it pins the logout arm, which a
+  // `.select` narrowed to the wrong field would break.
+  group('build() — narrowed authProvider watch', () {
+    test('a silent token refresh (same user id, new accessToken) does NOT '
+        'refetch GET /salons/mine', () async {
+      when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+
+      final authNotifier = _ControllableAuthNotifier(_sessionA);
+      final container = _makeContainer(
+        authFactory: () => authNotifier,
+        repo: repo,
+      );
+      await container.read(authProvider.future);
+      // Keep the keepAlive provider subscribed so a rebuild would actually be
+      // scheduled — an unlistened provider proves nothing.
+      final sub = container.listen(mySalonsProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(mySalonsProvider.future);
+      verify(() => repo.getMySalons()).called(1);
+
+      // Exactly what `refresh_interceptor.dart` does after a 401 → refresh.
+      container.read(authProvider.notifier).setAccessToken('ta-rotated-2');
+      await pumpEventQueue();
+
+      verifyNever(() => repo.getMySalons());
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>()
+            .having(
+              (Authenticated a) => a.accessToken,
+              'accessToken',
+              'ta-rotated-2',
+            )
+            .having((Authenticated a) => a.user.id, 'user.id', _ownerA.id),
+        reason:
+            'sanity: the session really did re-emit, with a NEW token and the '
+            'SAME user — so the no-refetch assertion above is about the '
+            '.select narrowing and not about setAccessToken having silently '
+            'no-opped.',
+      );
+    });
+
+    test('a real identity change (different user id) DOES refetch', () async {
+      when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+
+      final authNotifier = _ControllableAuthNotifier(_sessionA);
+      final container = _makeContainer(
+        authFactory: () => authNotifier,
+        repo: repo,
+      );
+      await container.read(authProvider.future);
+      final sub = container.listen(mySalonsProvider, (_, _) {});
+      addTearDown(sub.close);
+      expect(await container.read(mySalonsProvider.future), equals(_salonsA));
+      verify(() => repo.getMySalons()).called(1);
+
+      // A different account on the same device — the ONE change that must
+      // still invalidate this keepAlive cache.
+      when(() => repo.getMySalons()).thenAnswer((_) async => _salonsB);
+      authNotifier.emit(_sessionB);
+      await pumpEventQueue();
+
+      expect(await container.read(mySalonsProvider.future), equals(_salonsB));
+      verify(() => repo.getMySalons()).called(1);
+    });
   });
 }

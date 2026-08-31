@@ -152,6 +152,20 @@ class _StubAuthAuthenticated extends AuthNotifier {
   );
 }
 
+/// Same settled session as [_StubAuthAuthenticated], but a test can push a
+/// NEW [AuthSession] afterwards — needed by the narrowed-watch pair at the
+/// bottom of this file, which must distinguish a token-only re-emission from
+/// a real identity change. `state =` is only reachable from inside an
+/// [AsyncNotifier] subclass, hence this stub rather than an external poke.
+class _ControllableAuthAuthenticated extends AuthNotifier {
+  @override
+  Future<AuthSession> build() => Future.value(
+    const AuthSession.authenticated(user: _stubUser, accessToken: 'tok'),
+  );
+
+  void emit(AuthSession session) => state = AsyncData<AuthSession>(session);
+}
+
 ProviderContainer _makeContainer(SalonRepository repo) {
   final container = ProviderContainer(
     overrides: [
@@ -885,6 +899,120 @@ void main() {
             'the hub keeps listing the deleted salon for the rest of the '
             'session',
       );
+    });
+  });
+
+  // ── build() — the authProvider watch is NARROWED to the user id ──────────
+  //
+  // mobile-perf LOW (2026-09-01). `build()`'s auth-boundary watch used to be a
+  // bare `ref.watch(authProvider)`. `AuthNotifier.setAccessToken` is called by
+  // `refresh_interceptor.dart` on EVERY silent token refresh and re-emits
+  // `Authenticated` with the SAME user and a new accessToken, so an
+  // un-narrowed watch refetched BOTH `GET /salons/{id}` and
+  // `GET /salons/{id}/staff` while the owner just sat on the management
+  // screen. Identity is the whole trigger: the owner and the admin fetch the
+  // same salon and the same roster, so nothing but a different signed-in user
+  // can invalidate this family member.
+  //
+  // The pair: the token-only re-emission must be INERT, and a real identity
+  // change must STILL rebuild (a `.select` returning a constant passes the
+  // first alone, and would silently disable the cross-account eviction this
+  // watch exists for).
+  group('build() — narrowed authProvider watch', () {
+    ProviderContainer makeControllableContainer(
+      SalonRepository repo,
+      _ControllableAuthAuthenticated auth,
+    ) {
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(() => auth),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('a silent token refresh (same user id, new accessToken) does NOT '
+        'refetch the salon or the staff roster', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+
+      final auth = _ControllableAuthAuthenticated();
+      final container = makeControllableContainer(repo, auth);
+      await container.read(authProvider.future);
+      // Keep the family member subscribed — an unlistened autoDispose provider
+      // would be torn down and prove nothing either way.
+      final sub = container.listen(
+        salonManagementProfileProvider(_kSalonId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+      verify(() => repo.getSalonById(_kSalonId)).called(1);
+      verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+
+      // Exactly what `refresh_interceptor.dart` does after a 401 → refresh.
+      container.read(authProvider.notifier).setAccessToken('tok-rotated-2');
+      await pumpEventQueue();
+
+      verifyNever(() => repo.getSalonById(any()));
+      verifyNever(() => repo.getSalonStaff(any()));
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>()
+            .having(
+              (Authenticated a) => a.accessToken,
+              'accessToken',
+              'tok-rotated-2',
+            )
+            .having((Authenticated a) => a.user.id, 'user.id', _stubUser.id),
+        reason:
+            'sanity: the session really did re-emit, with a NEW token and the '
+            'SAME user — so the no-refetch assertions above are about the '
+            '.select narrowing, not about setAccessToken having no-opped',
+      );
+    });
+
+    test('a real identity change (different user id) DOES refetch', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+
+      final auth = _ControllableAuthAuthenticated();
+      final container = makeControllableContainer(repo, auth);
+      await container.read(authProvider.future);
+      final sub = container.listen(
+        salonManagementProfileProvider(_kSalonId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+      verify(() => repo.getSalonById(_kSalonId)).called(1);
+      verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+
+      // A different account on the same device — the ONE change that must
+      // still evict this owner/admin-scoped data.
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'owner-2',
+            email: 'other-owner@beautica.ua',
+            role: UserRole.salonOwner,
+          ),
+          accessToken: 'tok',
+        ),
+      );
+      await pumpEventQueue();
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+
+      verify(() => repo.getSalonById(_kSalonId)).called(1);
+      verify(() => repo.getSalonStaff(_kSalonId)).called(1);
     });
   });
 }

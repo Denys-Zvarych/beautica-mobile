@@ -59,6 +59,7 @@ import 'package:beautica_mobile/features/salon/application/salon_management_prof
 import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
@@ -354,6 +355,66 @@ void main() {
       expect(
         find.byType(SalonManagementProfileScreen, skipOffstage: false),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('the owner Профіль slot is told whether it is the VISIBLE '
+        'one', (tester) async {
+      // mobile-perf MEDIUM + LOW (2026-08-31). A raw `IndexedStack` sets
+      // neither `Offstage` nor `TickerMode` on its non-current children, so
+      // the retained slot-2 screen has no way to learn it went off-screen —
+      // it kept ticking its 950 ms entrance on an unpainted subtree (burning
+      // the one-shot guard, so the FIRST REAL VIEW had no entrance) and kept
+      // holding the PII screen-protection refcount across every other salon
+      // tab. The shell owns the index, so the shell passes the signal down.
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: _ownerOverrides(),
+      );
+      await tester.pumpAndSettle();
+
+      // Visit Профіль — the slot is built and is the current one.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<OwnerOwnProfileScreen>(
+              find.byKey(const Key('salon-shell-tab-profile-owner')),
+            )
+            .visible,
+        isTrue,
+      );
+
+      // Tab away. The slot stays MOUNTED (never disposed) — and must now be
+      // told it is not the visible one.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<OwnerOwnProfileScreen>(
+              find.byKey(
+                const Key('salon-shell-tab-profile-owner'),
+                skipOffstage: false,
+              ),
+            )
+            .visible,
+        isFalse,
+        reason:
+            'the retained off-screen slot must be told it is off-screen — '
+            'see OwnerOwnProfileScreen.visible for the two defects this '
+            'closes',
+      );
+
+      // …and told again when the user comes back.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<OwnerOwnProfileScreen>(
+              find.byKey(const Key('salon-shell-tab-profile-owner')),
+            )
+            .visible,
+        isTrue,
       );
     });
 
