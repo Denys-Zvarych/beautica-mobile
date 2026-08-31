@@ -25,11 +25,11 @@
 //   PATCH  /api/v1/salons/{salonId}/admins/{userId}/salon   → SalonAdminResponse
 //   GET    /api/v1/salons/{salonId}/sibling-salons          → List<SiblingSalonOption>
 //
-// Phase 21.6 — the three admin-management calls above. The first two go
-// through the GENERATED client (`removeAdmin`/`rotateAdmin` are both in the
-// committed spec snapshot); the third does NOT — backend Phase 21.3b landed
-// after that snapshot, so `getSiblingSalons` issues a raw GET and maps the
-// decoded rows by hand. See its own doc.
+// Phase 21.6 — the three admin-management calls above. All three go through
+// the GENERATED client. `getSiblingSalons` was the one exception while
+// backend Phase 21.3b sat outside the committed spec snapshot; the snapshot
+// has since been refreshed, so the raw GET + hand-rolled row parsing is gone
+// and the schema is compiler-enforced like every other call here.
 //
 // WIRE-FORMAT NOTE (masters + reviews pagination): the generated
 // `SalonControllerApi.getMastersBySalon` / `ReviewControllerApi.getSalonReviews`
@@ -52,6 +52,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -65,7 +66,6 @@ import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
-import '../domain/sibling_salon_option.dart';
 import 'salon_mapper.dart';
 
 part 'salon_repository.g.dart';
@@ -353,17 +353,21 @@ abstract interface class SalonRepository {
   /// `GET /salons/mine` ([getMySalons]) is owner-only and returns nothing
   /// useful to the admin doing the rotating.
   ///
-  /// NOT routed through [SalonControllerApi]: backend Phase 21.3b landed
-  /// after the committed `tool/openapi/api-spec.json` snapshot, so neither
-  /// the operation nor its `SiblingSalonOption` schema is in the generated
-  /// client, and regenerating requires a live local backend. This issues a
-  /// raw GET through the shared authenticated [Dio] and maps the decoded
-  /// rows with [SiblingSalonOptionMapper] — the same "bypass the generated
-  /// client, reuse everything else" shape [getSalonMasters]/[getSalonReviews]
-  /// already use for their own (different) reason.
+  /// Routed through the GENERATED [SalonControllerApi.getSiblingSalons] —
+  /// unlike [getSalonMasters]/[getSalonReviews], whose generated counterparts
+  /// take a typed `Pageable` (see the WIRE-FORMAT NOTE in this file's
+  /// header). This operation takes `salonId` ONLY and returns a plain
+  /// `List`, so there is no `pageable=` blob to dodge and no reason to
+  /// hand-roll the request. Rows are then normalised by
+  /// [SiblingSalonOptionMapper.fromDtoList] — see its doc for the two things
+  /// the schema itself cannot express (blank-id drop, blank-address
+  /// collapse).
   ///
   /// Returns an empty list when the owner has no other active salon (200
-  /// `[]`) — the NORMAL single-salon state, not an error.
+  /// `[]`) — the NORMAL single-salon state, not an error. An empty list is
+  /// therefore NEVER returned for a payload that merely failed to parse: a
+  /// malformed 2xx body degrades to its readable rows (see
+  /// `HttpSalonRepository._salvageSiblingSalons`) and throws when none survive.
   Future<List<SiblingSalonOption>> getSiblingSalons(String salonId);
 }
 
@@ -880,20 +884,26 @@ final class HttpSalonRepository implements SalonRepository {
   @override
   Future<List<SiblingSalonOption>> getSiblingSalons(String salonId) async {
     try {
-      final Response<Map<String, dynamic>> response = await _dio
-          .get<Map<String, dynamic>>(
-            '/api/v1/salons/${Uri.encodeComponent(salonId)}/sibling-salons',
-          );
-      // The envelope is the hand-rolled `ApiResponse<T>` every other endpoint
-      // in this file decodes — the rows live under `data`. A null/absent
-      // `data` is treated as "no siblings", the same way an explicit `[]` is:
-      // both mean there is nowhere to rotate to.
-      final Object? data = response.data?['data'];
-      if (data is! List) return const <SiblingSalonOption>[];
-      return SiblingSalonOptionMapper.fromJsonList(data);
+      final Response<ApiResponseListSiblingSalonOption> response =
+          await _salonApi.getSiblingSalons(salonId: salonId);
+      // A null/absent `data` is treated as "no siblings", the same way an
+      // explicit `[]` is: both mean there is nowhere to rotate to.
+      final BuiltList<SiblingSalonOption>? rows = response.data?.data;
+      if (rows == null) return const <SiblingSalonOption>[];
+      return SiblingSalonOptionMapper.fromDtoList(rows);
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
+      // RECOVERABILITY (deliberate, Phase 21.6 QA MEDIUM). The generated
+      // client deserializes the WHOLE envelope in one step, so a single
+      // contract-broken row used to fail the entire call — and this screen's
+      // `ErrorState` retry re-fetches the identical payload, so the owner was
+      // permanently unable to rotate an administrator anywhere. Before giving
+      // up, try to read the rows individually off the raw body.
+      final List<SiblingSalonOption>? salvaged = _salvageSiblingSalons(e);
+      if (salvaged != null) {
+        return SiblingSalonOptionMapper.fromDtoList(salvaged);
+      }
       if (kDebugMode) {
         log(
           'getSiblingSalons failed: ${e.type} ${e.response?.statusCode}',
@@ -903,7 +913,99 @@ final class HttpSalonRepository implements SalonRepository {
         );
       }
       throw _mapDioException(e);
+    } catch (e, st) {
+      // Catch-all fallthrough, matching `getMySalons`/`getSalonById`/
+      // `updateSalon` (Phase 21.6 QA LOW): a `BuiltValueNullFieldError` or any
+      // other Dart `Error` matches neither arm above and would otherwise
+      // escape with no breadcrumb. DIVERGES from those three in ONE respect —
+      // they rethrow unchanged, because an existing mobile-security pin
+      // (`salon_shell_landing_flow_test.dart` INFO-1) fixes their raw-rethrow
+      // behaviour. This path is new and unpinned, so it honours the
+      // [SalonRepository] contract literally ("every method ... throws a
+      // [Failure] subclass", line 163) instead of leaning on Riverpod to
+      // wrap it.
+      if (kDebugMode) {
+        log(
+          'getSiblingSalons: malformed response, deserialization failed: $e',
+          name: 'salon.repository',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      throw ServerFailure(statusCode: null, cause: e);
     }
+  }
+
+  /// Recovers the still-readable rows of a `GET
+  /// /salons/{salonId}/sibling-salons` response whose ENVELOPE failed to
+  /// deserialize. Returns `null` when nothing can be salvaged, meaning the
+  /// caller must fail the whole call.
+  ///
+  /// WHY THIS ENDPOINT AND NOT THE OTHERS IN THIS FILE. The whole-call-failure
+  /// ruling for `getMySalons`/`getSalonById`/`updateSalon` stands and is not
+  /// re-opened here: those return ONE primary resource (or the list that IS
+  /// the screen), where a broken payload leaves nothing to show and an error
+  /// screen is the honest result. `getSiblingSalons` is a different shape — a
+  /// picker of independently actionable ALTERNATIVES, where the remaining N-1
+  /// rows stay fully usable without the broken one. That is the same family as
+  /// [PendingInviteMapper.fromDtoList] and
+  /// [SalonBookableMasterMapper.fromDtoList], which already drop per row in
+  /// this very file, and the same policy [SiblingSalonOptionMapper] already
+  /// applies to a blank-`id` row. The compile fix narrowed that policy to the
+  /// blank-`id` case by accident; this restores it for the structural case.
+  ///
+  /// TWO INVARIANTS make the degradation safe:
+  ///
+  ///  * ONLY a 2xx body is salvaged. A non-2xx (or an absent response, i.e. a
+  ///    transport failure) keeps its mapped [Failure] untouched — a 403/404
+  ///    error envelope must never be mined for rows.
+  ///  * NEVER degrade to an EMPTY list. `[]` is load-bearing on this screen —
+  ///    it renders "you own no other salon" — so returning it for a payload we
+  ///    merely could not read would state something false. Zero survivors stays
+  ///    a whole-call failure, and in that case the `ErrorState` retry is no
+  ///    longer a lie: a total contract break is a server-side fault that a
+  ///    backend rollback/redeploy genuinely does fix.
+  ///
+  /// The drop is logged UNGATED (unlike this file's routine `kDebugMode`
+  /// per-call-site logs): a backend contract break is not routine and must be
+  /// visible in release telemetry. Only counts are logged — never a row.
+  List<SiblingSalonOption>? _salvageSiblingSalons(DioException e) {
+    final Response<dynamic>? response = e.response;
+    final int? status = response?.statusCode;
+    if (response == null || status == null || status < 200 || status >= 300) {
+      return null;
+    }
+    final Object? body = response.data;
+    if (body is! Map) return null;
+    final Object? rows = body['data'];
+    if (rows is! List) return null;
+
+    final List<SiblingSalonOption> kept = <SiblingSalonOption>[];
+    int dropped = 0;
+    for (final Object? row in rows) {
+      try {
+        final SiblingSalonOption? option = _deserialize<SiblingSalonOption>(
+          row,
+          const FullType(SiblingSalonOption),
+        );
+        if (option == null) {
+          dropped++;
+          continue;
+        }
+        kept.add(option);
+      } catch (_) {
+        dropped++;
+      }
+    }
+    if (kept.isEmpty) return null;
+    log(
+      'sibling-salons: malformed payload — salvaged ${kept.length} row(s), '
+      'dropped $dropped unreadable row(s)',
+      name: 'salon.repository',
+      level: 1000,
+    );
+    return kept;
   }
 
   /// Maps the domain [UserRole] to the generated invite wire enum. [role]

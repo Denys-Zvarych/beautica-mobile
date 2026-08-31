@@ -1,4 +1,4 @@
-# beautica_api.model.PageableObject
+# beautica_api.model.ApiResponseListSiblingSalonOption
 
 ## Load the model package
 ```dart
@@ -8,12 +8,10 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**unpaged** | **bool** |  | [optional] 
-**paged** | **bool** |  | [optional] 
-**pageNumber** | **int** |  | [optional] 
-**pageSize** | **int** |  | [optional] 
-**offset** | **int** |  | [optional] 
-**sort** | [**SortObject**](SortObject.md) |  | [optional] 
+**success** | **bool** |  | [optional] 
+**data** | [**BuiltList&lt;SiblingSalonOption&gt;**](SiblingSalonOption.md) |  | [optional] 
+**message** | **String** |  | [optional] 
+**errors** | **BuiltMap&lt;String, String&gt;** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

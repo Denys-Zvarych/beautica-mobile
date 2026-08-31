@@ -18,7 +18,8 @@
 
 import 'dart:async';
 
-import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
@@ -43,7 +44,6 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
-import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';

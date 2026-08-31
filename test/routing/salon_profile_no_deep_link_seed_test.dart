@@ -49,7 +49,8 @@
 // `integration_test/salon_service_filter_flow_test.dart`. Nothing here weakens
 // it: every assertion below is scoped to ENTRY, before any interaction.
 
-import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -70,7 +71,6 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
-import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';

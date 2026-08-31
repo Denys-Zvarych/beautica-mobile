@@ -4,7 +4,11 @@
 // Every `fromDto` here is a pure translation boundary between a generated
 // `beautica_api` type and a domain entity in `features/salon/domain/`.
 // Generated DTO types must not cross this boundary into the domain or
-// presentation layers.
+// presentation layers — with ONE deliberate exception, documented at
+// [SiblingSalonOptionMapper]: the generated `SiblingSalonOption` is already
+// exactly as narrow as the endpoint it models (id + name + short address),
+// so it is carried through as-is rather than mirrored by a hand-written
+// twin the compiler could not keep honest.
 //
 // Error contract (backlog pattern — ServerFailure for a missing required id):
 //   - [SalonMapper.fromDto] requires [PublicSalonResponse.id]; a null value
@@ -31,7 +35,6 @@ import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
-import '../domain/sibling_salon_option.dart';
 
 /// Converts generated `beautica_api` types into the domain [Salon] entity and
 /// its related read-model entities.
@@ -305,40 +308,45 @@ abstract final class PendingInviteMapper {
       role == 'SALON_ADMIN' ? SalonStaffRole.admin : SalonStaffRole.master;
 }
 
-/// Maps the RAW JSON rows of `GET /salons/{salonId}/sibling-salons` to the
-/// domain [SiblingSalonOption] (Phase 21.6).
+/// Normalises the generated [SiblingSalonOption] rows of
+/// `GET /salons/{salonId}/sibling-salons` (Phase 21.6).
 ///
-/// The ONE mapper in this file that does not take a generated `beautica_api`
-/// DTO: backend Phase 21.3b added this endpoint after the committed
-/// `tool/openapi/api-spec.json` snapshot was taken, so no
-/// `SiblingSalonOption` type exists in `api/` to map FROM. Regenerating the
-/// client requires a live local backend (`scripts/_maybe_regen_api.sh`), so
-/// the row is parsed here from the decoded JSON instead — see
-/// [SalonRepository.getSiblingSalons]'s own doc. When the snapshot is next
-/// refreshed and the generated DTO appears, this mapper becomes a normal
-/// `fromDtoList` and this method is the only thing that changes.
+/// The ONE mapper in this file whose input and output are the SAME type. The
+/// generated built_value model already carries exactly the four fields this
+/// endpoint sends (`id`, `name`, `street?`, `buildingNo?`) and is as narrow
+/// as the backend's `SiblingSalonOption.java` — re-projecting it onto a
+/// hand-written twin would only re-open, by hand, a shape the compiler now
+/// enforces. So this mapper does the two things the schema CANNOT express:
+///
+///  * drops a row whose `id` is BLANK (`""` is a valid non-null `String` to
+///    built_value, but an option with no id could not be submitted as a
+///    rotate destination — a card that PATCHes nothing is worse than no
+///    card). One bad row must not blank the whole picker, so the drop is
+///    logged, never thrown — the same fail-closed-per-row direction
+///    [PendingInviteMapper.fromDtoList] takes.
+///  * collapses a blank/whitespace `street`/`buildingNo` to `null` (the same
+///    `""`-vs-null wire absorption [SalonMapper._blankToNull] performs) and
+///    trims a padded one, so a renderer may treat non-null as "renderable".
+///
+/// Wire ORDER is preserved: the picker renders rows as the backend sent them.
+///
+/// Structural malformation (a non-object row, an absent/non-String `id` or
+/// `name`) never reaches here — the generated built_value deserializer rejects
+/// the WHOLE envelope before this mapper runs. Per-row degradation for that
+/// case therefore lives one layer up, in
+/// `HttpSalonRepository._salvageSiblingSalons`, which re-reads the raw 2xx
+/// body row by row and hands the survivors back to this mapper. See that
+/// method's doc for why this endpoint degrades while `getMySalons`/
+/// `getSalonById`/`updateSalon` fail the whole call. Net effect is unchanged
+/// from the pre-codegen behaviour: one broken row costs its own card, never
+/// the picker.
 abstract final class SiblingSalonOptionMapper {
-  /// Rows whose `id` is missing/blank are dropped (logged) rather than
-  /// thrown — an option with no id could not be submitted as a rotate
-  /// destination anyway, and one broken row must not blank the whole
-  /// picker. Mirrors [PendingInviteMapper.fromDtoList]'s own precedent.
-  ///
-  /// A blank `street`/`buildingNo` collapses to `null` (the same
-  /// `""`-vs-null wire absorption [SalonMapper._blankToNull] performs), so a
-  /// renderer may treat non-null as "renderable".
-  static List<SiblingSalonOption> fromJsonList(Iterable<Object?> rows) {
+  static List<SiblingSalonOption> fromDtoList(
+    Iterable<SiblingSalonOption> dtos,
+  ) {
     final List<SiblingSalonOption> out = <SiblingSalonOption>[];
-    for (final Object? row in rows) {
-      if (row is! Map<String, dynamic>) {
-        log(
-          'sibling-salons: row is not a JSON object — dropping entry',
-          name: 'feature.salon.mapper',
-          level: 900,
-        );
-        continue;
-      }
-      final Object? id = row['id'];
-      if (id is! String || id.isEmpty) {
+    for (final SiblingSalonOption dto in dtos) {
+      if (dto.id.isEmpty) {
         log(
           'sibling-salons: row has no id — dropping entry',
           name: 'feature.salon.mapper',
@@ -346,21 +354,19 @@ abstract final class SiblingSalonOptionMapper {
         );
         continue;
       }
-      final Object? name = row['name'];
       out.add(
-        SiblingSalonOption(
-          id: id,
-          name: name is String ? name : '',
-          street: _stringOrNull(row['street']),
-          buildingNo: _stringOrNull(row['buildingNo']),
+        dto.rebuild(
+          (SiblingSalonOptionBuilder b) => b
+            ..street = _stringOrNull(dto.street)
+            ..buildingNo = _stringOrNull(dto.buildingNo),
         ),
       );
     }
     return out;
   }
 
-  static String? _stringOrNull(Object? value) {
-    if (value is! String) return null;
+  static String? _stringOrNull(String? value) {
+    if (value == null) return null;
     final String trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
   }

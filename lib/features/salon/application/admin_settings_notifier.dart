@@ -36,10 +36,10 @@
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 
 import '../data/salon_repository.dart';
-import '../domain/sibling_salon_option.dart';
 
 part 'admin_settings_notifier.g.dart';
 

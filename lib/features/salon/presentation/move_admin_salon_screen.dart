@@ -48,6 +48,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -68,7 +69,6 @@ import '../application/salon_shell_provider.dart';
 import '../application/salon_staff_member_notifier.dart';
 import '../domain/salon.dart';
 import '../domain/salon_staff_member.dart';
-import '../domain/sibling_salon_option.dart';
 import 'salon_management_profile_screen.dart' show kSalonStaffSubTab;
 import 'widgets/admin_action_dialogs.dart';
 import 'widgets/salon_hub_card.dart';
@@ -256,7 +256,7 @@ class _MoveTargetsBody extends StatelessWidget {
   /// [SalonHubCard] renders.
   ///
   /// Explicit and local ON PURPOSE: the repository returns the narrow model
-  /// the endpoint actually sends (see [SiblingSalonOption]'s header), so this
+  /// the endpoint actually sends (see `SiblingSalonOptionMapper`'s doc), so this
   /// is the ONE place the widening happens and the one place a reader has to
   /// look to know which fields are genuinely absent. Everything left unset
   /// degrades correctly in the card: a blank `cityId`/`oblastId` short-

@@ -45,7 +45,7 @@
 //     `MoveAdminSalonScreen._displaySalon` builds from a
 //     [SiblingSalonOption]: name + street/buildingNo ONLY. No `isPrimary`
 //     (no badge) and no locality (that endpoint sends none, deliberately —
-//     see `SiblingSalonOption`'s header). Two scenarios that rendered
+//     see `SiblingSalonOption`'s schema). Two scenarios that rendered
 //     identically would mean the card ignored the difference.
 //
 // Both use a BLANK `cityId`, which short-circuits `resolvedLocalityProvider`
@@ -58,7 +58,8 @@
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, SiblingSalonOptionBuilder;
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_hub_card.dart';
 import 'package:flutter/material.dart';
 
@@ -77,11 +78,12 @@ const Salon _kHubSalon = Salon(
 );
 
 /// The picker's source row.
-const SiblingSalonOption _kSibling = SiblingSalonOption(
-  id: 'salon-2',
-  name: 'Барбершоп «Дуб»',
-  street: 'вул. Січових Стрільців',
-  buildingNo: '4',
+final SiblingSalonOption _kSibling = SiblingSalonOption(
+  (SiblingSalonOptionBuilder b) => b
+    ..id = 'salon-2'
+    ..name = 'Барбершоп «Дуб»'
+    ..street = 'вул. Січових Стрільців'
+    ..buildingNo = '4',
 );
 
 /// `MoveAdminSalonScreen._displaySalon`, mirrored EXACTLY — the adaptation is

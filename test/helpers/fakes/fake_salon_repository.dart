@@ -47,7 +47,8 @@
 
 import 'dart:async';
 
-import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
@@ -59,7 +60,6 @@ import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
-import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 
 /// In-memory [SalonRepository] fake for widget tests.
 ///

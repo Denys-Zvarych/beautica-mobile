@@ -1062,8 +1062,9 @@ final class FakeBackend {
   /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
   /// sharing this salon's owner, minus this salon. Shape mirrors the
   /// backend's `SiblingSalonOption` (id + name + street + buildingNo ONLY —
-  /// deliberately narrower than `SalonResponse`; see the mobile model's own
-  /// header).
+  /// deliberately narrower than `SalonResponse`). Since the OpenAPI snapshot
+  /// refresh this is deserialized by the GENERATED built_value model, so the
+  /// shape here is now schema-checked rather than merely conventional.
   final List<Map<String, dynamic>> siblingSalons = <Map<String, dynamic>>[
     <String, dynamic>{
       'id': 'salon-sibling-1',

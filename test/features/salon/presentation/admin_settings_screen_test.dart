@@ -51,7 +51,8 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
-import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, SiblingSalonOptionBuilder;
 import 'package:beautica_mobile/features/salon/presentation/admin_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/move_admin_salon_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart'
@@ -94,18 +95,20 @@ const SalonStaffMember _kAdmin = SalonStaffMember(
   lastName: 'Ковальчук',
 );
 
-List<SiblingSalonOption> _siblings() => const <SiblingSalonOption>[
+List<SiblingSalonOption> _siblings() => <SiblingSalonOption>[
   SiblingSalonOption(
-    id: 'salon-2',
-    name: 'Студія «Камелія»',
-    street: 'Хрещатик',
-    buildingNo: '12',
+    (SiblingSalonOptionBuilder b) => b
+      ..id = 'salon-2'
+      ..name = 'Студія «Камелія»'
+      ..street = 'Хрещатик'
+      ..buildingNo = '12',
   ),
   SiblingSalonOption(
-    id: 'salon-3',
-    name: 'Барбершоп «Дуб»',
-    street: 'Січових Стрільців',
-    buildingNo: '4',
+    (SiblingSalonOptionBuilder b) => b
+      ..id = 'salon-3'
+      ..name = 'Барбершоп «Дуб»'
+      ..street = 'Січових Стрільців'
+      ..buildingNo = '4',
   ),
 ];
 

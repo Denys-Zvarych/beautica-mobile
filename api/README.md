@@ -167,6 +167,7 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalonStaff**](doc/SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSiblingSalons**](doc/SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**listPendingInvites**](doc/SalonControllerApi.md#listpendinginvites) | **GET** /api/v1/salons/{salonId}/invites/pending | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**removeAdmin**](doc/SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
@@ -229,6 +230,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
  - [ApiResponseListSalonStaffMemberResponse](doc/ApiResponseListSalonStaffMemberResponse.md)
  - [ApiResponseListScheduleOverrideResponse](doc/ApiResponseListScheduleOverrideResponse.md)
+ - [ApiResponseListSiblingSalonOption](doc/ApiResponseListSiblingSalonOption.md)
  - [ApiResponseListWeeklyScheduleResponse](doc/ApiResponseListWeeklyScheduleResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
@@ -393,6 +395,7 @@ Class | Method | HTTP request | Description
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)
  - [ServiceSummaryDto](doc/ServiceSummaryDto.md)
+ - [SiblingSalonOption](doc/SiblingSalonOption.md)
  - [SortObject](doc/SortObject.md)
  - [StatusUpdateRequest](doc/StatusUpdateRequest.md)
  - [SuggestServiceTypeRequest](doc/SuggestServiceTypeRequest.md)

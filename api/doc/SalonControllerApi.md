@@ -17,6 +17,7 @@ Method | HTTP request | Description
 [**getOwnedSalons**](SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [**getSalon**](SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
 [**getSalonStaff**](SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
+[**getSiblingSalons**](SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [**inviteMaster**](SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
 [**listPendingInvites**](SalonControllerApi.md#listpendinginvites) | **GET** /api/v1/salons/{salonId}/invites/pending | 
 [**removeAdmin**](SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
@@ -342,6 +343,49 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseListSalonStaffMemberResponse**](ApiResponseListSalonStaffMemberResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSiblingSalons**
+> ApiResponseListSiblingSalonOption getSiblingSalons(salonId)
+
+List sibling salons of the same owner
+
+Active salons sharing this salon's owner, excluding this salon itself, as id + name + short address. Backs the rotate-admin destination picker. Requires management access to the salon (owner or assigned admin).
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getSalonControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    final response = api.getSiblingSalons(salonId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling SalonControllerApi->getSiblingSalons: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+
+### Return type
+
+[**ApiResponseListSiblingSalonOption**](ApiResponseListSiblingSalonOption.md)
 
 ### Authorization
 

@@ -30,6 +30,7 @@ doc/ApiResponseListPlatformServiceTypeResponse.md
 doc/ApiResponseListSalonResponse.md
 doc/ApiResponseListSalonStaffMemberResponse.md
 doc/ApiResponseListScheduleOverrideResponse.md
+doc/ApiResponseListSiblingSalonOption.md
 doc/ApiResponseListWeeklyScheduleResponse.md
 doc/ApiResponseListWorkingHoursResponse.md
 doc/ApiResponseMasterDetailResponse.md
@@ -216,6 +217,7 @@ doc/ServiceCatalogControllerApi.md
 doc/ServiceControllerApi.md
 doc/ServiceDefinitionResponse.md
 doc/ServiceSummaryDto.md
+doc/SiblingSalonOption.md
 doc/SortObject.md
 doc/StaffBookingsApi.md
 doc/StatusUpdateRequest.md
@@ -305,6 +307,7 @@ lib/src/model/api_response_list_platform_service_type_response.dart
 lib/src/model/api_response_list_salon_response.dart
 lib/src/model/api_response_list_salon_staff_member_response.dart
 lib/src/model/api_response_list_schedule_override_response.dart
+lib/src/model/api_response_list_sibling_salon_option.dart
 lib/src/model/api_response_list_weekly_schedule_response.dart
 lib/src/model/api_response_list_working_hours_response.dart
 lib/src/model/api_response_master_detail_response.dart
@@ -470,6 +473,7 @@ lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/service_definition_response.dart
 lib/src/model/service_summary_dto.dart
+lib/src/model/sibling_salon_option.dart
 lib/src/model/sort_object.dart
 lib/src/model/status_update_request.dart
 lib/src/model/suggest_service_type_request.dart
@@ -495,3 +499,5 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_list_sibling_salon_option_test.dart
+test/sibling_salon_option_test.dart

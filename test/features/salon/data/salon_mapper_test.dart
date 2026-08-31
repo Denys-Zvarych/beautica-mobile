@@ -25,7 +25,6 @@
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/salon/data/salon_mapper.dart';
-import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -314,30 +313,48 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Phase 21.6 mobile-qa gap-closure — `SiblingSalonOptionMapper.fromJsonList`
+  // Phase 21.6 mobile-qa gap-closure — `SiblingSalonOptionMapper.fromDtoList`
   //
-  // The ONE mapper in this file that parses RAW decoded JSON rather than a
-  // generated `beautica_api` DTO (backend Phase 21.3b landed after the
-  // committed OpenAPI snapshot), so it is the ONE mapper with no compile-time
-  // schema behind it — every wire assumption it makes is unchecked unless it
-  // is checked here.
+  // Was `fromJsonList` (raw decoded JSON) while backend Phase 21.3b sat
+  // outside the committed OpenAPI snapshot. The snapshot has since been
+  // refreshed, so the input is now the GENERATED `SiblingSalonOption`
+  // built_value and the wire shape is compiler-enforced.
   //
-  // It fails CLOSED PER ROW: a row it cannot use is dropped and the rest of
-  // the picker still renders. That contract is only meaningful if a bad row
-  // genuinely cannot take the whole list down, so every case below mixes the
-  // malformed row with a GOOD one and asserts the good one survived.
+  // Three of the original eight cases asserted things the generated
+  // deserializer now rejects before this mapper is ever reached — they are
+  // named in the group below where they were dropped, so a reader can tell
+  // "no longer reachable" from "no longer tested".
+  //
+  // What is STILL only enforced here is the fail-CLOSED-per-row contract the
+  // schema cannot express: a blank `id` drops its own row and no other. Every
+  // case below therefore still mixes the bad row with a GOOD one and asserts
+  // the good one survived.
   // ─────────────────────────────────────────────────────────────────────────
-  group('SiblingSalonOptionMapper.fromJsonList', () {
-    Map<String, dynamic> goodRow() => <String, dynamic>{
-      'id': 'salon-2',
-      'name': 'Студія «Камелія»',
-      'street': 'вул. Хрещатик',
-      'buildingNo': '12',
-    };
+  group('SiblingSalonOptionMapper.fromDtoList', () {
+    SiblingSalonOption dto({
+      required String id,
+      String name = 'Салон',
+      String? street,
+      String? buildingNo,
+    }) => SiblingSalonOption(
+      (SiblingSalonOptionBuilder b) => b
+        ..id = id
+        ..name = name
+        ..street = street
+        ..buildingNo = buildingNo,
+    );
 
-    test('maps a complete row verbatim', () {
-      final List<SiblingSalonOption> out =
-          SiblingSalonOptionMapper.fromJsonList(<Object?>[goodRow()]);
+    SiblingSalonOption goodRow() => dto(
+      id: 'salon-2',
+      name: 'Студія «Камелія»',
+      street: 'вул. Хрещатик',
+      buildingNo: '12',
+    );
+
+    test('passes a complete row through verbatim', () {
+      final List<SiblingSalonOption> out = SiblingSalonOptionMapper.fromDtoList(
+        <SiblingSalonOption>[goodRow()],
+      );
 
       expect(out, hasLength(1));
       expect(out.single.id, 'salon-2');
@@ -346,100 +363,63 @@ void main() {
       expect(out.single.buildingNo, '12');
     });
 
-    test('drops a row that is not a JSON object, keeping its neighbours', () {
-      final List<SiblingSalonOption> out =
-          SiblingSalonOptionMapper.fromJsonList(<Object?>[
-            'not-an-object',
-            42,
-            null,
-            <Object?>['nested', 'list'],
-            goodRow(),
-          ]);
-
-      expect(
-        out.map((SiblingSalonOption o) => o.id),
-        <String>['salon-2'],
-        reason:
-            'four malformed rows must cost four rows, never the whole picker',
+    // MIGRATED from 'drops a row whose id is missing, blank or not a String'.
+    // Only the BLANK case survives as a mapper concern: `id` is a required
+    // non-nullable `String` on the generated model, so an absent, null or
+    // non-String `id` now fails the whole envelope in the built_value
+    // deserializer (a ServerFailure for the call) and can never reach here.
+    // `''` still deserializes happily, which is exactly why this stays.
+    test('drops a row whose id is blank, keeping its neighbours', () {
+      final List<SiblingSalonOption> out = SiblingSalonOptionMapper.fromDtoList(
+        <SiblingSalonOption>[dto(id: '', name: 'Порожній id'), goodRow()],
       );
-    });
-
-    test('drops a row whose id is missing, blank or not a String', () {
-      final List<SiblingSalonOption> out =
-          SiblingSalonOptionMapper.fromJsonList(<Object?>[
-            <String, dynamic>{'name': 'Без id'},
-            <String, dynamic>{'id': '', 'name': 'Порожній id'},
-            <String, dynamic>{'id': 12345, 'name': 'Числовий id'},
-            <String, dynamic>{'id': null, 'name': 'Null id'},
-            goodRow(),
-          ]);
 
       expect(
         out.map((SiblingSalonOption o) => o.id),
         <String>['salon-2'],
         reason:
             'an option with no id could not be submitted as a rotate '
-            'destination — a card that PATCHes nothing is worse than no card',
+            'destination — a card that PATCHes nothing is worse than no card, '
+            'and one bad row must never blank the whole picker',
       );
     });
 
-    test('a non-String or absent name collapses to empty, row still kept', () {
-      // The id is what makes the row usable, so a bad NAME must not drop it —
-      // the opposite fail-closed direction from `id`. Pinned so the two are
-      // not silently unified later.
+    // MIGRATED from 'blank / whitespace / non-String street and buildingNo
+    // become null'. The non-String half is gone for the same reason as above
+    // — `street`/`buildingNo` are typed `String?` on the generated model, so
+    // a numeric or list value cannot survive deserialization. Blank,
+    // whitespace-only and absent all still can.
+    test('blank / whitespace / absent street and buildingNo become null', () {
+      // `MoveAdminSalonScreen` hands these to `buildStreetLine`, which treats
+      // non-null as renderable — a `''` reaching it draws an empty address
+      // row under the salon name.
       final List<SiblingSalonOption> out =
-          SiblingSalonOptionMapper.fromJsonList(<Object?>[
-            <String, dynamic>{'id': 'salon-a'},
-            <String, dynamic>{'id': 'salon-b', 'name': 99},
+          SiblingSalonOptionMapper.fromDtoList(<SiblingSalonOption>[
+            dto(
+              id: 'salon-blank',
+              name: 'Порожня адреса',
+              street: '   ',
+              buildingNo: '',
+            ),
+            dto(id: 'salon-absent', name: 'Без адреси'),
           ]);
 
-      expect(out.map((SiblingSalonOption o) => o.id), <String>[
-        'salon-a',
-        'salon-b',
-      ]);
-      expect(out.map((SiblingSalonOption o) => o.name), <String>['', '']);
+      expect(out, hasLength(2));
+      for (final SiblingSalonOption o in out) {
+        expect(o.street, isNull, reason: 'street of ${o.id}');
+        expect(o.buildingNo, isNull, reason: 'buildingNo of ${o.id}');
+      }
     });
-
-    test(
-      'blank / whitespace / non-String street and buildingNo become null',
-      () {
-        // `MoveAdminSalonScreen` hands these to `buildStreetLine`, which treats
-        // non-null as renderable — a `''` reaching it draws an empty address
-        // row under the salon name.
-        final List<SiblingSalonOption> out =
-            SiblingSalonOptionMapper.fromJsonList(<Object?>[
-              <String, dynamic>{
-                'id': 'salon-blank',
-                'name': 'Порожня адреса',
-                'street': '   ',
-                'buildingNo': '',
-              },
-              <String, dynamic>{
-                'id': 'salon-typed',
-                'name': 'Чужі типи',
-                'street': 7,
-                'buildingNo': <String>['12'],
-              },
-              <String, dynamic>{'id': 'salon-absent', 'name': 'Без адреси'},
-            ]);
-
-        expect(out, hasLength(3));
-        for (final SiblingSalonOption o in out) {
-          expect(o.street, isNull, reason: 'street of ${o.id}');
-          expect(o.buildingNo, isNull, reason: 'buildingNo of ${o.id}');
-        }
-      },
-    );
 
     test('trims a padded street and buildingNo', () {
       final List<SiblingSalonOption> out =
-          SiblingSalonOptionMapper.fromJsonList(<Object?>[
-            <String, dynamic>{
-              'id': 'salon-pad',
-              'name': 'Пробіли',
-              'street': '  вул. Хрещатик  ',
-              'buildingNo': ' 12 ',
-            },
+          SiblingSalonOptionMapper.fromDtoList(<SiblingSalonOption>[
+            dto(
+              id: 'salon-pad',
+              name: 'Пробіли',
+              street: '  вул. Хрещатик  ',
+              buildingNo: ' 12 ',
+            ),
           ]);
 
       expect(out.single.street, 'вул. Хрещатик');
@@ -447,16 +427,20 @@ void main() {
     });
 
     test('an empty wire list maps to an empty list, never null', () {
-      expect(SiblingSalonOptionMapper.fromJsonList(const <Object?>[]), isEmpty);
+      expect(
+        SiblingSalonOptionMapper.fromDtoList(const <SiblingSalonOption>[]),
+        isEmpty,
+      );
     });
 
     test('preserves wire ORDER — the picker renders rows as sent', () {
-      final List<SiblingSalonOption> out =
-          SiblingSalonOptionMapper.fromJsonList(<Object?>[
-            <String, dynamic>{'id': 'c', 'name': 'C'},
-            <String, dynamic>{'id': 'a', 'name': 'A'},
-            <String, dynamic>{'id': 'b', 'name': 'B'},
-          ]);
+      final List<SiblingSalonOption> out = SiblingSalonOptionMapper.fromDtoList(
+        <SiblingSalonOption>[
+          dto(id: 'c', name: 'C'),
+          dto(id: 'a', name: 'A'),
+          dto(id: 'b', name: 'B'),
+        ],
+      );
 
       expect(out.map((SiblingSalonOption o) => o.id), <String>['c', 'a', 'b']);
     });
