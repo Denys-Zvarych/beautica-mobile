@@ -70,6 +70,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';
@@ -274,6 +275,33 @@ class _CountingSalonRepository implements SalonRepository {
   }) async => throw UnimplementedError(
     '_CountingSalonRepository.cancelInvite is not stubbed — owner/admin only.',
   );
+
+  // Phase 21.6 — owner/admin admin-management surface. Same rationale as
+  // [cancelInvite] above: this fake backs the CLIENT-facing public profile,
+  // which can never reach any of these three calls.
+  @override
+  Future<void> removeAdmin({
+    required String salonId,
+    required String userId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.removeAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.rotateAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<List<SiblingSalonOption>> getSiblingSalons(String salonId) async =>
+      throw UnimplementedError(
+        '_CountingSalonRepository.getSiblingSalons is not stubbed — '
+        'owner/admin only.',
+      );
 
   // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as
   // [updateSalon]/[deleteSalon] immediately above.

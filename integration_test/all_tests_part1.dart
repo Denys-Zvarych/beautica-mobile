@@ -86,6 +86,7 @@ import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
+import 'salon_admin_settings_flow_test.dart' as salon_admin_settings;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -262,4 +263,5 @@ void main() {
   // the widget tier). Also carries the deliberately-RED pin for the missing
   // `pendingInvitesProvider` invalidation on invite-send.
   group('salon_pending_invites_flow', salon_pending_invites.main);
+  group('salon_admin_settings_flow', salon_admin_settings.main);
 }

@@ -1,0 +1,113 @@
+// Phase 21.6 — Admin settings actions.
+//
+// Backing state for [AdminSettingsScreen] and [MoveAdminSalonScreen]: the two
+// write paths an owner/admin has over ONE salon administrator, plus the read
+// that feeds the rotate-destination picker.
+//
+//   • [AdminSettings.remove]  → `DELETE /salons/{salonId}/admins/{userId}`
+//   • [AdminSettings.rotate]  → `PATCH  /salons/{salonId}/admins/{userId}/salon`
+//   • [siblingSalons]         → `GET    /salons/{salonId}/sibling-salons`
+//
+// SHAPE — mirrors `InviteStaff` (`invite_staff_notifier.dart`), not
+// `SalonManagementProfile`: there is nothing for this notifier to LOAD, so
+// `build()` is a no-op and both mutations return `Future<Failure?>` (null on
+// success). That keeps the failure on the calling screen, which is the only
+// place that can turn a 403 into the right sentence — a self-removal and a
+// cross-owner rotation are both 403s and they mean completely different
+// things to the person reading them.
+//
+// WHAT THIS NOTIFIER DELIBERATELY DOES NOT DO
+//
+//   * It does NOT invalidate the staff roster itself. The invalidation has to
+//     happen while the SCREEN's element is still mounted and BEFORE it pops
+//     (the `InviteStaffScreen._submit` precedent), and the screen also owns
+//     the tab reconciliation that goes with it. Doing half of that here and
+//     half there is how the two drift apart.
+//   * It does NOT re-check authorization. Self-removal and cross-owner
+//     rotation are gated by the backend; re-implementing either client-side
+//     would be a second, silently-divergent copy of the rule (see
+//     `SalonManagementProfile.deleteSalon`'s identical note).
+//
+// LIFECYCLE — both methods touch `ref` ONLY before their own `await`
+// (`ref.read(salonRepositoryProvider)` resolves first), so an autoDispose
+// element torn down mid-request cannot reproduce `RegisterSalon.submit`'s
+// `UnmountedRefException`. The screens still guard their own `mounted` after
+// the await, because they navigate and show snacks.
+
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+
+import '../data/salon_repository.dart';
+import '../domain/sibling_salon_option.dart';
+
+part 'admin_settings_notifier.g.dart';
+
+/// The rotate-admin destination list for [salonId] — the ACTIVE salons
+/// sharing this salon's owner, minus this salon.
+///
+/// Generated provider name: `siblingSalonsProvider` (a family — call it with
+/// the SOURCE salon id, e.g. `siblingSalonsProvider(salonId)`).
+///
+/// Deliberately NOT `mySalonsProvider`: `GET /salons/mine` is owner-only and
+/// 403s for the `SALON_ADMIN` who may equally be doing the rotating. This is
+/// the endpoint backend Phase 21.3b added for exactly that reason — see
+/// [SalonRepository.getSiblingSalons].
+///
+/// `autoDispose` (the `@riverpod` default): the picker is a pushed page, and
+/// an owner who adds or closes a salon between two visits must not be shown
+/// the list from the first one.
+@riverpod
+Future<List<SiblingSalonOption>> siblingSalons(Ref ref, String salonId) {
+  return ref.read(salonRepositoryProvider).getSiblingSalons(salonId);
+}
+
+/// Drives the two administrator actions on [AdminSettingsScreen].
+///
+/// Generated provider name: `adminSettingsProvider`.
+@riverpod
+class AdminSettings extends _$AdminSettings {
+  @override
+  void build() {}
+
+  /// Removes (unassigns) admin [userId] from salon [salonId].
+  ///
+  /// Returns `null` on success or the [Failure] on error. The backend nulls
+  /// the user's `salon_id`; it does NOT delete their account — the calling
+  /// screen's copy must say so.
+  Future<Failure?> remove({
+    required String salonId,
+    required String userId,
+  }) async {
+    final SalonRepository repo = ref.read(salonRepositoryProvider);
+    try {
+      await repo.removeAdmin(salonId: salonId, userId: userId);
+      return null;
+    } on Failure catch (f) {
+      return f;
+    }
+  }
+
+  /// Moves admin [userId] from salon [salonId] to [destinationSalonId].
+  ///
+  /// Returns `null` on success or the [Failure] on error. A destination
+  /// owned by somebody else is a server-side 403 — see this file's header
+  /// for why that check is not duplicated here.
+  Future<Failure?> rotate({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async {
+    final SalonRepository repo = ref.read(salonRepositoryProvider);
+    try {
+      await repo.rotateAdmin(
+        salonId: salonId,
+        userId: userId,
+        destinationSalonId: destinationSalonId,
+      );
+      return null;
+    } on Failure catch (f) {
+      return f;
+    }
+  }
+}

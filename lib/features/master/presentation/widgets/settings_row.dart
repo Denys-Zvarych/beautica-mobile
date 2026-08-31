@@ -33,6 +33,7 @@ class SettingsRow extends StatefulWidget {
     this.showChevron = true,
     this.destructive = false,
     this.loading = false,
+    this.enabled = true,
   });
 
   final IconData icon;
@@ -63,6 +64,22 @@ class SettingsRow extends StatefulWidget {
   /// every other [SettingsRow] usage is unaffected.
   final bool loading;
 
+  /// Phase 21.6 — `false` renders the row as PRESENT BUT NOT YET AVAILABLE:
+  /// the same dim as [loading], taps absorbed, and `Semantics(enabled:
+  /// false)` so a screen reader announces it as unavailable rather than
+  /// letting a tap fall silently on the floor. Geometry is untouched — the
+  /// row occupies exactly the same box it does when enabled, so a disabled
+  /// row never shifts its neighbours.
+  ///
+  /// It exists for «Перевести в майстри» on [AdminSettingsScreen], which the
+  /// design places on the screen but which has NO backend endpoint (role
+  /// conversion is unscoped) — the row must be visibly inert, never a fake
+  /// success. Pair it with `value:` copy naming why (e.g. «незабаром»).
+  ///
+  /// Defaults to `true`, so every pre-existing [SettingsRow] call site
+  /// renders and behaves EXACTLY as before this parameter existed.
+  final bool enabled;
+
   @override
   State<SettingsRow> createState() => _SettingsRowState();
 }
@@ -80,6 +97,11 @@ class _SettingsRowState extends State<SettingsRow> {
   @override
   Widget build(BuildContext context) {
     final bool loading = widget.loading;
+    // A row is "inert" while an action is in flight (loading) OR while the
+    // action it names does not exist yet (`enabled: false`). Both dim it and
+    // both swallow taps; only `loading` also swaps the chevron for a spinner,
+    // because only `loading` means something is actually happening.
+    final bool inert = loading || !widget.enabled;
     final Color glyph = widget.destructive
         ? BrandColors.error
         : BrandColors.accentDeep;
@@ -90,14 +112,16 @@ class _SettingsRowState extends State<SettingsRow> {
 
     return Semantics(
       button: true,
-      enabled: !loading,
+      enabled: !inert,
       label: widget.label,
       child: AbsorbPointer(
         // mobile-perf MEDIUM: while loading, absorb taps so a second tap on a
         // slow network is visibly ignored (spinner keeps spinning) rather than
         // silently swallowed by the `_requestingChangePasswordOtp` guard with
-        // zero on-screen feedback.
-        absorbing: loading,
+        // zero on-screen feedback. Phase 21.6 — `enabled: false` absorbs for
+        // the same reason: an unbuilt action must be visibly inert, never a
+        // tap that quietly does nothing.
+        absorbing: inert,
         child: GestureDetector(
           onTapDown: (_) => setState(() => _pressed = true),
           onTapCancel: () => setState(() => _pressed = false),
@@ -109,7 +133,7 @@ class _SettingsRowState extends State<SettingsRow> {
             scale: _pressed ? 0.985 : 1,
             duration: const Duration(milliseconds: 110),
             child: AnimatedOpacity(
-              opacity: loading ? 0.6 : 1,
+              opacity: inert ? 0.6 : 1,
               duration: const Duration(milliseconds: 150),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),

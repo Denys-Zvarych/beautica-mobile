@@ -303,6 +303,55 @@ class _SalonManagementProfileScreenState
 }
 
 // ---------------------------------------------------------------------------
+// Tab ORDER — the single semantic source of truth
+// ---------------------------------------------------------------------------
+
+/// Stable, translation-free identifiers for this screen's four sub-tabs, in
+/// the order they render. Drives the tab body's `KeyedSubtree` key
+/// (`salon-manage-tab-body-<key>`), so a widget test can name a tab without
+/// touching Cyrillic copy.
+///
+/// PROMOTED (Phase 21.6 audit follow-up) from `_LoadedBody._tabKeys`, a
+/// private `static const` on a private class — i.e. unreachable from any
+/// test. [kSalonStaffSubTab] and the `1 =>` arm of [_LoadedBody]'s tab-body
+/// switch were both bare indices into it with nothing asserting they agreed.
+const List<String> kSalonManageTabKeys = <String>[
+  'about',
+  'staff',
+  'services',
+  'reviews',
+];
+
+/// The «Персонал» sub-tab index of [SalonManagementProfileScreen].
+///
+/// Lives HERE, beside the list it indexes, for the reason
+/// [kSalonTeamNavTab]'s own doc gives: a constant naming a position in a list
+/// is only reviewed alongside a re-order of that list when the two sit
+/// together. Consumed by [SalonShellScreen] (nav ↔ sub-tab reconciliation),
+/// [AdminSettingsScreen] and [MoveAdminSalonScreen] (post-write landing).
+///
+/// PINNED — `test/features/salon/presentation/admin_settings_screen_test.dart`
+/// asserts BOTH `kSalonManageTabKeys[kSalonStaffSubTab] == 'staff'` and
+/// `salonManageTabLabels(l10n)[kSalonStaffSubTab] == l10n.salonManageTabStaff`,
+/// so re-ordering either the keys or the visible labels without moving this
+/// constant fails at the unit tier instead of silently landing the viewer on
+/// «Про салон».
+const int kSalonStaffSubTab = 1;
+
+/// The visible tab-bar labels, in [kSalonManageTabKeys] order.
+///
+/// A function (not a `const` list) because the labels come from
+/// [AppLocalizations] — raw Ukrainian in `lib/` is CI-fatal
+/// (`no_raw_ui_strings`). Hoisted out of [_LoadedBody.build] so the pin above
+/// can assert the ORDER the user actually sees, not just the key list.
+List<String> salonManageTabLabels(AppLocalizations l10n) => <String>[
+  l10n.salonTabAbout,
+  l10n.salonManageTabStaff,
+  l10n.salonTabServices,
+  l10n.salonTabReviews,
+];
+
+// ---------------------------------------------------------------------------
 // _LoadedBody — cover + hero + tab bar + tab body
 // ---------------------------------------------------------------------------
 
@@ -350,12 +399,7 @@ class _LoadedBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final List<String> tabs = <String>[
-      l10n.salonTabAbout,
-      l10n.salonManageTabStaff,
-      l10n.salonTabServices,
-      l10n.salonTabReviews,
-    ];
+    final List<String> tabs = salonManageTabLabels(l10n);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -379,7 +423,9 @@ class _LoadedBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.lg),
         KeyedSubtree(
-          key: ValueKey<String>('salon-manage-tab-body-${_tabKeys[tab]}'),
+          key: ValueKey<String>(
+            'salon-manage-tab-body-${kSalonManageTabKeys[tab]}',
+          ),
           child: switch (tab) {
             0 => _AboutReadView(
               salon: salon,
@@ -409,13 +455,6 @@ class _LoadedBody extends StatelessWidget {
       ],
     );
   }
-
-  static const List<String> _tabKeys = <String>[
-    'about',
-    'staff',
-    'services',
-    'reviews',
-  ];
 }
 
 // ---------------------------------------------------------------------------

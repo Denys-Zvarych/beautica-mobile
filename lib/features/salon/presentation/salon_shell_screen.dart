@@ -214,13 +214,21 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
   /// Bottom-nav destinations that map to the shared profile host (slot 0).
   static const int _navSalon = 0;
-  static const int _navTeam = 2;
+
+  /// Phase 21.6 audit follow-up — was a third hand-written `2`. It now
+  /// ALIASES the constant declared beside `SalonBottomNav.ownerAdminItems`
+  /// itself, so the shell, [AdminSettingsScreen] and [MoveAdminSalonScreen]
+  /// can no longer drift apart, and the unit pin on that constant
+  /// (`admin_settings_screen_test.dart`) covers this call site too.
+  static const int _navTeam = kSalonTeamNavTab;
 
   /// The in-screen sub-tab index that the bottom-nav destination implies.
   /// [_navTeam] IS the profile screen's staff sub-tab (1); [_navSalon] is its
   /// «Про салон» sub-tab (0). Any other destination hosts no profile screen
   /// at all and leaves the sub-tab untouched.
-  static const int _staffSubTab = 1;
+  /// Aliases the constant declared beside [kSalonManageTabKeys] — see
+  /// [_navTeam] for why the third hand-written literal was removed.
+  static const int _staffSubTab = kSalonStaffSubTab;
   static const int _aboutSubTab = 0;
 
   /// Reconciles BOTH indices after an in-screen tab tap.

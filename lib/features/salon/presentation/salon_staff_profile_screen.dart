@@ -38,6 +38,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -48,6 +49,7 @@ import 'package:beautica_mobile/features/salon/application/salon_staff_member_no
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
@@ -168,6 +170,23 @@ class _SalonStaffProfileScreenState
       salonStaffMemberProfileProvider(widget.salonId, widget.memberId),
     );
 
+    // Phase 21.6 — the trailing management control. ADMIN entries only: it
+    // opens [AdminSettingsScreen], whose two actions
+    // (`DELETE|PATCH /salons/{salonId}/admins/{userId}`) are admin-specific
+    // and have no master equivalent. The MASTER counterpart is Phase 21.7,
+    // still unbuilt — so for a master entry the control stays absent, as
+    // this file's header already described, rather than appearing as a dead
+    // affordance.
+    //
+    // Read off the SAME `maybeWhen` shape the title uses: unknown role
+    // (loading/error) renders no trailing action, so the control never
+    // appears before it is known to be correct.
+    final bool isAdmin = async.maybeWhen(
+      data: (SalonStaffMemberProfileData data) =>
+          data.$1.role == SalonStaffRole.admin,
+      orElse: () => false,
+    );
+
     return ProfileScaffold(
       title: async.maybeWhen(
         data: (SalonStaffMemberProfileData data) =>
@@ -178,6 +197,19 @@ class _SalonStaffProfileScreenState
         // title (the common case) for the loading/error frame.
         orElse: () => l10n.salonStaffProfileMasterTitle,
       ),
+      trailing: isAdmin
+          ? NeumorphicIconButton(
+              key: const Key('btn-admin-settings'),
+              icon: Icons.tune_rounded,
+              semanticLabel: l10n.adminSettingsManageSemanticLabel,
+              onTap: () => context.push(
+                RouteNames.salonManageAdminSettings(
+                  widget.salonId,
+                  widget.memberId,
+                ),
+              ),
+            )
+          : null,
       child: async.when(
         loading: () => const _StaffProfileSkeleton(),
         error: (Object e, _) => ErrorState(

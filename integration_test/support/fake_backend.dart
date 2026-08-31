@@ -1031,6 +1031,73 @@ final class FakeBackend {
   int getSalonStaffCalls = 0;
   String? lastGetSalonStaffId;
 
+  // ─── Phase 21.6 — admin management (remove / rotate / sibling salons) ────
+  //
+  // `DELETE /salons/{salonId}/admins/{userId}`,
+  // `PATCH  /salons/{salonId}/admins/{userId}/salon` and
+  // `GET    /salons/{salonId}/sibling-salons` (backend Phase 21.3b).
+  //
+  // GENUINELY STATEFUL, like the pending-invite handlers: the DELETE and the
+  // PATCH both REMOVE the administrator from [salonStaff], so a flow that
+  // re-enters «Персонал» observes a roster the backend actually changed. A
+  // canned 204 would let a purely client-side removal pass.
+
+  /// The mutable `salon-xyz` roster served by
+  /// `GET /salons/salon-xyz/staff` — seeded from [_salonStaff] per
+  /// [FakeBackend] instance so one flow's removal never leaks into another.
+  late final List<Map<String, dynamic>> salonStaff = <Map<String, dynamic>>[
+    for (final Map<String, dynamic> row in _salonStaff)
+      Map<String, dynamic>.from(row),
+  ];
+
+  int removeAdminCalls = 0;
+  String? lastRemoveAdminUserId;
+
+  int rotateAdminCalls = 0;
+  String? lastRotateAdminUserId;
+  Map<String, dynamic>? lastRotateAdminBody;
+
+  int siblingSalonsCalls = 0;
+
+  /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
+  /// sharing this salon's owner, minus this salon. Shape mirrors the
+  /// backend's `SiblingSalonOption` (id + name + street + buildingNo ONLY —
+  /// deliberately narrower than `SalonResponse`; see the mobile model's own
+  /// header).
+  final List<Map<String, dynamic>> siblingSalons = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'id': 'salon-sibling-1',
+      'name': 'Студія «Камелія» на Подолі',
+      'street': 'вул. Спаська',
+      'buildingNo': '5',
+    },
+    <String, dynamic>{
+      'id': 'salon-sibling-2',
+      'name': 'Барбершоп «Дуб»',
+      'street': 'вул. Січових Стрільців',
+      'buildingNo': '4',
+    },
+  ];
+
+  /// When non-null, the next `DELETE .../admins/{userId}` answers with this
+  /// status instead of 204. Set it via [forceRemoveAdminFailure] — the route
+  /// closure captures the value at REGISTRATION time (the same re-wiring
+  /// discipline [forceInviteStaffFailure] documents).
+  int? _removeAdminFailureStatusCode;
+
+  void forceRemoveAdminFailure(int? statusCode) {
+    _removeAdminFailureStatusCode = statusCode;
+    _wireAdminManagement();
+  }
+
+  /// Same contract as [forceRemoveAdminFailure], for the rotate PATCH.
+  int? _rotateAdminFailureStatusCode;
+
+  void forceRotateAdminFailure(int? statusCode) {
+    _rotateAdminFailureStatusCode = statusCode;
+    _wireAdminManagement();
+  }
+
   /// `GET /api/v1/salons/{salonId}/services` — service catalogue ("Послуги").
   int getSalonServiceCatalogCalls = 0;
   String? lastGetSalonServiceCatalogId;
@@ -4026,6 +4093,84 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers the three Phase 21.6 admin-management routes.
+  ///
+  /// Route ORDER matters here, and only here in this file: the rotate PATCH
+  /// lives at `.../admins/{userId}/salon` while the remove DELETE lives at
+  /// `.../admins/{userId}`. Both are RegExp routes (the `{userId}` segment
+  /// varies), so the remove pattern is anchored with a trailing `$` and
+  /// excludes a further `/` segment — without that it would also match the
+  /// rotate path. The method matchers already separate them; the patterns are
+  /// made disjoint anyway, for the reason `_wireCancelInvite` records.
+  void _wireAdminManagement() {
+    // GET /api/v1/salons/salon-xyz/sibling-salons — the rotate-destination
+    // picker. Serves a COPY read at request time.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/sibling-salons',
+      (server) => server.replyCallback(200, (_) {
+        siblingSalonsCalls++;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            siblingSalons.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/salons/salon-xyz/admins/{userId}/salon — rotate. The
+    // administrator leaves THIS salon's roster (they now belong to the
+    // destination), which is what makes "they are gone from «Персонал» after
+    // a real refetch" a genuine assertion rather than a client-side illusion.
+    final int? rotateFail = _rotateAdminFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/admins/[^/]+/salon$'),
+      (server) => server.replyCallback(rotateFail ?? 204, (req) {
+        rotateAdminCalls++;
+        final List<String> segments = req.path.split('/');
+        lastRotateAdminUserId = segments[segments.length - 2];
+        lastRotateAdminBody = _decodeBody(req.data);
+        if (rotateFail != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to rotate admin',
+          };
+        }
+        salonStaff.removeWhere(
+          (Map<String, dynamic> row) => row['userId'] == lastRotateAdminUserId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/salons/salon-xyz/admins/{userId} — remove (unassign).
+    final int? removeFail = _removeAdminFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/admins/[^/]+$'),
+      (server) => server.replyCallback(removeFail ?? 204, (req) {
+        removeAdminCalls++;
+        lastRemoveAdminUserId = req.path.split('/').last;
+        if (removeFail != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to remove admin',
+          };
+        }
+        // The backend nulls the user's `salon_id`; it does NOT delete the
+        // account. From this salon's roster the observable effect is the
+        // same: the row is gone.
+        salonStaff.removeWhere(
+          (Map<String, dynamic> row) => row['userId'] == lastRemoveAdminUserId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+  }
+
   /// (Re-)registers `GET /api/v1/favorites/masters`.
   /// See [forceListMasterFavoritesFailure].
   void _wireListMasterFavorites() {
@@ -5092,7 +5237,15 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
         lastGetSalonStaffId = 'salon-xyz';
-        return _okList(_salonStaff);
+        // A COPY read at REQUEST time — `salonStaff` is mutated by the admin
+        // remove/rotate handlers, and capturing it at registration would
+        // freeze the very state those journeys exist to observe (same rule
+        // `_wirePendingInvites` states for its own list).
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonStaff.map(Map<String, dynamic>.from),
+          ),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -5309,6 +5462,9 @@ final class FakeBackend {
     // /invites/pending vs DELETE /invites/{id}).
     _wirePendingInvites();
     _wireCancelInvite();
+    // GET /salons/salon-xyz/sibling-salons,
+    // DELETE/PATCH /salons/salon-xyz/admins/{userId}[/salon] — Phase 21.6.
+    _wireAdminManagement();
 
     // PATCH /api/v1/independent-masters/me/profile
     _adapter.onRoute(

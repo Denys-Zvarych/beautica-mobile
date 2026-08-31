@@ -31,6 +31,7 @@ import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
+import '../domain/sibling_salon_option.dart';
 
 /// Converts generated `beautica_api` types into the domain [Salon] entity and
 /// its related read-model entities.
@@ -302,6 +303,67 @@ abstract final class PendingInviteMapper {
   /// [SalonStaffMemberMapper._staffRoleFromDto] takes.
   static SalonStaffRole _inviteRoleFromWire(String? role) =>
       role == 'SALON_ADMIN' ? SalonStaffRole.admin : SalonStaffRole.master;
+}
+
+/// Maps the RAW JSON rows of `GET /salons/{salonId}/sibling-salons` to the
+/// domain [SiblingSalonOption] (Phase 21.6).
+///
+/// The ONE mapper in this file that does not take a generated `beautica_api`
+/// DTO: backend Phase 21.3b added this endpoint after the committed
+/// `tool/openapi/api-spec.json` snapshot was taken, so no
+/// `SiblingSalonOption` type exists in `api/` to map FROM. Regenerating the
+/// client requires a live local backend (`scripts/_maybe_regen_api.sh`), so
+/// the row is parsed here from the decoded JSON instead — see
+/// [SalonRepository.getSiblingSalons]'s own doc. When the snapshot is next
+/// refreshed and the generated DTO appears, this mapper becomes a normal
+/// `fromDtoList` and this method is the only thing that changes.
+abstract final class SiblingSalonOptionMapper {
+  /// Rows whose `id` is missing/blank are dropped (logged) rather than
+  /// thrown — an option with no id could not be submitted as a rotate
+  /// destination anyway, and one broken row must not blank the whole
+  /// picker. Mirrors [PendingInviteMapper.fromDtoList]'s own precedent.
+  ///
+  /// A blank `street`/`buildingNo` collapses to `null` (the same
+  /// `""`-vs-null wire absorption [SalonMapper._blankToNull] performs), so a
+  /// renderer may treat non-null as "renderable".
+  static List<SiblingSalonOption> fromJsonList(Iterable<Object?> rows) {
+    final List<SiblingSalonOption> out = <SiblingSalonOption>[];
+    for (final Object? row in rows) {
+      if (row is! Map<String, dynamic>) {
+        log(
+          'sibling-salons: row is not a JSON object — dropping entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      final Object? id = row['id'];
+      if (id is! String || id.isEmpty) {
+        log(
+          'sibling-salons: row has no id — dropping entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      final Object? name = row['name'];
+      out.add(
+        SiblingSalonOption(
+          id: id,
+          name: name is String ? name : '',
+          street: _stringOrNull(row['street']),
+          buildingNo: _stringOrNull(row['buildingNo']),
+        ),
+      );
+    }
+    return out;
+  }
+
+  static String? _stringOrNull(Object? value) {
+    if (value is! String) return null;
+    final String trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
 }
 
 /// Maps [BookableMasterResponse] (`GET

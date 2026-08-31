@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
@@ -285,6 +286,34 @@ class _FakeSalonRepository implements SalonRepository {
     required String inviteId,
   }) async => throw UnimplementedError(
     '_FakeSalonRepository.cancelInvite is not stubbed — owner/admin only.',
+  );
+
+  // Phase 21.6 — owner/admin admin-management surface. Same rationale as
+  // [listPendingInvites]/[cancelInvite] above: this fake backs the
+  // CLIENT-facing read-only salon profile, which can never reach any of
+  // these three calls.
+  @override
+  Future<void> removeAdmin({
+    required String salonId,
+    required String userId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.removeAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.rotateAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<List<SiblingSalonOption>> getSiblingSalons(
+    String salonId,
+  ) async => throw UnimplementedError(
+    '_FakeSalonRepository.getSiblingSalons is not stubbed — owner/admin only.',
   );
 
   // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as

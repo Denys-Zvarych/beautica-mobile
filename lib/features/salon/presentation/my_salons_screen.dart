@@ -14,15 +14,16 @@
 //
 // REUSE-FIRST — widgets reused verbatim from elsewhere in this feature /
 // `core/`/`shared/`:
-//   [SalonLogo]                          — `widgets/salon_cover_widgets.dart`
 //   [NeumorphicButton], [NeumorphicIconButton] — `core/widgets/neumorphic.dart`
 //   [ErrorState]                         — `shared/widgets/error_state.dart`
 //   [SkeletonShimmerScope]/[SkeletonBlock] — `shared/widgets/skeleton_shimmer.dart`
-//   [buildLocalityLine]/[buildStreetLine]  — `shared/formatters/address_lines.dart`
-//   [resolvedLocalityProvider]           — `features/location/state/
-//     resolved_locality_provider.dart` (Phase 21.14 follow-up — resolves
-//     `_SalonHubCard`'s locality from taxonomy `cityId`, same provider
-//     `_ManagementHeroCard` uses; see `_SalonHubCardState.build`)
+//   [SalonHubCard]                       — `widgets/salon_hub_card.dart`
+//     (Phase 21.6 — PROMOTED out of this file, where it was the private
+//     `_SalonHubCard`, so the rotate-admin destination picker renders the
+//     SAME card instead of a fork; its API is unchanged and this screen
+//     renders identically. It resolves its own locality from taxonomy
+//     `cityId` via `resolvedLocalityProvider`, the same provider
+//     `_ManagementHeroCard` uses.)
 // NOT reused: the preview's `_HubTopBar`/`_BellButton` mirror the shipped
 // `ClientTopBar`/`BellButton` (`features/shell/presentation/widgets/
 // client_top_bar.dart`) by design, but that widget lives in the `shell`
@@ -53,17 +54,14 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
-import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/my_salons_notifier.dart';
 import '../domain/salon.dart';
-import 'widgets/salon_cover_widgets.dart';
+import 'widgets/salon_hub_card.dart';
 
 /// The `SALON_OWNER`'s entry point: every salon they own, listed as a
 /// tappable card, plus the "+ Додати салон" CTA.
@@ -116,17 +114,33 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
   /// 900ms entrance previously repainted the whole subtree unisolated on
   /// every visit. One fix here covers every call site (top bar, heading,
   /// empty state, and every salon card) without special-casing any of them.
+  ///
+  /// mobile-perf LOW follow-up (2026-08-31) — the curve is now
+  /// `_controller.drive(CurveTween(...))`, not a `CurvedAnimation`.
+  /// `CurvedAnimation` attaches a status listener to its parent and MUST be
+  /// disposed; this one was constructed in `build()` — once per reveal, per
+  /// build, for a list whose length is the owner's salon count — and never
+  /// disposed, so every rebuild leaked another listener onto the controller.
+  /// Pre-building them in `initState` is not available here (the `start`/`end`
+  /// fractions depend on the resolved salon count, which `build` is the first
+  /// to know), so the fix is to stop needing disposal at all: `drive` returns
+  /// a lazy evaluation view that holds no listener of its own and forwards
+  /// to the controller only while something is listening to IT — which the
+  /// [AnimatedBuilder] below already unsubscribes from on unmount. The
+  /// per-frame VALUE is identical: [CurvedAnimation] with no `reverseCurve`
+  /// applies exactly this curve, and this controller only ever runs forward.
   Widget _reveal({
     required double start,
     required double end,
     required Widget child,
   }) {
-    final Animation<double> curved = CurvedAnimation(
-      parent: _controller,
-      curve: Interval(
-        start.clamp(0.0, 1.0),
-        end.clamp(0.0, 1.0),
-        curve: Curves.easeOutCubic,
+    final Animation<double> curved = _controller.drive(
+      CurveTween(
+        curve: Interval(
+          start.clamp(0.0, 1.0),
+          end.clamp(0.0, 1.0),
+          curve: Curves.easeOutCubic,
+        ),
       ),
     );
     return RepaintBoundary(
@@ -309,7 +323,7 @@ class _HubContent extends StatelessWidget {
           child: reveal(
             start: start,
             end: start + _cardRevealSpan,
-            child: _SalonHubCard(
+            child: SalonHubCard(
               key: ValueKey<String>('my_salons_card_${salons[i].id}'),
               salon: salons[i],
               onTap: () => onOpenSalon(salons[i]),
@@ -389,211 +403,6 @@ class _BellButton extends StatelessWidget {
             color: BrandColors.textSecondary,
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// A salon card in the hub: logo + name + "Основний" badge (primary only) +
-/// locality/address. Depresses on press.
-///
-/// `ConsumerStatefulWidget` (Phase 21.14 follow-up — was `StatefulWidget`)
-/// so [_SalonHubCardState.build] can `ref.watch` [resolvedLocalityProvider]
-/// for the taxonomy city name — see that method for the fallback chain and
-/// why `salon.city` is not read directly. Mirrors `_ManagementHeroCard` in
-/// `salon_management_profile_screen.dart`, reusing the SAME promoted
-/// provider rather than a second resolution path.
-class _SalonHubCard extends ConsumerStatefulWidget {
-  const _SalonHubCard({super.key, required this.salon, required this.onTap});
-
-  final Salon salon;
-  final VoidCallback onTap;
-
-  @override
-  ConsumerState<_SalonHubCard> createState() => _SalonHubCardState();
-}
-
-class _SalonHubCardState extends ConsumerState<_SalonHubCard> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final Salon s = widget.salon;
-    // `salon.city` is legacy free-text, frozen (no longer written by the
-    // backend since Phase 10.6 — see `Salon.city`'s own doc): once a salon's
-    // address has been edited through the taxonomy cascade, `city` can be
-    // stale or blank while `cityId`/`oblastId` carry the real location. This
-    // watches the SAME promoted `resolvedLocalityProvider`
-    // (`features/location/state/resolved_locality_provider.dart`)
-    // `_ManagementHeroCard` uses — no second by-id scan here.
-    //
-    // PER-ROW watch, not hoisted above the list: `resolvedLocalityProvider`
-    // is a family, but the `oblastList`/`cityList(oblastId)`/
-    // `districtList(cityId)` providers it reads underneath are
-    // `keepAlive: true` and memoized for the app's lifetime. An owner's
-    // salons are typically in the same oblast/city, so distinct
-    // `(oblastId, cityId, districtId)` triples across N cards collapse to at
-    // most a handful of family instances — and even those only ever hit the
-    // network once per distinct oblast/city/district; every other card
-    // resolving the same triple (or a triple sharing an already-fetched
-    // oblast/city) re-scans an in-memory list, not a fresh HTTP round trip.
-    // Hoisting a single resolve above the list would only help if every
-    // salon shared one identical triple, which the model doesn't guarantee
-    // (an owner can have salons in different cities) — per-row is both
-    // simpler and correct here.
-    //
-    // `AsyncValue.value` is nullable (Riverpod 3.x) and collapses BOTH
-    // "still loading" and "resolution failed" to `null` uniformly — no
-    // spinner, no error box, no layout jump. `city` falls back to the legacy
-    // `s.city` ONLY when the salon genuinely has no taxonomy id at all
-    // (`s.cityId` blank — [Salon.cityId] is non-nullable, `@Default('')`,
-    // RESUME §4 step D) — a pre-Phase-10.6 salon that was never re-saved (in
-    // practice no longer reachable from a real backend read, which now
-    // always populates it, but the fixture-only shape stays representable).
-    // While `cityId` IS set but resolution hasn't completed yet, the line is
-    // simply blank until it fills in — never the stale legacy text, which
-    // would risk showing a WRONG city before the correct one arrives.
-    final ResolvedLocality? resolved = ref
-        .watch(
-          resolvedLocalityProvider(
-            oblastId: s.oblastId,
-            cityId: s.cityId,
-            districtId: s.districtId,
-          ),
-        )
-        .value;
-    final bool hasTaxonomyCity = s.cityId.trim().isNotEmpty;
-    final String? locality = buildLocalityLine(
-      resolved?.city?.name ?? (hasTaxonomyCity ? null : s.city),
-    );
-    final String? street = buildStreetLine(s.street, s.buildingNo);
-    final String? monogram = s.name.trim().isEmpty
-        ? null
-        : s.name.trim()[0].toUpperCase();
-
-    return Semantics(
-      button: true,
-      label: AppLocalizations.of(
-        context,
-      ).mySalonsCardSemanticLabel(s.name, locality ?? ''),
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.99 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.card),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-            ),
-            padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                SalonLogo(diameter: 58, monogram: monogram),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Flexible(
-                            child: Text(
-                              s.name,
-                              style: VelvetText.displayName21,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (s.isPrimary ?? false) ...<Widget>[
-                            const SizedBox(width: VelvetSpacing.sm),
-                            const _PrimaryBadge(),
-                          ],
-                        ],
-                      ),
-                      if (locality != null || street != null) ...<Widget>[
-                        const SizedBox(height: 5),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            const Padding(
-                              padding: EdgeInsets.only(top: 1),
-                              child: Icon(
-                                Icons.location_on_outlined,
-                                size: 14,
-                                color: BrandColors.accentDeep,
-                              ),
-                            ),
-                            const SizedBox(width: 3),
-                            Expanded(
-                              child: Text(
-                                <String>[?locality, ?street].join('\n'),
-                                style: VelvetText.salonHubAddressLine,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(top: VelvetSpacing.sm),
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    color: BrandColors.faint,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The camel "Основний" primary-salon badge.
-class _PrimaryBadge extends StatelessWidget {
-  const _PrimaryBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.sm,
-        vertical: VelvetSpacing.xs - 1,
-      ),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
-        ),
-        borderRadius: BorderRadius.circular(VelvetRadii.pill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(
-            Icons.star_rounded,
-            size: 12,
-            color: BrandColors.white.withValues(alpha: 0.95),
-          ),
-          const SizedBox(width: 3),
-          Text(
-            AppLocalizations.of(context).mySalonsPrimaryBadgeLabel,
-            style: VelvetText.salonHubPrimaryBadgeLabel,
-          ),
-        ],
       ),
     );
   }

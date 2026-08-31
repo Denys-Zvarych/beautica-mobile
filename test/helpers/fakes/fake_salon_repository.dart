@@ -35,6 +35,15 @@
 // row spinner is observable across a real frame. Every pre-existing caller
 // passes none of these and sees an empty pending list — the branch both
 // consuming screens already render as "no pending block at all".
+//
+// Phase 21.6 — ADDITIVE: [siblingSalons] (a growable list, empty by default)
+// backs [getSiblingSalons]; [removeAdmin]/[rotateAdmin] record their tuples
+// and, on success, drop the matching row from [staff] — which is why [staff]
+// is now a GROWABLE copy of whatever the caller passed rather than the
+// caller's own (possibly `const`) list. Three error slots and three gates
+// mirror [cancelInviteError]/[cancelInviteGate] exactly. Every pre-existing
+// caller passes none of these: it sees an empty sibling list, an untouched
+// roster and no behaviour change at all.
 
 import 'dart:async';
 
@@ -50,6 +59,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 
 /// In-memory [SalonRepository] fake for widget tests.
 ///
@@ -62,13 +72,17 @@ class FakeSalonRepository implements SalonRepository {
   FakeSalonRepository({
     required Salon salon,
     this.masters = const <SalonMasterSummary>[],
-    this.staff = const <SalonStaffMember>[],
+    List<SalonStaffMember>? staff,
     List<PendingInvite>? pendingInvites,
+    List<SiblingSalonOption>? siblingSalons,
   }) : _salon = salon,
+       // A GROWABLE copy for the same reason [pendingInvites] takes one.
+       siblingSalons = <SiblingSalonOption>[...?siblingSalons],
        // A GROWABLE copy — `cancelInvite` mutates it so a refetch after a
        // cancel observes the removal (the default `const []` of every
        // pre-existing caller would throw on `removeWhere`).
-       pendingInvites = <PendingInvite>[...?pendingInvites];
+       pendingInvites = <PendingInvite>[...?pendingInvites],
+       staff = <SalonStaffMember>[...?staff];
 
   Salon _salon;
   final List<SalonMasterSummary> masters;
@@ -78,6 +92,11 @@ class FakeSalonRepository implements SalonRepository {
   /// `GET /salons/{salonId}/masters` rail, still used by the CLIENT-facing
   /// public salon profile) — `SalonManagementProfile.build()` reads THIS
   /// field, not [masters].
+  ///
+  /// GROWABLE as of Phase 21.6: [removeAdmin]/[rotateAdmin] mutate it so a
+  /// refetch after either write observes the roster the backend would now
+  /// serve. Callers still pass a `const []` literal freely — the constructor
+  /// copies it.
   final List<SalonStaffMember> staff;
 
   final List<UpdateSalonRequest> updateRequests = <UpdateSalonRequest>[];
@@ -109,6 +128,39 @@ class FakeSalonRepository implements SalonRepository {
   /// notifier precedent.
   Completer<void>? cancelInviteGate;
 
+  // ── Phase 21.6 — admin management (all ADDITIVE) ────────────────────────
+  // Every pre-existing caller passes none of these: [siblingSalons] defaults
+  // to empty (the "owner has only this salon" branch), the three error slots
+  // and the two gates default to null, and the request logs simply stay
+  // empty. No existing test observes a behaviour change.
+
+  /// Every `(salonId, userId)` tuple passed to [removeAdmin].
+  final List<({String salonId, String userId})> removeAdminRequests =
+      <({String salonId, String userId})>[];
+
+  /// Every `(salonId, userId, destinationSalonId)` tuple passed to
+  /// [rotateAdmin] — the destination is what a mis-wired picker would get
+  /// wrong, so it is recorded rather than merely counted.
+  final List<({String salonId, String userId, String destinationSalonId})>
+  rotateAdminRequests =
+      <({String salonId, String userId, String destinationSalonId})>[];
+
+  /// The rotate-destination list `getSiblingSalons` returns.
+  final List<SiblingSalonOption> siblingSalons;
+
+  int siblingSalonsCalls = 0;
+
+  Failure? removeAdminError;
+  Failure? rotateAdminError;
+  Failure? siblingSalonsError;
+
+  /// Block the corresponding call until the test completes the gate — the
+  /// only way to observe an in-flight state across a real frame. Same shape
+  /// as [cancelInviteGate].
+  Completer<void>? removeAdminGate;
+  Completer<void>? rotateAdminGate;
+  Completer<void>? siblingSalonsGate;
+
   @override
   Future<void> create({required SalonCreateDto dto}) async {
     createRequests.add(dto);
@@ -135,8 +187,19 @@ class FakeSalonRepository implements SalonRepository {
   Future<List<SalonMasterSummary>> getSalonMasters(String salonId) async =>
       masters;
 
+  /// Phase 21.6 mobile-qa gap-closure — reads of the management roster.
+  ///
+  /// `AdminSettingsScreen`/`MoveAdminSalonScreen` invalidate
+  /// `salonManagementProfileProvider` after a successful write; without a
+  /// counter here that invalidation is unobservable at the widget tier (the
+  /// screens pop, so "the row is gone" is satisfied by the pop alone).
+  int getSalonStaffCalls = 0;
+
   @override
-  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async => staff;
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async {
+    getSalonStaffCalls++;
+    return List<SalonStaffMember>.unmodifiable(staff);
+  }
 
   @override
   Future<List<SalonServiceCategoryEntry>> getSalonServiceCatalog(
@@ -211,5 +274,48 @@ class FakeSalonRepository implements SalonRepository {
     if (gate != null) await gate.future;
     if (cancelInviteError != null) throw cancelInviteError!;
     pendingInvites.removeWhere((PendingInvite i) => i.inviteId == inviteId);
+  }
+
+  @override
+  Future<void> removeAdmin({
+    required String salonId,
+    required String userId,
+  }) async {
+    removeAdminRequests.add((salonId: salonId, userId: userId));
+    final Completer<void>? gate = removeAdminGate;
+    if (gate != null) await gate.future;
+    if (removeAdminError != null) throw removeAdminError!;
+    // Mirror the backend: the roster row is unassigned, so a refetch of
+    // `getSalonStaff` no longer lists them.
+    staff.removeWhere((SalonStaffMember m) => m.userId == userId);
+  }
+
+  @override
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async {
+    rotateAdminRequests.add((
+      salonId: salonId,
+      userId: userId,
+      destinationSalonId: destinationSalonId,
+    ));
+    final Completer<void>? gate = rotateAdminGate;
+    if (gate != null) await gate.future;
+    if (rotateAdminError != null) throw rotateAdminError!;
+    // The admin now belongs to the DESTINATION salon, so the source salon's
+    // roster no longer lists them — same observable effect as removeAdmin
+    // from this salon's point of view.
+    staff.removeWhere((SalonStaffMember m) => m.userId == userId);
+  }
+
+  @override
+  Future<List<SiblingSalonOption>> getSiblingSalons(String salonId) async {
+    siblingSalonsCalls++;
+    if (siblingSalonsError != null) throw siblingSalonsError!;
+    final Completer<void>? gate = siblingSalonsGate;
+    if (gate != null) await gate.future;
+    return List<SiblingSalonOption>.unmodifiable(siblingSalons);
   }
 }

@@ -25,6 +25,7 @@
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/salon/data/salon_mapper.dart';
+import 'package:beautica_mobile/features/salon/domain/sibling_salon_option.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -309,6 +310,155 @@ void main() {
       final salon = SalonMapper.fromDto(dtoWith());
       expect(salon.phone, isNull);
       expect(salon.instagramUrl, isNull);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 21.6 mobile-qa gap-closure — `SiblingSalonOptionMapper.fromJsonList`
+  //
+  // The ONE mapper in this file that parses RAW decoded JSON rather than a
+  // generated `beautica_api` DTO (backend Phase 21.3b landed after the
+  // committed OpenAPI snapshot), so it is the ONE mapper with no compile-time
+  // schema behind it — every wire assumption it makes is unchecked unless it
+  // is checked here.
+  //
+  // It fails CLOSED PER ROW: a row it cannot use is dropped and the rest of
+  // the picker still renders. That contract is only meaningful if a bad row
+  // genuinely cannot take the whole list down, so every case below mixes the
+  // malformed row with a GOOD one and asserts the good one survived.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('SiblingSalonOptionMapper.fromJsonList', () {
+    Map<String, dynamic> goodRow() => <String, dynamic>{
+      'id': 'salon-2',
+      'name': 'Студія «Камелія»',
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+    };
+
+    test('maps a complete row verbatim', () {
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromJsonList(<Object?>[goodRow()]);
+
+      expect(out, hasLength(1));
+      expect(out.single.id, 'salon-2');
+      expect(out.single.name, 'Студія «Камелія»');
+      expect(out.single.street, 'вул. Хрещатик');
+      expect(out.single.buildingNo, '12');
+    });
+
+    test('drops a row that is not a JSON object, keeping its neighbours', () {
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromJsonList(<Object?>[
+            'not-an-object',
+            42,
+            null,
+            <Object?>['nested', 'list'],
+            goodRow(),
+          ]);
+
+      expect(
+        out.map((SiblingSalonOption o) => o.id),
+        <String>['salon-2'],
+        reason:
+            'four malformed rows must cost four rows, never the whole picker',
+      );
+    });
+
+    test('drops a row whose id is missing, blank or not a String', () {
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromJsonList(<Object?>[
+            <String, dynamic>{'name': 'Без id'},
+            <String, dynamic>{'id': '', 'name': 'Порожній id'},
+            <String, dynamic>{'id': 12345, 'name': 'Числовий id'},
+            <String, dynamic>{'id': null, 'name': 'Null id'},
+            goodRow(),
+          ]);
+
+      expect(
+        out.map((SiblingSalonOption o) => o.id),
+        <String>['salon-2'],
+        reason:
+            'an option with no id could not be submitted as a rotate '
+            'destination — a card that PATCHes nothing is worse than no card',
+      );
+    });
+
+    test('a non-String or absent name collapses to empty, row still kept', () {
+      // The id is what makes the row usable, so a bad NAME must not drop it —
+      // the opposite fail-closed direction from `id`. Pinned so the two are
+      // not silently unified later.
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromJsonList(<Object?>[
+            <String, dynamic>{'id': 'salon-a'},
+            <String, dynamic>{'id': 'salon-b', 'name': 99},
+          ]);
+
+      expect(out.map((SiblingSalonOption o) => o.id), <String>[
+        'salon-a',
+        'salon-b',
+      ]);
+      expect(out.map((SiblingSalonOption o) => o.name), <String>['', '']);
+    });
+
+    test(
+      'blank / whitespace / non-String street and buildingNo become null',
+      () {
+        // `MoveAdminSalonScreen` hands these to `buildStreetLine`, which treats
+        // non-null as renderable — a `''` reaching it draws an empty address
+        // row under the salon name.
+        final List<SiblingSalonOption> out =
+            SiblingSalonOptionMapper.fromJsonList(<Object?>[
+              <String, dynamic>{
+                'id': 'salon-blank',
+                'name': 'Порожня адреса',
+                'street': '   ',
+                'buildingNo': '',
+              },
+              <String, dynamic>{
+                'id': 'salon-typed',
+                'name': 'Чужі типи',
+                'street': 7,
+                'buildingNo': <String>['12'],
+              },
+              <String, dynamic>{'id': 'salon-absent', 'name': 'Без адреси'},
+            ]);
+
+        expect(out, hasLength(3));
+        for (final SiblingSalonOption o in out) {
+          expect(o.street, isNull, reason: 'street of ${o.id}');
+          expect(o.buildingNo, isNull, reason: 'buildingNo of ${o.id}');
+        }
+      },
+    );
+
+    test('trims a padded street and buildingNo', () {
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromJsonList(<Object?>[
+            <String, dynamic>{
+              'id': 'salon-pad',
+              'name': 'Пробіли',
+              'street': '  вул. Хрещатик  ',
+              'buildingNo': ' 12 ',
+            },
+          ]);
+
+      expect(out.single.street, 'вул. Хрещатик');
+      expect(out.single.buildingNo, '12');
+    });
+
+    test('an empty wire list maps to an empty list, never null', () {
+      expect(SiblingSalonOptionMapper.fromJsonList(const <Object?>[]), isEmpty);
+    });
+
+    test('preserves wire ORDER — the picker renders rows as sent', () {
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromJsonList(<Object?>[
+            <String, dynamic>{'id': 'c', 'name': 'C'},
+            <String, dynamic>{'id': 'a', 'name': 'A'},
+            <String, dynamic>{'id': 'b', 'name': 'B'},
+          ]);
+
+      expect(out.map((SiblingSalonOption o) => o.id), <String>['c', 'a', 'b']);
     });
   });
 }

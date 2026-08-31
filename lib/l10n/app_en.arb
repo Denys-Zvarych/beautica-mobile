@@ -5833,5 +5833,137 @@
   "salonPendingInvitesInviteCta": "Invite to the team",
   "@salonPendingInvitesInviteCta": {
     "description": "Phase 21.11 — pinned bottom CTA on SalonPendingInvitesScreen; pushes the «Запросити персонал» form (RouteNames.salonInviteStaff). Deliberately worded differently from inviteStaffSubmitCta («Надіслати запрошення»), which is that form's own submit button."
+  },
+  "adminSettingsContextRoleLabel": "Administrator",
+  "@adminSettingsContextRoleLabel": {
+    "description": "Phase 21.6 — the RoleChip label in AdminSettingsScreen's context subheading row, naming WHO is being managed. Same noun as salonStaffRoleAdmin; kept as its own key because this row is a chip on a settings page, not a roster label, and the two are free to diverge."
+  },
+  "adminSettingsNotAnAdminTitle": "Not an administrator",
+  "@adminSettingsNotAnAdminTitle": {
+    "description": "Phase 21.6 audit follow-up — heading of AdminSettingsScreen's role guard. Shown when the route is reached (back stack / deep link / in-app go) for a staff entry whose role is MASTER, not ADMIN: every action on this page targets /salons/{salonId}/admins/{userId}, which has no meaning for a master."
+  },
+  "adminSettingsNotAnAdminBody": "This team member is a master. Administrator settings are not available for them.",
+  "@adminSettingsNotAnAdminBody": {
+    "description": "Phase 21.6 audit follow-up — body of AdminSettingsScreen's role guard. States the fact, not a permission verdict: the server remains the gate, this copy only explains why the page is empty."
+  },
+  "adminSettingsMoveSalon": "Move to another salon",
+  "@adminSettingsMoveSalon": {
+    "description": "Phase 21.6 — AdminSettingsScreen navigational row; opens MoveAdminSalonScreen, the rotate-admin destination picker."
+  },
+  "adminSettingsConvertToMaster": "Make a master",
+  "@adminSettingsConvertToMaster": {
+    "description": "Phase 21.6 — AdminSettingsScreen row for converting this admin into a salon master. Ships DISABLED: no backend endpoint exists for role conversion, so the row is visibly present but inert (see adminSettingsConvertToMasterSoon)."
+  },
+  "adminSettingsConvertToMasterSoon": "coming soon",
+  "@adminSettingsConvertToMasterSoon": {
+    "description": "Phase 21.6 — trailing value on the disabled «Перевести в майстри» row, naming WHY it does nothing. Lowercase on purpose: it is a status note beside the label, not a second label."
+  },
+  "adminSettingsRemove": "Remove administrator",
+  "@adminSettingsRemove": {
+    "description": "Phase 21.6 — AdminSettingsScreen's terminal destructive row, below the hairline. The action UNASSIGNS the admin from the salon; the account is untouched. The wording matches the approved design verbatim, and the confirm dialog body (adminSettingsRemoveDialogBody) is where the real consequence is spelled out."
+  },
+  "adminSettingsRemoveDialogTitle": "Remove administrator?",
+  "@adminSettingsRemoveDialogTitle": {
+    "description": "Phase 21.6 — title of the destructive confirmation for removing an admin from the salon."
+  },
+  "adminSettingsRemoveDialogBody": "{name} will lose access to managing this salon. This cannot be undone.",
+  "@adminSettingsRemoveDialogBody": {
+    "description": "Phase 21.6 — body of the remove-admin confirmation. Deliberately says «втратить доступ до керування салоном» and NOT anything about deleting an account: DELETE /salons/{salonId}/admins/{userId} nulls the user's salon_id, it does not delete the user.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      }
+    }
+  },
+  "adminSettingsRemoveConfirmCta": "Remove",
+  "@adminSettingsRemoveConfirmCta": {
+    "description": "Phase 21.6 — the destructive confirm button of the remove-admin dialog."
+  },
+  "adminSettingsRemoveSuccess": "The administrator was removed from the salon.",
+  "@adminSettingsRemoveSuccess": {
+    "description": "Phase 21.6 — success snack after DELETE /salons/{salonId}/admins/{userId}. Says «вилучено із салону», never «видалено», because the account survives."
+  },
+  "adminSettingsRemoveErrorForbidden": "This administrator could not be removed. You cannot remove yourself, and you need management access to this salon.",
+  "@adminSettingsRemoveErrorForbidden": {
+    "description": "Phase 21.6 — 403 from DELETE /salons/{salonId}/admins/{userId}. The backend refuses BOTH self-removal and a caller without management access with the same status, and the client cannot tell them apart from the response, so one sentence names both possibilities rather than guessing."
+  },
+  "adminSettingsRemoveErrorGeneric": "The administrator could not be removed. Please try again.",
+  "@adminSettingsRemoveErrorGeneric": {
+    "description": "Phase 21.6 — fallback error snack for any non-403 failure of the remove-admin call."
+  },
+  "adminSettingsManageSemanticLabel": "Manage administrator",
+  "@adminSettingsManageSemanticLabel": {
+    "description": "Phase 21.6 — screen-reader label for the trailing tune icon on SalonStaffProfileScreen that opens AdminSettingsScreen. Shown for an admin staff entry only."
+  },
+  "moveAdminSalonTitle": "Another salon",
+  "@moveAdminSalonTitle": {
+    "description": "Phase 21.6 — title of MoveAdminSalonScreen, the rotate-admin destination picker."
+  },
+  "moveAdminSalonBackSemanticLabel": "Back to administrator settings",
+  "@moveAdminSalonBackSemanticLabel": {
+    "description": "Phase 21.6 — screen-reader label for MoveAdminSalonScreen's back affordance."
+  },
+  "moveAdminSalonPrompt": "Choose the salon to move {name} to.",
+  "@moveAdminSalonPrompt": {
+    "description": "Phase 21.6 — the instruction line above the destination list on MoveAdminSalonScreen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олену Ковальчук"
+      }
+    }
+  },
+  "moveAdminSalonEmptyTitle": "No other salons",
+  "@moveAdminSalonEmptyTitle": {
+    "description": "Phase 21.6 — heading of MoveAdminSalonScreen's empty state: GET /salons/{salonId}/sibling-salons returned nothing, i.e. the owner has only this one active salon."
+  },
+  "moveAdminSalonEmptyBody": "The owner has just one active salon for now — there is nowhere to move this administrator.",
+  "@moveAdminSalonEmptyBody": {
+    "description": "Phase 21.6 — body of MoveAdminSalonScreen's empty state. Says «у власника», not «у вас»: this screen is reachable by an assigned SALON_ADMIN too, who owns no salon at all."
+  },
+  "moveAdminSalonDialogTitle": "Move the administrator?",
+  "@moveAdminSalonDialogTitle": {
+    "description": "Phase 21.6 — title of the rotate-admin confirmation."
+  },
+  "moveAdminSalonDialogBody": "{name} will become an administrator of {salon}.",
+  "@moveAdminSalonDialogBody": {
+    "description": "Phase 21.6 — body of the rotate-admin confirmation, naming both the administrator and the destination salon.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "salon": {
+        "type": "String",
+        "example": "Вельвет"
+      }
+    }
+  },
+  "moveAdminSalonConfirmCta": "Move",
+  "@moveAdminSalonConfirmCta": {
+    "description": "Phase 21.6 — the confirm button of the rotate-admin dialog."
+  },
+  "moveAdminSalonSuccess": "The administrator was moved.",
+  "@moveAdminSalonSuccess": {
+    "description": "Phase 21.6 — success snack after PATCH /salons/{salonId}/admins/{userId}/salon."
+  },
+  "moveAdminSalonErrorForbidden": "The move failed. The destination salon must belong to the same owner, and you need management access to this salon.",
+  "@moveAdminSalonErrorForbidden": {
+    "description": "Phase 21.6 — 403 from PATCH /salons/{salonId}/admins/{userId}/salon. The backend refuses a cross-owner destination and a caller without management access with the same status; one sentence names both."
+  },
+  "moveAdminSalonErrorGeneric": "The administrator could not be moved. Please try again.",
+  "@moveAdminSalonErrorGeneric": {
+    "description": "Phase 21.6 — fallback error snack for any non-403 failure of the rotate-admin call."
+  },
+  "moveAdminSalonCardSemanticLabel": "Move to {name}",
+  "@moveAdminSalonCardSemanticLabel": {
+    "description": "Phase 21.6 — screen-reader label for one destination card on MoveAdminSalonScreen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Вельвет"
+      }
+    }
   }
 }

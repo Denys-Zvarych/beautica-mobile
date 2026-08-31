@@ -95,7 +95,9 @@ import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
+import '../features/salon/presentation/admin_settings_screen.dart';
 import '../features/salon/presentation/invite_staff_screen.dart';
+import '../features/salon/presentation/move_admin_salon_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
 import '../features/salon/presentation/register_salon_screen.dart';
 import '../features/salon/presentation/salon_home_resolver_screen.dart';
@@ -961,6 +963,38 @@ GoRouter appRouter(Ref ref) {
         path: '/salons/:salonId/manage/staff/:memberId',
         redirect: salonManageGuard,
         builder: (context, state) => SalonStaffProfileScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+        ),
+      ),
+      // Phase 21.6 — the admin-settings page and its rotate-destination
+      // picker. Two literal leaves (`/settings`, `/move`) below the
+      // ALREADY-RESOLVED `:salonId`/`:memberId` captures, so declaration
+      // order among them carries no shadowing risk (that concern applies
+      // only to a literal declared after a dynamic SIBLING at the SAME
+      // segment, e.g. `/salons/mine` vs `/salons/:salonId`). STANDALONE
+      // top-level routes for the same "an ancestor's own redirect always
+      // runs" reason `/manage/staff/:memberId` directly above documents.
+      //
+      // Gated by `salonManageGuard`, NOT `salonManageOwnerOnlyGuard`: all
+      // three backend endpoints these screens call
+      // (`DELETE|PATCH /salons/{salonId}/admins/{userId}` and
+      // `GET /salons/{salonId}/sibling-salons`) are
+      // `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon`
+      // — an assigned admin may manage a fellow admin. The owner-only guard
+      // exists for the Phase 21.10 salon EDIT forms, which these are not.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/settings',
+        redirect: salonManageGuard,
+        builder: (context, state) => AdminSettingsScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/move',
+        redirect: salonManageGuard,
+        builder: (context, state) => MoveAdminSalonScreen(
           salonId: state.pathParameters['salonId'] ?? '',
           memberId: state.pathParameters['memberId'] ?? '',
         ),

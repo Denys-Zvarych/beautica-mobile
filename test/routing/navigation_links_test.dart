@@ -320,6 +320,20 @@ void main() {
         kSampleId,
         kSampleId,
       ),
+      // Phase 21.6 — the admin-settings page and its rotate-destination
+      // picker, two literal leaves below the already-resolved
+      // `:salonId`/`:memberId` captures. Standalone top-level routes, same
+      // rationale as `salonManageStaffMember()` directly above; both reuse
+      // `salonManageGuard` (owner + admin), matching the owner+admin backend
+      // gate on all three endpoints they call.
+      'salonManageAdminSettings()': RouteNames.salonManageAdminSettings(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageAdminMove()': RouteNames.salonManageAdminMove(
+        kSampleId,
+        kSampleId,
+      ),
       // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
       // Phase 21.9 settings hub will push to. Standalone top-level routes,
       // same rationale as `salonManage()`/`salonManageSettings()` above.

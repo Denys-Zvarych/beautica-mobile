@@ -5,12 +5,37 @@
 // goldens the whole screen rather than the private step widgets it covers).
 //
 // AUTHORED BEFORE the perf fix lands (mobile-perf P1 finding on
-// `salon_booking_wizard_steps.dart:599-616`): captured against the CURRENT,
-// unmodified `Opacity(opacity: _offers ? 1.0 : 0.42, child: ...)` wrap. After
-// the fix replaces the subtree `Opacity` with per-element alpha-multiplied
-// colours, this file MUST pass unmodified and WITHOUT `--update-goldens` —
-// that is the byte-identical proof the two renders are equivalent. If it does
-// NOT pass, that is a reportable visual delta, not a baseline to refresh.
+// `salon_booking_wizard_steps.dart:599-616`), against the then-current
+// `Opacity(opacity: _offers ? 1.0 : 0.42, child: ...)` wrap.
+//
+// ── WHAT THIS FILE PROVED, AND WHAT IT DID NOT ────────────────────────────
+//
+// The original header claimed these baselines were "byte-identical proof the
+// two renders are equivalent" across the Opacity -> per-element-alpha
+// refactor. That claim was FALSE and is retracted (corrected 2026-08-31).
+//
+// This suite runs alchemist in CI-golden mode only (`obscureText: true`,
+// `test/flutter_test_config.dart:193-204`), which captures through
+// `BlockedTextPaintingContext.paintSingleChild`
+// (`alchemist-0.14.0/lib/src/blocked_text_image.dart:47`) — a re-entrant
+// paint into the render object's already-populated `debugLayer`, reusing the
+// live `OpacityLayer`. A composited opacity does NOT survive it: measured
+// 2026-08-31, a baseline generated at `Opacity(0.30)` compares GREEN against
+// the same widget at `1.0`, for both `Opacity` and `AnimatedOpacity`.
+//
+// So the PRE-refactor baselines never contained the 0.42 dim at all. Half of
+// the equivalence was unobservable when it was asserted.
+//
+// What these baselines DO gate is real and worth keeping: geometry, layout,
+// copy, and PER-ELEMENT alpha — the post-refactor form. That half is load-
+// bearing and mutation-proven: driving `_kNonOfferingDim` 0.42 -> 1.0 turns
+// this file 6/6 RED.
+//
+// The file must still pass WITHOUT `--update-goldens`; a failure is a
+// reportable visual delta, not a baseline to refresh.
+//
+// Tier contract: `docs/mobile-phases/phase-299-golden-tier-layer-opacity-
+// contract.md`.
 //
 // One screenshot per (width, textScale) cell, single step: the masters list
 // with TWO tiles visible —
@@ -18,7 +43,9 @@
 //     name, role, price/duration line, «Виконує» pill, chevron).
 //   • `master-b` — does NOT cover it (dimmed face: avatar, name, role,
 //     «Не виконує» pill, no price/duration line, no chevron, no border glow,
-//     no shadow) — the exact subtree the audited `Opacity` wraps.
+//     no shadow) — the subtree the audited `Opacity` wrapped before the
+//     refactor; its dim now reaches the capture as per-element alpha, which
+//     is why it is visible here.
 //
 // Both tiles in ONE frame lets a reviewer diff the two faces side by side and
 // checks the covering tile is untouched by the fix (it never enters the

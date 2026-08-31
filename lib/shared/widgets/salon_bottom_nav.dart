@@ -32,6 +32,22 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+/// The «Команда» destination's index inside [SalonBottomNav.ownerAdminItems].
+///
+/// Lives HERE, beside the list it indexes, rather than as a bare `2` at the
+/// call sites that need it ([SalonShellScreen], [AdminSettingsScreen] and
+/// [MoveAdminSalonScreen] all reconcile the nav highlight after a write).
+/// A constant declared next to its list is the only arrangement in which a
+/// re-order of that list and the constant naming a position in it are ever
+/// reviewed together.
+///
+/// PINNED — `test/features/salon/presentation/admin_settings_screen_test.dart`
+/// asserts `ownerAdminItems(l10n)[kSalonTeamNavTab].label` is
+/// `l10n.salonShellTabTeam`, so re-ordering the list above without moving
+/// this constant fails at the unit tier instead of silently landing the
+/// viewer on «Записи».
+const int kSalonTeamNavTab = 2;
+
 /// One destination in the salon bottom navigation bar. Carries an
 /// outline/filled icon pair so the active tab swaps to the filled glyph.
 ///

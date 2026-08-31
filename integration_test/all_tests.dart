@@ -141,6 +141,7 @@ import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
+import 'salon_admin_settings_flow_test.dart' as salon_admin_settings;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
@@ -476,6 +477,7 @@ void main() {
   // the widget tier). Also carries the deliberately-RED pin for the missing
   // `pendingInvitesProvider` invalidation on invite-send.
   group('salon_pending_invites_flow', salon_pending_invites.main);
+  group('salon_admin_settings_flow', salon_admin_settings.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

@@ -212,6 +212,33 @@ abstract final class RouteNames {
   static String salonManageStaffMember(String salonId, String memberId) =>
       '${salonManage(salonId)}/staff/${Uri.encodeComponent(memberId)}';
 
+  /// Phase 21.6 — «Налаштування» for ONE salon ADMINISTRATOR, reached from
+  /// the trailing `tune_rounded` control on that admin's
+  /// [salonManageStaffMember] profile. A literal `/settings` leaf below the
+  /// ALREADY-RESOLVED `:salonId`/`:memberId` captures, so no
+  /// literal-vs-dynamic shadowing applies (that concern is limited to a
+  /// literal declared after a dynamic SIBLING at the SAME segment — see
+  /// [salonHome]'s own doc). Registered as a STANDALONE top-level route in
+  /// `app_router.dart` for the same "an ancestor's own redirect always runs"
+  /// reason [salonManage]/[salonManageStaffMember] document, and gated by
+  /// `salonManageGuard` VERBATIM: an assigned `SALON_ADMIN` may manage a
+  /// fellow admin, exactly as the backend's own
+  /// `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon`
+  /// gate on all three endpoints this screen calls allows.
+  ///
+  /// [memberId] is the roster entry's `userId` — the same id
+  /// [salonManageStaffMember] takes, and the `{userId}` path variable of
+  /// `DELETE|PATCH /salons/{salonId}/admins/{userId}`.
+  static String salonManageAdminSettings(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/settings';
+
+  /// Phase 21.6 — the rotate-admin destination picker pushed from
+  /// [salonManageAdminSettings]'s «Перемістити до іншого салону» row. A
+  /// literal `/move` sibling of that route's `/settings` leaf, same gating,
+  /// same standalone registration, same reasoning.
+  static String salonManageAdminMove(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/move';
+
   /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
   /// description), reached from the Phase 21.9 settings hub's own
   /// navigational row. A literal child of [salonManageSettings], gated by the

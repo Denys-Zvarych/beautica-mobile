@@ -21,6 +21,15 @@
 //   GET  /api/v1/salons/{salonId}/services            → SalonServiceCatalogResponse
 //   GET  /api/v1/salons/{salonId}/reviews/summary     → SalonReviewSummaryResponse
 //   GET  /api/v1/salons/{salonId}/reviews?sort=&page=&size= → Page<SalonReviewResponse>
+//   DELETE /api/v1/salons/{salonId}/admins/{userId}         → 204 (unassign)
+//   PATCH  /api/v1/salons/{salonId}/admins/{userId}/salon   → SalonAdminResponse
+//   GET    /api/v1/salons/{salonId}/sibling-salons          → List<SiblingSalonOption>
+//
+// Phase 21.6 — the three admin-management calls above. The first two go
+// through the GENERATED client (`removeAdmin`/`rotateAdmin` are both in the
+// committed spec snapshot); the third does NOT — backend Phase 21.3b landed
+// after that snapshot, so `getSiblingSalons` issues a raw GET and maps the
+// decoded rows by hand. See its own doc.
 //
 // WIRE-FORMAT NOTE (masters + reviews pagination): the generated
 // `SalonControllerApi.getMastersBySalon` / `ReviewControllerApi.getSalonReviews`
@@ -56,6 +65,7 @@ import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
+import '../domain/sibling_salon_option.dart';
 import 'salon_mapper.dart';
 
 part 'salon_repository.g.dart';
@@ -302,6 +312,59 @@ abstract interface class SalonRepository {
     required String salonId,
     required String inviteId,
   });
+
+  /// Removes admin [userId] from salon [salonId] (Phase 21.6).
+  ///
+  /// Wraps `DELETE /salons/{salonId}/admins/{userId}` (the generated
+  /// `SalonControllerApi.removeAdmin`; 204 No Content on success). Backend-
+  /// side this UNASSIGNS the admin — it nulls their `salon_id` — it does NOT
+  /// delete their account, so the copy around this call must never promise
+  /// account deletion.
+  ///
+  /// Self-removal is refused server-side (403), as is a caller without
+  /// management access to the salon. Throws a typed [Failure] like every
+  /// other method here; the CALLER maps a 403 to distinct copy, exactly as
+  /// [inviteStaff]'s own doc describes — note a bare 403 arrives as
+  /// [UnknownFailure], not [ServerFailure] (see `InviteStaffScreen
+  /// ._errorMessage`'s doc for why), so read the status off [Failure.cause].
+  Future<void> removeAdmin({required String salonId, required String userId});
+
+  /// Moves admin [userId] from salon [salonId] to [destinationSalonId]
+  /// (Phase 21.6).
+  ///
+  /// Wraps `PATCH /salons/{salonId}/admins/{userId}/salon` (the generated
+  /// `SalonControllerApi.rotateAdmin`). The destination MUST share the
+  /// source salon's owner — enforced server-side with a 403; this method
+  /// never re-implements that check client-side. The response body
+  /// (`SalonAdminResponse`) carries nothing the caller needs beyond "it
+  /// worked", so this resolves with `void`.
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  });
+
+  /// Lists the ACTIVE salons sharing [salonId]'s owner, excluding [salonId]
+  /// itself — the rotate-admin destination picker's source (Phase 21.6,
+  /// backend Phase 21.3b).
+  ///
+  /// Wraps `GET /salons/{salonId}/sibling-salons`. Owner AND assigned-admin
+  /// scoped server-side, which is the whole reason this endpoint exists:
+  /// `GET /salons/mine` ([getMySalons]) is owner-only and returns nothing
+  /// useful to the admin doing the rotating.
+  ///
+  /// NOT routed through [SalonControllerApi]: backend Phase 21.3b landed
+  /// after the committed `tool/openapi/api-spec.json` snapshot, so neither
+  /// the operation nor its `SiblingSalonOption` schema is in the generated
+  /// client, and regenerating requires a live local backend. This issues a
+  /// raw GET through the shared authenticated [Dio] and maps the decoded
+  /// rows with [SiblingSalonOptionMapper] — the same "bypass the generated
+  /// client, reuse everything else" shape [getSalonMasters]/[getSalonReviews]
+  /// already use for their own (different) reason.
+  ///
+  /// Returns an empty list when the owner has no other active salon (200
+  /// `[]`) — the NORMAL single-salon state, not an error.
+  Future<List<SiblingSalonOption>> getSiblingSalons(String salonId);
 }
 
 /// HTTP implementation of [SalonRepository].
@@ -753,6 +816,87 @@ final class HttpSalonRepository implements SalonRepository {
       if (kDebugMode) {
         log(
           'cancelInvite failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> removeAdmin({
+    required String salonId,
+    required String userId,
+  }) async {
+    try {
+      await _salonApi.removeAdmin(salonId: salonId, userId: userId);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'removeAdmin failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async {
+    try {
+      await _salonApi.rotateAdmin(
+        salonId: salonId,
+        userId: userId,
+        rotateAdminRequest: RotateAdminRequest(
+          (RotateAdminRequestBuilder b) =>
+              b..destinationSalonId = destinationSalonId,
+        ),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'rotateAdmin failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<List<SiblingSalonOption>> getSiblingSalons(String salonId) async {
+    try {
+      final Response<Map<String, dynamic>> response = await _dio
+          .get<Map<String, dynamic>>(
+            '/api/v1/salons/${Uri.encodeComponent(salonId)}/sibling-salons',
+          );
+      // The envelope is the hand-rolled `ApiResponse<T>` every other endpoint
+      // in this file decodes — the rows live under `data`. A null/absent
+      // `data` is treated as "no siblings", the same way an explicit `[]` is:
+      // both mean there is nowhere to rotate to.
+      final Object? data = response.data?['data'];
+      if (data is! List) return const <SiblingSalonOption>[];
+      return SiblingSalonOptionMapper.fromJsonList(data);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getSiblingSalons failed: ${e.type} ${e.response?.statusCode}',
           name: 'salon.repository',
           level: 900,
           stackTrace: st,
