@@ -323,6 +323,38 @@ void main() {
     });
   });
 
+  group('top bar title (2026-09-01 — moved off the "beautica" wordmark)', () {
+    testWidgets(
+      "the top bar shows the screen's own mySalonsTitle exactly once, and "
+      'the "beautica" wordmark no longer renders anywhere on the hub',
+      (tester) async {
+        final l10n = await _loadL10n();
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(() async => _salons),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(l10n.mySalonsTitle),
+          findsOneWidget,
+          reason:
+              '«Мої салони» must render exactly once — in the top bar, not '
+              'duplicated as a separate heading below it',
+        );
+        expect(
+          find.text('beautica'),
+          findsNothing,
+          reason: 'the brand wordmark was replaced by the screen\'s own title',
+        );
+      },
+    );
+  });
+
   group('navigation', () {
     testWidgets(
       'card tap opens RouteNames.salonShell(id) via go, never salonProfile(id)',

@@ -299,16 +299,9 @@ class _HubContent extends StatelessWidget {
             child: reveal(
               start: 0.1,
               end: 0.46,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(l10n.mySalonsTitle, style: VelvetText.heading()),
-                  const SizedBox(height: VelvetSpacing.xs),
-                  Text(
-                    l10n.mySalonsSubtitle(salons.length),
-                    style: VelvetText.body(),
-                  ),
-                ],
+              child: Text(
+                l10n.mySalonsSubtitle(salons.length),
+                style: VelvetText.body(),
               ),
             ),
           );
@@ -335,10 +328,13 @@ class _HubContent extends StatelessWidget {
   }
 }
 
-/// The hub's slim top bar — a back affordance, the lowercase "beautica"
-/// wordmark, and a notification bell — mirroring the shipped CLIENT shell
-/// top bar's composition (see this file's header for why that widget isn't
-/// imported directly).
+/// The hub's slim top bar — a back affordance, the screen's own
+/// `mySalonsTitle` («Мої салони»), and a notification bell — mirroring the
+/// shipped CLIENT shell top bar's composition (see this file's header for
+/// why that widget isn't imported directly). Uses [VelvetText.pageTitle] —
+/// the locked token for every top-level screen title — rather than
+/// [VelvetText.wordmark], which is reserved for the literal "beautica" brand
+/// mark, not a screen's own title.
 class _HubTopBar extends StatelessWidget {
   const _HubTopBar({required this.onBack, required this.onBell});
 
@@ -358,15 +354,14 @@ class _HubTopBar extends StatelessWidget {
             onTap: onBack,
           ),
           const SizedBox(width: VelvetSpacing.md),
-          Text(
-            // raw-ui-string-ok: brand wordmark, deliberately NOT translated —
-            // same treatment as ClientTopBar's own "beautica" literal.
-            'beautica',
-            style: VelvetText.wordmark(),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
+          Expanded(
+            child: Text(
+              AppLocalizations.of(context).mySalonsTitle,
+              style: VelvetText.pageTitle,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
           ),
-          const Spacer(),
           _BellButton(onTap: onBell),
         ],
       ),
