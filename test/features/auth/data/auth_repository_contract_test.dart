@@ -28,6 +28,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
@@ -37,6 +38,7 @@ const _loginPath = '/api/v1/auth/login';
 const _refreshPath = '/api/v1/auth/refresh';
 const _mePath = '/api/v1/users/me';
 const _verifyEmailPath = '/api/v1/auth/verify-email';
+const _acceptInvitePath = '/api/v1/auth/invite/accept';
 // The path the generated client produces when AppConfig.baseUrl carries an
 // accidental trailing `/api/v1` (the live silent-error cause, fixed in 70e569b).
 // `requestOptions.path` then doubles to this form. A literal-equality check
@@ -57,6 +59,34 @@ Map<String, dynamic> _authEnvelope({
     'userId': 'user-1',
     'email': 'master@beautica.ua',
     'role': 'INDEPENDENT_MASTER',
+  },
+};
+
+// invite-accept post-success failure design (2026-09-01) — the 'acceptInvite
+// — full transport contract' group below drives the mapping BLOCK inside
+// HttpAuthRepository.acceptInvite through the REAL generated AuthResponse
+// deserializer, which the mocktail-on-AuthControllerApi coverage in
+// auth_notifier_test.dart never touches. A malformed/null-field envelope
+// must surface as a typed [ResponseUnusableFailure], never a raw
+// TypeError/NoSuchMethodError escaping unmapped.
+Map<String, dynamic> _acceptInviteEnvelope({
+  String? accessToken = 'access-1',
+  String? refreshToken = 'refresh-1',
+  String? userId = 'user-1',
+  String email = 'admin@salon.ua',
+  String? role = 'SALON_ADMIN',
+  String? salonId = 'salon-1',
+}) => <String, dynamic>{
+  'success': true,
+  'message': 'ok',
+  'data': <String, dynamic>{
+    'accessToken': accessToken,
+    'refreshToken': refreshToken,
+    'tokenType': 'Bearer',
+    'userId': userId,
+    'email': email,
+    'role': role,
+    'salonId': salonId,
   },
 };
 
@@ -356,6 +386,227 @@ void main() {
   });
 
   // =========================================================================
+  // acceptInvite — invite-accept transport contract + the invite-accept
+  // post-success failure design's regression net (2026-09-01).
+  //
+  // Same coverage gap as verifyEmail below, on the endpoint that shipped the
+  // reported incident: the mocktail-on-AuthControllerApi coverage in
+  // auth_notifier_test.dart never exercises real JSON (de)serialization, so
+  // a malformed 201 body (a null field the mapper assumes non-null) never
+  // ran through the REAL mapping block. This is exactly the defect class the
+  // point-of-no-return design exists to convert into a typed
+  // ResponseUnusableFailure instead of a raw, unmapped TypeError.
+  // =========================================================================
+  group('acceptInvite — full transport contract', () {
+    test(
+      'POSITIVE 1: 201 SALON_ADMIN envelope WITH salonId → (User, AuthTokens) '
+      'parsed, user.role == UserRole.salonAdmin',
+      () async {
+        final h = _wire();
+        h.adapter.onPost(
+          _acceptInvitePath,
+          (s) => s.reply(201, _acceptInviteEnvelope()),
+          data: Matchers.any,
+        );
+
+        final (user, tokens) = await h.repo.acceptInvite(
+          token: 'invite-abc',
+          password: 'SecurePass1',
+          firstName: 'Іван',
+          lastName: 'Коваль',
+          phoneNumber: '+380501234567',
+        );
+
+        expect(user.id, 'user-1');
+        expect(user.email, 'admin@salon.ua');
+        expect(user.role, UserRole.salonAdmin);
+        expect(tokens.accessToken, 'access-1');
+        expect(tokens.refreshToken, 'refresh-1');
+      },
+    );
+
+    test('POSITIVE 2: 201 SALON_MASTER envelope → parsed, no throw', () async {
+      final h = _wire();
+      h.adapter.onPost(
+        _acceptInvitePath,
+        (s) => s.reply(
+          201,
+          _acceptInviteEnvelope(role: 'SALON_MASTER', salonId: 'salon-2'),
+        ),
+        data: Matchers.any,
+      );
+
+      final (user, tokens) = await h.repo.acceptInvite(
+        token: 'invite-xyz',
+        password: 'SecurePass1',
+        firstName: 'Олена',
+        lastName: 'Шевченко',
+        phoneNumber: '+380671234567',
+      );
+
+      expect(user.role, UserRole.salonMaster);
+      expect(tokens.accessToken, 'access-1');
+    });
+
+    test('NEGATIVE 3a: 201 with data.role null → ResponseUnusableFailure, '
+        'never a raw TypeError/NoSuchMethodError', () async {
+      final h = _wire();
+      h.adapter.onPost(
+        _acceptInvitePath,
+        (s) => s.reply(201, _acceptInviteEnvelope(role: null)),
+        data: Matchers.any,
+      );
+
+      await expectLater(
+        h.repo.acceptInvite(
+          token: 't',
+          password: 'p',
+          firstName: 'f',
+          lastName: 'l',
+        ),
+        throwsA(isA<ResponseUnusableFailure>()),
+      );
+    });
+
+    test(
+      'NEGATIVE 3b: 201 with data.userId null → ResponseUnusableFailure',
+      () async {
+        final h = _wire();
+        h.adapter.onPost(
+          _acceptInvitePath,
+          (s) => s.reply(201, _acceptInviteEnvelope(userId: null)),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          h.repo.acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          ),
+          throwsA(isA<ResponseUnusableFailure>()),
+        );
+      },
+    );
+
+    test(
+      'NEGATIVE 3c: 201 with data.accessToken null → ResponseUnusableFailure',
+      () async {
+        final h = _wire();
+        h.adapter.onPost(
+          _acceptInvitePath,
+          (s) => s.reply(201, _acceptInviteEnvelope(accessToken: null)),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          h.repo.acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          ),
+          throwsA(isA<ResponseUnusableFailure>()),
+        );
+      },
+    );
+
+    test(
+      'NEGATIVE 4: 400 {success:false,data:null,message:"Invalid request"} → '
+      'ValidationFailure with fieldErrors.isEmpty (invite already used/'
+      'expired/not found — the AuthNotifier hand-off classifier keys on '
+      'this exact shape)',
+      () async {
+        final h = _wire();
+        h.adapter.onPost(
+          _acceptInvitePath,
+          (s) => s.reply(400, {
+            'success': false,
+            'data': null,
+            'message': 'Invalid request',
+          }),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          h.repo.acceptInvite(
+            token: 'spent-token',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          ),
+          throwsA(
+            isA<ValidationFailure>().having(
+              (f) => f.fieldErrors.isEmpty,
+              'fieldErrors.isEmpty',
+              isTrue,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('NEGATIVE 5: 400 WITH a populated errors map → ValidationFailure with '
+        'fieldErrors.isNotEmpty (proves the two 400 shapes stay '
+        'distinguishable — this one must NOT hand off to /login)', () async {
+      final h = _wire();
+      h.adapter.onPost(
+        _acceptInvitePath,
+        (s) => s.reply(400, {
+          'success': false,
+          'errors': {'phoneNumber': 'must not be blank'},
+        }),
+        data: Matchers.any,
+      );
+
+      await expectLater(
+        h.repo.acceptInvite(
+          token: 't',
+          password: 'p',
+          firstName: 'f',
+          lastName: 'l',
+        ),
+        throwsA(
+          isA<ValidationFailure>().having(
+            (f) => f.fieldErrors.isNotEmpty,
+            'fieldErrors.isNotEmpty',
+            isTrue,
+          ),
+        ),
+      );
+    });
+
+    test(
+      'NEGATIVE 6: 409 body without data.code → ServerFailure(statusCode: 409) '
+      '(the emailAlreadyRegistered hand-off classifier keys on this shape)',
+      () async {
+        final h = _wire();
+        h.adapter.onPost(
+          _acceptInvitePath,
+          (s) => s.reply(409, {
+            'success': false,
+            'message': 'Email is already registered',
+          }),
+          data: Matchers.any,
+        );
+
+        await expectLater(
+          h.repo.acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          ),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 409),
+          ),
+        );
+      },
+    );
+  });
+
+  // =========================================================================
   // verifyEmail — OTP transport contract + the silent-error regression net.
   //
   // These guards drive the REAL HttpAuthRepository.verifyEmail through the REAL
@@ -570,6 +821,39 @@ void main() {
         throwsA(
           isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
         ),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Invite-accept post-success failure design (2026-09-01), Q4: the same
+    // ResponseUnusableFailure mapping wrap was generalised to verifyEmail's
+    // mapping block. Same null-field regression as acceptInvite's 3a/3b/3c —
+    // a malformed 200 body must throw a typed Failure, never a raw
+    // TypeError/NoSuchMethodError.
+    // -----------------------------------------------------------------------
+    test('NEGATIVE: 200 with data.role null → ResponseUnusableFailure, never a '
+        'raw TypeError/NoSuchMethodError', () async {
+      final h = _wire();
+      h.adapter.onPost(
+        _verifyEmailPath,
+        (s) => s.reply(200, {
+          'success': true,
+          'message': 'ok',
+          'data': {
+            'accessToken': 'access-1',
+            'refreshToken': 'refresh-1',
+            'tokenType': 'Bearer',
+            'userId': 'user-1',
+            'email': 'master@beautica.ua',
+            'role': null,
+          },
+        }),
+        data: Matchers.any,
+      );
+
+      await expectLater(
+        h.repo.verifyEmail(email: 'master@beautica.ua', otp: '123456'),
+        throwsA(isA<ResponseUnusableFailure>()),
       );
     });
   });

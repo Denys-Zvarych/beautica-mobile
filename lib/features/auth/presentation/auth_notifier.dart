@@ -53,6 +53,7 @@ import '../../../shared/util/mask_email.dart';
 import '../../booking/application/bookings_day_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
+import '../domain/auth_tokens.dart';
 import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -476,9 +477,13 @@ class AuthNotifier extends _$AuthNotifier {
     state = const AsyncLoading();
     try {
       final repo = ref.read(authRepositoryProvider);
-      final storage = ref.read(secureStorageProvider);
       final (_, tokens) = await repo.verifyEmail(email: email, otp: otp);
-      await storage.writeRefreshToken(tokens.refreshToken);
+      // Invite-accept post-success design (2026-09-01), Q4: generalise the
+      // tolerant persist to verifyEmail too — a storage write failure here
+      // must not turn an already-completed verification into an apparent
+      // error. The login hand-off is deliberately NOT extended to this flow
+      // (see the design doc) — verifyEmail self-heals via a plain login.
+      final persisted = await _persistRefreshTokenTolerant(tokens.refreshToken);
       // HIGH-1 pattern (same as build()): write the access token to the
       // sentinel field so AuthInterceptor can inject the Bearer header on
       // repo.me() while the provider state is still AsyncData(Unauthenticated)
@@ -520,6 +525,7 @@ class AuthNotifier extends _$AuthNotifier {
         AuthSession.authenticated(
           user: fullUser,
           accessToken: tokens.accessToken,
+          refreshTokenPersisted: persisted,
         ),
       );
       coldStartAccessToken = null;
@@ -726,12 +732,114 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
-  /// Accepts an invite by completing profile setup. On success, persists the
-  /// refresh token and transitions to [Authenticated] — the router redirect picks
-  /// up the state change and routes to home.
+  /// Writes [rt] to secure storage WITHOUT letting a failure become fatal.
   ///
-  /// On failure, state becomes [AsyncError] with the typed [Failure] — the
-  /// calling screen's `.when(error:)` handler (or try/catch) displays it.
+  /// Invite-accept post-success design (2026-09-01), Q2 — THE CRUX: once the
+  /// server has answered 2xx, a local storage failure must never read to the
+  /// caller as "the operation failed". [AuthSession.accessToken] is
+  /// in-memory-only by design; only the refresh token is persisted, so the
+  /// one real cost of a failed write is that the session cannot be silently
+  /// restored on the next cold start — [build] already handles a missing
+  /// refresh token by routing to `/login`. The failure is tolerated, logged,
+  /// and surfaced via the returned `bool` (never a thrown exception) so
+  /// [AuthSession.refreshTokenPersisted] can carry it as an assertable,
+  /// observable field instead of an invisible no-op.
+  ///
+  /// Scope (LOW, 2026-09-01 audit pass) — why only [verifyEmail] and
+  /// [acceptInvite] route through this tolerant path, while [build]
+  /// (cold-start restore) and [login] still call
+  /// `storage.writeRefreshToken` directly and stay fatal on failure: the
+  /// former two are point-of-no-return flows where a single-use,
+  /// server-side mutation (the OTP / the invite token) has already been
+  /// consumed by the time this runs, so discarding the session over a local
+  /// storage failure would strand the user with no way back — there is no
+  /// "just retry" available because the token/OTP is already spent. `build`
+  /// and `login` are freely retryable — the user can log in again, or the
+  /// app can cold-start again — so a failed persist there is a real,
+  /// actionable failure that should surface as `AsyncError`, not be
+  /// silently tolerated. Do not widen this method's callers without the
+  /// same point-of-no-return justification.
+  Future<bool> _persistRefreshTokenTolerant(String rt) async {
+    try {
+      await ref.read(secureStorageProvider).writeRefreshToken(rt);
+      return true;
+    } catch (e, st) {
+      // LOW (2026-09-01 audit pass): this catch stays deliberately
+      // unqualified — narrowing it, or rethrowing when `e is Error`, would
+      // reintroduce a throw path AFTER the point of no return, which is
+      // exactly the bug this method exists to prevent (see the class doc
+      // above). Do NOT "fix" this into a rethrow.
+      //
+      // Instead, make a genuine programming defect LOUD rather than
+      // silently downgraded to "storage write tolerated": an `Error` (a
+      // real bug — TypeError, StateError, …) is logged at severity 1000
+      // with its stack trace, matching this file's other unexpected-
+      // exception branches (e.g. [build]'s cold-start catch-all); an
+      // ordinary storage/platform exception is logged at 900, matching the
+      // rest of this file's tolerated-failure logging. Either branch still
+      // returns `bool` and never throws.
+      final isDefect = e is Error;
+      if (kDebugMode) {
+        log(
+          isDefect
+              ? 'Refresh-token persist failed (tolerated) — looks like a '
+                    'programming defect, not a storage failure'
+              : 'Refresh-token persist failed (tolerated): ${e.runtimeType}',
+          name: 'auth',
+          level: isDefect ? 1000 : 900,
+          error: isDefect ? e : null,
+          stackTrace: isDefect ? st : null,
+        );
+      }
+      return false;
+    }
+  }
+
+  /// Maps a [Failure] from [AuthRepository.acceptInvite] onto the
+  /// [InviteHandoffReason] it should hand off to `/login` as, or `null` if
+  /// the failure has no safe hand-off (e.g. plain connectivity trouble,
+  /// where the request never reached the server and a normal retry —
+  /// staying on this screen — remains correct).
+  ///
+  /// See the invite-accept post-success design (2026-09-01), Q3, for why
+  /// each case below is one of the three unrecoverable outcomes: the
+  /// response arrived but was unusable, the response never arrived after the
+  /// request was fully sent, or the server says the invite/email is already
+  /// spent.
+  InviteHandoffReason? _inviteHandoffReason(Failure f) => switch (f) {
+    ResponseUnusableFailure() => InviteHandoffReason.accountReady,
+    NetworkFailure(:final mayHaveReachedServer) when mayHaveReachedServer =>
+      InviteHandoffReason.accountMayBeReady,
+    // A 400 WITHOUT a populated field-error map is, on this endpoint, a
+    // backend BusinessException (token already used / expired / not found) —
+    // never bean validation. Bean-validation 400s always carry a populated
+    // `errors` map, so an empty map here is unambiguous.
+    ValidationFailure(:final fieldErrors) when fieldErrors.isEmpty =>
+      InviteHandoffReason.inviteNoLongerValid,
+    ServerFailure(statusCode: 409) =>
+      InviteHandoffReason.emailAlreadyRegistered,
+    EmailAlreadyRegisteredFailure() =>
+      InviteHandoffReason.emailAlreadyRegistered,
+    _ => null,
+  };
+
+  /// Accepts an invite by completing profile setup. On success, persists the
+  /// refresh token (tolerantly) and transitions to [Authenticated] — the
+  /// router redirect picks up the state change and routes to home.
+  ///
+  /// Invite-accept post-success design (2026-09-01): the HTTP 2xx from
+  /// [AuthRepository.acceptInvite] is the point of no return — nothing after
+  /// it may downgrade a server-side success into an apparent failure. Once
+  /// the repository call returns, every remaining step (assigning
+  /// [_lastKnownAccessToken], the tolerant persist, and constructing
+  /// [AuthSession.authenticated]) is infallible.
+  ///
+  /// On failure BEFORE the point of no return, state becomes [AsyncError]
+  /// with the typed [Failure] — for the three unrecoverable cases identified
+  /// by [_inviteHandoffReason] that is an [InviteHandoffFailure] instead of
+  /// the underlying [Failure], so the screen can hand off to `/login`
+  /// instead of offering a "try again" affordance that can never succeed on
+  /// a spent token.
   Future<void> acceptInvite({
     required String token,
     required String password,
@@ -741,25 +849,39 @@ class AuthNotifier extends _$AuthNotifier {
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final (user, tokens) = await ref
-          .read(authRepositoryProvider)
-          .acceptInvite(
-            token: token,
-            password: password,
-            firstName: firstName,
-            lastName: lastName,
-            phoneNumber: phoneNumber,
-          );
-      await ref
-          .read(secureStorageProvider)
-          .writeRefreshToken(tokens.refreshToken);
-      if (kDebugMode) {
-        log('Invite accepted: user ${user.id}', name: 'auth', level: 800);
+      final (User, AuthTokens) r;
+      try {
+        r = await ref
+            .read(authRepositoryProvider)
+            .acceptInvite(
+              token: token,
+              password: password,
+              firstName: firstName,
+              lastName: lastName,
+              phoneNumber: phoneNumber,
+            );
+      } on Failure catch (f) {
+        final reason = _inviteHandoffReason(f);
+        if (reason != null) {
+          throw InviteHandoffFailure(reason: reason, cause: f);
+        }
+        rethrow;
       }
+      // -- POINT OF NO RETURN PASSED — nothing below may throw --
+      final (user, tokens) = r;
       _lastKnownAccessToken = tokens.accessToken;
+      final persisted = await _persistRefreshTokenTolerant(tokens.refreshToken);
+      if (kDebugMode) {
+        log(
+          'Invite accepted: user ${user.id} (persisted: $persisted)',
+          name: 'auth',
+          level: 800,
+        );
+      }
       return AuthSession.authenticated(
         user: user,
         accessToken: tokens.accessToken,
+        refreshTokenPersisted: persisted,
       );
     });
   }

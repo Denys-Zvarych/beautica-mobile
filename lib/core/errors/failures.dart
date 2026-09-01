@@ -40,10 +40,96 @@ sealed class Failure implements Exception {
 /// Emitted when a request fails due to absent or broken network connectivity
 /// (e.g. `DioExceptionType.connectionError`, `DioExceptionType.receiveTimeout`).
 final class NetworkFailure extends Failure {
-  const NetworkFailure({super.cause});
+  const NetworkFailure({super.cause, this.mayHaveReachedServer = false});
+
+  /// `true` only for [DioExceptionType.receiveTimeout] — the request body was
+  /// fully SENT and the server may have processed it before the client gave
+  /// up waiting for a response. `false` (the default) for every other
+  /// transport failure (`connectionTimeout`, `connectionError`,
+  /// `sendTimeout`): the request never completed, so a retry is genuinely
+  /// safe and an offline user must keep seeing plain [errNetwork] copy, never
+  /// "your account may already exist" (invite-accept post-success design,
+  /// 2026-09-01). Set by [ErrorMapperInterceptor]; existing call sites are
+  /// unaffected by the default.
+  final bool mayHaveReachedServer;
 
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errNetwork;
+}
+
+/// The server answered 2xx but the client could not turn the response body
+/// into a usable domain object (a malformed/unexpected envelope, or a null
+/// field the mapper assumed was present).
+///
+/// The request DID take effect server-side — the 2xx already happened.
+/// Never tell the user to retry a single-use operation (e.g. invite accept)
+/// on this failure; [userMessage] intentionally reuses the generic
+/// [errUnknown] copy because this failure is always paired with a more
+/// specific recovery path by its caller (see `InviteHandoffFailure`) rather
+/// than shown standalone.
+final class ResponseUnusableFailure extends Failure {
+  const ResponseUnusableFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errUnknown;
+}
+
+/// Why [InviteHandoffFailure] is routing the user to /login instead of
+/// showing a retry affordance.
+///
+/// Each variant maps 1:1 to an ARB key via [InviteHandoffFailure.userMessage]
+/// — see `lib/l10n/app_uk.arb` / `app_en.arb` (`inviteHandoff*` keys).
+enum InviteHandoffReason {
+  /// The 201 response body could not be parsed ([ResponseUnusableFailure]).
+  /// The account was created server-side; only the client-side mapping
+  /// failed.
+  accountReady,
+
+  /// The connection dropped after the request was fully sent
+  /// ([NetworkFailure.mayHaveReachedServer]). The account may or may not
+  /// have been created — the client genuinely cannot tell.
+  accountMayBeReady,
+
+  /// The backend rejected the invite token itself (already used, expired, or
+  /// not found) — a 400 `BusinessException` with no populated field-error
+  /// map.
+  inviteNoLongerValid,
+
+  /// The invited email already has an account (409).
+  emailAlreadyRegistered,
+}
+
+/// Terminal, non-retryable outcome of an invite-accept (or equivalent
+/// single-use) flow: the calling notifier maps a handful of specific
+/// [Failure]s into this type so the screen can hand off to `/login` with the
+/// right copy instead of offering a "try again" affordance that can never
+/// succeed on a spent token.
+///
+/// See the invite-accept post-success failure design (2026-09-01) — the HTTP
+/// 2xx is the point of no return; this failure exists only for the outcomes
+/// where the client cannot confirm success but also must not suggest a
+/// retry.
+final class InviteHandoffFailure extends Failure {
+  const InviteHandoffFailure({required this.reason, super.cause});
+
+  /// Why the hand-off is happening — selects the ARB copy in [userMessage].
+  final InviteHandoffReason reason;
+
+  @override
+  String userMessage(BuildContext ctx) => switch (reason) {
+    InviteHandoffReason.accountReady => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffAccountReady,
+    InviteHandoffReason.accountMayBeReady => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffAccountMayBeReady,
+    InviteHandoffReason.inviteNoLongerValid => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffNoLongerValid,
+    InviteHandoffReason.emailAlreadyRegistered => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffEmailAlreadyRegistered,
+  };
 }
 
 /// Emitted when the TLS handshake was rejected by the app's PINNED trust

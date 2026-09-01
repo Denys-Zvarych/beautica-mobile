@@ -193,6 +193,116 @@ void main() {
       );
       expect(rejected.error, isA<NetworkFailure>());
     });
+
+    // -------------------------------------------------------------------
+    // Invite-accept post-success failure design (2026-09-01) —
+    // NetworkFailure.mayHaveReachedServer per-DioExceptionType split.
+    //
+    // Only receiveTimeout means the request body was fully SENT before the
+    // client gave up waiting — the server may have processed it.
+    // connectionTimeout / connectionError / sendTimeout mean the request
+    // never completed at all, so a retry is genuinely safe and an offline
+    // user must keep seeing plain errNetwork, never "your account may
+    // exist". A mutation collapsing this per-type split back to a single
+    // `true` (or a single `false`) must fail at least one of these four.
+    // -------------------------------------------------------------------
+    test('connectionTimeout → NetworkFailure.mayHaveReachedServer == false '
+        '(request never completed)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.connectionTimeout),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isFalse);
+    });
+
+    test('connectionError → NetworkFailure.mayHaveReachedServer == false '
+        '(offline user must not be told the account may exist)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.connectionError),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isFalse);
+    });
+
+    test('sendTimeout → NetworkFailure.mayHaveReachedServer == false '
+        '(request never completed)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.sendTimeout),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isFalse);
+    });
+
+    test('receiveTimeout → NetworkFailure.mayHaveReachedServer == true '
+        '(request body was fully sent — server may have processed it)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.receiveTimeout),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isTrue);
+    });
+  });
+
+  group('ErrorMapperInterceptor — 2xx-carrying DioException (invite-accept '
+      'post-success failure design, 2026-09-01)', () {
+    // A DioException carrying a 2xx response means Dio's response
+    // transformer (or a downstream mapper) threw AFTER the server already
+    // answered success — surfaced as DioExceptionType.unknown with the
+    // response attached. The request DID take effect; only the
+    // client-side parse failed. This must be checked BEFORE both the
+    // transport-type switch and the status-code chain — a mutation that
+    // drops or reorders this check would fall through to
+    // DioExceptionType.unknown's default branch instead.
+    test(
+      '200 response attached to a DioException → ResponseUnusableFailure',
+      () {
+        final opts = _opts();
+        final err = DioException(
+          requestOptions: opts,
+          type: DioExceptionType.unknown,
+          error: const FormatException('unexpected token'),
+          response: Response<dynamic>(
+            requestOptions: opts,
+            statusCode: 200,
+            data: {'success': true, 'data': null},
+          ),
+        );
+        final rejected = _captureRejected(err);
+        expect(rejected.error, isA<ResponseUnusableFailure>());
+      },
+    );
+
+    test('201 response attached to a DioException → ResponseUnusableFailure '
+        '(acceptInvite\'s success status)', () {
+      final opts = _opts();
+      final err = DioException(
+        requestOptions: opts,
+        type: DioExceptionType.unknown,
+        error: const FormatException('unexpected token'),
+        response: Response<dynamic>(
+          requestOptions: opts,
+          statusCode: 201,
+          data: {'success': true, 'data': null},
+        ),
+      );
+      final rejected = _captureRejected(err);
+      expect(rejected.error, isA<ResponseUnusableFailure>());
+    });
+
+    test('299 (upper 2xx boundary) response attached to a DioException → '
+        'ResponseUnusableFailure', () {
+      final opts = _opts();
+      final err = DioException(
+        requestOptions: opts,
+        type: DioExceptionType.unknown,
+        response: Response<dynamic>(requestOptions: opts, statusCode: 299),
+      );
+      final rejected = _captureRejected(err);
+      expect(rejected.error, isA<ResponseUnusableFailure>());
+    });
+
+    test('400 response attached to a DioException does NOT map to '
+        'ResponseUnusableFailure (boundary — the 2xx-only check must not '
+        'swallow ordinary 4xx handling)', () {
+      final rejected = _captureRejected(_httpError(400));
+      expect(rejected.error, isNot(isA<ResponseUnusableFailure>()));
+    });
   });
 
   group('ErrorMapperInterceptor — HTTP 422 (Spring @Validated)', () {

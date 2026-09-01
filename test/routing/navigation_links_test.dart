@@ -62,6 +62,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -78,6 +79,7 @@ import 'package:beautica_mobile/features/auth/presentation/register_step_3_scree
 import 'package:beautica_mobile/features/auth/domain/reset_password_args.dart';
 import 'package:beautica_mobile/features/auth/presentation/reset_password_screen.dart';
 import 'package:beautica_mobile/features/auth/state/accept_invite_notifier.dart';
+import 'package:beautica_mobile/features/auth/state/login_notice_notifier.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -621,7 +623,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
       await tester.pumpAndSettle();
 
-      // Fill password (12-char minimum for invite path).
+      // Fill password (shared 8-char minimum — same policy as register/reset).
       await tester.enterText(
         find.byKey(const ValueKey<String>('invite_password')),
         'StrongPass12',
@@ -643,6 +645,17 @@ void main() {
       await tester.enterText(
         find.byKey(const ValueKey<String>('invite_last_name')),
         'Бондар',
+      );
+      await tester.pump();
+
+      // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
+      // without it _formValid stays false and the CTA never enables.
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('invite_phone')),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('invite_phone')),
+        '0671234567',
       );
       await tester.pump();
 
@@ -672,6 +685,265 @@ void main() {
       );
     });
   });
+
+  // ===========================================================================
+  // NL-23: /invite/accept post-success failure hand-off → /login via the
+  // SCREEN's own context.go (invite-accept post-success failure design,
+  // 2026-09-01).
+  //
+  // Same harness as NL-22 — real GoRouter, real authRedirect, real
+  // AuthNotifier via a live ProviderContainer, only Dio faked — extended to
+  // the two client-classified terminal failure paths. This is the Rule 3b
+  // "extend integration-tier coverage" pass for the invite-accept →
+  // login hand-off: NL-22/NL-23 together drive the full journey (screen →
+  // route hand-off → provider wiring → auth state → form submit) through
+  // PRODUCTION redirect logic, which the screen-level
+  // accept_invite_screen_test.dart harness (its own hand-rolled router with
+  // `redirect: (context, state) => null`) deliberately does not exercise.
+  //
+  // Proves two things NL-22 cannot: (a) the REAL authRedirect does not fight
+  // the screen's context.go(RouteNames.login) — state stays Unauthenticated
+  // after a hand-off failure (no repo Authenticated transition happens), so
+  // there is no competing auth-guard redirect to race; (b) loginNoticeProvider
+  // is populated on the SAME container the router reads from, proving the
+  // notice and the navigation are not accidentally decoupled across
+  // containers (a mistake screen-level tests with a fresh ProviderScope per
+  // test cannot catch).
+  // ===========================================================================
+  group(
+    'NL-23: /invite/accept post-success failure → /login hand-off via router',
+    () {
+      testWidgets('NL-23a: ResponseUnusableFailure → router lands on /login, '
+          'loginNoticeProvider holds accountReady + the invited email', (
+        tester,
+      ) async {
+        const kToken = 'valid-invite-token';
+        final validInvite = InviteDetails(
+          email: 'masha@salon.ua',
+          role: UserRole.salonMaster,
+          expiresAt: DateTime.now().add(const Duration(hours: 48)),
+        );
+
+        final repo = FakeAuthRepository()
+          ..acceptInviteResult = const ResponseUnusableFailure();
+        final storage = FakeSecureStorage();
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            acceptInviteProvider(
+              kToken,
+            ).overrideWith(() => _SyncInviteNotifier(validInvite)),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final router = GoRouter(
+          initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
+          refreshListenable: _ContainerListenable(container),
+          redirect: (context, state) =>
+              authRedirect(container.read(authProvider), state),
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.acceptInvite,
+              builder: (context, state) {
+                final t = state.uri.queryParameters['token'] ?? '';
+                return AcceptInviteScreen(token: t);
+              },
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (_, _) => const _Probe('home'),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (_, _) => const _Probe('login'),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPass12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0671234567',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
+
+        final currentUri = router.routerDelegate.currentConfiguration.uri
+            .toString();
+        expect(
+          currentUri,
+          equals(RouteNames.login),
+          reason:
+              'a ResponseUnusableFailure must hand off to /login via the '
+              'SCREEN\'s own context.go — the account was created '
+              'server-side, so state stays Unauthenticated and the REAL '
+              'authRedirect must not bounce this anywhere else (e.g. back '
+              'to /invite/accept, which IS an unauthOnlyRoute)',
+        );
+        expect(find.byType(AcceptInviteScreen), findsNothing);
+
+        final notice = container.read(loginNoticeProvider);
+        expect(notice, isNotNull);
+        expect(notice!.reason, InviteHandoffReason.accountReady);
+        expect(notice.email, validInvite.email);
+
+        // State-consistency check: the failed accept must NOT have
+        // transitioned the session to Authenticated (this is a genuine
+        // failure path, not a disguised success).
+        expect(
+          container.read(authProvider).value,
+          isA<Unauthenticated>(),
+          reason:
+              'a hand-off failure is still a failure — the session must '
+              'stay Unauthenticated, not silently become Authenticated',
+        );
+      });
+
+      testWidgets(
+        'NL-23b: ValidationFailure(fieldErrors: {}) (spent/expired token) → '
+        'router lands on /login, loginNoticeProvider holds '
+        'inviteNoLongerValid',
+        (tester) async {
+          const kToken = 'valid-invite-token';
+          final validInvite = InviteDetails(
+            email: 'masha@salon.ua',
+            role: UserRole.salonMaster,
+            expiresAt: DateTime.now().add(const Duration(hours: 48)),
+          );
+
+          final repo = FakeAuthRepository()
+            ..acceptInviteResult = const ValidationFailure(
+              fieldErrors: <String, String>{},
+            );
+          final storage = FakeSecureStorage();
+
+          final container = ProviderContainer(
+            retry: beauticaProviderRetry,
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+              acceptInviteProvider(
+                kToken,
+              ).overrideWith(() => _SyncInviteNotifier(validInvite)),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          final router = GoRouter(
+            initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
+            refreshListenable: _ContainerListenable(container),
+            redirect: (context, state) =>
+                authRedirect(container.read(authProvider), state),
+            routes: <RouteBase>[
+              GoRoute(
+                path: RouteNames.acceptInvite,
+                builder: (context, state) {
+                  final t = state.uri.queryParameters['token'] ?? '';
+                  return AcceptInviteScreen(token: t);
+                },
+              ),
+              GoRoute(
+                path: RouteNames.home,
+                builder: (_, _) => const _Probe('home'),
+              ),
+              GoRoute(
+                path: RouteNames.login,
+                builder: (_, _) => const _Probe('login'),
+              ),
+            ],
+          );
+          addTearDown(router.dispose);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(
+                routerConfig: router,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                locale: const Locale('uk'),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 50));
+          await tester.pumpAndSettle();
+
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_password')),
+            'StrongPass12',
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_first_name')),
+            'Марія',
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_last_name')),
+            'Бондар',
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_phone')),
+            '0671234567',
+          );
+          await tester.pump();
+
+          await tester.ensureVisible(
+            find.byKey(const ValueKey<String>('invite_accept')),
+          );
+          await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pumpAndSettle();
+
+          final currentUri = router.routerDelegate.currentConfiguration.uri
+              .toString();
+          expect(currentUri, equals(RouteNames.login));
+
+          final notice = container.read(loginNoticeProvider);
+          expect(notice, isNotNull);
+          expect(notice!.reason, InviteHandoffReason.inviteNoLongerValid);
+        },
+      );
+    },
+  );
 
   // -------------------------------------------------------------------------
   // NL-B01: /register/step-2 AuthScaffold back button navigates to /register

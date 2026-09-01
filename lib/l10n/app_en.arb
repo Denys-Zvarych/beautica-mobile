@@ -1277,6 +1277,22 @@
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   },
+  "inviteHandoffAccountReady": "Your account has been created. Sign in with your email and the password you just set.",
+  "@inviteHandoffAccountReady": {
+    "description": "Login hand-off banner shown when accept-invite got a 2xx response the client could not parse (ResponseUnusableFailure) — the account was created server-side; invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffAccountMayBeReady": "The connection dropped. Your account was most likely created — try signing in with the password you just set. If that fails, ask the salon to send a new invite.",
+  "@inviteHandoffAccountMayBeReady": {
+    "description": "Login hand-off banner shown when the connection dropped after the accept-invite request was fully sent (NetworkFailure.mayHaveReachedServer) — invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffNoLongerValid": "This invite has already been used. If your account was created, sign in with the password you set. Otherwise ask the salon to send a new invite.",
+  "@inviteHandoffNoLongerValid": {
+    "description": "Login hand-off banner shown when the invite token was already used/expired/not found (400 with no field-error map) — invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffEmailAlreadyRegistered": "This email is already registered. Sign in to the existing account, or ask the salon to invite a different address.",
+  "@inviteHandoffEmailAlreadyRegistered": {
+    "description": "Login hand-off banner shown when accept-invite returned 409 (email already registered) — invite-accept post-success design, 2026-09-01."
+  },
 
   "roleSelectHeadline": "Welcome to premium\nBeauty Service",
   "@roleSelectHeadline": {

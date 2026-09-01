@@ -41,6 +41,7 @@ import '../../../routing/route_names.dart';
 import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
+import '../state/login_notice_notifier.dart';
 import 'auth_notifier.dart';
 import 'auth_selectors.dart';
 import 'widgets/auth_scaffold.dart';
@@ -76,6 +77,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _showUnverified = false;
   String? _unverifiedEmail;
 
+  // Invite-accept post-success design (2026-09-01): a one-shot hand-off
+  // notice from a spent/unreachable invite (or verify) flow, read once on
+  // mount and cleared on the first frame so a later, unrelated login never
+  // re-shows it.
+  LoginNoticeState? _notice;
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -84,12 +91,63 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
   late final ScreenProtectionManager _screenProtection;
 
+  // Same capture pattern as [_screenProtection]: grabbed once here so the
+  // post-frame callback below (see [initState]) can clear the notice
+  // without going through `ref`, which is unsafe once this State may have
+  // been disposed.
+  late final LoginNotice _loginNotice;
+
   @override
   void initState() {
     super.initState();
     // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
     // the manager is internally !kDebugMode-guarded).
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    _loginNotice = ref.read(loginNoticeProvider.notifier);
+
+    _notice = ref.read(loginNoticeProvider);
+    final noticeEmail = _notice?.email;
+    if (noticeEmail != null && noticeEmail.isNotEmpty) {
+      // LOW (2026-09-01 audit pass) — considered and accepted: the prefilled
+      // address stays in _emailController for the screen's lifetime after
+      // the one-shot notice above is cleared. No code change: this is not
+      // materially different from the exposure of a normal login screen
+      // once a person has typed their own address into it — both leave
+      // plaintext in a visible TextField for as long as the screen is
+      // mounted, and obscuring only the invite-prefilled case would defeat
+      // the prefill's purpose (letting the invited user complete login)
+      // without closing a real gap, since typing it manually leaves the
+      // same exposure.
+      _emailController.text = noticeEmail;
+    }
+
+    // LOW (2026-09-01 audit pass) — backstop for a mount disposed before its
+    // first frame paints. [WidgetsBinding.addPostFrameCallback] fires after
+    // the next drawn frame at the BINDING level, independent of whether
+    // *this* State has since been disposed — the callback here closes over
+    // `_loginNotice` (a plain captured object), not over `ref`/`context`, so
+    // it keeps running even if this widget is gone by then. Because
+    // `loginNoticeProvider` is `keepAlive` and has no other invalidation
+    // path, without this a notice (reason + email) from a mount that never
+    // painted would otherwise leak into a later, unrelated LoginScreen
+    // mount. [LoginNotice.clear] is idempotent, so an unconditional call is
+    // safe.
+    //
+    // Two alternatives were tried and rejected — both break this file's own
+    // widget-test suite, confirmed by running it:
+    //   - Calling `_loginNotice.clear()` synchronously in `dispose()`
+    //     throws: Riverpod's `_debugCanModifyProviders` guard treats
+    //     widget-tree teardown as still "building" and raises "Tried to
+    //     modify a provider while the widget tree was building".
+    //   - Deferring that dispose()-time call via `Future(() {...})` —
+    //     Riverpod's own suggested workaround for the error above — trades
+    //     the crash for a `Timer` (`Future(...)` is `Timer.run` under the
+    //     hood) that `flutter_test` flags as a leaked pending timer across
+    //     the test boundary.
+    // Keeping the clear here, unconditional on `mounted`, reaches the same
+    // outcome through a path both Riverpod and flutter_test already
+    // support — no `dispose()`-time provider mutation at all.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loginNotice.clear());
   }
 
   @override
@@ -212,6 +270,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
 
           const SizedBox(height: VelvetSpacing.xl),
+
+          // ── Invite-accept hand-off notice (invite-accept post-success
+          //    design, 2026-09-01). No action button — the login form below
+          //    IS the action. Copy comes from the single
+          //    InviteHandoffFailure.userMessage mapping so this banner and
+          //    the invite screen's own fallback renderer cannot diverge.
+          if (_notice != null) ...<Widget>[
+            AuthBanner(
+              icon: Icons.info_outline_rounded,
+              color: BrandColors.accent,
+              message: InviteHandoffFailure(
+                reason: _notice!.reason,
+              ).userMessage(context),
+            ),
+            const SizedBox(height: VelvetSpacing.lg),
+          ],
 
           // ── EMAIL_NOT_VERIFIED inline banner
           if (_showUnverified) ...<Widget>[

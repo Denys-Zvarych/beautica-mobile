@@ -1277,6 +1277,22 @@
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   },
+  "inviteHandoffAccountReady": "Ваш акаунт створено. Увійдіть, використавши свою пошту та пароль, який ви щойно задали.",
+  "@inviteHandoffAccountReady": {
+    "description": "Login hand-off banner shown when accept-invite got a 2xx response the client could not parse (ResponseUnusableFailure) — the account was created server-side; invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffAccountMayBeReady": "Зʼєднання перервалося. Ваш акаунт, імовірно, вже створено — спробуйте увійти з паролем, який ви щойно задали. Якщо не вдасться, попросіть салон надіслати нове запрошення.",
+  "@inviteHandoffAccountMayBeReady": {
+    "description": "Login hand-off banner shown when the connection dropped after the accept-invite request was fully sent (NetworkFailure.mayHaveReachedServer) — invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffNoLongerValid": "Це запрошення вже використано. Якщо акаунт створено, увійдіть із паролем, який ви задали. Інакше попросіть салон надіслати нове запрошення.",
+  "@inviteHandoffNoLongerValid": {
+    "description": "Login hand-off banner shown when the invite token was already used/expired/not found (400 with no field-error map) — invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffEmailAlreadyRegistered": "Ця електронна пошта вже зареєстрована. Увійдіть у наявний акаунт або попросіть салон надіслати запрошення на іншу адресу.",
+  "@inviteHandoffEmailAlreadyRegistered": {
+    "description": "Login hand-off banner shown when accept-invite returned 409 (email already registered) — invite-accept post-success design, 2026-09-01."
+  },
 
   "roleSelectHeadline": "Welcome to premium\nBeauty Service",
   "@roleSelectHeadline": {
