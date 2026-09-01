@@ -40,7 +40,7 @@
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
 //  14.  kAuthPaths has exactly 12 entries — no undocumented extras.
 //  14b. kPiiPaths is a strict superset of kAuthPaths.
-//  15.  kPiiPaths has exactly 22 entries = kAuthPaths (12) + 10 authenticated
+//  15.  kPiiPaths has exactly 23 entries = kAuthPaths (12) + 11 authenticated
 //       PII paths: /api/v1/independent-masters/me,
 //       /api/v1/independent-masters/me/profile, /api/v1/masters/me, the two
 //       auth-gated discovery search paths /api/v1/search/masters +
@@ -49,13 +49,20 @@
 //       /api/v1/bookings, the MO-1 CLIENT appointment create endpoint
 //       /api/v1/appointments, the track 7.x Wave B PROVIDER→CLIENT
 //       feedback create endpoint /api/v1/client-reviews, the Phase 13.x
-//       CLIENT wish-list toggle endpoint /api/v1/favorites, and the Phase
+//       CLIENT wish-list toggle endpoint /api/v1/favorites, the Phase
 //       21.1 SALON_OWNER hub endpoint /api/v1/salons/mine (mobile-security
-//       MEDIUM follow-up, 2026-08-28 — SalonResponse carries phone + ownerId).
-//       The shared self-profile endpoint /api/v1/users/me (Finding S1,
+//       MEDIUM follow-up, 2026-08-28 — SalonResponse carries phone + ownerId),
+//       and /api/v1/masters/me/profile (mobile-security HIGH mandatory
+//       companion, 2026-09-01 — [HttpMasterRepository.updateMyProfile] now
+//       PATCHes this endpoint for SALON_MASTER; carries phone/bio/Instagram,
+//       same PII shape as its /independent-masters/me/profile sibling). The
+//       shared self-profile endpoint /api/v1/users/me (Finding S1,
 //       mobile-security MEDIUM 2026-08-31) is NOT counted here: it was
 //       PROMOTED to a kPiiPathPrefixes entry on 2026-09-01 (see test 18), so
-//       the count dropped 23 -> 22.
+//       the count dropped 23 -> 22 before the same-day
+//       /api/v1/masters/me/profile addition brought it back to 23 (a
+//       coincidence of arithmetic, not a reversion of test 18's promotion —
+//       /api/v1/users/me stays a prefix entry, not restored here).
 //  18.  kPiiPathSegments contains /services (Finding S2, mobile-security LOW
 //       2026-08-31 — GET /masters/{masterId}/services). A SEGMENT entry, so
 //       it does NOT change test 15's count either.
@@ -63,7 +70,7 @@
 //       MEDIUM follow-up, 2026-08-28 — PATCH /salons/{salonId} carries name/
 //       description/street/buildingNo/locationNote/phone/instagramUrl). This
 //       is a PREFIX entry (dynamic {salonId}), NOT an exact [kPiiPaths]
-//       member, so it does NOT change test 15's count of 22 — mirrors the
+//       member, so it does NOT change test 15's count of 23 — mirrors the
 //       pre-existing /api/v1/bookings (exact, counted) + /api/v1/bookings/
 //       (prefix, uncounted) pair, and the identical /api/v1/appointments
 //       pair. The exact-match /api/v1/salons/mine entry from test 15 is
@@ -399,6 +406,36 @@ void main() {
       );
     });
 
+    test('13j. /api/v1/masters/me/profile is in kPiiPaths (phone/bio/instagram '
+        'redaction) but NOT kAuthPaths — a SEPARATE entry from the sibling '
+        '/api/v1/masters/me', () {
+      expect(
+        kPiiPaths,
+        contains('/api/v1/masters/me/profile'),
+        reason:
+            'mobile-security HIGH mandatory companion (2026-09-01) — '
+            '[HttpMasterRepository.updateMyProfile] now PATCHes this '
+            'endpoint for SALON_MASTER, carrying the same phone/bio/'
+            'Instagram PII shape as its /independent-masters/me/profile '
+            'sibling; LoggingInterceptor must redact its body.',
+      );
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/masters/me/profile')),
+        reason:
+            'Authenticated endpoint — must carry a Bearer token; placing it '
+            'in kAuthPaths causes AuthInterceptor to skip token injection '
+            '→ 401.',
+      );
+      // Pins the near-miss risk exact matching creates (see this file's own
+      // isPiiPath doc note): the SIBLING /api/v1/masters/me entry does NOT
+      // cover this path — removing THIS entry while leaving the sibling in
+      // place must still fail this assertion (proven via mutation, not
+      // static string comparison — see the QA pass's mutation evidence).
+      expect(isPiiPath('/api/v1/masters/me/profile'), isTrue);
+      expect(isPiiPath('/api/v1/masters/me/profile/'), isFalse);
+    });
+
     // -----------------------------------------------------------------------
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
@@ -443,31 +480,31 @@ void main() {
         reason:
             'kPiiPaths must contain additional entries beyond kAuthPaths '
             '(/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-            '/api/v1/masters/me, /api/v1/search/masters, /api/v1/search/salons, '
-            '/api/v1/bookings, /api/v1/appointments, /api/v1/client-reviews, '
-            '/api/v1/favorites and /api/v1/salons/mine; /api/v1/users/me is '
-            'covered by a kPiiPathPrefixes entry, not this set).',
+            '/api/v1/masters/me, /api/v1/masters/me/profile, /api/v1/search/masters, '
+            '/api/v1/search/salons, /api/v1/bookings, /api/v1/appointments, '
+            '/api/v1/client-reviews, /api/v1/favorites and /api/v1/salons/mine; '
+            '/api/v1/users/me is covered by a kPiiPathPrefixes entry, not this set).',
       );
     });
 
     test(
-      '15. kPiiPaths has exactly 22 entries (kAuthPaths union + 10 authenticated PII paths)',
+      '15. kPiiPaths has exactly 23 entries (kAuthPaths union + 11 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(22),
+          equals(23),
           reason:
               'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-              '/api/v1/masters/me, the two auth-gated discovery search paths '
-              '/api/v1/search/masters + /api/v1/search/salons, the '
+              '/api/v1/masters/me, /api/v1/masters/me/profile, the two auth-gated '
+              'discovery search paths /api/v1/search/masters + /api/v1/search/salons, the '
               'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings, '
               'the MO-1 CLIENT appointment create endpoint /api/v1/appointments, '
               'the track 7.x Wave B PROVIDER→CLIENT feedback create '
               'endpoint /api/v1/client-reviews, the Phase 13.x CLIENT '
               'wish-list toggle endpoint /api/v1/favorites, and the Phase '
               '21.1 SALON_OWNER hub endpoint /api/v1/salons/mine '
-              '(10 authenticated PII paths = 22 total). The search paths were '
+              '(11 authenticated PII paths = 23 total). The search paths were '
               'added by commit b550428 (auth-gated address redaction); '
               '/api/v1/bookings was added by the Phase 14.0 security fix '
               '(POST /bookings carries the free-text clientComment field); '
@@ -479,12 +516,19 @@ void main() {
               '(POST/DELETE /favorites echoes the saved service/master ids); '
               '/api/v1/salons/mine was added by the mobile-security MEDIUM '
               'follow-up 2026-08-28 (GET /salons/mine returns SalonResponse, '
-              'which carries phone + ownerId). /api/v1/users/me is NOT in '
+              'which carries phone + ownerId); /api/v1/masters/me/profile was '
+              'added by the mobile-security HIGH mandatory companion, '
+              '2026-09-01 ([HttpMasterRepository.updateMyProfile] now PATCHes '
+              'this endpoint for SALON_MASTER — carries phone/bio/Instagram). '
+              '/api/v1/users/me is NOT in '
               'this count: Finding S1 (mobile-security MEDIUM, 2026-08-31) '
               'added it here as an exact entry, and the 2026-09-01 follow-up '
               'PROMOTED it to the /api/v1/users/me kPiiPathPrefixes entry so '
               'the live GET /users/me/rating sub-route is covered too — that '
-              'move is what took this count from 23 to 22 (see test 18). '
+              'move took this count from 23 to 22 (see test 18), and the '
+              'SAME-DAY /api/v1/masters/me/profile addition above brought it '
+              'back to 23 (arithmetic coincidence, not a reversion — '
+              '/api/v1/users/me stays a prefix entry). '
               'Update this count if new PII endpoints are added.',
         );
       },
@@ -505,7 +549,7 @@ void main() {
       // The exact-match /api/v1/salons/mine entry (counted in test 15's 23)
       // is untouched by this prefix addition.
       expect(kPiiPaths, contains('/api/v1/salons/mine'));
-      expect(kPiiPaths.length, equals(22));
+      expect(kPiiPaths.length, equals(23));
     });
 
     test('17. kPiiPathSegments contains /invite (Phase 21.4, staff-invite '
@@ -524,7 +568,7 @@ void main() {
       );
       // kPiiPathSegments is a separate list from kPiiPaths — adding to it
       // must NOT move test 15's exact-count ledger.
-      expect(kPiiPaths.length, equals(22));
+      expect(kPiiPaths.length, equals(23));
     });
 
     test('18. kPiiPathPrefixes contains /api/v1/users/me (Finding S1, '
@@ -567,7 +611,7 @@ void main() {
             'routes). Mirrors the /bookings segment entry.',
       );
       // A segment entry must NOT move test 15's exact-count ledger.
-      expect(kPiiPaths.length, equals(22));
+      expect(kPiiPaths.length, equals(23));
     });
   });
 }

@@ -87,6 +87,14 @@ const Set<String> kPiiPaths = {
   // Must be a separate entry because the path differs from the locality endpoint.
   '/api/v1/independent-masters/me/profile',
   '/api/v1/masters/me',
+  // Mandatory companion to the mobile-security HIGH fix 2026-09-01 —
+  // [HttpMasterRepository.updateMyProfile] now PATCHes this endpoint for
+  // SALON_MASTER (mirrors the sibling entry above for the
+  // INDEPENDENT_MASTER endpoint one line up). Same PII shape as
+  // `/independent-masters/me/profile`: phone number, bio, Instagram handle.
+  // Must be a separate exact entry — `/api/v1/masters/me` above does NOT
+  // cover this path (kPiiPaths is exact-match only, no prefix semantics).
+  '/api/v1/masters/me/profile',
   // Security fix 2026-06-25 — discovery search responses carry auth-gated
   // address fields (street, buildingNo) for authenticated callers. Redact the
   // response/request bodies in debug logs (the error-path logger in

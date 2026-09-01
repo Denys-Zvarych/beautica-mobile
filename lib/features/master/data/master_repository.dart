@@ -77,8 +77,20 @@ abstract interface class MasterRepository {
 
   /// Persists the authenticated master's editable profile fields.
   ///
-  /// Wraps `PATCH /independent-masters/me/profile`. All [update] fields are
-  /// trimmed before sending. Backend contract (`UserService.updateMasterProfile`):
+  /// Wraps `PATCH /independent-masters/me/profile` for
+  /// [MasterType.independentMaster] (the default — see [MasterUpdate
+  /// .masterType]) or `PATCH /masters/me/profile` for
+  /// [MasterType.salonMaster] — the caller MUST set [MasterUpdate.masterType]
+  /// to the actual role for any screen shared between the two (e.g.
+  /// `personal_info_edit_screen.dart`, `contacts_edit_screen.dart`), since
+  /// only the independent-master endpoint admits `INDEPENDENT_MASTER` and
+  /// only the salon-master endpoint admits `SALON_MASTER`
+  /// (`IndependentMasterController.java:93-94` /
+  /// `MasterController.java:486-487`, each single-role `@PreAuthorize`d;
+  /// `UserService.updateMasterProfile` unions the two roles as a
+  /// defence-in-depth backstop, it does not widen either controller's gate).
+  /// All [update] fields are trimmed before sending. Backend contract
+  /// (`UserService.updateMasterProfile`):
   ///   - `bio` and `instagram` are written whenever the key is **non-null**, so
   ///     an empty string `''` clears them server-side. They are therefore ALWAYS
   ///     included in the body (sending the trimmed value, `''` on clear).
@@ -231,9 +243,16 @@ final class HttpMasterRepository implements MasterRepository {
     // Trim all values before building the body so the backend never receives
     // untrimmed whitespace.
     //
-    // Endpoint: PATCH /independent-masters/me/profile (not /me, which is the
-    // locality endpoint). Field name is 'phoneNumber' (not 'contactPhone') to
-    // match MasterProfileUpdateRequest on the backend.
+    // Endpoint: role-aware — see the interface doc above for why. Both
+    // `personal_info_edit_screen.dart` and `contacts_edit_screen.dart` are
+    // shared between INDEPENDENT_MASTER and SALON_MASTER and pass the
+    // caller's actual [MasterUpdate.masterType] (from the already-loaded
+    // cached [Master.type]); [MasterType.salonOwner] and any future role
+    // fall through to the [MasterType.independentMaster] endpoint (the
+    // pre-existing default — no salon-owner-as-master caller exists yet).
+    // Field name is 'phoneNumber' (not 'contactPhone') to match
+    // MasterProfileUpdateRequest on the backend — same body shape on both
+    // endpoints.
     //
     // Backend contract (UserService.updateMasterProfile):
     //   - bio / instagram are persisted whenever the key is non-null, so an
@@ -257,12 +276,15 @@ final class HttpMasterRepository implements MasterRepository {
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
 
+    final String path = switch (update.masterType) {
+      MasterType.salonMaster => '/api/v1/masters/me/profile',
+      MasterType.independentMaster ||
+      MasterType.salonOwner => '/api/v1/independent-masters/me/profile',
+    };
+
     await _runIdempotentPatch(
       operation: 'updateMyProfile',
-      request: () => _dio.patch<Map<String, dynamic>>(
-        '/api/v1/independent-masters/me/profile',
-        data: body,
-      ),
+      request: () => _dio.patch<Map<String, dynamic>>(path, data: body),
     );
   }
 

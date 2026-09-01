@@ -30,10 +30,14 @@ import 'role_landing_chrome_matrix.dart';
 /// bottom-nav-chrome landing paths (Phase 21.1 — see the invariant test
 /// below for why this replaced a single shared literal). An addition here
 /// must be deliberate, paired with a matrix row update.
+///
+/// `RouteNames.salonMasterProfile` was REMOVED from this set 2026-09-01: the
+/// role's landing now hosts `VelvetBottomNavBar` (see
+/// `role_landing_chrome_matrix.dart`'s SALON_MASTER row), so it is no longer
+/// a chromeless landing.
 const Set<String> kChromelessLandingPaths = <String>{
   RouteNames.home,
   RouteNames.mySalons,
-  RouteNames.salonMasterProfile,
 };
 
 void main() {

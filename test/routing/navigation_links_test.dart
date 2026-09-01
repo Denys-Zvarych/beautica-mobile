@@ -397,6 +397,7 @@ void main() {
       'salonMasterProfile': RouteNames.salonMasterProfile,
       'salonMasterSettings': RouteNames.salonMasterSettings,
       'salonMasterEditPersonal': RouteNames.salonMasterEditPersonal,
+      'salonMasterEditContacts': RouteNames.salonMasterEditContacts,
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,

@@ -114,8 +114,45 @@ GoRouter _hubRouter() => GoRouter(
 
 /// mobile-qa (2026-09-01) — same hub, rooted at the SALON_MASTER `/staff/
 /// settings` location and carrying stub destinations for the SALON_MASTER
-/// additive-param wiring (`personalInfoRoute`, `fallbackHomeRoute`).
+/// additive-param wiring (`personalInfoRoute`, `contactsRoute`,
+/// `fallbackHomeRoute`). `contactsEnabled: true` — the «Контакти» row is a
+/// live phone-only push target for this role (2026-09-01).
 GoRouter _staffHubRouter() => GoRouter(
+  initialLocation: RouteNames.salonMasterSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.salonMasterSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        contactsEnabled: true,
+        contactsRoute: RouteNames.salonMasterEditContacts,
+        personalInfoRoute: RouteNames.salonMasterEditPersonal,
+        fallbackHomeRoute: RouteNames.salonMasterProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditContacts,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-contacts'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
+    ),
+  ],
+);
+
+/// A `_staffHubRouter` variant that still passes `contactsEnabled: false` —
+/// exercises the DISABLED «незабаром» rendering, which no current call site
+/// uses but remains a general-purpose, tested capability of the widget (see
+/// its class doc).
+GoRouter _staffHubRouterContactsDisabled() => GoRouter(
   initialLocation: RouteNames.salonMasterSettings,
   routes: <RouteBase>[
     GoRoute(
@@ -493,10 +530,13 @@ void main() {
 
   // ===========================================================================
   // mobile-qa (2026-09-01) — SALON_MASTER additive-param wiring
-  // (`showLocation`, `contactsEnabled`, `personalInfoRoute`,
+  // (`showLocation`, `contactsEnabled`, `contactsRoute`, `personalInfoRoute`,
   // `fallbackHomeRoute`). Debt item 3: `showLocation:`/`contactsEnabled:` had
   // NO consumer outside `settings_hub_screen.dart`/`app_router.dart` before
-  // this file.
+  // this file. `contactsEnabled: false` is no longer any current call site's
+  // wiring — SALON_MASTER's «Контакти» went live (phone-only) the same day —
+  // but stays a tested, general-purpose capability via
+  // `_staffHubRouterContactsDisabled`.
   // ===========================================================================
   group('SALON_MASTER additive params (showLocation / contactsEnabled / '
       'personalInfoRoute / fallbackHomeRoute)', () {
@@ -531,9 +571,11 @@ void main() {
     testWidgets(
       'contactsEnabled: false renders the «Контакти» row PRESENT but with '
       'Semantics(enabled: false), and absorbs the pointer before it reaches '
-      'onTap',
+      'onTap (general-purpose capability — no current call site passes '
+      'false; SALON_MASTER\'s own wiring is contactsEnabled: true, covered '
+      'below)',
       (tester) async {
-        final router = _staffHubRouter();
+        final router = _staffHubRouterContactsDisabled();
         addTearDown(router.dispose);
 
         await tester.pumpRoutedApp(router);

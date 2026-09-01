@@ -17,12 +17,23 @@
 // Multi-role reuse (SALON_MASTER's own «Особисті дані», `/staff/edit/
 // personal`): this screen is pushed by BOTH the INDEPENDENT_MASTER settings
 // hub (`/master/edit/personal`) and the SALON_MASTER one (`/staff/edit/
-// personal`) — same widget, same `MasterUpdate` shape, since
-// `PATCH /masters/me/profile` already admits both roles
-// (`MasterController.java:487`). The post-save `context.go` and the onBack
-// no-pop fallback therefore resolve their destination from
-// `cached.type` (the ALREADY-LOADED [Master.type]) rather than hardcoding
-// the INDEPENDENT_MASTER route — see `_homeRouteFor`/`_menuRouteFor` below.
+// personal`) — same widget, same `MasterUpdate` shape. The backend has TWO
+// single-role endpoints, not one shared one: `PATCH
+// /independent-masters/me/profile` admits only INDEPENDENT_MASTER
+// (`IndependentMasterController.java:93-94`) and `PATCH /masters/me/profile`
+// admits only SALON_MASTER (`MasterController.java:486-487`) — the ONLY
+// thing "admits both roles" is `UserService.updateMasterProfile`'s
+// defence-in-depth role union, which neither `@PreAuthorize` alone
+// satisfies. This save therefore passes `masterType: cached.type` (the
+// ALREADY-LOADED [Master.type]) on the [MasterUpdate] it builds, so
+// [HttpMasterRepository.updateMyProfile] PATCHes whichever endpoint the
+// caller's actual role admits — see that method's doc for the branch (a
+// bare unbranched call was a HIGH bug: every SALON_MASTER save 403'd).
+// The post-save `context.go` and the onBack no-pop fallback separately
+// resolve their destination from the SAME `cached.type` rather than
+// hardcoding the INDEPENDENT_MASTER route — see the promoted
+// `masterHomeRouteFor`/`masterMenuRouteFor` in `master_role_routes.dart`
+// (shared with `contacts_edit_screen.dart`, which has the identical need).
 // Mirrors the established `roleHomePath`-on-a-shared-screen pattern
 // (`settings_screen.dart`'s own fallback).
 //
@@ -55,11 +66,11 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 
 import 'master_profile_notifier.dart';
+import 'master_role_routes.dart';
 import 'widgets/section_scaffold.dart';
 
 /// Personal-info edit page (firstName + lastName + bio).
@@ -70,23 +81,6 @@ class PersonalInfoEditScreen extends ConsumerStatefulWidget {
   ConsumerState<PersonalInfoEditScreen> createState() =>
       _PersonalInfoEditScreenState();
 }
-
-/// The tab-root/landing route to return to after a successful save, resolved
-/// from the loaded [Master.type] rather than hardcoded — see this file's
-/// header "Multi-role reuse" note.
-String _homeRouteFor(MasterType type) => switch (type) {
-  MasterType.salonMaster => RouteNames.salonMasterProfile,
-  MasterType.independentMaster ||
-  MasterType.salonOwner => RouteNames.masterProfile,
-};
-
-/// The settings-hub route `onBack`'s no-pop fallback returns to, resolved
-/// the same way as [_homeRouteFor].
-String _menuRouteFor(MasterType type) => switch (type) {
-  MasterType.salonMaster => RouteNames.salonMasterSettings,
-  MasterType.independentMaster ||
-  MasterType.salonOwner => RouteNames.masterMenu,
-};
 
 class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     with SingleTickerProviderStateMixin {
@@ -343,13 +337,14 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
               bio: _bio.text.trim(),
               contactPhone: cached.phoneNumber ?? '',
               instagram: cached.instagram ?? '',
+              masterType: cached.type,
             ),
           );
 
       if (!mounted) return;
       ref.invalidate(masterProfileProvider);
       showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
-      context.go(_homeRouteFor(cached.type));
+      context.go(masterHomeRouteFor(cached.type));
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -424,7 +419,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(_menuRouteFor(cached.type));
+          context.go(masterMenuRouteFor(cached.type));
         }
       },
       footer: _reveal(

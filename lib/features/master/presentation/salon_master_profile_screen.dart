@@ -8,8 +8,20 @@
 // Scope (product decision, 2026-09-01 — "for now the salon master will not see
 // the salon profile at all, only his personal profile"): a read-only
 // first-person self-view ONLY. No salon profile, no «Команда»/team surface, no
-// bottom-nav shell, no services/bookings/schedule tabs — those are a later
-// increment.
+// services/bookings/schedule tabs — those are a later increment.
+//
+// Bottom nav (2026-09-01, later same day — "add nav bar exactly as on
+// independent master", confirmed literally when offered alternatives): this
+// screen hosts the SAME [VelvetBottomNavBar] the INDEPENDENT_MASTER's
+// [MasterProfileScreen] does, `activeIndex: 3` (Профіль). The other three
+// tiles (Послуги/Мої записи/Графік) target INDEPENDENT_MASTER-only routes
+// this role is gated away from — `auth_redirect.dart`'s `/services`,
+// `/master/*` and `/schedule` role gates bounce a SALON_MASTER straight back
+// to `roleHomePath` (`/staff/profile`, this same screen) before any frame of
+// the guarded destination ever builds, since `redirect` resolves ahead of
+// the route match. Verified live via
+// `test/routing/navigation_links_test.dart`'s matrix-driven harness. This is
+// accepted as the current interim state, not a bug to fix here.
 //
 // Identity card also carries the EMPLOYING salon's name + address, read-only
 // (user requirement, 2026-09-01: "location for salon master should [be the]
@@ -71,6 +83,8 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/features/master/application/salon_master_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -212,6 +226,9 @@ class _SalonMasterProfileScreenState
       // no route to pop back to. Mirrors `MasterProfileScreen`'s identical
       // `showBack: false`.
       showBack: false,
+      // Same shared bar every other master "tab" screen hosts — see this
+      // file's header for the tile-3-active / other-three-gated rationale.
+      bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-salon-master'),
         icon: Icons.tune_rounded,
@@ -330,16 +347,15 @@ class _SalonMasterProfileBody extends StatelessWidget {
         (affiliatedSalon != null && affiliatedSalon.name.trim().isNotEmpty)
         ? affiliatedSalon.name.trim()
         : null;
-    final String? salonLocalityLine = buildLocalityLine(affiliatedSalon?.city);
-    final String? salonStreetLine = buildStreetLine(
-      affiliatedSalon?.street,
-      affiliatedSalon?.buildingNo,
-    );
-    final String? salonCombinedAddressLine = buildCombinedAddressLine(
-      affiliatedSalon?.city,
-      affiliatedSalon?.street,
-      affiliatedSalon?.buildingNo,
-    );
+
+    // The employing salon's resolved address (locality + street/building) is
+    // rendered by [_SalonAddressRows] below — a small `ConsumerWidget`
+    // scoped to JUST those rows (Phase perf fix, 2026-09-01: this body used
+    // to `ref.watch(resolvedLocalityProvider(...))` itself, rebuilding the
+    // identity card / stats / bio / categories / contacts sections too on
+    // every `AsyncLoading -> AsyncData` locality resolve — see that widget's
+    // header for the full rationale and its `_ManagementHeroCard`
+    // (`salon_management_profile_screen.dart`) precedent).
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -389,23 +405,12 @@ class _SalonMasterProfileBody extends StatelessWidget {
                       // role has no personal location to edit and cannot edit
                       // the salon's, so — unlike `master_profile_screen.dart`'s
                       // identical-looking block — this renders with no tap
-                      // target at all. Same gate as every other
-                      // `MasterAddressBlock` call site: non-null exactly when
-                      // at least one of locality/street is visible.
-                      if (salonCombinedAddressLine != null) ...<Widget>[
-                        const SizedBox(height: VelvetSpacing.xs),
-                        MasterAddressBlock(
-                          keyPrefix: 'salon-master-profile-salon',
-                          icon: const AppIcon(
-                            BeauticaAssetIcons.locationMarker,
-                            size: MasterAddressBlock.iconSize,
-                            color: BrandColors.muted,
-                          ),
-                          localityLine: salonLocalityLine,
-                          streetLine: salonStreetLine,
-                          combinedLine: salonCombinedAddressLine,
-                        ),
-                      ],
+                      // target at all. [_SalonAddressRows] renders nothing
+                      // (`SizedBox.shrink()`) when neither locality nor
+                      // street is visible — same gate as every other
+                      // `MasterAddressBlock` call site, just moved inside the
+                      // extracted widget.
+                      _SalonAddressRows(salon: affiliatedSalon),
                     ],
                   ),
                 ),
@@ -568,6 +573,132 @@ class _SalonMasterProfileBody extends StatelessWidget {
               ],
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// The employing salon's resolved address rows — locality (city → district)
+/// plus street/building — on the identity card.
+///
+/// Extracted from [_SalonMasterProfileBody] (perf fix, 2026-09-01):
+/// `resolvedLocalityProvider` moves `AsyncLoading -> AsyncData` once the
+/// locality lookup resolves, and watching it at BODY scope rebuilt the whole
+/// five-section reveal (identity card / stats / bio / categories / contacts)
+/// for a change that only ever affects these two address lines. Scoping the
+/// `ConsumerWidget` to just the address rows — mirroring
+/// [_ManagementHeroCard]'s (`salon_management_profile_screen.dart`) use of a
+/// small `ConsumerWidget` rather than watching from the screen/body — confines
+/// the rebuild to this subtree; [_SalonMasterProfileBody] itself is back to a
+/// plain `StatelessWidget`.
+///
+/// Renders nothing (`SizedBox.shrink()`) when neither locality nor street is
+/// available — same gate [MasterAddressBlock]'s own `(null, null)` arm uses,
+/// just evaluated here instead of by the caller.
+class _SalonAddressRows extends ConsumerWidget {
+  const _SalonAddressRows({required this.salon});
+
+  /// The employing salon, or `null` when there is none to show an address
+  /// for (see [salonMasterOwnProfileProvider]'s header).
+  final Salon? salon;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final Salon? affiliatedSalon = salon;
+
+    // `Salon.city`/`.region` are legacy free-text fields the backend stopped
+    // writing at Phase 10.6 (see `Salon.city`'s own doc) — on this endpoint
+    // they are simply `null`, which is the bug this block fixes (the address
+    // used to render street-only because `buildLocalityLine(affiliatedSalon
+    // ?.city)` had nothing to read). The real locality now lives behind the
+    // `oblastId`/`cityId`/`districtId` taxonomy UUIDs, resolved to display
+    // names via `resolvedLocalityProvider` — the SAME shared provider
+    // `_ManagementHeroCard` (`salon_management_profile_screen.dart`) already
+    // uses for its own salon address line. Its underlying `oblastList`/
+    // `cityList`/`districtList` chain is `keepAlive: true` and memoized for
+    // the app lifetime, so watching it here (one row, not a recycled list
+    // item) triggers no extra network fetch beyond the app's first-ever
+    // locality read.
+    //
+    // ASYNC FALLBACK — copied from `_ManagementHeroCard` verbatim: `.value`
+    // collapses BOTH "still loading" and "resolution failed" to `null`
+    // uniformly, so this card never shows a spinner or an error box for the
+    // address — see that widget's own long comment for the full rationale.
+    // Whatever is already known synchronously from `affiliatedSalon` itself
+    // (street/buildingNo — plain fields, no lookup needed) renders on the
+    // very first frame via [buildFullAddressLine]'s independent-per-segment
+    // composition below; the city/district text fills in on the rebuild once
+    // the provider resolves. A salon whose lookup never resolves (or fails)
+    // still shows its street/building line — never nothing, never an error.
+    final ResolvedLocality? resolved = ref
+        .watch(
+          resolvedLocalityProvider(
+            oblastId: affiliatedSalon?.oblastId,
+            cityId: affiliatedSalon?.cityId,
+            districtId: affiliatedSalon?.districtId,
+          ),
+        )
+        .value;
+
+    // [MasterAddressBlock] needs three independently-composed strings
+    // (locality-alone / street-alone / everything-combined) — reused
+    // VERBATIM from `shared/formatters/address_lines.dart`, only fed
+    // different inputs than before:
+    //   - `buildStreetLine` is a generic "join two optional segments with a
+    //     comma, the second rides on the first" composer — exactly the
+    //     relationship a city has to its district, so it doubles as the
+    //     locality-line composer here instead of only ever seeing
+    //     street/buildingNo.
+    //   - `buildFullAddressLine` already composes the full city -> district
+    //     -> street -> building hierarchy on one line (Phase 21.14, built
+    //     for this exact `resolvedLocalityProvider` pairing) — this is the
+    //     same function `_ManagementHeroCard` calls for its own combined
+    //     line.
+    // No new formatter is added: every string below comes from a builder
+    // this file already imported.
+    final String? salonLocalityLine = buildStreetLine(
+      resolved?.city?.name,
+      resolved?.district?.name,
+    );
+    final String? salonStreetLine = buildStreetLine(
+      affiliatedSalon?.street,
+      affiliatedSalon?.buildingNo,
+    );
+    final String? salonCombinedAddressLine = buildFullAddressLine(
+      cityName: resolved?.city?.name,
+      districtName: resolved?.district?.name,
+      street: affiliatedSalon?.street,
+      buildingNo: affiliatedSalon?.buildingNo,
+    );
+    // Deliberately NO further fallback to the legacy `Salon.address` string
+    // here (unlike `_ManagementHeroCard`, which renders one flat `Text` and
+    // can afford one): `MasterAddressBlock` requires `combinedLine` to stay
+    // consistent with `localityLine`/`streetLine` (its `(null, null)` arm is
+    // a defensive `SizedBox.shrink()`, not a fallback), and `salon.address`
+    // decomposes into neither. Per the domain model's own doc, `cityId` is
+    // now DB-`NOT NULL` and backend-guaranteed on every real read, so this
+    // path only matters for the odd salon whose locality lookup fails AND
+    // has no street either — it falls back to `buildFullAddressLine`
+    // returning `null` and the whole block being omitted, same as before
+    // this fix for a salon with truly nothing to show.
+    if (salonCombinedAddressLine == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const SizedBox(height: VelvetSpacing.xs),
+        MasterAddressBlock(
+          keyPrefix: 'salon-master-profile-salon',
+          icon: const AppIcon(
+            BeauticaAssetIcons.locationMarker,
+            size: MasterAddressBlock.iconSize,
+            color: BrandColors.muted,
+          ),
+          localityLine: salonLocalityLine,
+          streetLine: salonStreetLine,
+          combinedLine: salonCombinedAddressLine,
+        ),
       ],
     );
   }

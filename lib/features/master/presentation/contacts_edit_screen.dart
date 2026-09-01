@@ -39,16 +39,38 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 
 import 'master_profile_notifier.dart';
+import 'master_role_routes.dart';
 import 'widgets/section_scaffold.dart';
 
 /// Contacts edit page (phone + instagram).
+//
+// Reused VERBATIM by the SALON_MASTER contacts edit
+// (`RouteNames.salonMasterEditContacts`, `/staff/edit/contacts`) via one
+// additive param — every existing (INDEPENDENT_MASTER) call site passes none
+// of it and renders EXACTLY as before:
+//   * [showInstagram] — SALON_MASTER contacts are phone-only (product
+//     decision: no Instagram, no location, for this role). `false` hides the
+//     field, its validator, and its dirty-tracking, and the save overlay
+//     preserves the cached Instagram verbatim instead of sending the (never
+//     rendered, never edited) controller text — see [_save]. The field is
+//     never sent as empty, which would CLEAR it server-side for a role that
+//     simply cannot see it.
+//
+// The post-save `context.go` and the onBack no-pop fallback resolve their
+// destination from `cached.type` via the shared `masterHomeRouteFor`/
+// `masterMenuRouteFor` (`master_role_routes.dart`) rather than hardcoding the
+// INDEPENDENT_MASTER route — same pattern as `personal_info_edit_screen.dart`,
+// which faced the identical multi-role-reuse need first.
 class ContactsEditScreen extends ConsumerStatefulWidget {
-  const ContactsEditScreen({super.key});
+  const ContactsEditScreen({super.key, this.showInstagram = true});
+
+  /// Whether the «Instagram» field renders. Defaults to `true`
+  /// (INDEPENDENT_MASTER, every pre-existing call site, unaffected).
+  final bool showInstagram;
 
   @override
   ConsumerState<ContactsEditScreen> createState() => _ContactsEditScreenState();
@@ -133,7 +155,7 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
     _phone = TextEditingController(text: _origPhone);
     _instagram = TextEditingController(text: _origInstagram);
 
-    for (final c in _editableControllers) {
+    for (final c in _dirtyTrackedControllers) {
       c.addListener(_onFormChanged);
     }
 
@@ -144,8 +166,10 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
   void dispose() {
     _screenProtection.release();
     if (_initialized) {
-      for (final c in _editableControllers) {
+      for (final c in _dirtyTrackedControllers) {
         c.removeListener(_onFormChanged);
+      }
+      for (final c in _editableControllers) {
         c.dispose();
       }
     }
@@ -161,6 +185,15 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_phone, _instagram];
 
+  // Controllers whose changes drive the dirty flag. Instagram is excluded
+  // when [ContactsEditScreen.showInstagram] is false — the field is not
+  // rendered so it can never be edited, and the save overlay always
+  // preserves the cached value regardless (see [_save]).
+  List<TextEditingController> get _dirtyTrackedControllers =>
+      widget.showInstagram
+      ? <TextEditingController>[_phone, _instagram]
+      : <TextEditingController>[_phone];
+
   // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
   // and its animation wrappers are not rebuilt on every keystroke.
   void _onFormChanged() {
@@ -170,7 +203,7 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
   bool get _isDirty =>
       _initialized &&
       (_phone.text.trim() != _origPhone ||
-          _instagram.text.trim() != _origInstagram);
+          (widget.showInstagram && _instagram.text.trim() != _origInstagram));
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
     final Animation<Offset> slide = _slideTween.animate(anim);
@@ -220,7 +253,9 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
     final ok = _formKey.currentState!.validate();
     setState(() {
       _errPhone = _validatePhone(_phone.text);
-      _errInstagram = _validateInstagram(_instagram.text);
+      _errInstagram = widget.showInstagram
+          ? _validateInstagram(_instagram.text)
+          : null;
     });
     return ok;
   }
@@ -248,7 +283,14 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
     try {
       // CRITICAL: merge phone + instagram onto the cached name + bio so the
       // PATCH never clears the firstName/lastName/bio fields this page does not
-      // edit.
+      // edit. When [ContactsEditScreen.showInstagram] is false the Instagram
+      // field is never rendered/edited — send the cached value verbatim so a
+      // SALON_MASTER's phone-only save never clears it.
+      //
+      // `masterType: cached.type` also picks the endpoint that actually
+      // admits the caller's role — see [HttpMasterRepository.updateMyProfile]'s
+      // doc. Without it, this shared screen sent every SALON_MASTER save to
+      // the INDEPENDENT_MASTER-only endpoint, which 403'd.
       await ref
           .read(masterRepositoryProvider)
           .updateMyProfile(
@@ -257,17 +299,20 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
               lastName: cached.lastName,
               bio: cached.bio ?? '',
               contactPhone: _phone.text.trim(),
-              instagram: _instagram.text.trim(),
+              instagram: widget.showInstagram
+                  ? _instagram.text.trim()
+                  : (cached.instagram ?? ''),
               // Preserve the cached professional title — this page does not
               // edit it; passing '' would clear it server-side.
               professionalTitle: cached.professionalTitle ?? '',
+              masterType: cached.type,
             ),
           );
 
       if (!mounted) return;
       ref.invalidate(masterProfileProvider);
       showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
-      context.go(RouteNames.masterProfile);
+      context.go(masterHomeRouteFor(cached.type));
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -327,7 +372,7 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.masterMenu);
+          context.go(masterMenuRouteFor(cached.type));
         }
       },
       footer: _reveal(
@@ -388,34 +433,36 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
                 },
               ),
             ),
-            const SizedBox(height: VelvetSpacing.lg),
-            _reveal(
-              _anim2,
-              FormField<String>(
-                key: const Key('field-instagram'),
-                initialValue: _instagram.text,
-                validator: (_) => _validateInstagram(_instagram.text),
-                builder: (FormFieldState<String> field) {
-                  return VelvetField(
-                    label: l10n.instagramLabel,
-                    controller: _instagram,
-                    enabled: !_saving,
-                    optional: true,
-                    prefixText: '@',
-                    hint: l10n.masterEditInstagramHint,
-                    errorText: _errInstagram,
-                    onChanged: (v) {
-                      _clearServerError('instagram');
-                      field.didChange(v);
-                      final next = _validateInstagram(_instagram.text);
-                      if (next != _errInstagram) {
-                        setState(() => _errInstagram = next);
-                      }
-                    },
-                  );
-                },
+            if (widget.showInstagram) ...<Widget>[
+              const SizedBox(height: VelvetSpacing.lg),
+              _reveal(
+                _anim2,
+                FormField<String>(
+                  key: const Key('field-instagram'),
+                  initialValue: _instagram.text,
+                  validator: (_) => _validateInstagram(_instagram.text),
+                  builder: (FormFieldState<String> field) {
+                    return VelvetField(
+                      label: l10n.instagramLabel,
+                      controller: _instagram,
+                      enabled: !_saving,
+                      optional: true,
+                      prefixText: '@',
+                      hint: l10n.masterEditInstagramHint,
+                      errorText: _errInstagram,
+                      onChanged: (v) {
+                        _clearServerError('instagram');
+                        field.didChange(v);
+                        final next = _validateInstagram(_instagram.text);
+                        if (next != _errInstagram) {
+                          setState(() => _errInstagram = next);
+                        }
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

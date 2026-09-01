@@ -116,7 +116,9 @@ class RoleLandingExpectation {
 ///                           (NO chrome), `/salons/home` (Phase 21.8) →
 ///                           SalonHomeResolverScreen, a TRANSIENT stopover
 ///                           that forwards to `/salons/:salonId/shell` →
-///                           SalonShellScreen (hosts SalonBottomNav).
+///                           SalonShellScreen (hosts SalonBottomNav),
+///                           `/staff/profile` → SalonMasterProfileScreen
+///                           (hosts VelvetBottomNavBar, 2026-09-01).
 ///
 /// "No chrome" and "lands on the bare `/` placeholder" are NOT the same
 /// thing (Phase 21.1 split them) — a no-chrome row's `expectedLandingPath`
@@ -131,10 +133,9 @@ class RoleLandingExpectation {
 /// │                     │ (resolver, 21.8) │ via the shell it forwards to  │
 /// │ SALON_ADMIN         │ /salons/home     │ SalonBottomNav (REQUIRED) —   │
 /// │                     │ (resolver, 21.8) │ same shared shell as owner    │
-/// │ SALON_MASTER        │ /staff/profile   │ none — read-only self-view    │
-/// │                     │                  │ landing, no bottom-nav shell  │
-/// │                     │                  │ yet (intentional, current     │
-/// │                     │                  │ scope)                        │
+/// │ SALON_MASTER        │ /staff/profile   │ VelvetBottomNavBar (REQUIRED) │
+/// │                     │                  │ — same shared bar as          │
+/// │                     │                  │ INDEPENDENT_MASTER (2026-09-01)│
 /// └─────────────────────┴──────────────────┴──────────────────────────────┘
 final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
   RoleLandingExpectation(
@@ -175,27 +176,22 @@ final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
     chromeDescription: 'SalonBottomNav (the Salon Shell bar, Phase 21.8)',
     locationIsTransient: true,
   ),
-  // ── Intentional no-chrome row (current scope). NOT a gap — it pins the
-  // CURRENT intended state so a future bottom-nav shell for SALON_MASTER
-  // flips the row (hasChrome → true + a chromeFinder) and is caught.
-  //
   // Fixes the "blank home" bug: SALON_MASTER used to fall through
   // `roleHomePath`'s `_` wildcard onto the bare `_Placeholder('home')` at
   // `/`. It now lands on a REAL screen — `SalonMasterProfileScreen`, the
-  // role's own read-only personal-profile self-view — that simply has no
-  // persistent bottom-nav bar of its own yet (product decision: "for now
-  // the salon master will not see the salon profile at all, only his
-  // personal profile"; no salon profile, no team surface, no shell — a
-  // later increment).
-  const RoleLandingExpectation(
+  // role's own read-only personal-profile self-view (no salon profile, no
+  // team surface — still a later increment) — which, as of 2026-09-01, hosts
+  // the SAME `VelvetBottomNavBar` INDEPENDENT_MASTER's `MasterProfileScreen`
+  // does, `activeIndex: 3`. This row previously pinned `hasChrome: false`;
+  // this is the flip that comment predicted.
+  RoleLandingExpectation(
     role: UserRole.salonMaster,
     expectedLandingPath: RouteNames.salonMasterProfile, // '/staff/profile'
-    hasChrome: false,
-    comingSoonReason:
-        'SALON_MASTER lands on its own read-only profile self-view '
-        '(`/staff/profile`), which intentionally has no bottom-nav shell '
-        'yet — no salon profile, no team surface, no shell (later '
-        'increment, product decision 2026-09-01).',
+    hasChrome: true,
+    chromeFinder: find.byType(VelvetBottomNavBar),
+    chromeDescription:
+        'VelvetBottomNavBar (the master-profile 4-tile bar, shared with '
+        'INDEPENDENT_MASTER)',
   ),
 ];
 

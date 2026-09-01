@@ -819,6 +819,7 @@ void main() {
         RouteNames.salonMasterProfile, // /staff/profile
         RouteNames.salonMasterSettings, // /staff/settings
         RouteNames.salonMasterEditPersonal, // /staff/edit/personal
+        RouteNames.salonMasterEditContacts, // /staff/edit/contacts
       ];
 
       for (final route in staffRoutes) {

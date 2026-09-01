@@ -1619,13 +1619,17 @@ GoRouter appRouter(Ref ref) {
       // Settings hub reached from the profile's trailing `tune_rounded`
       // action. REUSE-FIRST: the SAME [SettingsHubScreen] widget
       // `RouteNames.masterMenu` renders, via its additive
-      // `showLocation`/`contactsEnabled`/`personalInfoRoute`/
-      // `fallbackHomeRoute` params — see that widget's own class doc.
+      // `showLocation`/`contactsEnabled`/`contactsRoute`/`personalInfoRoute`/
+      // `fallbackHomeRoute` params — see that widget's own class doc. The
+      // «Контакти» row is live here (`contactsEnabled: true`), pushing the
+      // phone-only [ContactsEditScreen] variant at
+      // [RouteNames.salonMasterEditContacts].
       GoRoute(
         path: RouteNames.salonMasterSettings,
         builder: (context, state) => const SettingsHubScreen(
           showLocation: false,
-          contactsEnabled: false,
+          contactsEnabled: true,
+          contactsRoute: RouteNames.salonMasterEditContacts,
           personalInfoRoute: RouteNames.salonMasterEditPersonal,
           fallbackHomeRoute: RouteNames.salonMasterProfile,
         ),
@@ -1637,6 +1641,16 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.salonMasterEditPersonal,
         builder: (context, state) => const PersonalInfoEditScreen(),
+      ),
+      // «Контакти» edit for a SALON_MASTER — phone only. Reuses
+      // [ContactsEditScreen] via its additive `showInstagram: false` param
+      // (see `route_names.dart`'s [RouteNames.salonMasterEditContacts] doc
+      // and `contacts_edit_screen.dart`'s class doc for why Instagram is
+      // excluded for this role).
+      GoRoute(
+        path: RouteNames.salonMasterEditContacts,
+        builder: (context, state) =>
+            const ContactsEditScreen(showInstagram: false),
       ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.

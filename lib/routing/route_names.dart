@@ -611,8 +611,10 @@ abstract final class RouteNames {
   // landing bug (an invited SALON_MASTER previously fell through
   // `roleHomePath`'s wildcard onto the bare `/` placeholder; see
   // `role_home.dart`). Read-only self-view ONLY: no salon profile, no
-  // «Команда»/team surface, no bottom-nav shell — those are a later
-  // increment (product decision, see the phase doc).
+  // «Команда»/team surface — those are a later increment (product decision,
+  // see the phase doc). Hosts the same `VelvetBottomNavBar` shell as
+  // INDEPENDENT_MASTER (2026-09-01) — see
+  // `salon_master_profile_screen.dart`'s header for the gated-tile caveat.
   //
   // Deliberately its OWN `/staff/*` subtree, not a widened `/master/*`
   // (INDEPENDENT_MASTER-only — bookings/schedule/services must stay fenced
@@ -623,20 +625,33 @@ abstract final class RouteNames {
 
   /// Settings hub reached from [salonMasterProfile]'s trailing
   /// `tune_rounded` action. Renders the SAME [SettingsHubScreen] widget
-  /// [masterMenu] does (additive `showLocation: false` + `contactsEnabled:
-  /// false` params — a SALON_MASTER has no personal location, and no
-  /// contacts-edit destination exists for this role yet) — see
-  /// `settings_hub_screen.dart`.
+  /// [masterMenu] does (additive `showLocation: false` — a SALON_MASTER has
+  /// no personal location — plus `contactsEnabled: true` +
+  /// `contactsRoute: salonMasterEditContacts`, a phone-only «Контакти» edit
+  /// — see `settings_hub_screen.dart`).
   static const String salonMasterSettings = '/staff/settings';
 
   /// «Особисті дані» edit for a SALON_MASTER. Reuses [PersonalInfoEditScreen]
-  /// VERBATIM — the same widget [masterEditPersonal] pushes — since the
-  /// backend `PATCH /masters/me/profile` it calls already admits
-  /// SALON_MASTER (`MasterController.java:487`). Registered under its own
-  /// `/staff/*` path rather than widening [masterEditPersonal]'s guard, so
-  /// the rest of `/master/*` stays fenced to INDEPENDENT_MASTER exactly as
+  /// VERBATIM — the same widget [masterEditPersonal] pushes. The screen
+  /// itself picks the endpoint that admits SALON_MASTER: `PATCH
+  /// /masters/me/profile` (`MasterController.java:486-487`), NOT the
+  /// `/independent-masters/me/profile` endpoint [masterEditPersonal]'s
+  /// INDEPENDENT_MASTER save uses — see [MasterUpdate.masterType] /
+  /// [HttpMasterRepository.updateMyProfile] for the branch (a HIGH bug fixed
+  /// 2026-09-01: the repository used to hardcode the independent-master path
+  /// for every caller, 403ing every SALON_MASTER save). Registered under its
+  /// own `/staff/*` path rather than widening [masterEditPersonal]'s guard,
+  /// so the rest of `/master/*` stays fenced to INDEPENDENT_MASTER exactly as
   /// before.
   static const String salonMasterEditPersonal = '/staff/edit/personal';
+
+  /// «Контакти» edit for a SALON_MASTER — phone only (product decision: no
+  /// Instagram, no location, for this role). Reuses [ContactsEditScreen] via
+  /// its additive `showInstagram: false` param — the same widget
+  /// [masterEditContacts] pushes for INDEPENDENT_MASTER, same shape as
+  /// [salonMasterEditPersonal] above. Registered under its own `/staff/*`
+  /// path rather than widening [masterEditContacts]'s guard.
+  static const String salonMasterEditContacts = '/staff/edit/contacts';
 
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
