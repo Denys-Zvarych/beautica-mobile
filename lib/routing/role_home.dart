@@ -25,14 +25,17 @@ import 'route_names.dart';
 ///   * [UserRole.salonAdmin]        → [RouteNames.salonHome] — same shared
 ///     landing as the owner; the resolver reads `session.user.salonId`
 ///     synchronously (an admin belongs to exactly one salon) instead of
-///     watching `mySalonsProvider`. Previously fell through to the `_`
-///     wildcard below and landed on the bare `_Placeholder('home')`.
-///   * every other role             → [RouteNames.home] (`/`, the home shell
-///     "coming soon" surface).
+///     watching `mySalonsProvider`.
+///   * [UserRole.salonMaster]       → [RouteNames.salonMasterProfile], the
+///     role's own read-only personal-profile surface (`/staff/profile`).
+///     Previously fell through the `_` wildcard below and landed on the bare
+///     `_Placeholder('home')` — the "blank home" bug. The switch is now
+///     EXHAUSTIVE over every [UserRole] value with no wildcard, so a future
+///     sixth role is a compile error here rather than another blank page.
 String roleHomePath(UserRole role) => switch (role) {
   UserRole.independentMaster => RouteNames.masterProfile,
   UserRole.client => RouteNames.clientHome,
   UserRole.salonOwner => RouteNames.salonHome,
   UserRole.salonAdmin => RouteNames.salonHome,
-  _ => RouteNames.home,
+  UserRole.salonMaster => RouteNames.salonMasterProfile,
 };

@@ -226,6 +226,24 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate: /staff/* is only accessible to SALON_MASTER.
+  //
+  // The symmetric counterpart of the /master/* gate immediately above: the
+  // invited SALON_MASTER's own read-only personal-profile surface
+  // (`/staff/profile`, `/staff/settings`, `/staff/edit/personal`) — the fix
+  // for the "blank home" landing bug (see `role_home.dart`). Deliberately a
+  // SEPARATE subtree from `/master/*` rather than a widened admission there:
+  // INDEPENDENT_MASTER's bookings/schedule/services surfaces under
+  // `/master/*` must stay fenced off from SALON_MASTER, which this scope
+  // explicitly does not grant. Any other authenticated role that navigates
+  // to a /staff/* path is redirected to its own landing.
+  if (isAuthenticated && location.startsWith('/staff/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.salonMaster) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
   // Role gate (Phase 250): /salon/* is only accessible to SALON_OWNER /
   // SALON_ADMIN.
   //

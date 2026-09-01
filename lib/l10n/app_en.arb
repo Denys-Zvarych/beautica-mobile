@@ -1339,6 +1339,11 @@
     "description": "Caption under the services stat tile and section header on the master profile screen."
   },
 
+  "masterOwnCategoriesLabel": "My categories",
+  "@masterOwnCategoriesLabel": {
+    "description": "Section header on the SALON_MASTER own-profile screen (`SalonMasterProfileScreen`) above the read-only service-category cards — ported verbatim from the approved design's «Мої категорії» heading. Distinct from masterServicesLabel, which the owner/admin's THIRD-PERSON view of a staff member uses instead."
+  },
+
   "masterPortfolioLabel": "Portfolio",
   "@masterPortfolioLabel": {
     "description": "Section label above the portfolio horizontal row on the master profile screen."
@@ -2759,6 +2764,10 @@
   "settingsHubContacts": "Contacts",
   "@settingsHubContacts": {
     "description": "Settings hub row label that opens the contacts edit page."
+  },
+  "settingsHubContactsSoon": "coming soon",
+  "@settingsHubContactsSoon": {
+    "description": "Trailing value on the disabled «Контакти» row in the SALON_MASTER own-profile settings hub — no contacts-edit destination exists yet for this role. Mirrors adminSettingsConvertToMasterSoon's convention."
   },
   "settingsHubLocation": "Location",
   "@settingsHubLocation": {

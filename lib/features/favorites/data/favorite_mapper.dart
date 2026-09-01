@@ -108,8 +108,8 @@ abstract final class FavoriteMapper {
       initials: initialsOf(name),
       rating: _ratingOrNull(dto.avgRating),
       // Provider-authored — sanitized, matching every other display string in
-      // this method. `salonName` is what draws `_AffiliationLine`; it is NOT
-      // used to derive `salonId`/navigation (out of scope for this render).
+      // this method. `salonName` is what draws `SalonAffiliationLine`; it is
+      // NOT used to derive `salonId`/navigation (out of scope for this render).
       salonName: _visibleOrNull(dto.salonName),
       categories: _categoriesFromDto(dto.categories),
       cityLabel: _visibleOrNull(dto.cityLabel),

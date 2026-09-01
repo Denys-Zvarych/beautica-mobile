@@ -390,6 +390,13 @@ void main() {
       'masterEditContacts': RouteNames.masterEditContacts,
       'masterEditLocation': RouteNames.masterEditLocation,
       'masterReceivedReviews': RouteNames.masterReceivedReviews,
+      // SALON_MASTER's own personal-profile surface — fixes the "blank
+      // home" landing bug (see `role_home.dart`). Standalone top-level
+      // routes, same rationale as `masterProfile`/`masterMenu`/
+      // `masterEditPersonal` above.
+      'salonMasterProfile': RouteNames.salonMasterProfile,
+      'salonMasterSettings': RouteNames.salonMasterSettings,
+      'salonMasterEditPersonal': RouteNames.salonMasterEditPersonal,
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,
@@ -532,158 +539,167 @@ void main() {
   // success — it deliberately leaves navigation to the router's refresh
   // listener. So this test wires authRedirect into the minimal GoRouter and
   // asserts that the router resolves to / after a successful accept.
-  group('NL-22: /invite/accept success → / via router redirect', () {
-    testWidgets('NL-22: tapping invite_accept CTA with valid form and successful '
-        'repository call causes the router to navigate to /', (tester) async {
-      const kToken = 'valid-invite-token';
+  group('NL-22: /invite/accept success → /staff/profile via router redirect', () {
+    testWidgets(
+      'NL-22: tapping invite_accept CTA with valid form and successful '
+      'repository call causes the router to navigate to /staff/profile',
+      (tester) async {
+        const kToken = 'valid-invite-token';
 
-      final validInvite = InviteDetails(
-        email: 'masha@salon.ua',
-        role: UserRole.salonMaster,
-        expiresAt: DateTime.now().add(const Duration(hours: 48)),
-      );
-
-      // We need a ProviderScope so we can override acceptInviteProvider,
-      // authRepositoryProvider, and secureStorageProvider simultaneously.
-      // The router's redirect calls authRedirectForLocation with a captured
-      // session — we capture it via authProvider.
-      final repo = FakeAuthRepository();
-      // Force acceptInvite() to return a salonMaster user so the role-based
-      // router redirect lands on /home (salonMaster has no dedicated route yet).
-      repo.acceptInviteResult = (
-        const User(
-          id: 'invited-u1',
+        final validInvite = InviteDetails(
           email: 'masha@salon.ua',
           role: UserRole.salonMaster,
-          firstName: 'Марія',
-          lastName: 'Бондар',
-        ),
-        const AuthTokens(
-          accessToken: 'access-token',
-          refreshToken: 'refresh-token',
-        ),
-      );
-      final storage = FakeSecureStorage();
+          expiresAt: DateTime.now().add(const Duration(hours: 48)),
+        );
 
-      // A container that starts with an unauthenticated session and
-      // transitions to Authenticated after acceptInvite() succeeds.
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
-        overrides: [
-          authRepositoryProvider.overrideWith((_) => repo),
-          secureStorageProvider.overrideWith((_) => storage),
-          acceptInviteProvider(
-            kToken,
-          ).overrideWith(() => _SyncInviteNotifier(validInvite)),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      // Build a minimal router that wires the REAL authRedirect so the
-      // authenticated→unauthOnlyRoute guard is exercised.
-      final router = GoRouter(
-        initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
-        // Fire the redirect on every navigation (same pattern as production).
-        refreshListenable: _ContainerListenable(container),
-        redirect: (context, state) =>
-            authRedirect(container.read(authProvider), state),
-        routes: <RouteBase>[
-          GoRoute(
-            path: RouteNames.acceptInvite,
-            builder: (context, state) {
-              final t = state.uri.queryParameters['token'] ?? '';
-              return AcceptInviteScreen(token: t);
-            },
+        // We need a ProviderScope so we can override acceptInviteProvider,
+        // authRepositoryProvider, and secureStorageProvider simultaneously.
+        // The router's redirect calls authRedirectForLocation with a captured
+        // session — we capture it via authProvider.
+        final repo = FakeAuthRepository();
+        // Force acceptInvite() to return a salonMaster user so the role-based
+        // router redirect lands on /staff/profile — the SALON_MASTER own-
+        // profile landing (fixes the "blank home" bug; see `role_home.dart`).
+        repo.acceptInviteResult = (
+          const User(
+            id: 'invited-u1',
+            email: 'masha@salon.ua',
+            role: UserRole.salonMaster,
+            firstName: 'Марія',
+            lastName: 'Бондар',
           ),
-          GoRoute(
-            path: RouteNames.home,
-            builder: (_, _) => const _Probe('home'),
+          const AuthTokens(
+            accessToken: 'access-token',
+            refreshToken: 'refresh-token',
           ),
-          GoRoute(
-            path: RouteNames.login,
-            builder: (_, _) => const _Probe('login'),
+        );
+        final storage = FakeSecureStorage();
+
+        // A container that starts with an unauthenticated session and
+        // transitions to Authenticated after acceptInvite() succeeds.
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            acceptInviteProvider(
+              kToken,
+            ).overrideWith(() => _SyncInviteNotifier(validInvite)),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Build a minimal router that wires the REAL authRedirect so the
+        // authenticated→unauthOnlyRoute guard is exercised.
+        final router = GoRouter(
+          initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
+          // Fire the redirect on every navigation (same pattern as production).
+          refreshListenable: _ContainerListenable(container),
+          redirect: (context, state) =>
+              authRedirect(container.read(authProvider), state),
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.acceptInvite,
+              builder: (context, state) {
+                final t = state.uri.queryParameters['token'] ?? '';
+                return AcceptInviteScreen(token: t);
+              },
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (_, _) => const _Probe('home'),
+            ),
+            GoRoute(
+              path: RouteNames.salonMasterProfile,
+              builder: (_, _) => const _Probe('staff-profile'),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (_, _) => const _Probe('login'),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
           ),
-        ],
-      );
-      addTearDown(router.dispose);
+        );
+        // Wait for acceptInviteProvider Stream to deliver AsyncData.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp.router(
-            routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
-          ),
-        ),
-      );
-      // Wait for acceptInviteProvider Stream to deliver AsyncData.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.pumpAndSettle();
+        // Fill password (shared 8-char minimum — same policy as register/reset).
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPass12',
+        );
+        await tester.pump();
 
-      // Fill password (shared 8-char minimum — same policy as register/reset).
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_password')),
-        'StrongPass12',
-      );
-      await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.pump();
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_first_name')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_first_name')),
-        'Марія',
-      );
-      await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.pump();
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_last_name')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_last_name')),
-        'Бондар',
-      );
-      await tester.pump();
+        // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
+        // without it _formValid stays false and the CTA never enables.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_phone')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0671234567',
+        );
+        await tester.pump();
 
-      // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
-      // without it _formValid stays false and the CTA never enables.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_phone')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_phone')),
-        '0671234567',
-      );
-      await tester.pump();
+        // Tap the accept CTA.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
 
-      // Tap the accept CTA.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_accept')),
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        // Let the async acceptInvite() complete and the session update settle.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
 
-      // Let the async acceptInvite() complete and the session update settle.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // The router's redirect must have forwarded the now-authenticated user
-      // from /invite/accept (an unauthOnlyRoute) to /.
-      final currentUri = router.routerDelegate.currentConfiguration.uri
-          .toString();
-      expect(
-        currentUri,
-        equals(RouteNames.home),
-        reason:
-            'After a successful acceptInvite() the session transitions to '
-            'Authenticated. The router redirect fires because the user is now '
-            'authenticated on /invite/accept (an unauthOnlyRoute) and must be '
-            'forwarded to /.',
-      );
-    });
+        // The router's redirect must have forwarded the now-authenticated user
+        // from /invite/accept (an unauthOnlyRoute) to their role landing —
+        // roleHomePath(salonMaster) = /staff/profile.
+        final currentUri = router.routerDelegate.currentConfiguration.uri
+            .toString();
+        expect(
+          currentUri,
+          equals(RouteNames.salonMasterProfile),
+          reason:
+              'After a successful acceptInvite() the session transitions to '
+              'Authenticated. The router redirect fires because the user is now '
+              'authenticated on /invite/accept (an unauthOnlyRoute) and must be '
+              'forwarded to roleHomePath(salonMaster) = /staff/profile.',
+        );
+      },
+    );
   });
 
   // ===========================================================================

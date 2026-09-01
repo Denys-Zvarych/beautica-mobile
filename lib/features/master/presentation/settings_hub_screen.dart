@@ -35,8 +35,48 @@ import 'widgets/section_scaffold.dart';
 import 'widgets/settings_row.dart';
 
 /// The settings hub reached from the master profile menu icon.
+//
+// Reused VERBATIM by the SALON_MASTER own-profile settings hub
+// (`RouteNames.salonMasterSettings`, `/staff/settings`) via three additive
+// params — every existing (INDEPENDENT_MASTER) call site passes none of them
+// and renders EXACTLY as before:
+//   * [showLocation]    — SALON_MASTER has no personal location to manage
+//     (works from the salon's address, which is the salon's to edit, not
+//     theirs); the row is omitted entirely rather than disabled, since it
+//     names a concept that does not apply to the role at all.
+//   * [contactsEnabled] — no contacts-edit destination exists yet for
+//     SALON_MASTER; the row ships PRESENT BUT DISABLED («незабаром»),
+//     following the `AdminSettingsScreen` «Перевести в майстри» precedent —
+//     never a fake success, never silently dropped.
+//   * [personalInfoRoute] / [fallbackHomeRoute] — the «Особисті дані» row's
+//     push target and the hub's own onBack no-pop fallback, so the SAME
+//     [SettingsRow] destinations resolve per-role without forking the hub.
 class SettingsHubScreen extends ConsumerStatefulWidget {
-  const SettingsHubScreen({super.key});
+  const SettingsHubScreen({
+    super.key,
+    this.showLocation = true,
+    this.contactsEnabled = true,
+    this.personalInfoRoute = RouteNames.masterEditPersonal,
+    this.fallbackHomeRoute = RouteNames.masterProfile,
+  });
+
+  /// Whether the «Локація» row renders. Defaults to `true` (INDEPENDENT_
+  /// MASTER, every pre-existing call site).
+  final bool showLocation;
+
+  /// Whether the «Контакти» row is a live push target. `false` renders it
+  /// PRESENT BUT DISABLED with a «незабаром» trailing value — see the class
+  /// doc. Defaults to `true` (INDEPENDENT_MASTER, unaffected).
+  final bool contactsEnabled;
+
+  /// Push target for the «Особисті дані» row. Defaults to
+  /// [RouteNames.masterEditPersonal] (INDEPENDENT_MASTER, unaffected).
+  final String personalInfoRoute;
+
+  /// `onBack`'s no-pop fallback destination (reached only when this hub is
+  /// somehow the FIRST route in its stack — e.g. a deep link). Defaults to
+  /// [RouteNames.masterProfile] (INDEPENDENT_MASTER, unaffected).
+  final String fallbackHomeRoute;
 
   @override
   ConsumerState<SettingsHubScreen> createState() => _SettingsHubScreenState();
@@ -122,7 +162,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.masterProfile);
+          context.go(widget.fallbackHomeRoute);
         }
       },
       body: Column(
@@ -143,34 +183,49 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
               key: const Key('row-personal'),
               icon: Icons.person_outline_rounded,
               label: l10n.settingsHubPersonal,
-              onTap: () => context.push(RouteNames.masterEditPersonal),
+              onTap: () => context.push(widget.personalInfoRoute),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
           _reveal(
             _anim2,
-            SettingsRow(
-              key: const Key('row-contacts'),
-              icon: Icons.call_outlined,
-              label: l10n.settingsHubContacts,
-              onTap: () => context.push(RouteNames.masterEditContacts),
-            ),
+            widget.contactsEnabled
+                ? SettingsRow(
+                    key: const Key('row-contacts'),
+                    icon: Icons.call_outlined,
+                    label: l10n.settingsHubContacts,
+                    onTap: () => context.push(RouteNames.masterEditContacts),
+                  )
+                : SettingsRow(
+                    key: const Key('row-contacts'),
+                    icon: Icons.call_outlined,
+                    label: l10n.settingsHubContacts,
+                    // No contacts-edit destination exists yet for this
+                    // caller (SALON_MASTER) — present but visibly inert,
+                    // never a fake success. See the class doc.
+                    enabled: false,
+                    showChevron: false,
+                    value: l10n.settingsHubContactsSoon,
+                    onTap: () {},
+                  ),
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          _reveal(
-            _anim3,
-            SettingsRow(
-              key: const Key('row-location'),
-              icon: Icons.location_on_outlined,
-              iconWidget: const AppIcon(
-                BeauticaAssetIcons.locationMarker,
-                size: 19,
-                color: BrandColors.accentDeep,
+          if (widget.showLocation) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _reveal(
+              _anim3,
+              SettingsRow(
+                key: const Key('row-location'),
+                icon: Icons.location_on_outlined,
+                iconWidget: const AppIcon(
+                  BeauticaAssetIcons.locationMarker,
+                  size: 19,
+                  color: BrandColors.accentDeep,
+                ),
+                label: l10n.settingsHubLocation,
+                onTap: () => context.push(RouteNames.masterEditLocation),
               ),
-              label: l10n.settingsHubLocation,
-              onTap: () => context.push(RouteNames.masterEditLocation),
             ),
-          ),
+          ],
           const SizedBox(height: VelvetSpacing.md),
           _reveal(
             _anim4,

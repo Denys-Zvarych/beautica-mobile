@@ -14,6 +14,18 @@
 // Save flow: validate → updateMyProfile(merged) → invalidate
 // masterProfileProvider → saved VelvetSnack → pop.
 //
+// Multi-role reuse (SALON_MASTER's own «Особисті дані», `/staff/edit/
+// personal`): this screen is pushed by BOTH the INDEPENDENT_MASTER settings
+// hub (`/master/edit/personal`) and the SALON_MASTER one (`/staff/edit/
+// personal`) — same widget, same `MasterUpdate` shape, since
+// `PATCH /masters/me/profile` already admits both roles
+// (`MasterController.java:487`). The post-save `context.go` and the onBack
+// no-pop fallback therefore resolve their destination from
+// `cached.type` (the ALREADY-LOADED [Master.type]) rather than hardcoding
+// the INDEPENDENT_MASTER route — see `_homeRouteFor`/`_menuRouteFor` below.
+// Mirrors the established `roleHomePath`-on-a-shared-screen pattern
+// (`settings_screen.dart`'s own fallback).
+//
 // Server field errors: [ValidationFailure.fieldErrors] keyed by field name.
 // Each validator checks the server error first, then the local rule.
 //
@@ -58,6 +70,23 @@ class PersonalInfoEditScreen extends ConsumerStatefulWidget {
   ConsumerState<PersonalInfoEditScreen> createState() =>
       _PersonalInfoEditScreenState();
 }
+
+/// The tab-root/landing route to return to after a successful save, resolved
+/// from the loaded [Master.type] rather than hardcoded — see this file's
+/// header "Multi-role reuse" note.
+String _homeRouteFor(MasterType type) => switch (type) {
+  MasterType.salonMaster => RouteNames.salonMasterProfile,
+  MasterType.independentMaster ||
+  MasterType.salonOwner => RouteNames.masterProfile,
+};
+
+/// The settings-hub route `onBack`'s no-pop fallback returns to, resolved
+/// the same way as [_homeRouteFor].
+String _menuRouteFor(MasterType type) => switch (type) {
+  MasterType.salonMaster => RouteNames.salonMasterSettings,
+  MasterType.independentMaster ||
+  MasterType.salonOwner => RouteNames.masterMenu,
+};
 
 class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     with SingleTickerProviderStateMixin {
@@ -320,7 +349,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
       if (!mounted) return;
       ref.invalidate(masterProfileProvider);
       showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
-      context.go(RouteNames.masterProfile);
+      context.go(_homeRouteFor(cached.type));
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -395,7 +424,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.masterMenu);
+          context.go(_menuRouteFor(cached.type));
         }
       },
       footer: _reveal(

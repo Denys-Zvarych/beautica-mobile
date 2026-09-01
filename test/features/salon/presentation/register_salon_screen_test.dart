@@ -37,11 +37,14 @@ import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_tap_row.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/register_salon_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/register_salon_screen.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -53,6 +56,7 @@ import 'package:go_router/go_router.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/fakes/fake_service_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -501,6 +505,20 @@ void main() {
             authProvider.overrideWith(() => _FixedRoleAuthNotifier(nonOwner)),
             authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+            // roleHomePath(salonMaster) now resolves to a real landing
+            // (RouteNames.salonMasterProfile -> SalonMasterProfileScreen,
+            // fixing the "blank home" bug) instead of falling through the
+            // old wildcard arm onto the bare `/` placeholder. Settle its two
+            // data sources synchronously so the bounce doesn't leak a Dio
+            // request/Timer — same overrides
+            // `salon_manage_route_guard_test.dart` uses for the identical
+            // SALON_MASTER bounce case.
+            masterProfileProvider.overrideWith(
+              _SettledMasterProfileNotifier.new,
+            ),
+            publicServiceRepositoryProvider.overrideWith(
+              (_) => FakeServiceRepository(),
+            ),
           ],
         );
         addTearDown(container.dispose);
@@ -524,13 +542,18 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(RegisterSalonScreen), findsNothing);
-        // SALON_MASTER falls into roleHomePath's wildcard arm — bounced to
-        // the bare `/` placeholder, the cheapest landing to assert against
-        // (no data providers needed).
+        // roleHomePath(salonMaster) is RouteNames.salonMasterProfile
+        // (`/staff/profile`, SalonMasterProfileScreen) — the role's own
+        // read-only self-view landing. `roleHomePath`'s switch is exhaustive
+        // now (the old `_ =>` wildcard that dumped every non-mapped role on
+        // the bare `/` placeholder is gone), so SALON_MASTER was chosen
+        // deliberately: it is the role this gate actually bounces in
+        // production, and asserting its REAL landing is a stronger check
+        // than the old blank-page assertion ever was.
         expect(
           // router-location-ok: only router.go(...) is used in this group.
           router.routerDelegate.currentConfiguration.uri.toString(),
-          equals(RouteNames.home),
+          equals(RouteNames.salonMasterProfile),
         );
       },
     );
@@ -567,4 +590,21 @@ class _FixedRoleAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async =>
       AuthSession.authenticated(user: _user, accessToken: 'tok');
+}
+
+/// [MasterProfile] stub that resolves immediately so a SALON_MASTER bounced
+/// to `RouteNames.salonMasterProfile` mounts `SalonMasterProfileScreen`
+/// without the real Dio stack firing — mirrors
+/// `salon_manage_route_guard_test.dart`'s `_SettledMasterProfileNotifier`
+/// (same leaked-timer avoidance).
+class _SettledMasterProfileNotifier extends MasterProfile {
+  @override
+  Future<Master> build() async => const Master(
+    id: 'sm-register-gate-1',
+    firstName: 'Salon',
+    lastName: 'Master',
+    avgRating: 0,
+    reviewCount: 0,
+    type: MasterType.salonMaster,
+  );
 }

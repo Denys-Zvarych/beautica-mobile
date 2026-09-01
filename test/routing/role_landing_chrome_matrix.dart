@@ -131,7 +131,10 @@ class RoleLandingExpectation {
 /// │                     │ (resolver, 21.8) │ via the shell it forwards to  │
 /// │ SALON_ADMIN         │ /salons/home     │ SalonBottomNav (REQUIRED) —   │
 /// │                     │ (resolver, 21.8) │ same shared shell as owner    │
-/// │ SALON_MASTER        │ /  (placeholder) │ none — coming soon (intended) │
+/// │ SALON_MASTER        │ /staff/profile   │ none — read-only self-view    │
+/// │                     │                  │ landing, no bottom-nav shell  │
+/// │                     │                  │ yet (intentional, current     │
+/// │                     │                  │ scope)                        │
 /// └─────────────────────┴──────────────────┴──────────────────────────────┘
 final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
   RoleLandingExpectation(
@@ -172,17 +175,27 @@ final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
     chromeDescription: 'SalonBottomNav (the Salon Shell bar, Phase 21.8)',
     locationIsTransient: true,
   ),
-  // ── Intentional no-chrome row (MVP "coming soon"). NOT a gap — it pins
-  // the CURRENT intended state so a future shell that ships for
-  // SALON_MASTER flips the row (hasChrome → true + a chromeFinder) and is
-  // caught.
+  // ── Intentional no-chrome row (current scope). NOT a gap — it pins the
+  // CURRENT intended state so a future bottom-nav shell for SALON_MASTER
+  // flips the row (hasChrome → true + a chromeFinder) and is caught.
+  //
+  // Fixes the "blank home" bug: SALON_MASTER used to fall through
+  // `roleHomePath`'s `_` wildcard onto the bare `_Placeholder('home')` at
+  // `/`. It now lands on a REAL screen — `SalonMasterProfileScreen`, the
+  // role's own read-only personal-profile self-view — that simply has no
+  // persistent bottom-nav bar of its own yet (product decision: "for now
+  // the salon master will not see the salon profile at all, only his
+  // personal profile"; no salon profile, no team surface, no shell — a
+  // later increment).
   const RoleLandingExpectation(
     role: UserRole.salonMaster,
-    expectedLandingPath: RouteNames.home, // '/'
+    expectedLandingPath: RouteNames.salonMasterProfile, // '/staff/profile'
     hasChrome: false,
     comingSoonReason:
-        'SALON_MASTER (invited, read-only calendar) has no /master shell '
-        '(that surface is INDEPENDENT_MASTER-only). Lands on `/` by design.',
+        'SALON_MASTER lands on its own read-only profile self-view '
+        '(`/staff/profile`), which intentionally has no bottom-nav shell '
+        'yet — no salon profile, no team surface, no shell (later '
+        'increment, product decision 2026-09-01).',
   ),
 ];
 

@@ -33,6 +33,7 @@ import 'role_landing_chrome_matrix.dart';
 const Set<String> kChromelessLandingPaths = <String>{
   RouteNames.home,
   RouteNames.mySalons,
+  RouteNames.salonMasterProfile,
 };
 
 void main() {

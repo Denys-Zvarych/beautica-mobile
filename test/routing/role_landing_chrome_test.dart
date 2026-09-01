@@ -399,6 +399,14 @@ ProviderContainer _authedContainer(UserRole role) {
       masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
       masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
       serviceRepositoryProvider.overrideWith((_) => FakeServiceRepository()),
+      // SalonMasterProfileScreen (the SALON_MASTER row) resolves its
+      // services via `salonMasterOwnProfileProvider`, which reads
+      // `publicServiceRepositoryProvider` — a SEPARATE provider from
+      // `serviceRepositoryProvider` above. Settle it the same way so the
+      // row never fires a real Dio call / leaks a wall-clock Timer.
+      publicServiceRepositoryProvider.overrideWith(
+        (_) => FakeServiceRepository(),
+      ),
       // MasterProfileScreen's categories section watches
       // `approvedCategoriesProvider`, which builds via the REAL authenticated
       // Dio (it bypasses serviceRepositoryProvider). Settle it with an empty

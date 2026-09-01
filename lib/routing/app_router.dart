@@ -77,6 +77,7 @@ import '../features/master/presentation/master_received_reviews_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
+import '../features/master/presentation/salon_master_profile_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
@@ -1602,6 +1603,40 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.masterReceivedReviews,
         builder: (context, state) => const MasterReceivedReviewsScreen(),
+      ),
+      // SALON_MASTER's own personal-profile surface — fixes the "blank home"
+      // landing bug (see `role_home.dart`). `builder:` (MaterialPage), not
+      // `pageBuilder: _instantPage` — this is the `roleHomePath` landing,
+      // reached only via `context.go`, so there is no swipe-back gesture to
+      // arm (Flutter disarms it for any `isFirst` route regardless of page
+      // type); kept for the same theme-driven page-transition builder every
+      // other tab-root screen gets, mirroring `RouteNames.masterProfile`
+      // immediately above.
+      GoRoute(
+        path: RouteNames.salonMasterProfile,
+        builder: (context, state) => const SalonMasterProfileScreen(),
+      ),
+      // Settings hub reached from the profile's trailing `tune_rounded`
+      // action. REUSE-FIRST: the SAME [SettingsHubScreen] widget
+      // `RouteNames.masterMenu` renders, via its additive
+      // `showLocation`/`contactsEnabled`/`personalInfoRoute`/
+      // `fallbackHomeRoute` params — see that widget's own class doc.
+      GoRoute(
+        path: RouteNames.salonMasterSettings,
+        builder: (context, state) => const SettingsHubScreen(
+          showLocation: false,
+          contactsEnabled: false,
+          personalInfoRoute: RouteNames.salonMasterEditPersonal,
+          fallbackHomeRoute: RouteNames.salonMasterProfile,
+        ),
+      ),
+      // «Особисті дані» edit for a SALON_MASTER — reuses [PersonalInfoEditScreen]
+      // VERBATIM (see `route_names.dart`'s [RouteNames.salonMasterEditPersonal]
+      // doc for why this is a second route registration rather than a widened
+      // `/master/edit/personal` guard).
+      GoRoute(
+        path: RouteNames.salonMasterEditPersonal,
+        builder: (context, state) => const PersonalInfoEditScreen(),
       ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.

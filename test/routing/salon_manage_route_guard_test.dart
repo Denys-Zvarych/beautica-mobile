@@ -41,8 +41,11 @@
 //     HomeHubScreen — needs its 5 data providers settled, same overrides
 //     `role_landing_chrome_test.dart` uses, or a Riverpod retry Timer
 //     outlives the test).
-//   • SALON_MASTER → roleHomePath = RouteNames.home ('/', the bare
-//     no-chrome placeholder) — needs NO extra overrides.
+//   • SALON_MASTER → roleHomePath = RouteNames.salonMasterProfile
+//     (`/staff/profile`, `SalonMasterProfileScreen` — the role's own
+//     read-only self-view landing, fixing the "blank home" bug) — needs
+//     `masterProfileProvider` + `publicServiceRepositoryProvider` settled,
+//     same overrides `role_landing_chrome_test.dart` uses.
 //   • unauthenticated → the GLOBAL `authRedirect` prefix gate (not
 //     `salonManageGuard`) sends it to `/login`, alongside whatever
 //     `salonManageGuard` itself would have done.
@@ -59,6 +62,8 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -78,6 +83,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_s
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -89,6 +95,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/fakes/fake_service_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -107,6 +114,23 @@ class _SettledSalonManagementProfile extends SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async =>
       (_kSalon, const <SalonStaffMember>[]);
+}
+
+/// [MasterProfile] stub that resolves immediately so a SALON_MASTER bounced
+/// to `RouteNames.salonMasterProfile` mounts `SalonMasterProfileScreen`
+/// without the real Dio stack firing — same leaked-timer avoidance as
+/// [_SettledSalonManagementProfile] above (and
+/// `role_landing_chrome_test.dart`'s identical stub).
+class _SettledMasterProfileNotifier extends MasterProfile {
+  @override
+  Future<Master> build() async => const Master(
+    id: 'sm-guard-1',
+    firstName: 'Salon',
+    lastName: 'Master',
+    avgRating: 0,
+    reviewCount: 0,
+    type: MasterType.salonMaster,
+  );
 }
 
 /// [PendingInvites] stub that resolves IMMEDIATELY to an empty list — for the
@@ -383,9 +407,7 @@ void main() {
           // Settles the CLIENT redirect target (RouteNames.clientHome →
           // HomeHubScreen's 5 data providers) synchronously — same
           // leaked-Timer avoidance `role_landing_chrome_test.dart` documents
-          // in full for these exact 5 overrides. SALON_MASTER's redirect
-          // target (RouteNames.home, the bare `/` placeholder) needs none of
-          // these — it renders no data at all.
+          // in full for these exact 5 overrides.
           clientProfileProvider.overrideWith(
             (ref) async => const ClientProfileSummary(
               firstName: 'Test',
@@ -404,6 +426,18 @@ void main() {
             (ref) async => const <TimelineEntry>[],
           ),
           myRatingProvider.overrideWith((ref) async => const ClientRating()),
+          // Settles SALON_MASTER's redirect target
+          // (`RouteNames.salonMasterProfile`, `/staff/profile` —
+          // `SalonMasterProfileScreen`) synchronously: `masterProfileProvider`
+          // (`GET /masters/me`) and `publicServiceRepositoryProvider`
+          // (`GET /masters/{id}/services`) both bypass the real Dio stack, so
+          // this `pumpRouterAs(..., initialSettle: true)` -> `pumpAndSettle()`
+          // never waits on an unresolved connection-timeout Timer. Mirrors
+          // `role_landing_chrome_test.dart`'s identical pair of overrides.
+          masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
+          publicServiceRepositoryProvider.overrideWith(
+            (_) => FakeServiceRepository(),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -531,19 +565,16 @@ void main() {
         },
       );
 
-      testWidgets(
-        'SALON_MASTER is redirected to roleHomePath (RouteNames.home), never '
-        'admitted',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _salonMasterSession);
+      testWidgets('SALON_MASTER is redirected to roleHomePath '
+          '(RouteNames.salonMasterProfile), never admitted', (tester) async {
+        final router = await pumpRouterAs(tester, _salonMasterSession);
 
-          router.go(RouteNames.salonManage(_kSalonId));
-          await tester.pumpAndSettle();
+        router.go(RouteNames.salonManage(_kSalonId));
+        await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.home));
-          expect(find.byType(SalonManagementProfileScreen), findsNothing);
-        },
-      );
+        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expect(find.byType(SalonManagementProfileScreen), findsNothing);
+      });
 
       testWidgets(
         'unauthenticated is redirected to /login by the global authRedirect '
@@ -657,19 +688,16 @@ void main() {
         },
       );
 
-      testWidgets(
-        'SALON_MASTER is redirected to roleHomePath (RouteNames.home), never '
-        'admitted',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _salonMasterSession);
+      testWidgets('SALON_MASTER is redirected to roleHomePath '
+          '(RouteNames.salonMasterProfile), never admitted', (tester) async {
+        final router = await pumpRouterAs(tester, _salonMasterSession);
 
-          router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
-          await tester.pumpAndSettle();
+        router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
+        await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.home));
-          expect(find.byType(SalonStaffProfileScreen), findsNothing);
-        },
-      );
+        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expect(find.byType(SalonStaffProfileScreen), findsNothing);
+      });
 
       testWidgets(
         'unauthenticated is redirected to /login by the global authRedirect '
@@ -808,19 +836,16 @@ void main() {
         },
       );
 
-      testWidgets(
-        'SALON_MASTER is redirected to roleHomePath (RouteNames.home), never '
-        'admitted',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _salonMasterSession);
+      testWidgets('SALON_MASTER is redirected to roleHomePath '
+          '(RouteNames.salonMasterProfile), never admitted', (tester) async {
+        final router = await pumpRouterAs(tester, _salonMasterSession);
 
-          router.go(RouteNames.salonManageSettings(_kSalonId));
-          await tester.pumpAndSettle();
+        router.go(RouteNames.salonManageSettings(_kSalonId));
+        await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.home));
-          expect(find.byType(SalonSettingsScreen), findsNothing);
-        },
-      );
+        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expect(find.byType(SalonSettingsScreen), findsNothing);
+      });
 
       testWidgets(
         'unauthenticated is redirected to /login by the global authRedirect '
@@ -1315,19 +1340,16 @@ void main() {
         },
       );
 
-      testWidgets(
-        'SALON_MASTER is redirected to roleHomePath (RouteNames.home), never '
-        'admitted',
-        (tester) async {
-          final router = await pumpRouterAs(tester, _salonMasterSession);
+      testWidgets('SALON_MASTER is redirected to roleHomePath '
+          '(RouteNames.salonMasterProfile), never admitted', (tester) async {
+        final router = await pumpRouterAs(tester, _salonMasterSession);
 
-          router.go(RouteNames.salonPendingInvites(_kSalonId));
-          await tester.pumpAndSettle();
+        router.go(RouteNames.salonPendingInvites(_kSalonId));
+        await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.home));
-          expect(find.byType(SalonPendingInvitesScreen), findsNothing);
-        },
-      );
+        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expect(find.byType(SalonPendingInvitesScreen), findsNothing);
+      });
 
       testWidgets(
         'unauthenticated is redirected to /login by the global authRedirect '

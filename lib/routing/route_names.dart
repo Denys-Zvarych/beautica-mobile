@@ -607,6 +607,37 @@ abstract final class RouteNames {
   static const String masterEditContacts = '/master/edit/contacts';
   static const String masterEditLocation = '/master/edit/location';
 
+  // SALON_MASTER's own personal-profile surface — fixes the "blank home"
+  // landing bug (an invited SALON_MASTER previously fell through
+  // `roleHomePath`'s wildcard onto the bare `/` placeholder; see
+  // `role_home.dart`). Read-only self-view ONLY: no salon profile, no
+  // «Команда»/team surface, no bottom-nav shell — those are a later
+  // increment (product decision, see the phase doc).
+  //
+  // Deliberately its OWN `/staff/*` subtree, not a widened `/master/*`
+  // (INDEPENDENT_MASTER-only — bookings/schedule/services must stay fenced
+  // off from SALON_MASTER) and not `/salons/*` (salon management,
+  // owner/admin-only). Gated to SALON_MASTER exclusively in
+  // `auth_redirect.dart`.
+  static const String salonMasterProfile = '/staff/profile';
+
+  /// Settings hub reached from [salonMasterProfile]'s trailing
+  /// `tune_rounded` action. Renders the SAME [SettingsHubScreen] widget
+  /// [masterMenu] does (additive `showLocation: false` + `contactsEnabled:
+  /// false` params — a SALON_MASTER has no personal location, and no
+  /// contacts-edit destination exists for this role yet) — see
+  /// `settings_hub_screen.dart`.
+  static const String salonMasterSettings = '/staff/settings';
+
+  /// «Особисті дані» edit for a SALON_MASTER. Reuses [PersonalInfoEditScreen]
+  /// VERBATIM — the same widget [masterEditPersonal] pushes — since the
+  /// backend `PATCH /masters/me/profile` it calls already admits
+  /// SALON_MASTER (`MasterController.java:487`). Registered under its own
+  /// `/staff/*` path rather than widening [masterEditPersonal]'s guard, so
+  /// the rest of `/master/*` stays fenced to INDEPENDENT_MASTER exactly as
+  /// before.
+  static const String salonMasterEditPersonal = '/staff/edit/personal';
+
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
   // masterId from the session (authProvider), so the reviews are always the
