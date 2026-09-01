@@ -51,6 +51,7 @@ import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -579,67 +580,18 @@ class _ProfileBody extends StatelessWidget {
         if (master.bio != null && master.bio!.isNotEmpty)
           const SizedBox(height: VelvetSpacing.xl),
 
-        // 4 — Portfolio section: placeholder tiles (Phase 4.4 ships real ones).
+        // 4 — Portfolio section: placeholder tiles (Phase 4.4 ships real
+        // ones). REUSE-FIRST — [PortfolioRail] promoted to
+        // shared/widgets/portfolio_rail.dart; also used by
+        // public_master_profile_screen.dart and the salon owner/admin
+        // «Про салон» tab.
         _revealWith(
           anim3,
           slide3,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: VelvetSpacing.xs,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    Text(
-                      l10n.masterPortfolioLabel,
-                      style: VelvetText.sectionLabel(),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () {
-                        // Phase 4.4 — portfolio gallery route.
-                      },
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(l10n.masterAllPhotos, style: VelvetText.link()),
-                          const SizedBox(width: 2),
-                          const Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            size: 12,
-                            color: BrandColors.accentDeep,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Placeholder tiles — horizontal scroll of 6 tiles matching
-              // the design's portfolio row. Replaced by real Image.network
-              // tiles in Phase 4.4.
-              SizedBox(
-                height: 72,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  // M-3 fix: match the BouncingScrollPhysics convention used
-                  // by the outer vertical scroll in profile_scaffold.dart.
-                  physics: const BouncingScrollPhysics(),
-                  padding: EdgeInsets.zero,
-                  child: Row(
-                    children: <Widget>[
-                      for (int i = 0; i < 6; i++) ...<Widget>[
-                        _PortfolioPlaceholderTile(index: i),
-                        if (i < 5) const SizedBox(width: VelvetSpacing.md),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
+          PortfolioRail(
+            onSeeAll: () {
+              // Phase 4.4 — portfolio gallery route.
+            },
           ),
         ),
         const SizedBox(height: VelvetSpacing.xl),
@@ -888,85 +840,6 @@ class _ProfileCategoriesSection extends ConsumerWidget {
           ],
         );
       },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _PortfolioPlaceholderTile
-// ---------------------------------------------------------------------------
-
-/// Raised 72×72 tile with a camel-mocha gradient fill — simulates a photo.
-/// Replaced by real [Image.network] tiles in Phase 4.4.
-class _PortfolioPlaceholderTile extends StatefulWidget {
-  const _PortfolioPlaceholderTile({required this.index});
-
-  final int index;
-
-  @override
-  State<_PortfolioPlaceholderTile> createState() =>
-      _PortfolioPlaceholderTileState();
-}
-
-class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
-  bool _pressed = false;
-
-  static const List<List<Color>> _fills = <List<Color>>[
-    <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
-    <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
-    <Color>[Color(0xFFDFC6A8), Color(0xFFB89A7A)],
-    <Color>[Color(0xFFC8A878), Color(0xFF6A4A28)],
-    <Color>[Color(0xFFCFB090), Color(0xFF8A6840)],
-    <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
-  ];
-
-  static final Color _glyphColor = BrandColors.white.withValues(alpha: 0.65);
-
-  @override
-  Widget build(BuildContext context) {
-    final List<Color> fill = _fills[widget.index % _fills.length];
-    return Semantics(
-      label: AppLocalizations.of(
-        context,
-      ).masterPortfolioTileSemantics(widget.index + 1),
-      button: true,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) => setState(() => _pressed = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 130),
-          height: 72,
-          width: 72,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(VelvetRadii.field),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: fill,
-            ),
-            boxShadow: _pressed
-                ? null
-                : const <BoxShadow>[
-                    BoxShadow(
-                      color: BrandColors.shadowDarkButton,
-                      offset: Offset(2, 2),
-                      blurRadius: 5,
-                      spreadRadius: -1,
-                    ),
-                    BoxShadow(
-                      color: BrandColors.shadowLightStrong,
-                      offset: Offset(-2, -2),
-                      blurRadius: 5,
-                      spreadRadius: -1,
-                    ),
-                  ],
-          ),
-          child: Center(
-            child: Icon(Icons.photo_outlined, color: _glyphColor, size: 22),
-          ),
-        ),
-      ),
     );
   }
 }

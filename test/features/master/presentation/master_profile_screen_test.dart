@@ -61,6 +61,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -459,6 +460,36 @@ void main() {
       expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
       expect(find.text(_stubMaster.bio!), findsOneWidget);
     });
+
+    // mobile-qa gap-closure (shared-widget promotion, 2026-09-01) — this
+    // screen's own PortfolioRail call site (`master_profile_screen.dart:591`,
+    // `onSeeAll: () {}` — link VISIBLE, the one call site that differs from
+    // the other two consumers) had ZERO portfolio assertions before this
+    // test, on the old private tile as well as the promoted shared one.
+    testWidgets(
+      'renders the portfolio rail with 6 tiles and the «Всі фото» link '
+      '(onSeeAll supplied — the master\'s own editable profile keeps the '
+      'link the other two consumers omit)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PortfolioRail), findsOneWidget);
+        expect(find.byType(PortfolioTile), findsNWidgets(6));
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterAllPhotos), findsOneWidget);
+      },
+    );
 
     testWidgets('shows correct rating and reviews values', (tester) async {
       await tester.pumpApp(

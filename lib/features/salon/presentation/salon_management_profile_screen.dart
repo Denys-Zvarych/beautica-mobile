@@ -14,8 +14,11 @@
 //   [SalonMasterCard]                             — the «Персонал» grid cards
 //   [SalonServicesAccordion]                      — «Послуги» tab (unchanged)
 //   [SalonReviewsSection]                         — «Відгуки» tab (unchanged)
-// `ContactTile` (shared/widgets) for the phone/Instagram rows. None of these
-// were forked or copied.
+// `ContactTile` and `PortfolioRail` (shared/widgets) for the phone/Instagram
+// rows and the «Портфоліо» placeholder rail, respectively — [PortfolioRail]
+// is itself promoted from the independent master's profile screen (was two
+// private hand-copies) so this salon tab is its third consumer. None of
+// these were forked or copied.
 //
 // NOT reused from `public_salon_profile_screen.dart`: its `_SalonHeroCard`/
 // `_CoverAndHero` are PRIVATE to that file and bundle client-only geometry
@@ -36,9 +39,12 @@
 // settings screen stopped popping a `true` result to trigger it (dead code,
 // deleted — see git history for `_editMode` if it's ever needed again).
 //
-// Portfolio management (an owner "+" add-photo tile) is likewise NOT built
-// here — no media-upload endpoint is wired for this phase's Implementation
-// Steps, so the read-only description + contacts are all «Про салон» shows.
+// «Про салон» also renders a read-only «Портфоліо» placeholder rail (see
+// [_AboutReadView] → [PortfolioRail], promoted from the independent master's
+// profile screen — same 6 gradient tiles, no «Всі фото» link, no owner "+"
+// add-photo tile). Real photo upload (`POST /media/portfolio`) is deferred
+// until R2 storage is wired up for this screen; the endpoint already exists
+// backend-side but nothing here calls it yet.
 //
 // «Персонал» — Phase 21.4 (Invite Staff, form only) is BUILT: the trailing
 // "+" tile pushes [InviteStaffScreen] via `RouteNames.salonInviteStaff`.
@@ -73,6 +79,7 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
 import '../application/my_salons_notifier.dart';
@@ -833,6 +840,13 @@ class _AboutReadView extends StatelessWidget {
               key: const Key('salon-manage-about-text'),
               style: VelvetText.feedback(BrandColors.muted),
             ),
+          // REUSE-FIRST — [PortfolioRail] promoted from the independent
+          // master's profile screen (shared/widgets/portfolio_rail.dart):
+          // same 6 gradient placeholder tiles, no «Всі фото» link (no
+          // gallery route yet) and no owner "+" add-photo tile (upload is
+          // deferred pending R2 storage — see the file header comment).
+          const SizedBox(height: VelvetSpacing.xl),
+          const PortfolioRail(railKey: Key('salon-manage-portfolio')),
           if (phone != null ||
               instagram != null ||
               showAddInstagram) ...<Widget>[

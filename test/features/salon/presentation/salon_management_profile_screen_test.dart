@@ -24,6 +24,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -49,6 +50,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,6 +58,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_salon_repository.dart';
+import '../../../helpers/overflow_guard.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _kSalonId = 'salon-1';
@@ -1399,9 +1402,111 @@ void main() {
       tester,
     ) async {
       await pumpAs(tester, _stubSalon);
+      // The new «Портфоліо» placeholder rail (PortfolioRail, promoted from
+      // the independent master's profile screen) pushes this link below the
+      // fold at the default test surface — scroll it into view before
+      // tapping (mirrors the `salon-manage-add-staff` ensureVisible
+      // precedent above).
+      await tester.ensureVisible(addInstagram);
+      await tester.pumpAndSettle();
       await tester.tap(addInstagram);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('contacts-edit-marker')), findsOneWidget);
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // «Про салон» tab — PortfolioRail (mobile-qa gap-closure, promotion
+  // regression — the third PortfolioRail consumer had zero assertions).
+  // ---------------------------------------------------------------------
+  group('«Про салон» tab — portfolio rail (mobile-qa gap-closure)', () {
+    final Finder portfolioRail = find.byKey(
+      const Key('salon-manage-portfolio'),
+    );
+    final Finder aboutText = find.byKey(const Key('salon-manage-about-text'));
+
+    testWidgets('PortfolioRail renders on the tab, positioned BETWEEN the '
+        'description and the «Контакти» heading', (tester) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      expect(portfolioRail, findsOneWidget);
+      // `railKey` is applied to PortfolioRail's inner Column, not to the
+      // PortfolioRail widget node itself — so resolve the TYPE via the
+      // shared widget's own type finder (there is exactly one on this
+      // screen) rather than reading the type off the keyed Column.
+      expect(
+        find.byType(PortfolioRail),
+        findsOneWidget,
+        reason: 'proves the SHARED widget was wired in, not a copy',
+      );
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonManagementProfileScreen)),
+      );
+      final Finder contactsHeading = find.text(l10n.masterContactsLabel);
+      expect(aboutText, findsOneWidget);
+      expect(contactsHeading, findsOneWidget);
+
+      final double descriptionY = tester.getTopLeft(aboutText).dy;
+      final double portfolioY = tester.getTopLeft(portfolioRail).dy;
+      final double contactsY = tester.getTopLeft(contactsHeading).dy;
+
+      expect(
+        portfolioY,
+        greaterThan(descriptionY),
+        reason: 'the rail must sit BELOW the salon description',
+      );
+      expect(
+        contactsY,
+        greaterThan(portfolioY),
+        reason:
+            'the rail must sit ABOVE the «Контакти» heading — this is the '
+            'exact position the design specifies '
+            '(salon_management_profile_screen.dart:849)',
+      );
+    });
+
+    testWidgets(
+      'no RenderFlex overflow at 320dp width and 1.3x text scale — the '
+      'rail is a horizontal scroller nested inside the tab\'s vertical '
+      'scroller, the classic overflow shape',
+      (tester) async {
+        installOverflowGuard();
+        final repo = FakeSalonRepository(salon: _stubSalon);
+
+        tester.view.physicalSize = const Size(320, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: _overrides(repo).cast(),
+            retry: beauticaProviderRetry,
+            child: MaterialApp.router(
+              routerConfig: _router(repo),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+              builder: (BuildContext context, Widget? child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.3)),
+                child: child!,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(portfolioRail, findsOneWidget);
+        // installOverflowGuard's tearDown fails the test if any RenderFlex
+        // overflow was recorded during the pump above; this is a belt-and-
+        // braces check that nothing else threw either.
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }
