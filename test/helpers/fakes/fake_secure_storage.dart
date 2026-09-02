@@ -59,5 +59,18 @@ final class FakeSecureStorage implements SecureStorage {
   }
 
   @override
+  Future<String?> readLastSalon() async => _backing[StorageKeys.lastSalon];
+
+  @override
+  Future<void> writeLastSalon(String json) async {
+    _backing[StorageKeys.lastSalon] = json;
+  }
+
+  @override
+  Future<void> deleteLastSalon() async {
+    _backing.remove(StorageKeys.lastSalon);
+  }
+
+  @override
   Future<void> deleteAll() async => _backing.clear();
 }

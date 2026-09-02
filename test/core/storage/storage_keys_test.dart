@@ -20,5 +20,16 @@ void main() {
     test('userJson key has expected value', () {
       expect(StorageKeys.userJson, 'BEAUTICA_USER_JSON');
     });
+
+    // Phase 286 — same rationale as the two pins above: the key string IS
+    // the platform Keystore lookup key, so an accidental rename (e.g.
+    // copy-pasting a neighbouring key's literal) would silently strand
+    // stored values. Nothing else in the suite pins this literal — the
+    // round-trip tests in secure_storage_test.dart go through the constant
+    // on both sides of the assertion and would stay green even if the
+    // constant's value were wrong.
+    test('lastSalon key has expected value', () {
+      expect(StorageKeys.lastSalon, 'BEAUTICA_LAST_SALON');
+    });
   });
 }

@@ -92,6 +92,15 @@ class SpySecureStorage extends Mock implements SecureStorage {
   Future<void> writeUserJson(String json) => _backing.writeUserJson(json);
 
   @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) => _backing.writeLastSalon(json);
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
+
+  @override
   Future<void> deleteAll() {
     // super.noSuchMethod records the invocation so verify(...) works; we then
     // delegate to the real fake so the backing map is actually cleared.
@@ -135,6 +144,15 @@ final class _ThrowingWriteStorage implements SecureStorage {
 
   @override
   Future<void> deletePendingLocality() => _backing.deletePendingLocality();
+
+  @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) => _backing.writeLastSalon(json);
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
 
   @override
   Future<void> deleteAll() => _backing.deleteAll();
@@ -462,6 +480,9 @@ void main() {
       final repo = MockAuthRepository();
       final storage = FakeSecureStorage();
       await storage.writeRefreshToken('stored-refresh');
+      // Phase 286 — should_clearLastSalon_when_deleteAllCalled, pinned via
+      // the REAL logout() path (not deleteAll() called directly).
+      await storage.writeLastSalon('{"userId":"u1","salonId":"s1"}');
 
       when(
         () => repo.refresh('stored-refresh'),
@@ -481,6 +502,8 @@ void main() {
 
       // All tokens must be wiped from storage.
       expect(await storage.readRefreshToken(), isNull);
+      // Phase 286 — the last-visited-salon pointer must be wiped too.
+      expect(await storage.readLastSalon(), isNull);
     });
 
     // -----------------------------------------------------------------------
@@ -3526,6 +3549,49 @@ void main() {
       expect(value, isA<AsyncData<AuthSession>>());
       expect(value.value, equals(const AuthSession.unauthenticated()));
       expect(notifier.lastKnownAccessToken, isNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // Phase 286 — M5-4 — should_clearLastSalon_when_userLogsOut
+    //
+    // End-to-end through the REAL logout(), not through storage.deleteAll()
+    // directly — asserted via readLastSalon() so this cannot pass by reading
+    // the fake's internal map. Mirrors M5-3: repo.logout() throws a
+    // non-Failure error and must be swallowed, but the unconditional local
+    // wipe (which clears lastSalon alongside the refresh token) still runs.
+    // -----------------------------------------------------------------------
+    test('should_clearLastSalon_when_userLogsOut — wipe survives repo.logout() '
+        'throwing, asserted through readLastSalon()', () async {
+      final repo = MockAuthRepository();
+      final backing = FakeSecureStorage();
+      await backing.writeRefreshToken('stored-refresh');
+      await backing.writeLastSalon('{"userId":"u1","salonId":"s1"}');
+      final storage = SpySecureStorage(backing);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      // Network half fails — logout() must tolerate/swallow this.
+      when(() => repo.logout()).thenThrow(const NetworkFailure());
+
+      final container = makeM5Container(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      final notifier = container.read(authProvider.notifier);
+      await expectLater(notifier.logout(), completes);
+
+      verify(() => storage.deleteAll()).called(1);
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason:
+            'logout() must clear the last-visited-salon pointer even when '
+            'the server-side revocation call fails',
+      );
+
+      final value = container.read(authProvider);
+      expect(value.value, equals(const AuthSession.unauthenticated()));
     });
   });
 
