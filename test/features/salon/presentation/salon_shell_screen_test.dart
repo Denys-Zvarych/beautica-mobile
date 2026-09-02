@@ -49,11 +49,21 @@
 // its own regression group below — see that file and
 // `salon_management_profile_screen_test.dart` for the sibling gate.
 
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/storage/secure_storage.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
@@ -67,10 +77,14 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _kSalonId = 'shell-salon-1';
@@ -139,6 +153,147 @@ List<Object> _adminOverrides() => <Object>[
     _kSalonId,
   ).overrideWith(_SettledSalonManagementProfile.new),
 ];
+
+// ---------------------------------------------------------------------------
+// Phase 287 — last-visited salon recording. Fixtures below back the writer
+// test cases at the bottom of this file.
+// ---------------------------------------------------------------------------
+
+/// [MySalons] stub that resolves to a list containing BOTH [_kSalonId] and
+/// [_kOtherSalonId] — needed so `should_writeLastSalon_when_salonIdChanges`
+/// can rebuild the SAME owner-scoped shell element from one salon to the
+/// other without `_bounceIfNotOwned` navigating the element away out from
+/// under the test (it bounces the moment the shell's `widget.salonId` is not
+/// found in `mySalonsProvider`'s resolved list).
+class _MultiOwnedMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    _stubSalon,
+    Salon(id: _kOtherSalonId, name: 'Salon Shell Test — Other'),
+  ];
+}
+
+List<Object> _ownerOverridesMultiSalon() => <Object>[
+  authProvider.overrideWith(_OwnerAuthNotifier.new),
+  mySalonsProvider.overrideWith(_MultiOwnedMySalons.new),
+  salonManagementProfileProvider(
+    _kSalonId,
+  ).overrideWith(_SettledSalonManagementProfile.new),
+  salonManagementProfileProvider(
+    _kOtherSalonId,
+  ).overrideWith(_SettledSalonManagementProfile.new),
+];
+
+/// [SecureStorage] test double for the Phase 287 writer cases — wraps a
+/// `FakeSecureStorage` (so reads/writes for every OTHER key behave exactly as
+/// the rest of the suite expects) while instrumenting `writeLastSalon`
+/// specifically:
+///   - [writeLastSalonCallCount] — a byte-identical re-write of the SAME
+///     envelope is otherwise indistinguishable from "never wrote again"
+///     (mobile-qa "fixture values can defang assertions" trap) — a call
+///     COUNTER is the only way `should_notWriteLastSalon_when_salonIdUnchanged`
+///     can tell the two apart.
+///   - [throwOnWrite] — the D2 "storage failure never surfaces" pin.
+///   - [hangWrite] — the D2 "never blocks the first frame" pin: a Future that
+///     never completes, standing in for a Keystore write that never resolves
+///     within the test's lifetime.
+///   - [writeLastSalonPhase] — the D2 "deferred to POST-frame, not issued
+///     synchronously inside initState/build" pin. `initState`/`build` run
+///     under `SchedulerPhase.persistentCallbacks`; `addPostFrameCallback`
+///     callbacks run only after that, under `SchedulerPhase.
+///     postFrameCallbacks`. Recording the phase at the moment
+///     `writeLastSalon` is actually invoked distinguishes the two — merely
+///     asserting the first frame painted does NOT, because `initState`
+///     cannot `await` and a synchronous call inside it returns a pending
+///     Future just as readily as a deferred one, so the frame renders either
+///     way (mobile-qa finding, 2026-09-02: the deferral mutation left this
+///     case green because its old assertions only checked paint survived,
+///     never WHEN the write was issued).
+class _InstrumentedSecureStorage implements SecureStorage {
+  _InstrumentedSecureStorage() : _backing = FakeSecureStorage();
+
+  final FakeSecureStorage _backing;
+
+  int writeLastSalonCallCount = 0;
+  bool throwOnWrite = false;
+  bool hangWrite = false;
+  final Completer<void> _hangCompleter = Completer<void>();
+  SchedulerPhase? writeLastSalonPhase;
+
+  @override
+  Future<String?> readRefreshToken() => _backing.readRefreshToken();
+  @override
+  Future<void> writeRefreshToken(String token) =>
+      _backing.writeRefreshToken(token);
+  @override
+  Future<String?> readUserJson() => _backing.readUserJson();
+  @override
+  Future<void> writeUserJson(String json) => _backing.writeUserJson(json);
+  @override
+  Future<String?> readPendingLocality() => _backing.readPendingLocality();
+  @override
+  Future<void> writePendingLocality(String json) =>
+      _backing.writePendingLocality(json);
+  @override
+  Future<void> deletePendingLocality() => _backing.deletePendingLocality();
+  @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) {
+    writeLastSalonCallCount++;
+    writeLastSalonPhase = SchedulerBinding.instance.schedulerPhase;
+    if (throwOnWrite) {
+      // Synchronous throw — still caught by `_writeLastSalon`'s try/catch
+      // regardless of the `await` at the call site (a sync throw inside an
+      // async function body propagates to the surrounding try normally).
+      throw StateError('simulated secure-storage write failure');
+    }
+    if (hangWrite) return _hangCompleter.future;
+    return _backing.writeLastSalon(json);
+  }
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
+  @override
+  Future<void> deleteAll() => _backing.deleteAll();
+}
+
+/// [BaseCacheManager] test double that lets a test pause `AuthNotifier.logout()`
+/// exactly between its `deleteAll()` call and the final `Unauthenticated`
+/// state flip — the mobile-security MEDIUM-1 window `_writeLastSalon`'s
+/// `logoutInFlight` guard exists to close. `emptyCache()` (the call
+/// `purgeBeauticaMediaCache()` makes, which `logout()` awaits right after
+/// wiping storage) never resolves until [complete] is called.
+class _HangingCacheManager implements BaseCacheManager {
+  final Completer<void> _completer = Completer<void>();
+
+  @override
+  Future<void> emptyCache() => _completer.future;
+
+  void complete() {
+    if (!_completer.isCompleted) _completer.complete();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+    '_HangingCacheManager.${invocation.memberName} is not wired for this test',
+  );
+}
+
+/// [DayKeepAliveLru] test double for the mobile-security MEDIUM-2 pin below
+/// — `clear()` throws synchronously, standing in for the class of bug the
+/// three post-wipe cleanup calls in `AuthNotifier.logout()`
+/// (`screenProtectionProvider.reset()`, `registerDraftProvider.notifier
+/// .reset()`, `dayKeepAliveLruProvider.clear()`) are not individually
+/// try/caught against. Overriding the LAST of the three is deliberate: it
+/// lets the first two run for real (their own coverage lives elsewhere),
+/// isolating the throw to the exact call whose failure the MEDIUM-2 fix
+/// (the `wipedStorage`-gated `finally`, not `state`-gated) exists for.
+class _ThrowingDayKeepAliveLru extends DayKeepAliveLru {
+  @override
+  void clear() => throw StateError('simulated dayKeepAliveLru.clear() failure');
+}
 
 /// The shell's `IndexedStack` — its `index` is a STACK SLOT, never a nav
 /// index (see the file-header mapping note).
@@ -804,6 +959,703 @@ void main() {
             'never bounce the shell away',
       );
       expect(find.byKey(const Key('shell-bounce-target')), findsNothing);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Phase 287 — record the last-visited salon on shell entry.
+  //
+  // Six spec cases (`docs/mobile-phases/phase-287-record-last-visited-
+  // salon-on-shell-entry.md` § Test cases), authored by mobile-qa.
+  // -------------------------------------------------------------------
+  group('Phase 287 — last-visited salon writer', () {
+    testWidgets('should_writeLastSalon_when_shellMounts', (tester) async {
+      final storage = _InstrumentedSecureStorage();
+      // Explicit-container pattern (not `pumpApp`) — the shell's one-shot
+      // postFrameCallback fires at the end of the FIRST frame, before the
+      // Dart microtask queue gets a turn to resolve `_OwnerAuthNotifier`'s
+      // async `build()`. `pumpApp` builds its ProviderScope/container INSIDE
+      // `pumpWidget()`, so there is no handle to pre-warm `authProvider`
+      // before that first frame. Building the container ourselves and
+      // awaiting `authProvider.future` first settles it to `AsyncData`
+      // before the widget is ever pumped — matching what the real
+      // `app_router.dart` guards already guarantee in production (they read
+      // `authProvider` synchronously in `redirect:` and never navigate to
+      // the shell until it is settled).
+      final container = ProviderContainer(
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          ..._ownerOverrides(),
+          secureStorageProvider.overrideWithValue(storage),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final String? raw = await storage.readLastSalon();
+      expect(
+        raw,
+        isNotNull,
+        reason: 'mounting the shell must write BEAUTICA_LAST_SALON',
+      );
+      final Map<String, dynamic> decoded =
+          jsonDecode(raw!) as Map<String, dynamic>;
+      expect(decoded['salonId'], equals(_kSalonId));
+      expect(decoded['userId'], equals(_stubOwner.id));
+      expect(
+        decoded['userId'],
+        isNot(equals(decoded['salonId'])),
+        reason:
+            'guard against a fixture where userId and salonId coincide, '
+            'which would make the two assertions above indistinguishable',
+      );
+    });
+
+    testWidgets('should_writeLastSalon_when_salonIdChanges', (tester) async {
+      // The D3 pin. `container` is built ONCE and reused, unmodified, across
+      // BOTH `pumpWidget` calls below — that is what keeps the element tree
+      // structurally identical so the second pump reuses the SAME element
+      // (didUpdateWidget) instead of remounting a fresh one. `authProvider`
+      // is pre-warmed on this container before the first pump for the same
+      // reason as `should_writeLastSalon_when_shellMounts` above (see that
+      // test's comment) — otherwise the FIRST mount's postFrameCallback
+      // would already miss its write.
+      final storage = _InstrumentedSecureStorage();
+      final container = ProviderContainer(
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          ..._ownerOverridesMultiSalon(),
+          secureStorageProvider.overrideWithValue(storage),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      Widget shellApp(String salonId) => UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: SalonShellScreen(salonId: salonId),
+        ),
+      );
+
+      await tester.pumpWidget(shellApp(_kSalonId));
+      await tester.pumpAndSettle();
+      final Element before = tester.element(
+        find.byKey(const Key('salon-shell-screen')),
+      );
+      expect(
+        jsonDecode((await storage.readLastSalon())!)['salonId'],
+        equals(_kSalonId),
+      );
+
+      await tester.pumpWidget(shellApp(_kOtherSalonId));
+      await tester.pumpAndSettle();
+
+      expect(
+        identical(
+          tester.element(find.byKey(const Key('salon-shell-screen'))),
+          before,
+        ),
+        isTrue,
+        reason:
+            'this test must rebuild the SAME element via didUpdateWidget — a '
+            'fresh element here would mean the test is re-exercising initState '
+            '(case 1) a second time instead of the D3 salonId-change path',
+      );
+      final Map<String, dynamic> decoded =
+          jsonDecode((await storage.readLastSalon())!) as Map<String, dynamic>;
+      expect(decoded['salonId'], equals(_kOtherSalonId));
+      expect(decoded['userId'], equals(_stubOwner.id));
+    });
+
+    testWidgets('should_notWriteLastSalon_when_salonIdUnchanged', (
+      tester,
+    ) async {
+      // Same explicit-container / pre-warmed-authProvider pattern as
+      // `should_writeLastSalon_when_shellMounts` — see that test's comment.
+      // `container` is reused, unmodified, across BOTH `pumpWidget` calls so
+      // the second pump rebuilds the SAME element (didUpdateWidget) with an
+      // unchanged salonId, which is exactly the case under test.
+      final storage = _InstrumentedSecureStorage();
+      final container = ProviderContainer(
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          ..._ownerOverridesMultiSalon(),
+          secureStorageProvider.overrideWithValue(storage),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      Widget shellApp() => UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('uk'),
+          home: SalonShellScreen(salonId: _kSalonId),
+        ),
+      );
+
+      await tester.pumpWidget(shellApp());
+      await tester.pumpAndSettle();
+      expect(storage.writeLastSalonCallCount, equals(1));
+
+      // A plain rebuild with the SAME salonId (e.g. an authProvider
+      // re-emission) — didUpdateWidget fires, but `widget.salonId ==
+      // oldWidget.salonId`, so no second write must happen. A byte-identical
+      // re-write would be invisible to a content-only assertion, which is
+      // exactly why this asserts the CALL COUNT instead.
+      await tester.pumpWidget(shellApp());
+      await tester.pumpAndSettle();
+
+      expect(
+        storage.writeLastSalonCallCount,
+        equals(1),
+        reason:
+            'a rebuild with an UNCHANGED salonId must not re-invoke '
+            'writeLastSalon — a call count of 2 here means didUpdateWidget '
+            'is missing its salonId-changed guard',
+      );
+    });
+
+    testWidgets('should_renderShell_when_storageWriteThrows', (tester) async {
+      // Same explicit-container / pre-warmed-authProvider pattern as
+      // `should_writeLastSalon_when_shellMounts` — see that test's comment.
+      final storage = _InstrumentedSecureStorage()..throwOnWrite = true;
+      final container = ProviderContainer(
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          ..._ownerOverrides(),
+          secureStorageProvider.overrideWithValue(storage),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-shell-screen')),
+        findsOneWidget,
+        reason: 'a storage write failure must never block the shell painting',
+      );
+      expect(find.byKey(const Key('salon-shell-bottom-nav')), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the storage failure must never surface as an uncaught error',
+      );
+      expect(
+        storage.writeLastSalonCallCount,
+        greaterThanOrEqualTo(1),
+        reason: 'precondition: the write was actually attempted',
+      );
+    });
+
+    testWidgets('should_notBlockFirstFrame_when_storageWriteIsSlow', (
+      tester,
+    ) async {
+      // Same explicit-container / pre-warmed-authProvider pattern as
+      // `should_renderShell_when_storageWriteThrows` — see that test's
+      // comment. Pre-warming is REQUIRED here, not just consistency: without
+      // it `authProvider` is still `AsyncLoading` at the moment the first
+      // frame's postFrameCallback fires (its `async build()` can only
+      // resolve on a microtask, and this single `pumpWidget()` call never
+      // yields to one), so `_writeLastSalon` bails out on `session is!
+      // Authenticated` before ever reaching storage — for BOTH the deferred
+      // and a hypothetically-synchronous call site, which would make the
+      // ordering assertion below pass vacuously (always `null`) regardless
+      // of D2. Pre-warming makes the session already `Authenticated` before
+      // the shell ever mounts, so the write is actually reachable from
+      // wherever `_writeLastSalon` is invoked from — which is exactly what
+      // lets the phase captured below discriminate the two call sites.
+      final storage = _InstrumentedSecureStorage()..hangWrite = true;
+      final container = ProviderContainer(
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          ..._ownerOverrides(),
+          secureStorageProvider.overrideWithValue(storage),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      // Deliberately NOT followed by pumpAndSettle — the pending write must
+      // never need to resolve for the first frame to have already rendered.
+      // This single `pumpWidget()` call executes exactly one frame, and the
+      // postFrameCallback (which kicks off the never-completing write) fires
+      // within that same frame without blocking it.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+
+      expect(find.byKey(const Key('salon-shell-screen')), findsOneWidget);
+      expect(find.byKey(const Key('salon-shell-bottom-nav')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // THE D2 ORDERING ASSERTION. The three assertions above are satisfied
+      // identically whether or not the write is deferred — `initState`
+      // cannot `await`, so even a synchronous `_writeLastSalon(...)` call
+      // right there returns a pending Future without blocking paint. Only
+      // the SCHEDULER PHASE at the moment of the call tells the two apart:
+      // `postFrameCallbacks` proves it was deferred past the first frame
+      // (D2); `persistentCallbacks` would mean it fired from inside
+      // initState/build instead.
+      expect(
+        storage.writeLastSalonPhase,
+        SchedulerPhase.postFrameCallbacks,
+        reason:
+            'D2 — the write must be deferred to addPostFrameCallback, not '
+            'issued synchronously inside initState/build (which run under '
+            'SchedulerPhase.persistentCallbacks)',
+      );
+    });
+
+    testWidgets('should_writeLastSalon_when_adminOpensShell', (tester) async {
+      // D4 — an admin's slot is written unconditionally too, exactly like an
+      // owner's. Same explicit-container / pre-warmed-authProvider pattern
+      // as `should_writeLastSalon_when_shellMounts` — see that test's
+      // comment.
+      final storage = _InstrumentedSecureStorage();
+      final container = ProviderContainer(
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          ..._adminOverrides(),
+          secureStorageProvider.overrideWithValue(storage),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> decoded =
+          jsonDecode((await storage.readLastSalon())!) as Map<String, dynamic>;
+      expect(decoded['salonId'], equals(_kSalonId));
+      expect(decoded['userId'], equals(_stubAdmin.id));
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // mobile-security MEDIUM-1 (Phase 287 audit cycle 1, 2026-09-02) — a
+  // logout() in progress wipes secure storage several `await`s before it
+  // flips [authProvider] to Unauthenticated. Across that window a shell
+  // rebuild landing mid-logout must NOT re-populate the just-wiped
+  // `lastSalon` slot with the outgoing session's data. Drives the REAL
+  // `AuthNotifier` (not the `_OwnerAuthNotifier`/`_AdminAuthNotifier` stubs
+  // used above) because the guard under test — `logoutInFlight` — is real
+  // notifier state, not something a stub can fake convincingly.
+  // -------------------------------------------------------------------
+  group('Phase 287 mobile-security MEDIUM-1 — logout-in-flight guard', () {
+    testWidgets('should_notWriteLastSalon_when_logoutIsMidFlight', (
+      tester,
+    ) async {
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      final repo = FakeAuthRepository()
+        ..refreshResult = const AuthTokens(
+          accessToken: 'tok-1',
+          refreshToken: 'stored-refresh',
+        )
+        ..meResult = _stubAdmin;
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          secureStorageProvider.overrideWith((_) => storage),
+          authRepositoryProvider.overrideWith((_) => repo),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Cold-start restore -> Authenticated.
+      await container.read(authProvider.future);
+      // `pumpEventQueue()` MUST NOT be used inside `testWidgets` — see
+      // `test/features/auth/presentation/logout_router_race_test.dart`
+      // lines 42-46: the test body runs in a FakeAsync zone and
+      // `pumpEventQueue()` is implemented via `Future.delayed(Duration.zero)`,
+      // which never fires without an explicit `tester.pump()` advancing the
+      // fake clock — it hangs the test forever. This call sits BEFORE the
+      // first `tester.pumpWidget()`, so there is no widget tree to `pump()`
+      // yet; `await container.read(authProvider.future)` above already fully
+      // resolves its own await chain, so this is a harmless microtask flush,
+      // not a required wait.
+      await Future<void>.value();
+      final notifier = container.read(authProvider.notifier);
+      expect(container.read(authProvider).value, isA<Authenticated>());
+
+      // Pause logout() exactly between its `deleteAll()` wipe and the
+      // final state flip, via the media-cache purge that sits in between.
+      final hangingCache = _HangingCacheManager();
+      debugMediaCacheManager = hangingCache;
+      addTearDown(() => debugMediaCacheManager = null);
+
+      final Future<void> logoutFuture = notifier.logout();
+      // See the `pumpEventQueue()` note above — still before the first
+      // `tester.pumpWidget()`, so a plain microtask flush stands in.
+      await Future<void>.value();
+
+      // Preconditions — genuinely mid-flight, not merely "about to start".
+      expect(
+        notifier.logoutInFlight,
+        isTrue,
+        reason: 'precondition: logout() must be mid-flight',
+      );
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>(),
+        reason:
+            'precondition: state has NOT flipped to Unauthenticated yet '
+            '— this is the exact stale-session window the guard closes',
+      );
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason: 'precondition: deleteAll() has already wiped the slot',
+      );
+
+      // Mount the shell DURING the hang — the scenario the regression
+      // describes: a rebuild landing mid-logout.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pump();
+      // After the first `tester.pumpWidget()` — use a bounded `pump()`
+      // (this codebase's documented remedy) rather than `pumpEventQueue()`.
+      await tester.pump();
+
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason:
+            'a shell mount landing mid-logout must NOT re-populate the '
+            'just-wiped lastSalon slot with the outgoing session\'s data '
+            '— this is the MEDIUM-1 regression pin',
+      );
+
+      // Let logout() actually finish so the container tears down cleanly.
+      hangingCache.complete();
+      await logoutFuture;
+      await tester.pump();
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // mobile-security MEDIUM-2 (Phase 287 audit cycle 2, 2026-09-02) —
+  // `logout()`'s three post-wipe cleanup calls (`screenProtectionProvider
+  // .reset()`, `registerDraftProvider.notifier.reset()`,
+  // `dayKeepAliveLruProvider.clear()`) run WITHOUT individual try/catch,
+  // between the `deleteAll()` wipe and the terminal `state = Unauthenticated`
+  // flip. THE BUG: the original `finally` reset `_logoutInFlight` whenever
+  // `state.value is! Unauthenticated` — if one of those three calls threw,
+  // control reached `finally` with storage ALREADY wiped but `state` still
+  // holding the stale `Authenticated` session, so the predicate read
+  // "session still alive" and wrongly re-armed the writer, letting a
+  // subsequent shell mount repopulate the just-wiped `lastSalon` slot with
+  // the outgoing session. THE FIX: `finally` now gates on a local
+  // `wipedStorage` flag set right after `deleteAll()` returns, not on
+  // `state` — see `auth_notifier.dart`'s `logout()` doc comment.
+  //
+  // Drives a REAL `logout()` (not a hand-rolled equivalent) with
+  // `dayKeepAliveLruProvider` overridden to throw, so the throw is genuinely
+  // the LAST of the three post-wipe calls — the other two run for real. This
+  // is deliberately a widget test (not a plain `auth_notifier_test.dart`
+  // unit test): the property that actually matters is the CONSEQUENCE — a
+  // fresh shell mount landing after the failed logout must not repopulate
+  // the wiped slot — and only this file has the real `SalonShellScreen` +
+  // `_writeLastSalon` wiring to assert that directly.
+  // -------------------------------------------------------------------
+  group('Phase 287 mobile-security MEDIUM-2 — logoutInFlight survives a '
+      'post-wipe cleanup throw', () {
+    testWidgets('should_notWriteLastSalon_when_postWipeCleanupCallThrows', (
+      tester,
+    ) async {
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      final repo = FakeAuthRepository()
+        ..refreshResult = const AuthTokens(
+          accessToken: 'tok-1',
+          refreshToken: 'stored-refresh',
+        )
+        ..meResult = _stubAdmin;
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          secureStorageProvider.overrideWith((_) => storage),
+          authRepositoryProvider.overrideWith((_) => repo),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+          dayKeepAliveLruProvider.overrideWithValue(_ThrowingDayKeepAliveLru()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Cold-start restore -> Authenticated.
+      await container.read(authProvider.future);
+      await Future<void>.value();
+      final notifier = container.read(authProvider.notifier);
+      expect(container.read(authProvider).value, isA<Authenticated>());
+
+      // Establish a baseline write — mount the shell once BEFORE
+      // logout() so the slot holds the OUTGOING session's data, mirroring
+      // a real device where the shell was already visited this session.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        await storage.readLastSalon(),
+        isNotNull,
+        reason:
+            'precondition: the writer must have populated the slot '
+            'before logout() runs',
+      );
+
+      // Unmount so the shell mount below (after the failed logout) is a
+      // genuinely FRESH element — `initState`'s post-frame write only
+      // fires once per element, and `didUpdateWidget` only re-fires on a
+      // salonId change, so re-using the SAME element would not exercise
+      // the writer again.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+
+      // The REAL logout() — the throwing `dayKeepAliveLruProvider`
+      // override means it must propagate past the terminal state flip.
+      await expectLater(
+        notifier.logout(),
+        throwsA(isA<StateError>()),
+        reason:
+            'the post-wipe dayKeepAliveLruProvider.clear() throw must '
+            'propagate out of logout() uncaught — this test pins the '
+            'exit path where it does',
+      );
+
+      // Storage IS wiped — deleteAll() ran and completed before the
+      // throwing cleanup call.
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason:
+            'precondition: deleteAll() already wiped the slot before '
+            'the throwing post-wipe call ran',
+      );
+
+      // (1) — localises a failure to the flag itself, before checking
+      // the practical consequence below.
+      expect(
+        notifier.logoutInFlight,
+        isTrue,
+        reason:
+            'a post-wipe cleanup throw must NOT reset _logoutInFlight — '
+            'gating the finally on `state` instead of wipe-completion '
+            'is exactly the MEDIUM-2 regression',
+      );
+
+      // The terminal flip never ran — state is still the STALE
+      // Authenticated session. This is the exact condition the ORIGINAL
+      // (buggy) `state.value is! Unauthenticated` predicate would read
+      // as "session still alive" and wrongly re-arm the writer for.
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>(),
+        reason:
+            'precondition: the throw skipped the terminal state flip, '
+            'so a state-gated reset would (wrongly) see "still logged '
+            'in" here',
+      );
+
+      // (2) — the consequence that matters: a FRESH shell mount landing
+      // after the failed logout (e.g. a navigation race back into the
+      // shell before the app reacts to the throw) must NOT repopulate
+      // the wiped slot with the outgoing session's data.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason:
+            'a shell mount after a failed post-wipe cleanup call must '
+            'NOT re-populate the just-wiped lastSalon slot with the '
+            'outgoing session\'s data — the MEDIUM-2 regression pin',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Flag-wedge regression — `_logoutInFlight` is plain Dart state on a
+  // `keepAlive` notifier, so it does NOT reset itself between an in-session
+  // logout and the next login. Without the explicit reset in `login()`
+  // (auth_notifier.dart:389), the writer would be silently and permanently
+  // dead for the rest of the process after the FIRST logout. This is the
+  // only thing standing between us and that regression on a future refactor
+  // of those resets.
+  // -------------------------------------------------------------------
+  group('Phase 287 — logoutInFlight flag reset (flag-wedge regression)', () {
+    testWidgets('should_writeLastSalon_after_loginFollowingLogout', (
+      tester,
+    ) async {
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      final repo = FakeAuthRepository()
+        ..refreshResult = const AuthTokens(
+          accessToken: 'tok-1',
+          refreshToken: 'stored-refresh',
+        )
+        ..meResult = _stubAdmin;
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          secureStorageProvider.overrideWith((_) => storage),
+          authRepositoryProvider.overrideWith((_) => repo),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      // `pumpEventQueue()` MUST NOT be used inside `testWidgets` — see
+      // `test/features/auth/presentation/logout_router_race_test.dart`
+      // lines 42-46 and the identical note in the MEDIUM-1 test above. Every
+      // call in this test sits BEFORE the first `tester.pumpWidget()`, and
+      // each preceding `await` already fully resolves its own await chain,
+      // so a plain microtask flush stands in.
+      await Future<void>.value();
+      final notifier = container.read(authProvider.notifier);
+      expect(container.read(authProvider).value, isA<Authenticated>());
+
+      // A clean, un-hung logout — same `keepAlive` notifier instance.
+      await notifier.logout();
+      await Future<void>.value();
+      expect(container.read(authProvider).value, isA<Unauthenticated>());
+
+      // Log back in on the SAME notifier instance.
+      repo.loginResult = (
+        _stubAdmin,
+        const AuthTokens(accessToken: 'tok-2', refreshToken: 'fresh-refresh'),
+      );
+      await notifier.login('admin@beautica.ua', 'password');
+      await Future<void>.value();
+      expect(container.read(authProvider).value, isA<Authenticated>());
+      expect(
+        notifier.logoutInFlight,
+        isFalse,
+        reason:
+            'login() must reset _logoutInFlight, or the writer is wedged '
+            'off for the rest of the process',
+      );
+
+      // Open a shell — the writer must actually write now.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final String? raw = await storage.readLastSalon();
+      expect(
+        raw,
+        isNotNull,
+        reason:
+            'the writer must not be permanently dead after a '
+            'logout -> login round trip on the same keepAlive notifier',
+      );
+      final Map<String, dynamic> decoded =
+          jsonDecode(raw!) as Map<String, dynamic>;
+      expect(decoded['salonId'], equals(_kSalonId));
+      expect(decoded['userId'], equals(_stubAdmin.id));
     });
   });
 }

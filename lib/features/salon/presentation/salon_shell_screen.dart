@@ -88,11 +88,15 @@
 // OWNERSHIP BOUNCE (mobile-security MEDIUM follow-up, 2026-08-28) — see
 // [_bounceIfNotOwned].
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -129,6 +133,76 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
   List<SalonNavItem>? _navItemsCache;
   AppLocalizations? _navItemsCacheL10n;
+
+  @override
+  void initState() {
+    super.initState();
+    // Phase 287 D2 — the write happens AFTER the first frame, unawaited, so
+    // a Keystore write is never on the critical path of paint; the shell
+    // must render at exactly the speed it renders today. A `!mounted` guard
+    // covers the callback firing after this element has already been
+    // disposed (e.g. a very fast salon switch), and [_writeLastSalon] itself
+    // swallows any storage failure — a failed write just degrades to "the
+    // app forgot", which Phase 288's reader already tolerates.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_writeLastSalon(widget.salonId));
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant SalonShellScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Phase 287 D3 — this is a route-level widget, so a `go` between two
+    // shells can reuse the element instead of remounting it. Re-issue the
+    // write ONLY when the salon actually changed; a plain rebuild (e.g. an
+    // `authProvider` re-emission) must not re-write. Missing this case is
+    // the classic bug: switch salons, kill the app, reopen the previous one.
+    if (widget.salonId != oldWidget.salonId) {
+      unawaited(_writeLastSalon(widget.salonId));
+    }
+  }
+
+  /// Durably records `{userId, salonId}` under `StorageKeys.lastSalon`
+  /// (Phase 287) so a later cold start can reopen this salon (Phase 288's
+  /// reader). Phase 286 D2 fixed the envelope as `{userId, salonId}`, not a
+  /// bare id, so Phase 288 can treat a `userId` mismatch as "no value
+  /// stored" — mirrors `PendingLocalityStore`'s JSON-blob style.
+  ///
+  /// Unconditional across roles (D4): an admin's slot simply always holds
+  /// their one salon, and branching on role here would be a second place
+  /// encoding "who has many salons".
+  ///
+  /// No dedicated notifier/provider (D5) — the slot is write-only here and
+  /// read once at cold start, never observed reactively, so this reads
+  /// [secureStorageProvider] directly via `ref.read`.
+  Future<void> _writeLastSalon(String salonId) async {
+    final AuthSession? session = ref.read(authProvider).value;
+    if (session is! Authenticated) return;
+    // mobile-security MEDIUM-1 audit cycle 1 follow-up (2026-09-02) — a
+    // `logout()` in progress wipes secure storage several `await`s BEFORE it
+    // flips [authProvider]'s state to `Unauthenticated` (see that method's
+    // doc comment for why the ordering is deliberate). Across that window
+    // `session is Authenticated` above still passes with the OUTGOING
+    // session, so without this check a shell rebuild landing mid-logout would
+    // re-populate the just-wiped `lastSalon` slot. Read synchronously and
+    // immediately before the write — never `watch`/`listen` a state-holder's
+    // own provider.
+    if (ref.read(authProvider.notifier).logoutInFlight) return;
+    try {
+      await ref
+          .read(secureStorageProvider)
+          .writeLastSalon(
+            jsonEncode(<String, String>{
+              'userId': session.user.id,
+              'salonId': salonId,
+            }),
+          );
+    } catch (_) {
+      // D2 — a storage failure never surfaces to the user and never blocks
+      // a frame; it degrades to "the app forgot".
+    }
+  }
 
   /// Memoized per-locale (mobile-perf LOW follow-up, 2026-08-28) —
   /// `SalonBottomNav.ownerAdminItems` allocates a fresh `List<SalonNavItem>`

@@ -139,6 +139,46 @@ class AuthNotifier extends _$AuthNotifier {
   // be sent tokenless (which the backend correctly answers with a false 401).
   String? _lastKnownAccessToken;
 
+  // Synchronous "logout in flight" signal (mobile-security MEDIUM-1, Phase 287
+  // audit cycle 1, 2026-09-02).
+  //
+  // `logout()` wipes secure storage (the unconditional `deleteAll()` call)
+  // several `await`s BEFORE it flips [state] to `Unauthenticated` — the
+  // ordering is deliberate (see `logout()`'s own doc comment) and is not
+  // being changed here. Across that multi-frame gap, `ref.read(authProvider)`
+  // still resolves to the outgoing `Authenticated` session, so a caller that
+  // only checks `session is Authenticated` (e.g. `SalonShellScreen
+  // ._writeLastSalon`) can re-populate a just-wiped secure-storage slot with
+  // the outgoing user's data. This plain Dart field — same pattern as
+  // [coldStartAccessToken] above — lets such a caller detect the in-flight
+  // wipe synchronously and skip the write, without reordering `logout()`.
+  //
+  // Lifecycle: set `true` as the very first statement of `logout()`, before
+  // the server call and before the wipe. It stays `true` across a
+  // *successful* logout (state settles to `Unauthenticated`, so
+  // `is! Authenticated` guards already cover callers from then on) and is
+  // reset `false` the next time this SAME notifier instance re-settles to a
+  // fresh `Authenticated` session — [login], [register]'s auto-login branch,
+  // [verifyEmail], and [acceptInvite] — because `@Riverpod(keepAlive: true)`
+  // means the instance is NOT rebuilt between an in-session logout and the
+  // next login;
+  // without this reset the flag would wedge `_writeLastSalon` off for the
+  // rest of the app's process lifetime after the FIRST logout. It is also
+  // reset `false` in `logout()`'s own `finally` when the method exits WITHOUT
+  // reaching the final state flip (an exception propagated from one of the
+  // uncaught cleanup calls) — a failed logout that leaves the session alive
+  // must not permanently disable salon-recording either.
+  bool _logoutInFlight = false;
+
+  /// Whether an in-flight [logout] call has started (or completed) wiping
+  /// secure storage for the current session. See [_logoutInFlight]'s doc
+  /// comment for the full race this guards against.
+  ///
+  /// `ref.read`-only by design — never `watch`/`listen` from a state-holder
+  /// notifier or widget; this is a point-in-time synchronous check, not a
+  /// reactive signal.
+  bool get logoutInFlight => _logoutInFlight;
+
   /// The best-available access token for an authenticated user, used by
   /// [AuthInterceptor] as a fallback when [authProvider] is not currently
   /// resolvable to an [Authenticated] [AsyncData] state.
@@ -340,6 +380,13 @@ class AuthNotifier extends _$AuthNotifier {
       // header on repo.me() without triggering RefreshInterceptor.
       coldStartAccessToken = tokens.accessToken;
       _lastKnownAccessToken = tokens.accessToken;
+      // mobile-security MEDIUM-1 audit cycle 1 follow-up (2026-09-02): this
+      // notifier instance is `keepAlive` and is NOT rebuilt between an
+      // in-session logout and the next login, so `_logoutInFlight` (set by
+      // [logout]) would otherwise stay wedged `true` forever after the first
+      // logout. A fresh Authenticated session starting here means any prior
+      // logout is fully behind us.
+      _logoutInFlight = false;
       final User fullUser;
       try {
         fullUser = await repo.me();
@@ -425,6 +472,10 @@ class AuthNotifier extends _$AuthNotifier {
             );
           }
           _lastKnownAccessToken = tokens.accessToken;
+          // mobile-security MEDIUM-1 audit cycle 1 follow-up (2026-09-02) —
+          // see the identical reset in [login] for why this is needed on
+          // every fresh-session establishment, not just [logout]'s own exits.
+          _logoutInFlight = false;
           return AuthSession.authenticated(
             user: user,
             accessToken: tokens.accessToken,
@@ -491,6 +542,10 @@ class AuthNotifier extends _$AuthNotifier {
       // stays null — the done screen greeting falls back to "друже".
       coldStartAccessToken = tokens.accessToken;
       _lastKnownAccessToken = tokens.accessToken;
+      // mobile-security MEDIUM-1 audit cycle 1 follow-up (2026-09-02) — see
+      // the identical reset in [login] for why this is needed on every
+      // fresh-session establishment, not just [logout]'s own exits.
+      _logoutInFlight = false;
       final User fullUser;
       try {
         fullUser = await repo.me();
@@ -870,6 +925,10 @@ class AuthNotifier extends _$AuthNotifier {
       // -- POINT OF NO RETURN PASSED — nothing below may throw --
       final (user, tokens) = r;
       _lastKnownAccessToken = tokens.accessToken;
+      // mobile-security MEDIUM-1 audit cycle 1 follow-up (2026-09-02) — see
+      // the identical reset in [login] for why this is needed on every
+      // fresh-session establishment, not just [logout]'s own exits.
+      _logoutInFlight = false;
       final persisted = await _persistRefreshTokenTolerant(tokens.refreshToken);
       if (kDebugMode) {
         log(
@@ -1016,112 +1075,149 @@ class AuthNotifier extends _$AuthNotifier {
   /// (M5 hardening). Sets state to [AsyncData<Unauthenticated>] so the router
   /// guard (Phase 2.9) redirects to the login screen.
   Future<void> logout() async {
+    // Set BEFORE the server call and BEFORE the wipe — see [_logoutInFlight]'s
+    // doc comment. The try/finally below resets it if this method exits
+    // without reaching the final state flip (see the finally block's comment)
+    // — it does not otherwise change this method's existing control flow.
+    _logoutInFlight = true;
+    // Tracks whether `deleteAll()` below actually completed — the `finally`
+    // gates the flag reset on THIS, not on `state`. See the `finally`'s
+    // comment for why the two are not interchangeable.
+    var wipedStorage = false;
     try {
-      await ref.read(authRepositoryProvider).logout();
-    } on Failure catch (f) {
-      if (kDebugMode) {
-        log(
-          'Logout server call failed (tolerated): ${f.runtimeType}',
-          name: 'auth',
-          level: 900,
-        );
+      try {
+        await ref.read(authRepositoryProvider).logout();
+      } on Failure catch (f) {
+        if (kDebugMode) {
+          log(
+            'Logout server call failed (tolerated): ${f.runtimeType}',
+            name: 'auth',
+            level: 900,
+          );
+        }
+      } catch (e) {
+        // M5 hardening: a NON-Failure error (unmapped platform exception, raw
+        // StateError, …) must NOT propagate past the wipe — otherwise the user's
+        // refresh token would survive an explicit logout. Logout stays best-effort
+        // for every error type; the unconditional wipe below always runs.
+        if (kDebugMode) {
+          log(
+            'Logout server call threw non-Failure (tolerated): ${e.runtimeType}',
+            name: 'auth',
+            level: 900,
+          );
+        }
       }
-    } catch (e) {
-      // M5 hardening: a NON-Failure error (unmapped platform exception, raw
-      // StateError, …) must NOT propagate past the wipe — otherwise the user's
-      // refresh token would survive an explicit logout. Logout stays best-effort
-      // for every error type; the unconditional wipe below always runs.
+      await ref.read(secureStorageProvider).deleteAll();
+      wipedStorage = true;
+      // Security (mobile-security MEDIUM-1, 2026-07-24) — purge the shared media
+      // disk cache. The loader (core/media/beautica_image.dart) disk-caches
+      // remote avatars/photos for 7 days; the client faces this account viewed
+      // are PII and must not survive an explicit or forced sign-out onto a
+      // shared/reassigned device. Best-effort like the rest of the wipe: any
+      // error (e.g. a wedged sqflite store) is tolerated so it can never abort
+      // the unconditional local wipe below. Routed through the top-level
+      // `purgeBeauticaMediaCache()` so it hits the override-aware ACTIVE cache
+      // manager (never the raw handle) and stays testable.
+      try {
+        await purgeBeauticaMediaCache();
+      } catch (e) {
+        if (kDebugMode) {
+          log(
+            'Media cache purge on logout failed (tolerated): ${e.runtimeType}',
+            name: 'auth',
+            level: 900,
+          );
+        }
+      }
+      // Security (mobile-security MEDIUM) — force-clear the screen-protection
+      // reference count and tear down the iOS app-switcher blur. (No FLAG_SECURE
+      // is involved: screenshots are allowed by product decision 2026-08-20 —
+      // see the header of `lib/core/security/screen_protection.dart`.)
+      // Without this, a logout triggered while a PII screen's dialog is still
+      // showing above a live `screenProtectionProvider` acquirer (e.g.
+      // `RefreshInterceptor` force-logs-out on a failed token refresh while
+      // `ClientBookingConflictDialog` is open over `BookingConfirmScreen`)
+      // would leave protection latched on past the auth boundary — see
+      // `ScreenProtectionManager.reset()`'s doc comment.
+      ref.read(screenProtectionProvider).reset();
+      // Security (Phase 2.16 HIGH-1) — clear any in-flight registration draft
+      // so the password fields it holds in memory do not linger past the user's
+      // explicit logout. The draft survives across nav (keepAlive) so without
+      // this it would persist until the process is killed.
+      ref.read(registerDraftProvider.notifier).reset();
+      // Security (mobile-security HIGH, 2026-07-19) — sweep the day-timeline's
+      // bounded keepAlive cache's OWN bookkeeping. `BookingsDayNotifier.build`'s
+      // `authProvider`-id watch (triggered by the state assignment below)
+      // already reclaims every member's PII on its own the instant the
+      // identity changes — actively watched or not: Riverpod's
+      // `invalidateSelf()` unconditionally severs every `KeepAliveLink` an
+      // element holds and queues either its disposal (no active listener) or a
+      // rebuild (an active one) for the very next event-loop turn — never left
+      // lazily pending on some future read. This call exists because that
+      // severing does NOT touch [DayKeepAliveLru]'s own `_links` map: without
+      // it, a logged-out query's slot keeps pointing at an already-severed
+      // link — a "zombie" entry silently wasting the LRU's bounded budget —
+      // until a future cache touch happens to overwrite it. See
+      // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
+      // the full reasoning, including the Riverpod internals this depends on.
+      ref.read(dayKeepAliveLruProvider).clear();
+      // NOTE — this belt-and-braces list is NOT the app's full inventory of
+      // keepAlive, user-scoped state, and must not be read as one (mobile-security
+      // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of
+      // BOOKING IDS this provider has left client feedback about) is deliberately
+      // ABSENT: like `BookingsDayNotifier`, its `build()` watches the
+      // authenticated identity itself (`authProvider.select(… user.id …)`), so
+      // the state assignment below already rebuilds it to a fresh empty set
+      // through the ordinary cascade. Unlike the day cache it holds no external
+      // bookkeeping (no LRU, no links map) for that rebuild to miss, so there is
+      // nothing left for an explicit sweep to do — adding one would be redundant
+      // work on every logout. Pinned by `client_review_signal_provider_test.dart`
+      // and by `master_archive_review_flow_test.dart`'s session-boundary scenario,
+      // which drives a real logout → login round trip.
+      // Wipe the interceptor's session-lifetime token fallback so no request can
+      // carry a stale Bearer token after an explicit logout.
+      _lastKnownAccessToken = null;
+      coldStartAccessToken = null;
+      // NOTE — do NOT `ref.invalidate(...)` the master profile / service repository
+      // / services list here. Each of those providers transitively
+      // `ref.watch(authProvider)` (masterProfileProvider directly; serviceRepository
+      // and servicesList through it), so invalidating them from INSIDE this notifier
+      // records a back-edge that closes a dependency cycle — Riverpod's
+      // CircularDependencyError assert (debug/test only) then throws and escapes the
+      // state transition below, surfacing a false "logout failed". The cascade
+      // already handles teardown: when state flips to Unauthenticated below, those
+      // watchers rebuild and clear their stale PII automatically. The manual
+      // invalidation was both redundant and the cause of the cycle.
       if (kDebugMode) {
-        log(
-          'Logout server call threw non-Failure (tolerated): ${e.runtimeType}',
-          name: 'auth',
-          level: 900,
-        );
+        log('Logout: session cleared', name: 'auth', level: 800);
+      }
+      state = const AsyncData(AuthSession.unauthenticated());
+    } finally {
+      // Gate on WIPE COMPLETION, not on `state` — the two are not the same
+      // thing. `state` is only reassigned on the unconditional flip at the
+      // very end of the try block, but `wipedStorage` flips right after
+      // `deleteAll()` returns, several statements earlier. Three cleanup
+      // calls run between those two points (`screenProtectionProvider.reset()`,
+      // `registerDraftProvider.notifier.reset()`, `dayKeepAliveLruProvider.clear()`)
+      // and are not individually try/caught — if any of them throws, control
+      // reaches this `finally` with secure storage already wiped but `state`
+      // still holding the stale `Authenticated` session. Gating on `state`
+      // would then see "session still alive" and wrongly reset the flag,
+      // re-enabling `_writeLastSalon` to repopulate the just-wiped
+      // `lastSalon` slot with the outgoing session (mobile-security MEDIUM-2
+      // audit cycle 2 follow-up, 2026-09-02).
+      //
+      // If the wipe never completed (the server call or `deleteAll()` itself
+      // threw before this point), the user may still be signed in and the
+      // writer must be re-enabled — that is the case this reset exists for.
+      // Once the wipe HAS completed, the session is effectively dead
+      // regardless of what `state` says, so the writer must stay disabled
+      // until a genuinely fresh session resets the flag at one of the four
+      // login paths.
+      if (!wipedStorage) {
+        _logoutInFlight = false;
       }
     }
-    await ref.read(secureStorageProvider).deleteAll();
-    // Security (mobile-security MEDIUM-1, 2026-07-24) — purge the shared media
-    // disk cache. The loader (core/media/beautica_image.dart) disk-caches
-    // remote avatars/photos for 7 days; the client faces this account viewed
-    // are PII and must not survive an explicit or forced sign-out onto a
-    // shared/reassigned device. Best-effort like the rest of the wipe: any
-    // error (e.g. a wedged sqflite store) is tolerated so it can never abort
-    // the unconditional local wipe below. Routed through the top-level
-    // `purgeBeauticaMediaCache()` so it hits the override-aware ACTIVE cache
-    // manager (never the raw handle) and stays testable.
-    try {
-      await purgeBeauticaMediaCache();
-    } catch (e) {
-      if (kDebugMode) {
-        log(
-          'Media cache purge on logout failed (tolerated): ${e.runtimeType}',
-          name: 'auth',
-          level: 900,
-        );
-      }
-    }
-    // Security (mobile-security MEDIUM) — force-clear the screen-protection
-    // reference count and tear down the iOS app-switcher blur. (No FLAG_SECURE
-    // is involved: screenshots are allowed by product decision 2026-08-20 —
-    // see the header of `lib/core/security/screen_protection.dart`.)
-    // Without this, a logout triggered while a PII screen's dialog is still
-    // showing above a live `screenProtectionProvider` acquirer (e.g.
-    // `RefreshInterceptor` force-logs-out on a failed token refresh while
-    // `ClientBookingConflictDialog` is open over `BookingConfirmScreen`)
-    // would leave protection latched on past the auth boundary — see
-    // `ScreenProtectionManager.reset()`'s doc comment.
-    ref.read(screenProtectionProvider).reset();
-    // Security (Phase 2.16 HIGH-1) — clear any in-flight registration draft
-    // so the password fields it holds in memory do not linger past the user's
-    // explicit logout. The draft survives across nav (keepAlive) so without
-    // this it would persist until the process is killed.
-    ref.read(registerDraftProvider.notifier).reset();
-    // Security (mobile-security HIGH, 2026-07-19) — sweep the day-timeline's
-    // bounded keepAlive cache's OWN bookkeeping. `BookingsDayNotifier.build`'s
-    // `authProvider`-id watch (triggered by the state assignment below)
-    // already reclaims every member's PII on its own the instant the
-    // identity changes — actively watched or not: Riverpod's
-    // `invalidateSelf()` unconditionally severs every `KeepAliveLink` an
-    // element holds and queues either its disposal (no active listener) or a
-    // rebuild (an active one) for the very next event-loop turn — never left
-    // lazily pending on some future read. This call exists because that
-    // severing does NOT touch [DayKeepAliveLru]'s own `_links` map: without
-    // it, a logged-out query's slot keeps pointing at an already-severed
-    // link — a "zombie" entry silently wasting the LRU's bounded budget —
-    // until a future cache touch happens to overwrite it. See
-    // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
-    // the full reasoning, including the Riverpod internals this depends on.
-    ref.read(dayKeepAliveLruProvider).clear();
-    // NOTE — this belt-and-braces list is NOT the app's full inventory of
-    // keepAlive, user-scoped state, and must not be read as one (mobile-security
-    // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of
-    // BOOKING IDS this provider has left client feedback about) is deliberately
-    // ABSENT: like `BookingsDayNotifier`, its `build()` watches the
-    // authenticated identity itself (`authProvider.select(… user.id …)`), so
-    // the state assignment below already rebuilds it to a fresh empty set
-    // through the ordinary cascade. Unlike the day cache it holds no external
-    // bookkeeping (no LRU, no links map) for that rebuild to miss, so there is
-    // nothing left for an explicit sweep to do — adding one would be redundant
-    // work on every logout. Pinned by `client_review_signal_provider_test.dart`
-    // and by `master_archive_review_flow_test.dart`'s session-boundary scenario,
-    // which drives a real logout → login round trip.
-    // Wipe the interceptor's session-lifetime token fallback so no request can
-    // carry a stale Bearer token after an explicit logout.
-    _lastKnownAccessToken = null;
-    coldStartAccessToken = null;
-    // NOTE — do NOT `ref.invalidate(...)` the master profile / service repository
-    // / services list here. Each of those providers transitively
-    // `ref.watch(authProvider)` (masterProfileProvider directly; serviceRepository
-    // and servicesList through it), so invalidating them from INSIDE this notifier
-    // records a back-edge that closes a dependency cycle — Riverpod's
-    // CircularDependencyError assert (debug/test only) then throws and escapes the
-    // state transition below, surfacing a false "logout failed". The cascade
-    // already handles teardown: when state flips to Unauthenticated below, those
-    // watchers rebuild and clear their stale PII automatically. The manual
-    // invalidation was both redundant and the cause of the cycle.
-    if (kDebugMode) {
-      log('Logout: session cleared', name: 'auth', level: 800);
-    }
-    state = const AsyncData(AuthSession.unauthenticated());
   }
 }

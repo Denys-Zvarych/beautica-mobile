@@ -41,6 +41,8 @@
 //
 // All taps are key-based — no raw Ukrainian find.text() tap drivers.
 
+import 'dart:convert';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -49,6 +51,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/fakes/fake_secure_storage.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
@@ -68,7 +71,15 @@ void main() {
     'resolver), never the / placeholder',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.salonOwner;
-      final GoRouter router = await AppHarness.boot(tester, fb);
+      // Phase 287 — an explicit storage instance so this flow can also prove
+      // the shell landing durably records the last-visited salon (the writer
+      // this file's own login round trip exercises for real, end to end).
+      final storage = FakeSecureStorage();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: storage,
+      );
 
       expect(
         find.byKey(const ValueKey<String>('login_email')),
@@ -104,6 +115,21 @@ void main() {
             'for why the string alone is not proof)',
       );
       expect(fb.loginCalls, equals(1));
+
+      // Phase 287 — entering the shell must durably record the salon under
+      // BEAUTICA_LAST_SALON, real router + real (fake) login round trip.
+      final String? rawLastSalon = await storage.readLastSalon();
+      expect(
+        rawLastSalon,
+        isNotNull,
+        reason:
+            'Phase 287 — landing on the salon shell must write the '
+            'last-visited-salon slot',
+      );
+      final Map<String, dynamic> lastSalon =
+          jsonDecode(rawLastSalon!) as Map<String, dynamic>;
+      expect(lastSalon['salonId'], equals(_primarySalonId));
+      expect(lastSalon['userId'], equals('user-owner-1'));
     },
   );
 

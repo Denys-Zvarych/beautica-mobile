@@ -26,6 +26,8 @@
 // depend on `mySalonsProvider` would be observable here (a shared id would
 // mask exactly that class of bug).
 
+import 'dart:convert';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -36,6 +38,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/fakes/fake_secure_storage.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
@@ -58,7 +61,14 @@ void main() {
     'never on /salons/mine, and never calls GET /salons/mine',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
-      final GoRouter router = await AppHarness.boot(tester, fb);
+      // Phase 287 D4 — an explicit storage instance so this flow also proves
+      // an ADMIN's shell entry is recorded too, not only an owner's.
+      final storage = FakeSecureStorage();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: storage,
+      );
 
       expect(
         find.byKey(const ValueKey<String>('login_email')),
@@ -109,6 +119,20 @@ void main() {
             'SYNCHRONOUSLY — it must never fire GET /salons/mine at all.',
       );
       expect(fb.loginCalls, equals(1));
+
+      // Phase 287 D4 — an admin's shell entry must be recorded too.
+      final String? rawLastSalon = await storage.readLastSalon();
+      expect(
+        rawLastSalon,
+        isNotNull,
+        reason:
+            'Phase 287 D4 — an admin opening their shell must durably '
+            'record the salon, unconditionally, exactly like an owner',
+      );
+      final Map<String, dynamic> lastSalon =
+          jsonDecode(rawLastSalon!) as Map<String, dynamic>;
+      expect(lastSalon['salonId'], equals(_adminSalonId));
+      expect(lastSalon['userId'], equals('user-admin-1'));
     },
   );
 
