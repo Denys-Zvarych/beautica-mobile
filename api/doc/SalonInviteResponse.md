@@ -1,4 +1,4 @@
-# beautica_api.model.PendingInviteResponse
+# beautica_api.model.SalonInviteResponse
 
 ## Load the model package
 ```dart
@@ -11,6 +11,7 @@ Name | Type | Description | Notes
 **inviteId** | **String** |  | [optional] 
 **recipientEmail** | **String** |  | [optional] 
 **role** | **String** |  | [optional] 
+**status** | **String** |  | [optional] 
 **createdAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **expiresAt** | [**DateTime**](DateTime.md) |  | [optional] 
 

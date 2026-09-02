@@ -4,13 +4,13 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
-import 'package:beautica_api/src/model/pending_invite_response.dart';
+import 'package:beautica_api/src/model/salon_invite_history_response.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'api_response_list_pending_invite_response.g.dart';
+part 'api_response_salon_invite_history_response.g.dart';
 
-/// ApiResponseListPendingInviteResponse
+/// ApiResponseSalonInviteHistoryResponse
 ///
 /// Properties:
 /// * [success]
@@ -18,15 +18,15 @@ part 'api_response_list_pending_invite_response.g.dart';
 /// * [message]
 /// * [errors]
 @BuiltValue()
-abstract class ApiResponseListPendingInviteResponse
+abstract class ApiResponseSalonInviteHistoryResponse
     implements
-        Built<ApiResponseListPendingInviteResponse,
-            ApiResponseListPendingInviteResponseBuilder> {
+        Built<ApiResponseSalonInviteHistoryResponse,
+            ApiResponseSalonInviteHistoryResponseBuilder> {
   @BuiltValueField(wireName: r'success')
   bool? get success;
 
   @BuiltValueField(wireName: r'data')
-  BuiltList<PendingInviteResponse>? get data;
+  SalonInviteHistoryResponse? get data;
 
   @BuiltValueField(wireName: r'message')
   String? get message;
@@ -34,34 +34,34 @@ abstract class ApiResponseListPendingInviteResponse
   @BuiltValueField(wireName: r'errors')
   BuiltMap<String, String>? get errors;
 
-  ApiResponseListPendingInviteResponse._();
+  ApiResponseSalonInviteHistoryResponse._();
 
-  factory ApiResponseListPendingInviteResponse(
-          [void updates(ApiResponseListPendingInviteResponseBuilder b)]) =
-      _$ApiResponseListPendingInviteResponse;
+  factory ApiResponseSalonInviteHistoryResponse(
+          [void updates(ApiResponseSalonInviteHistoryResponseBuilder b)]) =
+      _$ApiResponseSalonInviteHistoryResponse;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(ApiResponseListPendingInviteResponseBuilder b) => b;
+  static void _defaults(ApiResponseSalonInviteHistoryResponseBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<ApiResponseListPendingInviteResponse> get serializer =>
-      _$ApiResponseListPendingInviteResponseSerializer();
+  static Serializer<ApiResponseSalonInviteHistoryResponse> get serializer =>
+      _$ApiResponseSalonInviteHistoryResponseSerializer();
 }
 
-class _$ApiResponseListPendingInviteResponseSerializer
-    implements PrimitiveSerializer<ApiResponseListPendingInviteResponse> {
+class _$ApiResponseSalonInviteHistoryResponseSerializer
+    implements PrimitiveSerializer<ApiResponseSalonInviteHistoryResponse> {
   @override
   final Iterable<Type> types = const [
-    ApiResponseListPendingInviteResponse,
-    _$ApiResponseListPendingInviteResponse
+    ApiResponseSalonInviteHistoryResponse,
+    _$ApiResponseSalonInviteHistoryResponse
   ];
 
   @override
-  final String wireName = r'ApiResponseListPendingInviteResponse';
+  final String wireName = r'ApiResponseSalonInviteHistoryResponse';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    ApiResponseListPendingInviteResponse object, {
+    ApiResponseSalonInviteHistoryResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     if (object.success != null) {
@@ -75,8 +75,7 @@ class _$ApiResponseListPendingInviteResponseSerializer
       yield r'data';
       yield serializers.serialize(
         object.data,
-        specifiedType:
-            const FullType(BuiltList, [FullType(PendingInviteResponse)]),
+        specifiedType: const FullType(SalonInviteHistoryResponse),
       );
     }
     if (object.message != null) {
@@ -99,7 +98,7 @@ class _$ApiResponseListPendingInviteResponseSerializer
   @override
   Object serialize(
     Serializers serializers,
-    ApiResponseListPendingInviteResponse object, {
+    ApiResponseSalonInviteHistoryResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -112,7 +111,7 @@ class _$ApiResponseListPendingInviteResponseSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required ApiResponseListPendingInviteResponseBuilder result,
+    required ApiResponseSalonInviteHistoryResponseBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -129,9 +128,8 @@ class _$ApiResponseListPendingInviteResponseSerializer
         case r'data':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType:
-                const FullType(BuiltList, [FullType(PendingInviteResponse)]),
-          ) as BuiltList<PendingInviteResponse>;
+            specifiedType: const FullType(SalonInviteHistoryResponse),
+          ) as SalonInviteHistoryResponse;
           result.data.replace(valueDes);
           break;
         case r'message':
@@ -158,12 +156,12 @@ class _$ApiResponseListPendingInviteResponseSerializer
   }
 
   @override
-  ApiResponseListPendingInviteResponse deserialize(
+  ApiResponseSalonInviteHistoryResponse deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = ApiResponseListPendingInviteResponseBuilder();
+    final result = ApiResponseSalonInviteHistoryResponseBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

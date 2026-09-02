@@ -37,7 +37,6 @@ import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
-import 'package:beautica_api/src/model/api_response_list_pending_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
@@ -73,6 +72,7 @@ import 'package:beautica_api/src/model/api_response_registration_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_invite_history_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_review_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_service_catalog_response.dart';
@@ -172,7 +172,6 @@ import 'package:beautica_api/src/model/page_response_timeline_item_response.dart
 import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/pageable_object.dart';
 import 'package:beautica_api/src/model/passport_response.dart';
-import 'package:beautica_api/src/model/pending_invite_response.dart';
 import 'package:beautica_api/src/model/phone_otp_send_request.dart';
 import 'package:beautica_api/src/model/phone_otp_verify_request.dart';
 import 'package:beautica_api/src/model/platform_category_response.dart';
@@ -196,6 +195,8 @@ import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/rotate_admin_request.dart';
 import 'package:beautica_api/src/model/rotate_master_request.dart';
 import 'package:beautica_api/src/model/salon_admin_response.dart';
+import 'package:beautica_api/src/model/salon_invite_history_response.dart';
+import 'package:beautica_api/src/model/salon_invite_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
 import 'package:beautica_api/src/model/salon_review_response.dart';
 import 'package:beautica_api/src/model/salon_review_summary_response.dart';
@@ -259,7 +260,6 @@ part 'serializers.g.dart';
   ApiResponseListMasterServiceResponse,
   ApiResponseListMasterWorkingDayResponse,
   ApiResponseListOblastResponse,
-  ApiResponseListPendingInviteResponse,
   ApiResponseListPlatformCategoryUsageResponse,
   ApiResponseListPlatformServiceTypeResponse,
   ApiResponseListSalonResponse,
@@ -295,6 +295,7 @@ part 'serializers.g.dart';
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
   ApiResponseSalonAdminResponse,
+  ApiResponseSalonInviteHistoryResponse,
   ApiResponseSalonResponse,
   ApiResponseSalonReviewSummaryResponse,
   ApiResponseSalonServiceCatalogResponse,
@@ -394,7 +395,6 @@ part 'serializers.g.dart';
   Pageable,
   PageableObject,
   PassportResponse,
-  PendingInviteResponse,
   PhoneOtpSendRequest,
   PhoneOtpVerifyRequest,
   PlatformCategoryResponse,
@@ -418,6 +418,8 @@ part 'serializers.g.dart';
   RotateAdminRequest,
   RotateMasterRequest,
   SalonAdminResponse,
+  SalonInviteHistoryResponse,
+  SalonInviteResponse,
   SalonResponse,
   SalonReviewResponse,
   SalonReviewSummaryResponse,

@@ -24,7 +24,6 @@ doc/ApiResponseListLocalDate.md
 doc/ApiResponseListMasterServiceResponse.md
 doc/ApiResponseListMasterWorkingDayResponse.md
 doc/ApiResponseListOblastResponse.md
-doc/ApiResponseListPendingInviteResponse.md
 doc/ApiResponseListPlatformCategoryUsageResponse.md
 doc/ApiResponseListPlatformServiceTypeResponse.md
 doc/ApiResponseListSalonResponse.md
@@ -60,6 +59,7 @@ doc/ApiResponseRegistrationResponse.md
 doc/ApiResponseRevenueResponse.md
 doc/ApiResponseReviewResponse.md
 doc/ApiResponseSalonAdminResponse.md
+doc/ApiResponseSalonInviteHistoryResponse.md
 doc/ApiResponseSalonResponse.md
 doc/ApiResponseSalonReviewSummaryResponse.md
 doc/ApiResponseSalonServiceCatalogResponse.md
@@ -173,7 +173,6 @@ doc/PageResponseTimelineItemResponse.md
 doc/Pageable.md
 doc/PageableObject.md
 doc/PassportResponse.md
-doc/PendingInviteResponse.md
 doc/PhoneOtpControllerApi.md
 doc/PhoneOtpSendRequest.md
 doc/PhoneOtpVerifyRequest.md
@@ -201,6 +200,8 @@ doc/RotateAdminRequest.md
 doc/RotateMasterRequest.md
 doc/SalonAdminResponse.md
 doc/SalonControllerApi.md
+doc/SalonInviteHistoryResponse.md
+doc/SalonInviteResponse.md
 doc/SalonMasterControllerApi.md
 doc/SalonResponse.md
 doc/SalonReviewResponse.md
@@ -301,7 +302,6 @@ lib/src/model/api_response_list_local_date.dart
 lib/src/model/api_response_list_master_service_response.dart
 lib/src/model/api_response_list_master_working_day_response.dart
 lib/src/model/api_response_list_oblast_response.dart
-lib/src/model/api_response_list_pending_invite_response.dart
 lib/src/model/api_response_list_platform_category_usage_response.dart
 lib/src/model/api_response_list_platform_service_type_response.dart
 lib/src/model/api_response_list_salon_response.dart
@@ -337,6 +337,7 @@ lib/src/model/api_response_registration_response.dart
 lib/src/model/api_response_revenue_response.dart
 lib/src/model/api_response_review_response.dart
 lib/src/model/api_response_salon_admin_response.dart
+lib/src/model/api_response_salon_invite_history_response.dart
 lib/src/model/api_response_salon_response.dart
 lib/src/model/api_response_salon_review_summary_response.dart
 lib/src/model/api_response_salon_service_catalog_response.dart
@@ -437,7 +438,6 @@ lib/src/model/page_response_timeline_item_response.dart
 lib/src/model/pageable.dart
 lib/src/model/pageable_object.dart
 lib/src/model/passport_response.dart
-lib/src/model/pending_invite_response.dart
 lib/src/model/phone_otp_send_request.dart
 lib/src/model/phone_otp_verify_request.dart
 lib/src/model/platform_category_response.dart
@@ -461,6 +461,8 @@ lib/src/model/review_response.dart
 lib/src/model/rotate_admin_request.dart
 lib/src/model/rotate_master_request.dart
 lib/src/model/salon_admin_response.dart
+lib/src/model/salon_invite_history_response.dart
+lib/src/model/salon_invite_response.dart
 lib/src/model/salon_response.dart
 lib/src/model/salon_review_response.dart
 lib/src/model/salon_review_summary_response.dart
@@ -499,3 +501,6 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_salon_invite_history_response_test.dart
+test/salon_invite_history_response_test.dart
+test/salon_invite_response_test.dart

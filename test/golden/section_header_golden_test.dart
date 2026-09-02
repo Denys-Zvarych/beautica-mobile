@@ -83,7 +83,15 @@ Widget _host(double width) => ColoredBox(
                 title: l10n.scheduleCalendarSection,
               ),
               const SizedBox(height: 24),
-              // The Phase 21.11 caller, verbatim.
+              // The Phase 21.11 caller, verbatim — this is the invite HISTORY
+              // header on `salon_pending_invites_screen.dart`, whose label
+              // became «Історія запрошень» when that screen widened from
+              // pending-only to full history.
+              //
+              // NOTE: `invite_staff_screen.dart`'s appended pending block is a
+              // SEPARATE caller and is NOT captured here — it kept the
+              // pending-only wording under its own `inviteStaffPendingSectionLabel`
+              // key, and has no golden of its own.
               SectionHeader(
                 key: const Key('golden-section-header-pending-invites'),
                 title: l10n.salonPendingInvitesSectionLabel,

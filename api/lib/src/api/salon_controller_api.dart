@@ -11,13 +11,13 @@ import 'package:dio/dio.dart';
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_bookable_master_response.dart';
-import 'package:beautica_api/src/model/api_response_list_pending_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/api_response_list_sibling_salon_option.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_invite_history_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/invite_request.dart';
@@ -32,8 +32,8 @@ class SalonControllerApi {
 
   const SalonControllerApi(this._dio, this._serializers);
 
-  /// cancelInvite
-  ///
+  /// Cancel a pending invite
+  /// Revokes an invite that is still PENDING. The row is kept as history, relabelled CANCELLED. Any invite that is not PENDING — already accepted, already cancelled, superseded by a re-invite, or simply lapsed — returns 404, as does an invite belonging to another salon: a non-pending invite must never have its recorded outcome rewritten.
   ///
   /// Parameters:
   /// * [salonId]
@@ -824,8 +824,8 @@ class SalonControllerApi {
     );
   }
 
-  /// listPendingInvites
-  ///
+  /// List the salon&#39;s invite history
+  /// Returns every invite the salon has ever dispatched — pending, accepted, expired and cancelled alike — newest-first by createdAt, under &#x60;data.invites&#x60;. &#x60;status&#x60; is derived per row at read time and is one of PENDING, ACCEPTED, EXPIRED, CANCELLED; only a PENDING invite can be cancelled. The token value is never exposed. Capped at the 200 most recent invites; &#x60;data.truncated&#x60; is true when older invites exist beyond that cap and are not included.
   ///
   /// Parameters:
   /// * [salonId]
@@ -836,9 +836,9 @@ class SalonControllerApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [ApiResponseListPendingInviteResponse] as data
+  /// Returns a [Future] containing a [Response] with a [ApiResponseSalonInviteHistoryResponse] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<ApiResponseListPendingInviteResponse>> listPendingInvites({
+  Future<Response<ApiResponseSalonInviteHistoryResponse>> listSalonInvites({
     required String salonId,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
@@ -847,7 +847,7 @@ class SalonControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/api/v1/salons/{salonId}/invites/pending'.replaceAll(
+    final _path = r'/api/v1/salons/{salonId}/invites'.replaceAll(
         '{' r'salonId' '}',
         encodeQueryParameter(_serializers, salonId, const FullType(String))
             .toString());
@@ -871,7 +871,7 @@ class SalonControllerApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    ApiResponseListPendingInviteResponse? _responseData;
+    ApiResponseSalonInviteHistoryResponse? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -880,8 +880,8 @@ class SalonControllerApi {
           : _serializers.deserialize(
               rawResponse,
               specifiedType:
-                  const FullType(ApiResponseListPendingInviteResponse),
-            ) as ApiResponseListPendingInviteResponse;
+                  const FullType(ApiResponseSalonInviteHistoryResponse),
+            ) as ApiResponseSalonInviteHistoryResponse;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -892,7 +892,7 @@ class SalonControllerApi {
       );
     }
 
-    return Response<ApiResponseListPendingInviteResponse>(
+    return Response<ApiResponseSalonInviteHistoryResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

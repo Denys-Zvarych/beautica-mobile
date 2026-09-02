@@ -6,19 +6,20 @@
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'pending_invite_response.g.dart';
+part 'salon_invite_response.g.dart';
 
-/// PendingInviteResponse
+/// SalonInviteResponse
 ///
 /// Properties:
 /// * [inviteId]
 /// * [recipientEmail]
 /// * [role]
+/// * [status]
 /// * [createdAt]
 /// * [expiresAt]
 @BuiltValue()
-abstract class PendingInviteResponse
-    implements Built<PendingInviteResponse, PendingInviteResponseBuilder> {
+abstract class SalonInviteResponse
+    implements Built<SalonInviteResponse, SalonInviteResponseBuilder> {
   @BuiltValueField(wireName: r'inviteId')
   String? get inviteId;
 
@@ -28,39 +29,42 @@ abstract class PendingInviteResponse
   @BuiltValueField(wireName: r'role')
   String? get role;
 
+  @BuiltValueField(wireName: r'status')
+  String? get status;
+
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
 
   @BuiltValueField(wireName: r'expiresAt')
   DateTime? get expiresAt;
 
-  PendingInviteResponse._();
+  SalonInviteResponse._();
 
-  factory PendingInviteResponse(
-      [void updates(PendingInviteResponseBuilder b)]) = _$PendingInviteResponse;
+  factory SalonInviteResponse([void updates(SalonInviteResponseBuilder b)]) =
+      _$SalonInviteResponse;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(PendingInviteResponseBuilder b) => b;
+  static void _defaults(SalonInviteResponseBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<PendingInviteResponse> get serializer =>
-      _$PendingInviteResponseSerializer();
+  static Serializer<SalonInviteResponse> get serializer =>
+      _$SalonInviteResponseSerializer();
 }
 
-class _$PendingInviteResponseSerializer
-    implements PrimitiveSerializer<PendingInviteResponse> {
+class _$SalonInviteResponseSerializer
+    implements PrimitiveSerializer<SalonInviteResponse> {
   @override
   final Iterable<Type> types = const [
-    PendingInviteResponse,
-    _$PendingInviteResponse
+    SalonInviteResponse,
+    _$SalonInviteResponse
   ];
 
   @override
-  final String wireName = r'PendingInviteResponse';
+  final String wireName = r'SalonInviteResponse';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    PendingInviteResponse object, {
+    SalonInviteResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     if (object.inviteId != null) {
@@ -84,6 +88,13 @@ class _$PendingInviteResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.status != null) {
+      yield r'status';
+      yield serializers.serialize(
+        object.status,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.createdAt != null) {
       yield r'createdAt';
       yield serializers.serialize(
@@ -103,7 +114,7 @@ class _$PendingInviteResponseSerializer
   @override
   Object serialize(
     Serializers serializers,
-    PendingInviteResponse object, {
+    SalonInviteResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -116,7 +127,7 @@ class _$PendingInviteResponseSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required PendingInviteResponseBuilder result,
+    required SalonInviteResponseBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -144,6 +155,13 @@ class _$PendingInviteResponseSerializer
           ) as String;
           result.role = valueDes;
           break;
+        case r'status':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.status = valueDes;
+          break;
         case r'createdAt':
           final valueDes = serializers.deserialize(
             value,
@@ -167,12 +185,12 @@ class _$PendingInviteResponseSerializer
   }
 
   @override
-  PendingInviteResponse deserialize(
+  SalonInviteResponse deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = PendingInviteResponseBuilder();
+    final result = SalonInviteResponseBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

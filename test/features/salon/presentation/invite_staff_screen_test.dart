@@ -67,8 +67,12 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:dio/dio.dart';
 import 'package:beautica_mobile/features/salon/application/invite_staff_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/invite_status.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_invite_row.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -142,6 +146,51 @@ Finder get _submitCta => find.byKey(const Key('send_invite'));
 Finder get _adminIcon => find.byIcon(Icons.admin_panel_settings_outlined);
 Finder get _masterIcon => find.byIcon(Icons.brush_outlined);
 Finder get _backIcon => find.byIcon(Icons.arrow_back_ios_new_rounded);
+
+/// A MIXED-status invite history — the salon's WHOLE outbound record, exactly
+/// as `GET /salons/{salonId}/invites` returns it.
+///
+/// Deliberately mixed and deliberately NOT pending-first: this file had NO
+/// `SalonInvite` fixture at all before 2026-09-02, so the invite FORM's
+/// pending-only filter (`SalonInvitesState.pending`, derived in
+/// `salon_invites_notifier.dart` and consumed by `invite_staff_screen.dart`)
+/// was unguarded at every layer. Dropping that filter dumps the salon's
+/// entire history — accepted, expired and revoked invitations included —
+/// underneath a form whose whole point is "who is still waiting for an
+/// answer".
+List<SalonInvite> _mixedInvites() => <SalonInvite>[
+  _inviteFixture('inv-accepted', InviteStatus.accepted),
+  _inviteFixture('inv-pending-1', InviteStatus.pending),
+  _inviteFixture('inv-expired', InviteStatus.expired),
+  _inviteFixture('inv-cancelled', InviteStatus.cancelled),
+  _inviteFixture('inv-pending-2', InviteStatus.pending),
+  _inviteFixture('inv-unknown', InviteStatus.unknown),
+];
+
+/// The two ids the form's block must show, and the four it must not.
+const List<String> _kPendingIds = <String>['inv-pending-1', 'inv-pending-2'];
+const List<String> _kTerminalIds = <String>[
+  'inv-accepted',
+  'inv-expired',
+  'inv-cancelled',
+  'inv-unknown',
+];
+
+/// `createdAt` reads the HOST clock, and so does the row's «надіслано …»
+/// caption via `formatRelativeDate` — both live, never mixed (clock-coherence
+/// invariant).
+final DateTime _kInviteSentAt = DateTime.now().subtract(
+  const Duration(days: 2),
+);
+
+SalonInvite _inviteFixture(String id, InviteStatus status) => SalonInvite(
+  inviteId: id,
+  recipientEmail: '$id@beautica.ua',
+  role: SalonStaffRole.master,
+  status: status,
+  createdAt: _kInviteSentAt,
+  expiresAt: _kInviteSentAt.add(const Duration(hours: 48)),
+);
 
 void main() {
   group('role toggle', () {
@@ -738,5 +787,111 @@ void main() {
         expect(find.byKey(const Key('manage-marker')), findsOneWidget);
       },
     );
+  });
+
+  // ── The pending-only filter on the invite FORM ───────────────────────────
+  //
+  // MUTATION-PROBED 2026-09-02: swapping `history.pending` for
+  // `history.invites` in `invite_staff_screen.dart` (i.e. dropping the
+  // filter, the exact regression this guards) turns every test in this group
+  // RED. The observed failures are in the QA report.
+  group('inline pending block renders ONLY pending rows', () {
+    testWidgets('a MIXED history yields exactly the two pending rows — the '
+        'accepted / expired / cancelled / unknown rows are absent', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _kSalon,
+        salonInvites: _mixedInvites(),
+      );
+      await _pumpInvite(
+        tester,
+        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+      );
+
+      expect(find.byType(SalonInviteRow), findsNWidgets(2));
+      for (final String id in _kPendingIds) {
+        expect(
+          find.byKey(salonInviteRowKey(id)),
+          findsOneWidget,
+          reason: '$id is still waiting for an answer — it belongs here',
+        );
+      }
+      for (final String id in _kTerminalIds) {
+        expect(
+          find.byKey(salonInviteRowKey(id)),
+          findsNothing,
+          reason:
+              '$id is HISTORY — it belongs on «Надіслані запрошення», never '
+              'under the invite form',
+        );
+      }
+    });
+
+    testWidgets('the block header counts the PENDING rows, not the whole '
+        'history', (tester) async {
+      final repo = FakeSalonRepository(
+        salon: _kSalon,
+        salonInvites: _mixedInvites(),
+      );
+      await _pumpInvite(
+        tester,
+        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+      );
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invite-pending-header')),
+          matching: find.text('2'),
+        ),
+        findsOneWidget,
+        reason:
+            'a 6 here would mean the header is counting the history the '
+            'block below is not showing',
+      );
+      // The fixture genuinely MOVES this assertion: 6 rows in, 2 expected.
+      expect(_mixedInvites(), hasLength(6));
+    });
+
+    testWidgets('a history with NO pending rows renders no block at all — not '
+        'an empty header over the terminal rows', (tester) async {
+      final repo = FakeSalonRepository(
+        salon: _kSalon,
+        salonInvites: <SalonInvite>[
+          _inviteFixture('inv-accepted', InviteStatus.accepted),
+          _inviteFixture('inv-expired', InviteStatus.expired),
+          _inviteFixture('inv-cancelled', InviteStatus.cancelled),
+        ],
+      );
+      await _pumpInvite(
+        tester,
+        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+      );
+
+      expect(find.byType(SalonInviteRow), findsNothing);
+      expect(find.byKey(const Key('invite-pending-header')), findsNothing);
+    });
+
+    testWidgets('cancelling a pending row DROPS it from this block while the '
+        'other pending row stays', (tester) async {
+      final repo = FakeSalonRepository(
+        salon: _kSalon,
+        salonInvites: _mixedInvites(),
+      );
+      await _pumpInvite(
+        tester,
+        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+      );
+
+      await tester.tap(find.byKey(salonInviteCancelKey('inv-pending-1')));
+      await tester.pumpAndSettle();
+
+      expect(repo.cancelInviteRequests.single.inviteId, 'inv-pending-1');
+      // The row flipped to CANCELLED, so it leaves the PENDING subset — this
+      // block shrinks even though the history screen would still show it.
+      expect(find.byKey(salonInviteRowKey('inv-pending-1')), findsNothing);
+      expect(find.byKey(salonInviteRowKey('inv-pending-2')), findsOneWidget);
+      expect(find.byType(SalonInviteRow), findsOneWidget);
+    });
   });
 }

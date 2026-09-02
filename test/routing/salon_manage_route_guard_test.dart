@@ -67,10 +67,10 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
-import 'package:beautica_mobile/features/salon/application/pending_invites_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_invites_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
-import 'package:beautica_mobile/features/salon/domain/pending_invite.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
@@ -146,10 +146,12 @@ class _SettledMasterProfileNotifier extends MasterProfile {
 /// (no shimmer, no timers), which is all a guard test needs: this file asserts
 /// WHO reaches the route, never what the list renders (that is
 /// `salon_pending_invites_screen_test.dart`'s job).
-class _SettledPendingInvites extends PendingInvites {
+class _SettledPendingInvites extends SalonInvites {
   @override
-  Future<PendingInvitesState> build(String salonId) async => (
-    invites: const <PendingInvite>[],
+  Future<SalonInvitesState> build(String salonId) async => (
+    invites: const <SalonInvite>[],
+    pending: const <SalonInvite>[],
+    truncated: false,
     cancelling: const <String>{},
     failed: const <String>{},
   );
@@ -394,14 +396,14 @@ void main() {
           salonStaffMemberProfileProvider(_kSalonId, _kMemberId).overrideWith(
             (ref) async => (_kStaffMember, const <MasterService>[]),
           ),
-          // Phase 21.11 — settles `/salons/:salonId/pending-invites`'s own
+          // Settles `/salons/:salonId/pending-invites`'s own
           // data source for BOTH salon ids any test in this file can land on.
           // See [_SettledPendingInvites]: without it the ADMITTED cases hang
           // on a never-settling shimmer, not merely leak a Dio request.
-          pendingInvitesProvider(
+          salonInvitesProvider(
             _kSalonId,
           ).overrideWith(_SettledPendingInvites.new),
-          pendingInvitesProvider(
+          salonInvitesProvider(
             _kOtherOwnedSalonId,
           ).overrideWith(_SettledPendingInvites.new),
           // Settles the CLIENT redirect target (RouteNames.clientHome →

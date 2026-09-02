@@ -59,7 +59,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../domain/bookable_master_assignment.dart';
-import '../domain/pending_invite.dart';
+import '../domain/salon_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -287,27 +287,39 @@ abstract interface class SalonRepository {
   /// yet).
   Future<List<SalonStaffMember>> getSalonStaff(String salonId);
 
-  /// Lists the salon's outbound staff invitations that are still awaiting
-  /// acceptance (Phase 21.11).
+  /// Lists the salon's outbound staff-invitation HISTORY — pending,
+  /// accepted, expired and cancelled alike, newest first.
   ///
-  /// Wraps `GET /salons/{salonId}/invites/pending` (the generated
-  /// `SalonControllerApi.listPendingInvites`). Owner + admin scoped
+  /// Wraps `GET /salons/{salonId}/invites` (the generated
+  /// `SalonControllerApi.listSalonInvites`). Owner + admin scoped
   /// backend-side — the same authorization [salonManageGuard] binds
-  /// client-side. Returns an empty list when nothing is outstanding (200
-  /// `[]`), which is the NORMAL state, not an error. The response DTO carries
-  /// no token material (`inviteId`/`recipientEmail`/`role`/`createdAt`/
-  /// `expiresAt` only).
-  Future<List<PendingInvite>> listPendingInvites(String salonId);
+  /// client-side, and BOTH roles see the full history (a locked product
+  /// decision; there is no role-based filtering of this list). Returns an
+  /// empty list for a salon that has never invited anyone, which is the
+  /// NORMAL state, not an error.
+  ///
+  /// The response DTO carries no token material — `inviteId`,
+  /// `recipientEmail`, `role`, `status`, `createdAt`, `expiresAt` only.
+  ///
+  /// ORDER IS THE SERVER'S (`createdAt DESC, id DESC`) and is preserved
+  /// verbatim; see [SalonInviteMapper.fromDtoList]. The server caps the page
+  /// at its 200 most recent rows and reports the cut in
+  /// [SalonInviteHistory.truncated], which the caller must surface rather
+  /// than drop — a silently short list reads as "this is everything".
+  Future<SalonInviteHistory> listSalonInvites(String salonId);
 
-  /// Cancels the pending invitation [inviteId] of salon [salonId] (Phase
-  /// 21.11).
+  /// Cancels the PENDING invitation [inviteId] of salon [salonId].
   ///
   /// Wraps `DELETE /salons/{salonId}/invites/{inviteId}` (the generated
-  /// `SalonControllerApi.cancelInvite`). Backend-side this marks the token
-  /// `used = true` rather than deleting the row, after which
-  /// `POST /auth/invite/accept` rejects it — so a cancel is idempotent from
-  /// the caller's point of view. Throws a typed [Failure] on any transport or
-  /// server error.
+  /// `SalonControllerApi.cancelInvite`). Backend-side the row is revoked, not
+  /// deleted: it stays in the history reading CANCELLED, and
+  /// `POST /auth/invite/accept` rejects it from then on.
+  ///
+  /// ONLY a pending invitation may be cancelled — the endpoint 404s a used,
+  /// revoked, expired or cross-salon id, INCLUDING a second cancel of the
+  /// same invitation. So this call is NOT idempotent and callers must gate it
+  /// on [SalonInvite.isCancellable] rather than fire it optimistically.
+  /// Throws a typed [Failure] on any transport or server error.
   Future<void> cancelInvite({
     required String salonId,
     required String inviteId,
@@ -787,17 +799,24 @@ final class HttpSalonRepository implements SalonRepository {
   }
 
   @override
-  Future<List<PendingInvite>> listPendingInvites(String salonId) async {
+  Future<SalonInviteHistory> listSalonInvites(String salonId) async {
     try {
-      final res = await _salonApi.listPendingInvites(salonId: salonId);
-      final dtos = res.data?.data ?? const <PendingInviteResponse>[];
-      return PendingInviteMapper.fromDtoList(dtos);
+      final res = await _salonApi.listSalonInvites(salonId: salonId);
+      // `data` is an OBJECT here, not a bare array: the history envelope
+      // wraps the rows so it can carry `truncated` alongside them.
+      final SalonInviteHistoryResponse? history = res.data?.data;
+      return (
+        invites: SalonInviteMapper.fromDtoList(
+          history?.invites ?? const <SalonInviteResponse>[],
+        ),
+        truncated: history?.truncated ?? false,
+      );
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'listPendingInvites failed: ${e.type} ${e.response?.statusCode}',
+          'listSalonInvites failed: ${e.type} ${e.response?.statusCode}',
           name: 'salon.repository',
           level: 900,
           stackTrace: st,
@@ -949,7 +968,7 @@ final class HttpSalonRepository implements SalonRepository {
   /// screen is the honest result. `getSiblingSalons` is a different shape — a
   /// picker of independently actionable ALTERNATIVES, where the remaining N-1
   /// rows stay fully usable without the broken one. That is the same family as
-  /// [PendingInviteMapper.fromDtoList] and
+  /// [SalonInviteMapper.fromDtoList] and
   /// [SalonBookableMasterMapper.fromDtoList], which already drop per row in
   /// this very file, and the same policy [SiblingSalonOptionMapper] already
   /// applies to a blank-`id` row. The compile fix narrowed that policy to the

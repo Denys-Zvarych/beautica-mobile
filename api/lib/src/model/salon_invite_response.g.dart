@@ -1,12 +1,12 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'pending_invite_response.dart';
+part of 'salon_invite_response.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$PendingInviteResponse extends PendingInviteResponse {
+class _$SalonInviteResponse extends SalonInviteResponse {
   @override
   final String? inviteId;
   @override
@@ -14,37 +14,41 @@ class _$PendingInviteResponse extends PendingInviteResponse {
   @override
   final String? role;
   @override
+  final String? status;
+  @override
   final DateTime? createdAt;
   @override
   final DateTime? expiresAt;
 
-  factory _$PendingInviteResponse(
-          [void Function(PendingInviteResponseBuilder)? updates]) =>
-      (PendingInviteResponseBuilder()..update(updates))._build();
+  factory _$SalonInviteResponse(
+          [void Function(SalonInviteResponseBuilder)? updates]) =>
+      (SalonInviteResponseBuilder()..update(updates))._build();
 
-  _$PendingInviteResponse._(
+  _$SalonInviteResponse._(
       {this.inviteId,
       this.recipientEmail,
       this.role,
+      this.status,
       this.createdAt,
       this.expiresAt})
       : super._();
   @override
-  PendingInviteResponse rebuild(
-          void Function(PendingInviteResponseBuilder) updates) =>
+  SalonInviteResponse rebuild(
+          void Function(SalonInviteResponseBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  PendingInviteResponseBuilder toBuilder() =>
-      PendingInviteResponseBuilder()..replace(this);
+  SalonInviteResponseBuilder toBuilder() =>
+      SalonInviteResponseBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is PendingInviteResponse &&
+    return other is SalonInviteResponse &&
         inviteId == other.inviteId &&
         recipientEmail == other.recipientEmail &&
         role == other.role &&
+        status == other.status &&
         createdAt == other.createdAt &&
         expiresAt == other.expiresAt;
   }
@@ -55,6 +59,7 @@ class _$PendingInviteResponse extends PendingInviteResponse {
     _$hash = $jc(_$hash, inviteId.hashCode);
     _$hash = $jc(_$hash, recipientEmail.hashCode);
     _$hash = $jc(_$hash, role.hashCode);
+    _$hash = $jc(_$hash, status.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, expiresAt.hashCode);
     _$hash = $jf(_$hash);
@@ -63,19 +68,20 @@ class _$PendingInviteResponse extends PendingInviteResponse {
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'PendingInviteResponse')
+    return (newBuiltValueToStringHelper(r'SalonInviteResponse')
           ..add('inviteId', inviteId)
           ..add('recipientEmail', recipientEmail)
           ..add('role', role)
+          ..add('status', status)
           ..add('createdAt', createdAt)
           ..add('expiresAt', expiresAt))
         .toString();
   }
 }
 
-class PendingInviteResponseBuilder
-    implements Builder<PendingInviteResponse, PendingInviteResponseBuilder> {
-  _$PendingInviteResponse? _$v;
+class SalonInviteResponseBuilder
+    implements Builder<SalonInviteResponse, SalonInviteResponseBuilder> {
+  _$SalonInviteResponse? _$v;
 
   String? _inviteId;
   String? get inviteId => _$this._inviteId;
@@ -90,6 +96,10 @@ class PendingInviteResponseBuilder
   String? get role => _$this._role;
   set role(String? role) => _$this._role = role;
 
+  String? _status;
+  String? get status => _$this._status;
+  set status(String? status) => _$this._status = status;
+
   DateTime? _createdAt;
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
@@ -98,16 +108,17 @@ class PendingInviteResponseBuilder
   DateTime? get expiresAt => _$this._expiresAt;
   set expiresAt(DateTime? expiresAt) => _$this._expiresAt = expiresAt;
 
-  PendingInviteResponseBuilder() {
-    PendingInviteResponse._defaults(this);
+  SalonInviteResponseBuilder() {
+    SalonInviteResponse._defaults(this);
   }
 
-  PendingInviteResponseBuilder get _$this {
+  SalonInviteResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _inviteId = $v.inviteId;
       _recipientEmail = $v.recipientEmail;
       _role = $v.role;
+      _status = $v.status;
       _createdAt = $v.createdAt;
       _expiresAt = $v.expiresAt;
       _$v = null;
@@ -116,24 +127,25 @@ class PendingInviteResponseBuilder
   }
 
   @override
-  void replace(PendingInviteResponse other) {
-    _$v = other as _$PendingInviteResponse;
+  void replace(SalonInviteResponse other) {
+    _$v = other as _$SalonInviteResponse;
   }
 
   @override
-  void update(void Function(PendingInviteResponseBuilder)? updates) {
+  void update(void Function(SalonInviteResponseBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  PendingInviteResponse build() => _build();
+  SalonInviteResponse build() => _build();
 
-  _$PendingInviteResponse _build() {
+  _$SalonInviteResponse _build() {
     final _$result = _$v ??
-        _$PendingInviteResponse._(
+        _$SalonInviteResponse._(
           inviteId: inviteId,
           recipientEmail: recipientEmail,
           role: role,
+          status: status,
           createdAt: createdAt,
           expiresAt: expiresAt,
         );

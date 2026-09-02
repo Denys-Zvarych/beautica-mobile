@@ -1,12 +1,12 @@
 import 'package:test/test.dart';
 import 'package:beautica_api/beautica_api.dart';
 
-// tests for PendingInviteResponse
+// tests for SalonInviteResponse
 void main() {
-  final instance = PendingInviteResponseBuilder();
+  final instance = SalonInviteResponseBuilder();
   // TODO add properties to the builder and call build()
 
-  group(PendingInviteResponse, () {
+  group(SalonInviteResponse, () {
     // String inviteId
     test('to test the property `inviteId`', () async {
       // TODO
@@ -19,6 +19,11 @@ void main() {
 
     // String role
     test('to test the property `role`', () async {
+      // TODO
+    });
+
+    // String status
+    test('to test the property `status`', () async {
       // TODO
     });
 

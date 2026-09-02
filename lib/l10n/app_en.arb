@@ -5815,7 +5815,7 @@
   "@salonPendingInvitesBackSemanticLabel": {
     "description": "Phase 21.11 — semantic label for SalonPendingInvitesScreen's SectionScaffold back icon. Its own key rather than reusing inviteStaffBackSemanticLabel: the two screens are separate surfaces and their back affordances may diverge (the app's per-screen back-label convention)."
   },
-  "salonPendingInvitesSectionLabel": "Awaiting acceptance",
+  "salonPendingInvitesSectionLabel": "Invite history",
   "@salonPendingInvitesSectionLabel": {
     "description": "Phase 21.11 — section header above the list of sent, not-yet-accepted staff invitations. Rendered on BOTH SalonPendingInvitesScreen and the pending block appended under InviteStaffScreen's form; a count sits in the header's trailing slot."
   },
@@ -5847,17 +5847,51 @@
   "@salonPendingInvitesCancelError": {
     "description": "Phase 21.11 — in-row error chip shown when DELETE /salons/{salonId}/invites/{inviteId} fails. Scoped to the one row that failed (which is restored to the list), never a full-screen error: the other rows are unaffected."
   },
-  "salonPendingInvitesEmptyTitle": "No invitations are pending",
+  "salonPendingInvitesEmptyTitle": "No invitations yet",
   "@salonPendingInvitesEmptyTitle": {
     "description": "Phase 21.11 — heading of SalonPendingInvitesScreen's empty state, shown when the salon has no outstanding invitations."
   },
-  "salonPendingInvitesEmptyBody": "Once you invite an admin or a master, the invitation appears here until it's accepted.",
+  "salonPendingInvitesEmptyBody": "When you invite an admin or a master, the invitation appears here with its status.",
   "@salonPendingInvitesEmptyBody": {
     "description": "Phase 21.11 — body copy of SalonPendingInvitesScreen's empty state; explains when a row will appear here."
   },
   "salonPendingInvitesInviteCta": "Invite to the team",
   "@salonPendingInvitesInviteCta": {
     "description": "Phase 21.11 — pinned bottom CTA on SalonPendingInvitesScreen; pushes the «Запросити персонал» form (RouteNames.salonInviteStaff). Deliberately worded differently from inviteStaffSubmitCta («Надіслати запрошення»), which is that form's own submit button."
+  },
+  "salonInvitesStatusPending": "Pending",
+  "@salonInvitesStatusPending": {
+    "description": "Status chip on an invite-history row: the invitation was sent, has not been accepted, and has not expired. The ONLY state whose row offers «Скасувати». Renders in the default mocha tint, unlike the three terminal states."
+  },
+  "salonInvitesStatusAccepted": "Accepted",
+  "@salonInvitesStatusAccepted": {
+    "description": "Status chip on an invite-history row: the invitee followed the link and joined the salon. Rendered in BrandColors.success."
+  },
+  "salonInvitesStatusExpired": "Expired",
+  "@salonInvitesStatusExpired": {
+    "description": "Status chip on an invite-history row: the invitation's validity window elapsed, or a newer invitation to the same address superseded it. Rendered in BrandColors.muted."
+  },
+  "salonInvitesStatusCancelled": "Cancelled",
+  "@salonInvitesStatusCancelled": {
+    "description": "Status chip on an invite-history row: the owner or admin revoked the invitation. Rendered in BrandColors.error."
+  },
+  "salonInvitesStatusSemanticLabel": "Status: {status}",
+  "@salonInvitesStatusSemanticLabel": {
+    "description": "Screen-reader label wrapping an invite-history row's status chip, so the pill is announced as a status rather than as a bare word beside the role. {status} is one of salonInvitesStatusPending/Accepted/Expired/Cancelled.",
+    "placeholders": {
+      "status": {
+        "type": "String",
+        "example": "Accepted"
+      }
+    }
+  },
+  "salonInvitesTruncatedNote": "Showing the 200 most recent invitations",
+  "@salonInvitesTruncatedNote": {
+    "description": "Quiet footnote under SalonPendingInvitesScreen's list, shown only when the server reports data.truncated — the salon has sent more invitations than the endpoint's 200-row cap and the older ones are not listed. Never shown on the invite form's own pending-only block, where the cap describes rows that block does not render."
+  },
+  "inviteStaffPendingSectionLabel": "Awaiting acceptance",
+  "@inviteStaffPendingSectionLabel": {
+    "description": "Section header above the pending-only invitation block appended under InviteStaffScreen's form. Its OWN key rather than salonPendingInvitesSectionLabel, which now reads «Історія запрошень»: this block is filtered to invitations still awaiting acceptance and must not claim to show the history."
   },
   "adminSettingsContextRoleLabel": "Administrator",
   "@adminSettingsContextRoleLabel": {

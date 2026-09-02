@@ -159,7 +159,7 @@ Class | Method | HTTP request | Description
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReviewsByMaster**](doc/ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviewSummary**](doc/ReviewControllerApi.md#getsalonreviewsummary) | **GET** /api/v1/salons/{salonId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviews**](doc/ReviewControllerApi.md#getsalonreviews) | **GET** /api/v1/salons/{salonId}/reviews | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**cancelInvite**](doc/SalonControllerApi.md#cancelinvite) | **DELETE** /api/v1/salons/{salonId}/invites/{inviteId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**cancelInvite**](doc/SalonControllerApi.md#cancelinvite) | **DELETE** /api/v1/salons/{salonId}/invites/{inviteId} | Cancel a pending invite
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**createSalon**](doc/SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**deactivateSalon**](doc/SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getBookableMasters**](doc/SalonControllerApi.md#getbookablemasters) | **GET** /api/v1/salons/{salonId}/services/{serviceDefId}/masters | 
@@ -169,7 +169,7 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalonStaff**](doc/SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSiblingSalons**](doc/SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**listPendingInvites**](doc/SalonControllerApi.md#listpendinginvites) | **GET** /api/v1/salons/{salonId}/invites/pending | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**listSalonInvites**](doc/SalonControllerApi.md#listsaloninvites) | **GET** /api/v1/salons/{salonId}/invites | List the salon&#39;s invite history
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**removeAdmin**](doc/SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**rotateAdmin**](doc/SalonControllerApi.md#rotateadmin) | **PATCH** /api/v1/salons/{salonId}/admins/{userId}/salon | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
@@ -224,7 +224,6 @@ Class | Method | HTTP request | Description
  - [ApiResponseListMasterServiceResponse](doc/ApiResponseListMasterServiceResponse.md)
  - [ApiResponseListMasterWorkingDayResponse](doc/ApiResponseListMasterWorkingDayResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
- - [ApiResponseListPendingInviteResponse](doc/ApiResponseListPendingInviteResponse.md)
  - [ApiResponseListPlatformCategoryUsageResponse](doc/ApiResponseListPlatformCategoryUsageResponse.md)
  - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
@@ -260,6 +259,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
  - [ApiResponseSalonAdminResponse](doc/ApiResponseSalonAdminResponse.md)
+ - [ApiResponseSalonInviteHistoryResponse](doc/ApiResponseSalonInviteHistoryResponse.md)
  - [ApiResponseSalonResponse](doc/ApiResponseSalonResponse.md)
  - [ApiResponseSalonReviewSummaryResponse](doc/ApiResponseSalonReviewSummaryResponse.md)
  - [ApiResponseSalonServiceCatalogResponse](doc/ApiResponseSalonServiceCatalogResponse.md)
@@ -359,7 +359,6 @@ Class | Method | HTTP request | Description
  - [Pageable](doc/Pageable.md)
  - [PageableObject](doc/PageableObject.md)
  - [PassportResponse](doc/PassportResponse.md)
- - [PendingInviteResponse](doc/PendingInviteResponse.md)
  - [PhoneOtpSendRequest](doc/PhoneOtpSendRequest.md)
  - [PhoneOtpVerifyRequest](doc/PhoneOtpVerifyRequest.md)
  - [PlatformCategoryResponse](doc/PlatformCategoryResponse.md)
@@ -383,6 +382,8 @@ Class | Method | HTTP request | Description
  - [RotateAdminRequest](doc/RotateAdminRequest.md)
  - [RotateMasterRequest](doc/RotateMasterRequest.md)
  - [SalonAdminResponse](doc/SalonAdminResponse.md)
+ - [SalonInviteHistoryResponse](doc/SalonInviteHistoryResponse.md)
+ - [SalonInviteResponse](doc/SalonInviteResponse.md)
  - [SalonResponse](doc/SalonResponse.md)
  - [SalonReviewResponse](doc/SalonReviewResponse.md)
  - [SalonReviewSummaryResponse](doc/SalonReviewSummaryResponse.md)

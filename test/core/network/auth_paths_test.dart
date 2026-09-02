@@ -535,6 +535,75 @@ void main() {
       );
     });
 
+    // ── Phase 21.11 (mobile-security LOW, 2026-09-02) — the invite HISTORY
+    // routes ────────────────────────────────────────────────────────────────
+    //
+    // `GET /api/v1/salons/{salonId}/invites` returns EVERY invitation the
+    // salon ever sent, each carrying the recipient's raw email address — a
+    // whole list of them in one body, where `POST .../invite` carried one.
+    // `DELETE /api/v1/salons/{salonId}/invites/{inviteId}` addresses one row.
+    //
+    // Both ALREADY resolve true today, and by TWO independent routes: the
+    // `/api/v1/salons/` prefix in [kPiiPathPrefixes], and the `/invite`
+    // SUBSTRING in [kPiiPathSegments] (`/invites` contains `/invite`).
+    // Nothing named them, though — so a narrowing that removed BOTH would
+    // silently unredact a full recipient-email list in debug logs.
+    //
+    // MEASURED, not assumed (2026-09-02, one mutation per entry):
+    //   * remove `/api/v1/salons/` alone -> these two stay GREEN (the
+    //     `/invite` segment still matches); other tests in this file go red.
+    //   * remove `/invite` alone         -> these two stay GREEN, and so did
+    //     the WHOLE file. That redundancy is why the third assertion below
+    //     pins the segment's SET MEMBERSHIP directly: without it, deleting
+    //     `/invite` from [kPiiPathSegments] was invisible to every test in
+    //     the corpus, including the pre-existing `POST .../invite` tripwire
+    //     just above (which the `/salons/` prefix also satisfies).
+    //   * remove both                    -> these two go RED, as intended.
+    //
+    // NO NEW [kPiiPaths] ENTRY is added: `test/features/auth/data/
+    // auth_paths_test.dart` holds an exact-count ledger (`kPiiPaths.length ==
+    // 23`) that an addition would break, and neither route could be an exact
+    // member anyway — both carry a dynamic `{salonId}`.
+    test('the invite HISTORY list route is a PII route (a whole page of '
+        'recipient email addresses in one body)', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123/invites'),
+        isTrue,
+        reason:
+            'GET /salons/{salonId}/invites returns every invitation the '
+            'salon ever sent, each with the recipient address — the response '
+            'body must be redacted in debug logs.',
+      );
+    });
+
+    test('the invite CANCEL route is a PII route (it is a sub-path of the '
+        'history list)', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123/invites/invite-1'),
+        isTrue,
+        reason:
+            'DELETE /salons/{salonId}/invites/{inviteId} addresses one '
+            'invitation row; its error responses echo the row.',
+      );
+    });
+
+    test('the /invite SEGMENT entry itself is still present — the one '
+        'assertion in the corpus that goes red when it is removed', () {
+      // Deliberately a set-membership pin rather than a synthetic
+      // `isPiiPath('/api/v1/somewhere/invite')` probe: no such route exists,
+      // and asserting on a path the app never issues would be pinning the
+      // guard rather than the app. See the measurement note above for why
+      // this is not redundant with the two resolution tests.
+      expect(kPiiPathSegments, contains('/invite'));
+    });
+
+    test('a PII invite-history path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/salons/salon-123/invites?page=0'),
+        equals('/api/v1/salons/salon-123/invites?[REDACTED]'),
+      );
+    });
+
     test('/api/v1/salons/{salonId}/invite is NOT in kAuthPaths (it is '
         'authenticated — SALON_OWNER/SALON_ADMIN only)', () {
       expect(

@@ -204,12 +204,54 @@ class NeumorphicInset extends StatelessWidget {
     this.radius = VelvetRadii.field,
     this.focused = false,
     this.hasError = false,
-  });
+    this.boundary = true,
+    this.animatedRing = true,
+  }) : assert(
+         animatedRing || (!focused && !hasError),
+         'NeumorphicInset(animatedRing: false) draws the ring without a '
+         'transition, so it may only be used where `focused` and `hasError` '
+         'are compile-time false for the widget\'s whole lifetime.',
+       );
 
   final Widget child;
   final double radius;
   final bool focused;
   final bool hasError;
+
+  /// Whether this well isolates itself in its own compositing layer.
+  ///
+  /// ADDITIVE and optional: `true` — the value every pre-existing caller
+  /// passes by omission — keeps the [RepaintBoundary] this widget has always
+  /// wrapped itself in, so nothing that ships today changes by a pixel or by
+  /// a layer.
+  ///
+  /// Pass `false` from a caller that is decorative and static: a boundary
+  /// only pays for itself when the subtree repaints independently of its
+  /// parent, and a badge whose pixels never change on their own just adds a
+  /// layer (and a nested one, when the caller already sits inside a
+  /// boundary — backlog row 245's original case). [RoleChip] passes `false`;
+  /// text fields, tappable tiles and anything animating keep the default.
+  final bool boundary;
+
+  /// Whether the focus/error ring CROSS-FADES rather than appearing instantly.
+  ///
+  /// ADDITIVE and optional: `true` — the value every pre-existing caller
+  /// passes by omission — keeps the [AnimatedContainer] and its 180 ms
+  /// transition, so every field, toggle and tile that can gain a ring behaves
+  /// exactly as it always has.
+  ///
+  /// `false` swaps in a plain [DecoratedBox]. The rendered pixels are
+  /// identical for a ringless well (a `width: 0` transparent border
+  /// contributes no padding and paints nothing), but the widget sheds an
+  /// [AnimationController] and its [Ticker] — 200 of each on a full invite
+  /// history, for a ring that chip can never show.
+  ///
+  /// It is a CONSTRUCTION-TIME choice, never a runtime one: flipping this
+  /// between builds would swap the widget type at that position and re-inflate
+  /// the whole subtree (dropping a focused field's `EditableText` state), so
+  /// the constructor asserts the ring inputs are const-false instead of the
+  /// build method deciding for itself.
+  final bool animatedRing;
 
   @override
   Widget build(BuildContext context) {
@@ -219,27 +261,32 @@ class NeumorphicInset extends StatelessWidget {
         ? BrandColors.accent
         : null;
 
-    return RepaintBoundary(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: BrandColors.base,
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(
-            color: ringColor ?? Colors.transparent,
-            width: ringColor == null ? 0 : 2,
-          ),
-        ),
-        child: CustomPaint(
-          // Shared per-radius instance — see [_InsetShadowPainter.forRadius].
-          // Identical pixels to the previous per-build construction; only the
-          // allocation (and the redundant repaint) goes away.
-          painter: _InsetShadowPainter.forRadius(radius),
-          child: child,
-        ),
+    final BoxDecoration decoration = BoxDecoration(
+      color: BrandColors.base,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(
+        color: ringColor ?? Colors.transparent,
+        width: ringColor == null ? 0 : 2,
       ),
     );
+    final Widget painted = CustomPaint(
+      // Shared per-radius instance — see [_InsetShadowPainter.forRadius].
+      // Identical pixels to the previous per-build construction; only the
+      // allocation (and the redundant repaint) goes away.
+      painter: _InsetShadowPainter.forRadius(radius),
+      child: child,
+    );
+
+    final Widget well = animatedRing
+        ? AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            decoration: decoration,
+            child: painted,
+          )
+        : DecoratedBox(decoration: decoration, child: painted);
+
+    return boundary ? RepaintBoundary(child: well) : well;
   }
 }
 

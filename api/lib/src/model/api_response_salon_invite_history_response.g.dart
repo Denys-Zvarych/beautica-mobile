@@ -1,43 +1,45 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'api_response_list_pending_invite_response.dart';
+part of 'api_response_salon_invite_history_response.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$ApiResponseListPendingInviteResponse
-    extends ApiResponseListPendingInviteResponse {
+class _$ApiResponseSalonInviteHistoryResponse
+    extends ApiResponseSalonInviteHistoryResponse {
   @override
   final bool? success;
   @override
-  final BuiltList<PendingInviteResponse>? data;
+  final SalonInviteHistoryResponse? data;
   @override
   final String? message;
   @override
   final BuiltMap<String, String>? errors;
 
-  factory _$ApiResponseListPendingInviteResponse(
-          [void Function(ApiResponseListPendingInviteResponseBuilder)?
+  factory _$ApiResponseSalonInviteHistoryResponse(
+          [void Function(ApiResponseSalonInviteHistoryResponseBuilder)?
               updates]) =>
-      (ApiResponseListPendingInviteResponseBuilder()..update(updates))._build();
+      (ApiResponseSalonInviteHistoryResponseBuilder()..update(updates))
+          ._build();
 
-  _$ApiResponseListPendingInviteResponse._(
+  _$ApiResponseSalonInviteHistoryResponse._(
       {this.success, this.data, this.message, this.errors})
       : super._();
   @override
-  ApiResponseListPendingInviteResponse rebuild(
-          void Function(ApiResponseListPendingInviteResponseBuilder) updates) =>
+  ApiResponseSalonInviteHistoryResponse rebuild(
+          void Function(ApiResponseSalonInviteHistoryResponseBuilder)
+              updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  ApiResponseListPendingInviteResponseBuilder toBuilder() =>
-      ApiResponseListPendingInviteResponseBuilder()..replace(this);
+  ApiResponseSalonInviteHistoryResponseBuilder toBuilder() =>
+      ApiResponseSalonInviteHistoryResponseBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ApiResponseListPendingInviteResponse &&
+    return other is ApiResponseSalonInviteHistoryResponse &&
         success == other.success &&
         data == other.data &&
         message == other.message &&
@@ -57,7 +59,8 @@ class _$ApiResponseListPendingInviteResponse
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'ApiResponseListPendingInviteResponse')
+    return (newBuiltValueToStringHelper(
+            r'ApiResponseSalonInviteHistoryResponse')
           ..add('success', success)
           ..add('data', data)
           ..add('message', message)
@@ -66,20 +69,20 @@ class _$ApiResponseListPendingInviteResponse
   }
 }
 
-class ApiResponseListPendingInviteResponseBuilder
+class ApiResponseSalonInviteHistoryResponseBuilder
     implements
-        Builder<ApiResponseListPendingInviteResponse,
-            ApiResponseListPendingInviteResponseBuilder> {
-  _$ApiResponseListPendingInviteResponse? _$v;
+        Builder<ApiResponseSalonInviteHistoryResponse,
+            ApiResponseSalonInviteHistoryResponseBuilder> {
+  _$ApiResponseSalonInviteHistoryResponse? _$v;
 
   bool? _success;
   bool? get success => _$this._success;
   set success(bool? success) => _$this._success = success;
 
-  ListBuilder<PendingInviteResponse>? _data;
-  ListBuilder<PendingInviteResponse> get data =>
-      _$this._data ??= ListBuilder<PendingInviteResponse>();
-  set data(ListBuilder<PendingInviteResponse>? data) => _$this._data = data;
+  SalonInviteHistoryResponseBuilder? _data;
+  SalonInviteHistoryResponseBuilder get data =>
+      _$this._data ??= SalonInviteHistoryResponseBuilder();
+  set data(SalonInviteHistoryResponseBuilder? data) => _$this._data = data;
 
   String? _message;
   String? get message => _$this._message;
@@ -90,11 +93,11 @@ class ApiResponseListPendingInviteResponseBuilder
       _$this._errors ??= MapBuilder<String, String>();
   set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
 
-  ApiResponseListPendingInviteResponseBuilder() {
-    ApiResponseListPendingInviteResponse._defaults(this);
+  ApiResponseSalonInviteHistoryResponseBuilder() {
+    ApiResponseSalonInviteHistoryResponse._defaults(this);
   }
 
-  ApiResponseListPendingInviteResponseBuilder get _$this {
+  ApiResponseSalonInviteHistoryResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _success = $v.success;
@@ -107,24 +110,24 @@ class ApiResponseListPendingInviteResponseBuilder
   }
 
   @override
-  void replace(ApiResponseListPendingInviteResponse other) {
-    _$v = other as _$ApiResponseListPendingInviteResponse;
+  void replace(ApiResponseSalonInviteHistoryResponse other) {
+    _$v = other as _$ApiResponseSalonInviteHistoryResponse;
   }
 
   @override
   void update(
-      void Function(ApiResponseListPendingInviteResponseBuilder)? updates) {
+      void Function(ApiResponseSalonInviteHistoryResponseBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  ApiResponseListPendingInviteResponse build() => _build();
+  ApiResponseSalonInviteHistoryResponse build() => _build();
 
-  _$ApiResponseListPendingInviteResponse _build() {
-    _$ApiResponseListPendingInviteResponse _$result;
+  _$ApiResponseSalonInviteHistoryResponse _build() {
+    _$ApiResponseSalonInviteHistoryResponse _$result;
     try {
       _$result = _$v ??
-          _$ApiResponseListPendingInviteResponse._(
+          _$ApiResponseSalonInviteHistoryResponse._(
             success: success,
             data: _data?.build(),
             message: message,
@@ -140,7 +143,7 @@ class ApiResponseListPendingInviteResponseBuilder
         _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
-            r'ApiResponseListPendingInviteResponse',
+            r'ApiResponseSalonInviteHistoryResponse',
             _$failedField,
             e.toString());
       }

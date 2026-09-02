@@ -9,7 +9,7 @@ All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**cancelInvite**](SalonControllerApi.md#cancelinvite) | **DELETE** /api/v1/salons/{salonId}/invites/{inviteId} | 
+[**cancelInvite**](SalonControllerApi.md#cancelinvite) | **DELETE** /api/v1/salons/{salonId}/invites/{inviteId} | Cancel a pending invite
 [**createSalon**](SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
 [**deactivateSalon**](SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
 [**getBookableMasters**](SalonControllerApi.md#getbookablemasters) | **GET** /api/v1/salons/{salonId}/services/{serviceDefId}/masters | 
@@ -19,7 +19,7 @@ Method | HTTP request | Description
 [**getSalonStaff**](SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
 [**getSiblingSalons**](SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [**inviteMaster**](SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
-[**listPendingInvites**](SalonControllerApi.md#listpendinginvites) | **GET** /api/v1/salons/{salonId}/invites/pending | 
+[**listSalonInvites**](SalonControllerApi.md#listsaloninvites) | **GET** /api/v1/salons/{salonId}/invites | List the salon&#39;s invite history
 [**removeAdmin**](SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
 [**rotateAdmin**](SalonControllerApi.md#rotateadmin) | **PATCH** /api/v1/salons/{salonId}/admins/{userId}/salon | 
 [**updateSalon**](SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
@@ -28,7 +28,9 @@ Method | HTTP request | Description
 # **cancelInvite**
 > cancelInvite(salonId, inviteId)
 
+Cancel a pending invite
 
+Revokes an invite that is still PENDING. The row is kept as history, relabelled CANCELLED. Any invite that is not PENDING — already accepted, already cancelled, superseded by a re-invite, or simply lapsed — returns 404, as does an invite belonging to another salon: a non-pending invite must never have its recorded outcome rewritten.
 
 ### Example
 ```dart
@@ -441,10 +443,12 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
-# **listPendingInvites**
-> ApiResponseListPendingInviteResponse listPendingInvites(salonId)
+# **listSalonInvites**
+> ApiResponseSalonInviteHistoryResponse listSalonInvites(salonId)
 
+List the salon's invite history
 
+Returns every invite the salon has ever dispatched — pending, accepted, expired and cancelled alike — newest-first by createdAt, under `data.invites`. `status` is derived per row at read time and is one of PENDING, ACCEPTED, EXPIRED, CANCELLED; only a PENDING invite can be cancelled. The token value is never exposed. Capped at the 200 most recent invites; `data.truncated` is true when older invites exist beyond that cap and are not included.
 
 ### Example
 ```dart
@@ -454,10 +458,10 @@ final api = BeauticaApi().getSalonControllerApi();
 final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 
 try {
-    final response = api.listPendingInvites(salonId);
+    final response = api.listSalonInvites(salonId);
     print(response);
 } catch on DioException (e) {
-    print('Exception when calling SalonControllerApi->listPendingInvites: $e\n');
+    print('Exception when calling SalonControllerApi->listSalonInvites: $e\n');
 }
 ```
 
@@ -469,7 +473,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**ApiResponseListPendingInviteResponse**](ApiResponseListPendingInviteResponse.md)
+[**ApiResponseSalonInviteHistoryResponse**](ApiResponseSalonInviteHistoryResponse.md)
 
 ### Authorization
 

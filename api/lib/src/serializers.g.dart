@@ -31,7 +31,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListMasterServiceResponse.serializer)
       ..add(ApiResponseListMasterWorkingDayResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
-      ..add(ApiResponseListPendingInviteResponse.serializer)
       ..add(ApiResponseListPlatformCategoryUsageResponse.serializer)
       ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
@@ -67,6 +66,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseRevenueResponse.serializer)
       ..add(ApiResponseReviewResponse.serializer)
       ..add(ApiResponseSalonAdminResponse.serializer)
+      ..add(ApiResponseSalonInviteHistoryResponse.serializer)
       ..add(ApiResponseSalonResponse.serializer)
       ..add(ApiResponseSalonReviewSummaryResponse.serializer)
       ..add(ApiResponseSalonServiceCatalogResponse.serializer)
@@ -191,7 +191,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(Pageable.serializer)
       ..add(PageableObject.serializer)
       ..add(PassportResponse.serializer)
-      ..add(PendingInviteResponse.serializer)
       ..add(PhoneOtpSendRequest.serializer)
       ..add(PhoneOtpVerifyRequest.serializer)
       ..add(PlatformCategoryResponse.serializer)
@@ -216,6 +215,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(RotateAdminRequest.serializer)
       ..add(RotateMasterRequest.serializer)
       ..add(SalonAdminResponse.serializer)
+      ..add(SalonInviteHistoryResponse.serializer)
+      ..add(SalonInviteResponse.serializer)
       ..add(SalonResponse.serializer)
       ..add(SalonReviewResponse.serializer)
       ..add(SalonReviewSummaryResponse.serializer)
@@ -398,14 +399,6 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<OverrideConflictResponse>())
       ..addBuilderFactory(
           const FullType(
-              BuiltList, const [const FullType(PendingInviteResponse)]),
-          () => ListBuilder<PendingInviteResponse>())
-      ..addBuilderFactory(
-          const FullType(
-              BuiltMap, const [const FullType(String), const FullType(String)]),
-          () => MapBuilder<String, String>())
-      ..addBuilderFactory(
-          const FullType(
               BuiltList, const [const FullType(PlatformCategoryUsageResponse)]),
           () => ListBuilder<PlatformCategoryUsageResponse>())
       ..addBuilderFactory(
@@ -442,6 +435,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ReviewResponse)]),
           () => ListBuilder<ReviewResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(SalonInviteResponse)]),
+          () => ListBuilder<SalonInviteResponse>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SalonResponse)]),
           () => ListBuilder<SalonResponse>())
@@ -590,6 +587,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

@@ -1,18 +1,18 @@
 import 'package:test/test.dart';
 import 'package:beautica_api/beautica_api.dart';
 
-// tests for ApiResponseListPendingInviteResponse
+// tests for ApiResponseSalonInviteHistoryResponse
 void main() {
-  final instance = ApiResponseListPendingInviteResponseBuilder();
+  final instance = ApiResponseSalonInviteHistoryResponseBuilder();
   // TODO add properties to the builder and call build()
 
-  group(ApiResponseListPendingInviteResponse, () {
+  group(ApiResponseSalonInviteHistoryResponse, () {
     // bool success
     test('to test the property `success`', () async {
       // TODO
     });
 
-    // BuiltList<PendingInviteResponse> data
+    // SalonInviteHistoryResponse data
     test('to test the property `data`', () async {
       // TODO
     });

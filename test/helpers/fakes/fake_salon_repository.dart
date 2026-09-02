@@ -27,14 +27,23 @@
 // role)` tuple passed to [inviteStaff] and [inviteError] lets a test inject
 // a failure, mirroring [createError]'s shape exactly.
 //
-// Phase 21.11 — ADDITIVE: [pendingInvites] (a growable list, empty by
-// default) backs [listPendingInvites]; [cancelInvite] records its
-// `(salonId, inviteId)` tuples in [cancelInviteRequests] and removes the
-// matching entry on success. [listPendingInvitesError] / [cancelInviteError]
-// inject failures, and [cancelInviteGate] blocks a cancel so the in-flight
-// row spinner is observable across a real frame. Every pre-existing caller
-// passes none of these and sees an empty pending list — the branch both
-// consuming screens already render as "no pending block at all".
+// ADDITIVE: [salonInvites] (a growable list, empty by default) backs
+// [listSalonInvites]; [cancelInvite] records its `(salonId, inviteId)` tuples
+// in [cancelInviteRequests] and FLIPS the matching entry to
+// [InviteStatus.cancelled] on success, exactly as the real endpoint does (it
+// revokes the row, it does not delete it). [listSalonInvitesError] /
+// [cancelInviteError] inject failures, and [cancelInviteGate] blocks a cancel
+// so the in-flight row spinner is observable across a real frame. Every
+// pre-existing caller passes none of these and sees an empty history — the
+// branch both consuming screens already render as "no invite block at all".
+//
+// [salonInvitesTruncated] backs the `truncated` half of the history envelope
+// and defaults to false, so no existing caller renders the truncation note.
+//
+// ORDER IS THE FIXTURE'S. [listSalonInvites] returns [salonInvites] verbatim,
+// mimicking a server that has already sorted `createdAt DESC`. It does NOT
+// sort defensively: a fake that re-sorted would make a screen that dropped
+// the server order look correct.
 //
 // Phase 21.6 — ADDITIVE: [siblingSalons] (a growable list, empty by default)
 // backs [getSiblingSalons]; [removeAdmin]/[rotateAdmin] record their tuples
@@ -53,7 +62,8 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
-import 'package:beautica_mobile/features/salon/domain/pending_invite.dart';
+import 'package:beautica_mobile/features/salon/domain/invite_status.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
@@ -73,15 +83,16 @@ class FakeSalonRepository implements SalonRepository {
     required Salon salon,
     this.masters = const <SalonMasterSummary>[],
     List<SalonStaffMember>? staff,
-    List<PendingInvite>? pendingInvites,
+    List<SalonInvite>? salonInvites,
+    this.salonInvitesTruncated = false,
     List<SiblingSalonOption>? siblingSalons,
   }) : _salon = salon,
-       // A GROWABLE copy for the same reason [pendingInvites] takes one.
+       // A GROWABLE copy for the same reason [salonInvites] takes one.
        siblingSalons = <SiblingSalonOption>[...?siblingSalons],
-       // A GROWABLE copy — `cancelInvite` mutates it so a refetch after a
-       // cancel observes the removal (the default `const []` of every
-       // pre-existing caller would throw on `removeWhere`).
-       pendingInvites = <PendingInvite>[...?pendingInvites],
+       // A GROWABLE copy — `cancelInvite` mutates it in place so a refetch
+       // after a cancel observes the status flip (the default `const []` of
+       // every pre-existing caller would throw on an element write).
+       salonInvites = <SalonInvite>[...?salonInvites],
        staff = <SalonStaffMember>[...?staff];
 
   Salon _salon;
@@ -104,22 +115,27 @@ class FakeSalonRepository implements SalonRepository {
   final List<({String salonId, String email, UserRole role})> inviteRequests =
       <({String salonId, String email, UserRole role})>[];
 
-  /// Phase 21.11 — the pending-invite list `listPendingInvites` returns.
-  /// Mutable: a successful [cancelInvite] removes the matching entry, so a
-  /// later refetch sees what the backend would have.
-  final List<PendingInvite> pendingInvites;
+  /// The invite history `listSalonInvites` returns, in the order given.
+  /// Mutable: a successful [cancelInvite] flips the matching entry's status
+  /// to [InviteStatus.cancelled], so a later refetch sees what the backend
+  /// would have.
+  final List<SalonInvite> salonInvites;
+
+  /// The `truncated` half of the history envelope — true means the server
+  /// cut older rows to stay under its 200-row cap.
+  final bool salonInvitesTruncated;
 
   /// Every `(salonId, inviteId)` tuple passed to [cancelInvite].
   final List<({String salonId, String inviteId})> cancelInviteRequests =
       <({String salonId, String inviteId})>[];
 
   int deleteCalls = 0;
-  int listPendingInvitesCalls = 0;
+  int listSalonInvitesCalls = 0;
   Failure? updateError;
   Failure? deleteError;
   Failure? createError;
   Failure? inviteError;
-  Failure? listPendingInvitesError;
+  Failure? listSalonInvitesError;
   Failure? cancelInviteError;
 
   /// When non-null, [cancelInvite] blocks on this until the test completes
@@ -258,10 +274,13 @@ class FakeSalonRepository implements SalonRepository {
   }
 
   @override
-  Future<List<PendingInvite>> listPendingInvites(String salonId) async {
-    listPendingInvitesCalls++;
-    if (listPendingInvitesError != null) throw listPendingInvitesError!;
-    return List<PendingInvite>.unmodifiable(pendingInvites);
+  Future<SalonInviteHistory> listSalonInvites(String salonId) async {
+    listSalonInvitesCalls++;
+    if (listSalonInvitesError != null) throw listSalonInvitesError!;
+    return (
+      invites: List<SalonInvite>.unmodifiable(salonInvites),
+      truncated: salonInvitesTruncated,
+    );
   }
 
   @override
@@ -273,7 +292,17 @@ class FakeSalonRepository implements SalonRepository {
     final Completer<void>? gate = cancelInviteGate;
     if (gate != null) await gate.future;
     if (cancelInviteError != null) throw cancelInviteError!;
-    pendingInvites.removeWhere((PendingInvite i) => i.inviteId == inviteId);
+    // Mirror the endpoint: the row is REVOKED, not deleted. It stays in the
+    // history reading CANCELLED, so a refetch after a cancel proves the row
+    // survived rather than proving it vanished.
+    final int index = salonInvites.indexWhere(
+      (SalonInvite i) => i.inviteId == inviteId,
+    );
+    if (index >= 0) {
+      salonInvites[index] = salonInvites[index].copyWith(
+        status: InviteStatus.cancelled,
+      );
+    }
   }
 
   @override

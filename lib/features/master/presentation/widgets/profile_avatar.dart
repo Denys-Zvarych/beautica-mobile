@@ -116,15 +116,65 @@ class _CircleInsetPainter extends CustomPainter {
 ///
 /// Inset treatment signals non-tappable badge rather than an action.
 class RoleChip extends StatelessWidget {
-  const RoleChip({super.key, required this.label, this.icon});
+  const RoleChip({super.key, required this.label, this.icon, this.tint});
 
   final String label;
   final IconData? icon;
 
+  /// Recolours BOTH the glyph and the label away from the default mocha.
+  ///
+  /// ADDITIVE and optional: null — the value every pre-existing caller passes
+  /// by omission — leaves the chip byte-identical to what it has always
+  /// rendered ([BrandColors.accentDeep] glyph, `VelvetText.feedbackAccentXs`
+  /// label untouched). Only the geometry, the inset well and the type scale
+  /// are shared; the colour is the one axis a caller may move, which is why
+  /// this is one `Color?` rather than a tone enum.
+  ///
+  /// Introduced for the salon invite-history status chip, where the pill must
+  /// read accepted / expired / cancelled at a glance and the palette already
+  /// names those three ([BrandColors.success] / [BrandColors.muted] /
+  /// [BrandColors.error]). The pending state passes null on purpose: pending
+  /// IS the default voice, and tinting it would leave nothing untinted to
+  /// read against.
+  final Color? tint;
+
+  /// Memoised `VelvetText.feedbackAccentXs.copyWith(color: tint)` per tint.
+  ///
+  /// The tinted branch used to allocate a fresh [TextStyle] on EVERY build of
+  /// EVERY chip, and the invite history is mostly terminal rows — so a list
+  /// rebuild allocated one style per visible tinted chip, for a domain of
+  /// exactly three `static const` colours ([BrandColors.success] /
+  /// [BrandColors.muted] / [BrandColors.error]). Keyed by [Color], which is a
+  /// value type with a cheap `hashCode`, so the map converges after the first
+  /// build and never grows past the palette the callers actually pass.
+  ///
+  /// The untinted path deliberately does NOT go through here: it keeps
+  /// returning the identical const [VelvetText.feedbackAccentXs] instance it
+  /// always has — a property already covered by tests, and a map lookup would
+  /// be strictly more work than none.
+  static final Map<Color, TextStyle> _tintedLabelStyles = <Color, TextStyle>{};
+
+  static TextStyle _labelStyle(Color? tint) => tint == null
+      ? VelvetText.feedbackAccentXs
+      : _tintedLabelStyles.putIfAbsent(
+          tint,
+          () => VelvetText.feedbackAccentXs.copyWith(color: tint),
+        );
+
   @override
   Widget build(BuildContext context) {
+    final Color? tint = this.tint;
     return NeumorphicInset(
       radius: 999,
+      // A badge, not a field: it can never take focus, never shows an error
+      // ring, and its pixels never change independently of the row that owns
+      // it. So it needs neither the implicit ring transition (an
+      // AnimationController + Ticker per chip) nor its own compositing layer.
+      // Both are additive opt-outs with ring-and-boundary defaults — every
+      // other `NeumorphicInset` in the app is untouched. See that widget's
+      // own docs for why this is a construction-time choice.
+      boundary: false,
+      animatedRing: false,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: VelvetSpacing.md,
@@ -134,7 +184,7 @@ class RoleChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (icon != null) ...<Widget>[
-              Icon(icon, size: 14, color: BrandColors.accentDeep),
+              Icon(icon, size: 14, color: tint ?? BrandColors.accentDeep),
               const SizedBox(width: VelvetSpacing.xs - 2),
             ],
             Flexible(
@@ -142,7 +192,11 @@ class RoleChip extends StatelessWidget {
                 label,
                 // Fix 3: use 11 sp variant so 'Незалежний майстер' fits on
                 // typical phone widths; soft-wrap allowed (no ellipsis).
-                style: VelvetText.feedbackAccentXs,
+                //
+                // The `copyWith` runs ONLY on the tinted path AND only once
+                // per distinct tint (see [_labelStyle]); an untinted chip
+                // keeps the identical const TextStyle instance it always had.
+                style: _labelStyle(tint),
                 softWrap: true,
               ),
             ),

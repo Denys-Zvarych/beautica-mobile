@@ -65,15 +65,15 @@ import 'package:beautica_mobile/shared/widgets/section_header.dart';
 
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../application/invite_staff_notifier.dart';
-import '../application/pending_invites_notifier.dart';
-import '../domain/pending_invite.dart';
-import 'widgets/pending_invite_row.dart';
+import '../application/salon_invites_notifier.dart';
+import '../domain/salon_invite.dart';
+import 'widgets/salon_invite_row.dart';
 
 /// Widget key of the «Адміністратор» half of the role toggle.
 ///
 /// The segments are keyed (rather than addressed by their glyph) because
 /// `Icons.admin_panel_settings_outlined` / `Icons.brush_outlined` are ALSO the
-/// [PendingInviteRow] role-chip glyphs — deliberately, so the two surfaces read
+/// [SalonInviteRow] role-chip glyphs — deliberately, so the two surfaces read
 /// as one system — which made `find.byIcon(...)` ambiguous the moment this
 /// screen grew its own pending block. A key is the only finder that stays
 /// unambiguous as the tree gains more role glyphs.
@@ -188,14 +188,14 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     showSuccessSnack(context, l10n.inviteStaffSuccess);
     // mobile-perf MEDIUM fix (Phase 21.11) — the screen we are about to pop
     // BACK to may be `SalonPendingInvitesScreen`, and it is a live listener of
-    // this exact `pendingInvitesProvider(salonId)` family instance for its
+    // this exact `salonInvitesProvider(salonId)` family instance for its
     // whole lifetime. Without this invalidation that instance survives the
     // push/pop still holding the PRE-SEND list, so the invitation the user
     // just watched succeed is missing from the list they land on. This
     // screen's own pending block (see [build]) is fed by the same instance,
     // so the refetch covers both surfaces. Invalidated BEFORE the pop, while
     // this element is still mounted and `ref` is guaranteed usable.
-    ref.invalidate(pendingInvitesProvider(widget.salonId));
+    ref.invalidate(salonInvitesProvider(widget.salonId));
     context.pop();
   }
 
@@ -228,19 +228,40 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     // rebuild after the first one.
     ref.watch(inviteStaffProvider);
 
-    // Phase 21.11 — the pending-invites block below. `.value` (not `.when`)
-    // deliberately: this list is SECONDARY to the form, so a loading or
-    // errored fetch renders nothing rather than a spinner/banner over the
-    // primary task. `.value` also survives a refetch (Riverpod keeps the
-    // previous `AsyncData` value attached through `AsyncLoading`), so the
-    // block does not blink away while the list reloads after a cancel.
-    final PendingInvitesState pending =
-        ref.watch(pendingInvitesProvider(widget.salonId)).value ??
+    // The pending-invites block below. `.value` (not `.when`) deliberately:
+    // this list is SECONDARY to the form, so a loading or errored fetch
+    // renders nothing rather than a spinner/banner over the primary task.
+    // `.value` also survives a refetch (Riverpod keeps the previous
+    // `AsyncData` value attached through `AsyncLoading`), so the block does
+    // not blink away while the list reloads after a cancel.
+    final SalonInvitesState history =
+        ref.watch(salonInvitesProvider(widget.salonId)).value ??
         const (
-          invites: <PendingInvite>[],
+          invites: <SalonInvite>[],
+          pending: <SalonInvite>[],
+          truncated: false,
           cancelling: <String>{},
           failed: <String>{},
         );
+
+    // FILTERED TO PENDING — the shared provider now serves the salon's whole
+    // invitation HISTORY, and this surface is not a history view. It is the
+    // tail of the INVITE FORM, whose job is "who is already waiting, so I do
+    // not invite them twice"; accepted, expired and revoked invitations
+    // answer a different question and belong on
+    // [SalonPendingInvitesScreen]. Without this filter, sending one invite
+    // would drop every invitation the salon has ever issued underneath the
+    // form. `truncated` is deliberately NOT surfaced here either: the cap
+    // applies to the history, and a filtered subset of it saying "showing
+    // the 200 most recent" would be about rows this block never shows.
+    //
+    // The filter itself now lives in the notifier ([SalonInvitesState.pending])
+    // — same predicate, same order, computed once per data change. Doing it
+    // here walked all 200 history rows and allocated a fresh `List` on every
+    // build of this screen, and this screen rebuilds on a role toggle, on the
+    // `_submitting` flip, and on every keystroke that changes the email
+    // field's error (mobile-perf MEDIUM).
+    final List<SalonInvite> pendingInvites = history.pending;
 
     // mobile-qa-precedent fix (mirrors RegisterSalonScreen) — block the
     // SYSTEM back gesture/hardware button while a submit is in flight so the
@@ -265,92 +286,123 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
           loading: _submitting,
           onPressed: _submitting ? null : _submit,
         ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.lg),
-              child: Text(l10n.inviteStaffSubtitle, style: VelvetText.body()),
+        // SLIVERS — the form itself is one box adapter (it is a fixed, short
+        // stack of fields), and the pending block below it is a lazily built
+        // `SliverList`. Same physics, same scroll padding, same geometry as
+        // the `body:` path this screen used before; see
+        // [SectionScaffold.slivers].
+        slivers: <Widget>[
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 4,
+                    bottom: VelvetSpacing.lg,
+                  ),
+                  child: Text(
+                    l10n.inviteStaffSubtitle,
+                    style: VelvetText.body(),
+                  ),
+                ),
+                Text(
+                  l10n.inviteStaffRoleSectionLabel,
+                  style: VelvetText.label(),
+                ),
+                const SizedBox(height: VelvetSpacing.sm),
+                _RoleToggle(
+                  role: _role,
+                  onChanged: (UserRole r) => setState(() => _role = r),
+                ),
+                const SizedBox(height: VelvetSpacing.sm),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Text(
+                    _roleDescription(l10n),
+                    style: _roleDescriptionStyle,
+                  ),
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
+                NeumorphicTextField(
+                  key: const ValueKey<String>('invite_email'),
+                  label: l10n.inviteStaffEmailLabel,
+                  controller: _emailCtrl,
+                  enabled: !_submitting,
+                  hintText: l10n.inviteStaffEmailHint,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
+                  maxLength: 255,
+                  prefixIcon: const Icon(Icons.alternate_email_rounded),
+                  errorText: _errEmail,
+                  helperText: l10n.inviteStaffEmailHelper,
+                  onChanged: (String v) {
+                    final next = validateEmail(v, l10n);
+                    if (next != _errEmail) setState(() => _errEmail = next);
+                  },
+                ),
+                // The preview's own «Очікують підтвердження» block, appended
+                // here (NOT forked into a second invite screen). Consumes the
+                // SAME [SalonInviteRow] + [SectionHeader] the dedicated
+                // [SalonPendingInvitesScreen] renders, so a fix to either
+                // lands on both surfaces.
+                //
+                // Guarded on the RESOLVED, PENDING-ONLY list, exactly as the
+                // preview's `if (pending.isNotEmpty)` guard does: while the
+                // fetch is loading or errored this screen renders nothing
+                // extra — the form is the task at hand and a spinner/error
+                // banner for a secondary list would fight it.
+                // `salonInvitesProvider` is a family shared with the dedicated
+                // screen, so a cancel here flips the row there too with no
+                // refetch — and drops it from THIS block, which shows pending
+                // rows only.
+                if (pendingInvites.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.xl),
+                  SectionHeader(
+                    key: const Key('invite-pending-header'),
+                    // ITS OWN KEY, not the history screen's section label.
+                    // That key now reads «Історія запрошень», which would be a
+                    // lie over a pending-only block.
+                    title: l10n.inviteStaffPendingSectionLabel,
+                    titleStyle: VelvetText.sectionLabel(),
+                    trailing: Text(
+                      '${pendingInvites.length}',
+                      // raw-ui-string-ok: an interpolated count, not copy.
+                      style: VelvetText.feedbackMutedSm,
+                    ),
+                  ),
+                  const SizedBox(height: VelvetSpacing.sm + 2),
+                ],
+              ],
             ),
-            Text(l10n.inviteStaffRoleSectionLabel, style: VelvetText.label()),
-            const SizedBox(height: VelvetSpacing.sm),
-            _RoleToggle(
-              role: _role,
-              onChanged: (UserRole r) => setState(() => _role = r),
-            ),
-            const SizedBox(height: VelvetSpacing.sm),
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Text(_roleDescription(l10n), style: _roleDescriptionStyle),
-            ),
-            const SizedBox(height: VelvetSpacing.lg),
-            NeumorphicTextField(
-              key: const ValueKey<String>('invite_email'),
-              label: l10n.inviteStaffEmailLabel,
-              controller: _emailCtrl,
-              enabled: !_submitting,
-              hintText: l10n.inviteStaffEmailHint,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.done,
-              maxLength: 255,
-              prefixIcon: const Icon(Icons.alternate_email_rounded),
-              errorText: _errEmail,
-              helperText: l10n.inviteStaffEmailHelper,
-              onChanged: (String v) {
-                final next = validateEmail(v, l10n);
-                if (next != _errEmail) setState(() => _errEmail = next);
+          ),
+          // The pending rows themselves — a SIBLING sliver of the form above,
+          // so they are built lazily by the scaffold's own viewport. NOT a
+          // nested `ListView`: that would need `shrinkWrap` (which lays every
+          // row out anyway) and would steal drag gestures from the form.
+          if (pendingInvites.isNotEmpty)
+            SliverList.builder(
+              itemCount: pendingInvites.length,
+              itemBuilder: (BuildContext context, int i) {
+                final SalonInvite invite = pendingInvites[i];
+                return Padding(
+                  padding: EdgeInsets.only(
+                    top: i == 0 ? 0 : VelvetSpacing.sm + 2,
+                  ),
+                  child: SalonInviteRow(
+                    // Keyed at the CALL SITE — see `salonInviteRowKey`'s doc.
+                    key: salonInviteRowKey(invite.inviteId),
+                    invite: invite,
+                    cancelling: history.cancelling.contains(invite.inviteId),
+                    failed: history.failed.contains(invite.inviteId),
+                    onCancel: () => ref
+                        .read(salonInvitesProvider(widget.salonId).notifier)
+                        .cancelInvite(invite.inviteId),
+                  ),
+                );
               },
             ),
-            // Phase 21.11 — the preview's own «Очікують підтвердження» block,
-            // appended here (NOT forked into a second invite screen) now that
-            // backend 23.1's list/cancel endpoints exist. Consumes the SAME
-            // [PendingInviteRow] + [SectionHeader] the dedicated
-            // [SalonPendingInvitesScreen] renders, so a fix to either lands on
-            // both surfaces.
-            //
-            // Guarded on the RESOLVED list only, exactly as the preview's
-            // `if (pending.isNotEmpty)` guard does: while the fetch is loading
-            // or errored this screen renders nothing extra — the form is the
-            // task at hand and a spinner/error banner for a secondary list
-            // would fight it. `pendingInvitesProvider` is a family shared with
-            // the dedicated screen, so a cancel here removes the row there too
-            // with no refetch.
-            if (pending.invites.isNotEmpty) ...<Widget>[
-              const SizedBox(height: VelvetSpacing.xl),
-              SectionHeader(
-                key: const Key('invite-pending-header'),
-                title: l10n.salonPendingInvitesSectionLabel,
-                titleStyle: VelvetText.sectionLabel(),
-                trailing: Text(
-                  '${pending.invites.length}',
-                  // raw-ui-string-ok: an interpolated count, not copy.
-                  style: VelvetText.feedbackMutedSm,
-                ),
-              ),
-              const SizedBox(height: VelvetSpacing.sm + 2),
-              // EAGER ON PURPOSE — same reviewed-and-declined mobile-perf LOW
-              // as `_PendingInvitesBody`'s own list; see the longer note
-              // there. Doubly so here: this block is a TAIL under a form, so
-              // a nested scrollable would also steal drag gestures from the
-              // form above it.
-              for (int i = 0; i < pending.invites.length; i++) ...<Widget>[
-                if (i > 0) const SizedBox(height: VelvetSpacing.sm + 2),
-                PendingInviteRow(
-                  // Keyed at the CALL SITE — see `pendingInviteRowKey`'s doc.
-                  key: pendingInviteRowKey(pending.invites[i].inviteId),
-                  invite: pending.invites[i],
-                  cancelling: pending.cancelling.contains(
-                    pending.invites[i].inviteId,
-                  ),
-                  failed: pending.failed.contains(pending.invites[i].inviteId),
-                  onCancel: () => ref
-                      .read(pendingInvitesProvider(widget.salonId).notifier)
-                      .cancelInvite(pending.invites[i].inviteId),
-                ),
-              ],
-            ],
-          ],
-        ),
+        ],
       ),
     );
   }

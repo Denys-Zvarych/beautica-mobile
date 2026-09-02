@@ -37,7 +37,7 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
-import 'package:beautica_mobile/features/salon/domain/pending_invite.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
@@ -270,14 +270,14 @@ class _FakeSalonRepository implements SalonRepository {
     'CLIENT-facing read-only profile screen.',
   );
 
-  // Phase 21.11 — owner/admin-only invite management; unreachable from this
+  // Owner/admin-only invite management; unreachable from this
   // CLIENT-facing surface, so the same UnimplementedError guard as
   // [deleteSalon] above rather than a silent empty stub.
   @override
-  Future<List<PendingInvite>> listPendingInvites(
+  Future<SalonInviteHistory> listSalonInvites(
     String salonId,
   ) async => throw UnimplementedError(
-    '_FakeSalonRepository.listPendingInvites is not stubbed — owner/admin only.',
+    '_FakeSalonRepository.listSalonInvites is not stubbed — owner/admin only.',
   );
 
   @override
@@ -289,7 +289,7 @@ class _FakeSalonRepository implements SalonRepository {
   );
 
   // Phase 21.6 — owner/admin admin-management surface. Same rationale as
-  // [listPendingInvites]/[cancelInvite] above: this fake backs the
+  // [listSalonInvites]/[cancelInvite] above: this fake backs the
   // CLIENT-facing read-only salon profile, which can never reach any of
   // these three calls.
   @override

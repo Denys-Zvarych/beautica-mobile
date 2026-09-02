@@ -26,9 +26,11 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart'
     show ServicePriceType;
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/util/sanitize_display_text.dart';
 
 import '../domain/bookable_master_assignment.dart';
-import '../domain/pending_invite.dart';
+import '../domain/invite_status.dart';
+import '../domain/salon_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
@@ -262,42 +264,82 @@ abstract final class SalonStaffMemberMapper {
   }
 }
 
-/// Maps [PendingInviteResponse] (`GET /salons/{salonId}/invites/pending`) to
-/// the domain [PendingInvite] (Phase 21.11).
-abstract final class PendingInviteMapper {
+/// Maps [SalonInviteResponse] (`GET /salons/{salonId}/invites`) to the domain
+/// [SalonInvite].
+abstract final class SalonInviteMapper {
+  /// Maps one server page of invite history, PRESERVING ITS ORDER.
+  ///
+  /// The server already sorts `createdAt DESC, id DESC`; this mapper does not
+  /// re-sort. A defensive sort here would mask an ordering regression on the
+  /// endpoint and would break millisecond ties differently from the payload.
+  ///
   /// Entries with a null/empty `inviteId` are dropped (logged) rather than
-  /// thrown — one broken row must not blank the whole pending list, and an
-  /// entry with no id could not be cancelled anyway. Mirrors
+  /// thrown — one broken row must not blank the whole history, and an entry
+  /// with no id could neither be keyed nor cancelled. Mirrors
   /// [SalonStaffMemberMapper.fromDtoList]'s own precedent.
   ///
-  /// A null `createdAt` falls back to the Unix epoch rather than dropping the
-  /// row: the timestamp only drives a soft "надіслано …" caption, so a
-  /// missing one must not hide an invite the viewer needs to cancel.
-  static List<PendingInvite> fromDtoList(Iterable<PendingInviteResponse> dtos) {
-    final List<PendingInvite> out = <PendingInvite>[];
-    for (final PendingInviteResponse dto in dtos) {
+  /// A null `createdAt`/`expiresAt` falls back to the Unix epoch rather than
+  /// dropping the row: those timestamps only drive a soft caption, so a
+  /// missing one must not hide an invitation the viewer needs to see.
+  static List<SalonInvite> fromDtoList(Iterable<SalonInviteResponse> dtos) {
+    final List<SalonInvite> out = <SalonInvite>[];
+    for (final SalonInviteResponse dto in dtos) {
       final String? inviteId = dto.inviteId;
       if (inviteId == null || inviteId.isEmpty) {
         log(
-          'PendingInviteResponse.inviteId is null — dropping invite entry',
+          'SalonInviteResponse.inviteId is null — dropping invite entry',
           name: 'feature.salon.mapper',
           level: 900,
         );
         continue;
       }
       out.add(
-        PendingInvite(
+        SalonInvite(
           inviteId: inviteId,
-          recipientEmail: dto.recipientEmail ?? '',
+          // SANITISED HERE, AT THE BOUNDARY — not in the row widget, so the
+          // one call covers BOTH the visible `Text` and the «Скасувати»
+          // semantic label built from the same string (mirrors
+          // `FavoriteMapper`'s own precedent).
+          //
+          // The address is attacker-influenced: a SALON_ADMIN types it into
+          // the invite form and the OWNER reads it back in the history.
+          // `validateEmail`'s `[^@\s]+` local part ACCEPTS U+202E, U+200B,
+          // U+2066 and U+200E (only U+FEFF is caught, incidentally via `\s`),
+          // and the backend applies no character-class check either. Until
+          // this screen the payload was accidentally bounded by a
+          // `maxLines: 1` clip; the history rework moved the address to
+          // `maxLines: 2` + soft wrap and removed that bound — verbatim the
+          // regression `sanitizeDisplayText`'s own header documents.
+          recipientEmail: sanitizeDisplayText(dto.recipientEmail ?? ''),
           role: _inviteRoleFromWire(dto.role),
+          status: _statusFromWire(dto.status),
           createdAt:
               dto.createdAt ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+          expiresAt:
+              dto.expiresAt ??
               DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
         ),
       );
     }
     return out;
   }
+
+  /// The wire `status` is a bare String on this DTO (not a generated enum),
+  /// so it is matched literally.
+  ///
+  /// Anything unrecognised — a null, a malformed row, or a fifth state a
+  /// newer backend introduces — maps to [InviteStatus.unknown], which renders
+  /// no status chip and no cancel action rather than guessing. The status is
+  /// NOT re-derived from `expiresAt` and a device clock: the server owns this
+  /// decision (see [SalonInvite]'s header).
+  static InviteStatus _statusFromWire(String? status) => switch (status) {
+    'PENDING' => InviteStatus.pending,
+    'ACCEPTED' => InviteStatus.accepted,
+    'EXPIRED' => InviteStatus.expired,
+    'CANCELLED' => InviteStatus.cancelled,
+    _ => InviteStatus.unknown,
+  };
 
   /// The wire `role` is a bare String on this DTO (not a generated enum), so
   /// it is matched literally. Anything other than `SALON_ADMIN` — including a
@@ -323,7 +365,7 @@ abstract final class PendingInviteMapper {
 ///    rotate destination — a card that PATCHes nothing is worse than no
 ///    card). One bad row must not blank the whole picker, so the drop is
 ///    logged, never thrown — the same fail-closed-per-row direction
-///    [PendingInviteMapper.fromDtoList] takes.
+///    [SalonInviteMapper.fromDtoList] takes.
 ///  * collapses a blank/whitespace `street`/`buildingNo` to `null` (the same
 ///    `""`-vs-null wire absorption [SalonMapper._blankToNull] performs) and
 ///    trims a padded one, so a renderer may treat non-null as "renderable".
