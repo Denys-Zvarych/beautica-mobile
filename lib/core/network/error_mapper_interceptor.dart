@@ -170,8 +170,14 @@ final class ErrorMapperInterceptor extends Interceptor {
       // {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"}} on duplicate
       // registration. Surface as the dedicated typed failure so the step-3
       // submit handler can render an inline error + Sign In CTA without
-      // probing strings. Other 409 shapes (resource-conflict, future codes)
-      // still fall through to a generic `ServerFailure(statusCode: 409)`.
+      // probing strings. This mapping is NOT path-gated — it keys purely on
+      // the body code — so it also covers backend Phase 287's
+      // `POST /auth/invite` / `POST /salons/{id}/invite`, which return the
+      // SAME {code:"EMAIL_ALREADY_REGISTERED"} envelope when the invited
+      // email already has an account; `InviteStaffScreen` (mobile Phase 303)
+      // branches on this same typed failure to render its own inline error.
+      // Other 409 shapes (resource-conflict, future codes) still fall
+      // through to a generic `ServerFailure(statusCode: 409)`.
       //
       // That fallthrough is NOT retryable, despite `ServerFailure` being the
       // type 5xx also maps to. `beauticaProviderRetry`

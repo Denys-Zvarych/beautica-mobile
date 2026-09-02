@@ -5803,6 +5803,10 @@
   "@inviteStaffErrorGeneric": {
     "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
   },
+  "inviteStaffErrorEmailAlreadyRegistered": "Ця пошта вже зареєстрована в Beautica. Запросити можна лише нову адресу.",
+  "@inviteStaffErrorEmailAlreadyRegistered": {
+    "description": "Phase 303 — inline error on the email field when POST /salons/{salonId}/invite returns HTTP 409 EMAIL_ALREADY_REGISTERED (backend Phase 287): the invited address already has an account."
+  },
   "inviteStaffBackSemanticLabel": "Назад",
   "@inviteStaffBackSemanticLabel": {
     "description": "Phase 21.4 — semantic label for InviteStaffScreen's SectionScaffold back icon."

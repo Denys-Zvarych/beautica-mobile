@@ -629,6 +629,143 @@ void main() {
     );
   });
 
+  // Phase 303 — EmailAlreadyRegisteredFailure is a FIELD-level problem, so it
+  // must render inline on `_errEmail` rather than only the generic snack
+  // every other failure gets via `_errorMessage`/`submitAndExpectError`
+  // above. This group is deliberately separate from 'submit — failure copy'
+  // because the assertion shape differs (inline errorText, not just a
+  // snack).
+  group('submit — EMAIL_ALREADY_REGISTERED (Phase 303)', () {
+    testWidgets(
+      'renders the dedicated copy on the email field itself (rendered '
+      'errorText, not a constructor field) AND still emits the '
+      'validation-summary snack — matching the local-validation branch',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _kSalon)
+          ..inviteError = const EmailAlreadyRegisteredFailure();
+        await _pumpInvite(
+          tester,
+          overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        final l10n = await _l10n();
+
+        await tester.enterText(_emailField, 'taken@beautica.ua');
+        await tester.pump();
+        await tester.tap(_submitCta);
+        await tester.pump();
+        await pumpVelvetSnackIn(tester);
+
+        expect(repo.inviteRequests, hasLength(1));
+
+        // The RENDERED errorText — `NeumorphicTextField` paints `errorText`
+        // as its own `Text(widget.errorText!, ...)` below the well, so a
+        // `find.text` hit here proves the string actually reached the
+        // screen, not merely that a constructor field was set.
+        expect(
+          find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+          findsOneWidget,
+          reason:
+              'the email field must show the dedicated Phase 303 copy, not '
+              'the generic inviteStaffErrorGeneric fallback',
+        );
+        // NOT only a snack — the generic error snack copy must be ABSENT so
+        // this genuinely proves the inline branch, not the fallback path
+        // that also happens to satisfy a snack assertion.
+        expect(find.text(l10n.inviteStaffErrorGeneric), findsNothing);
+
+        // The existing editValidationSummary snack, per the local-validation
+        // branch's own established pattern (this file's 'email validation'
+        // group above) — the email field can scroll out of view, so the
+        // inline error alone could go unseen.
+        expectVelvetSnack(
+          l10n.editValidationSummary,
+          variant: VelvetSnackVariant.error,
+        );
+
+        // Never popped on failure.
+        expect(find.byKey(const Key('manage-marker')), findsNothing);
+        expect(find.byType(InviteStaffScreen), findsOneWidget);
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+
+    testWidgets('_errEmail clears once the owner edits the address', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _kSalon)
+        ..inviteError = const EmailAlreadyRegisteredFailure();
+      await _pumpInvite(
+        tester,
+        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+      );
+      final l10n = await _l10n();
+
+      await tester.enterText(_emailField, 'taken@beautica.ua');
+      await tester.pump();
+      await tester.tap(_submitCta);
+      await tester.pump();
+      await pumpVelvetSnackIn(tester);
+      expect(
+        find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+        findsOneWidget,
+      );
+      await pumpPastVelvetSnack(tester);
+
+      // Editing the address — same `onChanged` path the pre-existing
+      // validation-error clearing already uses (`invite_staff_screen.dart`
+      // `:341`-ish) — must clear the SERVER-sourced error the same way.
+      await tester.enterText(_emailField, 'taken@beautica.ua2');
+      await tester.pump();
+
+      expect(
+        find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+        findsNothing,
+        reason:
+            'the server-sourced inline error must not stick after the '
+            'owner edits the field',
+      );
+    });
+
+    // Regression pin — a plain 409 with NO `data.code` (the shape
+    // `ErrorMapperInterceptor` produces for any OTHER 409 body) must still
+    // fall through to the generic copy. Proves the new branch keys on the
+    // TYPED failure (`is EmailAlreadyRegisteredFailure`), not the bare
+    // status code — a status-code-only check would misfire on every
+    // resource-conflict 409 this app has, not just this one.
+    testWidgets(
+      'a bare 409 ServerFailure (no data.code) still falls through to the '
+      'generic message, NOT the email-already-registered copy',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _kSalon)
+          ..inviteError = const ServerFailure(statusCode: 409);
+        await _pumpInvite(
+          tester,
+          overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+        );
+        final l10n = await _l10n();
+
+        await tester.enterText(_emailField, 'someone@beautica.ua');
+        await tester.pump();
+        await tester.tap(_submitCta);
+        await tester.pump();
+        await pumpVelvetSnackIn(tester);
+
+        expect(repo.inviteRequests, hasLength(1));
+        expectVelvetSnack(
+          l10n.inviteStaffErrorGeneric,
+          variant: VelvetSnackVariant.error,
+        );
+        expect(
+          find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('manage-marker')), findsNothing);
+        expect(find.byType(InviteStaffScreen), findsOneWidget);
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+  });
+
   group('re-entry guard (screen-owned _submitting field)', () {
     testWidgets('two taps with NO pump between them issue exactly ONE '
         '`InviteStaff.submit` call — a Completer-gated notifier proves the '

@@ -1247,11 +1247,24 @@ final class FakeBackend {
   /// nothing once the constructor's initial registration has already run.
   int? _inviteStaffFailureStatusCode;
 
+  /// Phase 303 — optional `data.code` sub-code for the failure body (e.g.
+  /// `EMAIL_ALREADY_REGISTERED` on a 409), so a flow can drive
+  /// [ErrorMapperInterceptor]'s typed-failure branch rather than only the
+  /// bare-status-code generic path. `null` (the default) reproduces the
+  /// original `data: null` envelope every pre-Phase-303 call site still
+  /// gets. Same re-registration discipline as [_inviteStaffFailureStatusCode]
+  /// — set only via [forceInviteStaffFailure].
+  String? _inviteStaffFailureErrorCode;
+
   /// Makes the NEXT (and every subsequent) `POST /api/v1/salons/salon-xyz
   /// /invite` fail with [statusCode]. Call again with `null` to restore the
-  /// default 200 success.
-  void forceInviteStaffFailure(int? statusCode) {
+  /// default 200 success. [errorCode], when given, is nested as
+  /// `data: {"code": errorCode}` in the failure envelope — pass
+  /// `'EMAIL_ALREADY_REGISTERED'` with `statusCode: 409` to drive
+  /// [EmailAlreadyRegisteredFailure] end-to-end.
+  void forceInviteStaffFailure(int? statusCode, {String? errorCode}) {
     _inviteStaffFailureStatusCode = statusCode;
+    _inviteStaffFailureErrorCode = errorCode;
     _wireInviteStaff();
   }
 
@@ -4113,9 +4126,12 @@ final class FakeBackend {
         final body = _decodeBody(req.data);
         lastInviteStaffBody = body;
         if (failStatus != null) {
+          final String? errorCode = _inviteStaffFailureErrorCode;
           return <String, dynamic>{
             'success': false,
-            'data': null,
+            'data': errorCode == null
+                ? null
+                : <String, dynamic>{'code': errorCode},
             'message': 'Failed to invite staff',
           };
         }

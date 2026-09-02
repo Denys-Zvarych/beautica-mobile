@@ -182,6 +182,19 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     if (!mounted) return;
     setState(() => _submitting = false);
     if (failure != null) {
+      // `EmailAlreadyRegisteredFailure` (Phase 303) is a FIELD-level problem
+      // — the email itself, not the request — so it renders inline on
+      // `_errEmail` (`:337`'s `errorText`) exactly like the local-validation
+      // branch above, rather than only the generic error snack every other
+      // failure gets from [_errorMessage]. The `editValidationSummary` snack
+      // is ALSO shown, matching that same local-validation branch: the email
+      // field can be scrolled out of view on this form, so an inline-only
+      // change could go unseen.
+      if (failure is EmailAlreadyRegisteredFailure) {
+        setState(() => _errEmail = l10n.inviteStaffErrorEmailAlreadyRegistered);
+        showErrorSnack(context, l10n.editValidationSummary);
+        return;
+      }
       showErrorSnack(context, _errorMessage(failure, l10n));
       return;
     }

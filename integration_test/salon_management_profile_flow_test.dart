@@ -689,6 +689,65 @@ void main() {
     },
   );
 
+  // Phase 303 — mobile half of backend Phase 287: `POST /invite` now returns
+  // 409 `EMAIL_ALREADY_REGISTERED` instead of a synthetic 201 when the
+  // invited email already has an account. Uses `forceInviteStaffFailure`'s
+  // `errorCode` param (Phase 303 ADDITIVE widening — see its own doc), NOT
+  // the register-time `inviteStaffFailureStatusCode` field alone, since a
+  // bare status code cannot express the `data.code` sub-code
+  // `_isEmailAlreadyRegistered` keys on
+  // (`error_mapper_interceptor.dart:186`).
+  testWidgets(
+    'a REAL 409 EMAIL_ALREADY_REGISTERED from POST /invite renders the '
+    'dedicated inline error on the email field and does NOT pop',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        fb.forceInviteStaffFailure(409, errorCode: 'EMAIL_ALREADY_REGISTERED');
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        unawaited(router.push(RouteNames.salonInviteStaff(_kSalonId)));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_email')),
+          'already.registered@beautica.ua',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('send_invite')));
+        await tester.pumpAndSettle();
+        // fixed-wait-ok: settles the real async POST round-trip before the
+        // next assertion.
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpAndSettle();
+
+        expect(fb.inviteStaffCalls, 1);
+        expect(
+          find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+          findsOneWidget,
+          reason:
+              'the REAL 409 EMAIL_ALREADY_REGISTERED envelope must map to '
+              'EmailAlreadyRegisteredFailure end to end and render inline '
+              'on the email field, not the generic copy',
+        );
+        expect(find.text(l10n.inviteStaffErrorGeneric), findsNothing);
+        // A failed submit must NOT pop the form.
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage/invite');
+      });
+    },
+  );
+
   // ── mobile-qa gap-closure (Phase 21.5, Step 2.7 Rule 3b) ─────────────────
   //
   // `salon_staff_profile_screen_test.dart` (widget tier) proves the MASTER-
