@@ -51,6 +51,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -380,13 +381,164 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         expect(find.text(l10n.deleteSalonSuccess), findsOneWidget);
-        // Owner lands on '/' (no "Мої салони" hub yet — see
-        // salon_settings_screen.dart's own header doc). Not via
-        // `AppHarness.expectLocation` — it deliberately refuses `'/'` as a
-        // target (every location satisfies that prefix, so the assertion
-        // could never fail); the concrete equality check below is the real
-        // assertion.
-        expect(AppHarness.location(router), equals(RouteNames.home));
+
+        // Post-delete landing: `runDeleteSalonFlow` now navigates to
+        // `roleHomePath(SALON_OWNER)` == `RouteNames.salonHome`
+        // (`/salons/home`), a transient stopover — `SalonHomeResolverScreen`
+        // re-watches the (invalidated-then-refetched) `mySalonsProvider` and
+        // forwards from a `postFrame` callback to whichever salon resolves as
+        // primary.
+        //
+        // NOT the empty-list branch: `FakeBackend`'s `mySalons` list ships
+        // with its OWN default entry (`salon-owner-1`, `isPrimary: true`,
+        // see `fake_backend.dart` around line 411) even before
+        // `_seedSalonXyzIntoMySalons` appends `_kSalonId` on top — so this
+        // fixture always carries 2 salons, not 1. `salon-owner-1` stays
+        // primary throughout, so this case alone CANNOT tell a resolver that
+        // correctly re-derives "remaining primary" apart from one that just
+        // never noticed the delete at all — the DELETE handler now DOES
+        // mutate `mySalons` (mobile-qa gap-closure, 2026-09-02, see
+        // `fake_backend.dart`'s DELETE handler doc), but this fixture can't
+        // prove that mutation happened. The two cases below it
+        // ("primary-salon-deleted" / "single-salon owner") are the ones that
+        // actually depend on the mutation — see their own docs. One extra
+        // `pumpAndSettle` settles past the resolver's forward hop so the
+        // assertion below lands on the FINAL location, not mid-forward.
+        await tester.pumpAndSettle();
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.salonShell('salon-owner-1')),
+        );
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+      });
+    },
+  );
+
+  /// Drives the settings hub -> «Загальне» -> delete-confirm sequence for
+  /// [_kSalonId] against an already-booted+logged-in [router]/[fb] — shared
+  /// by the two mobile-qa gap-closure variants below so each test body reads
+  /// as "seed a fixture, then assert the landing", not a copy of the whole
+  /// navigation dance.
+  Future<void> confirmDeleteSalon(WidgetTester tester, GoRouter router) async {
+    router.go(RouteNames.salonManage(_kSalonId));
+    // fixed-wait-ok: settles the real async route-transition step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    unawaited(router.push(RouteNames.salonManageSettings(_kSalonId)));
+    // fixed-wait-ok: settles the real async route-push step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    await tester.tap(find.byKey(const Key('row-salon-general')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('row-delete-salon')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
+    await tester.pumpAndSettle();
+    // fixed-wait-ok: settles the real async DELETE round-trip + the
+    // success-snackbar/navigate-away sequence before the next assertion.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+    'mobile-qa gap-closure: deleting the PRIMARY salon out of a 2-salon '
+    'owner lands on the REMAINING salon, never the one just deleted — the '
+    'real 2+-salon repro',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        // The existing delete test above always keeps `salon-owner-1`
+        // primary, so it cannot tell "the DELETE mutated mySalons" apart
+        // from "the resolver never noticed the delete at all" (both land on
+        // `salon-owner-1` either way). This fixture flips that: the salon
+        // being DELETED (`salon-xyz`) is the PRIMARY one, and the surviving
+        // `salon-owner-1` is not. If the fake DELETE handler regresses back
+        // to a pure counter (never mutating `mySalons`), the resolver's
+        // `firstWhere(isPrimary)` would still find `salon-xyz` marked
+        // primary in the list and forward BACK to the just-deleted salon's
+        // shell — the exact bug this test exists to catch.
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        fb.mySalons[0]['isPrimary'] = false;
+        _seedSalonXyzIntoMySalons(fb);
+        fb.mySalons.last['isPrimary'] = true;
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        await confirmDeleteSalon(tester, router);
+
+        expect(fb.deleteSalonCalls, 1);
+        expect(
+          fb.mySalons.any((Map<String, dynamic> s) => s['id'] == _kSalonId),
+          isFalse,
+          reason:
+              'the fake DELETE handler must actually remove the row — a '
+              'no-op handler would leave the deleted salon still resolvable',
+        );
+
+        await tester.pumpAndSettle();
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.salonShell('salon-owner-1')),
+          reason:
+              'the deleted salon was primary; the resolver must forward to '
+              'the REMAINING salon (falls back to "first" since no row is '
+              'primary any more), never re-resolve to the deleted one',
+        );
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'mobile-qa gap-closure: a single-salon owner deleting their ONLY salon '
+    'lands on the My Salons hub, not a shell with no salonId — the '
+    'empty-list branch no prior fixture ever reached',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        // Replace the default 1-salon seed with `_kSalonId` alone, so the
+        // list is provably empty (not just "down to one other salon") once
+        // the delete succeeds — `SalonHomeResolverScreen`'s
+        // `salons.isEmpty` branch (`salon_home_resolver_screen.dart:116`)
+        // was, before this test, unreachable from any fixture in this repo.
+        fb.mySalons
+          ..clear()
+          ..add(<String, dynamic>{
+            'id': _kSalonId,
+            'ownerId': 'user-owner-1',
+            'name': 'Студія Краси «Камелія»',
+            'city': 'Київ',
+            'cityId': 'city-kyiv',
+            'oblastId': 'oblast-kyiv',
+            'street': 'вул. Хрещатик',
+            'buildingNo': '12',
+            'isActive': true,
+            'isPrimary': true,
+          });
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        await confirmDeleteSalon(tester, router);
+
+        expect(fb.deleteSalonCalls, 1);
+        expect(
+          fb.mySalons,
+          isEmpty,
+          reason: 'the fake DELETE handler must remove the only row',
+        );
+
+        await tester.pumpAndSettle();
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.mySalons),
+          reason:
+              'zero remaining salons must land on the «Мої салони» hub — '
+              'the resolver must never forward to a shell with no salonId',
+        );
       });
     },
   );

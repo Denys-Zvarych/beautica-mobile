@@ -68,9 +68,12 @@ import '../util/sanitize_display_text.dart';
 /// Trimming also normalises `'  Київ  '` to `'Київ'`, which matters because
 /// these strings are comma-joined: untrimmed padding would surface as
 /// `"Київ , вул. X"`.
-String? _visibleOrNull(String? value) {
+String? _visibleOrNull(String? value, {bool collapseNewlines = false}) {
   if (value == null) return null;
-  final String sanitized = sanitizeDisplayText(value).trim();
+  final String sanitized = sanitizeDisplayText(
+    value,
+    collapseNewlines: collapseNewlines,
+  ).trim();
   return sanitized.isEmpty ? null : sanitized;
 }
 
@@ -192,3 +195,26 @@ String? buildFullAddressLine({
   if (parts.isEmpty) return null;
   return parts.join(', ');
 }
+
+/// The frozen, pre-composed legacy address — the single line a
+/// pre-taxonomy [Salon]/[Master] falls back to when it has neither a
+/// resolved city/district nor a `street` (see `Salon.address`'s own doc:
+/// "Legacy free-text address — same backward-compat caveat as `city`").
+///
+/// Phase 21.6(b) audit fix (mobile-security MEDIUM) — every other segment on
+/// an address card is routed through [_visibleOrNull] (via
+/// [buildFullAddressLine] / [buildStreetLine]); this legacy field used to be
+/// assigned RAW at its one call site (`SalonHubCard`), reaching both the
+/// visible `Text` and the `Semantics.label` fallback unsanitized. Delegating
+/// here closes that gap the same way the other three builders already are
+/// closed, and inherits the sanitize-then-test ordering [_visibleOrNull]
+/// documents above (an address made entirely of stripped characters becomes
+/// `null`, not a blank line).
+///
+/// Opts into [_visibleOrNull]'s `collapseNewlines` — unlike the other three
+/// builders, this field is rendered as a SINGLE line (never through
+/// `ExpandableNote`, which is where a genuinely multi-line field like
+/// `locationNote` belongs), so an embedded `\n`/`\r` is folded to a space
+/// rather than surviving into a one-line `Text`/`Semantics.label`.
+String? buildLegacyAddressLine(String? address) =>
+    _visibleOrNull(address, collapseNewlines: true);

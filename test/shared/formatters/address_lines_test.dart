@@ -539,4 +539,78 @@ void main() {
       );
     });
   });
+
+  // ── mobile-qa gap-closure (2026-09-02) — buildLegacyAddressLine ──────────
+  //
+  // `grep -a -rln "buildLegacyAddressLine" test/` returned NOTHING before
+  // this group: the Phase 21.6(b) security fix (`SalonHubCard`'s legacy
+  // `salon.address` fallback, and the identical bypass closed on
+  // `salon_management_profile_screen.dart:656`) rests ENTIRELY on this one
+  // function, and it had zero direct coverage. Unlike the other three
+  // builders, [buildLegacyAddressLine] is the ONLY caller that opts into
+  // `_visibleOrNull`'s `collapseNewlines: true` — every case below exercises
+  // that opt-in specifically, not just the shared bidi/zero-width stripping
+  // the other builders already prove.
+  group('buildLegacyAddressLine (Phase 21.6(b) security fix)', () {
+    test('a clean address is returned unchanged', () {
+      const String address = 'м. Одеса, вул. Дерибасівська, 1';
+      expect(buildLegacyAddressLine(address), address);
+    });
+
+    test('strips a bidi override (RLO, U+202E) without corrupting the '
+        'surrounding address text', () {
+      final String rlo = String.fromCharCode(0x202E);
+      final String raw = 'м. Одеса$rlo, вул. Дерибасівська, 1';
+
+      expect(buildLegacyAddressLine(raw), 'м. Одеса, вул. Дерибасівська, 1');
+    });
+
+    test('an address made ENTIRELY of zero-width characters (U+200B) '
+        'reduces to null, not a blank line — the sanitize-then-test '
+        'ordering [_visibleOrNull] documents', () {
+      final String zwsp = String.fromCharCode(0x200B);
+      expect(buildLegacyAddressLine('$zwsp$zwsp$zwsp'), isNull);
+    });
+
+    test('an embedded LF (\\n) is collapsed to a single space — the opt-in '
+        'this builder alone exercises', () {
+      expect(
+        buildLegacyAddressLine('м. Одеса,\nвул. Дерибасівська, 1'),
+        'м. Одеса, вул. Дерибасівська, 1',
+      );
+    });
+
+    test('an embedded CRLF (\\r\\n) is collapsed to a single space — not '
+        'two (the \\r\\n alternative must win over the bare \\n arm)', () {
+      expect(
+        buildLegacyAddressLine('м. Одеса,\r\nвул. Дерибасівська, 1'),
+        'м. Одеса, вул. Дерибасівська, 1',
+      );
+    });
+
+    test('an address of ONLY newlines (\\r\\n repeated) collapses to '
+        'nothing and returns null, NOT a blank line that still occupies a '
+        'row — this is the point of sanitizing BEFORE testing for '
+        'emptiness', () {
+      expect(buildLegacyAddressLine('\r\n\r\n\r\n'), isNull);
+    });
+
+    test('null input returns null', () {
+      expect(buildLegacyAddressLine(null), isNull);
+    });
+
+    test('whitespace-only input returns null', () {
+      expect(buildLegacyAddressLine('   '), isNull);
+    });
+
+    test('a bidi override AND an embedded newline in the SAME address are '
+        'both neutralised — the two defect classes this builder closes '
+        'are not mutually exclusive', () {
+      final String rlo = String.fromCharCode(0x202E);
+      expect(
+        buildLegacyAddressLine('м. Одеса$rlo,\nвул. Дерибасівська, 1'),
+        'м. Одеса, вул. Дерибасівська, 1',
+      );
+    });
+  });
 }

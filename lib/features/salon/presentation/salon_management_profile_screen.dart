@@ -653,7 +653,12 @@ class _ManagementHeroCard extends ConsumerWidget {
         // fallback `public_salon_profile_screen.dart`'s `_streetLine` uses,
         // for the same reason (that field is frozen, not stale — it was
         // never overwritten because the salon was never re-saved).
-        (salon.address?.trim().isNotEmpty ?? false ? salon.address : null);
+        //
+        // mobile-security MEDIUM fix — this used to assign `salon.address`
+        // RAW, the same sanitizer bypass closed on `SalonHubCard` via
+        // `buildLegacyAddressLine` (see that builder's doc). Routing through
+        // it here closes the identical gap on this screen's hero card.
+        buildLegacyAddressLine(salon.address);
     // Sanitization happens INSIDE `ExpandableNote` (must run on the exact
     // same string the widget measures for overflow AND renders) — mirrors
     // `public_master_profile_screen.dart`'s identical convention; not

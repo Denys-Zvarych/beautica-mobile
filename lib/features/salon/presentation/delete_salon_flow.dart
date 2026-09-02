@@ -14,15 +14,18 @@
 // `salonManagementProfileProvider(salonId).notifier.deleteSalon()`
 // (`DELETE /salons/{salonId}`, soft-deactivate — owner-only, enforced
 // server-side); on success shows a success snack and navigates to the
-// auth-derived role home (there is no shared "Мої салони" landing reachable
-// by both roles); on failure shows an error snack and leaves the caller on
-// the current screen.
+// auth-derived role home via `roleHomePath` — for SALON_OWNER/SALON_ADMIN
+// that resolves to `RouteNames.salonHome`, whose `SalonHomeResolverScreen`
+// already re-derives "primary salon, else first remaining salon, else
+// `/salons/mine`" against the freshly-invalidated `mySalonsProvider`; on
+// failure shows an error snack and leaves the caller on the current screen.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
@@ -63,8 +66,14 @@ Future<void> runDeleteSalonFlow({
   }
 
   showSuccessSnack(context, l10n.deleteSalonSuccess);
-  // No shared «Мої салони» landing reachable by both roles — the
-  // auth-derived role home is the safest destination for either.
+  // Auth-derived role home — not the bare '/' placeholder route. Both
+  // SALON_OWNER and SALON_ADMIN resolve to `RouteNames.salonHome`, whose
+  // resolver re-derives "primary salon, else first remaining salon, else
+  // `/salons/mine`" against the freshly-invalidated salon list.
   final session = ref.read(authProvider).value;
-  context.go(session is Authenticated ? '/' : RouteNames.login);
+  context.go(
+    session is Authenticated
+        ? roleHomePath(session.user.role)
+        : RouteNames.login,
+  );
 }

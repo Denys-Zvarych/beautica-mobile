@@ -92,6 +92,15 @@ class _SalonHubCardState extends ConsumerState<SalonHubCard> {
     // While `cityId` IS set but resolution hasn't completed yet, the line is
     // simply blank until it fills in — never the stale legacy text, which
     // would risk showing a WRONG city before the correct one arrives.
+    //
+    // District (Phase 21.6 audit fix — mirrors `_ManagementHeroCard` in
+    // `salon_management_profile_screen.dart`): `resolved` already carries
+    // `district?.name` from the SAME watch above, so Line 1 is composed via
+    // the shared [buildFullAddressLine] (city + district, hierarchy-ordered)
+    // with `street`/`buildingNo` omitted — no second provider watch, no new
+    // builder. The district has no legacy free-text counterpart to fall back
+    // to, so it is passed straight through and simply stays blank until (or
+    // if) it resolves.
     final ResolvedLocality? resolved = ref
         .watch(
           resolvedLocalityProvider(
@@ -102,19 +111,54 @@ class _SalonHubCardState extends ConsumerState<SalonHubCard> {
         )
         .value;
     final bool hasTaxonomyCity = s.cityId.trim().isNotEmpty;
-    final String? locality = buildLocalityLine(
-      resolved?.city?.name ?? (hasTaxonomyCity ? null : s.city),
+    final String? cityName =
+        resolved?.city?.name ?? (hasTaxonomyCity ? null : s.city);
+    final String? locality = buildFullAddressLine(
+      cityName: cityName,
+      districtName: resolved?.district?.name,
     );
     final String? street = buildStreetLine(s.street, s.buildingNo);
+    // Legacy fallback (mirrors `_ManagementHeroCard`'s `addressLine`,
+    // `salon_management_profile_screen.dart:634-656`): a pre-Phase-10.6
+    // salon (or one never re-saved since) carries no taxonomy ids and no
+    // street — only the frozen pre-composed `address` string is left. Only
+    // used when BOTH structured lines are empty, so a salon with a street
+    // but no resolved city never shows a stale, possibly-inconsistent
+    // legacy string alongside the real one.
+    //
+    // Phase 21.6(b) audit fix (mobile-security MEDIUM) — routed through
+    // [buildLegacyAddressLine] rather than assigned raw: `s.address` is the
+    // same provider-authored free text as `city`/`street`, sanitized and
+    // trimmed exactly like the structured lines above (and folded to `null`,
+    // not a blank line, if it reduces to nothing once sanitized).
+    final bool hasStructuredAddress = locality != null || street != null;
+    final String? legacyAddress = hasStructuredAddress
+        ? null
+        : buildLegacyAddressLine(s.address);
+    final List<String> addressLines = hasStructuredAddress
+        ? <String>[?locality, ?street]
+        : <String>[?legacyAddress];
     final String? monogram = s.name.trim().isEmpty
         ? null
         : s.name.trim()[0].toUpperCase();
+    // The spoken label mirrors what's on screen: the FULL address (city +
+    // district + street + building, comma-joined on one line — never the
+    // two-line visual split, which has no screen-reader equivalent), falling
+    // back to the same legacy `address` string as the visual block.
+    final String? semanticAddress =
+        buildFullAddressLine(
+          cityName: cityName,
+          districtName: resolved?.district?.name,
+          street: s.street,
+          buildingNo: s.buildingNo,
+        ) ??
+        legacyAddress;
 
     return Semantics(
       button: true,
       label: AppLocalizations.of(
         context,
-      ).mySalonsCardSemanticLabel(s.name, locality ?? ''),
+      ).mySalonsCardSemanticLabel(s.name, semanticAddress ?? ''),
       child: GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),
         onTapCancel: () => setState(() => _pressed = false),
@@ -158,7 +202,7 @@ class _SalonHubCardState extends ConsumerState<SalonHubCard> {
                           ],
                         ],
                       ),
-                      if (locality != null || street != null) ...<Widget>[
+                      if (addressLines.isNotEmpty) ...<Widget>[
                         const SizedBox(height: 5),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,7 +218,7 @@ class _SalonHubCardState extends ConsumerState<SalonHubCard> {
                             const SizedBox(width: 3),
                             Expanded(
                               child: Text(
-                                <String>[?locality, ?street].join('\n'),
+                                addressLines.join('\n'),
                                 style: VelvetText.salonHubAddressLine,
                               ),
                             ),

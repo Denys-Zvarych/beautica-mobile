@@ -5579,8 +5579,23 @@ final class FakeBackend {
     );
 
     // DELETE /api/v1/salons/salon-xyz — owner-only salon deactivation
-    // (Phase 21.2). Backend soft-deactivates; the fake just counts the call
-    // and lets a flow assert the wire request actually fired.
+    // (Phase 21.2). Backend soft-deactivates; the fake counts the call and
+    // lets a flow assert the wire request actually fired.
+    //
+    // mobile-qa gap-closure (2026-09-02) — on success this now ALSO removes
+    // the matching row from [mySalons], so `GET /salons/mine` reflects the
+    // deletion on the very next read. Before this fix the handler was a
+    // pure counter: `mySalons` kept serving the "deleted" row forever, so
+    // `salon_management_profile_flow_test.dart`'s post-delete-landing
+    // assertion could not distinguish a correct resolver from a buggy one
+    // that picked the just-deleted salon — the fixture always had a
+    // DIFFERENT salon (`salon-owner-1`) marked primary, so the assertion
+    // passed regardless of whether the delete actually took effect. Checked
+    // before making this change: `deleteSalonCalls`/
+    // `deleteSalonFailureStatusCode` are read by exactly one integration
+    // file (`salon_management_profile_flow_test.dart`), and no other test
+    // reads `mySalons` immediately after a delete call — nothing depends on
+    // the old no-op behaviour.
     _adapter.onRoute(
       '/api/v1/salons/salon-xyz',
       (server) =>
@@ -5593,6 +5608,9 @@ final class FakeBackend {
                 'message': 'Failed to delete salon',
               };
             }
+            mySalons.removeWhere(
+              (Map<String, dynamic> s) => s['id'] == 'salon-xyz',
+            );
             return null;
           }),
       request: const Request(method: RequestMethods.delete),
