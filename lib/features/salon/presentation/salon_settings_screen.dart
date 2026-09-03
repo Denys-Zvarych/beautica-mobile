@@ -61,9 +61,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
-import '../../auth/domain/auth_session.dart';
-import '../../auth/domain/user_role.dart';
-import '../../auth/presentation/auth_notifier.dart';
+import '../../auth/presentation/auth_selectors.dart';
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../master/presentation/widgets/settings_row.dart';
 import '../../settings/domain/account_settings_extras.dart';
@@ -191,13 +189,11 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final bool isOwner = ref.watch(
-      authProvider.select(
-        (AsyncValue<AuthSession> s) =>
-            s.value is Authenticated &&
-            (s.value! as Authenticated).user.role == UserRole.salonOwner,
-      ),
-    );
+    // Shared with `MySalonsScreen.build` and
+    // `_SettingsScreenState._showDeleteSalonRow` via the promoted
+    // [isSalonOwnerProvider] — see that provider's doc for the
+    // stale-`.value`-through-`AsyncError` hardening.
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
 
     return SectionScaffold(
       title: l10n.settingsTitle,

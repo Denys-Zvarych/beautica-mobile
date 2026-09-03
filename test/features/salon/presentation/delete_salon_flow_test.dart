@@ -13,6 +13,14 @@
 // function's decision table in isolation (admin branch, unauthenticated
 // branch, failure/dismiss branches).
 //
+// LANDING SUPERSEDED (2026-09-03) — `roleHomePath(session.user.role)` above
+// is now HISTORICAL: every delete entry point lands on
+// `RouteNames.mySalons` («Мої салони») instead, with no per-caller/per-role
+// branch (locked product decision — see `delete_salon_flow.dart`'s current
+// header). `should_navigateToMySalons_when_ownerDeletesSalon`/
+// `..._whenAdminDeletesSalon` below assert the `my-salons-stub` route, not
+// `SalonHomeResolverScreen`.
+//
 // TWO DEVIATIONS FROM THE PHASE DOC, BOTH DELIBERATE (mobile-qa, 2026-09-02):
 //
 // Problem A — `_Placeholder` is a PRIVATE class declared inside
@@ -47,11 +55,14 @@
 // `salon_manage_route_guard_test.dart`'s own minimal-stub-route shape.
 // Finders use Keys — never Cyrillic literals (M2 / `forbid_cyrillic_finder`).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -221,6 +232,30 @@ GoRouter _router(List<bool> loadingCalls) => GoRouter(
   ],
 );
 
+/// Mutable box so a `build()` call count survives `mySalonsProvider` being
+/// recreated by `container.invalidate` — mirrors
+/// `salon_management_profile_notifier_test.dart`'s own `_CallCounter`/
+/// `_CountingMySalons` shape (kept local, not promoted/shared: this file is
+/// the only place that needs a bare rebuild-count pin on `mySalonsProvider`
+/// from OUTSIDE the notifier itself).
+class _MySalonsCallCounter {
+  int value = 0;
+}
+
+/// [MySalons] stub that increments [counter] on every `build()` — the
+/// regression pin below asserts on [counter], not on the resolved list.
+class _CountingMySalons extends MySalons {
+  _CountingMySalons(this.counter);
+
+  final _MySalonsCallCounter counter;
+
+  @override
+  Future<List<Salon>> build() async {
+    counter.value++;
+    return const <Salon>[_kStubSalon];
+  }
+}
+
 List<Object> _overrides({
   required AuthNotifier Function() authNotifier,
   required FakeSalonRepository repo,
@@ -232,24 +267,9 @@ List<Object> _overrides({
   ).overrideWith(_SettledSalonManagementProfile.new),
 ];
 
-/// Taps the run button, waits for the confirm dialog, taps confirm, then
-/// halts the INSTANT `finder` first matches — deliberately NOT
-/// `pumpAndSettle()`. `SalonHomeResolverScreen` forwards onward itself
-/// (postFrame -> `context.go` -> a SECOND, separately-scheduled frame), so
-/// settling all the way through would race past the very screen case 1/2
-/// need to observe. `pumpUntilFound` checks the finder BEFORE each pump and
-/// returns the instant it matches, which lands exactly on the frame where
-/// `RouteNames.salonHome` first resolves — before its own forward fires.
-Future<void> _confirmDeleteAndHaltAt(WidgetTester tester, Finder finder) async {
-  await tester.tap(find.byKey(_kRunButtonKey));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
-  await tester.pumpUntilFound(finder);
-}
-
 void main() {
   group('runDeleteSalonFlow — post-delete landing', () {
-    testWidgets('should_navigateToSalonHome_when_ownerDeletesSalon', (
+    testWidgets('should_navigateToMySalons_when_ownerDeletesSalon', (
       tester,
     ) async {
       final repo = FakeSalonRepository(salon: _kStubSalon);
@@ -263,22 +283,22 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _confirmDeleteAndHaltAt(
-        tester,
-        find.byType(SalonHomeResolverScreen),
-      );
+      await tester.tap(find.byKey(_kRunButtonKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
+      await tester.pumpAndSettle();
 
-      // Pin the resolved page TYPE, not a path string — a path assertion
-      // would pass against the placeholder too if the route table changed
-      // underneath (both `'/'` and `/salons/home` are strings either way).
-      expect(find.byType(SalonHomeResolverScreen), findsOneWidget);
+      // Every delete entry point lands on «Мої салони», never the
+      // auth-derived role home — pin the stub's Key, not a path string.
+      expect(find.byKey(const Key('my-salons-stub')), findsOneWidget);
+      expect(find.byType(SalonHomeResolverScreen), findsNothing);
       expect(find.byKey(_kPlaceholderKey), findsNothing);
       expect(repo.deleteCalls, 1);
 
       await pumpPastVelvetSnack(tester);
     });
 
-    testWidgets('should_navigateToSalonHome_when_adminDeletesSalon', (
+    testWidgets('should_navigateToMySalons_when_adminDeletesSalon', (
       tester,
     ) async {
       final repo = FakeSalonRepository(salon: _kStubSalon);
@@ -292,12 +312,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _confirmDeleteAndHaltAt(
-        tester,
-        find.byType(SalonHomeResolverScreen),
-      );
+      await tester.tap(find.byKey(_kRunButtonKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
+      await tester.pumpAndSettle();
 
-      expect(find.byType(SalonHomeResolverScreen), findsOneWidget);
+      expect(find.byKey(const Key('my-salons-stub')), findsOneWidget);
+      expect(find.byType(SalonHomeResolverScreen), findsNothing);
       expect(find.byKey(_kPlaceholderKey), findsNothing);
       expect(repo.deleteCalls, 1);
 
@@ -419,5 +440,118 @@ void main() {
       expect(repo.deleteCalls, 0);
       expect(loadingCalls, isEmpty);
     });
+  });
+
+  group('runDeleteSalonFlow — invalidation survives caller unmount', () {
+    // mobile-security MEDIUM / mobile-perf LOW regression pin
+    // (swipe-to-delete audit, 2026-09-03) — a NARROWER re-run of the exact
+    // bug `delete_salon_flow.dart`'s own header doc already fixed once: the
+    // prior fix invalidated `mySalonsProvider` through THIS function's own
+    // `WidgetRef`, gated behind the same `context.mounted` check the
+    // success snack/navigation use. If the caller's widget unmounts WHILE
+    // `deleteSalon()` is still awaited (the user navigates away mid-delete,
+    // simulated below via a direct `router.go` — NOT through
+    // `runDeleteSalonFlow`, which is still suspended on the gated await),
+    // that check (`if (!context.mounted) return;`) would return BEFORE the
+    // invalidate line is ever reached, even though the DELETE had already
+    // succeeded server-side. See `delete_salon_flow.dart`'s current header
+    // doc for the fix: a `ProviderContainer` is captured via
+    // `ProviderScope.containerOf(context, listen: false)` BEFORE the await,
+    // while `context` is provably mounted, and invalidated through
+    // unconditionally on success — independent of the caller's widget
+    // lifecycle by the time the await resolves.
+    testWidgets(
+      'a delete that SUCCEEDS while the caller unmounts mid-await still '
+      'invalidates mySalonsProvider',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _kStubSalon)
+          ..deleteSalonGate = Completer<void>();
+        final counter = _MySalonsCallCounter();
+        final loadingCalls = <bool>[];
+        final GoRouter router = _router(loadingCalls);
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              authNotifier: () => _AuthenticatedAs(_owner()),
+              repo: repo,
+            ),
+            mySalonsProvider.overrideWith(() => _CountingMySalons(counter)),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // A raw handle on the app's own `ProviderContainer`, taken off a
+        // context (`MaterialApp`) that outlives every route swap below —
+        // NOT the same handle `runDeleteSalonFlow` itself captures off
+        // `_HarnessScreen`'s context, but the same underlying container
+        // (one `ProviderScope` for the whole pumped tree).
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(MaterialApp)),
+          listen: false,
+        );
+
+        // Pre-warm `mySalonsProvider` — mirrors the real «Мої салони» hub,
+        // which has already loaded its list (one `build()`) before the
+        // owner ever gets to swipe a row. Nothing in this minimal harness
+        // watches `mySalonsProvider` on its own (unlike the real hub), so
+        // without this read `container.invalidate` below would have no
+        // existing element to mark dirty, and the regression this test
+        // pins would go unnoticed for the wrong reason.
+        await container.read(mySalonsProvider.future);
+        expect(counter.value, 1, reason: 'pre-warmed baseline build');
+
+        await tester.tap(find.byKey(_kRunButtonKey));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
+        // Advance only up to the gated `deleteSalon()` await — the DELETE
+        // is genuinely in flight; nothing has invalidated mySalonsProvider
+        // yet.
+        await tester.pump();
+
+        expect(repo.deleteCalls, 1, reason: 'the delete call is in flight');
+        expect(
+          counter.value,
+          1,
+          reason: 'mySalonsProvider must not have rebuilt yet',
+        );
+
+        // Navigate the CALLER away mid-await — unmounts `_HarnessScreen`
+        // (and its `BuildContext`/`WidgetRef`) exactly as a user leaving
+        // «Мої салони» mid-delete would. `runDeleteSalonFlow` itself is
+        // still suspended on the gated `deleteSalon()` await below and
+        // plays no part in this navigation.
+        router.go(RouteNames.login);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(_kHarnessKey),
+          findsNothing,
+          reason: 'the caller must have genuinely unmounted',
+        );
+
+        // Unblock the DELETE — it succeeds server-side AFTER the caller is
+        // already gone.
+        repo.deleteSalonGate!.complete();
+        await tester.pumpAndSettle();
+
+        // Reading `mySalonsProvider` again is what the real hub's `build()`
+        // does the next time it (re)mounts — an INVALIDATED keepAlive
+        // provider only actually re-runs `build()` on its next read, it
+        // does not eagerly rebuild itself with zero watchers. A second
+        // `counter.value` bump here means `container.invalidate` genuinely
+        // fired during the flow above.
+        await container.read(mySalonsProvider.future);
+        expect(
+          counter.value,
+          2,
+          reason:
+              'a successful delete must invalidate mySalonsProvider even '
+              'when the caller unmounted mid-await — the container captured '
+              'up front must not depend on the caller still being mounted',
+        );
+      },
+    );
   });
 }

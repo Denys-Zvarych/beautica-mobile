@@ -144,6 +144,17 @@ class FakeSalonRepository implements SalonRepository {
   /// notifier precedent.
   Completer<void>? cancelInviteGate;
 
+  /// mobile-qa gap-closure (swipe-to-delete audit 2026-09) — when non-null,
+  /// [deleteSalon] blocks on this until the test completes it. Same shape as
+  /// [cancelInviteGate]: the only way to observe
+  /// `MySalonsScreen`'s `_DeleteInFlightOverlay` across a real awaited frame
+  /// instead of a call resolving synchronously within one microtask.
+  Completer<void>? deleteSalonGate;
+
+  /// The `salonId` passed to the most recent [deleteSalon] call — proves the
+  /// swipe addressed the RIGHT row, not merely "some delete fired".
+  String? lastDeleteSalonId;
+
   // ── Phase 21.6 — admin management (all ADDITIVE) ────────────────────────
   // Every pre-existing caller passes none of these: [siblingSalons] defaults
   // to empty (the "owner has only this salon" branch), the three error slots
@@ -270,6 +281,9 @@ class FakeSalonRepository implements SalonRepository {
   @override
   Future<void> deleteSalon(String salonId) async {
     deleteCalls++;
+    lastDeleteSalonId = salonId;
+    final Completer<void>? gate = deleteSalonGate;
+    if (gate != null) await gate.future;
     if (deleteError != null) throw deleteError!;
   }
 

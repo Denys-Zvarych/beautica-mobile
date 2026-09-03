@@ -811,11 +811,27 @@ void main() {
   // deleted salon's name/locality/«Основний» badge went stale on the hub
   // for the rest of the session — this group pins the fix.
   //
-  // MUTATION-VERIFIED (2026-08-28) — removing either
-  // `ref.invalidate(mySalonsProvider)` call in
-  // `salon_management_profile_notifier.dart` turns its matching test below
-  // RED (`counter.value` stays 1 instead of advancing to 2); restoring it
-  // turns both back GREEN with a clean `git diff`.
+  // MUTATION-VERIFIED (2026-08-28) — removing
+  // `ref.invalidate(mySalonsProvider)` in [save]/[saveAddress] turns the
+  // `save()` test below RED (`counter.value` stays 1 instead of advancing
+  // to 2); restoring it turns it back GREEN with a clean `git diff`.
+  //
+  // [deleteSalon] no longer invalidates `mySalonsProvider` itself
+  // (mobile-qa CRITICAL fix, swipe-to-delete audit 2026-09-03) — that
+  // moved to `runDeleteSalonFlow` (`delete_salon_flow.dart`), the single
+  // caller of [deleteSalon], because [deleteSalon]'s own `ref` belongs to
+  // an autoDispose family element `MySalonsScreen`'s swipe-to-delete never
+  // watches, and a real (non-instant) `DELETE` round trip could dispose it
+  // mid-await — even under `ref.keepAlive()`, since `build()`'s
+  // `authProvider.select(...)` watch means an in-flight `authProvider`
+  // resolution invalidates (and thereby un-keepAlive's) this unwatched
+  // element. See [SalonManagementProfile.deleteSalon]'s own doc for the
+  // full mechanism. The invalidation is now covered at the flow level —
+  // `test/features/salon/presentation/my_salons_screen_test.dart`'s
+  // "swipe-to-delete gate" group and
+  // `integration_test/swipe_to_delete_salon_flow_test.dart` both assert
+  // `mySalonsProvider` genuinely refetches after a delete goes through
+  // `runDeleteSalonFlow`.
   group('mySalonsProvider invalidation (mobile-perf MEDIUM follow-up)', () {
     test('a successful save() invalidates mySalonsProvider so the hub '
         'refetches on its next read', () async {
@@ -866,8 +882,9 @@ void main() {
       );
     });
 
-    test('a successful deleteSalon() invalidates mySalonsProvider so the hub '
-        'refetches on its next read', () async {
+    test('a successful deleteSalon() does NOT invalidate mySalonsProvider '
+        'itself — that is runDeleteSalonFlow\'s job now (mobile-qa CRITICAL '
+        'fix, swipe-to-delete audit 2026-09-03)', () async {
       when(
         () => repo.getSalonById(_kSalonId),
       ).thenAnswer((_) async => _freshSalon);
@@ -893,15 +910,28 @@ void main() {
       final failure = await notifier.deleteSalon();
       expect(failure, isNull);
 
+      // deleteSalon() succeeded (server-side deactivation happened — see
+      // the repo.deleteSalon verify below), but it deliberately never
+      // touches mySalonsProvider itself anymore: that invalidation lives
+      // in `runDeleteSalonFlow`, called on the caller's own (stable)
+      // `WidgetRef` — see this group's header doc for why. Calling
+      // `deleteSalon()` DIRECTLY on the notifier, as this unit test does,
+      // is exactly the bypass that would have left the hub stale before
+      // this design; the flow-level coverage
+      // (`my_salons_screen_test.dart`'s "swipe-to-delete gate" group,
+      // `integration_test/swipe_to_delete_salon_flow_test.dart`) is what
+      // actually proves the hub refetches end-to-end.
       await container.read(mySalonsProvider.future);
       expect(
         counter.value,
-        2,
+        1,
         reason:
-            'deleteSalon() must invalidate mySalonsProvider — without it '
-            'the hub keeps listing the deleted salon for the rest of the '
-            'session',
+            'deleteSalon() alone must NOT invalidate mySalonsProvider — '
+            'doing so from this autoDispose family\'s own ref is exactly '
+            'the CRITICAL bug (UnmountedRefException on a real, '
+            'multi-frame DELETE round trip) this design change fixes',
       );
+      verify(() => repo.deleteSalon(_kSalonId)).called(1);
     });
   });
 

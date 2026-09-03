@@ -36,8 +36,8 @@ import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../features/auth/domain/auth_session.dart';
-import '../../../features/auth/domain/user_role.dart';
 import '../../../features/auth/presentation/auth_notifier.dart';
+import '../../../features/auth/presentation/auth_selectors.dart';
 import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../features/salon/presentation/delete_salon_flow.dart';
@@ -177,21 +177,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   /// nothing to delete, and — unlike the first two conjuncts, which are
   /// caller-supplied navigation state — this last one is derived from the
   /// session so a caller passing `showDeleteSalon: true` for a non-owner
-  /// (CLIENT / master / admin) can never surface the row. Mirrors
-  /// `SalonSettingsScreen`'s `isOwner` derivation verbatim (same
-  /// `authProvider.select` shape, same `UserRole.salonOwner` comparison) —
-  /// see `features/salon/presentation/salon_settings_screen.dart`. An
-  /// unresolved/loading `AsyncValue` has no `Authenticated` `.value`, so
-  /// `s.value is Authenticated` is false and the row stays hidden — fails
-  /// closed, never open.
+  /// (CLIENT / master / admin) can never surface the row. Shares the
+  /// promoted [isSalonOwnerProvider] with `SalonSettingsScreen.build` and
+  /// `MySalonsScreen.build` (`features/auth/presentation/auth_selectors
+  /// .dart`) rather than a third copy of the inline `authProvider.select`
+  /// derivation — see that provider's doc for the stale-`.value`-through-
+  /// `AsyncError` hardening. Fails closed, never open.
   bool get _showDeleteSalonRow {
-    final bool isOwner = ref.watch(
-      authProvider.select(
-        (AsyncValue<AuthSession> s) =>
-            s.value is Authenticated &&
-            (s.value! as Authenticated).user.role == UserRole.salonOwner,
-      ),
-    );
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
     return widget.showDeleteSalon && widget.salonId != null && isOwner;
   }
 

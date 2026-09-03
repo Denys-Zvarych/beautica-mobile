@@ -58,6 +58,7 @@ import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
+import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
@@ -235,6 +236,10 @@ void main() {
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
+  // Swipe-to-delete on «Мої салони» (mobile-qa CRITICAL fix, 2026-09-03) —
+  // owner swipes -> confirms -> a real DELETE /api/v1/salons/{salonId}
+  // round trip -> lands back on the hub with the remaining salon.
+  group('swipe_to_delete_salon_flow', swipe_to_delete_salon.main);
   // VelvetSnack AS A FEATURE (mobile-qa, Step 2.7 Rule 3b) — a real
   // failure-path error snack raised + auto-retired, a success snack
   // surviving the context.pop() that follows it, and single-slot

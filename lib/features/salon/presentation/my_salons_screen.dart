@@ -42,6 +42,27 @@
 // null/0 for every entry this screen loads (see [SalonMapper.fromUpdateDto],
 // reused by `SalonRepository.getMySalons`), so the footer row simply isn't
 // rendered.
+//
+// Swipe-to-delete (added alongside the delete-landing fix that routes every
+// `runDeleteSalonFlow` caller here, `delete_salon_flow.dart`) — REUSE-FIRST:
+// `_HubContent` wraps each card in a `Dismissible` (`endToStart` only) that
+// calls the SAME [runDeleteSalonFlow] the account settings hub's
+// `row-delete-salon` uses; no second confirm dialog, no hand-rolled delete
+// call. `confirmDismiss` always returns `false` — the row is never removed
+// by Dismissible's own slide-out/resize animation, because this screen is a
+// `keepAlive` provider (`mySalonsProvider`) rebuild away from doing that
+// removal itself the instant `deleteSalon()` invalidates it, and letting
+// BOTH mechanisms race is exactly the
+// `A dismissed Dismissible widget is still part of the tree` assertion
+// trap. Owner-gating: `Salon` carries no per-item ownership field, and this
+// screen doesn't need one — `/salons/mine` is gated SALON_OWNER-only by
+// `mySalonsGuard` (`app_router.dart`) and `GET /salons/mine` only ever
+// returns salons the caller owns, so every card this screen renders is
+// already owned by the viewer for as long as their role is `salonOwner`. The
+// swipe checks that role directly via the shared [isSalonOwnerProvider]
+// (`auth/presentation/auth_selectors.dart`) — fail-closed: any other role
+// — unreachable in practice past the route guard — renders a plain,
+// un-swipeable card.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,8 +80,10 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import '../../auth/presentation/auth_selectors.dart';
 import '../application/my_salons_notifier.dart';
 import '../domain/salon.dart';
+import 'delete_salon_flow.dart';
 import 'widgets/salon_hub_card.dart';
 
 /// The `SALON_OWNER`'s entry point: every salon they own, listed as a
@@ -174,10 +197,58 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
   /// salon on its own the moment it rebuilds, no manual refresh needed.
   void _addSalon() => context.push(RouteNames.registerSalon);
 
+  /// Salon ids with an in-flight `runDeleteSalonFlow` delete call — drives
+  /// the [_DeleteInFlightOverlay] over the swiped row (mobile-perf MEDIUM
+  /// follow-up, 2026-09: `setLoading` used to be a no-op here on the theory
+  /// that the dragged-open position itself communicated "in flight", but
+  /// Dismissible hides BOTH its child and its background once the move
+  /// animation reaches `dismissed` — see `_HubContent`'s call site — so the
+  /// row was actually a blank gap for the whole `DELETE /salons/{id}`
+  /// round-trip). Owned by this `State`, not `_HubContent`: `_HubContent` is
+  /// a `StatelessWidget` rebuilt fresh from `mySalonsProvider`'s
+  /// `AsyncValue` on every emission, so it has nowhere to durably hold an
+  /// in-flight flag across the `await` inside `confirmDismiss` — and a
+  /// second `ConsumerStatefulWidget` wrapping just the affected row would be
+  /// a fork of state-holding machinery this screen already has. A `Set`
+  /// rather than a single nullable id because nothing prevents an owner
+  /// swiping a second row while the first is still deleting (each
+  /// `Dismissible` gesture is independent).
+  final Set<String> _deletingSalonIds = <String>{};
+
+  /// REUSE-FIRST: delegates to the SAME confirm→delete→feedback flow
+  /// `SettingsScreen._deleteSalon()` uses — see this file's header and
+  /// `features/salon/presentation/delete_salon_flow.dart`. `setLoading`
+  /// flips [_deletingSalonIds] for [salon.id] — see that field's doc.
+  /// `setLoading(false)` is only ever called by `runDeleteSalonFlow` on
+  /// FAILURE (its own doc: "on success the screen navigates away, so there
+  /// is no matching loading=false call"); on success the salon is instead
+  /// removed from `mySalonsProvider`'s list entirely (the notifier's
+  /// `deleteSalon()` already invalidated it), so the id simply stops being
+  /// rendered — a `true` entry surviving in the set for an id that no
+  /// longer appears in `salons` is inert, never displayed again.
+  Future<void> _deleteSalon(Salon salon) => runDeleteSalonFlow(
+    context: context,
+    ref: ref,
+    salonId: salon.id,
+    setLoading: (bool loading) => setState(() {
+      if (loading) {
+        _deletingSalonIds.add(salon.id);
+      } else {
+        _deletingSalonIds.remove(salon.id);
+      }
+    }),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final AsyncValue<List<Salon>> async = ref.watch(mySalonsProvider);
+    // Fail-closed owner gate for the swipe — shared with
+    // `_SettingsScreenState._showDeleteSalonRow` and
+    // `SalonSettingsScreen.build` via the promoted [isSalonOwnerProvider]
+    // (see that provider's doc for why `.value` alone is not read directly;
+    // this file's header explains why a per-salon field isn't needed).
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -200,6 +271,9 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
             salons: salons,
             reveal: _reveal,
             onOpenSalon: _openSalon,
+            canDelete: isOwner,
+            onDeleteSalon: _deleteSalon,
+            deletingSalonIds: _deletingSalonIds,
           ),
         ),
       ),
@@ -230,6 +304,9 @@ class _HubContent extends StatelessWidget {
     required this.salons,
     required this.reveal,
     required this.onOpenSalon,
+    required this.canDelete,
+    required this.onDeleteSalon,
+    required this.deletingSalonIds,
   });
 
   final List<Salon> salons;
@@ -240,6 +317,25 @@ class _HubContent extends StatelessWidget {
   })
   reveal;
   final ValueChanged<Salon> onOpenSalon;
+
+  /// Whether the viewer may swipe a card to delete it — the fail-closed
+  /// owner check `MySalonsScreen.build` computes once for the whole list
+  /// (see that file's header: `Salon` carries no per-item ownership field,
+  /// and this screen's every entry is already the viewer's own).
+  final bool canDelete;
+
+  /// Runs the shared delete flow for one [Salon] — see
+  /// `MySalonsScreen._deleteSalon`.
+  final Future<void> Function(Salon salon) onDeleteSalon;
+
+  /// Salon ids with an in-flight delete call — see
+  /// `_MySalonsScreenState._deletingSalonIds`. Owned by the `State` above,
+  /// not this `StatelessWidget`: passed straight through so the affected
+  /// row can render [_DeleteInFlightOverlay] instead of the blank gap
+  /// Dismissible leaves once its move animation is `dismissed` (both its
+  /// `child` and `background` are hidden at that point — see the
+  /// `Dismissible` call site below).
+  final Set<String> deletingSalonIds;
 
   static const double _cardStaggerBase = 0.12;
   static const double _cardRevealSpan = 0.48;
@@ -311,19 +407,192 @@ class _HubContent extends StatelessWidget {
         }
         final int i = index - 2;
         final double start = _cardRevealStart(i, salons.length);
+        final Salon salon = salons[i];
+        final Widget card = SalonHubCard(
+          key: ValueKey<String>('my_salons_card_${salon.id}'),
+          salon: salon,
+          onTap: () => onOpenSalon(salon),
+        );
+        // mobile-perf HIGH follow-up (swipe-to-delete audit 2026-09):
+        // `RepaintBoundary` around the Dismissible's `child` — Dismissible's
+        // `SlideTransition` translates `card` directly every drag-update
+        // frame, and with no boundary here that forced `SalonHubCard`'s
+        // `AnimatedContainer` (`salon_hub_card.dart` — dual
+        // `BoxShadow(blurRadius: 18)` via `VelvetShadows.extrudedCard`) to
+        // re-rasterize on every frame instead of compositing a cached layer.
+        // NOT the same boundary as `_reveal`'s (outside the Dismissible,
+        // isolating the 900ms entrance fade from sibling rows) — this one
+        // isolates the drag transform itself.
+        final Widget dismissibleCard = Dismissible(
+          key: ValueKey<String>('my_salons_dismissible_${salon.id}'),
+          direction: DismissDirection.endToStart,
+          background: const _DeleteSalonSwipeBackground(),
+          // Always `false`: the row is removed by
+          // `mySalonsProvider` invalidating + rebuilding (fired
+          // inside `deleteSalon()` on success) once
+          // `onDeleteSalon` resolves, never by Dismissible's own
+          // slide-out. Returning `true` here would race that
+          // rebuild and risk "A dismissed Dismissible widget is
+          // still part of the tree" — see this file's header.
+          confirmDismiss: (DismissDirection _) async {
+            await onDeleteSalon(salon);
+            return false;
+          },
+          child: RepaintBoundary(child: card),
+        );
+        final bool isDeleting = deletingSalonIds.contains(salon.id);
         return Padding(
           padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
           child: reveal(
             start: start,
             end: start + _cardRevealSpan,
-            child: SalonHubCard(
-              key: ValueKey<String>('my_salons_card_${salons[i].id}'),
-              salon: salons[i],
-              onTap: () => onOpenSalon(salons[i]),
-            ),
+            // `dismissibleCard` is ALWAYS the base child here (never
+            // conditionally swapped for a different widget) so the
+            // Dismissible's Element — and the async `confirmDismiss` future
+            // it is awaiting — survives the `isDeleting` flag flipping true
+            // partway through the wait; only the overlay ON TOP of it is
+            // conditional. See `_DeleteInFlightOverlay`'s doc for why the
+            // overlay can't just be Dismissible's own `background`.
+            child: canDelete
+                ? Stack(
+                    children: <Widget>[
+                      dismissibleCard,
+                      if (isDeleting)
+                        const Positioned.fill(child: _DeleteInFlightOverlay()),
+                    ],
+                  )
+                : card,
           ),
         );
       },
+    );
+  }
+}
+
+/// The `Dismissible` background revealed by the owner's swipe-to-delete
+/// gesture on a salon card ([DismissDirection.endToStart] only).
+///
+/// Flat `BrandColors.error` fill (the same warm terracotta-red
+/// `SettingsRow(destructive: true)` already uses for `row-delete-salon` —
+/// reused, not a new colour), rounded to the SAME `VelvetRadii.card` radius
+/// as [SalonHubCard] so the reveal reads as "what's under the card" rather
+/// than a separate decorated banner. Trailing-aligned icon + label (the card
+/// slides away to the left, so the reveal grows in from the right) using the
+/// `deleteSalonAction` ARB key already shared by the settings-hub delete
+/// row and [DeleteSalonDialog]. No gradient, no blur, no second shadow — the
+/// sliding card above still carries its own `VelvetShadows.extrudedCard`.
+///
+/// mobile-perf LOW/INFO adjudication (swipe-to-delete audit 2026-09) — this
+/// widget is unconditionally CONSTRUCTED for every owner row `Dismissible`
+/// wraps (clipped to zero width at rest, per `Dismissible`'s own
+/// implementation — it always builds `widget.background` and animates a
+/// clip around it, rather than lazily building it only once dragging
+/// starts). NO CHANGE: this is `Dismissible`'s own documented API shape, not
+/// a mistake in this file — there is no supported way to defer building a
+/// `Dismissible.background` until the drag begins, short of not using
+/// `Dismissible` at all (a far larger rewrite unjustified for a `const`,
+/// single-`Container`+`Row` widget with no state, no listeners, and no
+/// per-frame work of its own). It is also already bounded to the *visible*
+/// viewport by `ListView.builder` — an owner with 50 salons does not
+/// construct 50 of these, only however many rows are on/near screen. Nothing
+/// to fix here.
+class _DeleteSalonSwipeBackground extends StatelessWidget {
+  const _DeleteSalonSwipeBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+      decoration: BoxDecoration(
+        color: BrandColors.error,
+        borderRadius: BorderRadius.circular(VelvetRadii.card),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(
+            Icons.delete_outline_rounded,
+            color: BrandColors.white,
+            size: 24,
+          ),
+          const SizedBox(width: VelvetSpacing.xs),
+          Text(
+            AppLocalizations.of(context).deleteSalonAction,
+            style: VelvetText.bodyStrong().copyWith(color: BrandColors.white),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card-sized "in progress" overlay shown ON TOP of a swiped [SalonHubCard]
+/// while its delete call is in flight (mobile-perf MEDIUM follow-up,
+/// swipe-to-delete audit 2026-09).
+///
+/// Why not just reuse `Dismissible`'s own [_DeleteSalonSwipeBackground]:
+/// Flutter hides `Dismissible`'s `background` once its move animation
+/// reaches `dismissed` (`!_moveAnimation.isDismissed` gates it internally) —
+/// exactly the state a completed end-to-end swipe is in for the whole async
+/// round-trip. With no separate affordance, BOTH the card (translated fully
+/// off-screen) and the background (hidden) disappear, leaving a blank gap
+/// that reads as "nothing happened" on a slow connection. This widget is
+/// stacked ON TOP of the (still-mounted, never swapped-out — see the
+/// `Stack` call site in `_HubContent.build`) `Dismissible` instead, so it
+/// renders regardless of what `Dismissible` itself is doing internally.
+///
+/// Composition — `frontend-design`-reviewed, held to the locked VelvetTouch
+/// palette: reuses [_DeleteSalonSwipeBackground]'s EXACT fill
+/// (`BrandColors.error`, the same warm terracotta-red `SettingsRow
+/// (destructive: true)` already uses) and radius (`VelvetRadii.card`) — no
+/// new colour, no gradient beyond the locked CTA one (unused here), no blur,
+/// no glassmorphism. Centered rather than trailing-aligned (this covers the
+/// WHOLE card footprint now, not a partial drag-reveal sliver), with a
+/// spinner replacing the static delete icon — sized up from `SettingsRow`'s
+/// inline 16×16 loading token to 20×20 since it is the sole content of a
+/// full card rather than an accessory beside a label, but keeping that same
+/// `strokeWidth: 2` / `BrandColors.accentDeep`-family cream-on-error
+/// treatment (`BrandColors.white`, matching the icon it replaces).
+class _DeleteInFlightOverlay extends StatelessWidget {
+  const _DeleteInFlightOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      label: AppLocalizations.of(context).mySalonsDeletingInProgress,
+      child: ExcludeSemantics(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: BrandColors.error,
+            borderRadius: BorderRadius.circular(VelvetRadii.card),
+          ),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const SizedBox(
+                  key: Key('my_salons_delete_in_flight_spinner'),
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: BrandColors.white,
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.sm),
+                Text(
+                  AppLocalizations.of(context).mySalonsDeletingInProgress,
+                  style: VelvetText.bodyStrong().copyWith(
+                    color: BrandColors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

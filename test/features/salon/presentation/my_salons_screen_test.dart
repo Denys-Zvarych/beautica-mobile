@@ -33,13 +33,41 @@
 //      the list must NOT be built yet — proving the list is virtualized,
 //      not a `Column` inside a `SingleChildScrollView` eagerly laying out
 //      every card regardless of visibility.
+//   9. SWIPE-TO-DELETE GATE (mobile-qa, mobile-security MEDIUM follow-up,
+//      2026-09) — previously ZERO coverage (`grep` for `Dismissible`/
+//      `canDelete` in this file returned nothing before this group):
+//        a. an owner's card is wrapped in a `Dismissible`; a non-owner role
+//           renders the same salon as a plain, un-swipeable card;
+//        b. a swipe — INCLUDING a fast fling — still awaits
+//           `DeleteSalonDialog` before any `deleteSalon()` call fires
+//           (`Dismissible` awaits `confirmDismiss` regardless of gesture
+//           velocity — pinned rather than trusted);
+//        c. `confirmDismiss` always returning `false` means the swiped row
+//           stays in the list until `mySalonsProvider`'s OWN invalidation
+//           removes it — never Dismissible's own slide-out/resize;
+//        d. `_DeleteInFlightOverlay` renders over the row while the delete
+//           call is in flight, and the underlying `Dismissible` element
+//           SURVIVES the whole round trip (never swapped out from under the
+//           overlay).
+//      MUTATION-VERIFIED (mobile-qa, 2026-09-03) — flipping
+//      `confirmDismiss`'s hard-coded `return false` to `return true`
+//      reproduces the `A dismissed Dismissible widget is still part of the
+//      tree` `FlutterError` this design exists to avoid; see the phase doc's
+//      `## Status` for the recorded mutation result. Restoring the
+//      production file afterward reverts to a clean `git diff` and the test
+//      back to GREEN.
 //
 // Strategy: `mySalonsProvider` (a `@Riverpod(keepAlive: true)` CLASS
 // provider) is overridden directly with small `MySalons` subclasses —
 // mirrors `salon_bookings_route_shadowing_test.dart`'s own `_SettledMySalons`
 // shape. This sidesteps `authProvider` entirely (`my_salons_notifier_test
 // .dart` owns that leg) and keeps this file scoped to the SCREEN's own
-// loading/data/error/empty branches and navigation.
+// loading/data/error/empty branches and navigation. Group 9 additionally
+// overrides `isSalonOwnerProvider` directly (a plain, non-family provider —
+// `.overrideWithValue` is valid) and `salonRepositoryProvider` with
+// `FakeSalonRepository` (mirrors `delete_salon_flow_test.dart`'s own use of
+// it) — `SalonManagementProfile.deleteSalon()` reads that repository
+// directly, so no `SalonManagementProfile` notifier override is needed.
 //
 // LOADING-STATE PUMP TRAP: `_HubSkeleton` wraps `SkeletonShimmerScope`, whose
 // `AnimationController` is `..repeat(reverse: true)` — it never settles, so
@@ -51,11 +79,17 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -66,6 +100,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -163,6 +198,70 @@ List<Salon> _manySalons(int n) => List<Salon>.generate(
   n,
   (int i) => Salon(id: 'salon-many-$i', name: 'Салон №$i', isPrimary: i == 0),
 );
+
+// mobile-qa gap-closure (swipe-to-delete audit 2026-09) — TWO salons: the
+// one an owner swipes away, and the one that survives it. A single-salon
+// fixture couldn't prove "the row is not removed by the gesture" (a list
+// dropping to empty looks identical whether the row was removed by
+// Dismissible's own animation or by the provider re-fetching a shorter
+// list) or "the invalidated refetch renders the REMAINING salons".
+const Salon _swipeSalonA = Salon(
+  id: 'salon-swipe-a',
+  name: 'Салон, що видаляють',
+  isPrimary: false,
+);
+const Salon _swipeSalonB = Salon(
+  id: 'salon-swipe-b',
+  name: 'Салон, що лишається',
+  isPrimary: true,
+);
+
+/// `runDeleteSalonFlow`'s own post-delete landing target depends on
+/// `ref.read(authProvider).value` — without an override it resolves the
+/// REAL (unauthenticated-by-default in a bare test container) session and
+/// navigates to `RouteNames.login`, which would strand every assertion
+/// below on the wrong screen. An authenticated SALON_OWNER session mirrors
+/// who can actually reach this swipe gesture (the route itself is
+/// SALON_OWNER-gated) and keeps the flow on `RouteNames.mySalons` — the
+/// `matchedLocation == target` skip in `delete_salon_flow.dart` then means
+/// no navigation happens at all, exactly like the real swipe-in-place
+/// gesture.
+class _AuthenticatedAsOwner extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'owner-swipe-1',
+      email: 'owner-swipe@beautica.ua',
+      role: UserRole.salonOwner,
+      firstName: 'Оксана',
+      lastName: 'Власниця',
+    ),
+    accessToken: 'tok-swipe',
+  );
+}
+
+Finder get _dismissibleA =>
+    find.byKey(const ValueKey<String>('my_salons_dismissible_salon-swipe-a'));
+Finder get _cardA =>
+    find.byKey(const ValueKey<String>('my_salons_card_salon-swipe-a'));
+Finder get _cardB =>
+    find.byKey(const ValueKey<String>('my_salons_card_salon-swipe-b'));
+Finder get _deleteDialog => find.byKey(const Key('delete-salon-dialog'));
+Finder get _confirmDeleteButton =>
+    find.byKey(const Key('btn-confirm-delete-salon'));
+Finder get _inFlightOverlaySpinner =>
+    find.byKey(const Key('my_salons_delete_in_flight_spinner'));
+
+/// Swipes [dismissibleA] `endToStart` — the only direction the production
+/// `Dismissible` accepts. [velocity] lets a test drive a fast fling vs. a
+/// slower one; both must still route through `confirmDismiss` per
+/// `Dismissible`'s own contract (there is no "skip confirmDismiss on a fast
+/// gesture" fast path in the framework — this is pinned, not merely
+/// trusted, by the tests that call this with a high velocity).
+Future<void> _swipeSalonADismissible(
+  WidgetTester tester, {
+  double velocity = 1000,
+}) => tester.fling(_dismissibleA, const Offset(-500, 0), velocity);
 
 // mobile-qa gap-closure (2026-08-29) — a salon that HAS the taxonomy
 // `cityId`/`oblastId`. Its legacy `city` field is deliberately set to a
@@ -749,6 +848,315 @@ void main() {
         );
         expect(find.byType(ErrorState), findsNothing);
         expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  // ===========================================================================
+  // Group 9 — swipe-to-delete gate (mobile-qa / mobile-security MEDIUM
+  // follow-up, 2026-09). See this file's header for the full case list and
+  // the mutation-check result.
+  // ===========================================================================
+  group('swipe-to-delete gate', () {
+    testWidgets(
+      'an owner sees a Dismissible on the card; a non-owner role renders '
+      'the SAME salon as a plain, un-swipeable card',
+      (tester) async {
+        for (final bool isOwner in <bool>[true, false]) {
+          final GoRouter router = _router();
+          addTearDown(router.dispose);
+          await tester.pumpRoutedApp(
+            router,
+            overrides: <Object>[
+              mySalonsProvider.overrideWith(
+                () => _StubMySalons(
+                  () async => <Salon>[_swipeSalonA, _swipeSalonB],
+                ),
+              ),
+              isSalonOwnerProvider.overrideWithValue(isOwner),
+            ],
+          );
+          await tester.pumpAndSettle();
+
+          // The card itself always renders regardless of role.
+          expect(_cardA, findsOneWidget, reason: 'isOwner=$isOwner');
+          expect(
+            _dismissibleA,
+            isOwner ? findsOneWidget : findsNothing,
+            reason:
+                'isOwner=$isOwner — a non-owner must get a plain card, no '
+                'swipe affordance at all',
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'a FAST fling still awaits DeleteSalonDialog before any deleteSalon() '
+      'call fires, and the row is NEVER removed by the gesture itself '
+      '(confirmDismiss always returns false)',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _swipeSalonA);
+        final GoRouter router = _router();
+        addTearDown(router.dispose);
+        // Deliberately a STABLE `_StubMySalons` (always re-serves BOTH
+        // salons, with no backing store to mutate) — the point of this
+        // fixture choice is that NOTHING ever invalidates salon-swipe-a out
+        // of the list, so if it disappears anyway, that can only be
+        // Dismissible's own gesture/animation removing it — exactly the
+        // MUTATION TARGET below.
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(
+                () async => <Salon>[_swipeSalonA, _swipeSalonB],
+              ),
+            ),
+            isSalonOwnerProvider.overrideWithValue(true),
+            salonRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_AuthenticatedAsOwner.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // A deliberately fast fling — well above the default drag velocity
+        // used elsewhere in this file's tap-based tests.
+        await _swipeSalonADismissible(tester, velocity: 4000);
+        await tester.pumpAndSettle();
+
+        expect(
+          _deleteDialog,
+          findsOneWidget,
+          reason:
+              'even a fast fling must land on the confirm dialog, never '
+              'skip straight to deleting',
+        );
+        expect(
+          repo.deleteCalls,
+          0,
+          reason: 'no delete call before the owner confirms',
+        );
+
+        await tester.tap(_confirmDeleteButton);
+        // Deliberately bounded pumps, NOT pumpAndSettle: with this stable
+        // stub, `_DeleteInFlightOverlay`'s indeterminate
+        // `CircularProgressIndicator` never stops animating once
+        // `_deletingSalonIds` is set (nothing ever invalidates the id back
+        // out — see `MySalonsScreen._deletingSalonIds`'s own doc for why
+        // that is inert in a REAL app but not in this fixture) — the SAME
+        // never-settles trap this file's header documents for
+        // `_HubSkeleton`.
+        await tester.pump();
+
+        expect(repo.deleteCalls, 1);
+        expect(repo.lastDeleteSalonId, _swipeSalonA.id);
+
+        // MUTATION TARGET (mobile-qa, 2026-09-03): flipping the production
+        // `confirmDismiss`'s hard-coded `return false` to `return true`
+        // makes `Dismissible` hide its `child` the instant its own
+        // move/resize animation reaches `dismissed` — REGARDLESS of
+        // whether anything actually removed the salon from the data the
+        // parent is still supplying. Under that mutation `_cardA` goes
+        // `findsNothing` on the very next pump; with the real `return
+        // false` it stays visible for as long as nothing ELSE removes it
+        // (proven here by the stub NEVER removing it).
+        expect(
+          _cardA,
+          findsOneWidget,
+          reason:
+              'confirmDismiss always returns false — the swipe gesture '
+              'itself must never make the row disappear',
+        );
+        expect(
+          _dismissibleA,
+          findsOneWidget,
+          reason: 'the Dismissible element itself must also still be there',
+        );
+      },
+    );
+
+    testWidgets(
+      'confirmDismiss returning false: the swiped row is removed ONLY by '
+      'the invalidated mySalonsProvider refetch, never by a race with '
+      "Dismissible's own dismiss animation, and the REMAINING salon "
+      'renders afterward',
+      (tester) async {
+        // Deliberately UNGATED (no `deleteSalonGate`) — a genuine
+        // (non-instant) round trip on this exact path IS covered, gated, by
+        // the test right below this one, which passes. This ungated variant
+        // stays alongside it because it proves something the gated test
+        // does not need to: the row's removal is driven by the provider's
+        // own invalidated refetch, not by Dismissible's confirmDismiss
+        // return value racing it — a race that only needs the delete call
+        // to resolve at all, gated or not.
+        final repo = FakeSalonRepository(salon: _swipeSalonA);
+        final notifier = _SequencedMySalons(<Future<List<Salon>> Function()>[
+          () async => <Salon>[_swipeSalonA, _swipeSalonB],
+          // Post-invalidate refetch: the deleted salon is gone, the
+          // survivor remains — proves the hub renders the REMAINING
+          // salons, not merely "the list shrank".
+          () async => <Salon>[_swipeSalonB],
+        ]);
+        final GoRouter router = _router();
+        addTearDown(router.dispose);
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(() => notifier),
+            isSalonOwnerProvider.overrideWithValue(true),
+            salonRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_AuthenticatedAsOwner.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await _swipeSalonADismissible(tester);
+        await tester.pumpAndSettle();
+        await tester.tap(_confirmDeleteButton);
+        await tester.pumpAndSettle();
+
+        // MUTATION TARGET (mobile-qa, 2026-09-03): flipping the production
+        // `confirmDismiss`'s hard-coded `return false` to `return true`
+        // makes Dismissible race its own dismiss/resize animation against
+        // this provider-driven removal, throwing `FlutterError("A
+        // dismissed Dismissible widget is still part of the tree")` — that
+        // exception surfaces via `tester.takeException()` (or a failed
+        // `pumpAndSettle`), so this assertion goes RED under that mutation.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'a Dismissible racing its own dismiss animation against the '
+              'invalidated refetch throws — this is the exact trap '
+              'confirmDismiss always returning false avoids',
+        );
+        expect(
+          _cardA,
+          findsNothing,
+          reason:
+              'once the invalidated refetch resolves without salon-swipe-a, '
+              'its row simply stops being rendered',
+        );
+        expect(notifier.buildCalls, 2, reason: 'a genuine second fetch');
+        expect(
+          _cardB,
+          findsOneWidget,
+          reason: 'the surviving salon must still render',
+        );
+      },
+    );
+
+    // FIXED (mobile-qa CRITICAL finding, swipe-to-delete audit 2026-09-03):
+    // a delete round trip that spans more than one frame (any real,
+    // non-instant network call) used to throw `UnmountedRefException` from
+    // `SalonManagementProfile.deleteSalon()`'s own
+    // `ref.invalidate(mySalonsProvider)`
+    // (salon_management_profile_notifier.dart) — `salonManagementProfile
+    // Provider(salonId)` is an `@riverpod` (autoDispose) family that NOTHING
+    // in `MySalonsScreen`'s tree watches, unlike every other caller of
+    // `runDeleteSalonFlow`. `deleteSalon()` itself does NOT call
+    // `ref.keepAlive()` — it was tried and does not reliably survive this
+    // race either (see that method's own doc). The actual fix moved the
+    // `mySalonsProvider` invalidation OUT of the notifier entirely: it now
+    // lives in `runDeleteSalonFlow` (`delete_salon_flow.dart`), fired
+    // through a `ProviderContainer` captured on the CALLING screen's own
+    // `context` before the delete call, which has no lifecycle tie to the
+    // per-salon `salonManagementProfileProvider` family element at all — so
+    // it is correct whether or not that element survives the round trip.
+    // Reproduced deterministically below with a
+    // `FakeSalonRepository.deleteSalonGate` Completer.
+    testWidgets(
+      'confirmDismiss returning false leaves the row in the list until '
+      'mySalonsProvider invalidation removes it, with the in-flight '
+      'overlay shown and the Dismissible element surviving the whole '
+      'round trip',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _swipeSalonA)
+          ..deleteSalonGate = Completer<void>();
+        final notifier = _SequencedMySalons(<Future<List<Salon>> Function()>[
+          () async => <Salon>[_swipeSalonA, _swipeSalonB],
+          // Post-invalidate refetch: the deleted salon is gone, the
+          // survivor remains — proves the hub renders the REMAINING
+          // salons, not merely "the list shrank".
+          () async => <Salon>[_swipeSalonB],
+        ]);
+        final GoRouter router = _router();
+        addTearDown(router.dispose);
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(() => notifier),
+            isSalonOwnerProvider.overrideWithValue(true),
+            salonRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_AuthenticatedAsOwner.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await _swipeSalonADismissible(tester);
+        await tester.pumpAndSettle();
+        await tester.tap(_confirmDeleteButton);
+        await tester.pump(); // run the tap handler up to the gated await
+
+        // The delete call is genuinely in flight (repo counted it, gate not
+        // yet completed).
+        expect(repo.deleteCalls, 1);
+        expect(notifier.buildCalls, 1, reason: 'not yet invalidated');
+
+        // The row is STILL in the list — never removed by Dismissible's own
+        // slide-out/resize, only by the provider re-fetching.
+        expect(
+          _cardA,
+          findsOneWidget,
+          reason:
+              'confirmDismiss always returns false — the swipe gesture '
+              'itself must never remove the row',
+        );
+        expect(
+          _dismissibleA,
+          findsOneWidget,
+          reason:
+              'the Dismissible ELEMENT must survive the in-flight window — '
+              'it is the Stack\'s base child, never conditionally swapped',
+        );
+        expect(
+          _inFlightOverlaySpinner,
+          findsOneWidget,
+          reason:
+              'the in-flight overlay must render while the delete '
+              'round trip is pending',
+        );
+
+        // Unblock the delete call — this lets `runDeleteSalonFlow` reach its
+        // own `container.invalidate(mySalonsProvider)` (the caller-owned
+        // container captured before this await started), triggering the
+        // SECOND _SequencedMySalons response.
+        repo.deleteSalonGate!.complete();
+        await tester.pumpAndSettle();
+
+        expect(
+          notifier.buildCalls,
+          2,
+          reason: 'mySalonsProvider must have genuinely re-fetched',
+        );
+        expect(
+          _cardA,
+          findsNothing,
+          reason:
+              'once the invalidated refetch resolves without salon-swipe-a, '
+              'its row (and overlay) simply stop being rendered',
+        );
+        expect(
+          _inFlightOverlaySpinner,
+          findsNothing,
+          reason: 'the overlay must not linger once the row is gone',
+        );
+        expect(
+          _cardB,
+          findsOneWidget,
+          reason: 'the surviving salon must still render',
+        );
       },
     );
   });

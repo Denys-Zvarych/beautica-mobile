@@ -5371,6 +5371,10 @@
   "@deleteSalonSuccess": {
     "description": "Phase 21.2 — success snackbar shown after DELETE /salons/{salonId} succeeds."
   },
+  "mySalonsDeletingInProgress": "Deleting…",
+  "@mySalonsDeletingInProgress": {
+    "description": "mobile-perf MEDIUM follow-up (swipe-to-delete audit 2026-09) — label + semantics announcement on the card-sized overlay shown over a swiped salon card while its DELETE /salons/{salonId} call is in flight (`_DeleteInFlightOverlay`, my_salons_screen.dart)."
+  },
   "professionalTitleLabel": "Professional title",
   "@professionalTitleLabel": {
     "description": "Field label above the professional title input on the master edit screen."
