@@ -37,13 +37,23 @@
 // mobile-security MEDIUM / mobile-perf LOW follow-up (2026-09-03) — [save]
 // and [saveAddress] used to gate `ref.invalidate(mySalonsProvider)` behind
 // the SAME `ref.mounted` check that guards their post-await `state` write.
-// That check can go false without the CALLING screen ever unmounting: both
-// methods' own docs describe a compound race where `authProvider`'s async
-// resolution completes while the `PATCH` is in flight and invalidates this
-// (unwatched-for-dispose-purposes) family element out from under itself.
-// When that fires, the PATCH still succeeds server-side, but the invalidate
-// was skipped — the «Мої салони» hub keeps rendering the pre-edit name/
-// address for the rest of the session. Both methods now capture
+// `ref.mounted` DOES go false in one real case: `SalonProfileEditScreen`
+// (or its address counterpart) is popped mid-await, dropping the only
+// watcher, and `save()`/`saveAddress()`'s own `ref.keepAlive()` link — the
+// last thing keeping this element alive — is then wiped by an unrelated
+// `authProvider` identity change invalidating this element while nothing
+// is watching it (element genuinely disposed; see [deleteSalon]'s doc for
+// the identical mechanism). CORRECTION (investigated 2026-09-03, see
+// `salon_management_profile_notifier_test.dart`'s "compound
+// authProvider-mid-await race" group): `ref.mounted` can NOT go false
+// while the calling screen is still mounted and watching — Riverpod only
+// REBUILDS an element with an active watcher on invalidation, it never
+// disposes one (`isActive` stays true for as long as a real, unpaused
+// `ref.watch` is attached). A prior version of this doc claimed exactly
+// that impossible case; do not re-derive it. Whichever case fires, the
+// PATCH already succeeded server-side by the time `ref.mounted` matters,
+// so skipping the invalidate would still leave the «Мої салони» hub
+// stale for the rest of the session. Both methods therefore capture
 // `ref.container` (a plain stored reference to the app's root
 // [ProviderContainer] — reading it, unlike `ref.invalidate`/`ref.read`,
 // does NOT assert `ref.mounted`) BEFORE the await, while this element is
@@ -51,7 +61,12 @@
 // moment the `PATCH` succeeds — independent of whether this element is still
 // mounted by the time the await resolves. The `state` write itself stays
 // behind `ref.mounted`, since unlike the container-backed invalidate it
-// genuinely needs this element's own `ref`.
+// genuinely needs this element's own `ref` — and the guard, together with
+// the `ref.keepAlive()` call below, is REQUIRED: it is the only thing
+// standing between the popped-screen race above and an
+// `UnmountedRefException` crash. Do not remove either on the belief that
+// the mounted-while-watching case (disproven above) was their only
+// justification.
 //
 // `UpdateSalonRequest.street`/`.buildingNo` are non-nullable/required even on
 // this partial-update DTO (see `tool/openapi/api-spec.json`'s
@@ -231,30 +246,45 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     // relied on — but its «Назад» button (`onBack`) is never disabled while
     // `_saving` is true, unlike its text fields, so a user CAN pop the
     // screen mid-await and drop the only watcher. `ref.keepAlive()` covers
-    // that plain listener-drop case (the link is closed in `finally` so it
-    // never outlives this call). It does NOT cover the compound race
-    // [deleteSalon]'s doc describes (`authProvider` resolving mid-await
-    // wipes the link too) — unlike [deleteSalon], THIS method still needs
-    // `ref` after the await to persist `state`, so that race can't be fully
-    // designed away by moving work to the caller. `ref.mounted` is checked
-    // before the post-await `state` write below: on the (rare, compound)
-    // unmounted case this returns `null` — the PATCH itself already
-    // succeeded server-side — rather than crashing.
+    // that plain listener-drop case on its own (the link is closed in
+    // `finally` so it never outlives this call) — UNLESS the screen has
+    // ALSO already popped when an unrelated `authProvider` identity change
+    // lands: that invalidates this now-unwatched element and unconditionally
+    // wipes the just-added `KeepAliveLink` too ([deleteSalon]'s doc walks
+    // the exact mechanism), so the scheduled disposal proceeds regardless of
+    // having called `ref.keepAlive()` earlier in this method. Unlike
+    // [deleteSalon], THIS method still needs `ref` after the await to
+    // persist `state`, so that combined race can't be designed away by
+    // moving work to the caller the way [deleteSalon] did. `ref.mounted` is
+    // checked before the post-await `state` write below: on that (rare,
+    // popped-then-invalidated) case this returns `null` — the PATCH itself
+    // already succeeded server-side — rather than throwing
+    // `UnmountedRefException`.
     //
-    // mobile-security MEDIUM correction (2026-09-03) — a PRIOR version of
-    // this doc claimed the unmounted `state`-write skip was "moot anyway
-    // since it has already been popped". That is false: the documented
-    // `authProvider`-resolving-mid-await race can flip `ref.mounted` false
-    // while `SalonProfileEditScreen` is STILL mounted and still awaiting
-    // this very call — nothing has popped anything. The `mySalonsProvider`
-    // invalidation below is therefore captured through `ref.container`
-    // (taken BEFORE the await, while this element is provably alive) and
-    // fired unconditionally on success, rather than being folded into the
-    // `ref.mounted` branch below — see this file's header doc. Skipping the
-    // local `state` write in that rare case is still fine: the caller only
-    // reads this element's `state` via its OWN `ref.watch`, which, if this
-    // element really did just get invalidated, will simply rebuild it from
-    // a fresh `GET` rather than render a stale local merge.
+    // CORRECTION (investigated 2026-09-03 — see
+    // `salon_management_profile_notifier_test.dart`'s "compound
+    // authProvider-mid-await race" group for the executable proof): a PRIOR
+    // version of this doc claimed `ref.mounted` could flip false while
+    // `SalonProfileEditScreen` was STILL mounted and still awaiting this
+    // very call, i.e. with nothing popped. That claim is false and does not
+    // reproduce — Riverpod only REBUILDS an element that still has an
+    // active watcher on invalidation (`isActive` stays true for as long as
+    // the screen's own `ref.watch` is attached); it never disposes one.
+    // `ref.mounted` going false requires the screen to have already popped,
+    // per the paragraph above — do not re-derive the "still mounted" case.
+    // Because the PATCH has already succeeded server-side regardless of
+    // which case applies, the `mySalonsProvider` invalidation below is
+    // captured through `ref.container` (taken BEFORE the await, while this
+    // element is provably alive) and fired unconditionally on success,
+    // rather than being folded into the `ref.mounted` branch below — see
+    // this file's header doc. Skipping the local `state` write in the
+    // popped case is still fine: the caller only reads this element's
+    // `state` via its OWN `ref.watch`, and since the screen that would read
+    // it is gone, the next fresh read of this family self-heals from a
+    // fresh `GET` rather than rendering a stale local merge. The
+    // `ref.mounted` guard and the `ref.keepAlive()` call below are
+    // REQUIRED for this — removing either reintroduces the
+    // `UnmountedRefException` crash the mobile-qa fix above closed.
     final ProviderContainer container = ref.container;
     final KeepAliveLink keepAliveLink = ref.keepAlive();
     try {
@@ -344,16 +374,17 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     // mobile-qa CRITICAL fix (swipe-to-delete audit, 2026-09-03) — same
     // class of autoDispose-mid-await defect as [deleteSalon] and [save]
     // (identical back-button gap: `SalonAddressEditScreen`'s «Назад» is
-    // never disabled while `_saving` is true). See [save]'s doc for why
-    // `ref.keepAlive()` (covers a plain listener drop) is paired with a
-    // `ref.mounted` check before the post-await `state` touch (covers the
-    // compound race `ref.keepAlive()` alone cannot survive) rather than
-    // relying on either one alone, and why the `mySalonsProvider`
-    // invalidation below goes through a `ref.container` handle captured
-    // BEFORE the await instead — same mobile-security MEDIUM correction as
-    // [save]'s doc: the calling screen can still be mounted and waiting
-    // even when this compound race flips `ref.mounted` false, so folding
-    // the invalidation into that guard was wrong.
+    // never disabled while `_saving` is true). See [save]'s doc for the full
+    // mechanism and its 2026-09-03 correction: `ref.keepAlive()` (covers a
+    // plain listener drop) is paired with a `ref.mounted` check before the
+    // post-await `state` touch (covers the popped-then-invalidated race
+    // `ref.keepAlive()` alone cannot survive — NOT a race reachable while
+    // the screen is still watching, disproven and not to be re-derived);
+    // both are REQUIRED, removing either reintroduces
+    // `UnmountedRefException`. The `mySalonsProvider` invalidation below
+    // goes through a `ref.container` handle captured BEFORE the await
+    // instead, unconditionally, since the PATCH has already succeeded
+    // server-side by the time `ref.mounted` matters either way.
     final ProviderContainer container = ref.container;
     final KeepAliveLink keepAliveLink = ref.keepAlive();
     try {
