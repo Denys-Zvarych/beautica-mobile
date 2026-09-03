@@ -20,7 +20,8 @@
 // storage I/O happens, `salonRepositoryProvider` overridden with a mocktail
 // mock. Pure Dart — no widget tree.
 
-import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
+import 'package:beautica_api/beautica_api.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -32,10 +33,12 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
@@ -1015,4 +1018,371 @@ void main() {
       verify(() => repo.getSalonStaff(_kSalonId)).called(1);
     });
   });
+
+  // ── Phase 283 — roster audience-matrix pins (D6: wire-level) ────────────
+  //
+  // Every test above stubs `SalonRepository.getSalonStaff`/`getSalonMasters`
+  // directly with a hand-built DOMAIN list — proves the NOTIFIER behaves,
+  // never that the REPOSITORY/mapper actually produces that shape from a
+  // real wire response. D6 requires at least one assertion per matrix row to
+  // run through the repository layer against a faked HTTP response instead.
+  //
+  // Strategy mirrors `salon_repository_test.dart`'s "real deserializer over a
+  // mocked transport" group: a REAL [HttpSalonRepository] wired to a mocked
+  // [Dio] + the REAL generated [SalonControllerApi] (so
+  // `SalonStaffMemberMapper`/`SalonMasterMapper` actually run against
+  // JSON), rather than a mocked [SalonRepository] returning a domain list.
+  // `getSalonStaff` goes through the generated client (`dio.request<Object>`,
+  // matches its wire-level test's own mock shape); `getSalonMasters` goes
+  // through the repository's own raw `dio.get<Map<String,dynamic>>` call
+  // (see `HttpSalonRepository.getSalonMasters`'s own body) — the two are
+  // stubbed independently below since neither call touches the other.
+  group('roster audience matrix (Phase 283) — wire-level shape assertions '
+      '(D6)', () {
+    late _MockDioWire dio;
+    late HttpSalonRepository wireRepo;
+
+    setUp(() {
+      dio = _MockDioWire();
+      wireRepo = HttpSalonRepository(
+        dio,
+        SalonControllerApi(dio, standardSerializers),
+        _MockServiceApiWire(),
+        _MockReviewApiWire(),
+        _MockMediaApiWire(),
+      );
+    });
+
+    test('should_showAdminInStaffRoster_when_viewedByOwner', () async {
+      _stubStaffWire(dio, <Map<String, dynamic>>[
+        _wireStaffRow(
+          userId: 'wire-admin-1',
+          role: 'SALON_ADMIN',
+          firstName: 'Ірина',
+          lastName: 'Ковальська',
+        ),
+      ]);
+
+      final List<SalonStaffMember> staff = await wireRepo.getSalonStaff(
+        _kSalonId,
+      );
+
+      expect(staff, hasLength(1));
+      expect(staff.single.userId, 'wire-admin-1');
+      expect(staff.single.role, SalonStaffRole.admin);
+      expect(
+        staff.single.masterId,
+        isNull,
+        reason: 'an admin has no master row on the wire',
+      );
+    });
+
+    test(
+      'should_omitAdminFromClientRoster_when_salonProfileIsViewedPublicly',
+      () async {
+        // D3 — positive control: a well-formed `/masters` response for a
+        // salon with one admin and one master carries ONLY the master. The
+        // mutation check below (Mutation A) flips this into a negative
+        // control by unioning a synthetic admin-shaped row into the same
+        // fixture and confirming this exact assertion goes RED.
+        _stubMastersWire(dio, <Map<String, dynamic>>[
+          _wireMasterRow(masterId: 'wire-master-1', masterType: 'SALON_MASTER'),
+        ]);
+
+        final List<SalonMasterSummary> masters = await wireRepo.getSalonMasters(
+          _kSalonId,
+        );
+
+        expect(masters.map((SalonMasterSummary m) => m.masterId), <String>[
+          'wire-master-1',
+        ]);
+      },
+    );
+
+    test('should_showOwnerInBothRosters_when_ownerMasterRowIsActive', () async {
+      _stubStaffWire(dio, <Map<String, dynamic>>[
+        _wireStaffRow(
+          userId: 'wire-owner-1',
+          masterId: 'wire-owner-master-1',
+          role: 'SALON_OWNER',
+          firstName: 'Оксана',
+          lastName: 'Швець',
+        ),
+      ]);
+      final List<SalonStaffMember> staff = await wireRepo.getSalonStaff(
+        _kSalonId,
+      );
+      expect(staff.single.userId, 'wire-owner-1');
+      expect(staff.single.masterId, 'wire-owner-master-1');
+      // `SalonStaffMemberResponseRoleEnum.SALON_OWNER` maps to the master
+      // role bucket — the mapper's own fail-safe direction (mirrors
+      // `SalonMasterMapper`'s masterType fallback), since this endpoint's
+      // domain [SalonStaffRole] enum only distinguishes admin vs everyone
+      // else.
+      expect(staff.single.role, SalonStaffRole.master);
+
+      _stubMastersWire(dio, <Map<String, dynamic>>[
+        _wireMasterRow(
+          masterId: 'wire-owner-master-1',
+          masterType: 'SALON_OWNER',
+          firstName: 'Оксана',
+          lastName: 'Швець',
+        ),
+      ]);
+      final List<SalonMasterSummary> masters = await wireRepo.getSalonMasters(
+        _kSalonId,
+      );
+      expect(masters.single.masterId, 'wire-owner-master-1');
+      expect(masters.single.type, MasterType.salonOwner);
+    });
+
+    test(
+      'should_omitOwnerFromBothRosters_when_ownerMasterRowIsInactive',
+      () async {
+        // D2's BLOCKED cell — the owner-settings toggle (Phase 21.15) soft-
+        // deletes the owner's `Master` row, and both `/staff` and `/masters`
+        // filter `isActive = true` server-side. There is no wire field for
+        // "inactive" the client ever sees — an inactive owner's row is
+        // simply ABSENT from both responses, which is exactly what these two
+        // empty-fixture reads model (the SAME salon a moment after the
+        // toggle flips OFF, with every other person's row unaffected — an
+        // empty fixture is the correct model precisely because THIS test
+        // isolates the owner-only case).
+        _stubStaffWire(dio, const <Map<String, dynamic>>[]);
+        final List<SalonStaffMember> staff = await wireRepo.getSalonStaff(
+          _kSalonId,
+        );
+        expect(
+          staff,
+          isEmpty,
+          reason: 'an inactive owner master row never reaches the staff wire',
+        );
+
+        _stubMastersWire(dio, const <Map<String, dynamic>>[]);
+        final List<SalonMasterSummary> masters = await wireRepo.getSalonMasters(
+          _kSalonId,
+        );
+        expect(
+          masters,
+          isEmpty,
+          reason: 'an inactive owner master row never reaches the masters wire',
+        );
+      },
+    );
+
+    test(
+      'should_showDualRolePersonInBothRosters_when_adminAlsoHasAMasterRow',
+      () async {
+        // D4 — `userId`/`masterId` deliberately the SAME string here: this
+        // person's staff row and master row are two views of ONE backend
+        // identity, and Mutation B below cross-references the two lists by
+        // this id to simulate a role-based (rather than master-row-based)
+        // client-side filter.
+        _stubStaffWire(dio, <Map<String, dynamic>>[
+          _wireStaffRow(
+            userId: 'wire-dual-1',
+            masterId: 'wire-dual-1',
+            role: 'SALON_ADMIN',
+            firstName: 'Марта',
+            lastName: 'Дворак',
+          ),
+        ]);
+        final List<SalonStaffMember> staff = await wireRepo.getSalonStaff(
+          _kSalonId,
+        );
+        expect(staff.single.role, SalonStaffRole.admin);
+        expect(
+          staff.single.masterId,
+          'wire-dual-1',
+          reason:
+              'D4 — they DO have an active master row despite the '
+              'admin role',
+        );
+
+        _stubMastersWire(dio, <Map<String, dynamic>>[
+          _wireMasterRow(
+            masterId: 'wire-dual-1',
+            masterType: 'SALON_MASTER',
+            firstName: 'Марта',
+            lastName: 'Дворак',
+          ),
+        ]);
+        final List<SalonMasterSummary> masters = await wireRepo.getSalonMasters(
+          _kSalonId,
+        );
+        expect(
+          masters.map((SalonMasterSummary m) => m.masterId),
+          contains('wire-dual-1'),
+          reason: 'D4 — clients must be able to book them',
+        );
+      },
+    );
+
+    test('should_showMasterInBothRosters_when_masterIsActive', () async {
+      _stubStaffWire(dio, <Map<String, dynamic>>[
+        _wireStaffRow(
+          userId: 'wire-master-1',
+          masterId: 'wire-master-1',
+          role: 'SALON_MASTER',
+        ),
+      ]);
+      final List<SalonStaffMember> staff = await wireRepo.getSalonStaff(
+        _kSalonId,
+      );
+      expect(staff.single.role, SalonStaffRole.master);
+      expect(staff.single.masterId, 'wire-master-1');
+
+      _stubMastersWire(dio, <Map<String, dynamic>>[
+        _wireMasterRow(masterId: 'wire-master-1', masterType: 'SALON_MASTER'),
+      ]);
+      final List<SalonMasterSummary> masters = await wireRepo.getSalonMasters(
+        _kSalonId,
+      );
+      expect(masters.single.masterId, 'wire-master-1');
+    });
+
+    test(
+      'should_notApplyAnyRoleFilterClientSide_when_rostersAreRendered',
+      () async {
+        // D1 — the REPOSITORY applies no filter of its own either: whatever
+        // the wire returns comes back MAPPED, never narrowed. Four distinct
+        // staff rows in, four out; three distinct master rows in, three out.
+        _stubStaffWire(dio, <Map<String, dynamic>>[
+          _wireStaffRow(
+            userId: 'wire-owner-1',
+            masterId: 'wire-owner-master-1',
+            role: 'SALON_OWNER',
+          ),
+          _wireStaffRow(
+            userId: 'wire-dual-1',
+            masterId: 'wire-dual-1',
+            role: 'SALON_ADMIN',
+          ),
+          _wireStaffRow(userId: 'wire-admin-1', role: 'SALON_ADMIN'),
+          _wireStaffRow(
+            userId: 'wire-master-1',
+            masterId: 'wire-master-1',
+            role: 'SALON_MASTER',
+          ),
+        ]);
+        final List<SalonStaffMember> staff = await wireRepo.getSalonStaff(
+          _kSalonId,
+        );
+        expect(staff.map((SalonStaffMember m) => m.userId).toSet(), <String>{
+          'wire-owner-1',
+          'wire-dual-1',
+          'wire-admin-1',
+          'wire-master-1',
+        });
+
+        _stubMastersWire(dio, <Map<String, dynamic>>[
+          _wireMasterRow(
+            masterId: 'wire-owner-master-1',
+            masterType: 'SALON_OWNER',
+          ),
+          _wireMasterRow(masterId: 'wire-dual-1', masterType: 'SALON_MASTER'),
+          _wireMasterRow(masterId: 'wire-master-1', masterType: 'SALON_MASTER'),
+        ]);
+        final List<SalonMasterSummary> masters = await wireRepo.getSalonMasters(
+          _kSalonId,
+        );
+        expect(
+          masters.map((SalonMasterSummary m) => m.masterId).toSet(),
+          <String>{'wire-owner-master-1', 'wire-dual-1', 'wire-master-1'},
+        );
+      },
+    );
+  });
 }
+
+// ---------------------------------------------------------------------------
+// Phase 283 — wire-level test doubles + fixture builders (D6).
+// ---------------------------------------------------------------------------
+
+class _MockDioWire extends Mock implements Dio {}
+
+class _MockServiceApiWire extends Mock implements ServiceControllerApi {}
+
+class _MockReviewApiWire extends Mock implements ReviewControllerApi {}
+
+class _MockMediaApiWire extends Mock implements MediaControllerApi {}
+
+/// Stubs the ONE call `SalonControllerApi.getSalonStaff` makes
+/// (`dio.request<Object>`, matching `salon_repository_test.dart`'s own
+/// "real deserializer over a mocked transport" mock shape) to return the
+/// `ApiResponseListSalonStaffMemberResponse` envelope built from [rows].
+void _stubStaffWire(_MockDioWire dio, List<Map<String, dynamic>> rows) {
+  when(
+    () => dio.request<Object>(
+      any(),
+      options: any(named: 'options'),
+      cancelToken: any(named: 'cancelToken'),
+      onSendProgress: any(named: 'onSendProgress'),
+      onReceiveProgress: any(named: 'onReceiveProgress'),
+    ),
+  ).thenAnswer(
+    (_) async => Response<Object>(
+      requestOptions: RequestOptions(path: '/api/v1/salons/$_kSalonId/staff'),
+      statusCode: 200,
+      data: <String, dynamic>{'success': true, 'message': 'ok', 'data': rows},
+    ),
+  );
+}
+
+/// Stubs `HttpSalonRepository.getSalonMasters`'s raw
+/// `dio.get<Map<String,dynamic>>` call with the
+/// `ApiResponsePageResponseMasterSummaryResponse` envelope built from
+/// [rows].
+void _stubMastersWire(_MockDioWire dio, List<Map<String, dynamic>> rows) {
+  when(
+    () => dio.get<Map<String, dynamic>>(
+      any(),
+      queryParameters: any(named: 'queryParameters'),
+    ),
+  ).thenAnswer(
+    (_) async => Response<Map<String, dynamic>>(
+      requestOptions: RequestOptions(path: '/api/v1/salons/$_kSalonId/masters'),
+      statusCode: 200,
+      data: <String, dynamic>{
+        'success': true,
+        'message': 'ok',
+        'data': <String, dynamic>{
+          'success': true,
+          'data': rows,
+          'page': 0,
+          'size': rows.length,
+          'totalElements': rows.length,
+          'totalPages': 1,
+        },
+      },
+    ),
+  );
+}
+
+/// One `SalonStaffMemberResponse`-shaped JSON row.
+Map<String, dynamic> _wireStaffRow({
+  required String userId,
+  String? masterId,
+  required String role,
+  String firstName = 'Тест',
+  String lastName = 'Тестовий',
+}) => <String, dynamic>{
+  'userId': userId,
+  'masterId': masterId,
+  'role': role,
+  'firstName': firstName,
+  'lastName': lastName,
+};
+
+/// One `MasterSummaryResponse`-shaped JSON row.
+Map<String, dynamic> _wireMasterRow({
+  required String masterId,
+  required String masterType,
+  String firstName = 'Тест',
+  String lastName = 'Тестовий',
+}) => <String, dynamic>{
+  'masterId': masterId,
+  'masterType': masterType,
+  'firstName': firstName,
+  'lastName': lastName,
+};

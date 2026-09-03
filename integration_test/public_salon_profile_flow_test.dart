@@ -681,6 +681,87 @@ void main() {
   );
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Phase 283 — roster audience-matrix, ONE end-to-end walk.
+  //
+  // The widget tier (`public_salon_profile_screen_test.dart`,
+  // `salon_management_profile_screen_test.dart`) and the wire-level tier
+  // (`salon_management_profile_notifier_test.dart`, D6) already pin the full
+  // 8-cell matrix against hand-built fixtures. What neither can prove is
+  // that the REAL app, booted end to end against the REAL FakeBackend socket,
+  // agrees: that a CLIENT landing on `salon-xyz`'s public profile genuinely
+  // never triggers (or renders) anything from the owner/admin-gated `/staff`
+  // read, even though `FakeBackend._salonStaff` seeds a real SALON_ADMIN
+  // entry (`admin-zzz`, «Ірина Ковальська») for this EXACT salon — this is
+  // not "no admin was ever fixtured", it is "an admin genuinely exists here,
+  // on the other endpoint, and never reaches this screen".
+  //
+  // Reuses the direct `router.push(RouteNames.salonPublicProfile(...))`
+  // navigation shortcut established just above (the CLIENT-only route guard
+  // test) rather than the main journey test's search-screen-first path — the
+  // search leg is already proven once there; nothing about D1/D2/D3
+  // coverage needs it re-derived.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT viewing salon-xyz sees the active master + the active owner, '
+    'never the SALON_ADMIN staff member seeded for the same salon (D1/D2/D3)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        AppHarness.expectLocation(router, RouteNames.clientHome);
+
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        // fixed-wait-ok: settles the real async route-push step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        AppHarness.expectLocation(router, '/salons/salon-xyz');
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        // D2 — both an ordinary active master (master-aaa) AND the active
+        // owner (master-ccc, `masterType: SALON_OWNER` on the wire — see
+        // `FakeBackend._salonMasters`) render on the client-facing rail.
+        expect(
+          find.byKey(const Key('salon-master-card-master-aaa')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-ccc')),
+          findsOneWidget,
+        );
+
+        // D3 — admin-zzz genuinely exists for salon-xyz (on `/staff`, the
+        // OTHER endpoint), yet nothing about them appears on this tab.
+        // i18n-finder-ok: the admin's real FakeBackend fixture first name,
+        // asserted ABSENT from the client-facing tab — not UI copy.
+        expect(find.text('Ірина'), findsNothing);
+        // i18n-finder-ok: the admin's real FakeBackend fixture last name,
+        // asserted ABSENT from the client-facing tab — not UI copy.
+        expect(find.text('Ковальська'), findsNothing);
+
+        // D1 — the public profile never even calls the owner/admin-gated
+        // staff endpoint: the audience split is enforced by which endpoint
+        // is called, not by a client-side filter applied to a shared list.
+        expect(fb.getSalonMastersCalls, greaterThanOrEqualTo(1));
+        expect(fb.lastGetSalonMastersId, 'salon-xyz');
+        expect(
+          fb.getSalonStaffCalls,
+          0,
+          reason:
+              'a CLIENT viewing the public salon profile must never reach '
+              'the owner/admin-gated GET /salons/{id}/staff endpoint',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Phase 223 (b) / 224 — locationNote address-eviction regression pin +
   // sanitize, and the hero card's fixed-overlap growth-goes-downward
   // contract.

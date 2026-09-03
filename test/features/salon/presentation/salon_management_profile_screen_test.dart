@@ -106,6 +106,71 @@ const _stubStaff = <SalonStaffMember>[
 ];
 
 // ---------------------------------------------------------------------------
+// Phase 283 — roster audience-matrix fixtures (staff-side rows, D2/D4/D6).
+//
+// Each person-type is a SEPARATE const, distinguishable by shape (masterId
+// present/absent, `role`), mirroring `SalonStaffMemberResponse`'s own wire
+// contract rather than a hand-picked domain shortcut (D6). Distinct ids from
+// [_stubStaff] above so a mixed-up fixture would surface as a visibly wrong
+// key, not a coincidental pass.
+// ---------------------------------------------------------------------------
+
+/// The owner's own staff-roster row — `role` is [SalonStaffRole.master] (the
+/// staff wire's `SALON_OWNER` value maps there, same fail-safe direction
+/// `SalonStaffMemberMapper._staffRoleFromDto` takes for anything that is not
+/// `SALON_ADMIN`), WITH an active master row (`masterId` set). D2's "toggle
+/// ON" staff-side cell.
+const _matrixOwner = SalonStaffMember(
+  userId: 'matrix-owner-1',
+  masterId: 'matrix-owner-master-1',
+  role: SalonStaffRole.master,
+  firstName: 'Оксана',
+  lastName: 'Швець',
+);
+
+/// D4's edge case — a person with `role = SALON_ADMIN` on the wire (so the
+/// mapper resolves [SalonStaffRole.admin]) who ALSO carries an active
+/// `masterId` (a master later promoted to admin). The staff roster shows
+/// them exactly like [_matrixAdminOnly] below (role-labelled as admin) —
+/// their master row only matters on the CLIENT side (see the public screen
+/// test's counterpart fixture).
+const _matrixDualRole = SalonStaffMember(
+  userId: 'matrix-dual-1',
+  masterId: 'matrix-dual-master-1',
+  role: SalonStaffRole.admin,
+  firstName: 'Марта',
+  lastName: 'Дворак',
+);
+
+/// A plain admin — no master row at all (`masterId` null), structurally
+/// unable to reach the client-side `/masters` endpoint (D3).
+const _matrixAdminOnly = SalonStaffMember(
+  userId: 'matrix-admin-1',
+  role: SalonStaffRole.admin,
+  firstName: 'Наталя',
+  lastName: 'Сидоренко',
+);
+
+/// A plain active master — the "always shown, both sides" baseline row.
+const _matrixMaster = SalonStaffMember(
+  userId: 'matrix-master-1',
+  masterId: 'matrix-master-1',
+  role: SalonStaffRole.master,
+  firstName: 'Софія',
+  lastName: 'Бондаренко',
+);
+
+/// All four person-types together — the fixture case 7 (D1, no client-side
+/// role filter) needs: the staff tab must render exactly these four cards,
+/// neither adding nor dropping an entry regardless of `role`.
+const _matrixFullRoster = <SalonStaffMember>[
+  _matrixOwner,
+  _matrixDualRole,
+  _matrixAdminOnly,
+  _matrixMaster,
+];
+
+// ---------------------------------------------------------------------------
 // mobile-qa gap-closure (2026-08-29) — resolved-locality fixtures.
 //
 // `_stubSalon` above carries no oblastId/cityId/districtId and no
@@ -1506,6 +1571,145 @@ void main() {
         // overflow was recorded during the pump above; this is a belt-and-
         // braces check that nothing else threw either.
         expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  // ── Phase 283 — roster audience-matrix pins (staff-side rows) ───────────
+  //
+  // Pins the STAFF-SIDE half of the D2 matrix: `GET /salons/{id}/staff`
+  // (owner/admin-gated) applies no role filter of its own — the tab renders
+  // exactly what `getSalonStaff` returned. The two "owner toggle OFF" cells
+  // are gated on Phase 21.15 and are pinned at the notifier/repository layer
+  // instead (`salon_management_profile_notifier_test.dart`), never here.
+  group('roster audience matrix (Phase 283)', () {
+    testWidgets('should_showAdminInStaffRoster_when_viewedByOwner', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[_matrixAdminOnly],
+      );
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      final Finder adminCard = find.byKey(
+        const Key('salon-manage-staff-card-matrix-admin-1'),
+      );
+      expect(adminCard, findsOneWidget);
+      expect(
+        tester.widget<SalonMasterCard>(adminCard).role,
+        l10n.salonStaffRoleAdmin,
+        reason:
+            'an admin (no master row at all) must still render — the '
+            'owner-gated staff endpoint is the ONE place admins are visible',
+      );
+    });
+
+    testWidgets('should_showOwnerInBothRosters_when_ownerMasterRowIsActive', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[_matrixOwner],
+      );
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-manage-staff-card-matrix-owner-1')),
+        findsOneWidget,
+        reason: 'D2: an owner with an ACTIVE master row is staff-side visible',
+      );
+    });
+
+    testWidgets(
+      'should_showDualRolePersonInBothRosters_when_adminAlsoHasAMasterRow',
+      (tester) async {
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[_matrixDualRole],
+        );
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const Key('salon-manage-staff-card-matrix-dual-1'),
+        );
+        expect(card, findsOneWidget);
+        // D4 — the staff wire reports SALON_ADMIN for this person REGARDLESS
+        // of their active master row, so the card must carry the ADMIN role
+        // label here, not a master one. This is the cell a role-based "fix"
+        // (filtering by role instead of master-row presence, see the
+        // mutation check) would get right on the staff side but wrong on the
+        // client side — see the public screen's counterpart test.
+        expect(
+          tester.widget<SalonMasterCard>(card).role,
+          l10n.salonStaffRoleAdmin,
+        );
+      },
+    );
+
+    testWidgets('should_showMasterInBothRosters_when_masterIsActive', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[_matrixMaster],
+      );
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-manage-staff-card-matrix-master-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'should_notApplyAnyRoleFilterClientSide_when_rostersAreRendered',
+      (tester) async {
+        // D1 — pins the STAFF half: all four person-types the endpoint
+        // returned render, unfiltered, none added or dropped. ("ClientSide"
+        // in the case name refers to the mobile CLIENT app, not the
+        // client/customer audience — the same case name is pinned again in
+        // `public_salon_profile_screen_test.dart` for the customer-facing
+        // half of the very same D1 no-filter guarantee.)
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: _matrixFullRoster,
+        );
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonMasterCard), findsNWidgets(4));
+        for (final SalonStaffMember member in _matrixFullRoster) {
+          expect(
+            find.byKey(Key('salon-manage-staff-card-${member.userId}')),
+            findsOneWidget,
+            reason: '${member.userId} must render — no role filter exists',
+          );
+        }
       },
     );
   });

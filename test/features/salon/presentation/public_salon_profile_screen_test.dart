@@ -47,6 +47,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -93,6 +94,58 @@ const _stubMasters = <SalonMasterSummary>[
     reviewCount: 12,
     type: MasterType.independentMaster,
   ),
+];
+
+// ---------------------------------------------------------------------------
+// Phase 283 — roster audience-matrix fixtures (client-side rows, D2/D4/D6).
+//
+// [SalonMasterSummary] structurally cannot carry an admin — no `role` field
+// exists on this wire shape at all (D3's whole point: an admin has no master
+// row, so it cannot reach `/masters`). These fixtures mirror the STAFF-SIDE
+// counterparts in `salon_management_profile_screen_test.dart` by NAME/id
+// prefix only (`matrix-owner-1`/`matrix-dual-1`/`matrix-master-1`) — the two
+// files never share a repository instance, so matching masterId strings are
+// for readability across the pair, not a wired invariant.
+// ---------------------------------------------------------------------------
+
+/// D2's "toggle ON" client-side cell — the owner's active master row.
+const _matrixClientOwner = SalonMasterSummary(
+  masterId: 'matrix-owner-master-1',
+  firstName: 'Оксана',
+  lastName: 'Швець',
+  type: MasterType.salonOwner,
+);
+
+/// D4's edge case, client half: this person is `SALON_ADMIN` on the staff
+/// wire (see the staff-side `_matrixDualRole` counterpart) but their master
+/// row is an ordinary `SALON_MASTER` — `/masters` has no way to know (or
+/// care) that they are also an admin; it returns them like any other active
+/// master, which is CORRECT (D4).
+const _matrixClientDualRole = SalonMasterSummary(
+  masterId: 'matrix-dual-master-1',
+  firstName: 'Марта',
+  lastName: 'Дворак',
+  type: MasterType.salonMaster,
+);
+
+/// A plain active master — the baseline "always shown, both sides" row.
+const _matrixClientMaster = SalonMasterSummary(
+  masterId: 'matrix-master-1',
+  firstName: 'Софія',
+  lastName: 'Бондаренко',
+  type: MasterType.salonMaster,
+);
+
+/// The full client-side roster a well-formed `/masters` response can ever
+/// contain for this matrix — deliberately THREE entries, never four: there
+/// is no admin-shaped row to add (D3), so "all of them, unfiltered" (D1) and
+/// "never an admin" (D3) collapse to the same assertion at this layer — the
+/// wire-level tests in `salon_management_profile_notifier_test.dart` are
+/// what actually exercise a MUTATED wire response that unions an admin in.
+const _matrixClientFullRoster = <SalonMasterSummary>[
+  _matrixClientOwner,
+  _matrixClientDualRole,
+  _matrixClientMaster,
 ];
 
 const _stubCatalog = <SalonServiceCategoryEntry>[
@@ -3581,6 +3634,165 @@ void main() {
         await pumpWith(tester, _stubSalon.copyWith(phone: '   '));
         expect(phoneRow, findsNothing);
         expect(heading(tester), findsNothing);
+      },
+    );
+  });
+
+  // ── Phase 283 — roster audience-matrix pins (client-side rows) ──────────
+  //
+  // Pins the CLIENT-SIDE half of the D2 matrix: `GET /salons/{id}/masters`
+  // (permitAll) applies no role filter of its own — the tab renders exactly
+  // what `getSalonMasters` returned. The two "owner toggle OFF" cells are
+  // gated on Phase 21.15 and pinned at the notifier/repository layer instead
+  // (`salon_management_profile_notifier_test.dart`), never here.
+  group('roster audience matrix (Phase 283)', () {
+    testWidgets(
+      'should_omitAdminFromClientRoster_when_salonProfileIsViewedPublicly',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => _matrixClientFullRoster,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        // D3 — the wire this screen reads has NO shape for an admin entry at
+        // all (an admin has no master row), so a well-formed `/masters`
+        // response for this salon carries exactly the three non-admin
+        // identities below and never a fourth "admin" card — proving the
+        // screen renders exactly the endpoint's payload, never inventing one.
+        expect(find.byType(SalonMasterCard), findsNWidgets(3));
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-owner-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-dual-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-master-1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('should_showOwnerInBothRosters_when_ownerMasterRowIsActive', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            masters: () async => const <SalonMasterSummary>[_matrixClientOwner],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-card-matrix-owner-master-1')),
+        findsOneWidget,
+        reason: 'D2: an owner with an ACTIVE master row is client-visible',
+      );
+    });
+
+    testWidgets(
+      'should_showDualRolePersonInBothRosters_when_adminAlsoHasAMasterRow',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                _matrixClientDualRole,
+              ],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        // D4 — this person is SALON_ADMIN on the staff wire (see the
+        // staff-side counterpart test), but `/masters` knows nothing about
+        // roles: it serves their active master row like anyone else's, and
+        // clients must be able to book them.
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-dual-master-1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('should_showMasterInBothRosters_when_masterIsActive', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            masters: () async => const <SalonMasterSummary>[
+              _matrixClientMaster,
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-card-matrix-master-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'should_notApplyAnyRoleFilterClientSide_when_rostersAreRendered',
+      (tester) async {
+        // D1 — pins the CLIENT half: every master-typed entry the endpoint
+        // returned renders, unfiltered, whatever its [MasterType] (owner
+        // included) — no client-side role filter narrows this list. The
+        // staff-side counterpart of this exact case name lives in
+        // `salon_management_profile_screen_test.dart`.
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => _matrixClientFullRoster,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonMasterCard), findsNWidgets(3));
+        for (final SalonMasterSummary m in _matrixClientFullRoster) {
+          expect(
+            find.byKey(Key('salon-master-card-${m.masterId}')),
+            findsOneWidget,
+            reason: '${m.masterId} must render — no role filter exists',
+          );
+        }
       },
     );
   });
