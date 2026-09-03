@@ -20,6 +20,8 @@
 // storage I/O happens, `salonRepositoryProvider` overridden with a mocktail
 // mock. Pure Dart — no widget tree.
 
+import 'dart:async';
+
 import 'package:beautica_api/beautica_api.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -167,6 +169,21 @@ class _ControllableAuthAuthenticated extends AuthNotifier {
   );
 
   void emit(AuthSession session) => state = AsyncData<AuthSession>(session);
+}
+
+/// Auth that has NOT resolved yet — `authProvider` sits in `AsyncLoading`
+/// (so `authUserIdOrNull` reads `null`) until the test calls [resolve].
+/// Models the real precondition [SalonManagementProfile.deleteSalon]'s own
+/// doc names for the compound race: this family commonly gets its FIRST
+/// `build()` before `authProvider` has resolved once (e.g. right after
+/// login, landing on `/salons/mine`).
+class _PendingAuthAuthenticated extends AuthNotifier {
+  final Completer<AuthSession> _completer = Completer<AuthSession>();
+
+  @override
+  Future<AuthSession> build() => _completer.future;
+
+  void resolve(AuthSession session) => _completer.complete(session);
 }
 
 ProviderContainer _makeContainer(SalonRepository repo) {
@@ -1046,6 +1063,336 @@ void main() {
 
       verify(() => repo.getSalonById(_kSalonId)).called(1);
       verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+    });
+  });
+
+  // ── save()/saveAddress() — compound authProvider-mid-await race ─────────
+  // (INVESTIGATED, NOT REPRODUCED as a user-visible bug — 2026-09-03)
+  //
+  // The claim under test: `build()`'s `ref.watch(authProvider.select
+  // (authUserIdOrNull))` means this family element can be invalidated by
+  // `authProvider`'s FIRST-EVER resolution (pending -> Authenticated, a real
+  // identity change from `null`) landing WHILE `save()`/`saveAddress()` is
+  // still awaiting the `PATCH` — and that this can leave
+  // `SalonManagementProfileScreen` showing the pre-edit salon even though
+  // `SalonProfileEditScreen` "is still mounted and awaiting" (this file's
+  // header, and [SalonManagementProfile.save]'s own doc, both assert this).
+  //
+  // Riverpod 3.1.0's own disposal mechanics (`riverpod-3.1.0/lib/src/core/
+  // element.dart`) say otherwise: `Ref.mounted` is `!_element._disposed`
+  // (`ref.dart:110`), and `_disposed` is set ONLY in `dispose()`
+  // (`element.dart:1227-1228`), which the scheduler only invokes for an
+  // element that is NOT `isActive` (`scheduler.dart:159-160`'s
+  // `_performDispose` skip, mirrored by `scheduleProviderDispose`'s own
+  // assert `!element.isActive` at `scheduler.dart:151`). `isActive` is
+  // `(listenerCount - pausedActiveSubscriptionCount) > 0`
+  // (`element.dart:395`) — i.e. TRUE for as long as a real, unpaused watcher
+  // (`SalonProfileEditScreen`'s own `ref.watch`) is attached. `invalidateSelf`
+  // (`element.dart:738-753`) DOES wipe `ref._keepAliveLinks` unconditionally
+  // via `runOnDispose()`, but `_performRefresh` still `flush()`es (rebuilds)
+  // any element with `isActive == true` — it never disposes one. So the two
+  // halves of the claim are mutually exclusive: if the calling screen is
+  // GENUINELY still mounted and watching, `isActive` stays true, the element
+  // only REBUILDS (never disposes), and `ref.mounted` never goes false.
+  //
+  // The two tests below PROVE that reading (mirroring an actively-watching
+  // `SalonProfileEditScreen` via `container.listen`, kept open the entire
+  // scenario): `save()`/`saveAddress()`'s own post-await `state = AsyncData
+  // (...)` write always lands with the FRESH, patched value — never the
+  // stale pre-edit one — regardless of the identity-change race, because
+  // `ref.mounted` never flips false while a real listener is attached. A
+  // third test below then isolates the ONE precondition under which
+  // `ref.mounted` genuinely CAN go false (the watching screen has ALSO
+  // already stopped listening — i.e. popped, the case `ref.keepAlive()` was
+  // added to cover on its own) and shows that combination is already handled
+  // safely: no crash, and the next fresh read self-heals from the server.
+  //
+  // Kept as documentation per this task's own instruction: a fix for a
+  // phantom is worse than no fix. No production code was changed as a result
+  // of this investigation — see the accompanying report for the full
+  // reasoning and the doc-comment correction this leaves as a follow-up.
+  group('save() / saveAddress() — compound authProvider-mid-await race '
+      '(investigated 2026-09-03 — does NOT reproduce while the calling '
+      'screen keeps watching)', () {
+    test('save(): identity resolving DURING the PATCH await triggers a '
+        'rebuild (NOT a disposal) while a listener stays attached — the '
+        "notifier's own post-await state write still lands with the FRESH, "
+        'patched value', () async {
+      final pendingAuth = _PendingAuthAuthenticated();
+
+      // `getSalonById` always returns whatever `serverSalon` currently
+      // holds — mirrors a real backend where a GET reflects whatever has
+      // actually been committed so far, independent of whether THIS
+      // client has received its own PATCH response yet.
+      Salon serverSalon = _freshSalon;
+      final Completer<Salon> patchCompleter = Completer<Salon>();
+
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => serverSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+      when(
+        () => repo.updateSalon(_kSalonId, any()),
+      ).thenAnswer((_) => patchCompleter.future);
+
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(() => pendingAuth),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Keep the family element alive across the whole scenario, exactly
+      // like `SalonProfileEditScreen`'s own `ref.watch` does — an
+      // unlistened autoDispose provider would be torn down and prove
+      // nothing about THIS race either way.
+      final sub = container.listen(
+        salonManagementProfileProvider(_kSalonId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+
+      // First-ever build() — authProvider is still pending (userId null).
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+      expect(
+        container
+            .read(salonManagementProfileProvider(_kSalonId))
+            .value!
+            .$1
+            .name,
+        _freshSalon.name,
+      );
+
+      final notifier = container.read(
+        salonManagementProfileProvider(_kSalonId).notifier,
+      );
+
+      // Kick off save() — it suspends on `await ... .updateSalon(...)`,
+      // gated on `patchCompleter` until this test says otherwise.
+      final Future<Failure?> saveFuture = notifier.save(
+        name: 'Нова назва',
+        description: _freshSalon.description!,
+        phone: '',
+        instagramUrl: '',
+      );
+
+      // Mid-await: authProvider resolves for the FIRST time, with a real
+      // user id — the identity change build()'s narrowed watch exists to
+      // catch.
+      pendingAuth.resolve(
+        const AuthSession.authenticated(user: _stubUser, accessToken: 'tok'),
+      );
+      await pumpEventQueue();
+
+      // Sanity: the rebuild really did happen, and really did refetch
+      // BEFORE the PATCH committed (`serverSalon` is still the pre-edit
+      // fixture at this point).
+      verify(() => repo.getSalonById(_kSalonId)).called(2);
+
+      // NOW the PATCH "commits" server-side and the client receives its
+      // response.
+      final Salon patched = _freshSalon.copyWith(name: 'Нова назва');
+      serverSalon = patched;
+      patchCompleter.complete(patched);
+
+      final Failure? failure = await saveFuture;
+      await pumpEventQueue();
+
+      expect(failure, isNull, reason: 'the PATCH itself succeeded');
+
+      final SalonManagementProfileData data = container
+          .read(salonManagementProfileProvider(_kSalonId))
+          .value!;
+      expect(
+        data.$1.name,
+        'Нова назва',
+        reason:
+            'FINDING: this passes — the PRE-EDIT rebuild (verified above, '
+            'called(2)) is NOT the final word. `ref.mounted` stayed true '
+            "the whole time (a real listener was attached), so save()'s "
+            'own `state = AsyncData(...)` write executed normally and '
+            'overwrote the transient stale rebuild with the fresh, '
+            'patched name. If this notifier ever regresses to actually '
+            'lose that write under this exact scenario, THIS assertion '
+            'is what would catch it.',
+      );
+    });
+
+    test('saveAddress(): identical mechanism — the notifier still lands the '
+        'FRESH street after the identity-change rebuild', () async {
+      final pendingAuth = _PendingAuthAuthenticated();
+
+      Salon serverSalon = _salonWithLocality;
+      final Completer<Salon> patchCompleter = Completer<Salon>();
+
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => serverSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+      when(
+        () => repo.updateSalon(_kSalonId, any()),
+      ).thenAnswer((_) => patchCompleter.future);
+
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(() => pendingAuth),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final sub = container.listen(
+        salonManagementProfileProvider(_kSalonId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+
+      final notifier = container.read(
+        salonManagementProfileProvider(_kSalonId).notifier,
+      );
+
+      final Future<Failure?> saveFuture = notifier.saveAddress(
+        cityId: _salonWithLocality.cityId,
+        districtId: _salonWithLocality.districtId,
+        street: 'вул. Хрещатик',
+        buildingNo: _salonWithLocality.buildingNo!,
+        locationNote: _salonWithLocality.locationNote ?? '',
+      );
+
+      pendingAuth.resolve(
+        const AuthSession.authenticated(user: _stubUser, accessToken: 'tok'),
+      );
+      await pumpEventQueue();
+
+      verify(() => repo.getSalonById(_kSalonId)).called(2);
+
+      final Salon patched = _salonWithLocality.copyWith(
+        street: 'вул. Хрещатик',
+      );
+      serverSalon = patched;
+      patchCompleter.complete(patched);
+
+      final Failure? failure = await saveFuture;
+      await pumpEventQueue();
+
+      expect(failure, isNull, reason: 'the PATCH itself succeeded');
+
+      final SalonManagementProfileData data = container
+          .read(salonManagementProfileProvider(_kSalonId))
+          .value!;
+      expect(
+        data.$1.street,
+        'вул. Хрещатик',
+        reason:
+            'FINDING — same mechanism as save() above, mirrored onto '
+            'saveAddress(): the fresh value survives.',
+      );
+    });
+
+    test('the ONE precondition that DOES flip ref.mounted false — the '
+        'watching screen has ALSO already stopped listening (popped) when '
+        'the identity race lands — is handled safely: no crash, and the '
+        'next fresh watch self-heals from the server', () async {
+      final pendingAuth = _PendingAuthAuthenticated();
+
+      Salon serverSalon = _freshSalon;
+      final Completer<Salon> patchCompleter = Completer<Salon>();
+
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => serverSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+      when(
+        () => repo.updateSalon(_kSalonId, any()),
+      ).thenAnswer((_) => patchCompleter.future);
+
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(() => pendingAuth),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Mirrors `SalonProfileEditScreen` watching this family for the
+      // duration of a normal save — present only long enough to seed the
+      // loaded state, then closed BEFORE save() finishes, mirroring the
+      // user popping the screen mid-await (the gap `ref.keepAlive()`
+      // alone was already added to cover).
+      final sub = container.listen(
+        salonManagementProfileProvider(_kSalonId),
+        (_, _) {},
+      );
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+
+      final notifier = container.read(
+        salonManagementProfileProvider(_kSalonId).notifier,
+      );
+
+      final Future<Failure?> saveFuture = notifier.save(
+        name: 'Нова назва',
+        description: _freshSalon.description!,
+        phone: '',
+        instagramUrl: '',
+      );
+
+      // The screen pops mid-await: the only remaining protection is the
+      // `KeepAliveLink` `save()` itself grabbed at its very first line.
+      sub.close();
+      await pumpEventQueue();
+
+      // The identity race lands: `invalidateSelf` wipes that
+      // `KeepAliveLink` too, and — UNLIKE the two tests above — nothing
+      // is `isActive` anymore, so this element is actually disposed
+      // (not merely rebuilt).
+      pendingAuth.resolve(
+        const AuthSession.authenticated(user: _stubUser, accessToken: 'tok'),
+      );
+      await pumpEventQueue();
+
+      final Salon patched = _freshSalon.copyWith(name: 'Нова назва');
+      serverSalon = patched;
+      patchCompleter.complete(patched);
+
+      // The load-bearing assertion: this must NOT throw
+      // `UnmountedRefException`. `container.invalidate(mySalonsProvider)`
+      // goes through the pre-captured `container` handle (safe even
+      // unmounted); the `ref.mounted` guard before the local `state`
+      // write must return `null` cleanly instead of crashing.
+      final Failure? failure = await saveFuture;
+      expect(
+        failure,
+        isNull,
+        reason:
+            'the PATCH itself still succeeded server-side; save() must '
+            'not surface a crash just because its own element was '
+            'disposed out from under it',
+      );
+
+      // Self-heal check: the disposed element is gone entirely (not
+      // merely stale) — the NEXT fresh watch creates a brand-new element
+      // and refetches from the server, which by now holds the patched
+      // salon.
+      final SalonManagementProfileData freshData = await container.read(
+        salonManagementProfileProvider(_kSalonId).future,
+      );
+      expect(
+        freshData.$1.name,
+        'Нова назва',
+        reason:
+            'a full re-read after disposal must show the ALREADY-'
+            'committed server value — this is what "self-heals on next '
+            'navigation" means in practice.',
+      );
     });
   });
 
