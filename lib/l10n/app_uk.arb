@@ -5363,9 +5363,13 @@
   "@deleteSalonTitle": {
     "description": "Phase 21.2 — title of the salon delete confirmation dialog."
   },
-  "deleteSalonBody": "Салон буде деактивовано. Клієнти більше не зможуть його знайти.",
+  "deleteSalonBody": "Цю дію не можна скасувати:\n• фото салону буде втрачено назавжди;\n• майбутні записи скасуємо, а клієнтів сповістимо;\n• адміністратори та майстри втратять доступ;\n• салон зникне з пошуку.",
   "@deleteSalonBody": {
-    "description": "Phase 21.2 — body of the salon delete confirmation dialog. DELETE /salons/{salonId} is a soft-deactivate server-side."
+    "description": "Phase 291 — body of the salon delete confirmation dialog, shown when this is NOT the owner's last salon. Lists what DELETE /salons/{salonId} destroys, most-irreversible first. MUST NOT say «деактивовано» (that wording was the defect this phase fixes) and MUST NOT claim the photo bytes were erased from our servers — the R2 purge runs after commit and can leave an orphan on an outage, so the claim is scoped to permanent loss from the owner's point of view."
+  },
+  "deleteSalonBodyLastSalon": "Цю дію не можна скасувати:\n• фото салону буде втрачено назавжди;\n• майбутні записи скасуємо, а клієнтів сповістимо;\n• адміністратори та майстри втратять доступ;\n• салон зникне з пошуку.\n\nЦе ваш єдиний салон — після видалення вам потрібно буде створити новий.",
+  "@deleteSalonBodyLastSalon": {
+    "description": "Phase 291 — body of the salon delete confirmation dialog when this is the owner's ONLY salon. Identical to deleteSalonBody plus a closing sentence that they will be left with none and must create a new one. It must NOT say the owner is signed out — they are not: the flow lands every delete path on «Мої салони» (delete_salon_flow.dart) and the backend never revokes the owner's refresh token (SalonStaffHardDeleteIT: 'the owner's session is never revoked by this cascade')."
   },
   "deleteSalonSuccess": "Салон видалено",
   "@deleteSalonSuccess": {

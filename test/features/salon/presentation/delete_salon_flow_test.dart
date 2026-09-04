@@ -256,6 +256,26 @@ class _CountingMySalons extends MySalons {
   }
 }
 
+/// A second salon distinct from [_kStubSalon] — used only to make
+/// `mySalonsProvider` resolve to a genuine MULTI-salon list (`FakeSalonRepository
+/// .getMySalons()` always returns exactly one salon, so the multi-salon
+/// derivation case below overrides `mySalonsProvider` directly instead).
+const Salon _kSecondSalon = Salon(id: 'salon-285-2', name: 'QA Salon 285 #2');
+
+/// [MySalons] stub resolving to TWO salons — the mutation check for the
+/// isLastSalon derivation (mobile-qa, 2026-09-05): mutating
+/// `delete_salon_flow.dart`'s `mySalonsAsync.value.length == 1` to
+/// `>= 1` left every EXISTING test in this file green (every other fixture
+/// here happens to carry exactly one or zero salons), so this case is the
+/// only one exercising the ">1 salon" branch of that comparison at all.
+class _TwoSalonsMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    _kStubSalon,
+    _kSecondSalon,
+  ];
+}
+
 List<Object> _overrides({
   required AuthNotifier Function() authNotifier,
   required FakeSalonRepository repo,
@@ -553,5 +573,189 @@ void main() {
         );
       },
     );
+  });
+
+  group('runDeleteSalonFlow — isLastSalon derivation (Phase 291 D2/D6)', () {
+    testWidgets('should_passIsLastSalonTrue_when_ownerHasExactlyOneSalon', (
+      tester,
+    ) async {
+      // `FakeSalonRepository.getMySalons()` returns `[_kStubSalon]` by
+      // default — a genuine single-salon owner.
+      final repo = FakeSalonRepository(salon: _kStubSalon);
+      final loadingCalls = <bool>[];
+      final GoRouter router = _router(loadingCalls);
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides(
+          authNotifier: () => _AuthenticatedAs(_owner()),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Pre-warm `mySalonsProvider` to a genuinely RESOLVED AsyncData —
+      // mirrors the real «Мої салони» hub, which has already loaded its
+      // list before the owner reaches a delete entry point.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp)),
+        listen: false,
+      );
+      final List<Salon> resolved = await container.read(
+        mySalonsProvider.future,
+      );
+      expect(resolved, hasLength(1));
+
+      await tester.tap(find.byKey(_kRunButtonKey));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteSalonBodyLastSalon), findsOneWidget);
+      expect(find.text(l10n.deleteSalonBody), findsNothing);
+
+      // Dismiss so `pumpAndSettle` at the end of the test does not hang on
+      // an open dialog.
+      await tester.tap(find.byKey(const Key('btn-cancel-delete-salon')));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('should_passIsLastSalonFalse_when_ownerHasMultipleSalons', (
+      tester,
+    ) async {
+      // Mutation-verified gap fix (mobile-qa, 2026-09-05): mutating
+      // `mySalonsAsync.value.length == 1` to `>= 1` in
+      // `delete_salon_flow.dart` left this file's OTHER tests entirely
+      // green — none of them exercise a resolved `mySalonsProvider` with
+      // MORE than one salon. `mySalonsProvider` is overridden directly
+      // (not via `FakeSalonRepository`, whose `getMySalons()` always
+      // returns exactly one salon) to force a genuine 2-salon `AsyncData`.
+      final repo = FakeSalonRepository(salon: _kStubSalon);
+      final loadingCalls = <bool>[];
+      final GoRouter router = _router(loadingCalls);
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(
+            authNotifier: () => _AuthenticatedAs(_owner()),
+            repo: repo,
+          ),
+          mySalonsProvider.overrideWith(_TwoSalonsMySalons.new),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp)),
+        listen: false,
+      );
+      final List<Salon> resolved = await container.read(
+        mySalonsProvider.future,
+      );
+      expect(
+        resolved,
+        hasLength(2),
+        reason:
+            'this test only means something if the owner genuinely has '
+            'MORE than one salon',
+      );
+
+      await tester.tap(find.byKey(_kRunButtonKey));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteSalonBody), findsOneWidget);
+      expect(find.text(l10n.deleteSalonBodyLastSalon), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-cancel-delete-salon')));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('should_passIsLastSalonFalse_when_salonListIsStillLoading', (
+      tester,
+    ) async {
+      // D2's stale-`.value` gate: `mySalonsProvider` in `AsyncLoading`
+      // carrying a previous single-element `.value` must NOT be read as
+      // "resolved and it's the owner's last salon" — the dialog must
+      // render the non-last body, the same conservative default an
+      // entirely-unresolved provider gets.
+      //
+      // Riverpod 3.x's default `copyWithPrevious(previous)` (`isRefresh:
+      // true`, the shape a plain `container.invalidate` + re-read produces)
+      // folds a previous AsyncData into a SEAMLESS `AsyncData(isLoading:
+      // true)` — that shape still satisfies `is AsyncData<...>`, so it
+      // cannot exercise this gate (see
+      // `project_riverpod_seamless_invalidate_gotcha`). Passing
+      // `isRefresh: false` is what actually produces a genuine
+      // `AsyncLoading` instance with the stale `.value` attached — the
+      // shape a real still-in-flight FIRST fetch (e.g. right after a
+      // cross-account switch) leaves behind. Constructed directly via the
+      // `@internal` `copyWithPrevious`, mirroring
+      // `salon_management_profile_screen_test.dart`'s identical
+      // `AsyncError.copyWithPrevious` pin, just for `AsyncLoading` instead.
+      final repo = FakeSalonRepository(salon: _kStubSalon);
+      final loadingCalls = <bool>[];
+      final GoRouter router = _router(loadingCalls);
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides(
+          authNotifier: () => _AuthenticatedAs(_owner()),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp)),
+        listen: false,
+      );
+
+      // Genuinely resolve the real single-salon list first.
+      final List<Salon> resolved = await container.read(
+        mySalonsProvider.future,
+      );
+      expect(resolved, hasLength(1));
+      final AsyncData<List<Salon>> stalePrevious =
+          container.read(mySalonsProvider) as AsyncData<List<Salon>>;
+
+      const AsyncLoading<List<Salon>> loading = AsyncLoading<List<Salon>>();
+      // ignore: invalid_use_of_internal_member
+      container.read(mySalonsProvider.notifier).state = loading
+          // `isRefresh: false` is required — the default `true` folds a
+          // previous AsyncData into AsyncData(isLoading: true) instead of a
+          // genuine AsyncLoading. See this test's header comment.
+          // ignore: invalid_use_of_internal_member
+          .copyWithPrevious(stalePrevious, isRefresh: false);
+
+      final AsyncValue<List<Salon>> midState = container.read(mySalonsProvider);
+      expect(
+        midState,
+        isA<AsyncLoading<List<Salon>>>(),
+        reason:
+            'the state must actually be AsyncLoading for this test to '
+            'exercise the concrete-subtype gate at all',
+      );
+      expect(
+        midState.value,
+        isNotNull,
+        reason:
+            'copyWithPrevious must retain the stale single-element list '
+            'on .value — this IS the shape the D2 gate guards against',
+      );
+
+      await tester.tap(find.byKey(_kRunButtonKey));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteSalonBody), findsOneWidget);
+      expect(find.text(l10n.deleteSalonBodyLastSalon), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-cancel-delete-salon')));
+      await tester.pumpAndSettle();
+    });
   });
 }

@@ -45,15 +45,20 @@
 // alongside the other salon/support flows).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/e2e_boot_policy.dart';
 
 /// The default single-primary salon `FakeBackend` seeds `GET /salons/mine`
 /// with (`fake_backend.dart`'s `mySalons` fixture).
@@ -133,6 +138,25 @@ void main() {
       );
       expect(fb.deleteSalonCalls, 0);
 
+      // Phase 291 gap-closure (mobile-qa, 2026-09-05) — this owner has TWO
+      // salons at this point (`salon-owner-1` + the seeded `salon-xyz`), so
+      // the swipe path must resolve `isLastSalon: false` and render the
+      // ORDINARY body, not the last-salon variant. Before this assertion,
+      // NOTHING checked that the swipe entry point (`my_salons_screen.dart`
+      // :436-439's `confirmDismiss`) actually reaches
+      // `runDeleteSalonFlow`'s `isLastSalon` derivation at all — only
+      // `delete_salon_flow_test.dart`'s synthetic harness button exercised
+      // the function directly, never a real swipe gesture.
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.text(l10n.deleteSalonBody),
+        findsOneWidget,
+        reason:
+            'a 2-salon owner swiping one away must see the ORDINARY '
+            'body, not the last-salon variant',
+      );
+      expect(find.text(l10n.deleteSalonBodyLastSalon), findsNothing);
+
       await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
       await tester.pumpAndSettle();
 
@@ -161,6 +185,108 @@ void main() {
         find.byKey(const ValueKey<String>('my_salons_card_$_primarySalonId')),
         findsOneWidget,
         reason: 'the remaining (primary) salon must still render',
+      );
+    },
+  );
+
+  testWidgets(
+    'owner swipes their ONLY salon -> sees the last-salon body -> confirms '
+    '-> lands on the empty «Мої салони» hub',
+    (tester) async {
+      // Phase 291 gap-closure (mobile-qa, 2026-09-05) — Step 2.7 Rule 3b:
+      // the swipe path is one of THREE `runDeleteSalonFlow` entry points and
+      // was the only one with ZERO coverage (widget or integration) of the
+      // `isLastSalon: true` branch. `delete_salon_flow_test.dart` only
+      // exercises the derivation through a synthetic harness button, never
+      // through the real `Dismissible`/`confirmDismiss` gesture wired in
+      // `my_salons_screen.dart:436-439` — so a regression that broke ONLY
+      // the swipe call site's wiring (e.g. a future refactor that gave
+      // `MySalonsScreen` its own local `isLastSalon` instead of going
+      // through the shared flow) would have shipped invisibly.
+      //
+      // `FakeBackend`'s `DELETE /api/v1/salons/{id}` handler is wired ONLY
+      // for the literal path `salon-xyz` (see `_seedDeletableSalon`'s doc),
+      // so `salon-xyz` must be the id under test here too. To make it
+      // genuinely the owner's ONLY salon without touching the shared
+      // `fake_backend.dart` fixture (which several other flows rely on
+      // `salon-owner-1` — a fully-wired shell — for LOGIN NAVIGATION),
+      // this test logs in normally (landing on `salon-owner-1`'s shell, the
+      // fully-stubbed default), then removes `salon-owner-1` from
+      // `fb.mySalons` and invalidates `mySalonsProvider` — reproducing the
+      // exact precondition `runDeleteSalonFlow` reads (`mySalonsProvider`
+      // resolved to a genuine 1-element list) without ever navigating INTO
+      // `salon-xyz`'s shell, which has no stubbed staff/schedule/services
+      // endpoints of its own.
+      final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+      _seedDeletableSalon(fb);
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+
+      router.go(RouteNames.mySalons);
+      await tester.pumpAndSettle();
+      AppHarness.expectLocation(router, RouteNames.mySalons);
+
+      // Now genuinely down to ONE salon: remove the default primary and
+      // force `mySalonsProvider` to refetch so the hub — and the derivation
+      // `runDeleteSalonFlow` reads from the SAME provider — both see it.
+      fb.mySalons.removeWhere(
+        (Map<String, dynamic> s) => s['id'] == _primarySalonId,
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(E2eHarnessApp)),
+      );
+      container.invalidate(mySalonsProvider);
+      await tester.pumpAndSettle();
+
+      final List<Salon> resolved = await container.read(
+        mySalonsProvider.future,
+      );
+      expect(
+        resolved,
+        hasLength(1),
+        reason:
+            'this test only means something if the owner genuinely has '
+            'exactly one salon left at the moment of the swipe',
+      );
+
+      final Finder dismissible = find.byKey(
+        const ValueKey<String>('my_salons_dismissible_$_deletableSalonId'),
+      );
+      expect(dismissible, findsOneWidget);
+
+      await tester.fling(dismissible, const Offset(-500, 0), 1000);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('delete-salon-dialog')),
+        findsOneWidget,
+        reason: 'the swipe must land on the confirm dialog before deleting',
+      );
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.text(l10n.deleteSalonBodyLastSalon),
+        findsOneWidget,
+        reason:
+            'the SWIPE entry point must show the last-salon body when the '
+            'owner genuinely has exactly one salon left — the derivation '
+            'is shared with the other two entry points, but only a real '
+            'swipe gesture through MySalonsScreen proves the wiring, not '
+            'a direct call to runDeleteSalonFlow',
+      );
+      expect(find.text(l10n.deleteSalonBody), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
+      await tester.pumpAndSettle();
+
+      expect(fb.deleteSalonCalls, 1);
+      AppHarness.expectLocation(router, RouteNames.mySalons);
+      expect(
+        find.byKey(const ValueKey<String>('my_salons_card_$_deletableSalonId')),
+        findsNothing,
+        reason: 'the deleted (and now only) salon must stop rendering',
       );
     },
   );

@@ -12,10 +12,18 @@
 // fork this function for a new entry point — thread a new call site onto it
 // instead.
 //
+// Phase 291 — [DeleteSalonDialog]'s body no longer claims a reversible
+// soft-deactivate (that description was stale and false; see backend Phases
+// 295, 269): this function now derives `isLastSalon` once, from
+// `mySalonsProvider`, and passes it to the dialog so the last-salon variant
+// renders for all three entry points with no per-caller branch.
+//
 // Shows [DeleteSalonDialog]; on confirm, calls
 // `salonManagementProfileProvider(salonId).notifier.deleteSalon()`
-// (`DELETE /salons/{salonId}`, soft-deactivate — owner-only, enforced
-// server-side); on success shows a success snack and navigates to
+// (`DELETE /salons/{salonId}` — owner-only, enforced server-side; hard-
+// deletes staff, cancels future bookings with client notification, and
+// permanently purges the salon's photos from R2); on success shows a
+// success snack and navigates to
 // [RouteNames.mySalons] («Мої салони») — the same landing for EVERY delete
 // entry point, with no per-caller branch (locked product decision,
 // superseding the phase-290 draft's proposed "last salon → logout to
@@ -75,6 +83,7 @@ import '../../auth/domain/auth_session.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../application/my_salons_notifier.dart';
 import '../application/salon_management_profile_notifier.dart';
+import '../domain/salon.dart';
 import 'widgets/delete_salon_dialog.dart';
 
 /// Runs the shared delete-salon confirm→delete→feedback flow for [salonId].
@@ -90,9 +99,23 @@ Future<void> runDeleteSalonFlow({
   required ValueChanged<bool> setLoading,
 }) async {
   final l10n = AppLocalizations.of(context);
+
+  // Concrete-subtype gate (Phase 291 D2 / D6) — mirrors
+  // `salon_home_resolver_screen.dart`'s `salonManageGuard` owner arm: a
+  // stale `.value` riding a still-`AsyncLoading` state must not decide this.
+  // An unresolved list falls back to `false`, which is safe here — the two
+  // dialog bodies differ only by one informational closing sentence, never
+  // by a warning about losing the session (there is none, see D6), so
+  // understating "is this your last salon" has no dangerous downstream
+  // surprise.
+  final AsyncValue<List<Salon>> mySalonsAsync = ref.read(mySalonsProvider);
+  final bool isLastSalon =
+      mySalonsAsync is AsyncData<List<Salon>> &&
+      mySalonsAsync.value.length == 1;
+
   final bool? confirmed = await showDialog<bool>(
     context: context,
-    builder: (_) => const DeleteSalonDialog(),
+    builder: (_) => DeleteSalonDialog(isLastSalon: isLastSalon),
   );
   if (confirmed != true || !context.mounted) return;
 

@@ -5363,9 +5363,13 @@
   "@deleteSalonTitle": {
     "description": "Phase 21.2 — title of the salon delete confirmation dialog."
   },
-  "deleteSalonBody": "The salon will be deactivated. Clients will no longer be able to find it.",
+  "deleteSalonBody": "This cannot be undone:\n• the salon's photos will be lost permanently;\n• upcoming bookings will be cancelled and clients notified;\n• administrators and masters will lose access;\n• the salon will disappear from search.",
   "@deleteSalonBody": {
-    "description": "Phase 21.2 — body of the salon delete confirmation dialog. DELETE /salons/{salonId} is a soft-deactivate server-side."
+    "description": "Phase 291 — body of the salon delete confirmation dialog, shown when this is NOT the owner's last salon. Lists what DELETE /salons/{salonId} destroys, most-irreversible first. MUST NOT say «деактивовано» (that wording was the defect this phase fixes) and MUST NOT claim the photo bytes were erased from our servers — the R2 purge runs after commit and can leave an orphan on an outage, so the claim is scoped to permanent loss from the owner's point of view."
+  },
+  "deleteSalonBodyLastSalon": "This cannot be undone:\n• the salon's photos will be lost permanently;\n• upcoming bookings will be cancelled and clients notified;\n• administrators and masters will lose access;\n• the salon will disappear from search.\n\nThis is your only salon — you will need to create a new one afterwards.",
+  "@deleteSalonBodyLastSalon": {
+    "description": "Phase 291 — body of the salon delete confirmation dialog when this is the owner's ONLY salon. Identical to deleteSalonBody plus a closing sentence that they will be left with none and must create a new one. It must NOT say the owner is signed out — they are not: the flow lands every delete path on «Мої салони» (delete_salon_flow.dart) and the backend never revokes the owner's refresh token (SalonStaffHardDeleteIT: 'the owner's session is never revoked by this cascade')."
   },
   "deleteSalonSuccess": "Salon deleted",
   "@deleteSalonSuccess": {
