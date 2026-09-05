@@ -1,9 +1,14 @@
 /// Phase 21.6 — the two confirmations [AdminSettingsScreen] and
-/// [MoveAdminSalonScreen] raise before touching an administrator.
+/// [MoveAdminSalonScreen] raise before touching an administrator. Phase 306
+/// adds a third, [RemoveMasterDialog], for the categorically larger act of
+/// removing a MASTER — its body is a bulleted consequence list rather than
+/// [RemoveAdminDialog]'s one-liner, because the master endpoint deletes the
+/// user's account while the admin endpoint only unassigns them. All three
+/// route through the same [_DialogShell] below.
 ///
 /// ## Chrome — mirrored from the shipped app, not invented
 ///
-/// Both dialogs are 1:1 with `CancelBookingDialog` / `ClientBookingConflict
+/// All three dialogs are 1:1 with `CancelBookingDialog` / `ClientBookingConflict
 /// Dialog` / `CategoryRequestDialog`: a transparent [Dialog], `insetPadding`
 /// (h: lg, v: xl), a `maxWidth: 420` [ConstrainedBox], one [NeumorphicCard],
 /// then a centred badge circle, a `subheading()` title, a muted subline, the
@@ -39,6 +44,23 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/destructive_action.dart';
+
+/// Opens the destructive «Видалити майстра?» confirmation for the master
+/// displayed as [masterName].
+///
+/// Phase 306 — copy + widget only, no call site yet (phase 307 wires this to
+/// the settings screen and the removal endpoint). Resolves to `true` only
+/// when the viewer taps the red confirm; every other exit (barrier tap, back
+/// gesture, the quiet cancel) resolves to `null`, meaning *do nothing* — the
+/// same contract [showRemoveAdminDialog] gives, because backing out must
+/// never be the risky path in a destructive confirmation.
+Future<bool?> showRemoveMasterDialog(BuildContext context, String masterName) {
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    builder: (_) => RemoveMasterDialog(masterName: masterName),
+  );
+}
 
 /// Opens the destructive «Видалити адміністратора?» confirmation for the
 /// administrator displayed as [adminName].
@@ -106,6 +128,50 @@ class RemoveAdminDialog extends StatelessWidget {
         onPressed: () => dismissOverlay(context, true),
       ),
       dismissKey: const Key('remove-admin-dismiss'),
+      dismissLabel: l10n.actionCancel,
+    );
+  }
+}
+
+/// The destructive remove-master confirmation.
+///
+/// Phase 306 — a categorically larger act than [RemoveAdminDialog]: the
+/// admin endpoint only unassigns (`salon_id` → null), while
+/// `DELETE /salons/{salonId}/masters/{masterId}` (backend phase 297)
+/// hard-deletes the master's user account, and phase 298 removed the
+/// server-side refusal that used to block this when the master still had
+/// future bookings — those bookings are now cancelled and the clients
+/// notified instead of the call failing. That is why this dialog's body is
+/// the Phase 291 bulleted consequence list, not [RemoveAdminDialog]'s single
+/// sentence: the two stay visually distinct on purpose, because they are not
+/// the same size of consequence.
+class RemoveMasterDialog extends StatelessWidget {
+  const RemoveMasterDialog({super.key, required this.masterName});
+
+  /// The master's display name, woven into the dialog body so the viewer
+  /// sees WHO they are about to permanently remove — never a bare "this
+  /// user".
+  final String masterName;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return _DialogShell(
+      dialogKey: const Key('dialog-remove-master'),
+      badge: const _ActionBadge(
+        icon: Icons.person_remove_outlined,
+        tint: BrandColors.error,
+        alpha: 0.16,
+      ),
+      title: l10n.removeMasterDialogTitle,
+      message: l10n.removeMasterDialogBody(masterName),
+      action: DestructiveButton(
+        key: const Key('btn-confirm-remove-master'),
+        label: l10n.removeMasterConfirmCta,
+        icon: Icons.person_remove_outlined,
+        onPressed: () => dismissOverlay(context, true),
+      ),
+      dismissKey: const Key('btn-cancel-remove-master'),
       dismissLabel: l10n.actionCancel,
     );
   }

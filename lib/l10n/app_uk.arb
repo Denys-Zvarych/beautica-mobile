@@ -5967,6 +5967,60 @@
   "@adminSettingsManageSemanticLabel": {
     "description": "Phase 21.6 — screen-reader label for the trailing tune icon on SalonStaffProfileScreen that opens AdminSettingsScreen. Shown for an admin staff entry only."
   },
+  "removeMasterDialogTitle": "Видалити майстра?",
+  "@removeMasterDialogTitle": {
+    "description": "Phase 306 — title of the destructive remove-master confirmation, opened from a MASTER profile's settings gear. Categorically larger than adminSettingsRemoveDialogTitle: this call deletes the master's user account (backend phase 297), not merely unassigns them."
+  },
+  "removeMasterDialogBody": "Цю дію не можна скасувати:\n• акаунт {name} буде видалено — доступ зникне одразу;\n• майбутні записи до цього майстра скасуємо, а клієнтів сповістимо;\n• майстер зникне з команди салону та з пошуку;\n• історія завершених записів залишиться під збереженим імʼям.",
+  "@removeMasterDialogBody": {
+    "description": "Phase 306 — bulleted consequence body of the remove-master confirmation, most-irreversible first (Phase 291 house shape). MUST NOT reuse the admin verb «вилучити із салону» — this endpoint deletes the account, the admin one only unassigns. MUST NOT claim data was erased from our servers: completed bookings survive via a detach-with-name-snapshot, which bullet four states as «під збереженим імʼям», never implying the master's account survives.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      }
+    }
+  },
+  "removeMasterConfirmCta": "Видалити",
+  "@removeMasterConfirmCta": {
+    "description": "Phase 306 — the destructive confirm button of the remove-master dialog. actionCancel is reused for the back-out; no new cancel key was added."
+  },
+  "removeMasterErrorForbidden": "Не вдалося видалити цього майстра. Ви не можете видалити самого себе, і потрібні права власника цього салону.",
+  "@removeMasterErrorForbidden": {
+    "description": "Phase 306 — 403 from DELETE /salons/{salonId}/masters/{masterId}. Names both refusal reasons the backend collapses into one status: self-removal and missing owner access."
+  },
+  "removeMasterErrorConflict": "Цього майстра зараз не можна видалити — можливо, це ваш власний профіль майстра, він уже не працює в цьому салоні, або з ним пов’язані записи, де він виступає клієнтом.",
+  "@removeMasterErrorConflict": {
+    "description": "Phase 306 — 409 from DELETE /salons/{salonId}/masters/{masterId}. Collapses the backend's three distinct refusal reasons (own master row, already detached, or the master's user is also referenced as a client elsewhere) into one non-technical message — the wire carries no discriminator to branch on."
+  },
+  "removeMasterErrorNotFound": "Майстра не знайдено — можливо, його вже видалили.",
+  "@removeMasterErrorNotFound": {
+    "description": "Phase 306 — 404 from DELETE /salons/{salonId}/masters/{masterId}."
+  },
+  "removeMasterErrorGeneric": "Не вдалося видалити майстра. Спробуйте ще раз.",
+  "@removeMasterErrorGeneric": {
+    "description": "Phase 306 — fallback error snack for any non-403/404/409 failure of the remove-master call."
+  },
+  "staffSettingsRemoveMaster": "Видалити майстра",
+  "@staffSettingsRemoveMaster": {
+    "description": "Phase 306 — the destructive SettingsRow label that opens the remove-master confirmation on a MASTER profile's settings screen. Not wired until phase 307."
+  },
+  "removeMasterSuccess": "Майстра видалено із салону.",
+  "@removeMasterSuccess": {
+    "description": "Phase 306 — success snack after DELETE /salons/{salonId}/masters/{masterId}. Deliberately does not repeat the notification claim the dialog already made, and does not say «акаунт видалено» — that would read as an accusation at the moment the owner is looking for confirmation the action landed."
+  },
+  "staffSettingsManageMasterSemanticLabel": "Налаштування майстра",
+  "@staffSettingsManageMasterSemanticLabel": {
+    "description": "Phase 306 — screen-reader label for the trailing tune icon on SalonStaffProfileScreen when it opens a MASTER's settings route. adminSettingsManageSemanticLabel is unchanged and stays in use for an ADMIN profile."
+  },
+  "staffSettingsMasterOwnerOnlyTitle": "Лише власник салону",
+  "@staffSettingsMasterOwnerOnlyTitle": {
+    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route."
+  },
+  "staffSettingsMasterOwnerOnlyBody": "Керувати майстрами може лише власник салону. Зверніться до власника, якщо потрібно вилучити цього майстра.",
+  "@staffSettingsMasterOwnerOnlyBody": {
+    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle."
+  },
   "moveAdminSalonTitle": "Інший салон",
   "@moveAdminSalonTitle": {
     "description": "Phase 21.6 — title of MoveAdminSalonScreen, the rotate-admin destination picker."
