@@ -143,6 +143,8 @@ import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
+import 'salon_staff_settings_admin_gate_flow_test.dart'
+    as salon_staff_settings_admin_gate;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
@@ -483,6 +485,10 @@ void main() {
   // `pendingInvitesProvider` invalidation on invite-send.
   group('salon_pending_invites_flow', salon_pending_invites.main);
   group('salon_staff_settings_flow', salon_staff_settings.main);
+  group(
+    'salon_staff_settings_admin_gate_flow',
+    salon_staff_settings_admin_gate.main,
+  );
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

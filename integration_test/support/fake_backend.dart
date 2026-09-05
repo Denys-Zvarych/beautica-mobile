@@ -1097,6 +1097,47 @@ final class FakeBackend {
       Map<String, dynamic>.from(row),
   ];
 
+  /// mobile-qa Phase 308 LOW closure (2026-09-05) — the mutable
+  /// `salon-admin-1` roster served by `GET /salons/salon-admin-1/staff`.
+  ///
+  /// DELIBERATELY an ISOLATED fixture, not a widened `salonStaff` (the
+  /// `salon-xyz` roster above): three unrelated integration files
+  /// (`owner_own_profile_flow_test.dart`, `salon_shell_landing_flow_test.dart`,
+  /// `salon_management_profile_flow_test.dart` PART B) already assert against
+  /// `salon-xyz`'s roster shape or `salon-admin-1`'s previously-EMPTY one
+  /// (the latter only for its own empty-state — none reads THIS list's
+  /// content), and Phase 307 had to widen three pre-existing exact-roster
+  /// assertions by exactly one element after adding a fixture to the SHARED
+  /// list. A second, salon-admin-1-scoped list avoids that ripple entirely.
+  ///
+  /// Seeded with exactly ONE admin — `admin-peer-1`, a CO-admin distinct
+  /// from the logged-in `_adminUserJson.id` (`user-admin-1`) — so a genuine
+  /// SALON_ADMIN session viewing this roster is looking at a peer, not their
+  /// own row. That distinction matters: `StaffSettingsScreen`'s `canManageStaff`
+  /// gate (`isOwner && member?.userId != currentUserId`) is `false` for an
+  /// admin viewer regardless of whose row it is (an admin is never `isOwner`),
+  /// but a self-row subject would let a reader conflate "not the owner" with
+  /// "cannot remove yourself" — two different reasons the row could be
+  /// absent. A peer isolates the ONE gate under test.
+  late final List<Map<String, dynamic>> salonAdminOneStaff =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'userId': 'admin-peer-1',
+          'masterId': null,
+          'role': 'SALON_ADMIN',
+          'firstName': 'Марія',
+          'lastName': 'Сусідська',
+          'professionalTitle': null,
+          'avatarUrl': null,
+          'phoneNumber': '+380639998877',
+          'instagram': null,
+          'bio': null,
+          'avgRating': null,
+          'reviewCount': 0,
+          'serviceCount': 0,
+        },
+      ];
+
   int removeAdminCalls = 0;
   String? lastRemoveAdminUserId;
 
@@ -5607,15 +5648,23 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/salons/salon-admin-1/staff — empty roster. The «Персонал»
-    // grid's own empty state (`salon-manage-staff-empty`) is already pinned at
-    // the widget tier; nothing here depends on a populated roster.
+    // GET /api/v1/salons/salon-admin-1/staff — mobile-qa Phase 308 LOW
+    // closure (2026-09-05): was a hardcoded empty roster (the «Персонал»
+    // grid's own empty state, `salon-manage-staff-empty`, is separately
+    // pinned at the widget tier and does not need this endpoint populated).
+    // Now serves the mutable [salonAdminOneStaff] — see that field's own doc
+    // for why this is an ISOLATED fixture rather than a widened `salonStaff`.
+    // A COPY read at REQUEST time, mirroring `salon-xyz`'s own handler above.
     _adapter.onRoute(
       '/api/v1/salons/salon-admin-1/staff',
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
         lastGetSalonStaffId = 'salon-admin-1';
-        return _okList(const <Map<String, dynamic>>[]);
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonAdminOneStaff.map(Map<String, dynamic>.from),
+          ),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );

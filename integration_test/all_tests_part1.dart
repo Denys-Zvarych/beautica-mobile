@@ -88,6 +88,8 @@ import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
+import 'salon_staff_settings_admin_gate_flow_test.dart'
+    as salon_staff_settings_admin_gate;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -268,4 +270,8 @@ void main() {
   // `pendingInvitesProvider` invalidation on invite-send.
   group('salon_pending_invites_flow', salon_pending_invites.main);
   group('salon_staff_settings_flow', salon_staff_settings.main);
+  group(
+    'salon_staff_settings_admin_gate_flow',
+    salon_staff_settings_admin_gate.main,
+  );
 }
