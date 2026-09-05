@@ -165,8 +165,8 @@ Widget _disabledVsEnabledRows(AppLocalizations l10n) => Column(
       onTap: _noop,
     ),
     const SizedBox(height: 12),
-    // The shipped `AdminSettingsScreen` configuration, verbatim
-    // (`admin_settings_screen.dart:328-341`).
+    // The shipped `StaffSettingsScreen` configuration, verbatim
+    // (`staff_settings_screen.dart:328-341`).
     SettingsRow(
       key: const Key('golden-settings-row-disabled'),
       icon: Icons.badge_outlined,

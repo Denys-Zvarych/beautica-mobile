@@ -171,7 +171,7 @@ class _SalonStaffProfileScreenState
     );
 
     // Phase 21.6 — the trailing management control. ADMIN entries only: it
-    // opens [AdminSettingsScreen], whose two actions
+    // opens [StaffSettingsScreen], whose two actions
     // (`DELETE|PATCH /salons/{salonId}/admins/{userId}`) are admin-specific
     // and have no master equivalent. The MASTER counterpart is Phase 21.7,
     // still unbuilt — so for a master entry the control stays absent, as
@@ -203,7 +203,7 @@ class _SalonStaffProfileScreenState
               icon: Icons.tune_rounded,
               semanticLabel: l10n.adminSettingsManageSemanticLabel,
               onTap: () => context.push(
-                RouteNames.salonManageAdminSettings(
+                RouteNames.salonManageStaffSettings(
                   widget.salonId,
                   widget.memberId,
                 ),

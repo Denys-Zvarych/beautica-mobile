@@ -1,12 +1,14 @@
-// Phase 21.6 — Admin settings actions.
+// Phase 21.6, generalized Phase 305 — staff settings actions.
 //
-// Backing state for [AdminSettingsScreen] and [MoveAdminSalonScreen]: the two
+// Backing state for [StaffSettingsScreen] and [MoveAdminSalonScreen]: the two
 // write paths an owner/admin has over ONE salon administrator, plus the read
-// that feeds the rotate-destination picker.
+// that feeds the rotate-destination picker. Named `StaffSettings` (not
+// `AdminSettings`) since Phase 305, so phase 307's `removeMaster` sits beside
+// [StaffSettings.removeAdmin] without ambiguity.
 //
-//   • [AdminSettings.remove]  → `DELETE /salons/{salonId}/admins/{userId}`
-//   • [AdminSettings.rotate]  → `PATCH  /salons/{salonId}/admins/{userId}/salon`
-//   • [siblingSalons]         → `GET    /salons/{salonId}/sibling-salons`
+//   • [StaffSettings.removeAdmin] → `DELETE /salons/{salonId}/admins/{userId}`
+//   • [StaffSettings.rotate]      → `PATCH  /salons/{salonId}/admins/{userId}/salon`
+//   • [siblingSalons]             → `GET    /salons/{salonId}/sibling-salons`
 //
 // SHAPE — mirrors `InviteStaff` (`invite_staff_notifier.dart`), not
 // `SalonManagementProfile`: there is nothing for this notifier to LOAD, so
@@ -62,11 +64,11 @@ Future<List<SiblingSalonOption>> siblingSalons(Ref ref, String salonId) {
   return ref.read(salonRepositoryProvider).getSiblingSalons(salonId);
 }
 
-/// Drives the two administrator actions on [AdminSettingsScreen].
+/// Drives the two administrator actions on [StaffSettingsScreen].
 ///
-/// Generated provider name: `adminSettingsProvider`.
+/// Generated provider name: `staffSettingsProvider`.
 @riverpod
-class AdminSettings extends _$AdminSettings {
+class StaffSettings extends _$StaffSettings {
   @override
   void build() {}
 
@@ -75,7 +77,7 @@ class AdminSettings extends _$AdminSettings {
   /// Returns `null` on success or the [Failure] on error. The backend nulls
   /// the user's `salon_id`; it does NOT delete their account — the calling
   /// screen's copy must say so.
-  Future<Failure?> remove({
+  Future<Failure?> removeAdmin({
     required String salonId,
     required String userId,
   }) async {

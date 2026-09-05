@@ -3,7 +3,7 @@
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b)
 // ----------------------------------------
-// `test/features/salon/presentation/admin_settings_screen_test.dart` proves
+// `test/features/salon/presentation/staff_settings_screen_test.dart` proves
 // both screens in isolation with `salonRepositoryProvider` STUBBED by
 // `FakeSalonRepository`, mounted by a bespoke four-route `GoRouter` with no
 // `redirect:` wired. Every read and write there is an in-memory method call.
@@ -29,7 +29,7 @@
 //   • the 403 copy on a REAL wire status. The widget tier injects a
 //     hand-built `UnknownFailure(cause: DioException(403))`; here the 403
 //     travels through `ErrorMapperInterceptor` for real, which is the exact
-//     link `AdminSettingsScreen._removeErrorMessage`'s doc says is easy to
+//     link `StaffSettingsScreen._removeErrorMessage`'s doc says is easy to
 //     get wrong (403 is NOT on the interceptor's mapped-code list, so it must
 //     arrive as `UnknownFailure` with the status buried in `cause`).
 //
@@ -52,7 +52,7 @@
 // string (`forbid_cyrillic_finder.sh`).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/salon/presentation/admin_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/staff_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/move_admin_salon_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_hub_card.dart';
@@ -106,12 +106,12 @@ void _seedSalonXyzIntoMySalons(FakeBackend fb) {
 
 /// Logs a SALON_OWNER in and walks the REAL UI path
 /// `/manage` -> «Персонал» -> the admin's card -> the `tune_rounded` action,
-/// landing on [AdminSettingsScreen].
+/// landing on [StaffSettingsScreen].
 ///
 /// Extracted because all three tests below open with the identical approach,
 /// and a `testWidgets` body that repeats it is where the assertion under test
 /// stops being legible.
-Future<GoRouter> _openAdminSettings(WidgetTester tester, FakeBackend fb) async {
+Future<GoRouter> _openStaffSettings(WidgetTester tester, FakeBackend fb) async {
   final GoRouter router = await AppHarness.boot(tester, fb);
 
   await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
@@ -146,7 +146,7 @@ Future<GoRouter> _openAdminSettings(WidgetTester tester, FakeBackend fb) async {
   );
   await AppHarness.settle(tester);
 
-  expect(find.byType(AdminSettingsScreen), findsOneWidget);
+  expect(find.byType(StaffSettingsScreen), findsOneWidget);
   AppHarness.expectLocation(
     router,
     '/salons/$_kSalonId/manage/staff/$_kAdminId/settings',
@@ -193,9 +193,9 @@ void main() {
         final fb = FakeBackend()..currentRole = UserRole.salonOwner;
         _seedSalonXyzIntoMySalons(fb);
 
-        final GoRouter router = await _openAdminSettings(tester, fb);
+        final GoRouter router = await _openStaffSettings(tester, fb);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(AdminSettingsScreen)),
+          tester.element(find.byType(StaffSettingsScreen)),
         );
 
         // The page names WHICH administrator is being managed — read off the
@@ -222,7 +222,7 @@ void main() {
         );
         await AppHarness.pumpUntilGone(
           tester,
-          find.byType(AdminSettingsScreen),
+          find.byType(StaffSettingsScreen),
         );
 
         // ── The WIRE ────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ void main() {
         // (`salon_management_profile_screen.dart`) and `kSalonTeamNavTab`
         // declared beside `SalonBottomNav.ownerAdminItems` — and both
         // constants are pinned against those lists at the UNIT tier, in
-        // `test/features/salon/presentation/admin_settings_screen_test.dart`
+        // `test/features/salon/presentation/staff_settings_screen_test.dart`
         // group "salon tab-index constants are pinned to their owning
         // lists". That is where a re-order goes red; it cannot go red here.
 
@@ -309,9 +309,9 @@ void main() {
         final fb = FakeBackend()..currentRole = UserRole.salonOwner;
         _seedSalonXyzIntoMySalons(fb);
 
-        final GoRouter router = await _openAdminSettings(tester, fb);
+        final GoRouter router = await _openStaffSettings(tester, fb);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(AdminSettingsScreen)),
+          tester.element(find.byType(StaffSettingsScreen)),
         );
 
         await AppHarness.tapVisible(
@@ -395,7 +395,7 @@ void main() {
         // ── The DESTINATION ─────────────────────────────────────────────
         // Three pops: picker, settings page, stale staff profile.
         AppHarness.expectLocation(router, '/salons/$_kSalonId/manage');
-        expect(find.byType(AdminSettingsScreen), findsNothing);
+        expect(find.byType(StaffSettingsScreen), findsNothing);
         expect(find.byType(SalonStaffProfileScreen), findsNothing);
         expect(find.text(l10n.moveAdminSalonSuccess), findsOneWidget);
 
@@ -441,9 +441,9 @@ void main() {
         // without management access.
         fb.forceRemoveAdminFailure(403);
 
-        final GoRouter router = await _openAdminSettings(tester, fb);
+        final GoRouter router = await _openStaffSettings(tester, fb);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(AdminSettingsScreen)),
+          tester.element(find.byType(StaffSettingsScreen)),
         );
 
         await AppHarness.tapVisible(
@@ -470,7 +470,7 @@ void main() {
         );
 
         // Still on the page, nothing unwound, nothing removed anywhere.
-        expect(find.byType(AdminSettingsScreen), findsOneWidget);
+        expect(find.byType(StaffSettingsScreen), findsOneWidget);
         AppHarness.expectLocation(
           router,
           '/salons/$_kSalonId/manage/staff/$_kAdminId/settings',

@@ -328,7 +328,7 @@ void main() {
       // rationale as `salonManageStaffMember()` directly above; both reuse
       // `salonManageGuard` (owner + admin), matching the owner+admin backend
       // gate on all three endpoints they call.
-      'salonManageAdminSettings()': RouteNames.salonManageAdminSettings(
+      'salonManageStaffSettings()': RouteNames.salonManageStaffSettings(
         kSampleId,
         kSampleId,
       ),

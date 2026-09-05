@@ -3,7 +3,7 @@
 //
 // PROMOTED (REUSE-FIRST, Phase 21.6 audit follow-up) out of
 // `move_admin_salon_screen.dart`, where it was the file-private
-// `_MoveTargetsEmptyState`. [AdminSettingsScreen]'s new "this staff member is
+// `_MoveTargetsEmptyState`. [StaffSettingsScreen]'s new "this staff member is
 // not an administrator" guard needs EXACTLY this shape, and being private was
 // the signal a promotion was due — not a licence to copy it.
 //

@@ -1,4 +1,4 @@
-// Phase 21.6 — Widget tests for [AdminSettingsScreen] and
+// Phase 21.6 — Widget tests for [StaffSettingsScreen] and
 // [MoveAdminSalonScreen].
 //
 // Covers, in order:
@@ -38,7 +38,7 @@
 //      `kSalonTeamNavTab` asserted against the lists that OWN their
 //      positions, so a re-order of either list goes red here instead of
 //      silently landing the viewer on the wrong tab after a write. This is
-//      the pin `admin_settings_screen.dart`'s doc comment used to claim
+//      the pin `staff_settings_screen.dart`'s doc comment used to claim
 //      existed; it did not.
 //  15. ROLE GUARD (audit follow-up) — the page renders a notice, not the
 //      admin-only DELETE/PATCH rows, when the route is reached for a MASTER
@@ -53,7 +53,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_api/beautica_api.dart'
     show SiblingSalonOption, SiblingSalonOptionBuilder;
-import 'package:beautica_mobile/features/salon/presentation/admin_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/staff_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/move_admin_salon_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart'
     show kSalonManageTabKeys, kSalonStaffSubTab, salonManageTabLabels;
@@ -83,7 +83,7 @@ const Salon _kSalon = Salon(id: _kSalonId, name: 'Салон «Вельвет»'
 
 /// This screen's own route — the location every "we did not navigate"
 /// assertion compares against.
-final String _kSettingsPath = RouteNames.salonManageAdminSettings(
+final String _kSettingsPath = RouteNames.salonManageStaffSettings(
   _kSalonId,
   _kAdminId,
 );
@@ -133,7 +133,7 @@ Failure _forbidden() => UnknownFailure(
 
 GoRouter _router({String initial = ''}) => GoRouter(
   initialLocation: initial.isEmpty
-      ? RouteNames.salonManageAdminSettings(_kSalonId, _kAdminId)
+      ? RouteNames.salonManageStaffSettings(_kSalonId, _kAdminId)
       : initial,
   routes: <RouteBase>[
     GoRoute(
@@ -154,7 +154,7 @@ GoRouter _router({String initial = ''}) => GoRouter(
     ),
     GoRoute(
       path: '/salons/:salonId/manage/staff/:memberId/settings',
-      builder: (context, state) => AdminSettingsScreen(
+      builder: (context, state) => StaffSettingsScreen(
         salonId: state.pathParameters['salonId']!,
         memberId: state.pathParameters['memberId']!,
       ),
@@ -230,7 +230,7 @@ String _lastMatchedLocation(GoRouter router) =>
     router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
 
 AppLocalizations _settingsL10n(WidgetTester tester) =>
-    AppLocalizations.of(tester.element(find.byType(AdminSettingsScreen)));
+    AppLocalizations.of(tester.element(find.byType(StaffSettingsScreen)));
 
 AppLocalizations _moveL10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(MoveAdminSalonScreen)));
@@ -366,7 +366,7 @@ void main() {
       // asserted on the RENDERED tree and the match stack rather than
       // `currentConfiguration.uri`, which go_router never updates for an
       // imperative push (`forbid_naive_router_location.sh`).
-      expect(find.byType(AdminSettingsScreen), findsOneWidget);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
       expect(_lastMatchedLocation(router), _kSettingsPath);
       expect(repo.removeAdminRequests, isEmpty);
       expect(repo.rotateAdminRequests, isEmpty);
@@ -406,7 +406,7 @@ void main() {
       // profile, onto the salon management profile — asserted on the
       // RENDERED destination, which is what the viewer actually sees.
       expect(find.byKey(const Key('stub-manage-$_kSalonId')), findsOneWidget);
-      expect(find.byType(AdminSettingsScreen), findsNothing);
+      expect(find.byType(StaffSettingsScreen), findsNothing);
       expect(_lastMatchedLocation(router), RouteNames.salonManage(_kSalonId));
     });
 
@@ -421,7 +421,7 @@ void main() {
 
       expect(find.byKey(const Key('remove-admin-dialog')), findsNothing);
       expect(repo.removeAdminRequests, isEmpty);
-      expect(find.byType(AdminSettingsScreen), findsOneWidget);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
     });
 
     testWidgets('403 shows the forbidden copy and stays on the page', (
@@ -438,7 +438,7 @@ void main() {
 
       expect(find.text(l10n.adminSettingsRemoveErrorForbidden), findsOneWidget);
       expect(find.text(l10n.adminSettingsRemoveErrorGeneric), findsNothing);
-      expect(find.byType(AdminSettingsScreen), findsOneWidget);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
     });
 
     testWidgets('a non-403 failure shows the generic copy', (tester) async {
@@ -603,7 +603,7 @@ void main() {
   // M14 — «tapping it navigates nowhere and calls nothing» above is VACUOUS
   // with respect to `enabled: false`: the row's `onTap` is `() {}`, so that
   // test passes identically whether the tap is ABSORBED or merely handled by
-  // a no-op. Measured — mutating `admin_settings_screen.dart:337`
+  // a no-op. Measured — mutating `staff_settings_screen.dart:337`
   // `enabled: false` -> `enabled: true` left it GREEN while the sibling
   // semantics assertion went red. The absorption it claims to prove is
   // pinned here instead, against the ONE production line that implements it.
@@ -857,17 +857,17 @@ void main() {
       // would deadlock the test body.
       unawaited(
         router.push<void>(
-          RouteNames.salonManageAdminSettings(_kSalonId, _kAdminId),
+          RouteNames.salonManageStaffSettings(_kSalonId, _kAdminId),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byType(AdminSettingsScreen), findsOneWidget);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('btn-close-admin-settings')));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('stub-staff-$_kAdminId')), findsOneWidget);
-      expect(find.byType(AdminSettingsScreen), findsNothing);
+      expect(find.byType(StaffSettingsScreen), findsNothing);
       expect(
         repo.removeAdminRequests,
         isEmpty,
@@ -905,7 +905,7 @@ void main() {
           kSalonManageTabKeys[kSalonStaffSubTab],
           'staff',
           reason:
-              'kSalonStaffSubTab is the position AdminSettingsScreen and '
+              'kSalonStaffSubTab is the position StaffSettingsScreen and '
               'MoveAdminSalonScreen select after a write, and the position '
               "SalonShellScreen's «Команда» destination maps to. Re-ordering "
               'kSalonManageTabKeys without moving this constant lands the '

@@ -71,7 +71,7 @@ class SettingsRow extends StatefulWidget {
   /// row occupies exactly the same box it does when enabled, so a disabled
   /// row never shifts its neighbours.
   ///
-  /// It exists for «Перевести в майстри» on [AdminSettingsScreen], which the
+  /// It exists for «Перевести в майстри» on [StaffSettingsScreen], which the
   /// design places on the screen but which has NO backend endpoint (role
   /// conversion is unscoped) — the row must be visibly inert, never a fake
   /// success. Pair it with `value:` copy naming why (e.g. «незабаром»).

@@ -335,9 +335,9 @@ const List<String> kSalonManageTabKeys = <String>[
 /// [kSalonTeamNavTab]'s own doc gives: a constant naming a position in a list
 /// is only reviewed alongside a re-order of that list when the two sit
 /// together. Consumed by [SalonShellScreen] (nav ↔ sub-tab reconciliation),
-/// [AdminSettingsScreen] and [MoveAdminSalonScreen] (post-write landing).
+/// [StaffSettingsScreen] and [MoveAdminSalonScreen] (post-write landing).
 ///
-/// PINNED — `test/features/salon/presentation/admin_settings_screen_test.dart`
+/// PINNED — `test/features/salon/presentation/staff_settings_screen_test.dart`
 /// asserts BOTH `kSalonManageTabKeys[kSalonStaffSubTab] == 'staff'` and
 /// `salonManageTabLabels(l10n)[kSalonStaffSubTab] == l10n.salonManageTabStaff`,
 /// so re-ordering either the keys or the visible labels without moving this

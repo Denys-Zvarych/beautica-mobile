@@ -35,7 +35,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 /// The «Команда» destination's index inside [SalonBottomNav.ownerAdminItems].
 ///
 /// Lives HERE, beside the list it indexes, rather than as a bare `2` at the
-/// call sites that need it ([SalonShellScreen], [AdminSettingsScreen] and
+/// call sites that need it ([SalonShellScreen], [StaffSettingsScreen] and
 /// [MoveAdminSalonScreen] all reconcile the nav highlight after a write).
 /// A constant declared next to its list is the only arrangement in which a
 /// re-order of that list and the constant naming a position in it are ever

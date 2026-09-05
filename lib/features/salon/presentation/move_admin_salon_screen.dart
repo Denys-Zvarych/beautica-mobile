@@ -1,6 +1,6 @@
 // Phase 21.6 — «Інший салон»: the rotate-admin destination picker.
 //
-// Pushed from [AdminSettingsScreen]'s «Перемістити до іншого салону» row.
+// Pushed from [StaffSettingsScreen]'s «Перемістити до іншого салону» row.
 // Lists the ACTIVE salons sharing this salon's owner, minus this salon;
 // tapping one raises the confirmation and, on confirm, issues
 // `PATCH /salons/{salonId}/admins/{userId}/salon`.
@@ -106,13 +106,13 @@ class _MoveAdminSalonScreenState extends ConsumerState<MoveAdminSalonScreen> {
       context.pop();
     } else {
       context.go(
-        RouteNames.salonManageAdminSettings(widget.salonId, widget.memberId),
+        RouteNames.salonManageStaffSettings(widget.salonId, widget.memberId),
       );
     }
   }
 
   /// Maps a rotate [Failure] to this screen's own copy — see
-  /// `AdminSettingsScreen._removeErrorMessage`'s doc for why the status is
+  /// `StaffSettingsScreen._removeErrorMessage`'s doc for why the status is
   /// read off [Failure.cause] rather than assumed to be a [ServerFailure],
   /// and why a 403 gets its own sentence.
   String _errorMessage(Failure failure, AppLocalizations l10n) {
@@ -141,7 +141,7 @@ class _MoveAdminSalonScreenState extends ConsumerState<MoveAdminSalonScreen> {
 
     setState(() => _moving = true);
     final Failure? failure = await ref
-        .read(adminSettingsProvider.notifier)
+        .read(staffSettingsProvider.notifier)
         .rotate(
           salonId: widget.salonId,
           userId: widget.memberId,
@@ -164,7 +164,7 @@ class _MoveAdminSalonScreenState extends ConsumerState<MoveAdminSalonScreen> {
   /// on it.
   ///
   /// Same ordering and same reasoning as
-  /// `AdminSettingsScreen._returnToStaffTab` (invalidate while mounted, then
+  /// `StaffSettingsScreen._returnToStaffTab` (invalidate while mounted, then
   /// reconcile BOTH shell indices, then unwind), with one extra pop: this
   /// screen sits above the admin settings page, which sits above the staff
   /// profile. Each pop re-checks `canPop`, so a cold deep link straight here
@@ -196,7 +196,7 @@ class _MoveAdminSalonScreenState extends ConsumerState<MoveAdminSalonScreen> {
     );
     // The administrator's display name — off the already-cached roster, the
     // same nullable-`value` read (and the same degradation rule) as
-    // `AdminSettingsScreen.build`.
+    // `StaffSettingsScreen.build`.
     final SalonStaffMember? member = ref
         .watch(
           salonStaffMemberProfileProvider(
@@ -350,7 +350,7 @@ class _MoveTargetsBody extends StatelessWidget {
 /// the sibling empty states use.
 ///
 /// Phase 21.6 audit follow-up — the card body itself was PROMOTED to
-/// [SalonNoticeCard] so [AdminSettingsScreen]'s non-admin guard renders the
+/// [SalonNoticeCard] so [StaffSettingsScreen]'s non-admin guard renders the
 /// same shape instead of a fork. The geometry is unchanged; this widget is
 /// now just this screen's copy + key bound onto it.
 class _MoveTargetsEmptyState extends StatelessWidget {

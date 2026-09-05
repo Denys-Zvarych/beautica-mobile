@@ -1,11 +1,15 @@
-// Phase 21.6 — «Налаштування» for ONE salon administrator.
+// Phase 21.6, generalized Phase 305 — «Налаштування» for ONE staff member.
 //
 // The full settings PAGE (never a bottom sheet) reached from the trailing
-// `Icons.tune_rounded` control on an ADMIN staff member's management profile
-// (`salon_staff_profile_screen.dart`, Phase 21.5). Admins are administrative
-// staff, not service-providing masters, so the master sheet's service /
-// activate / make-admin toggles have no meaning here — only the two
-// admin-specific actions do:
+// `Icons.tune_rounded` control on a staff member's management profile
+// (`salon_staff_profile_screen.dart`, Phase 21.5). Its body is chosen by
+// `SalonStaffMember.role`. As of THIS phase only the ADMIN branch exists —
+// phase 307 adds the MASTER branch alongside it, which is the reason this
+// screen was widened (Phase 305) rather than forked into a
+// `master_settings_screen.dart` when that need arrived. Admins are
+// administrative staff, not service-providing masters, so the master sheet's
+// service / activate / make-admin toggles have no meaning on the admin
+// branch — only the two admin-specific actions do:
 //
 //   1. «Перемістити до іншого салону» → pushes [MoveAdminSalonScreen]
 //      (`PATCH /salons/{salonId}/admins/{userId}/salon`).
@@ -24,9 +28,9 @@
 // («…втратить доступ до керування салоном»), which is exactly what the
 // preview's own dialog already said.
 //
-// This is a manage-THIS-admin screen opened by the owner or a fellow admin —
-// NOT the admin's own settings — so it carries no self-service rows (no
-// «Акаунт», no «Вийти»). Those act on the CURRENT viewer, which would be
+// This is a manage-THIS-staff-member screen opened by the owner or a fellow
+// admin — NOT the viewer's own settings — so it carries no self-service rows
+// (no «Акаунт», no «Вийти»). Those act on the CURRENT viewer, which would be
 // nonsensical here; they live on the viewer's own `salon_settings_screen`.
 //
 // Design source: `docs/signup-designs/SalonManagementDesign/lib/screens/
@@ -81,7 +85,7 @@ import 'widgets/salon_notice_card.dart';
 
 /// The two halves of one row's staggered entrance, built once in
 /// `initState` and only READ in `build` — see
-/// `_AdminSettingsScreenState._curve` for why the slide half is no longer
+/// `_StaffSettingsScreenState._curve` for why the slide half is no longer
 /// derived per build.
 class _RevealAnim {
   const _RevealAnim({required this.fade, required this.slide});
@@ -96,8 +100,8 @@ class _RevealAnim {
 }
 
 /// «Налаштування» for the administrator [memberId] of salon [salonId].
-class AdminSettingsScreen extends ConsumerStatefulWidget {
-  const AdminSettingsScreen({
+class StaffSettingsScreen extends ConsumerStatefulWidget {
+  const StaffSettingsScreen({
     super.key,
     required this.salonId,
     required this.memberId,
@@ -111,11 +115,11 @@ class AdminSettingsScreen extends ConsumerStatefulWidget {
   final String memberId;
 
   @override
-  ConsumerState<AdminSettingsScreen> createState() =>
-      _AdminSettingsScreenState();
+  ConsumerState<StaffSettingsScreen> createState() =>
+      _StaffSettingsScreenState();
 }
 
-class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen>
+class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
     with SingleTickerProviderStateMixin {
   /// Double-tap guard for the destructive row, mirroring
   /// `SettingsScreen`'s own delete-salon flag: it also drives
@@ -247,8 +251,8 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen>
 
     setState(() => _removing = true);
     final Failure? failure = await ref
-        .read(adminSettingsProvider.notifier)
-        .remove(salonId: widget.salonId, userId: widget.memberId);
+        .read(staffSettingsProvider.notifier)
+        .removeAdmin(salonId: widget.salonId, userId: widget.memberId);
     if (!mounted) return;
 
     if (failure != null) {

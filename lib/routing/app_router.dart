@@ -97,7 +97,7 @@ import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
 import '../features/salon/presentation/owner_own_profile_screen.dart';
-import '../features/salon/presentation/admin_settings_screen.dart';
+import '../features/salon/presentation/staff_settings_screen.dart';
 import '../features/salon/presentation/invite_staff_screen.dart';
 import '../features/salon/presentation/move_admin_salon_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
@@ -1024,7 +1024,7 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage/staff/:memberId/settings',
         redirect: salonManageGuard,
-        builder: (context, state) => AdminSettingsScreen(
+        builder: (context, state) => StaffSettingsScreen(
           salonId: state.pathParameters['salonId'] ?? '',
           memberId: state.pathParameters['memberId'] ?? '',
         ),

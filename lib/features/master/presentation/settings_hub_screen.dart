@@ -54,7 +54,7 @@ import 'widgets/settings_row.dart';
 //     salon-employed master does not separately manage). `contactsEnabled`
 //     itself stays general-purpose (`false` renders the row PRESENT BUT
 //     DISABLED with a «незабаром» trailing value, following the
-//     `AdminSettingsScreen` «Перевести в майстри» precedent — never a fake
+//     `StaffSettingsScreen` «Перевести в майстри» precedent — never a fake
 //     success, never silently dropped) for any future role that genuinely has
 //     no contacts destination yet.
 //   * [personalInfoRoute] / [fallbackHomeRoute] — the «Особисті дані» row's

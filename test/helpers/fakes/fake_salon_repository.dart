@@ -216,7 +216,7 @@ class FakeSalonRepository implements SalonRepository {
 
   /// Phase 21.6 mobile-qa gap-closure — reads of the management roster.
   ///
-  /// `AdminSettingsScreen`/`MoveAdminSalonScreen` invalidate
+  /// `StaffSettingsScreen`/`MoveAdminSalonScreen` invalidate
   /// `salonManagementProfileProvider` after a successful write; without a
   /// counter here that invalidation is unobservable at the widget tier (the
   /// screens pop, so "the row is gone" is satisfied by the pop alone).

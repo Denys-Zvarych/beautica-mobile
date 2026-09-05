@@ -294,9 +294,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
   /// Phase 21.6 audit follow-up — was a third hand-written `2`. It now
   /// ALIASES the constant declared beside `SalonBottomNav.ownerAdminItems`
-  /// itself, so the shell, [AdminSettingsScreen] and [MoveAdminSalonScreen]
+  /// itself, so the shell, [StaffSettingsScreen] and [MoveAdminSalonScreen]
   /// can no longer drift apart, and the unit pin on that constant
-  /// (`admin_settings_screen_test.dart`) covers this call site too.
+  /// (`staff_settings_screen_test.dart`) covers this call site too.
   static const int _navTeam = kSalonTeamNavTab;
 
   /// The in-screen sub-tab index that the bottom-nav destination implies.
