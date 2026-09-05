@@ -2,9 +2,11 @@
 /// [MoveAdminSalonScreen] raise before touching an administrator. Phase 306
 /// adds a third, [RemoveMasterDialog], for the categorically larger act of
 /// removing a MASTER — its body is a bulleted consequence list rather than
-/// [RemoveAdminDialog]'s one-liner, because the master endpoint deletes the
-/// user's account while the admin endpoint only unassigns them. All three
-/// route through the same [_DialogShell] below.
+/// [RemoveAdminDialog]'s one-liner, because a master carries booking
+/// cancellation/notification and completed-history consequences an admin
+/// does not — both endpoints hard-delete the user's account (Phase 299 made
+/// the admin endpoint a hard delete too). All three route through the same
+/// [_DialogShell] below.
 ///
 /// ## Chrome — mirrored from the shipped app, not invented
 ///
@@ -117,9 +119,9 @@ class RemoveAdminDialog extends StatelessWidget {
         alpha: 0.16,
       ),
       title: l10n.adminSettingsRemoveDialogTitle,
-      // The message says the admin loses MANAGEMENT ACCESS. It deliberately
-      // does not say "account deleted": `DELETE /salons/{salonId}/admins/
-      // {userId}` nulls the user's `salon_id` and leaves the account intact.
+      // Backend Phase 299 turned `DELETE /salons/{salonId}/admins/{userId}`
+      // into a HARD DELETE of the admin's user account (it no longer just
+      // nulls `salon_id`), and the message below says so plainly.
       message: l10n.adminSettingsRemoveDialogBody(adminName),
       action: DestructiveButton(
         key: const Key('remove-admin-confirm'),
@@ -135,16 +137,16 @@ class RemoveAdminDialog extends StatelessWidget {
 
 /// The destructive remove-master confirmation.
 ///
-/// Phase 306 — a categorically larger act than [RemoveAdminDialog]: the
-/// admin endpoint only unassigns (`salon_id` → null), while
 /// `DELETE /salons/{salonId}/masters/{masterId}` (backend phase 297)
 /// hard-deletes the master's user account, and phase 298 removed the
 /// server-side refusal that used to block this when the master still had
 /// future bookings — those bookings are now cancelled and the clients
-/// notified instead of the call failing. That is why this dialog's body is
-/// the Phase 291 bulleted consequence list, not [RemoveAdminDialog]'s single
-/// sentence: the two stay visually distinct on purpose, because they are not
-/// the same size of consequence.
+/// notified instead of the call failing. Backend Phase 299 made
+/// [RemoveAdminDialog]'s endpoint a hard delete too, so the two calls are no
+/// longer different in KIND — but this dialog's body stays the Phase 291
+/// bulleted consequence list, not [RemoveAdminDialog]'s three-bullet one:
+/// a master carries booking cancellation/notification and a completed-history
+/// consequence that an admin, having no calendar or clients, does not.
 class RemoveMasterDialog extends StatelessWidget {
   const RemoveMasterDialog({super.key, required this.masterName});
 

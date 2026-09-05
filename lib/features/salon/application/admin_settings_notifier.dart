@@ -7,6 +7,10 @@
 // [StaffSettings.removeAdmin] without ambiguity.
 //
 //   • [StaffSettings.removeAdmin] → `DELETE /salons/{salonId}/admins/{userId}`
+//     — backend Phase 299 turned this into a HARD DELETE of the admin's user
+//     account (it used to null `salon_id` and leave the row alive) and
+//     narrowed the caller to `SALON_OWNER`. Both staff-removal endpoints hard-
+//     delete now; there is no surviving "admin only unassigns" distinction.
 //   • [StaffSettings.rotate]      → `PATCH  /salons/{salonId}/admins/{userId}/salon`
 //   • [siblingSalons]             → `GET    /salons/{salonId}/sibling-salons`
 //
@@ -72,11 +76,13 @@ class StaffSettings extends _$StaffSettings {
   @override
   void build() {}
 
-  /// Removes (unassigns) admin [userId] from salon [salonId].
+  /// Removes admin [userId] from salon [salonId].
   ///
-  /// Returns `null` on success or the [Failure] on error. The backend nulls
-  /// the user's `salon_id`; it does NOT delete their account — the calling
-  /// screen's copy must say so.
+  /// Returns `null` on success or the [Failure] on error. Backend Phase 299
+  /// turned this into a HARD DELETE of the admin's user account (it used to
+  /// null `salon_id` and leave the row alive) and narrowed the caller to
+  /// `SALON_OWNER` — the calling screen's copy and gating must say/enforce
+  /// so, and must NOT claim the account survives.
   Future<Failure?> removeAdmin({
     required String salonId,
     required String userId,

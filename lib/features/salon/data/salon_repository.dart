@@ -325,20 +325,26 @@ abstract interface class SalonRepository {
     required String inviteId,
   });
 
-  /// Removes admin [userId] from salon [salonId] (Phase 21.6).
+  /// Removes admin [userId] from salon [salonId] (Phase 21.6; backend Phase
+  /// 299 changed its effect and gating — see below).
   ///
   /// Wraps `DELETE /salons/{salonId}/admins/{userId}` (the generated
   /// `SalonControllerApi.removeAdmin`; 204 No Content on success). Backend-
-  /// side this UNASSIGNS the admin — it nulls their `salon_id` — it does NOT
-  /// delete their account, so the copy around this call must never promise
-  /// account deletion.
+  /// side this is a HARD DELETE of the admin's user account as of Phase 299
+  /// (`disposeStaffAccounts`) — it used to null their `salon_id` and leave
+  /// the row alive; it no longer does, so the copy around this call must
+  /// promise account deletion, never dispute it. Both staff-removal
+  /// endpoints — this one and [removeMaster] — hard-delete now; there is no
+  /// surviving distinction between them.
   ///
-  /// Self-removal is refused server-side (403), as is a caller without
-  /// management access to the salon. Throws a typed [Failure] like every
-  /// other method here; the CALLER maps a 403 to distinct copy, exactly as
-  /// [inviteStaff]'s own doc describes — note a bare 403 arrives as
-  /// [UnknownFailure], not [ServerFailure] (see `InviteStaffScreen
-  /// ._errorMessage`'s doc for why), so read the status off [Failure.cause].
+  /// Self-removal is refused server-side (403), as is any caller who is not
+  /// the salon's `SALON_OWNER` (narrowed from "any admin" by Phase 299).
+  /// Phase 299 also added a 409 when the admin's user row is also referenced
+  /// as a client. Throws a typed [Failure] like every other method here; the
+  /// CALLER maps the status to distinct copy, exactly as [inviteStaff]'s own
+  /// doc describes — note a bare 403 arrives as [UnknownFailure], not
+  /// [ServerFailure] (see `InviteStaffScreen._errorMessage`'s doc for why),
+  /// so read the status off [Failure.cause].
   Future<void> removeAdmin({required String salonId, required String userId});
 
   /// Removes master [masterId] from salon [salonId] (Phase 304; backend

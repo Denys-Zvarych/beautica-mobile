@@ -154,6 +154,20 @@ const User _kOwnerAsMaster = User(
   lastName: 'Литвин',
 );
 
+/// The owner, but ALSO the co-admin roster entry under test — Phase 308's
+/// admin-branch mirror of [_kOwnerAsMaster]. Same id as [_kAdminId], so
+/// `canManageStaff`'s `member?.userId != currentUserId` term is exercised
+/// for real rather than vacuously (self-removal is a 403 on the backend and
+/// always was; D3 carries the `!= currentUserId` term specifically so the
+/// row an admin is most likely to mis-tap — their own — never renders).
+const User _kOwnerAsAdmin = User(
+  id: _kAdminId,
+  email: 'owner-admin@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+);
+
 class _StubAuthNotifier extends AuthNotifier {
   _StubAuthNotifier(this._user);
 
@@ -164,11 +178,20 @@ class _StubAuthNotifier extends AuthNotifier {
       AuthSession.authenticated(user: _user, accessToken: 'tok');
 }
 
+/// Overrides for a [_pump] call that needs a specific signed-in [user] —
+/// promoted (Phase 308) out of [_masterViewerOverrides] so an ADMIN-branch
+/// test that only needs to control `isSalonOwnerProvider`/`currentUserProvider`
+/// (D3's `canManageStaff` gate) does not also drag in a master-only service
+/// stub that means nothing for an admin roster entry.
+List<Object> _authOverrides(User user) => <Object>[
+  authProvider.overrideWith(() => _StubAuthNotifier(user)),
+];
+
 /// Overrides for a [_pump] call that needs a specific signed-in [user] AND a
 /// resolvable MASTER roster entry (the services fetch [FakeServiceRepository]
 /// stub every master-role test in this file already needs).
 List<Object> _masterViewerOverrides(User user) => <Object>[
-  authProvider.overrideWith(() => _StubAuthNotifier(user)),
+  ..._authOverrides(user),
   publicServiceRepositoryProvider.overrideWithValue(FakeServiceRepository()),
 ];
 
@@ -382,7 +405,11 @@ void main() {
     testWidgets('renders both nav rows, the hairline and the destructive row', (
       tester,
     ) async {
-      await _pump(tester, _repo());
+      // Phase 308 (D3) — the terminal row is now owner-gated, so this
+      // "everything renders" baseline needs an OWNER viewer to still see
+      // it; see the dedicated 'remove administrator — gating (D3/D4)' group
+      // below for the non-owner/self-row denial cases this gate exists for.
+      await _pump(tester, _repo(), extraOverrides: _authOverrides(_kOwner));
 
       expect(find.byKey(const Key('row-admin-move-salon')), findsOneWidget);
       expect(
@@ -470,7 +497,11 @@ void main() {
       tester,
     ) async {
       final FakeSalonRepository repo = _repo();
-      final GoRouter router = await _pump(tester, repo);
+      final GoRouter router = await _pump(
+        tester,
+        repo,
+        extraOverrides: _authOverrides(_kOwner),
+      );
 
       await tester.tap(find.byKey(const Key('row-admin-remove')));
       await tester.pumpAndSettle();
@@ -490,9 +521,39 @@ void main() {
       expect(_lastMatchedLocation(router), RouteNames.salonManage(_kSalonId));
     });
 
+    // Phase 308 (D2/test case 17) — the success snack's exact literal, HARD-
+    // CODED here rather than compared against `l10n.adminSettingsRemoveSuccess`
+    // itself: pinning a getter against itself passes for every possible
+    // value (the Phase 291 CRITICAL finding this file's own header note
+    // warns about), and would stay green if the verb regressed to
+    // «вилучено».
+    testWidgets('a successful remove shows the exact success snack literal', (
+      tester,
+    ) async {
+      final FakeSalonRepository repo = _repo();
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
+      final AppLocalizations l10n = _settingsL10n(tester);
+      // i18n-finder-ok: this is the copy PIN itself (test case 17) — the
+      // hard-coded literal is the assertion, not a locale-coupled finder.
+      // Pinning against `l10n.adminSettingsRemoveSuccess` would compare the
+      // getter to itself and pass for any value, including the pre-308
+      // «вилучено» regression this test exists to catch.
+      expect(
+        l10n.adminSettingsRemoveSuccess,
+        'Адміністратора видалено із салону.',
+      );
+
+      await tester.tap(find.byKey(const Key('row-admin-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('remove-admin-confirm')));
+      await tester.pump();
+
+      expect(find.text(l10n.adminSettingsRemoveSuccess), findsOneWidget);
+    });
+
     testWidgets('backing out of the dialog issues nothing', (tester) async {
       final FakeSalonRepository repo = _repo();
-      await _pump(tester, repo);
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
 
       await tester.tap(find.byKey(const Key('row-admin-remove')));
       await tester.pumpAndSettle();
@@ -508,7 +569,7 @@ void main() {
       tester,
     ) async {
       final FakeSalonRepository repo = _repo(removeError: _forbidden());
-      await _pump(tester, repo);
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
       final AppLocalizations l10n = _settingsL10n(tester);
 
       await tester.tap(find.byKey(const Key('row-admin-remove')));
@@ -521,11 +582,13 @@ void main() {
       expect(find.byType(StaffSettingsScreen), findsOneWidget);
     });
 
-    testWidgets('a non-403 failure shows the generic copy', (tester) async {
+    testWidgets('a non-403/409/404 failure shows the generic copy', (
+      tester,
+    ) async {
       final FakeSalonRepository repo = _repo(
         removeError: const ServerFailure(statusCode: 500),
       );
-      await _pump(tester, repo);
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
       final AppLocalizations l10n = _settingsL10n(tester);
 
       await tester.tap(find.byKey(const Key('row-admin-remove')));
@@ -536,6 +599,139 @@ void main() {
       expect(find.text(l10n.adminSettingsRemoveErrorGeneric), findsOneWidget);
       expect(find.text(l10n.adminSettingsRemoveErrorForbidden), findsNothing);
     });
+
+    // Phase 308 (D6/test case 15) — the 409 backend Phase 299 introduced
+    // gets its OWN copy, not the generic fallback.
+    testWidgets('409 shows the conflict copy, not the generic one', (
+      tester,
+    ) async {
+      final FakeSalonRepository repo = _repo(
+        removeError: const ServerFailure(statusCode: 409),
+      );
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
+      final AppLocalizations l10n = _settingsL10n(tester);
+      // i18n-finder-ok: copy pin (test case 15) — see the success-snack
+      // test above for why the literal, not the getter, is the assertion.
+      expect(
+        l10n.adminSettingsRemoveErrorConflict,
+        "Цього адміністратора зараз не можна видалити — з ним пов'язані "
+        'записи, де він виступає клієнтом.',
+      );
+
+      await tester.tap(find.byKey(const Key('row-admin-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('remove-admin-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.adminSettingsRemoveErrorConflict), findsOneWidget);
+      expect(find.text(l10n.adminSettingsRemoveErrorGeneric), findsNothing);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
+    });
+
+    // Phase 308 (D6/test case 16) — 404 (already gone / second DELETE) gets
+    // its own copy too.
+    testWidgets('404 shows the not-found copy, not the generic one', (
+      tester,
+    ) async {
+      final FakeSalonRepository repo = _repo(
+        removeError: const ServerFailure(statusCode: 404),
+      );
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
+      final AppLocalizations l10n = _settingsL10n(tester);
+      // i18n-finder-ok: copy pin (test case 16) — see the success-snack
+      // test above for why the literal, not the getter, is the assertion.
+      expect(
+        l10n.adminSettingsRemoveErrorNotFound,
+        'Адміністратора не знайдено — можливо, його вже видалили.',
+      );
+
+      await tester.tap(find.byKey(const Key('row-admin-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('remove-admin-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.adminSettingsRemoveErrorNotFound), findsOneWidget);
+      expect(find.text(l10n.adminSettingsRemoveErrorGeneric), findsNothing);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Phase 308 (D3/D4) — the LIVE 403-on-tap bug: the admin remove row was
+  // never owner-gated. `canManageStaff` fixes that; these are its pins.
+  // -------------------------------------------------------------------
+  group('remove administrator — gating (D3/D4)', () {
+    testWidgets(
+      'an OWNER viewing a co-admin sees the remove row (test case 10)',
+      (tester) async {
+        await _pump(tester, _repo(), extraOverrides: _authOverrides(_kOwner));
+
+        expect(find.byKey(const Key('row-admin-remove')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a NON-OWNER admin viewing a co-admin does NOT see the remove row, '
+      'but the rest of the branch renders (test case 11 — the 403-on-tap '
+      'regression pin)',
+      (tester) async {
+        await _pump(
+          tester,
+          _repo(),
+          extraOverrides: _authOverrides(_kAdminViewer),
+        );
+
+        // Absence, not a field read (`SettingsRow.enabled`/`destructive`
+        // would be vacuous here) — the row must not exist in the tree at
+        // all, which is also what makes it untappable.
+        expect(find.byKey(const Key('row-admin-remove')), findsNothing);
+        // M8 — the row is omitted, NOT the whole admin branch: the
+        // navigational rows above it must still be there.
+        expect(find.byKey(const Key('row-admin-move-salon')), findsOneWidget);
+        expect(
+          find.byKey(const Key('row-admin-convert-to-master')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      "an OWNER viewing THEIR OWN admin row does NOT see the remove row "
+      '(test case 12)',
+      (tester) async {
+        await _pump(
+          tester,
+          _repo(),
+          extraOverrides: _authOverrides(_kOwnerAsAdmin),
+        );
+
+        expect(find.byKey(const Key('row-admin-remove')), findsNothing);
+      },
+    );
+
+    testWidgets('the hairline is absent together with the row for a non-owner '
+        '(test case 13)', (tester) async {
+      await _pump(
+        tester,
+        _repo(),
+        extraOverrides: _authOverrides(_kAdminViewer),
+      );
+
+      expect(find.byKey(const Key('admin-settings-divider')), findsNothing);
+    });
+
+    testWidgets(
+      'the hairline is absent together with the row for the owner\'s own '
+      'row (test case 13)',
+      (tester) async {
+        await _pump(
+          tester,
+          _repo(),
+          extraOverrides: _authOverrides(_kOwnerAsAdmin),
+        );
+
+        expect(find.byKey(const Key('admin-settings-divider')), findsNothing);
+      },
+    );
   });
 
   group('move to another salon', () {
@@ -743,7 +939,7 @@ void main() {
       'and confirming issues only one removeAdmin call',
       (tester) async {
         final FakeSalonRepository repo = _repo();
-        await _pump(tester, repo);
+        await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
 
         final SettingsRow row = tester.widget<SettingsRow>(
           find.byKey(const Key('row-admin-remove')),
@@ -789,7 +985,7 @@ void main() {
       (tester) async {
         final FakeSalonRepository repo = _repo();
         repo.removeAdminGate = Completer<void>();
-        await _pump(tester, repo);
+        await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
 
         await tester.tap(find.byKey(const Key('row-admin-remove')));
         await tester.pumpAndSettle();
@@ -835,7 +1031,7 @@ void main() {
       tester,
     ) async {
       final FakeSalonRepository repo = _repo();
-      await _pump(tester, repo);
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
 
       final int before = repo.getSalonStaffCalls;
       expect(
@@ -1110,8 +1306,9 @@ void main() {
 
     testWidgets('an ADMIN member is untouched by the guard', (tester) async {
       // The CONTROL. Without it the guard could be inverted (or always on)
-      // and the assertions above would still pass.
-      await _pump(tester, _repo());
+      // and the assertions above would still pass. OWNER viewer (Phase 308
+      // D3) since the terminal row is now additionally owner-gated.
+      await _pump(tester, _repo(), extraOverrides: _authOverrides(_kOwner));
 
       expect(
         find.byKey(const Key('admin-settings-not-an-admin')),
@@ -1128,9 +1325,12 @@ void main() {
       // roster that failed to load leaves the role unknown, and the page
       // must not flash "not an administrator" over it — the same
       // `orElse: () => false` default `SalonStaffProfileScreen` uses for
-      // its own trailing control.
+      // its own trailing control. OWNER viewer (Phase 308 D3): with `member`
+      // unresolved (null), `canManageStaff`'s `member?.userId` reads null,
+      // and `null != currentUserId` is `true` for any signed-in viewer, so
+      // ownership alone decides whether the row renders here.
       final FakeSalonRepository repo = _repo(staff: const <SalonStaffMember>[]);
-      await _pump(tester, repo);
+      await _pump(tester, repo, extraOverrides: _authOverrides(_kOwner));
 
       expect(
         find.byKey(const Key('admin-settings-not-an-admin')),
@@ -1138,6 +1338,38 @@ void main() {
       );
       expect(find.byKey(const Key('row-admin-remove')), findsOneWidget);
     });
+
+    // Phase 308 QA gap-fill — the sibling of "an UNRESOLVED role renders the
+    // rows" above, but for a NON-OWNER viewer. That test only pins the
+    // isOwner==true reduction of `canManageStaff` (`isOwner && member?.userId
+    // != currentUserId` reduces to `isOwner` when `member` is null); it says
+    // nothing about isOwner==false during the same loading window, and
+    // `isOwner` is the ONLY conjunct standing between a non-owner and the
+    // row here. A defensive-coding mistake of the shape "show the row
+    // whenever the role is still unresolved, sort the real gate out once it
+    // loads" would slip past every other Phase 308 test: the null-member
+    // tests all use an owner viewer, and the non-owner tests all use a
+    // resolved member. This exercises the one combination neither covers.
+    testWidgets(
+      'a NON-OWNER viewer sees no remove row while the roster is still '
+      'UNRESOLVED (member null) either',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[],
+        );
+        await _pump(
+          tester,
+          repo,
+          extraOverrides: _authOverrides(_kAdminViewer),
+        );
+
+        expect(
+          find.byKey(const Key('admin-settings-not-an-admin')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('row-admin-remove')), findsNothing);
+      },
+    );
   });
 
   // -------------------------------------------------------------------

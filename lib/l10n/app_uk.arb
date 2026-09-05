@@ -5931,15 +5931,15 @@
   },
   "adminSettingsRemove": "Видалити адміністратора",
   "@adminSettingsRemove": {
-    "description": "Phase 21.6 — AdminSettingsScreen's terminal destructive row, below the hairline. The action UNASSIGNS the admin from the salon; the account is untouched. The wording matches the approved design verbatim, and the confirm dialog body (adminSettingsRemoveDialogBody) is where the real consequence is spelled out."
+    "description": "Phase 21.6 — AdminSettingsScreen's terminal destructive row, below the hairline, OWNER-ONLY as of Phase 308. Phase 299 turned the endpoint into a HARD DELETE of the admin's user account — both this call and DELETE /salons/{salonId}/masters/{masterId} now hard-delete, so there is no surviving distinction between the two. The wording matches the approved design verbatim, and the confirm dialog body (adminSettingsRemoveDialogBody) is where the real consequence is spelled out."
   },
   "adminSettingsRemoveDialogTitle": "Видалити адміністратора?",
   "@adminSettingsRemoveDialogTitle": {
-    "description": "Phase 21.6 — title of the destructive confirmation for removing an admin from the salon."
+    "description": "Phase 21.6 — title of the destructive confirmation for removing an admin from the salon. Phase 308: the action is a hard account delete since backend Phase 299, not a salon-membership removal; only this description changed, the title verb was already right and stays."
   },
-  "adminSettingsRemoveDialogBody": "{name} втратить доступ до керування салоном. Цю дію не можна скасувати.",
+  "adminSettingsRemoveDialogBody": "Цю дію не можна скасувати:\n• акаунт {name} буде видалено — доступ зникне одразу;\n• адміністратор зникне з команди салону;\n• за потреби ви зможете запросити цю людину знову на ту саму пошту.",
   "@adminSettingsRemoveDialogBody": {
-    "description": "Phase 21.6 — body of the remove-admin confirmation. Deliberately says «втратить доступ до керування салоном» and NOT anything about deleting an account: DELETE /salons/{salonId}/admins/{userId} nulls the user's salon_id, it does not delete the user.",
+    "description": "Phase 308 — bulleted consequence body of the remove-admin confirmation, most-irreversible first (Phase 291 house shape). Backend Phase 299 turned DELETE /salons/{salonId}/admins/{userId} into a HARD DELETE of the admin's user account — it no longer nulls salon_id, and the pre-308 wording that promised only a loss of salon access was a factual under-warning. Deliberately THREE bullets, not four: an admin has no calendar, clients or reviews, so removeMasterDialogBody's booking-cancellation and history-under-a-saved-name bullets have no admin counterpart and MUST NOT be invented for symmetry. Bullet three is a guarantee, not a hedge — Phase 299 frees the email, so re-invite genuinely works.",
     "placeholders": {
       "name": {
         "type": "String",
@@ -5951,17 +5951,25 @@
   "@adminSettingsRemoveConfirmCta": {
     "description": "Phase 21.6 — the destructive confirm button of the remove-admin dialog."
   },
-  "adminSettingsRemoveSuccess": "Адміністратора вилучено із салону.",
+  "adminSettingsRemoveSuccess": "Адміністратора видалено із салону.",
   "@adminSettingsRemoveSuccess": {
-    "description": "Phase 21.6 — success snack after DELETE /salons/{salonId}/admins/{userId}. Says «вилучено із салону», never «видалено», because the account survives."
+    "description": "Phase 308 — success snack after DELETE /salons/{salonId}/admins/{userId}. Says «видалено», not «вилучено»: backend Phase 299 hard-deletes the admin's user account, so the old «вилучено із салону» (reversible, unassign-only) wording became false. «із салону» stays — paired with «видалено» it reads as WHERE the deletion happened, not as a reversible membership change, and it keeps this snack byte-parallel in shape to removeMasterSuccess («Майстра видалено із салону.»)."
   },
-  "adminSettingsRemoveErrorForbidden": "Не вдалося вилучити цього адміністратора. Ви не можете вилучити самого себе, і потрібні права керування цим салоном.",
+  "adminSettingsRemoveErrorForbidden": "Не вдалося видалити цього адміністратора. Ви не можете видалити самого себе, і потрібні права власника цього салону.",
   "@adminSettingsRemoveErrorForbidden": {
-    "description": "Phase 21.6 — 403 from DELETE /salons/{salonId}/admins/{userId}. The backend refuses BOTH self-removal and a caller without management access with the same status, and the client cannot tell them apart from the response, so one sentence names both possibilities rather than guessing."
+    "description": "Phase 308 (D7) — 403 from DELETE /salons/{salonId}/admins/{userId}. Backend Phase 299 narrowed the caller to SALON_OWNER, so the old «потрібні права керування цим салоном» became wrong — an admin HAS management access and is still refused. Byte-parallel to removeMasterErrorForbidden. This is a backstop, not the primary defence: the staff_settings_screen canManageStaff gate (D3) should make it unreachable in practice, but the role can go stale between a cached staff read and the tap."
   },
-  "adminSettingsRemoveErrorGeneric": "Не вдалося вилучити адміністратора. Спробуйте ще раз.",
+  "adminSettingsRemoveErrorGeneric": "Не вдалося видалити адміністратора. Спробуйте ще раз.",
   "@adminSettingsRemoveErrorGeneric": {
-    "description": "Phase 21.6 — fallback error snack for any non-403 failure of the remove-admin call."
+    "description": "Phase 21.6 — fallback error snack for any non-403/409/404 failure of the remove-admin call."
+  },
+  "adminSettingsRemoveErrorConflict": "Цього адміністратора зараз не можна видалити — з ним пов'язані записи, де він виступає клієнтом.",
+  "@adminSettingsRemoveErrorConflict": {
+    "description": "Phase 308 — 409 from DELETE /salons/{salonId}/admins/{userId}, a failure mode backend Phase 299 introduced. Unlike removeMasterErrorConflict, which collapses three indistinguishable causes, this status has exactly ONE cause server-side (the admin's user row is also referenced as a client), so the copy names it instead of hedging. Before 308 this fell through to adminSettingsRemoveErrorGeneric and told the owner to retry an action that is deterministically refused."
+  },
+  "adminSettingsRemoveErrorNotFound": "Адміністратора не знайдено — можливо, його вже видалили.",
+  "@adminSettingsRemoveErrorNotFound": {
+    "description": "Phase 308 — 404 from DELETE /salons/{salonId}/admins/{userId}; the endpoint is idempotent by row absence, so a second DELETE lands here."
   },
   "adminSettingsManageSemanticLabel": "Керування адміністратором",
   "@adminSettingsManageSemanticLabel": {
@@ -5969,11 +5977,11 @@
   },
   "removeMasterDialogTitle": "Видалити майстра?",
   "@removeMasterDialogTitle": {
-    "description": "Phase 306 — title of the destructive remove-master confirmation, opened from a MASTER profile's settings gear. Categorically larger than adminSettingsRemoveDialogTitle: this call deletes the master's user account (backend phase 297), not merely unassigns them."
+    "description": "Phase 306 — title of the destructive remove-master confirmation, opened from a MASTER profile's settings gear. Phase 308: backend Phase 299 turned the admin endpoint (adminSettingsRemoveDialogTitle) into a hard delete too, so the old \"categorically larger\" contrast between the two no longer exists — both DELETE /salons/{salonId}/masters/{masterId} and DELETE /salons/{salonId}/admins/{userId} delete their target's user account."
   },
   "removeMasterDialogBody": "Цю дію не можна скасувати:\n• акаунт {name} буде видалено — доступ зникне одразу;\n• майбутні записи до цього майстра скасуємо, а клієнтів сповістимо;\n• майстер зникне з команди салону та з пошуку;\n• історія завершених записів залишиться під збереженим імʼям.",
   "@removeMasterDialogBody": {
-    "description": "Phase 306 — bulleted consequence body of the remove-master confirmation, most-irreversible first (Phase 291 house shape). MUST NOT reuse the admin verb «вилучити із салону» — this endpoint deletes the account, the admin one only unassigns. MUST NOT claim data was erased from our servers: completed bookings survive via a detach-with-name-snapshot, which bullet four states as «під збереженим імʼям», never implying the master's account survives.",
+    "description": "Phase 306 — bulleted consequence body of the remove-master confirmation, most-irreversible first (Phase 291 house shape). Phase 308: backend Phase 299 turned the admin endpoint's DELETE into a hard delete as well, so BOTH staff-removal endpoints now delete the target's user account — the old \"admin verb «вилучити із салону» only unassigns\" contrast this description used to draw is dead; adminSettingsRemoveDialogBody now uses «видалено» too. This body's four bullets stay because each is still true of MASTER removal specifically: booking cancellation/notification (bullet 2) and history-under-a-saved-name (bullet 4) have no admin counterpart and are NOT shared with adminSettingsRemoveDialogBody's three bullets. MUST NOT claim data was erased from our servers: completed bookings survive via a detach-with-name-snapshot, which bullet four states as «під збереженим імʼям», never implying the master's account survives.",
     "placeholders": {
       "name": {
         "type": "String",

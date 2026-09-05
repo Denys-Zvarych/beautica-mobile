@@ -16,14 +16,18 @@
 //      history — none of it scoped). The design places the row, so the row
 //      is placed; wiring it to anything would be faking a success. It ships
 //      `enabled: false` + «незабаром».
-//   3. hairline, then the terminal «Видалити адміністратора»
-//      (`DELETE /salons/{salonId}/admins/{userId}`).
+//   3. hairline, then the terminal «Видалити адміністратора», OWNER-ONLY as
+//      of Phase 308 (`DELETE /salons/{salonId}/admins/{userId}`).
 //
-// COPY — «Видалити адміністратора» is the design's own label and stays. The
-// endpoint UNASSIGNS the admin (`salon_id` → null); it does not delete their
-// account. The confirmation body is where that is made honest
-// («…втратить доступ до керування салоном»), which is exactly what the
-// preview's own dialog already said.
+// COPY — «Видалити адміністратора» is the design's own label and stays.
+// Backend Phase 299 turned the endpoint into a HARD DELETE of the admin's
+// user account (it used to null `salon_id` and leave the row alive) and
+// narrowed the caller to `SALON_OWNER`. Both staff-removal endpoints — this
+// one and `DELETE /salons/{salonId}/masters/{masterId}` — hard-delete now;
+// there is no surviving distinction between them. Phase 308 corrected the
+// confirmation body accordingly (it used to promise only a loss of salon
+// access) and added the `canManageStaff` owner gate below so a non-owner
+// admin never sees a row that 403s on tap.
 //
 // THE MASTER BRANCH (Phase 307) — a single terminal row, «Видалити
 // майстра» (`DELETE /salons/{salonId}/masters/{masterId}`, backend Phase
@@ -298,13 +302,27 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
   /// Maps a remove-admin [Failure] to this screen's own copy.
   ///
   /// Deliberately NOT `failure.userMessage(context)`: [ServerFailure]'s is a
-  /// single generic "server error" for every status, and a 403 here means
-  /// something the viewer can act on (you cannot remove yourself; you need
-  /// management access).
+  /// single generic "server error" for every status, and each status here
+  /// means something distinct the viewer can act on or at least understand.
+  ///
+  /// Phase 308 (D6/D7) widened this from a two-way (403-vs-generic) switch
+  /// to four-way, mirroring [_removeMasterErrorMessage]'s shape now that
+  /// backend Phase 299 gave this endpoint the same 409/404 failure modes:
+  ///   * 403 — owner-only as of 299; `canManageStaff` (D3) should make this
+  ///     unreachable in practice, but the role can go stale between a
+  ///     cached staff read and the tap, so the backstop stays.
+  ///   * 409 — the admin's user row is also referenced as a client. Unlike
+  ///     [_removeMasterErrorMessage]'s 409 (three collapsed causes, hedged
+  ///     copy), this status has exactly ONE cause server-side, so the copy
+  ///     names it directly instead of hedging.
+  ///   * 404 — idempotent-by-absence: a second DELETE lands here.
   String _removeErrorMessage(Failure failure, AppLocalizations l10n) {
-    return _failureStatusCode(failure) == 403
-        ? l10n.adminSettingsRemoveErrorForbidden
-        : l10n.adminSettingsRemoveErrorGeneric;
+    return switch (_failureStatusCode(failure)) {
+      403 => l10n.adminSettingsRemoveErrorForbidden,
+      409 => l10n.adminSettingsRemoveErrorConflict,
+      404 => l10n.adminSettingsRemoveErrorNotFound,
+      _ => l10n.adminSettingsRemoveErrorGeneric,
+    };
   }
 
   /// Maps a remove-master [Failure] to this screen's own copy (Phase 307,
@@ -544,13 +562,36 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
     final bool isNotAdmin =
         member != null && member.role != SalonStaffRole.admin;
 
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
+    final String? currentUserId = ref.watch(currentUserProvider)?.id;
+
+    // D3 (Phase 308) — the owner-and-not-self predicate, computed ONCE and
+    // shared by both the admin remove row (this file, below) and the master
+    // remove row (`canManageMaster`, immediately after) — REUSE-FIRST inside
+    // a single file, not only across files. `member?.userId` (safe
+    // navigation, not the `isNotAdmin`-promoted form) because this is read
+    // on the ADMIN branch too, where `member` is legitimately null while the
+    // roster is still loading — exactly the case the ROLE GUARD comment
+    // above already carves out, so a null `member` must not gate the row
+    // off. `null != currentUserId` is `true` for any signed-in viewer, so
+    // the loading window renders the row exactly as it did before this
+    // gate existed.
+    final bool canManageStaff = isOwner && member?.userId != currentUserId;
+
     // D3/D4 (Phase 307) — the master branch's OWN gate, evaluated only when
     // it is reachable at all (`isNotAdmin`). Owner-only, and never against
     // the owner's own master row.
-    final bool isOwner = ref.watch(isSalonOwnerProvider);
-    final String? currentUserId = ref.watch(currentUserProvider)?.id;
-    final bool canManageMaster =
-        isNotAdmin && isOwner && member.userId != currentUserId;
+    //
+    // CAREFUL — `isNotAdmin` must stay the LEFTMOST conjunct here: it is
+    // what promotes the nullable `member` (via its own `member != null &&
+    // …` definition above) so every bare `member` use later in `build()`
+    // (`member.userId` below, `_confirmRemoveMaster(member)`, …) compiles
+    // without a null check at each call site. `canManageStaff` itself reads
+    // `member` through `?.` and needs no such promotion — it does not carry
+    // it either. An NPE was already introduced and fixed on this exact
+    // expression earlier today; do not drop `isNotAdmin` or reorder it
+    // after `canManageStaff`.
+    final bool canManageMaster = isNotAdmin && canManageStaff;
 
     // mobile-security LOW fix (2026-09-05) — the two denial CAUSES need
     // different copy. `staffSettingsMasterOwnerOnlyBody`'s "ask the owner"
@@ -601,32 +642,42 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
             ),
           ),
 
-          // Separation before the terminal action.
-          _reveal(
-            _anim3,
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
-              child: Divider(
-                key: Key('admin-settings-divider'),
-                thickness: 0.6,
-                color: Color(0x38B89A7A), // accent @ ~22%
+          // D3/D4 (Phase 308) — the hairline and the terminal row are a
+          // PAIR: a divider terminating nothing is a visual bug, so both are
+          // omitted together for a non-owner (or the owner's own row —
+          // self-removal is a 403 on the backend and always was, but the
+          // object it now destroys is an account). No denial copy here,
+          // unlike the master branch's `SalonNoticeCard`: the admin branch
+          // still has the move/convert rows above, so the screen is never
+          // left empty and needs no explanation (D4).
+          if (canManageStaff) ...<Widget>[
+            // Separation before the terminal action.
+            _reveal(
+              _anim3,
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+                child: Divider(
+                  key: Key('admin-settings-divider'),
+                  thickness: 0.6,
+                  color: Color(0x38B89A7A), // accent @ ~22%
+                ),
               ),
             ),
-          ),
 
-          // Terminal / destructive action — set apart.
-          _reveal(
-            _anim4,
-            SettingsRow(
-              key: const Key('row-admin-remove'),
-              icon: Icons.person_remove_outlined,
-              label: l10n.adminSettingsRemove,
-              destructive: true,
-              showChevron: false,
-              loading: _removing,
-              onTap: () => _confirmRemove(adminName),
+            // Terminal / destructive action — set apart.
+            _reveal(
+              _anim4,
+              SettingsRow(
+                key: const Key('row-admin-remove'),
+                icon: Icons.person_remove_outlined,
+                label: l10n.adminSettingsRemove,
+                destructive: true,
+                showChevron: false,
+                loading: _removing,
+                onTap: () => _confirmRemove(adminName),
+              ),
             ),
-          ),
+          ],
         ],
       );
     } else if (!canManageMaster) {
