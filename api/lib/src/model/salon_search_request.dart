@@ -22,8 +22,8 @@ part 'salon_search_request.g.dart';
 /// * [page]
 /// * [size]
 /// * [serviceTypeSlugs]
-/// * [priceRangeValid]
 /// * [withinResultWindow]
+/// * [priceRangeValid]
 @BuiltValue()
 abstract class SalonSearchRequest
     implements Built<SalonSearchRequest, SalonSearchRequestBuilder> {
@@ -55,11 +55,11 @@ abstract class SalonSearchRequest
   @BuiltValueField(wireName: r'serviceTypeSlugs')
   BuiltList<String>? get serviceTypeSlugs;
 
-  @BuiltValueField(wireName: r'priceRangeValid')
-  bool? get priceRangeValid;
-
   @BuiltValueField(wireName: r'withinResultWindow')
   bool? get withinResultWindow;
+
+  @BuiltValueField(wireName: r'priceRangeValid')
+  bool? get priceRangeValid;
 
   SalonSearchRequest._();
 
@@ -150,17 +150,17 @@ class _$SalonSearchRequestSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
-    if (object.priceRangeValid != null) {
-      yield r'priceRangeValid';
-      yield serializers.serialize(
-        object.priceRangeValid,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.withinResultWindow != null) {
       yield r'withinResultWindow';
       yield serializers.serialize(
         object.withinResultWindow,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.priceRangeValid != null) {
+      yield r'priceRangeValid';
+      yield serializers.serialize(
+        object.priceRangeValid,
         specifiedType: const FullType(bool),
       );
     }
@@ -252,19 +252,19 @@ class _$SalonSearchRequestSerializer
           ) as BuiltList<String>;
           result.serviceTypeSlugs.replace(valueDes);
           break;
-        case r'priceRangeValid':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.priceRangeValid = valueDes;
-          break;
         case r'withinResultWindow':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(bool),
           ) as bool;
           result.withinResultWindow = valueDes;
+          break;
+        case r'priceRangeValid':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.priceRangeValid = valueDes;
           break;
         default:
           unhandled.add(key);

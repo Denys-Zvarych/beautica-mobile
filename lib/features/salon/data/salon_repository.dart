@@ -341,6 +341,29 @@ abstract interface class SalonRepository {
   /// ._errorMessage`'s doc for why), so read the status off [Failure.cause].
   Future<void> removeAdmin({required String salonId, required String userId});
 
+  /// Removes master [masterId] from salon [salonId] (Phase 304; backend
+  /// Phase 297 + 298).
+  ///
+  /// Wraps `DELETE /salons/{salonId}/masters/{masterId}` (the generated
+  /// `SalonMasterControllerApi.removeMaster`; 204 No Content on success).
+  ///
+  /// D3 TRAP — READ BEFORE CALLING: the path variable is the **`Master`
+  /// row id** (`masterId`), NOT the `User` row id (`userId`).
+  /// [SalonStaffMember] (`domain/salon_staff_member.dart`) carries both;
+  /// passing `userId` here 404s on EVERY call, which is indistinguishable
+  /// from "already removed" — always pass `member.masterId`, never
+  /// `member.userId`/a roster `memberId`.
+  ///
+  /// Backend-side this cancels the master's future bookings and notifies
+  /// them (Phase 298). Throws a typed [Failure] like every other method
+  /// here; status-code interpretation (403/404/409) is a presentation
+  /// concern and stays out of this repository, exactly like [removeAdmin] —
+  /// the CALLER reads the code off [Failure.cause]/[ServerFailure.statusCode].
+  Future<void> removeMaster({
+    required String salonId,
+    required String masterId,
+  });
+
   /// Moves admin [userId] from salon [salonId] to [destinationSalonId]
   /// (Phase 21.6).
   ///
@@ -393,6 +416,7 @@ final class HttpSalonRepository implements SalonRepository {
     this._serviceApi,
     this._reviewApi,
     this._mediaApi,
+    this._masterApi,
   );
 
   final Dio _dio;
@@ -400,6 +424,13 @@ final class HttpSalonRepository implements SalonRepository {
   final ServiceControllerApi _serviceApi;
   final ReviewControllerApi _reviewApi;
   final MediaControllerApi _mediaApi;
+
+  /// Generated client for `SalonMasterController` — currently only
+  /// [removeMaster] (Phase 304). The `removeMaster` operationId lands here
+  /// rather than on [_salonApi]/`SalonControllerApi` because the backend
+  /// tags this endpoint under a separate SpringDoc group; do not assume
+  /// `SalonControllerApi` for it after a future regen without re-checking.
+  final SalonMasterControllerApi _masterApi;
 
   @override
   Future<void> create({required SalonCreateDto dto}) async {
@@ -871,6 +902,28 @@ final class HttpSalonRepository implements SalonRepository {
   }
 
   @override
+  Future<void> removeMaster({
+    required String salonId,
+    required String masterId,
+  }) async {
+    try {
+      await _masterApi.removeMaster(salonId: salonId, masterId: masterId);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'removeMaster failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
   Future<void> rotateAdmin({
     required String salonId,
     required String userId,
@@ -1099,6 +1152,7 @@ SalonRepository salonRepository(Ref ref) => HttpSalonRepository(
   ref.watch(salonServiceApiProvider),
   ref.watch(salonReviewApiProvider),
   ref.watch(salonMediaApiProvider),
+  ref.watch(salonMasterApiProvider),
 );
 
 /// Provides the generated [SalonControllerApi] singleton.
@@ -1130,3 +1184,11 @@ ReviewControllerApi salonReviewApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 MediaControllerApi salonMediaApi(Ref ref) =>
     MediaControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [SalonMasterControllerApi] singleton — currently
+/// only [SalonRepository.removeMaster] (Phase 304). A distinct SpringDoc
+/// group from [SalonControllerApi]; see [HttpSalonRepository._masterApi]'s
+/// doc for why the operation lands here.
+@Riverpod(keepAlive: true)
+SalonMasterControllerApi salonMasterApi(Ref ref) =>
+    SalonMasterControllerApi(ref.watch(dioProvider), standardSerializers);

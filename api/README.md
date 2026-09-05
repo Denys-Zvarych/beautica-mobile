@@ -175,6 +175,7 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**disableOwnerMaster**](doc/SalonMasterControllerApi.md#disableownermaster) | **DELETE** /api/v1/salons/{salonId}/master | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**enableOwnerMaster**](doc/SalonMasterControllerApi.md#enableownermaster) | **POST** /api/v1/salons/{salonId}/master | 
+[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**removeMaster**](doc/SalonMasterControllerApi.md#removemaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId} | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
@@ -382,6 +383,7 @@ Class | Method | HTTP request | Description
  - [RotateAdminRequest](doc/RotateAdminRequest.md)
  - [RotateMasterRequest](doc/RotateMasterRequest.md)
  - [SalonAdminResponse](doc/SalonAdminResponse.md)
+ - [SalonDeletionBlockedResponse](doc/SalonDeletionBlockedResponse.md)
  - [SalonInviteHistoryResponse](doc/SalonInviteHistoryResponse.md)
  - [SalonInviteResponse](doc/SalonInviteResponse.md)
  - [SalonResponse](doc/SalonResponse.md)

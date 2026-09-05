@@ -165,6 +165,14 @@ class FakeSalonRepository implements SalonRepository {
   final List<({String salonId, String userId})> removeAdminRequests =
       <({String salonId, String userId})>[];
 
+  /// Every `(salonId, masterId)` tuple passed to [removeMaster] (Phase 304).
+  ///
+  /// D3: this is deliberately keyed `masterId`, NOT `userId` — a caller that
+  /// mistakenly forwards a roster `memberId`/`userId` here is exactly the bug
+  /// this fake exists to catch, so never rename this field to `userId`.
+  final List<({String salonId, String masterId})> removeMasterRequests =
+      <({String salonId, String masterId})>[];
+
   /// Every `(salonId, userId, destinationSalonId)` tuple passed to
   /// [rotateAdmin] — the destination is what a mis-wired picker would get
   /// wrong, so it is recorded rather than merely counted.
@@ -181,12 +189,18 @@ class FakeSalonRepository implements SalonRepository {
   Failure? rotateAdminError;
   Failure? siblingSalonsError;
 
+  /// Injected by a test to make [removeMaster] throw (Phase 304).
+  Failure? removeMasterError;
+
   /// Block the corresponding call until the test completes the gate — the
   /// only way to observe an in-flight state across a real frame. Same shape
   /// as [cancelInviteGate].
   Completer<void>? removeAdminGate;
   Completer<void>? rotateAdminGate;
   Completer<void>? siblingSalonsGate;
+
+  /// Same contract as [removeAdminGate], for [removeMaster] (Phase 304).
+  Completer<void>? removeMasterGate;
 
   @override
   Future<void> create({required SalonCreateDto dto}) async {
@@ -331,6 +345,21 @@ class FakeSalonRepository implements SalonRepository {
     // Mirror the backend: the roster row is unassigned, so a refetch of
     // `getSalonStaff` no longer lists them.
     staff.removeWhere((SalonStaffMember m) => m.userId == userId);
+  }
+
+  /// Phase 304 — D3: keyed on `masterId`, NEVER `userId`. Mirrors
+  /// [removeAdmin] otherwise: records the tuple, honours the gate/error
+  /// slots, then drops the matching roster row on success.
+  @override
+  Future<void> removeMaster({
+    required String salonId,
+    required String masterId,
+  }) async {
+    removeMasterRequests.add((salonId: salonId, masterId: masterId));
+    final Completer<void>? gate = removeMasterGate;
+    if (gate != null) await gate.future;
+    if (removeMasterError != null) throw removeMasterError!;
+    staff.removeWhere((SalonStaffMember m) => m.masterId == masterId);
   }
 
   @override

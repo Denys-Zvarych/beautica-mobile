@@ -195,6 +195,7 @@ import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/rotate_admin_request.dart';
 import 'package:beautica_api/src/model/rotate_master_request.dart';
 import 'package:beautica_api/src/model/salon_admin_response.dart';
+import 'package:beautica_api/src/model/salon_deletion_blocked_response.dart';
 import 'package:beautica_api/src/model/salon_invite_history_response.dart';
 import 'package:beautica_api/src/model/salon_invite_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
@@ -418,6 +419,7 @@ part 'serializers.g.dart';
   RotateAdminRequest,
   RotateMasterRequest,
   SalonAdminResponse,
+  SalonDeletionBlockedResponse,
   SalonInviteHistoryResponse,
   SalonInviteResponse,
   SalonResponse,

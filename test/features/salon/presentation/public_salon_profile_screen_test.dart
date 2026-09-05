@@ -354,6 +354,14 @@ class _FakeSalonRepository implements SalonRepository {
   );
 
   @override
+  Future<void> removeMaster({
+    required String salonId,
+    required String masterId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.removeMaster is not stubbed — owner/admin only.',
+  );
+
+  @override
   Future<void> rotateAdmin({
     required String salonId,
     required String userId,

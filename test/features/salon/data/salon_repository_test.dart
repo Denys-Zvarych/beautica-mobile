@@ -32,6 +32,8 @@ class _MockReviewApi extends Mock implements ReviewControllerApi {}
 
 class _MockMediaApi extends Mock implements MediaControllerApi {}
 
+class _MockMasterApi extends Mock implements SalonMasterControllerApi {}
+
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
   requestOptions: RequestOptions(path: '/api/v1/salons'),
   statusCode: 201,
@@ -67,17 +69,20 @@ Response<ApiResponseListSiblingSalonOption> _siblingEnvelope(
 void main() {
   late _MockDio dio;
   late _MockSalonApi salonApi;
+  late _MockMasterApi masterApi;
   late HttpSalonRepository repository;
 
   setUp(() {
     dio = _MockDio();
     salonApi = _MockSalonApi();
+    masterApi = _MockMasterApi();
     repository = HttpSalonRepository(
       dio,
       salonApi,
       _MockServiceApi(),
       _MockReviewApi(),
       _MockMediaApi(),
+      masterApi,
     );
   });
 
@@ -357,6 +362,171 @@ void main() {
   });
 
   // ───────────────────────────────────────────────────────────────────────
+  // Phase 304 — removeMaster: the data-tier half of backend Phase 297/298.
+  //
+  // D3's trap is the whole point of the first test below: `salonId2` and
+  // `userId2` fixtures are DELIBERATELY different strings from the
+  // `masterId` fixture. If the impl ever sent `userId` where `masterId`
+  // belongs, this test — not just a mutation probe — would fail on its own.
+  group('removeMaster', () {
+    const String salonId = 'salon-1';
+    const String masterId = 'master-99';
+    // Deliberately distinct from masterId (D3) — a fixture where the two
+    // ids collide would make the path assertion below pass even if the
+    // impl sent the wrong one.
+    const String userId = 'user-42';
+
+    test('hits DELETE /salons/{salonId}/masters/{masterId} with the MASTER id, '
+        'not the user id', () async {
+      when(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(
+            path: '/api/v1/salons/$salonId/masters/$masterId',
+          ),
+          statusCode: 204,
+        ),
+      );
+
+      await repository.removeMaster(salonId: salonId, masterId: masterId);
+
+      verify(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).called(1);
+      verifyNever(
+        () => masterApi.removeMaster(salonId: salonId, masterId: userId),
+      );
+      verifyZeroInteractions(dio);
+    });
+
+    test('returns normally on 204 No Content', () async {
+      when(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(path: '/masters/$masterId'),
+          statusCode: 204,
+        ),
+      );
+
+      await expectLater(
+        repository.removeMaster(salonId: salonId, masterId: masterId),
+        completes,
+      );
+    });
+
+    test('maps a 409 to ServerFailure(statusCode: 409)', () async {
+      when(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/masters/$masterId'),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: '/masters/$masterId'),
+            statusCode: 409,
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.removeMaster(salonId: salonId, masterId: masterId),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 409),
+        ),
+      );
+    });
+
+    test(
+      'maps a 403 to a Failure whose status code is readable as 403',
+      () async {
+        when(
+          () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: '/masters/$masterId'),
+            type: DioExceptionType.badResponse,
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: '/masters/$masterId'),
+              statusCode: 403,
+            ),
+          ),
+        );
+
+        try {
+          await repository.removeMaster(salonId: salonId, masterId: masterId);
+          fail('expected a Failure to be thrown');
+        } on Failure catch (f) {
+          final int? code = switch (f) {
+            ServerFailure(:final statusCode) => statusCode,
+            _ when f.cause is DioException =>
+              (f.cause! as DioException).response?.statusCode,
+            _ => null,
+          };
+          expect(code, 403);
+        }
+      },
+    );
+
+    test('maps a 404 to ServerFailure(statusCode: 404)', () async {
+      when(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/masters/$masterId'),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: '/masters/$masterId'),
+            statusCode: 404,
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.removeMaster(salonId: salonId, masterId: masterId),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 404),
+        ),
+      );
+    });
+
+    test('maps a connection timeout to NetworkFailure', () async {
+      when(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/masters/$masterId'),
+          type: DioExceptionType.connectionTimeout,
+        ),
+      );
+
+      await expectLater(
+        repository.removeMaster(salonId: salonId, masterId: masterId),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('rethrows an already-typed Failure untouched', () async {
+      const mapped = ValidationFailure(fieldErrors: {'masterId': 'invalid'});
+      when(
+        () => masterApi.removeMaster(salonId: salonId, masterId: masterId),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/masters/$masterId'),
+          type: DioExceptionType.badResponse,
+          error: mapped,
+        ),
+      );
+
+      await expectLater(
+        repository.removeMaster(salonId: salonId, masterId: masterId),
+        throwsA(same(mapped)),
+      );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
   // Phase 21.6 — getSiblingSalons, after the OpenAPI snapshot refresh.
   //
   // These pin the thing that CHANGED: the call now goes through the
@@ -506,6 +676,7 @@ void main() {
         _MockServiceApi(),
         _MockReviewApi(),
         _MockMediaApi(),
+        _MockMasterApi(),
       );
     });
 

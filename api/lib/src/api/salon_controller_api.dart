@@ -23,6 +23,7 @@ import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/invite_request.dart';
 import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/rotate_admin_request.dart';
+import 'package:beautica_api/src/model/salon_deletion_blocked_response.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
 
 class SalonControllerApi {

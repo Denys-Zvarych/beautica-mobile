@@ -1427,6 +1427,7 @@ void main() {
         _MockServiceApiWire(),
         _MockReviewApiWire(),
         _MockMediaApiWire(),
+        _MockMasterApiWire(),
       );
     });
 
@@ -1683,6 +1684,8 @@ class _MockServiceApiWire extends Mock implements ServiceControllerApi {}
 class _MockReviewApiWire extends Mock implements ReviewControllerApi {}
 
 class _MockMediaApiWire extends Mock implements MediaControllerApi {}
+
+class _MockMasterApiWire extends Mock implements SalonMasterControllerApi {}
 
 /// Stubs the ONE call `SalonControllerApi.getSalonStaff` makes
 /// (`dio.request<Object>`, matching `salon_repository_test.dart`'s own

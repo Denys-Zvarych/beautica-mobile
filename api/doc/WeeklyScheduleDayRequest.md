@@ -14,8 +14,8 @@ Name | Type | Description | Notes
 **times** | **BuiltList&lt;String&gt;** |  | [optional] 
 **windowStart** | **String** |  | [optional] 
 **windowEnd** | **String** |  | [optional] 
-**modeConsistent** | **bool** |  | [optional] 
 **windowConsistent** | **bool** |  | [optional] 
+**modeConsistent** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

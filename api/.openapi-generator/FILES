@@ -200,6 +200,7 @@ doc/RotateAdminRequest.md
 doc/RotateMasterRequest.md
 doc/SalonAdminResponse.md
 doc/SalonControllerApi.md
+doc/SalonDeletionBlockedResponse.md
 doc/SalonInviteHistoryResponse.md
 doc/SalonInviteResponse.md
 doc/SalonMasterControllerApi.md
@@ -461,6 +462,7 @@ lib/src/model/review_response.dart
 lib/src/model/rotate_admin_request.dart
 lib/src/model/rotate_master_request.dart
 lib/src/model/salon_admin_response.dart
+lib/src/model/salon_deletion_blocked_response.dart
 lib/src/model/salon_invite_history_response.dart
 lib/src/model/salon_invite_response.dart
 lib/src/model/salon_response.dart
@@ -501,6 +503,4 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_salon_invite_history_response_test.dart
-test/salon_invite_history_response_test.dart
-test/salon_invite_response_test.dart
+test/salon_deletion_blocked_response_test.dart
