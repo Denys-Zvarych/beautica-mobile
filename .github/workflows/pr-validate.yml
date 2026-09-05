@@ -482,12 +482,32 @@ jobs:
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
-      # finding. lib/features/ is currently empty so this always passes, but the
-      # gate is wired now so future feature code is gated from the first commit.
+      # finding. lib/features/ is fully populated now — this gate is live.
+      # Comment-only lines are excluded: ported-screen file headers routinely
+      # document the design-preview's imperative `Navigator.push`/`maybePop`
+      # → go_router swap as part of the REUSE-FIRST port record (see
+      # move_admin_salon_screen.dart, staff_settings_screen.dart), and failing
+      # CI for documenting compliance with the rule is backwards. A line is
+      # skipped only when its FIRST non-whitespace characters are a comment
+      # marker (`//`, `///`, `/*`, or a `*` block-comment continuation) — real
+      # code with a trailing comment (`Navigator.push(ctx); // TODO`) is still
+      # flagged.
       - name: Forbid direct Navigator usage in features
         run: |
-          ! grep -rE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null || \
-          { echo 'Direct Navigator usage found in lib/features/ — use context.go(RouteNames.x) instead'; exit 1; }
+          MATCHES=$(grep -rnE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null | awk -F: '
+            {
+              content = $0
+              sub(/^[^:]*:[0-9]+:/, "", content)
+              trimmed = content
+              sub(/^[ \t]*/, "", trimmed)
+              if (trimmed !~ /^(\/\/|\/\*|\*)/) print $0
+            }
+          ') || true
+          if [ -n "$MATCHES" ]; then
+            echo 'Direct Navigator usage found in lib/features/ — use context.go(RouteNames.x) instead'
+            echo "$MATCHES"
+            exit 1
+          fi
 
       # MS1 — SharedPreferences must never be used for tokens or PII in feature
       # code. flutter_secure_storage is the only approved secure store.
