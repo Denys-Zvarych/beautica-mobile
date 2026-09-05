@@ -18,6 +18,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
@@ -35,14 +37,17 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -89,6 +94,58 @@ const _stubMasters = <SalonMasterSummary>[
     reviewCount: 12,
     type: MasterType.independentMaster,
   ),
+];
+
+// ---------------------------------------------------------------------------
+// Phase 283 — roster audience-matrix fixtures (client-side rows, D2/D4/D6).
+//
+// [SalonMasterSummary] structurally cannot carry an admin — no `role` field
+// exists on this wire shape at all (D3's whole point: an admin has no master
+// row, so it cannot reach `/masters`). These fixtures mirror the STAFF-SIDE
+// counterparts in `salon_management_profile_screen_test.dart` by NAME/id
+// prefix only (`matrix-owner-1`/`matrix-dual-1`/`matrix-master-1`) — the two
+// files never share a repository instance, so matching masterId strings are
+// for readability across the pair, not a wired invariant.
+// ---------------------------------------------------------------------------
+
+/// D2's "toggle ON" client-side cell — the owner's active master row.
+const _matrixClientOwner = SalonMasterSummary(
+  masterId: 'matrix-owner-master-1',
+  firstName: 'Оксана',
+  lastName: 'Швець',
+  type: MasterType.salonOwner,
+);
+
+/// D4's edge case, client half: this person is `SALON_ADMIN` on the staff
+/// wire (see the staff-side `_matrixDualRole` counterpart) but their master
+/// row is an ordinary `SALON_MASTER` — `/masters` has no way to know (or
+/// care) that they are also an admin; it returns them like any other active
+/// master, which is CORRECT (D4).
+const _matrixClientDualRole = SalonMasterSummary(
+  masterId: 'matrix-dual-master-1',
+  firstName: 'Марта',
+  lastName: 'Дворак',
+  type: MasterType.salonMaster,
+);
+
+/// A plain active master — the baseline "always shown, both sides" row.
+const _matrixClientMaster = SalonMasterSummary(
+  masterId: 'matrix-master-1',
+  firstName: 'Софія',
+  lastName: 'Бондаренко',
+  type: MasterType.salonMaster,
+);
+
+/// The full client-side roster a well-formed `/masters` response can ever
+/// contain for this matrix — deliberately THREE entries, never four: there
+/// is no admin-shaped row to add (D3), so "all of them, unfiltered" (D1) and
+/// "never an admin" (D3) collapse to the same assertion at this layer — the
+/// wire-level tests in `salon_management_profile_notifier_test.dart` are
+/// what actually exercise a MUTATED wire response that unions an admin in.
+const _matrixClientFullRoster = <SalonMasterSummary>[
+  _matrixClientOwner,
+  _matrixClientDualRole,
+  _matrixClientMaster,
 ];
 
 const _stubCatalog = <SalonServiceCategoryEntry>[
@@ -197,6 +254,11 @@ class _FakeSalonRepository implements SalonRepository {
   @override
   Future<void> create({required SalonCreateDto dto}) async {}
 
+  // Phase 21.1 — this screen (the PUBLIC/client profile) never calls the
+  // owner-scoped `GET /salons/mine`; empty keeps the contract satisfied.
+  @override
+  Future<List<Salon>> getMySalons() async => const <Salon>[];
+
   @override
   Future<Salon> getSalonById(String salonId) => _salon();
 
@@ -245,6 +307,97 @@ class _FakeSalonRepository implements SalonRepository {
     'salonMasterServiceCoverageProvider directly via _overrides(coverage: …) '
     'instead of routing through this fake repository.',
   );
+
+  // Phase 21.2 — owner/admin write paths. This screen is the CLIENT-facing
+  // read-only profile, so neither is ever called here.
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
+      throw UnimplementedError(
+        '_FakeSalonRepository.updateSalon is not stubbed — this fake backs '
+        'the CLIENT-facing read-only profile screen.',
+      );
+
+  @override
+  Future<void> deleteSalon(String salonId) async => throw UnimplementedError(
+    '_FakeSalonRepository.deleteSalon is not stubbed — this fake backs the '
+    'CLIENT-facing read-only profile screen.',
+  );
+
+  // Owner/admin-only invite management; unreachable from this
+  // CLIENT-facing surface, so the same UnimplementedError guard as
+  // [deleteSalon] above rather than a silent empty stub.
+  @override
+  Future<SalonInviteHistory> listSalonInvites(
+    String salonId,
+  ) async => throw UnimplementedError(
+    '_FakeSalonRepository.listSalonInvites is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> cancelInvite({
+    required String salonId,
+    required String inviteId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.cancelInvite is not stubbed — owner/admin only.',
+  );
+
+  // Phase 21.6 — owner/admin admin-management surface. Same rationale as
+  // [listSalonInvites]/[cancelInvite] above: this fake backs the
+  // CLIENT-facing read-only salon profile, which can never reach any of
+  // these three calls.
+  @override
+  Future<void> removeAdmin({
+    required String salonId,
+    required String userId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.removeAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> removeMaster({
+    required String salonId,
+    required String masterId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.removeMaster is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.rotateAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<List<SiblingSalonOption>> getSiblingSalons(
+    String salonId,
+  ) async => throw UnimplementedError(
+    '_FakeSalonRepository.getSiblingSalons is not stubbed — owner/admin only.',
+  );
+
+  // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as
+  // [updateSalon]/[deleteSalon] immediately above: this fake backs the
+  // CLIENT-facing read-only profile screen, which never invites staff.
+  @override
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
+  }) async => throw UnimplementedError(
+    '_FakeSalonRepository.inviteStaff is not stubbed — this fake backs the '
+    'CLIENT-facing read-only profile screen.',
+  );
+
+  // Phase 21.5 — owner/admin read path (staff roster). Same rationale as
+  // [inviteStaff] immediately above.
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      throw UnimplementedError(
+        '_FakeSalonRepository.getSalonStaff is not stubbed — this fake backs '
+        'the CLIENT-facing read-only profile screen.',
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -1473,75 +1626,39 @@ void main() {
     );
   });
 
-  // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill
-  // used to be `Positioned(left, bottom: VelvetSpacing.md)` inside the
-  // cover's OWN stack, on the assumption the bottom-left corner sits "clear
-  // of the hero". The hero card's height is variable — a 2-line name, a
-  // 2-line address, and (Phase 224) a `locationNote` can all add height —
-  // and it used to eat into the cover's bottom edge and overlap the pill.
-  //
-  // Phase 224 fixed the hero card's overlap into the cover at a constant
-  // (`_CoverAndHero._cardCoverOverlap`, 25px — see that class's doc) instead
-  // of deriving it from the card's own content height, so ANY extra height
-  // the card needs now grows it downward, never upward into the cover. This
-  // pumps the worst case (2-line name + the fixed 2-line locality/street
-  // address + a `locationNote`, which now renders on the hero card itself)
-  // and asserts the pill's rendered Rect never intersects the hero card's
-  // Rect — true by construction now, but pinned here in case a future
-  // change reintroduces content-driven overlap.
-  group('cover edit pill layout', () {
-    testWidgets(
-      'cover edit pill never overlaps the hero card, even at worst-case '
-      'hero height (2-line name + the fixed 2-line locality/street address)',
-      (tester) async {
-        const String longName =
-            'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
-        const worstCaseSalon = Salon(
-          id: _kSalonId,
-          name: longName,
-          description: 'Затишний салон краси в серці Печерська.',
-          cityId: 'city-uuid-1',
-          street: 'вул. Велика Васильківська',
-          buildingNo: '44/2',
-          locationNote: 'вхід з двору, 2 поверх, домофон 12',
-          avgRating: 4.9,
-          reviewCount: 128,
-        );
+  // Regression pin: the "Обкладинка" cover-edit pill (the small camel pill
+  // that used to float over the cover's top control row) was removed
+  // outright — the cover is read-only chrome with no owner-edit affordance
+  // yet. This asserts the pill never renders, so a future change can't
+  // silently reintroduce it.
+  group('cover edit pill removal', () {
+    testWidgets('cover edit pill no longer renders', (tester) async {
+      const String longName =
+          'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
+      const worstCaseSalon = Salon(
+        id: _kSalonId,
+        name: longName,
+        description: 'Затишний салон краси в серці Печерська.',
+        cityId: 'city-uuid-1',
+        street: 'вул. Велика Васильківська',
+        buildingNo: '44/2',
+        locationNote: 'вхід з двору, 2 поверх, домофон 12',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
 
-        await tester.pumpApp(
-          const PublicSalonProfileScreen(salonId: _kSalonId),
-          overrides: _overrides(
-            repo: _FakeSalonRepository(salon: () async => worstCaseSalon),
-          ),
-          width: 390,
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => worstCaseSalon),
+        ),
+        width: 390,
+      );
+      await tester.pumpAndSettle();
 
-        final Finder pillFinder = find.byKey(
-          const Key('salon-cover-edit-pill'),
-        );
-        final Finder heroFinder = find.byKey(
-          const Key('salon-profile-hero-card'),
-        );
-        expect(pillFinder, findsOneWidget);
-        expect(heroFinder, findsOneWidget);
-
-        final Rect pillRect = tester.getRect(pillFinder);
-        final Rect heroRect = tester.getRect(heroFinder);
-
-        expect(
-          pillRect.overlaps(heroRect),
-          isFalse,
-          reason:
-              'the "Обкладинка" edit pill must never overlap the hero '
-              'card — the hero\'s overlap into the cover is now a FIXED '
-              '`_cardCoverOverlap` (25px) regardless of content height '
-              '(2-line name + the fixed 2-line locality/street address + '
-              'a locationNote), so any extra content height grows the '
-              'card downward, not further into the cover.',
-        );
-      },
-    );
+      expect(find.byKey(const Key('salon-cover-edit-pill')), findsNothing);
+      expect(find.byKey(const Key('salon-profile-hero-card')), findsOneWidget);
+    });
   });
 
   // ── mobile-qa regression pin: the actual bug Phase 223 (b) fixed, still
@@ -3445,6 +3562,245 @@ void main() {
               'expanded note growing the card downward must never affect '
               'the back button.',
         );
+      },
+    );
+  });
+
+  // The «Контакти» block used to gate its ENTIRE section (heading included) on
+  // `instagram != null` and had no phone row at all, so a phone-only salon
+  // showed no contacts whatsoever. Both rows are now gated independently and
+  // the heading on "either present" — the same structure the owner/admin
+  // management screen already used.
+  group('«Контакти» block — four combinations', () {
+    Future<void> pumpWith(WidgetTester tester, Salon salon) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => salon),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final Finder phoneRow = find.byKey(const Key('salon-contact-phone'));
+    final Finder instagramRow = find.byKey(
+      const Key('salon-contact-instagram'),
+    );
+    // l10n-sourced, never a Cyrillic literal (scripts/forbid_cyrillic_finder).
+    Finder heading(WidgetTester tester) => find.text(
+      AppLocalizations.of(
+        tester.element(find.byType(PublicSalonProfileScreen)),
+      ).masterContactsLabel,
+    );
+
+    testWidgets('phone only — phone row and the section heading render', (
+      tester,
+    ) async {
+      await pumpWith(tester, _stubSalon.copyWith(phone: '+380671112233'));
+      expect(phoneRow, findsOneWidget);
+      expect(instagramRow, findsNothing);
+      expect(heading(tester), findsOneWidget);
+      expect(find.text('+380671112233'), findsOneWidget);
+    });
+
+    testWidgets('instagram only — instagram row renders, no phone row', (
+      tester,
+    ) async {
+      await pumpWith(tester, _stubSalon.copyWith(instagramUrl: '@velvet'));
+      expect(phoneRow, findsNothing);
+      expect(instagramRow, findsOneWidget);
+      expect(heading(tester), findsOneWidget);
+    });
+
+    testWidgets('both — both rows render, phone above Instagram', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        _stubSalon.copyWith(phone: '+380671112233', instagramUrl: '@velvet'),
+      );
+      expect(phoneRow, findsOneWidget);
+      expect(instagramRow, findsOneWidget);
+      expect(
+        tester.getRect(phoneRow).bottom,
+        lessThanOrEqualTo(tester.getRect(instagramRow).top),
+      );
+    });
+
+    testWidgets('neither — the whole section is hidden', (tester) async {
+      await pumpWith(tester, _stubSalon);
+      expect(phoneRow, findsNothing);
+      expect(instagramRow, findsNothing);
+      expect(heading(tester), findsNothing);
+    });
+
+    testWidgets(
+      'a BLANK phone from the wire is treated as absent, not as an empty row '
+      '(the backend serves "" verbatim for a cleared field)',
+      (tester) async {
+        await pumpWith(tester, _stubSalon.copyWith(phone: '   '));
+        expect(phoneRow, findsNothing);
+        expect(heading(tester), findsNothing);
+      },
+    );
+  });
+
+  // ── Phase 283 — roster audience-matrix pins (client-side rows) ──────────
+  //
+  // Pins the CLIENT-SIDE half of the D2 matrix: `GET /salons/{id}/masters`
+  // (permitAll) applies no role filter of its own — the tab renders exactly
+  // what `getSalonMasters` returned. The two "owner toggle OFF" cells are
+  // gated on Phase 21.15 and pinned at the notifier/repository layer instead
+  // (`salon_management_profile_notifier_test.dart`), never here.
+  group('roster audience matrix (Phase 283)', () {
+    testWidgets(
+      'should_omitAdminFromClientRoster_when_salonProfileIsViewedPublicly',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => _matrixClientFullRoster,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        // D3 — the wire this screen reads has NO shape for an admin entry at
+        // all (an admin has no master row), so a well-formed `/masters`
+        // response for this salon carries exactly the three non-admin
+        // identities below and never a fourth "admin" card — proving the
+        // screen renders exactly the endpoint's payload, never inventing one.
+        expect(find.byType(SalonMasterCard), findsNWidgets(3));
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-owner-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-dual-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-master-1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('should_showOwnerInBothRosters_when_ownerMasterRowIsActive', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            masters: () async => const <SalonMasterSummary>[_matrixClientOwner],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-card-matrix-owner-master-1')),
+        findsOneWidget,
+        reason: 'D2: an owner with an ACTIVE master row is client-visible',
+      );
+    });
+
+    testWidgets(
+      'should_showDualRolePersonInBothRosters_when_adminAlsoHasAMasterRow',
+      (tester) async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                _matrixClientDualRole,
+              ],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        // D4 — this person is SALON_ADMIN on the staff wire (see the
+        // staff-side counterpart test), but `/masters` knows nothing about
+        // roles: it serves their active master row like anyone else's, and
+        // clients must be able to book them.
+        expect(
+          find.byKey(const Key('salon-master-card-matrix-dual-master-1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('should_showMasterInBothRosters_when_masterIsActive', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            masters: () async => const <SalonMasterSummary>[
+              _matrixClientMaster,
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-card-matrix-master-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'should_notApplyAnyRoleFilterClientSide_when_rostersAreRendered',
+      (tester) async {
+        // D1 — pins the CLIENT half: every master-typed entry the endpoint
+        // returned renders, unfiltered, whatever its [MasterType] (owner
+        // included) — no client-side role filter narrows this list. The
+        // staff-side counterpart of this exact case name lives in
+        // `salon_management_profile_screen_test.dart`.
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => _matrixClientFullRoster,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonMasterCard), findsNWidgets(3));
+        for (final SalonMasterSummary m in _matrixClientFullRoster) {
+          expect(
+            find.byKey(Key('salon-master-card-${m.masterId}')),
+            findsOneWidget,
+            reason: '${m.masterId} must render — no role filter exists',
+          );
+        }
       },
     );
   });

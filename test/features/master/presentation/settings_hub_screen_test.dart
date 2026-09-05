@@ -112,6 +112,71 @@ GoRouter _hubRouter() => GoRouter(
   ],
 );
 
+/// mobile-qa (2026-09-01) — same hub, rooted at the SALON_MASTER `/staff/
+/// settings` location and carrying stub destinations for the SALON_MASTER
+/// additive-param wiring (`personalInfoRoute`, `contactsRoute`,
+/// `fallbackHomeRoute`). `contactsEnabled: true` — the «Контакти» row is a
+/// live phone-only push target for this role (2026-09-01).
+GoRouter _staffHubRouter() => GoRouter(
+  initialLocation: RouteNames.salonMasterSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.salonMasterSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        contactsEnabled: true,
+        contactsRoute: RouteNames.salonMasterEditContacts,
+        personalInfoRoute: RouteNames.salonMasterEditPersonal,
+        fallbackHomeRoute: RouteNames.salonMasterProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditContacts,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-contacts'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
+    ),
+  ],
+);
+
+/// A `_staffHubRouter` variant that still passes `contactsEnabled: false` —
+/// exercises the DISABLED «незабаром» rendering, which no current call site
+/// uses but remains a general-purpose, tested capability of the widget (see
+/// its class doc).
+GoRouter _staffHubRouterContactsDisabled() => GoRouter(
+  initialLocation: RouteNames.salonMasterSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.salonMasterSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        contactsEnabled: false,
+        personalInfoRoute: RouteNames.salonMasterEditPersonal,
+        fallbackHomeRoute: RouteNames.salonMasterProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
+    ),
+  ],
+);
+
 void main() {
   group('SettingsHubScreen navigation rows', () {
     // (rowKey, destinationSentinelKey)
@@ -461,5 +526,157 @@ void main() {
         );
       },
     );
+  });
+
+  // ===========================================================================
+  // mobile-qa (2026-09-01) — SALON_MASTER additive-param wiring
+  // (`showLocation`, `contactsEnabled`, `contactsRoute`, `personalInfoRoute`,
+  // `fallbackHomeRoute`). Debt item 3: `showLocation:`/`contactsEnabled:` had
+  // NO consumer outside `settings_hub_screen.dart`/`app_router.dart` before
+  // this file. `contactsEnabled: false` is no longer any current call site's
+  // wiring — SALON_MASTER's «Контакти» went live (phone-only) the same day —
+  // but stays a tested, general-purpose capability via
+  // `_staffHubRouterContactsDisabled`.
+  // ===========================================================================
+  group('SALON_MASTER additive params (showLocation / contactsEnabled / '
+      'personalInfoRoute / fallbackHomeRoute)', () {
+    testWidgets('showLocation: false omits the «Локація» row entirely', (
+      tester,
+    ) async {
+      final router = _staffHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('row-location')), findsNothing);
+      // Sanity: this really is the hub, not an empty page.
+      expect(find.byKey(const Key('row-personal')), findsOneWidget);
+    });
+
+    testWidgets(
+      'the default (INDEPENDENT_MASTER) hub is UNCHANGED — showLocation '
+      'still defaults to true',
+      (tester) async {
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('row-location')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'contactsEnabled: false renders the «Контакти» row PRESENT but with '
+      'Semantics(enabled: false), and absorbs the pointer before it reaches '
+      'onTap (general-purpose capability — no current call site passes '
+      'false; SALON_MASTER\'s own wiring is contactsEnabled: true, covered '
+      'below)',
+      (tester) async {
+        final router = _staffHubRouterContactsDisabled();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        final Finder row = find.byKey(const Key('row-contacts'));
+        expect(row, findsOneWidget, reason: 'present, not dropped');
+
+        final Semantics semantics = tester.widget<Semantics>(
+          find.descendant(of: row, matching: find.byType(Semantics)).first,
+        );
+        expect(
+          semantics.properties.enabled,
+          isFalse,
+          reason:
+              'a screen reader must announce this row as unavailable, not '
+              'silently let a tap fall on the floor',
+        );
+
+        // M14 — a held pointer must never reach the row's GestureDetector.
+        // Asserting only "no navigation happened" would pass identically for
+        // an ABSORBED pointer and a merely-inert onTap; the AnimatedScale
+        // press-depression is the observable that distinguishes them (mirrors
+        // `admin_settings_screen_test.dart`'s identical probe).
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(row),
+        );
+        await tester.pump();
+        final Finder scaleFinder = find.descendant(
+          of: row,
+          matching: find.byType(AnimatedScale),
+        );
+        expect(
+          tester.widget<AnimatedScale>(scaleFinder).scale,
+          1.0,
+          reason:
+              'AbsorbPointer(absorbing: true) must swallow the pointer '
+              'before the row\'s GestureDetector sees onTapDown',
+        );
+        await gesture.cancel();
+        await tester.pumpAndSettle();
+
+        // Still on the hub — no route was pushed.
+        expect(find.byKey(const Key('stub-staff-personal')), findsNothing);
+        expect(row, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the default (INDEPENDENT_MASTER) hub keeps «Контакти» a live push '
+      'target — the additive param leaves every existing call site alone',
+      (tester) async {
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-contacts')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-contacts')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '«Особисті дані» pushes personalInfoRoute (salonMasterEditPersonal)',
+      (tester) async {
+        final router = _staffHubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-personal')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-staff-personal')), findsOneWidget);
+      },
+    );
+
+    testWidgets('close button with no prior history goes(fallbackHomeRoute) = '
+        'salonMasterProfile, not masterProfile', (tester) async {
+      final router = _staffHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('btn-close-hub')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('stub-staff-profile')),
+        findsOneWidget,
+        reason:
+            'canPop is false at the root of this router — the close '
+            'button must go(widget.fallbackHomeRoute), which for the '
+            'SALON_MASTER hub is /staff/profile, not the INDEPENDENT_'
+            'MASTER default /master/profile',
+      );
+    });
   });
 }

@@ -100,6 +100,11 @@
 // — that regresses Phase 243's >20-favourites correctness fix.
 
 import 'package:flutter/foundation.dart';
+// `ProviderListenable.select` (used below to narrow the `authProvider` watch to
+// the identity-bearing slice via [authUserIdOrNull]) is not part of
+// `riverpod_annotation`'s show-list — same reason `bookings_day_notifier.dart`
+// reaches for the full package.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -145,7 +150,17 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
   Map<FavoriteTarget, FavoriteEntry> build() {
     // Reset to empty whenever the session changes (logout → login) so one
     // user's favorites never leak to the next login.
-    ref.watch(authProvider);
+    //
+    // NARROWED to the user id (mobile-perf LOW, 2026-09-01) — a CORRECTNESS
+    // fix here, like `pending_service_preselection_provider.dart`. Rebuilding
+    // this notifier empties the map, so the bare `ref.watch(authProvider)`
+    // meant a silent token refresh (`AuthNotifier.setAccessToken` re-emits
+    // `Authenticated` with a new accessToken) dropped every optimistic heart
+    // the user had just tapped: the hearts on screen fell back to their
+    // `.select` default of `false` until the next `primeIfAbsent`/refetch.
+    // Only a different signed-in identity may clear this map — that is the
+    // leak this watch was added to close.
+    ref.watch(authProvider.select(authUserIdOrNull));
     return const <FavoriteTarget, FavoriteEntry>{};
   }
 

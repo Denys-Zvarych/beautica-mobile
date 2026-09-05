@@ -26,6 +26,7 @@
 //  POST /api/v1/auth/register/{role}     — returns verificationRequired envelope
 //  POST /api/v1/auth/verify-email        — returns auth tokens
 //  GET  /api/v1/users/me                 — returns user from current session
+//  GET  /api/v1/salons/mine              — Phase 21.1 My Salons Hub (SALON_OWNER landing)
 //  POST /api/v1/auth/logout              — no-op 200
 //  POST /api/v1/auth/forgot-password     — Beautica OTP task Phase B, generic 200
 //  POST /api/v1/auth/verify-password-reset-otp — Beautica OTP task Phase B, returns {resetTicket}
@@ -143,12 +144,22 @@ const Map<String, dynamic> _clientUserJson = <String, dynamic>{
   'lastName': 'Клієнт',
 };
 
+/// `phoneNumber` and `instagram` are POPULATED (mobile-qa 21.14 F3). The owner
+/// «Профіль» tab renders its phone tile unconditionally and its Instagram tile
+/// only when one is set, so an owner persona with neither contact let the E2E
+/// exercise the em-dash arm ONLY — the populated arm was covered at widget
+/// level, where the fixture is a Dart `User` and can therefore never prove the
+/// two keys survive the `UserProfileResponse` decode. Both values are
+/// obviously synthetic and follow the other personas' pattern
+/// (`masterPhone` = `+380501111111`, `masterInstagram` = `@olena_nails`).
 const Map<String, dynamic> _ownerUserJson = <String, dynamic>{
   'id': 'user-owner-1',
   'email': 'owner@beautica.ua',
   'role': 'SALON_OWNER',
   'firstName': 'Оксана',
   'lastName': 'Власник',
+  'phoneNumber': '+380502222222',
+  'instagram': '@oksana_salon',
 };
 
 const Map<String, dynamic> _masterUserJson = <String, dynamic>{
@@ -159,11 +170,31 @@ const Map<String, dynamic> _masterUserJson = <String, dynamic>{
   'lastName': 'Ковальчук',
 };
 
+/// mobile-qa Phase 21.8 gap-closure (2026-08-28) — SALON_ADMIN had no persona
+/// at all: `userJsonForRole` fell through the `_ => _masterUserJson` default,
+/// so `currentRole = UserRole.salonAdmin` silently logged in as an
+/// INDEPENDENT_MASTER (wrong role string, no `salonId`). No E2E flow could
+/// exercise the admin landing (`SalonHomeResolverScreen`'s synchronous
+/// `session.user.salonId` arm) until this was added. `salonId` is
+/// DELIBERATELY a different id than any row in [FakeBackend.mySalons]
+/// (`salon-owner-1`) — the admin landing must never depend on
+/// `mySalonsProvider` at all; sharing an id with the owner fixture would mask
+/// a regression that made it do so.
+const Map<String, dynamic> _adminUserJson = <String, dynamic>{
+  'id': 'user-admin-1',
+  'email': 'admin@beautica.ua',
+  'role': 'SALON_ADMIN',
+  'firstName': 'Ірина',
+  'lastName': 'Адміністратор',
+  'salonId': 'salon-admin-1',
+};
+
 /// Returns the stub JSON body for [UserRole] in `GET /users/me` shape.
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
     UserRole.salonOwner => _ownerUserJson,
+    UserRole.salonAdmin => _adminUserJson,
     UserRole.independentMaster => _masterUserJson,
     _ => _masterUserJson,
   };
@@ -235,8 +266,10 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
 /// Each test creates a fresh instance so state never leaks between tests.
 /// The [dio] field is the instance to inject into [dioProvider].
 final class FakeBackend {
-  FakeBackend({this.masterRowId = 'user-master-1'})
-    : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
+  FakeBackend({
+    this.masterRowId = 'user-master-1',
+    this.masterMeNotFound = false,
+  }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
     // PARITY WITH PRODUCTION. `dioProvider` (lib/core/network/dio_provider.dart)
@@ -306,6 +339,41 @@ final class FakeBackend {
   String? masterBuildingNo;
   String? masterLocationNote;
 
+  // ── Phase 21.14 — the owner-as-master gate ────────────────────────────────
+
+  /// Backend Phase 265's `UserProfileResponse.hasMasterProfile`, as served by
+  /// `GET /users/me` for every NON-CLIENT persona.
+  ///
+  /// TRI-STATE, matching the wire exactly — `null` is not `false`:
+  ///   • `null` (the DEFAULT) — the key is OMITTED from the body entirely, the
+  ///     shape an older backend produces. `owner_own_profile_notifier.dart`
+  ///     resolves that by probing `GET /masters/me`. Defaulting to null keeps
+  ///     every pre-existing flow byte-identical.
+  ///   • `true`  — proven positive; the master section loads.
+  ///   • `false` — proven negative; the section renders ABSENT and the
+  ///     `/masters/me` probe's result is discarded.
+  ///
+  /// Set BEFORE login (the value is read per-request by the `/users/me`
+  /// handler, so a mid-flow change takes effect on the next read).
+  bool? hasMasterProfile;
+
+  /// When true, `GET /masters/me` replies **404** with the standard
+  /// not-found envelope instead of the master detail.
+  ///
+  /// This is the real backend's answer for a `SALON_OWNER` who has no ACTIVE
+  /// `masterType = SALON_OWNER` row — NOT 403, since backend `c4d69ac`
+  /// widened that endpoint's `@PreAuthorize` to admit `SALON_OWNER`. It is
+  /// also the shape of the RACE the loader degrades: `hasMasterProfile` was
+  /// true when `/users/me` answered and the row was deactivated before
+  /// `/masters/me` was reached. Defaults false so every existing flow keeps
+  /// its 200.
+  ///
+  /// CONSTRUCTOR-TIME, unlike [hasMasterProfile]: `DioAdapter.onRoute` fixes a
+  /// route's STATUS CODE at registration (only the BODY is resolved per
+  /// request, by `replyCallback`), and `_wire()` runs from the constructor —
+  /// so this cannot be a mutable field the way the body-level knobs are.
+  final bool masterMeNotFound;
+
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
   // The CLIENT `GET /users/me` echoes these mutable fields so a save made by the
@@ -331,6 +399,35 @@ final class FakeBackend {
   String? clientStreet;
   String? clientBuildingNo;
   String? clientLocationNote;
+
+  // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
+  //
+  // `GET /api/v1/salons/mine` — `SalonResponse` shape (carries `isPrimary`,
+  // unlike the PUBLIC `PublicSalonResponse`). Mutable list, not a `const`,
+  // so a flow that needs to pin the stagger-crash regression (~12 salons) or
+  // the "no primary among many" edge case can replace it BEFORE boot without
+  // forking a second fixture set. Defaults to exactly ONE primary salon —
+  // the ordinary owner shape (registration always yields ≥1 salon).
+  List<Map<String, dynamic>> mySalons = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'id': 'salon-owner-1',
+      'ownerId': 'user-owner-1',
+      'name': 'Салон Оксани',
+      'city': 'Київ',
+      // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/`.oblastId`
+      // are non-null on the wire (backend `ec22d91`); reusing the SAME
+      // `city-kyiv`/`oblast-kyiv` pair every other salon fixture in this
+      // file resolves against (see the `/locations/oblasts/oblast-kyiv/
+      // cities` handler below) rather than a free-floating id that would
+      // resolve to nothing.
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
+      'street': 'Хрещатик',
+      'buildingNo': '10',
+      'isActive': true,
+      'isPrimary': true,
+    },
+  ];
 
   // ── Service state ─────────────────────────────────────────────────────────
 
@@ -719,6 +816,20 @@ final class FakeBackend {
 
   int getMeCalls = 0; // GET /api/v1/users/me counter
 
+  /// `GET /api/v1/salons/mine` call counter (Phase 21.1 My Salons Hub).
+  int getMySalonsCalls = 0;
+
+  /// `POST /api/v1/salons` call counter (Phase 21.3 «Register New Salon»,
+  /// `RegisterSalonScreen`/`RegisterSalon.submit`).
+  int createSalonCalls = 0;
+
+  /// The full decoded body of the most recent `POST /api/v1/salons` request.
+  Map<String, dynamic>? lastCreateSalonBody;
+
+  /// When set, `POST /api/v1/salons` replies with this status instead of 200
+  /// — lets a flow exercise `RegisterSalonScreen`'s error-snack path.
+  int? createSalonFailureStatusCode;
+
   /// `GET /api/v1/clients/me/passport` call counter (Phase 13.8 wire-up).
   int getPassportCalls = 0;
 
@@ -960,6 +1071,145 @@ final class FakeBackend {
   int getSalonMastersCalls = 0;
   String? lastGetSalonMastersId;
 
+  /// `GET /api/v1/salons/{salonId}/staff` — Phase 21.5 management-scoped
+  /// staff roster (masters + admins, unmasked contacts) backing the
+  /// «Персонал» grid tab. Distinct from [getSalonMastersCalls] above (the
+  /// PUBLIC masters rail the client-facing profile still uses).
+  int getSalonStaffCalls = 0;
+  String? lastGetSalonStaffId;
+
+  // ─── Phase 21.6 — admin management (remove / rotate / sibling salons) ────
+  //
+  // `DELETE /salons/{salonId}/admins/{userId}`,
+  // `PATCH  /salons/{salonId}/admins/{userId}/salon` and
+  // `GET    /salons/{salonId}/sibling-salons` (backend Phase 21.3b).
+  //
+  // GENUINELY STATEFUL, like the pending-invite handlers: the DELETE and the
+  // PATCH both REMOVE the administrator from [salonStaff], so a flow that
+  // re-enters «Персонал» observes a roster the backend actually changed. A
+  // canned 204 would let a purely client-side removal pass.
+
+  /// The mutable `salon-xyz` roster served by
+  /// `GET /salons/salon-xyz/staff` — seeded from [_salonStaff] per
+  /// [FakeBackend] instance so one flow's removal never leaks into another.
+  late final List<Map<String, dynamic>> salonStaff = <Map<String, dynamic>>[
+    for (final Map<String, dynamic> row in _salonStaff)
+      Map<String, dynamic>.from(row),
+  ];
+
+  /// mobile-qa Phase 308 LOW closure (2026-09-05) — the mutable
+  /// `salon-admin-1` roster served by `GET /salons/salon-admin-1/staff`.
+  ///
+  /// DELIBERATELY an ISOLATED fixture, not a widened `salonStaff` (the
+  /// `salon-xyz` roster above): three unrelated integration files
+  /// (`owner_own_profile_flow_test.dart`, `salon_shell_landing_flow_test.dart`,
+  /// `salon_management_profile_flow_test.dart` PART B) already assert against
+  /// `salon-xyz`'s roster shape or `salon-admin-1`'s previously-EMPTY one
+  /// (the latter only for its own empty-state — none reads THIS list's
+  /// content), and Phase 307 had to widen three pre-existing exact-roster
+  /// assertions by exactly one element after adding a fixture to the SHARED
+  /// list. A second, salon-admin-1-scoped list avoids that ripple entirely.
+  ///
+  /// Seeded with exactly ONE admin — `admin-peer-1`, a CO-admin distinct
+  /// from the logged-in `_adminUserJson.id` (`user-admin-1`) — so a genuine
+  /// SALON_ADMIN session viewing this roster is looking at a peer, not their
+  /// own row. That distinction matters: `StaffSettingsScreen`'s `canManageStaff`
+  /// gate (`isOwner && member?.userId != currentUserId`) is `false` for an
+  /// admin viewer regardless of whose row it is (an admin is never `isOwner`),
+  /// but a self-row subject would let a reader conflate "not the owner" with
+  /// "cannot remove yourself" — two different reasons the row could be
+  /// absent. A peer isolates the ONE gate under test.
+  late final List<Map<String, dynamic>> salonAdminOneStaff =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'userId': 'admin-peer-1',
+          'masterId': null,
+          'role': 'SALON_ADMIN',
+          'firstName': 'Марія',
+          'lastName': 'Сусідська',
+          'professionalTitle': null,
+          'avatarUrl': null,
+          'phoneNumber': '+380639998877',
+          'instagram': null,
+          'bio': null,
+          'avgRating': null,
+          'reviewCount': 0,
+          'serviceCount': 0,
+        },
+      ];
+
+  int removeAdminCalls = 0;
+  String? lastRemoveAdminUserId;
+
+  int rotateAdminCalls = 0;
+  String? lastRotateAdminUserId;
+  Map<String, dynamic>? lastRotateAdminBody;
+
+  /// Phase 307 — `DELETE /api/v1/salons/salon-xyz/masters/{masterId}` call
+  /// count + the last `masterId` PATH SEGMENT (never `userId`) it carried.
+  /// Keyed by name `lastRemoveMasterId`, not `...UserId`, on purpose: a flow
+  /// asserting `fb.lastRemoveMasterId == <masterId>` is the wire-level D2
+  /// pin — a client that sent `userId` instead would 404 (see
+  /// `SalonRepository.removeMaster`'s own doc), which is a DIFFERENT,
+  /// equally-visible failure, but this counter is what proves the byte on
+  /// the wire was right when the call DOES succeed.
+  int removeMasterCalls = 0;
+  String? lastRemoveMasterId;
+
+  int siblingSalonsCalls = 0;
+
+  /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
+  /// sharing this salon's owner, minus this salon. Shape mirrors the
+  /// backend's `SiblingSalonOption` (id + name + street + buildingNo ONLY —
+  /// deliberately narrower than `SalonResponse`). Since the OpenAPI snapshot
+  /// refresh this is deserialized by the GENERATED built_value model, so the
+  /// shape here is now schema-checked rather than merely conventional.
+  final List<Map<String, dynamic>> siblingSalons = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'id': 'salon-sibling-1',
+      'name': 'Студія «Камелія» на Подолі',
+      'street': 'вул. Спаська',
+      'buildingNo': '5',
+    },
+    <String, dynamic>{
+      'id': 'salon-sibling-2',
+      'name': 'Барбершоп «Дуб»',
+      'street': 'вул. Січових Стрільців',
+      'buildingNo': '4',
+    },
+  ];
+
+  /// When non-null, the next `DELETE .../admins/{userId}` answers with this
+  /// status instead of 204. Set it via [forceRemoveAdminFailure] — the route
+  /// closure captures the value at REGISTRATION time (the same re-wiring
+  /// discipline [forceInviteStaffFailure] documents).
+  int? _removeAdminFailureStatusCode;
+
+  void forceRemoveAdminFailure(int? statusCode) {
+    _removeAdminFailureStatusCode = statusCode;
+    _wireAdminManagement();
+  }
+
+  /// Same contract as [forceRemoveAdminFailure], for the rotate PATCH.
+  int? _rotateAdminFailureStatusCode;
+
+  void forceRotateAdminFailure(int? statusCode) {
+    _rotateAdminFailureStatusCode = statusCode;
+    _wireAdminManagement();
+  }
+
+  /// Same contract as [forceRemoveAdminFailure] (Phase 307), for
+  /// `DELETE .../masters/{masterId}`. Backend 297/298 can answer 403
+  /// (not owner / self-removal), 409 (own master row / already detached /
+  /// audit-blocked) or 404 (not found) — this fixture never distinguishes
+  /// the WIRE status from its cause; the mobile mapper's own tests own that.
+  int? _removeMasterFailureStatusCode;
+
+  void forceRemoveMasterFailure(int? statusCode) {
+    _removeMasterFailureStatusCode = statusCode;
+    _wireAdminManagement();
+  }
+
   /// `GET /api/v1/salons/{salonId}/services` — service catalogue ("Послуги").
   int getSalonServiceCatalogCalls = 0;
   String? lastGetSalonServiceCatalogId;
@@ -1023,6 +1273,288 @@ final class FakeBackend {
   /// original short fixture value so every existing assertion against it is
   /// unaffected.
   String salonLocationNote = '2 поверх';
+
+  // ── Owner/admin salon management (Phase 21.2) ──────────────────────────
+
+  /// `PATCH /api/v1/salons/{salonId}` call count + the exact last decoded
+  /// wire body — lets a flow assert the dirty-diff contract reached the
+  /// network (e.g. an untouched `phone` key is ABSENT/null in the body).
+  int updateSalonCalls = 0;
+  Map<String, dynamic>? lastUpdateSalonBody;
+
+  /// When set, `PATCH /api/v1/salons/salon-xyz` replies with this status and
+  /// a failure envelope instead of applying the request.
+  int? updateSalonFailureStatusCode;
+
+  /// `DELETE /api/v1/salons/{salonId}` call count.
+  int deleteSalonCalls = 0;
+
+  /// When set, `DELETE /api/v1/salons/salon-xyz` replies with this status and
+  /// a failure envelope instead of succeeding.
+  int? deleteSalonFailureStatusCode;
+
+  /// Phase 21.4 — `POST /api/v1/salons/{salonId}/invite` call count + the
+  /// exact last decoded wire body (email/role), so a flow can assert the
+  /// REAL serialized request reached the network — mirrors
+  /// [updateSalonCalls]/[lastUpdateSalonBody]'s shape exactly.
+  int inviteStaffCalls = 0;
+  Map<String, dynamic>? lastInviteStaffBody;
+
+  /// Status code `POST /api/v1/salons/salon-xyz/invite` fails with, or null
+  /// for the default 200. Set via [forceInviteStaffFailure] — never assign
+  /// directly: `DioAdapter.onRoute` bakes the reply's status code in at
+  /// REGISTRATION time (`RequestHandler.replyCallback`'s `statusCode` param
+  /// is captured the instant the route is registered, not read fresh per
+  /// request), so the route has to be RE-REGISTERED for a status change to
+  /// take effect — same device as [forceListMasterFavoritesFailure]/
+  /// [forceRemoveFavoriteFailure]. A direct assignment silently does
+  /// nothing once the constructor's initial registration has already run.
+  int? _inviteStaffFailureStatusCode;
+
+  /// Phase 303 — optional `data.code` sub-code for the failure body (e.g.
+  /// `EMAIL_ALREADY_REGISTERED` on a 409), so a flow can drive
+  /// [ErrorMapperInterceptor]'s typed-failure branch rather than only the
+  /// bare-status-code generic path. `null` (the default) reproduces the
+  /// original `data: null` envelope every pre-Phase-303 call site still
+  /// gets. Same re-registration discipline as [_inviteStaffFailureStatusCode]
+  /// — set only via [forceInviteStaffFailure].
+  String? _inviteStaffFailureErrorCode;
+
+  /// Makes the NEXT (and every subsequent) `POST /api/v1/salons/salon-xyz
+  /// /invite` fail with [statusCode]. Call again with `null` to restore the
+  /// default 200 success. [errorCode], when given, is nested as
+  /// `data: {"code": errorCode}` in the failure envelope — pass
+  /// `'EMAIL_ALREADY_REGISTERED'` with `statusCode: 409` to drive
+  /// [EmailAlreadyRegisteredFailure] end-to-end.
+  void forceInviteStaffFailure(int? statusCode, {String? errorCode}) {
+    _inviteStaffFailureStatusCode = statusCode;
+    _inviteStaffFailureErrorCode = errorCode;
+    _wireInviteStaff();
+  }
+
+  // ─── Staff-invitation HISTORY ────────────────────────────────────────────
+  //
+  // The salon's OUTBOUND invitation rows, served by
+  // `GET /api/v1/salons/salon-xyz/invites` and mutated by BOTH
+  // `POST .../invite` (appends a PENDING row) and
+  // `DELETE .../invites/{inviteId}` (flips one to CANCELLED — the real
+  // endpoint REVOKES the row, it does not delete it). Genuinely stateful on
+  // purpose: the two journeys this backs — "cancel one and it STAYS cancelled
+  // across a refetch" and "an invite you just sent APPEARS in the list" — are
+  // exactly the ones a stateless canned response could not tell apart from
+  // the broken behaviour.
+  //
+  // The GET serves rows in the order [pendingInvites] holds them, mimicking a
+  // server that has ALREADY sorted `createdAt DESC`. It does not sort: a fake
+  // that re-sorted would let a client which dropped the server order pass.
+  //
+  // `createdAt` is anchored to [kFixedNow] (the instant the harness injects
+  // through `clockProvider`), matching `_clientPublicReview`'s own convention.
+  // NOTE: `SalonInviteRow`'s «надіслано …» caption goes through
+  // `formatRelativeDate`, whose `now` defaults to the HOST clock rather than
+  // `clockProvider` (pre-existing, app-wide — `ReviewCard` does the same), so
+  // that ONE caption is host-relative regardless of what is seeded here. No
+  // flow asserts on it; the assertions are on the invitee email, which is
+  // clock-free.
+
+  /// Two ready-made PENDING invitation rows — a MASTER and an ADMIN, so a
+  /// flow that opts in exercises both `SalonInviteMapper` role branches.
+  /// Copy them in with [seedPendingInvites].
+  ///
+  /// Both are pending because the journeys built on this seed CANCEL one: a
+  /// terminal row renders no cancel action at all. For a mixed-status history
+  /// use [seedSalonInviteHistoryRows] instead.
+  static List<Map<String, dynamic>> get seedPendingInviteRows =>
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'inviteId': 'invite-seed-a',
+          'recipientEmail': 'anna.master@beautica.ua',
+          'role': 'SALON_MASTER',
+          'status': 'PENDING',
+          'createdAt': '2026-06-12T09:00:00Z',
+          'expiresAt': '2026-06-14T09:00:00Z',
+        },
+        <String, dynamic>{
+          'inviteId': 'invite-seed-b',
+          'recipientEmail': 'borys.admin@beautica.ua',
+          'role': 'SALON_ADMIN',
+          'status': 'PENDING',
+          'createdAt': '2026-06-13T09:00:00Z',
+          'expiresAt': '2026-06-15T09:00:00Z',
+        },
+      ];
+
+  /// Four rows covering ALL FOUR wire statuses, ordered exactly as the server
+  /// would return them — `createdAt` DESC, newest first.
+  ///
+  /// The `createdAt` values descend while the ids ascend, so a client that
+  /// re-sorted by anything else (id, email, status) would visibly reorder the
+  /// list rather than land on the same sequence by luck. Copy them in with
+  /// [seedSalonInviteHistory].
+  static List<Map<String, dynamic>> get seedSalonInviteHistoryRows =>
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'inviteId': 'invite-hist-1',
+          'recipientEmail': 'pending.master@beautica.ua',
+          'role': 'SALON_MASTER',
+          'status': 'PENDING',
+          'createdAt': '2026-06-20T09:00:00Z',
+          'expiresAt': '2026-06-22T09:00:00Z',
+        },
+        <String, dynamic>{
+          'inviteId': 'invite-hist-2',
+          'recipientEmail': 'cancelled.admin@beautica.ua',
+          'role': 'SALON_ADMIN',
+          'status': 'CANCELLED',
+          'createdAt': '2026-06-18T09:00:00Z',
+          'expiresAt': '2026-06-20T09:00:00Z',
+        },
+        <String, dynamic>{
+          'inviteId': 'invite-hist-3',
+          'recipientEmail': 'expired.master@beautica.ua',
+          'role': 'SALON_MASTER',
+          'status': 'EXPIRED',
+          'createdAt': '2026-06-14T09:00:00Z',
+          'expiresAt': '2026-06-16T09:00:00Z',
+        },
+        <String, dynamic>{
+          'inviteId': 'invite-hist-4',
+          'recipientEmail': 'accepted.admin@beautica.ua',
+          'role': 'SALON_ADMIN',
+          'status': 'ACCEPTED',
+          'createdAt': '2026-06-10T09:00:00Z',
+          'expiresAt': '2026-06-12T09:00:00Z',
+        },
+      ];
+
+  /// Rows served by `GET /api/v1/salons/salon-xyz/invites`, in order.
+  /// Mutable and read INSIDE the route callback (never captured at
+  /// registration), so a POST/DELETE landing mid-flow is visible to the very
+  /// next GET.
+  ///
+  /// EMPTY BY DEFAULT, deliberately. `InviteStaffScreen` renders its
+  /// pending-only block when that filtered list is non-empty, so seeding rows
+  /// here globally would inject two extra `SalonInviteRow`s into the tree of
+  /// EVERY flow that opens the invite form, and one extra
+  /// `GET .../invites` into its call ledger. A shared fake must not
+  /// silently change what an unrelated flow renders or counts — opt in with
+  /// [seedPendingInvites] instead.
+  ///
+  /// This default originally ALSO worked around
+  /// `salon_management_profile_flow_test.dart`'s role-toggle tap going
+  /// ambiguous (the pending row's admin role chip reuses the toggle's own
+  /// `Icons.admin_panel_settings_outlined`). That workaround is spent: the
+  /// toggle segments now carry `kInviteRoleAdminKey`/`kInviteRoleMasterKey`
+  /// and that flow taps by key, so it is immune to extra role glyphs. The
+  /// empty default is kept on the tree/ledger-hygiene grounds above alone.
+  List<Map<String, dynamic>> pendingInvites = <Map<String, dynamic>>[];
+
+  /// Loads [seedPendingInviteRows] (deep-copied, so a mutation in one test
+  /// cannot leak into the next) into [pendingInvites].
+  void seedPendingInvites() {
+    pendingInvites = seedPendingInviteRows;
+  }
+
+  /// Loads [seedSalonInviteHistoryRows] — the four-status, newest-first
+  /// fixture — into [pendingInvites]. Opt-in for the same tree/ledger-hygiene
+  /// reason [seedPendingInvites] is.
+  void seedSalonInviteHistory() {
+    pendingInvites = seedSalonInviteHistoryRows;
+  }
+
+  /// `truncated` reported by the history GET. False by default, so no flow
+  /// renders the truncation note unless it asks for it.
+  bool salonInvitesTruncated = false;
+
+  /// `GET /api/v1/salons/salon-xyz/invites` call count — lets a flow
+  /// prove a REFETCH actually happened (or, for the optimistic-cancel
+  /// contract, that one did NOT).
+  int listSalonInvitesCalls = 0;
+
+  /// `DELETE /api/v1/salons/salon-xyz/invites/{inviteId}` call count + the
+  /// id of the last one, so a flow can prove the RIGHT invitation was
+  /// addressed — a cancel that removed the wrong row would still "make a row
+  /// disappear".
+  int cancelInviteCalls = 0;
+  String? lastCancelInviteId;
+
+  /// Monotonic suffix for ids minted by `POST .../invite`. Starts past the
+  /// seeded rows so a minted id can never collide with one of them.
+  int _mintedInviteSeq = 0;
+
+  /// Status code the invite-history GET fails with, or null for 200. Set via
+  /// [forcePendingInvitesFailure] — never assign directly (see
+  /// [_inviteStaffFailureStatusCode]'s doc for why a status change needs the
+  /// route RE-REGISTERED).
+  int? _pendingInvitesFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent)
+  /// `GET /api/v1/salons/salon-xyz/invites` fail with [statusCode].
+  /// Call again with `null` to restore the default 200.
+  void forcePendingInvitesFailure(int? statusCode) {
+    _pendingInvitesFailureStatusCode = statusCode;
+    _wirePendingInvites();
+  }
+
+  /// Status code the cancel DELETE fails with, or null for 204. Set via
+  /// [forceCancelInviteFailure] — never assign directly.
+  int? _cancelInviteFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent)
+  /// `DELETE /api/v1/salons/salon-xyz/invites/{inviteId}` fail with
+  /// [statusCode]. A failed cancel must leave the row PENDING in
+  /// [pendingInvites] — the handler only flips it on the success path.
+  void forceCancelInviteFailure(int? statusCode) {
+    _cancelInviteFailureStatusCode = statusCode;
+    _wireCancelInvite();
+  }
+
+  /// Mutable profile state for `salon-xyz`, shared by BOTH read paths — the
+  /// PUBLIC `GET /salons/salon-xyz` (`_publicSalonDetailEnvelope`) and the
+  /// owner/admin `PATCH /salons/salon-xyz` response.
+  ///
+  /// These three fields used to be PATCH-response-only, deliberately kept
+  /// SEPARATE from the public envelope because `PublicSalonResponse` carried
+  /// no `phone` at all (the Phase 21.2 gap) — the phone field even
+  /// started `null` to mirror a `GET` that could never return one. That gap
+  /// is CLOSED: the backend now serves `phone` on the public DTO and the
+  /// regenerated client declares it
+  /// (`api/lib/src/model/public_salon_response.dart`), so keeping two
+  /// divergent sources of truth would let a flow "prove" the phone renders
+  /// while the public envelope it actually reads never carried one. ONE
+  /// source now; the public envelope reads these directly.
+  ///
+  /// PUBLIC and mutable so a flow can shape the «Контакти» block BEFORE
+  /// [FakeBackend]'s constructor wires its routes — e.g. `salonInstagramUrl =
+  /// null` for the phone-only combination, or `salonPhone = ''` to exercise
+  /// the backend's `""`-verbatim-for-a-cleared-field wire contract that
+  /// `SalonMapper._blankToNull` exists to absorb.
+  ///
+  /// [salonPhone] is seeded to a REAL number on purpose. A `null` seed would
+  /// defang every phone assertion in this file's dependants: the pre-fix
+  /// `SalonMapper.fromDto` hard-coded `phone: null`, so a null fixture makes
+  /// "no phone row renders" pass identically before and after the fix. The
+  /// value is deliberately DIFFERENT from the one
+  /// `salon_management_profile_flow_test.dart` types into the contacts form,
+  /// so an edit still produces a genuine dirty diff.
+  String _salonManageName = 'Студія Краси «Камелія»';
+  String? salonDescription =
+      'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
+      'та стрижки — довірливий сервіс з 2018 року.';
+  String? salonPhone = '+380 44 500 10 20';
+  String? salonInstagramUrl = '@kamelia_salon';
+
+  /// RESUME §4 step D (mobile half) — `SalonResponse.cityId`/`.oblastId` are
+  /// now non-null on the wire (backend `ec22d91`, `salons.city_id` DB-level
+  /// `NOT NULL`), so the PATCH response below must always echo a real pair
+  /// or `SalonMapper.fromUpdateDto`'s deserialization throws. Seeded to the
+  /// SAME `city-kyiv`/`oblast-kyiv` pair `_publicSalonDetailEnvelope` uses,
+  /// mirroring the "untouched field round-trips unchanged" contract the
+  /// other `_salonManage*` fields already follow. `districtId` stays
+  /// nullable — `city-kyiv` has none.
+  String _salonManageCityId = 'city-kyiv';
+  final String _salonManageOblastId = 'oblast-kyiv';
+  String? _salonManageDistrictId;
 
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
@@ -1761,32 +2293,60 @@ final class FakeBackend {
 
   /// PUBLIC salon-detail envelope for `salon-xyz`. Shape matches
   /// `PublicSalonResponse` (id/name/description/city/region/address/cityId/
-  /// districtId/street/buildingNo/locationNote/instagramUrl/avatarUrl/
-  /// coverImageUrl/avgRating/reviewCount).
+  /// oblastId/districtId/street/buildingNo/locationNote/instagramUrl/
+  /// avatarUrl/coverImageUrl/avgRating/reviewCount).
   ///
   /// Deliberately carries ONLY the Phase 10.6+ taxonomy locality fields
-  /// (`cityId`/`street`/`buildingNo`/`locationNote`) and leaves the legacy
-  /// `city`/`address` pair null — this is the real shape of every salon
-  /// created/edited since Phase 10.6, and is the exact fixture shape the
-  /// "public salon profile shows no location" regression needed: a fixture
-  /// with the legacy pair populated would pass through the OLD (broken)
-  /// `SalonMapper.fromDto`, which silently dropped the taxonomy fields, just
-  /// as easily as the fixed one. See `salon_mapper_test.dart` for the
-  /// mapper-level unit-test counterpart and
+  /// (`cityId`/`oblastId`/`street`/`buildingNo`/`locationNote`) and leaves
+  /// the legacy `city`/`address` pair null — this is the real shape of every
+  /// salon created/edited since Phase 10.6, and is the exact fixture shape
+  /// the "public salon profile shows no location" regression needed: a
+  /// fixture with the legacy pair populated would pass through the OLD
+  /// (broken) `SalonMapper.fromDto`, which silently dropped the taxonomy
+  /// fields, just as easily as the fixed one. See `salon_mapper_test.dart`
+  /// for the mapper-level unit-test counterpart and
   /// `public_salon_profile_flow_test.dart` for the assertion that reads the
   /// rendered address text.
+  ///
+  /// RESUME §4 step D (mobile half, 2026-08-30) — `oblastId` used to be
+  /// OMITTED here on purpose (see the now-stale "Finding 5" comment this
+  /// replaced): `PublicSalonResponse.oblastId` was nullable and several
+  /// flows (`salon_edit_forms_flow_test.dart`'s Test 2/3) were deliberately
+  /// built around `_prePopulateLocality` bailing out on the missing field
+  /// so the cascade opened fully unresolved. `oblastId` is now non-null on
+  /// the wire (backend `ec22d91`, `salons.city_id`/`cities.oblast_id` are
+  /// both DB-level `NOT NULL`) — omitting it would throw at deserialization,
+  /// not just leave the field blank — so it MUST be populated. `oblast-kyiv`
+  /// is the real seeded parent of `city-kyiv` (see the `GET /locations/
+  /// oblasts/oblast-kyiv/cities` handler below), so `salon-xyz`'s cascade
+  /// now pre-populates correctly instead of opening blank; the two dependent
+  /// tests' explanatory comments were updated to match (they still function
+  /// unchanged — re-selecting an already-resolved oblast/city is a no-op).
+  ///
+  /// mobile-qa (2026-08-30) — `description`/`phone`/`instagramUrl` now read
+  /// the SHARED mutable [salonDescription]/[salonPhone]/[salonInstagramUrl]
+  /// state instead of hard-coded literals. `phone` is on this envelope AT ALL
+  /// only because the backend gap-fix put `PublicSalonResponse.phone` on the
+  /// wire; a fixture that kept omitting it would have made the mobile
+  /// gap-fix untestable end to end — every "the phone renders on first load"
+  /// assertion would have been satisfiable only by the very PATCH round-trip
+  /// the fix exists to make unnecessary. See those fields' own doc.
   Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(<String, dynamic>{
     'id': 'salon-xyz',
     'name': 'Студія Краси «Камелія»',
-    'description':
-        'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
-        'та стрижки — довірливий сервіс з 2018 року.',
+    'description': salonDescription,
+    'phone': salonPhone,
     'region': 'Київська',
-    'cityId': 'city-uuid-kyiv',
+    // 'city-kyiv' is a real seeded id (see the `GET /locations/oblasts/
+    // oblast-kyiv/cities` handler below) — deliberately still a
+    // hasDistricts:false city so no existing flow that assumes a leaf
+    // (no-district) cascade for salon-xyz changes behaviour.
+    'cityId': 'city-kyiv',
+    'oblastId': 'oblast-kyiv',
     'street': 'вул. Хрещатик',
     'buildingNo': '12',
     'locationNote': salonLocationNote,
-    'instagramUrl': '@kamelia_salon',
+    'instagramUrl': salonInstagramUrl,
     'avatarUrl': null,
     'coverImageUrl': null,
     // ONE reconciled number per field, shared with the review-summary envelope
@@ -1902,6 +2462,67 @@ final class FakeBackend {
           'masterType': 'SALON_MASTER',
         },
       ];
+
+  /// Phase 21.5 — management-scoped staff roster for `salon-xyz`
+  /// (`GET /salons/{salonId}/staff`), backing the owner/admin «Персонал»
+  /// grid. One master entry (mirrors `master-aaa`'s public rail identity so
+  /// the two reads agree) plus one admin entry — proving the roster now
+  /// surfaces admins too, unlike [_salonMasters] above. Shape matches
+  /// `SalonStaffMemberResponse`.
+  static const List<Map<String, dynamic>> _salonStaff = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'userId': 'master-aaa',
+      'masterId': 'master-aaa',
+      'role': 'SALON_MASTER',
+      'firstName': 'Софія',
+      'lastName': 'Бондар',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380671112233',
+      'instagram': null,
+      'bio': null,
+      'avgRating': kPublicMasterAvgRatingBeforeReview,
+      'reviewCount': kPublicMasterReviewCountBeforeReview,
+      'serviceCount': 1,
+    },
+    <String, dynamic>{
+      'userId': 'admin-zzz',
+      'masterId': null,
+      'role': 'SALON_ADMIN',
+      'firstName': 'Ірина',
+      'lastName': 'Ковальська',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380509998877',
+      'instagram': null,
+      // Admins carry no bio BY DESIGN — see `SalonStaffMember`'s own header
+      // doc.
+      'bio': null,
+      'avgRating': null,
+      'reviewCount': 0,
+      'serviceCount': 0,
+    },
+    // Phase 307 — a SECOND master, with a `masterId` DELIBERATELY DIFFERENT
+    // from its `userId` (unlike `master-aaa`, whose two ids are identical and
+    // so cannot catch a userId/masterId swap). The one target of the
+    // remove-master flow — `master-aaa` stays untouched as that flow's own
+    // CONTROL row.
+    <String, dynamic>{
+      'userId': 'user-master-removable',
+      'masterId': 'master-removable',
+      'role': 'SALON_MASTER',
+      'firstName': 'Марина',
+      'lastName': 'Литвин',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380631112233',
+      'instagram': null,
+      'bio': null,
+      'avgRating': null,
+      'reviewCount': 0,
+      'serviceCount': 0,
+    },
+  ];
 
   /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
   /// each: NAILS carries the salon's SHARED signature service (offered by
@@ -3574,6 +4195,258 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `POST /api/v1/salons/salon-xyz/invite`.
+  /// See [forceInviteStaffFailure]. The fake just records the decoded body
+  /// (email/role) and counts the call, mirroring the PATCH/DELETE salon
+  /// handlers above; a real `InviteResponse` only carries
+  /// `invitedEmail`/`expiresAt`, both nullable, so an empty data object is a
+  /// valid success envelope.
+  void _wireInviteStaff() {
+    final int? failStatus = _inviteStaffFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/invite',
+      (server) => server.replyCallback(failStatus ?? 200, (req) {
+        inviteStaffCalls++;
+        final body = _decodeBody(req.data);
+        lastInviteStaffBody = body;
+        if (failStatus != null) {
+          final String? errorCode = _inviteStaffFailureErrorCode;
+          return <String, dynamic>{
+            'success': false,
+            'data': errorCode == null
+                ? null
+                : <String, dynamic>{'code': errorCode},
+            'message': 'Failed to invite staff',
+          };
+        }
+        // Phase 21.11 — a real POST does not just answer 200, it CREATES an
+        // `InviteToken` row that the history GET then returns. The fake
+        // mints one here for the same reason the DELETE handler below really
+        // revokes one: without it, "the invite you just sent appears
+        // in the list" would be indistinguishable from the bug where the
+        // list is never invalidated, and the fixture would silently defang
+        // the assertion.
+        // Prepended, not appended: the history endpoint serves newest first,
+        // and a freshly minted invitation is the newest row there is.
+        pendingInvites.insert(0, <String, dynamic>{
+          'inviteId': 'invite-minted-${++_mintedInviteSeq}',
+          'recipientEmail': body['email'],
+          'role': body['role'],
+          'status': 'PENDING',
+          'createdAt': kFixedNow.toUtc().toIso8601String(),
+          'expiresAt': kFixedNow
+              .toUtc()
+              .add(const Duration(hours: 48))
+              .toIso8601String(),
+        });
+        return _ok(<String, dynamic>{
+          'invitedEmail': body['email'],
+          'expiresAt': null,
+        });
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `GET /api/v1/salons/salon-xyz/invites`.
+  /// See [forcePendingInvitesFailure].
+  ///
+  /// Serves a COPY of [pendingInvites] read at REQUEST time — the list is
+  /// mutated by `_wireInviteStaff`'s insert and `_wireCancelInvite`'s status
+  /// flip, and capturing it at registration time would freeze the very state
+  /// these journeys exist to observe.
+  ///
+  /// `data` is an OBJECT (`{invites, truncated}`), not a bare array: the
+  /// history envelope carries the truncation flag alongside the rows.
+  void _wirePendingInvites() {
+    final int? failStatus = _pendingInvitesFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/invites',
+      (server) => server.replyCallback(failStatus ?? 200, (req) {
+        listSalonInvitesCalls++;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to list salon invites',
+          };
+        }
+        return _ok(<String, dynamic>{
+          'invites': List<Map<String, dynamic>>.from(
+            pendingInvites.map(Map<String, dynamic>.from),
+          ),
+          'truncated': salonInvitesTruncated,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// (Re-)registers `DELETE /api/v1/salons/salon-xyz/invites/{inviteId}` —
+  /// which REVOKES the invitation rather than deleting it: the row stays in
+  /// the history reading CANCELLED. See [forceCancelInviteFailure].
+  ///
+  /// A RegExp route: the id segment varies per request AND new ids are minted
+  /// mid-flow by `POST .../invite`, so the "register one literal route per
+  /// seeded id" device used elsewhere in this file cannot cover them. The
+  /// pattern requires a segment AFTER `/invites/`, so it can never collide
+  /// with the history GET at `/invites` itself.
+  void _wireCancelInvite() {
+    final int? failStatus = _cancelInviteFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/invites/[^/]+$'),
+      (server) => server.replyCallback(failStatus ?? 204, (req) {
+        cancelInviteCalls++;
+        final String inviteId = req.path.split('/').last;
+        lastCancelInviteId = inviteId;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to cancel invite',
+          };
+        }
+        // The real endpoint revokes in place — the row survives, carrying its
+        // new terminal status. A fake that REMOVED it would let a client
+        // which wrongly drops cancelled rows pass every refetch assertion.
+        for (int i = 0; i < pendingInvites.length; i++) {
+          if (pendingInvites[i]['inviteId'] == inviteId) {
+            pendingInvites[i] = <String, dynamic>{
+              ...pendingInvites[i],
+              'status': 'CANCELLED',
+            };
+          }
+        }
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+  }
+
+  /// (Re-)registers the three Phase 21.6 admin-management routes.
+  ///
+  /// Route ORDER matters here, and only here in this file: the rotate PATCH
+  /// lives at `.../admins/{userId}/salon` while the remove DELETE lives at
+  /// `.../admins/{userId}`. Both are RegExp routes (the `{userId}` segment
+  /// varies), so the remove pattern is anchored with a trailing `$` and
+  /// excludes a further `/` segment — without that it would also match the
+  /// rotate path. The method matchers already separate them; the patterns are
+  /// made disjoint anyway, for the reason `_wireCancelInvite` records.
+  void _wireAdminManagement() {
+    // GET /api/v1/salons/salon-xyz/sibling-salons — the rotate-destination
+    // picker. Serves a COPY read at request time.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/sibling-salons',
+      (server) => server.replyCallback(200, (_) {
+        siblingSalonsCalls++;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            siblingSalons.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/salons/salon-xyz/admins/{userId}/salon — rotate. The
+    // administrator leaves THIS salon's roster (they now belong to the
+    // destination), which is what makes "they are gone from «Персонал» after
+    // a real refetch" a genuine assertion rather than a client-side illusion.
+    final int? rotateFail = _rotateAdminFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/admins/[^/]+/salon$'),
+      (server) => server.replyCallback(rotateFail ?? 204, (req) {
+        rotateAdminCalls++;
+        final List<String> segments = req.path.split('/');
+        lastRotateAdminUserId = segments[segments.length - 2];
+        lastRotateAdminBody = _decodeBody(req.data);
+        if (rotateFail != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to rotate admin',
+          };
+        }
+        salonStaff.removeWhere(
+          (Map<String, dynamic> row) => row['userId'] == lastRotateAdminUserId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/salons/salon-xyz/admins/{userId} — remove (unassign).
+    final int? removeFail = _removeAdminFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/admins/[^/]+$'),
+      (server) => server.replyCallback(removeFail ?? 204, (req) {
+        removeAdminCalls++;
+        lastRemoveAdminUserId = req.path.split('/').last;
+        if (removeFail != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to remove admin',
+          };
+        }
+        // The backend nulls the user's `salon_id`; it does NOT delete the
+        // account. From this salon's roster the observable effect is the
+        // same: the row is gone.
+        salonStaff.removeWhere(
+          (Map<String, dynamic> row) => row['userId'] == lastRemoveAdminUserId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+
+    // DELETE /api/v1/salons/salon-xyz/masters/{masterId} — Phase 307 (backend
+    // Phase 297 + 298). Registered as its OWN pattern (`/masters/` vs
+    // `/admins/` above) so the two DELETE routes can never shadow each
+    // other. Removes the row keyed by `masterId` — the WIRE proof that the
+    // client sent the Master-row id, not the roster's `userId`: a client
+    // bug that sent `userId` here would remove NOTHING (no row's `masterId`
+    // equals a `userId`) and the flow's "gone from the roster" assertion
+    // would correctly fail.
+    final int? removeMasterFail = _removeMasterFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/masters/[^/]+$'),
+      (server) => server.replyCallback(removeMasterFail ?? 204, (req) {
+        removeMasterCalls++;
+        lastRemoveMasterId = req.path.split('/').last;
+        if (removeMasterFail != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to remove master',
+          };
+        }
+        // The backend HARD-DELETES the master's account (Phase 297) and
+        // cancels+notifies their future bookings (Phase 298) — from this
+        // salon's roster the observable effect is that the row is gone.
+        salonStaff.removeWhere(
+          (Map<String, dynamic> row) => row['masterId'] == lastRemoveMasterId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+
+    // GET /api/v1/masters/master-removable/services — the removable
+    // master's active services, fetched by `salonStaffMemberProfileProvider`
+    // whenever its staff/settings profile is opened. Empty: this flow never
+    // asserts on service content, only on the roster mutation above.
+    _adapter.onRoute(
+      '/api/v1/masters/master-removable/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = 'master-removable';
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// (Re-)registers `GET /api/v1/favorites/masters`.
   /// See [forceListMasterFavoritesFailure].
   void _wireListMasterFavorites() {
@@ -3897,9 +4770,81 @@ final class FakeBackend {
         getMeCalls++;
         return currentRole == UserRole.client
             ? _ok(_clientProfileBody())
-            : _ok(userJsonForRole(currentRole));
+            // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
+            // it, so the default body is byte-identical to the pre-21.14 one
+            // and `null` stays a genuine "key absent", not a serialized null.
+            : _ok(<String, dynamic>{
+                ...userJsonForRole(currentRole),
+                if (hasMasterProfile != null)
+                  'hasMasterProfile': hasMasterProfile,
+              });
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/mine — Phase 21.1 My Salons Hub (the SALON_OWNER
+    // landing, `mySalonsProvider`). `SalonResponse` shape (isPrimary etc.) —
+    // see [mySalons]'s own doc for why it is mutable.
+    _adapter.onRoute(
+      '/api/v1/salons/mine',
+      (server) => server.replyCallback(200, (_) {
+        getMySalonsCalls++;
+        return _okList(mySalons);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // POST /api/v1/salons — Phase 21.3 «Register New Salon»
+    // (RegisterSalonScreen → RegisterSalon.submit → HttpSalonRepository
+    // .create). Appends the new salon onto the SAME mutable [mySalons] list
+    // `GET /api/v1/salons/mine` serves, so a flow that drives the real
+    // `ref.invalidate(mySalonsProvider)` round trip sees the new salon on
+    // the hub's NEXT read without a manual refresh — the exact contract
+    // `register_salon_notifier.dart`'s own doc describes.
+    // `HttpSalonRepository.create` returns `Future<void>` and never parses
+    // the response body, so the returned envelope's `data` shape does not
+    // need to mirror the real `SalonResponse` beyond `success: true`.
+    _adapter.onRoute(
+      '/api/v1/salons',
+      (server) =>
+          server.replyCallback(createSalonFailureStatusCode ?? 200, (req) {
+            createSalonCalls++;
+            final body = _decodeBody(req.data);
+            lastCreateSalonBody = body;
+            if (createSalonFailureStatusCode != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to create salon',
+              };
+            }
+            final String newId = 'salon-created-$createSalonCalls';
+            mySalons.add(<String, dynamic>{
+              'id': newId,
+              'ownerId': 'user-owner-1',
+              'name': body['name'] as String? ?? '',
+              'city': 'Київ',
+              // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/
+              // `.oblastId` are non-null on the wire. `register_salon_
+              // notifier.dart` always sends a real `cityId` on `POST
+              // /salons`, so echo it back rather than a hard-coded value;
+              // every seeded city (`city-kyiv`/`city-lviv`/
+              // `city-with-districts`) resolves to the SAME seeded
+              // `oblast-kyiv`, so that half is always correct regardless of
+              // which city was picked.
+              'cityId': (body['cityId'] as String?) ?? 'city-kyiv',
+              'oblastId': 'oblast-kyiv',
+              'street': body['street'] as String? ?? '',
+              'buildingNo': body['buildingNo'] as String? ?? '',
+              'isActive': true,
+              'isPrimary': false,
+              if (body['phone'] != null) 'phone': body['phone'],
+              if (body['instagramUrl'] != null)
+                'instagramUrl': body['instagramUrl'],
+            });
+            return _ok(<String, dynamic>{'id': newId, 'name': body['name']});
+          }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
     // GET /api/v1/users/me/rating — CLIENT's own aggregate two-sided rating
@@ -4018,12 +4963,22 @@ final class FakeBackend {
     );
 
     // GET /api/v1/masters/me
+    //
+    // Phase 21.14: [masterMeNotFound] flips this to the 404 a SALON_OWNER with
+    // no active master row really receives — 404 and not 403, since backend
+    // `c4d69ac` widened this endpoint's @PreAuthorize to admit SALON_OWNER.
+    // Chosen at wire time (see that field's doc).
     _adapter.onRoute(
       '/api/v1/masters/me',
-      (server) => server.replyCallback(200, (_) {
-        getMasterCalls++;
-        return _masterDetailEnvelope();
-      }),
+      (server) => masterMeNotFound
+          ? server.replyCallback(404, (_) {
+              getMasterCalls++;
+              return _masterNotFoundEnvelope();
+            })
+          : server.replyCallback(200, (_) {
+              getMasterCalls++;
+              return _masterDetailEnvelope();
+            }),
       request: const Request(method: RequestMethods.get),
     );
 
@@ -4566,6 +5521,28 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/salons/salon-xyz/staff — Phase 21.5 owner/admin «Персонал»
+    // grid (SalonControllerApi.getSalonStaff). Envelope is a PLAIN list under
+    // `data` (`ApiResponseListSalonStaffMemberResponse`), unlike the
+    // paginated `/masters` rail above — `_okList` matches that shape.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/staff',
+      (server) => server.replyCallback(200, (_) {
+        getSalonStaffCalls++;
+        lastGetSalonStaffId = 'salon-xyz';
+        // A COPY read at REQUEST time — `salonStaff` is mutated by the admin
+        // remove/rotate handlers, and capturing it at registration would
+        // freeze the very state those journeys exist to observe (same rule
+        // `_wirePendingInvites` states for its own list).
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonStaff.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // GET /api/v1/salons/salon-xyz/services — "Послуги" tab catalogue
     // (ServiceControllerApi.getSalonServiceCatalog).
     _adapter.onRoute(
@@ -4628,6 +5605,185 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+
+    // ── SALON_ADMIN's own salon (`salon-admin-1`) ─────────────────────────
+    //
+    // mobile-qa (2026-08-30) — until now the admin persona
+    // (`_adminUserJson.salonId == 'salon-admin-1'`) had NO salon-detail or
+    // staff fixture at all, so every admin flow that reached the Salon Shell
+    // rendered an error state and no flow could assert anything the
+    // management profile actually draws. `salonManageGuard`'s admin arm is an
+    // exact `session.user.salonId == :salonId` check, so an admin can ONLY
+    // ever reach this id — there is no way to borrow `salon-xyz`'s fixtures.
+    //
+    // Deliberately shaped as the EMPTY-CONTACTS, EMPTY-DESCRIPTION salon:
+    // both owner-only «Додати …» links WOULD render here for a SALON_OWNER,
+    // which is exactly what makes "an admin sees neither" a real assertion
+    // rather than one satisfied by the salon simply having a description and
+    // an Instagram on file (M14 — a negative assertion that passes for the
+    // wrong reason is indistinguishable from a real one).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1',
+      (server) => server.replyCallback(200, (_) {
+        getSalonByIdCalls++;
+        lastGetSalonId = 'salon-admin-1';
+        return _ok(<String, dynamic>{
+          'id': 'salon-admin-1',
+          'name': 'Салон Адміністратора',
+          'description': null,
+          'region': 'Київська',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Січових Стрільців',
+          'buildingNo': '7',
+          'locationNote': null,
+          'phone': null,
+          'instagramUrl': null,
+          'avatarUrl': null,
+          'coverImageUrl': null,
+          'avgRating': null,
+          'reviewCount': 0,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-admin-1/staff — mobile-qa Phase 308 LOW
+    // closure (2026-09-05): was a hardcoded empty roster (the «Персонал»
+    // grid's own empty state, `salon-manage-staff-empty`, is separately
+    // pinned at the widget tier and does not need this endpoint populated).
+    // Now serves the mutable [salonAdminOneStaff] — see that field's own doc
+    // for why this is an ISOLATED fixture rather than a widened `salonStaff`.
+    // A COPY read at REQUEST time, mirroring `salon-xyz`'s own handler above.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1/staff',
+      (server) => server.replyCallback(200, (_) {
+        getSalonStaffCalls++;
+        lastGetSalonStaffId = 'salon-admin-1';
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonAdminOneStaff.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/salons/salon-xyz — owner/admin profile save (Phase 21.2).
+    // Distinct wire shape from the public `GET` above (`SalonResponse` vs
+    // `PublicSalonResponse`), but the two now agree on `phone`: both read the
+    // SAME mutable [salonPhone], because the backend gap-fix put `phone` on
+    // the public DTO too. Applies only the DIRTY fields the request carries
+    // onto the mutable `_salonManage*` state so a flow can prove BOTH halves
+    // of the dirty-diff contract on a real (fake) wire round-trip: an
+    // untouched field never overwrites the persisted value, an edited one
+    // does.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz',
+      (server) =>
+          server.replyCallback(updateSalonFailureStatusCode ?? 200, (req) {
+            updateSalonCalls++;
+            final body = _decodeBody(req.data);
+            lastUpdateSalonBody = body;
+            if (updateSalonFailureStatusCode != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to update salon',
+              };
+            }
+            if (body['name'] is String) {
+              _salonManageName = body['name'] as String;
+            }
+            if (body.containsKey('description')) {
+              salonDescription = body['description'] as String?;
+            }
+            if (body.containsKey('phone')) {
+              salonPhone = body['phone'] as String?;
+            }
+            if (body.containsKey('instagramUrl')) {
+              salonInstagramUrl = body['instagramUrl'] as String?;
+            }
+            // `saveAddress` sends `cityId` UNCONDITIONALLY (never diffed —
+            // see this handler's own doc above), so a real save always
+            // carries it; `districtId` stays diffed-by-omission (a leaf
+            // city legitimately sends none). Falls back to the current
+            // mutable value so an untouched-locality PATCH (e.g. Test 4,
+            // editing only `street`) still echoes a valid, non-null pair.
+            if (body['cityId'] is String) {
+              _salonManageCityId = body['cityId'] as String;
+            }
+            if (body.containsKey('districtId')) {
+              _salonManageDistrictId = body['districtId'] as String?;
+            }
+            return _ok(<String, dynamic>{
+              'id': 'salon-xyz',
+              'name': _salonManageName,
+              'description': salonDescription,
+              'cityId': _salonManageCityId,
+              'oblastId': _salonManageOblastId,
+              'districtId': _salonManageDistrictId,
+              'street': (body['street'] as String?) ?? 'вул. Хрещатик',
+              'buildingNo': (body['buildingNo'] as String?) ?? '12',
+              'phone': salonPhone,
+              'instagramUrl': salonInstagramUrl,
+            });
+          }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/salons/salon-xyz — owner-only salon deactivation
+    // (Phase 21.2). Backend soft-deactivates; the fake counts the call and
+    // lets a flow assert the wire request actually fired.
+    //
+    // mobile-qa gap-closure (2026-09-02) — on success this now ALSO removes
+    // the matching row from [mySalons], so `GET /salons/mine` reflects the
+    // deletion on the very next read. Before this fix the handler was a
+    // pure counter: `mySalons` kept serving the "deleted" row forever, so
+    // `salon_management_profile_flow_test.dart`'s post-delete-landing
+    // assertion could not distinguish a correct resolver from a buggy one
+    // that picked the just-deleted salon — the fixture always had a
+    // DIFFERENT salon (`salon-owner-1`) marked primary, so the assertion
+    // passed regardless of whether the delete actually took effect. Checked
+    // before making this change: `deleteSalonCalls`/
+    // `deleteSalonFailureStatusCode` are read by exactly one integration
+    // file (`salon_management_profile_flow_test.dart`), and no other test
+    // reads `mySalons` immediately after a delete call — nothing depends on
+    // the old no-op behaviour.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz',
+      (server) =>
+          server.replyCallback(deleteSalonFailureStatusCode ?? 204, (_) {
+            deleteSalonCalls++;
+            if (deleteSalonFailureStatusCode != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to delete salon',
+              };
+            }
+            mySalons.removeWhere(
+              (Map<String, dynamic> s) => s['id'] == 'salon-xyz',
+            );
+            return null;
+          }),
+      request: const Request(method: RequestMethods.delete),
+    );
+
+    // POST /api/v1/salons/salon-xyz/invite — owner/admin staff-invite form
+    // (Phase 21.4). See [_wireInviteStaff] / [forceInviteStaffFailure].
+    _wireInviteStaff();
+    // GET/DELETE /api/v1/salons/salon-xyz/invites/... — the Phase 21.11
+    // invite history and its per-row cancel.
+    // Registered AFTER the POST above so a future overlapping-prefix change
+    // keeps the same insertion-order semantics the rest of this file relies
+    // on; the three routes are disjoint today (POST /invite vs GET
+    // /invites vs DELETE /invites/{id}).
+    _wirePendingInvites();
+    _wireCancelInvite();
+    // GET /salons/salon-xyz/sibling-salons,
+    // DELETE/PATCH /salons/salon-xyz/admins/{userId}[/salon] — Phase 21.6.
+    _wireAdminManagement();
 
     // PATCH /api/v1/independent-masters/me/profile
     _adapter.onRoute(
@@ -4980,6 +6136,41 @@ final class FakeBackend {
             'nameUk': 'Львів',
             'nameEn': 'Lviv',
             'hasDistricts': false,
+          },
+          // Phase 21.10 QA follow-up (salon_edit_forms_flow_test.dart) — the
+          // ONLY seeded city with `hasDistricts: true` in this whole fixture
+          // file. Needed to drive the locality-PAIR contract
+          // (`SalonAddressEditScreen.saveAddress`'s per-field cityId/
+          // districtId dirty-diff) against a REAL city that requires a
+          // district, which city-kyiv/city-lviv above cannot exercise.
+          <String, dynamic>{
+            'id': 'city-with-districts',
+            'oblastId': 'oblast-kyiv',
+            'katotthCode': 'UA80000000000093318',
+            'nameUk': 'Дніпро',
+            'nameEn': 'Dnipro',
+            'hasDistricts': true,
+          },
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/locations/cities/city-with-districts/districts — Phase
+    // 21.10 QA follow-up. One seeded district so a flow can drive the REAL
+    // district picker sheet. Shape: CityDistrictResponse { id, cityId,
+    // katotthCode, nameUk, nameEn }.
+    _adapter.onRoute(
+      '/api/v1/locations/cities/city-with-districts/districts',
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'district-podil',
+            'cityId': 'city-with-districts',
+            'katotthCode': 'UA80000000000093319',
+            'nameUk': 'Подільський район',
+            'nameEn': 'Podilskyi district',
           },
         ]),
       ),

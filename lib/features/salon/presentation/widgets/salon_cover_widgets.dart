@@ -11,19 +11,18 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// Extent (height == width) of the rounded-square controls that float over
-/// the cover photo (back button, favourite heart) — shared with
-/// [_CoverEditPill]'s vertical band so the pill's row aligns with theirs
-/// instead of drifting to its own spacing (mobile-debugger fix, cover-pill/
-/// hero-card overlap). 48, not 44 — matches the app-wide rounded-square
-/// control size used everywhere else (e.g. [NeumorphicIconButton.extent],
-/// the sibling [PublicMasterProfileScreen]'s favourite toggle), which this
-/// cover control now shares the shape of too (see [CoverIconButton]).
+/// the cover photo (back button, favourite heart). 48, not 44 — matches the
+/// app-wide rounded-square control size used everywhere else (e.g.
+/// [NeumorphicIconButton.extent], the sibling [PublicMasterProfileScreen]'s
+/// favourite toggle), which this cover control now shares the shape of too
+/// (see [CoverIconButton]).
 const double kCoverControlSize = 48;
 
 /// The salon logo mark — a raised circular surface filled with a camel/mocha
@@ -148,9 +147,8 @@ class _CoverAtmospherePainter extends CustomPainter {
 /// stand-in — a warm camel→mocha gradient with a painted sheen, a faint
 /// texture and a vignette — plus a centred photo glyph.
 ///
-/// The cover is **read-only for clients**. The small camel "Обкладинка" pill
-/// in the corner signals that this surface is the salon's own uploadable
-/// cover slot (the owner-edit affordance is a future phase).
+/// The cover is **read-only for clients** (the owner-edit affordance is a
+/// future phase).
 class SalonCover extends StatelessWidget {
   const SalonCover({
     super.key,
@@ -169,8 +167,8 @@ class SalonCover extends StatelessWidget {
   /// Top safe-area inset of the enclosing screen — this Stack's own origin
   /// IS the screen's top edge (only the bottom of the cover is padded out
   /// for the overlapping hero card), so this must match the offset the
-  /// caller's back/favourite [CoverCircleButton]s use for their own
-  /// `Positioned.top`, or the edit pill drifts out of their row.
+  /// caller's back/favourite [CoverIconButton]s use for their own
+  /// `Positioned.top` to keep the cover's controls aligned in one row.
   final double topInset;
 
   /// The salon's uploaded cover photo URL. Null renders the gradient
@@ -209,66 +207,8 @@ class SalonCover extends StatelessWidget {
                 color: BrandColors.white.withValues(alpha: 0.28),
               ),
             ),
-            // Editable-cover affordance pill — anchored to the SAME top
-            // control row as the back/favourite [CoverIconButton]s
-            // (`top: topInset + VelvetSpacing.sm`, `height: kCoverControlSize`,
-            // centred horizontally) rather than the cover's bottom edge.
-            //
-            // Previously this was `Positioned(left, bottom: VelvetSpacing.md)`
-            // on the assumption the bottom-left corner sits "clear of the
-            // hero" — but the hero card's height is variable (2-line name +
-            // an address row with no line cap), and even a single address
-            // line already pushes the hero past the `_heroProtrusion` budget
-            // reserved for it, eating into the cover's bottom edge and
-            // overlapping the pill there. The top row is unaffected by the
-            // hero card's height, so it can't regress the same way.
-            Positioned(
-              top: topInset + VelvetSpacing.sm,
-              left: 0,
-              right: 0,
-              height: kCoverControlSize,
-              child: const Center(
-                child: _CoverEditPill(key: Key('salon-cover-edit-pill')),
-              ),
-            ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// The small translucent camel pill that marks the cover as the salon's own
-/// uploadable slot ("Обкладинка"). Read-only in the client view.
-class _CoverEditPill extends StatelessWidget {
-  const _CoverEditPill({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.sm + 2,
-        vertical: VelvetSpacing.xs + 1,
-      ),
-      decoration: BoxDecoration(
-        color: BrandColors.accentDeep.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: BrandColors.white.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(
-            Icons.image_outlined,
-            size: 13,
-            color: BrandColors.white.withValues(alpha: 0.9),
-          ),
-          const SizedBox(width: VelvetSpacing.xs + 1),
-          Text(
-            AppLocalizations.of(context).salonCoverEditPillLabel,
-            style: VelvetText.salonCoverEditPill,
-          ),
-        ],
       ),
     );
   }
@@ -284,14 +224,20 @@ class _CoverEditPill extends StatelessWidget {
 class CoverIconButton extends StatefulWidget {
   const CoverIconButton({
     super.key,
-    required this.icon,
+    this.icon,
     required this.onTap,
     required this.semanticLabel,
     this.iconColor = BrandColors.text,
     this.toggled,
-  });
+    this.svgIcon,
+  }) : assert(
+         (icon == null) != (svgIcon == null),
+         'Provide exactly one of icon or svgIcon.',
+       );
 
-  final IconData icon;
+  /// Material glyph. Ignored when [svgIcon] is set; exactly one of the two
+  /// must be supplied (enforced by an assert).
+  final IconData? icon;
   final VoidCallback onTap;
   final String semanticLabel;
   final Color iconColor;
@@ -299,6 +245,13 @@ class CoverIconButton extends StatefulWidget {
   /// When non-null the control is a toggle (the favourite heart) and animates
   /// a brief over-shoot on change.
   final bool? toggled;
+
+  /// SVG asset path (from `BeauticaAssetIcons`) — when non-null, [AppIcon] is
+  /// rendered instead of [Icon], taking precedence over [icon]. Rendered
+  /// `multicolor: true` (no `srcIn` tint) so multi-tone assets — e.g. the
+  /// notification bell's baked-in unread dot — keep their own palette;
+  /// [iconColor] is ignored in this branch.
+  final String? svgIcon;
 
   @override
   State<CoverIconButton> createState() => _CoverIconButtonState();
@@ -344,7 +297,16 @@ class _CoverIconButtonState extends State<CoverIconButton> {
                 scale: toggled == true ? 1.14 : 1,
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.elasticOut,
-                child: Icon(widget.icon, size: 21, color: widget.iconColor),
+                // Sizes intentionally differ: the design (SalonManagementDesign
+                // salon_widgets.dart:245 CoverIconButton renders Icon at
+                // size: 21; notification_bell.dart:20/27 NotificationBellGlyph
+                // defaults to size: 20, matched explicitly at
+                // salon_profile_screen.dart:420) makes the SVG bell 1dp
+                // smaller than its Material siblings as a deliberate optical-
+                // weight choice — do not collapse these into one constant.
+                child: widget.svgIcon != null
+                    ? AppIcon(widget.svgIcon!, size: 20, multicolor: true)
+                    : Icon(widget.icon!, size: 21, color: widget.iconColor),
               ),
             ),
           ),

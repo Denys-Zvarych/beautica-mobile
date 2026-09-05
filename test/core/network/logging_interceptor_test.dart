@@ -250,6 +250,31 @@ void main() {
       expect(isPiiPath('/api/v1/masters/abc-123'), isFalse);
       expect(isPiiPath('/api/v1/service-types'), isFalse);
     });
+
+    // mobile-security HIGH mandatory companion (2026-09-01) — the new
+    // SALON_MASTER profile-save endpoint. kPiiPaths is EXACT-match only (no
+    // prefix semantics — see that Set's own doc comment), so a typo'd entry
+    // (wrong case, a stray trailing slash, the wrong sibling copy-pasted)
+    // would silently stop matching the REAL request path with nothing
+    // failing anywhere — the redaction would just quietly stop firing. This
+    // pins the real production path string exactly, and the sibling
+    // near-miss below (missing the `/profile` suffix a copy-paste could
+    // drop) proves that string alone, not a prefix on `/api/v1/masters/me`,
+    // is what makes the real path match.
+    test(
+      'matches the exact SALON_MASTER profile-save path, not a near-miss',
+      () {
+        expect(isPiiPath('/api/v1/masters/me/profile'), isTrue);
+        expect(
+          isPiiPath('/api/v1/masters/me/profile/'),
+          isFalse,
+          reason:
+              'a trailing slash is a DIFFERENT string under exact matching — '
+              'if this ever becomes true, kPiiPaths gained an unintended '
+              'prefix/segment rule.',
+        );
+      },
+    );
   });
 
   group('redactLogPath', () {
@@ -408,6 +433,67 @@ void main() {
       expect(logged, contains('body: [REDACTED]'));
       expect(logged, isNot(contains('Петренко')));
       verify(() => handler.next(any())).called(1);
+    });
+  });
+
+  // mobile-security HIGH mandatory companion (2026-09-01) — the SALON_MASTER
+  // profile-save endpoint carries the same phone/bio/Instagram PII shape as
+  // its `/independent-masters/me/profile` sibling (already covered by the
+  // `auth-path request body` test above, which drives `/api/v1/auth/login`
+  // rather than this path). This path is an EXACT [kPiiPaths] member, not a
+  // dynamic-segment route, so it belongs in its own group rather than the
+  // "dynamic PII routes" one above. Item 2 of the 2026-09-01 QA pass:
+  // "pin that a PATCH to it does not log its body" — driven as a real PATCH
+  // (not the default GET `buildOpts` produces) since that is the verb the
+  // real call site (`HttpMasterRepository.updateMyProfile`) issues.
+  group('LoggingInterceptor body redaction for /api/v1/masters/me/profile '
+      '(mobile-security HIGH mandatory companion, 2026-09-01)', () {
+    test('a PATCH to /api/v1/masters/me/profile logs [REDACTED], not the '
+        'phone/bio/instagram body', () {
+      final sink = _CapturingSink();
+      final interceptor = LoggingInterceptor(sink: sink.call);
+      final handler = MockRequestHandler();
+      final opts = RequestOptions(
+        path: '/api/v1/masters/me/profile',
+        baseUrl: 'https://api.beautica.test',
+        method: 'PATCH',
+        data: {
+          'firstName': 'Марія',
+          'lastName': 'Бондар',
+          'phoneNumber': '+380671234567',
+          'bio': 'Перукар-стиліст',
+          'instagram': '@masha_style',
+          'professionalTitle': '',
+        },
+      );
+
+      interceptor.onRequest(opts, handler);
+
+      final String logged = sink.only;
+      expect(logged, contains('body: [REDACTED]'));
+      expect(
+        logged,
+        isNot(contains('+380671234567')),
+        reason: 'the SALON_MASTER phone number must never reach the log',
+      );
+      expect(
+        logged,
+        isNot(contains('masha_style')),
+        reason: 'the SALON_MASTER Instagram handle must never reach the log',
+      );
+      expect(
+        logged,
+        isNot(contains('Бондар')),
+        reason: 'the SALON_MASTER surname must never reach the log',
+      );
+
+      verify(() => handler.next(any())).called(1);
+      // The live request body is never mutated by the logger.
+      expect(
+        (opts.data as Map<String, dynamic>)['phoneNumber'],
+        equals('+380671234567'),
+      );
+      expect(isPiiPath(opts.path), isTrue);
     });
   });
 }

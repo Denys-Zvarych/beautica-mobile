@@ -77,10 +77,12 @@ import '../features/master/presentation/master_received_reviews_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
+import '../features/master/presentation/salon_master_profile_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
+import '../features/settings/domain/account_settings_extras.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/home/presentation/client_contacts_edit_screen.dart';
 import '../features/home/presentation/client_location_edit_screen.dart';
@@ -91,7 +93,24 @@ import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
+import '../features/salon/application/my_salons_notifier.dart';
+import '../features/salon/domain/salon.dart';
+import '../features/salon/presentation/my_salons_screen.dart';
+import '../features/salon/presentation/owner_own_profile_screen.dart';
+import '../features/salon/presentation/staff_settings_screen.dart';
+import '../features/salon/presentation/invite_staff_screen.dart';
+import '../features/salon/presentation/move_admin_salon_screen.dart';
 import '../features/salon/presentation/public_salon_profile_screen.dart';
+import '../features/salon/presentation/register_salon_screen.dart';
+import '../features/salon/presentation/salon_home_resolver_screen.dart';
+import '../features/salon/presentation/salon_address_edit_screen.dart';
+import '../features/salon/presentation/salon_contacts_edit_screen.dart';
+import '../features/salon/presentation/salon_management_profile_screen.dart';
+import '../features/salon/presentation/salon_pending_invites_screen.dart';
+import '../features/salon/presentation/salon_profile_edit_screen.dart';
+import '../features/salon/presentation/salon_settings_screen.dart';
+import '../features/salon/presentation/salon_shell_screen.dart';
+import '../features/salon/presentation/salon_staff_profile_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -202,6 +221,187 @@ GoRouter appRouter(Ref ref) {
   String? clientOnlyGuard(BuildContext context, GoRouterState state) {
     final session = ref.read(authProvider).value;
     if (session is Authenticated && session.user.role != UserRole.client) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 21.2 — per-route SALON_OWNER/SALON_ADMIN gate for the owner/admin
+  // salon management surfaces (`/salons/:salonId/manage`,
+  // `/salons/:salonId/manage/settings`). These sit under the SAME literal
+  // `/salons/:salonId` segment [clientOnlyGuard] gates immediately above (the
+  // CLIENT-facing public profile), not the `/salon/*` (singular) prefix
+  // `auth_redirect.dart` gates for the Phase 250 staff-booking surfaces — so
+  // neither existing gate covers this path and it needs its own, mirroring
+  // [clientOnlyGuard]'s exact shape but for the inverse role set. An
+  // unauthenticated visitor is left to the global [authRedirect] (→ /login).
+  //
+  // mobile-security MEDIUM follow-up (2026-08-27): role-only was not
+  // ownership-bound — a SALON_ADMIN could open ANY salon's `:salonId`, not
+  // just their own (not a privilege-escalation: only public salon data
+  // renders here, and PATCH/DELETE are backend-gated — but a real UX/exposure
+  // gap). `User.salonId` (from `UserProfileResponse.salonId`, mapped in
+  // `UserMapper.fromProfileDto`) now lets SALON_ADMIN be checked for an EXACT
+  // match against the route's `:salonId`.
+  //
+  // SALON_OWNER is bound to `mySalonsProvider` (Phase 21.1, `GET
+  // /salons/mine`) below, mirroring the admin arm above but against a LIST
+  // (an owner can own many salons, so no single session-wide `salonId` can
+  // authorize them the way `User.salonId` does for an admin).
+  String? salonManageGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is! Authenticated) return null;
+    final UserRole role = session.user.role;
+    if (role != UserRole.salonOwner && role != UserRole.salonAdmin) {
+      return roleHomePath(role);
+    }
+    if (role == UserRole.salonAdmin) {
+      final String? routeSalonId = state.pathParameters['salonId'];
+      if (session.user.salonId != routeSalonId) {
+        return roleHomePath(role);
+      }
+    }
+    if (role == UserRole.salonOwner) {
+      // `redirect:` is synchronous — NEVER await the network here. Bind
+      // against `mySalonsProvider`'s ALREADY-RESOLVED value only:
+      //   • resolved AND the route's salonId is not in the owner's list →
+      //     redirect (this is the actual authorization check Phase 21.2 left
+      //     as a TODO — `GET /salons/mine` now exists to answer it).
+      //   • not resolved yet (e.g. a cold deep link that never visited the
+      //     hub, so nothing has triggered `mySalonsProvider` before now) →
+      //     ADMIT and let `SalonManagementProfileScreen` itself surface a
+      //     404/error from the backend. Backend `@authz.canManageSalon` is
+      //     the real security boundary regardless — this check is UX-only,
+      //     same as the admin arm above.
+      //
+      // mobile-perf HIGH follow-up (2026-08-28) — `mySalonsProvider` is now
+      // `@Riverpod(keepAlive: true)` (`my_salons_notifier.dart`), so this
+      // `ref.read` genuinely reads an ALREADY-RESOLVED value on every
+      // navigation after the first, instead of re-initializing (and
+      // immediately auto-disposing) a fresh fetch on every hub→manage→
+      // settings hop and every `authProvider` re-emission while parked
+      // there. The "not resolved yet" branch below now fires at most ONCE
+      // per session — a true cold deep link that never visited the hub —
+      // and `SalonManagementProfileScreen` itself closes that residual
+      // window once `mySalonsProvider` resolves (mobile-security LOW
+      // follow-up, same date — see that screen's own doc for the bounce).
+      //
+      // mobile-security MEDIUM follow-up (2026-08-28) — a bare `.value` read
+      // is NOT the same as "resolved". Riverpod's `copyWithPrevious` keeps
+      // the previous `AsyncData`'s `.value` attached to a LATER `AsyncError`
+      // / `AsyncLoading` (e.g. `AsyncLoading(retrying: true)` mid-retry), so
+      // right after a cross-account login on the same device (owner A logs
+      // out, owner B logs in, no app restart) `.value` can still be owner
+      // A's list for one frame while the state itself is not `AsyncData`.
+      // Trusting that stale `.value` would ADMIT a deep link to an ID that
+      // only matched owner A's (no-longer-current) list — the inverse of
+      // this guard's intent. Gate on the concrete `AsyncData` subtype so
+      // only a GENUINELY resolved state is ever trusted; an error/loading
+      // state — stale `.value` or not — falls through to the documented
+      // "not resolved yet" ADMIT fallback below, same as a true cold deep
+      // link.
+      final String? routeSalonId = state.pathParameters['salonId'];
+      final AsyncValue<List<Salon>> mySalonsState = ref.read(mySalonsProvider);
+      final List<Salon>? salons = mySalonsState is AsyncData<List<Salon>>
+          ? mySalonsState.value
+          : null;
+      if (salons != null &&
+          !salons.any((Salon salon) => salon.id == routeSalonId)) {
+        return roleHomePath(role);
+      }
+    }
+    return null;
+  }
+
+  // mobile-security HIGH follow-up (2026-08-29) — owner-only gate for the
+  // three Phase 21.10 edit-form routes (`/manage/settings/profile-edit`,
+  // `/address-edit`, `/contacts-edit`). The approved design is explicit
+  // (`docs/signup-designs/SalonManagementDesign/lib/screens/
+  // salon_settings_screen.dart:274`: "Owner-only: admins cannot edit salon
+  // info.") and `salon_settings_screen.dart` already gates the three rows
+  // that push these routes behind `isOwner` — but [salonManageGuard] itself
+  // does not distinguish these routes from the admin-permitted ones
+  // (`/manage`, `/manage/settings`, `/manage/invite`, `/manage/staff/
+  // :memberId`, `/shell`): a SALON_ADMIN of the salon passes it cleanly via
+  // deep link or back-stack and can reach a form that actually persists
+  // (`PATCH /salons/{salonId}` is `@PreAuthorize("hasAnyRole('SALON_OWNER',
+  // 'SALON_ADMIN') and ...")` backend-side).
+  //
+  // REUSE-FIRST: delegates to [salonManageGuard] FIRST — it already owns the
+  // role check, the admin `User.salonId` binding, and the owner
+  // `mySalonsProvider` ownership binding (including its documented
+  // "unresolved -> ADMIT" cold-deep-link fallback). This wrapper only adds
+  // the ADDITIONAL owner-only restriction these three routes need, rather
+  // than re-implementing any of that.
+  //
+  // Fail-closed on the unresolved-ownership window: [salonManageGuard]'s own
+  // SALON_OWNER arm deliberately ADMITS while `mySalonsProvider` has not
+  // resolved yet (`salons == null` below) — a UX-only tradeoff acceptable for
+  // `/manage`/`/manage/settings` because [SalonManagementProfileScreen]
+  // itself self-heals via `_bounceIfNotOwned` once the list resolves, and the
+  // backend is the real boundary regardless. These three routes are the
+  // actual PATCH-triggering forms, so this guard does NOT inherit that
+  // admit-while-unresolved tolerance: an owner whose `mySalonsProvider` has
+  // not resolved yet is bounced the same as an unowned salon, until
+  // ownership can be confirmed synchronously. A non-`Authenticated` session
+  // reaching this point (should be unreachable — the top-level [authRedirect]
+  // already requires a settled, authenticated session before any per-route
+  // redirect runs) is likewise bounced to `/login` rather than silently
+  // admitted.
+  String? salonManageOwnerOnlyGuard(BuildContext context, GoRouterState state) {
+    final String? baseRedirect = salonManageGuard(context, state);
+    if (baseRedirect != null) return baseRedirect;
+
+    final session = ref.read(authProvider).value;
+    if (session is! Authenticated) {
+      // Defensive fail-closed only — see doc above on why this should be
+      // unreachable in practice.
+      return RouteNames.login;
+    }
+    final UserRole role = session.user.role;
+    if (role != UserRole.salonOwner) {
+      // SALON_ADMIN already passed [salonManageGuard]'s ownership binding
+      // above but these three forms are owner-only regardless.
+      return roleHomePath(role);
+    }
+
+    final String? routeSalonId = state.pathParameters['salonId'];
+    final AsyncValue<List<Salon>> mySalonsState = ref.read(mySalonsProvider);
+    final List<Salon>? salons = mySalonsState is AsyncData<List<Salon>>
+        ? mySalonsState.value
+        : null;
+    if (salons == null ||
+        !salons.any((Salon salon) => salon.id == routeSalonId)) {
+      return roleHomePath(role);
+    }
+    return null;
+  }
+
+  // Phase 21.1 — per-route SALON_OWNER-only gate for the My Salons Hub
+  // (`/salons/mine`). Mirrors [clientOnlyGuard]'s exact shape but for a
+  // single role: any other authenticated role — including SALON_ADMIN, who
+  // always belongs to exactly one salon and has no use for this hub — is
+  // bounced to its own landing. Unauthenticated access is left to the global
+  // [authRedirect] (-> /login).
+  String? mySalonsGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is Authenticated && session.user.role != UserRole.salonOwner) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 21.8 — per-route role gate for the shared SALON_OWNER/SALON_ADMIN
+  // landing (`/salons/home`, [SalonHomeResolverScreen]). A role-only sibling
+  // of [mySalonsGuard] — admits BOTH salon roles (the resolver itself
+  // branches on which one), bounces every other authenticated role to its
+  // own landing. Unauthenticated access is left to the global [authRedirect]
+  // (-> /login).
+  String? salonHomeGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is Authenticated &&
+        session.user.role != UserRole.salonOwner &&
+        session.user.role != UserRole.salonAdmin) {
       return roleHomePath(session.user.role);
     }
     return null;
@@ -548,9 +748,21 @@ GoRouter appRouter(Ref ref) {
           ),
         ],
       ),
+      // Phase 21.13 — `extra` is OPTIONAL: every existing caller pushes with
+      // none at all, which resolves `state.extra` to `null` here and falls
+      // through to `SettingsScreen`'s own all-`false`/`null` defaults,
+      // rendering EXACTLY as before this phase. Only a caller that already
+      // knows a salonId (the owner-only «Загальне» row, Phase 21.9) passes
+      // an [AccountSettingsExtras].
       GoRoute(
         path: RouteNames.settings,
-        builder: (context, state) => const SettingsScreen(),
+        builder: (context, state) {
+          final extras = state.extra as AccountSettingsExtras?;
+          return SettingsScreen(
+            salonId: extras?.salonId,
+            showDeleteSalon: extras?.showDeleteSalon ?? false,
+          );
+        },
       ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
@@ -631,12 +843,254 @@ GoRouter appRouter(Ref ref) {
       // content-agnostic edge sliver. `/masters/:masterId` above received the
       // identical `builder:` treatment in a follow-up fix — see its own route
       // registration comment above for details.
+      // Phase 21.1 — My Salons Hub, the SALON_OWNER's landing. STANDALONE
+      // top-level route registered as a LITERAL path segment ('/salons/mine')
+      // DECLARED BEFORE the dynamic '/salons/:salonId' route immediately
+      // below — go_router resolves literal-vs-dynamic purely by declaration
+      // order, so this ordering is the ONLY thing preventing 'mine' from
+      // being swallowed as a `:salonId` value (see `RouteNames.mySalons`'s
+      // own doc). Not nested under '/salons/:salonId' for the same "an
+      // ancestor route's own redirect always runs" reason [RouteNames
+      // .salonManage] documents two routes down.
+      GoRoute(
+        path: RouteNames.mySalons,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const MySalonsScreen(),
+      ),
+      // Phase 21.8 — the shared SALON_OWNER/SALON_ADMIN landing
+      // (`roleHomePath`). A SECOND literal under the `/salons/` prefix,
+      // registered BEFORE the dynamic `/salons/:salonId` route immediately
+      // below for the identical "declaration order, not specificity" reason
+      // [RouteNames.mySalons] documents — otherwise `/salons/home` resolves
+      // to the public-profile route with `salonId == 'home'`.
+      GoRoute(
+        path: RouteNames.salonHome,
+        redirect: salonHomeGuard,
+        builder: (context, state) => const SalonHomeResolverScreen(),
+      ),
+      // Phase 21.3 — the «+ Додати салон» form ([RouteNames.registerSalon]).
+      // A THIRD literal under the `/salons/` prefix, registered BEFORE the
+      // dynamic `/salons/:salonId` route immediately below for the identical
+      // "declaration order, not specificity" reason [RouteNames.mySalons] /
+      // [RouteNames.salonHome] document — otherwise `/salons/register` would
+      // resolve to the public-profile route with `salonId == 'register'`.
+      // Reuses [mySalonsGuard] VERBATIM — identical SALON_OWNER-only
+      // semantics, so no second guard closure was written.
+      GoRoute(
+        path: RouteNames.registerSalon,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const RegisterSalonScreen(),
+      ),
+      // Phase 21.14 — the owner's own first-person profile
+      // ([RouteNames.ownerOwnProfile]), pushed STAND-ALONE (`embedded: false`
+      // → keeps a back chevron). The SAME screen is hosted as the owner
+      // shell's «Профіль» tab with `embedded: true`, but that is an
+      // `IndexedStack` slot built directly by `SalonShellScreen`, not a nested
+      // route — so this registration is the stand-alone entry only.
+      //
+      // `/profile` is a fresh top-level prefix with no dynamic sibling, so
+      // unlike the three `/salons/` literals above there is no
+      // literal-vs-dynamic shadowing to order around here. A future
+      // `/profile/:id` would have to be declared AFTER this route.
+      //
+      // Reuses [mySalonsGuard] VERBATIM — identical SALON_OWNER-only
+      // semantics, so no second guard closure was written.
+      //
+      // DOUBLE MOUNT (mobile-perf LOW, 2026-08-31) — pushed from INSIDE the
+      // shell this mounts a second `OwnerOwnProfileScreen` alongside the
+      // retained `IndexedStack` slot-2 instance (that stack never disposes a
+      // visited child). That is now BALANCED BY CONSTRUCTION rather than by
+      // luck, which is why the route is kept rather than deleted:
+      //   • screen protection is REF-COUNTED and each instance holds exactly
+      //     one reference while it is visible, releasing it on its own
+      //     visibility flip or dispose (`OwnerOwnProfileScreen.visible`), so
+      //     count 2 → 1 on pop is correct, not a leak;
+      //   • the shell's instance has already spent its one-shot entrance and
+      //     is `TickerMode`-muted by go_router while covered, so its
+      //     `AnimationController` costs nothing;
+      //   • both instances watch the SAME keepAlive `ownerOwnProfileProvider`,
+      //     so the second subscription issues no extra request.
+      // A future caller must still pass through [mySalonsGuard]; nothing
+      // links here today, so this is the stand-alone entry only.
+      GoRoute(
+        path: RouteNames.ownerOwnProfile,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const OwnerOwnProfileScreen(),
+      ),
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,
         builder: (context, state) => PublicSalonProfileScreen(
           salonId: state.pathParameters['salonId'] ?? '',
         ),
+      ),
+      // Phase 21.2 — owner/admin editable salon profile + its settings page.
+      //
+      // Registered as STANDALONE top-level routes, NOT nested under
+      // `/salons/:salonId` above, even though the path literally extends it.
+      // go_router's redirect resolution walks the WHOLE match list and runs
+      // every ancestor route's own `redirect` (see `RouteConfiguration
+      // ._processRouteLevelRedirects` → `visitRouteMatches`), not just the
+      // leaf's — nesting here would mean `/salons/:salonId`'s own
+      // `clientOnlyGuard` ALSO ran on every `.../manage` navigation and
+      // bounced every owner/admin away before `salonManageGuard` below ever
+      // got a chance to run. Mirrors [RouteNames.salonStaffBookingNew]'s own
+      // "no shell to nest under" precedent, just for a different reason (a
+      // conflicting ANCESTOR guard, not a missing one).
+      // NOTE: the path below is a literal `:salonId` GoRouter placeholder,
+      // NOT built via `RouteNames.salonManage(...)` — that helper
+      // URL-encodes its argument (`Uri.encodeComponent`), which would mangle
+      // the literal colon into `%3A` and break route matching. Mirrors how
+      // `/salons/:salonId` immediately above is registered as a raw literal
+      // for the same reason.
+      GoRoute(
+        path: '/salons/:salonId/manage',
+        redirect: salonManageGuard,
+        builder: (context, state) => SalonManagementProfileScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/manage/settings',
+        redirect: salonManageGuard,
+        builder: (context, state) =>
+            SalonSettingsScreen(salonId: state.pathParameters['salonId'] ?? ''),
+      ),
+      // Phase 21.4 — invite an admin/master to this salon. Literal `/invite`
+      // leaf below the ALREADY-RESOLVED `:salonId` capture, so no
+      // literal-vs-dynamic shadowing applies (that concern is limited to a
+      // literal declared after a dynamic SIBLING at the SAME segment, e.g.
+      // /salons/mine vs /salons/:salonId). STANDALONE top-level route for
+      // the same "an ancestor's own redirect always runs" reason /manage and
+      // /manage/settings document — nesting under /salons/:salonId would let
+      // clientOnlyGuard bounce every owner/admin first. Reuses
+      // salonManageGuard VERBATIM: it already binds SALON_OWNER (against
+      // mySalonsProvider) and SALON_ADMIN (against User.salonId).
+      GoRoute(
+        path: '/salons/:salonId/manage/invite',
+        redirect: salonManageGuard,
+        builder: (context, state) =>
+            InviteStaffScreen(salonId: state.pathParameters['salonId'] ?? ''),
+      ),
+      // Phase 21.11 — «Надіслані запрошення», the sent-but-unaccepted staff
+      // invitations. Reuses [salonManageGuard] VERBATIM (owner + admin, each
+      // bound to their own salon) rather than
+      // [salonManageOwnerOnlyGuard]: this surface is admin-permitted by
+      // design — the Phase 21.9 settings hub renders its entry row OUTSIDE
+      // the owner-only block, and backend 23.1's
+      // `GET/DELETE /salons/{salonId}/invites/...` pair is itself owner+admin
+      // scoped. The owner-only guard exists for the three Phase 21.10 salon
+      // EDIT forms ("admins cannot edit salon info"), which this is not.
+      // STANDALONE top-level route for the same "an ancestor's own redirect
+      // always runs" reason `/manage` and `/manage/invite` document — nesting
+      // under `/salons/:salonId` would let `clientOnlyGuard` bounce every
+      // owner/admin first.
+      GoRoute(
+        path: '/salons/:salonId/pending-invites',
+        redirect: salonManageGuard,
+        builder: (context, state) => SalonPendingInvitesScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
+      ),
+      // Phase 21.5 — staff member (master OR admin) management profile.
+      // STANDALONE for the same reason as `/manage/invite` directly above:
+      // go_router runs every ancestor's redirect, so nesting under
+      // `/salons/:salonId` would let clientOnlyGuard bounce owners/admins
+      // first.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId',
+        redirect: salonManageGuard,
+        builder: (context, state) => SalonStaffProfileScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+        ),
+      ),
+      // Phase 21.6 — the admin-settings page and its rotate-destination
+      // picker. Two literal leaves (`/settings`, `/move`) below the
+      // ALREADY-RESOLVED `:salonId`/`:memberId` captures, so declaration
+      // order among them carries no shadowing risk (that concern applies
+      // only to a literal declared after a dynamic SIBLING at the SAME
+      // segment, e.g. `/salons/mine` vs `/salons/:salonId`). STANDALONE
+      // top-level routes for the same "an ancestor's own redirect always
+      // runs" reason `/manage/staff/:memberId` directly above documents.
+      //
+      // Gated by `salonManageGuard`, NOT `salonManageOwnerOnlyGuard`: all
+      // three backend endpoints these screens call
+      // (`DELETE|PATCH /salons/{salonId}/admins/{userId}` and
+      // `GET /salons/{salonId}/sibling-salons`) are
+      // `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon`
+      // — an assigned admin may manage a fellow admin. The owner-only guard
+      // exists for the Phase 21.10 salon EDIT forms, which these are not.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/settings',
+        redirect: salonManageGuard,
+        builder: (context, state) => StaffSettingsScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/move',
+        redirect: salonManageGuard,
+        builder: (context, state) => MoveAdminSalonScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+        ),
+      ),
+      // Phase 21.10 — the three lightweight edit-form screens the Phase 21.9
+      // settings hub pushes to. STANDALONE top-level routes,
+      // same "an ancestor's own redirect always runs" reason
+      // [salonManage]/[salonManageSettings] document immediately above — and
+      // literal children of the ALREADY-literal `.../manage/settings` chain,
+      // so there is no dynamic `:salonId`-shadowing risk at this level (that
+      // concern only applies to a literal declared AFTER a dynamic SIBLING at
+      // the SAME segment, e.g. `/salons/mine` vs `/salons/:salonId` above —
+      // these three segments sit strictly BELOW the already-resolved
+      // `:salonId` capture, so declaration order among them doesn't matter).
+      //
+      // mobile-security HIGH follow-up (2026-08-29) — these three routes are
+      // owner-only (design: "Owner-only: admins cannot edit salon info.") but
+      // were still gated by the shared [salonManageGuard], which admits any
+      // SALON_ADMIN of the salon. Now Phase 21.9 wired real in-app entry
+      // points (the settings hub's owner-only rows), a SALON_ADMIN could
+      // reach these actually-persisting PATCH forms by deep link or
+      // back-stack. [salonManageOwnerOnlyGuard] composes [salonManageGuard]
+      // (unchanged) with an additional owner-only check — see its own doc.
+      GoRoute(
+        path: '/salons/:salonId/manage/settings/profile-edit',
+        redirect: salonManageOwnerOnlyGuard,
+        builder: (context, state) => SalonProfileEditScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/manage/settings/address-edit',
+        redirect: salonManageOwnerOnlyGuard,
+        builder: (context, state) => SalonAddressEditScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/manage/settings/contacts-edit',
+        redirect: salonManageOwnerOnlyGuard,
+        builder: (context, state) => SalonContactsEditScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+        ),
+      ),
+      // Phase 21.8 — the salon-scoped bottom-nav shell
+      // ([RouteNames.salonShell]). Reuses [salonManageGuard] VERBATIM — it
+      // already binds ownership for both SALON_OWNER (against
+      // `mySalonsProvider`) and SALON_ADMIN (against `User.salonId`), the
+      // exact authorization this route needs. A STANDALONE top-level route,
+      // same "an ancestor's own redirect always runs" reason
+      // [salonManage]/[salonManageSettings] document — nesting under
+      // `/salons/:salonId` would let that route's own `clientOnlyGuard` run
+      // first and bounce every owner/admin away.
+      GoRoute(
+        path: '/salons/:salonId/shell',
+        redirect: salonManageGuard,
+        builder: (context, state) =>
+            SalonShellScreen(salonId: state.pathParameters['salonId'] ?? ''),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with
@@ -1149,6 +1603,54 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.masterReceivedReviews,
         builder: (context, state) => const MasterReceivedReviewsScreen(),
+      ),
+      // SALON_MASTER's own personal-profile surface — fixes the "blank home"
+      // landing bug (see `role_home.dart`). `builder:` (MaterialPage), not
+      // `pageBuilder: _instantPage` — this is the `roleHomePath` landing,
+      // reached only via `context.go`, so there is no swipe-back gesture to
+      // arm (Flutter disarms it for any `isFirst` route regardless of page
+      // type); kept for the same theme-driven page-transition builder every
+      // other tab-root screen gets, mirroring `RouteNames.masterProfile`
+      // immediately above.
+      GoRoute(
+        path: RouteNames.salonMasterProfile,
+        builder: (context, state) => const SalonMasterProfileScreen(),
+      ),
+      // Settings hub reached from the profile's trailing `tune_rounded`
+      // action. REUSE-FIRST: the SAME [SettingsHubScreen] widget
+      // `RouteNames.masterMenu` renders, via its additive
+      // `showLocation`/`contactsEnabled`/`contactsRoute`/`personalInfoRoute`/
+      // `fallbackHomeRoute` params — see that widget's own class doc. The
+      // «Контакти» row is live here (`contactsEnabled: true`), pushing the
+      // phone-only [ContactsEditScreen] variant at
+      // [RouteNames.salonMasterEditContacts].
+      GoRoute(
+        path: RouteNames.salonMasterSettings,
+        builder: (context, state) => const SettingsHubScreen(
+          showLocation: false,
+          contactsEnabled: true,
+          contactsRoute: RouteNames.salonMasterEditContacts,
+          personalInfoRoute: RouteNames.salonMasterEditPersonal,
+          fallbackHomeRoute: RouteNames.salonMasterProfile,
+        ),
+      ),
+      // «Особисті дані» edit for a SALON_MASTER — reuses [PersonalInfoEditScreen]
+      // VERBATIM (see `route_names.dart`'s [RouteNames.salonMasterEditPersonal]
+      // doc for why this is a second route registration rather than a widened
+      // `/master/edit/personal` guard).
+      GoRoute(
+        path: RouteNames.salonMasterEditPersonal,
+        builder: (context, state) => const PersonalInfoEditScreen(),
+      ),
+      // «Контакти» edit for a SALON_MASTER — phone only. Reuses
+      // [ContactsEditScreen] via its additive `showInstagram: false` param
+      // (see `route_names.dart`'s [RouteNames.salonMasterEditContacts] doc
+      // and `contacts_edit_screen.dart`'s class doc for why Instagram is
+      // excluded for this role).
+      GoRoute(
+        path: RouteNames.salonMasterEditContacts,
+        builder: (context, state) =>
+            const ContactsEditScreen(showInstagram: false),
       ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.

@@ -56,5 +56,15 @@ abstract final class UserMapper {
     street: dto.street,
     buildingNo: dto.buildingNo,
     locationNote: dto.locationNote,
+    salonId: dto.salonId,
+    bio: dto.bio,
+    instagram: dto.instagram,
+    professionalTitle: dto.professionalTitle,
+    // Carried VERBATIM, including null. `UserProfileResponse.hasMasterProfile`
+    // is generated as `bool?` because the schema does not mark it required, so
+    // an older backend simply omits it — and null must stay null all the way
+    // into the domain rather than being coerced to `false` here. See
+    // [User.hasMasterProfile] for why an absent field is not a proven "no".
+    hasMasterProfile: dto.hasMasterProfile,
   );
 }

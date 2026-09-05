@@ -59,6 +59,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
+import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
+import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_own_profile_flow_test.dart' as owner_own_profile;
+import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_favorites_flow_test.dart' as client_favorites;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
@@ -134,6 +138,13 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_management_profile_flow_test.dart' as salon_management_profile;
+import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
+import 'register_salon_flow_test.dart' as register_salon;
+import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
+import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
+import 'salon_staff_settings_admin_gate_flow_test.dart'
+    as salon_staff_settings_admin_gate;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
@@ -150,6 +161,7 @@ import 'service_preselection_flow_test.dart' as service_preselection;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
+import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
@@ -169,6 +181,15 @@ void main() {
   // and resets global state via AppHarness.tearDownHarness — the per-test
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
+  // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
+  // login AND the post-registration done_to_app CTA both land on the My
+  // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
+  group('salon_owner_landing_flow', salon_owner_landing.main);
+  group('salon_shell_landing_flow', salon_shell_landing.main);
+  // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
+  // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
+  group('owner_own_profile_flow', owner_own_profile.main);
+  group('salon_shell_tab_sync_flow', salon_shell_tab_sync.main);
   // Independent-master MULTI-SERVICE booking (Step 2.7 Rule 3b) — two services
   // → two POST /bookings (distinct service/start/key) → success, plus the
   // partial-failure/same-key-retry path (re-authored from the removed
@@ -440,6 +461,34 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
+  // profile: real login → salonManageGuard admits a real session → PATCH
+  // dirty-diff proven on the real wire body (mandate 3) → DELETE.
+  group('salon_management_profile_flow', salon_management_profile.main);
+  // Phase 21.10 QA follow-up (Step 2.7 Rule 3b) — the three new edit-form
+  // routes (profile/address/contacts) reachable end-to-end via a real
+  // SALON_OWNER session, plus the address form's locality-PAIR dirty-diff
+  // regression pin (cityId/districtId diffed independently can submit an
+  // invalid pair — see the file's own header doc).
+  group('salon_edit_forms_flow', salon_edit_forms.main);
+  // Phase 21.3 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER registers a new
+  // salon end to end: real hub -> real «+ Додати салон» CTA push -> real
+  // form fill -> real POST /api/v1/salons -> real pop -> the new salon
+  // rendered on the hub via the real ref.invalidate(mySalonsProvider)
+  // refetch, no manual refresh.
+  group('register_salon_flow', register_salon.main);
+  // Phase 21.11 QA follow-up (Step 2.7 Rule 3b) — «Надіслані запрошення»:
+  // real settings-hub row push -> real GET /invites/pending -> real per-row
+  // DELETE -> the cancel PERSISTS across a genuine autoDispose refetch (the
+  // one thing an optimistic client-side removal cannot be told apart from at
+  // the widget tier). Also carries the deliberately-RED pin for the missing
+  // `pendingInvitesProvider` invalidation on invite-send.
+  group('salon_pending_invites_flow', salon_pending_invites.main);
+  group('salon_staff_settings_flow', salon_staff_settings.main);
+  group(
+    'salon_staff_settings_admin_gate_flow',
+    salon_staff_settings_admin_gate.main,
+  );
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment
@@ -481,6 +530,10 @@ void main() {
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
+  // Swipe-to-delete on «Мої салони» (mobile-qa CRITICAL fix, 2026-09-03) —
+  // owner swipes -> confirms -> a real DELETE /api/v1/salons/{salonId}
+  // round trip -> lands back on the hub with the remaining salon.
+  group('swipe_to_delete_salon_flow', swipe_to_delete_salon.main);
   // VelvetSnack AS A FEATURE (mobile-qa, Step 2.7 Rule 3b) — a real
   // failure-path error snack raised + auto-retired, a success snack
   // surviving the context.pop() that follows it, and single-slot

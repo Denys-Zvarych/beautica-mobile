@@ -208,6 +208,16 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // build, so `beauticaProviderRetry` is not on this failure's path at all.)
   ServiceRateLimitedFailure() => true,
 
+  // ---- deterministic: invite-accept post-success hand-off (2026-09-01) ---
+  // The 2xx already happened server-side; a retry would resend a mutation
+  // request that the server may have already applied (or, for the single-use
+  // invite-accept token specifically, cannot possibly succeed again). Neither
+  // reaches [beauticaProviderRetry] in practice — both are thrown from a
+  // notifier mutation (acceptInvite/verifyEmail), never a provider build —
+  // but the classification must still be a real answer, not a default.
+  ResponseUnusableFailure() => false,
+  InviteHandoffFailure() => false,
+
   // ---- deterministic: HTTP 4xx and typed 4xx envelopes -------------------
   // A pin miss. Fail-closed and NOT transient in the useful sense: the chain
   // that was rejected is the chain the next identical attempt will meet, so a

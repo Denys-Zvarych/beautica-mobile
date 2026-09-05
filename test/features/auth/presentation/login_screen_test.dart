@@ -44,6 +44,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/features/auth/state/login_notice_notifier.dart';
+
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
@@ -90,6 +92,22 @@ GoRouter _makeRouter() => GoRouter(
     ),
   ],
 );
+
+/// Invite-accept post-success failure design (2026-09-01) — seeds
+/// [loginNoticeProvider] with a fixed initial state instead of `null`.
+///
+/// Unlike a pure stub, this is a REAL [LoginNotice] with a non-null starting
+/// value — its inherited `show`/`clear` methods run unchanged, so
+/// `LoginScreen`'s real post-frame `clear()` call genuinely mutates this
+/// notifier's state (see test 18, which relies on that).
+class _SeededLoginNotice extends LoginNotice {
+  _SeededLoginNotice(this._seed);
+
+  final LoginNoticeState? _seed;
+
+  @override
+  LoginNoticeState? build() => _seed;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -967,6 +985,184 @@ void main() {
               'LoginScreen must dispose cleanly — ScreenProtector.preventScreenshotOff() '
               'is guarded by !kDebugMode and must not hit the platform channel '
               'in the test runner.',
+        );
+      },
+    );
+  });
+
+  // =========================================================================
+  // Invite-accept post-success failure design (2026-09-01) — items 17-18 of
+  // the mobile-qa test plan: the one-shot hand-off notice from a spent/
+  // unreachable invite (or verify) flow into LoginScreen.
+  // =========================================================================
+  group('LoginScreen — invite-accept hand-off notice', () {
+    // -----------------------------------------------------------------------
+    // item 17a — notice seeded → AuthBanner shows the reason's copy AND the
+    // email field is prefilled.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '17a. loginNoticeProvider seeded with inviteNoLongerValid + email → '
+      'AuthBanner shows the matching ARB copy, login_email is prefilled',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+              loginNoticeProvider.overrideWith(
+                () => _SeededLoginNotice((
+                  reason: InviteHandoffReason.inviteNoLongerValid,
+                  email: 'masha@salon.ua',
+                )),
+              ),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pump(); // build
+        await tester.pump(); // post-frame callback fires (clears the notice)
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(find.byType(AuthBanner), findsOneWidget);
+        expect(
+          find.text(l10n.inviteHandoffNoLongerValid),
+          findsOneWidget,
+          reason:
+              'the banner copy must come from the reason-specific ARB key, '
+              'not the generic errUnknown/errValidation fallback',
+        );
+
+        final emailField = tester.widget<NeumorphicTextField>(
+          find.byKey(const ValueKey<String>('login_email')),
+        );
+        expect(
+          emailField.controller.text,
+          'masha@salon.ua',
+          reason: 'the invited email must prefill login_email on first mount',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // item 17b — no notice → screen renders exactly as today (no banner).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '17b. loginNoticeProvider null (the ordinary case) → no AuthBanner, '
+      'login_email stays empty',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+              // loginNoticeProvider left at its real default (null) —
+              // exercises the REAL LoginNotice, not a seeded stub.
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AuthBanner), findsNothing);
+        final emailField = tester.widget<NeumorphicTextField>(
+          find.byKey(const ValueKey<String>('login_email')),
+        );
+        expect(emailField.controller.text, isEmpty);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // item 18 — notice cleared after the first frame: a SECOND mount on the
+    // SAME provider container (so the real notifier's cleared state
+    // survives across mounts) must show no banner.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '18. notice cleared after the first frame — a second LoginScreen '
+      'mount on the same container shows no banner',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            loginNoticeProvider.overrideWith(
+              () => _SeededLoginNotice((
+                reason: InviteHandoffReason.accountReady,
+                email: null,
+              )),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        Widget buildApp() => UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: LoginScreen(),
+          ),
+        );
+
+        // First mount: the seeded notice is visible on the first frame...
+        await tester.pumpWidget(buildApp());
+        await tester.pump(); // build (initState reads the seeded notice)
+        expect(find.byType(AuthBanner), findsOneWidget);
+
+        // ...then the post-frame callback clears it on the REAL notifier.
+        await tester.pumpAndSettle();
+        expect(
+          container.read(loginNoticeProvider),
+          isNull,
+          reason:
+              'LoginScreen must clear loginNoticeProvider after its first '
+              'frame so a later, unrelated login never re-shows it',
+        );
+
+        // Unmount, then remount a FRESH LoginScreen State on the SAME
+        // container — proves the clear was durable, not merely local to the
+        // first State instance.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: SizedBox.shrink()),
+          ),
+        );
+        await tester.pump();
+
+        await tester.pumpWidget(buildApp());
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(AuthBanner),
+          findsNothing,
+          reason: 'a second mount must not resurrect an already-cleared notice',
         );
       },
     );

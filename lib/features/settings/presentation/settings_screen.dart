@@ -7,6 +7,17 @@
 // Logout is not surfaced here — it lives on the settings hub (the canonical
 // logout entry point).
 //
+// Phase 21.13 — optional owner-only «Видалити салон» row. Additive: both
+// [salonId] and [showDeleteSalon] default so every existing caller
+// (`const SettingsScreen()`, or `context.push(RouteNames.settings)` with no
+// `extra`) renders EXACTLY as before. The row itself fails closed — it only
+// renders when BOTH `showDeleteSalon` is true AND `salonId` is non-null, so
+// a caller that asks for the row without a target never gets a delete button
+// with nothing to delete. REUSE-FIRST: the delete flow itself is NOT
+// reimplemented here — it delegates to `runDeleteSalonFlow`
+// (`features/salon/presentation/delete_salon_flow.dart`), the same function
+// `SalonSettingsScreen` (Phase 21.2) was rewired onto in this same change.
+//
 // Security: screenshot protection acquired via the app-wide
 // ScreenProtectionManager (ref-counted; active in non-debug builds).
 //
@@ -26,8 +37,10 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../features/auth/domain/auth_session.dart';
 import '../../../features/auth/presentation/auth_notifier.dart';
+import '../../../features/auth/presentation/auth_selectors.dart';
 import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
+import '../../../features/salon/presentation/delete_salon_flow.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
@@ -35,7 +48,18 @@ import '../../../shared/feedback/show_velvet_snack.dart';
 
 /// Account settings page — VelvetTouch neumorphic design.
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.salonId, this.showDeleteSalon = false});
+
+  /// Backend Salon-row UUID the owner-only «Видалити салон» row targets.
+  /// `null` (the default) means the row never renders, regardless of
+  /// [showDeleteSalon].
+  final String? salonId;
+
+  /// Whether to render the destructive «Видалити салон» row below a hairline
+  /// divider. Defaults to `false` so every existing caller is unaffected.
+  /// The row still fails closed on a null [salonId] — see this file's header
+  /// doc.
+  final bool showDeleteSalon;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -49,6 +73,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   late final CurvedAnimation _anim1; // language
   late final CurvedAnimation _anim2; // notifications
   late final CurvedAnimation _anim3; // change password
+  late final CurvedAnimation _anim4; // delete-salon divider (Phase 21.13)
+  late final CurvedAnimation _anim5; // delete-salon row (Phase 21.13)
 
   static final Tween<Offset> _slideTween = Tween<Offset>(
     begin: const Offset(0, 0.035),
@@ -75,6 +101,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _anim1 = _curve(0.08, 0.50);
     _anim2 = _curve(0.16, 0.58);
     _anim3 = _curve(0.24, 0.66);
+    _anim4 = _curve(0.30, 0.74);
+    _anim5 = _curve(0.36, 0.82);
     _controller.forward();
   }
 
@@ -90,6 +118,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _anim1.dispose();
     _anim2.dispose();
     _anim3.dispose();
+    _anim4.dispose();
+    _anim5.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -136,6 +166,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       showErrorSnack(context, message);
     }
   }
+
+  /// True while the owner-only delete-salon call is in flight.
+  bool _deletingSalon = false;
+
+  /// Phase 21.13 — fails closed: the row (and its divider) only render when
+  /// the caller BOTH asked for it AND supplied a target AND the current
+  /// session is an authenticated SALON_OWNER. `showDeleteSalon: true` with a
+  /// null [SettingsScreen.salonId] must never surface a delete button with
+  /// nothing to delete, and — unlike the first two conjuncts, which are
+  /// caller-supplied navigation state — this last one is derived from the
+  /// session so a caller passing `showDeleteSalon: true` for a non-owner
+  /// (CLIENT / master / admin) can never surface the row. Shares the
+  /// promoted [isSalonOwnerProvider] with `SalonSettingsScreen.build` and
+  /// `MySalonsScreen.build` (`features/auth/presentation/auth_selectors
+  /// .dart`) rather than a third copy of the inline `authProvider.select`
+  /// derivation — see that provider's doc for the stale-`.value`-through-
+  /// `AsyncError` hardening. Fails closed, never open.
+  bool get _showDeleteSalonRow {
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
+    return widget.showDeleteSalon && widget.salonId != null && isOwner;
+  }
+
+  /// REUSE-FIRST: delegates to the SAME confirm→delete→feedback flow
+  /// `SalonSettingsScreen` (Phase 21.2) uses — see
+  /// `features/salon/presentation/delete_salon_flow.dart`. Not reachable
+  /// unless [_showDeleteSalonRow] is true, so `widget.salonId!` is safe here.
+  Future<void> _deleteSalon() => runDeleteSalonFlow(
+    context: context,
+    ref: ref,
+    salonId: widget.salonId!,
+    setLoading: (bool loading) => setState(() => _deletingSalon = loading),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +283,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               onTap: _openChangePassword,
             ),
           ),
+          // Phase 21.13 — owner-only «Видалити салон», additive and fails
+          // closed (see [_showDeleteSalonRow]). Divider styling matches
+          // `SalonSettingsScreen`'s own terminal-group divider verbatim
+          // (thickness 0.6, accent @ ~22%, VelvetSpacing.lg vertical pad) —
+          // read, don't invent.
+          if (_showDeleteSalonRow) ...<Widget>[
+            _reveal(
+              _anim4,
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+                child: Divider(
+                  key: Key('account-settings-delete-salon-divider'),
+                  thickness: 0.6,
+                  color: Color(0x38B89A7A), // accent @ ~22%
+                ),
+              ),
+            ),
+            _reveal(
+              _anim5,
+              SettingsRow(
+                key: const Key('row-delete-salon'),
+                icon: Icons.delete_outline_rounded,
+                label: l10n.deleteSalonAction,
+                destructive: true,
+                showChevron: false,
+                loading: _deletingSalon,
+                onTap: _deleteSalon,
+              ),
+            ),
+          ],
         ],
       ),
     );

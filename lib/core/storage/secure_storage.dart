@@ -4,7 +4,9 @@
 // makes fakes trivial (see test/helpers/fakes/fake_secure_storage.dart) and
 // keeps test setup independent of the flutter_secure_storage internals.
 //
-// Android: EncryptedSharedPreferences backed by the Android Keystore.
+// Android: RSA-OAEP key-wrap + AES-256-GCM value encryption, both
+//          Keystore-resident (flutter_secure_storage v10+ — no longer
+//          Jetpack EncryptedSharedPreferences).
 // iOS:     Keychain with `first_unlock_this_device` accessibility — data
 //          survives a device restart (unlocked once) so background refresh
 //          can read the token without the user re-authenticating.
@@ -49,13 +51,31 @@ abstract interface class SecureStorage {
   /// Deletes the durable post-OTP locality slice (called on `/done` arrival).
   Future<void> deletePendingLocality();
 
+  /// Reads the last-visited salon pointer JSON (`{userId, salonId}`), or
+  /// `null` if none exists.
+  ///
+  /// Phase 286 — storage slot only; nothing reads it yet (Phase 288 adds the
+  /// reader).
+  Future<String?> readLastSalon();
+
+  /// Writes (or overwrites) the last-visited salon pointer JSON.
+  ///
+  /// Phase 286 — storage slot only; nothing writes it yet (Phase 287 adds
+  /// the writer).
+  Future<void> writeLastSalon(String json);
+
+  /// Deletes the last-visited salon pointer.
+  Future<void> deleteLastSalon();
+
   /// Deletes all keys managed by this storage (called on logout).
   Future<void> deleteAll();
 }
 
 /// Production [SecureStorage] backed by [FlutterSecureStorage].
 ///
-/// Android: EncryptedSharedPreferences (Keystore-backed AES-256-GCM).
+/// Android: RSA-OAEP-wrapped AES-256-GCM, Keystore-resident (not
+/// EncryptedSharedPreferences — that mechanism was dropped in
+/// flutter_secure_storage v10.0.0).
 /// iOS:     Keychain item with [KeychainAccessibility.first_unlock_this_device].
 ///
 /// Accepts an optional [FlutterSecureStorage] for constructor injection in
@@ -105,8 +125,19 @@ final class FlutterSecureStorageImpl implements SecureStorage {
   Future<void> deletePendingLocality() =>
       _storage.delete(key: StorageKeys.pendingLocality);
 
+  @override
+  Future<String?> readLastSalon() => _storage.read(key: StorageKeys.lastSalon);
+
+  @override
+  Future<void> writeLastSalon(String json) =>
+      _storage.write(key: StorageKeys.lastSalon, value: json);
+
+  @override
+  Future<void> deleteLastSalon() => _storage.delete(key: StorageKeys.lastSalon);
+
   // deleteAll() wipes every key managed by this storage — including
-  // [StorageKeys.pendingLocality] — so logout clears the locality slice too.
+  // [StorageKeys.pendingLocality] and [StorageKeys.lastSalon] — so logout
+  // clears the locality slice and the last-visited-salon pointer too.
   @override
   Future<void> deleteAll() => _storage.deleteAll();
 }

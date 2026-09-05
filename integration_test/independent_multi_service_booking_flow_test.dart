@@ -15,8 +15,10 @@
 //     success screen — with ONE `createAppointment` carrying BOTH ordered
 //     service ids + ONE calendar export spanning the whole visit.
 //   • Test 2 — the single submit 409s with CLIENT_BOOKING_CONFLICT → the confirm
-//     screen STAYS with ONE inline error banner (never the retired conflict
-//     DIALOG), and a retry REUSES the same idempotency key and reaches success.
+//     screen STAYS and the conflict surfaces EXACTLY ONCE, as the shared POPUP
+//     (`showClientBookingConflictDialog`, never the bottom banner — commit
+//     `4d49d1c3`), and confirming it resubmits the SAME idempotency key with
+//     `allowClientOverlap: true` and reaches success.
 //   • Test 3 — enters the real date→time picker (`SlotDateScreen` →
 //     `SlotTimeScreen`) with a two-service selection and proves the pinned
 //     "Послуги та ціни" shelf lists both services and the single chosen-window
@@ -343,14 +345,30 @@ void main() {
   );
 
   // =========================================================================
-  // Test 2 — the single submit 409s with CLIENT_BOOKING_CONFLICT → ONE inline
-  // error banner (never the retired conflict DIALOG), confirm screen STAYS,
-  // retry REUSES the same idempotency key and reaches success.
+  // Test 2 — the single submit 409s with CLIENT_BOOKING_CONFLICT → the confirm
+  // screen STAYS and the conflict surfaces EXACTLY ONCE, through EXACTLY ONE
+  // surface: the shared `showClientBookingConflictDialog` POPUP, never the
+  // bottom `booking-confirm-submit-error` banner. Confirming the popup
+  // resubmits the SAME request — same idempotency key — with
+  // `allowClientOverlap: true` and reaches success.
+  //
+  // This body originally pinned the OPPOSITE mapping (banner shown, dialog
+  // absent), which was correct when it was written on 2026-07-15. Commit
+  // `4d49d1c3` (2026-08-27, "fix(booking): show the overlap conflict as a
+  // popup, not a red banner") deliberately reversed it — the salon flow had
+  // answered the same failure with the same dialog since `92644d2e`, and the
+  // client paths were brought onto it. That commit updated the widget tier but
+  // not this one, so the two drifted. The widget tier's counterpart is
+  // `test/features/booking/presentation/booking_confirm_test.dart`'s
+  // "client-create: a ClientBookingConflictFailure opens the conflict dialog
+  // and renders NO bottom error banner" — this flow proves the same contract
+  // survives the REAL router/shell/session wiring.
   // =========================================================================
   testWidgets(
     'CLIENT submits a visit, the create 409s with CLIENT_BOOKING_CONFLICT → the '
-    'confirm screen stays with ONE inline error banner → retry reuses the same '
-    'idempotency key and reaches success',
+    'confirm screen stays and the conflict surfaces exactly ONCE as the popup '
+    '(never the bottom banner) → confirming it resubmits the same idempotency '
+    'key with allowClientOverlap and reaches success',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final ClientBookingConflictFailure conflict =
@@ -359,10 +377,11 @@ void main() {
             serviceName: 'Педикюр апаратний',
             masterName: 'Ірина Шевченко',
             // The CLASHING booking's own window, not this visit's. It is only
-            // ever fed to a pure absolute formatter inside the inline error
-            // banner (asserted by key alone below), never compared against the
-            // wall clock — and `startsAt`/`endsAt` must stay a matched pair, so
-            // anchoring one of them to now would invert the window.
+            // ever fed to a pure absolute formatter inside the conflict popup's
+            // `client-booking-conflict-existing` row (asserted below), never
+            // compared against the wall clock — and `startsAt`/`endsAt` must
+            // stay a matched pair, so anchoring one of them to now would invert
+            // the window.
             // future-date-ok: pinned conflict window, no wall-clock read.
             startsAt: DateTime.utc(2026, 7, 16, 14),
             // future-date-ok: pinned conflict window, no wall-clock read.
@@ -395,39 +414,92 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
       await AppHarness.settle(tester);
 
-      // STAYS on the confirm screen — no navigation, no crash, no dialog.
+      // STAYS on the confirm screen — no navigation, no crash.
       AppHarness.expectShellLocation(router, RouteNames.bookingConfirm);
       expect(find.byType(BookingConfirmScreen), findsOneWidget);
       expect(find.byType(BookingSuccessScreen), findsNothing);
-      // The retired conflict dialog must NEVER appear.
-      expect(
-        find.byKey(const Key('client-booking-conflict-dialog')),
-        findsNothing,
+
+      // ── EXACTLY ONE surface, and it is the popup ────────────────────────
+      // `findsOneWidget` carries the "exactly one" half on its own: a second
+      // dialog stacked on top (a double-submit, a retry re-entering `_submit`
+      // while the first is still up) fails here rather than passing.
+      final Finder conflictDialog = find.byKey(
+        const Key('client-booking-conflict-dialog'),
       );
-      // ONE inline error banner, naming the conflict.
+      expect(
+        conflictDialog,
+        findsOneWidget,
+        reason:
+            'a CLIENT_BOOKING_CONFLICT must open the shared popup — the '
+            'contract commit 4d49d1c3 moved the client-create path onto',
+      );
+      // …and the OTHER surface stays silent. Asserting only the dialog would
+      // let the retired banner creep back BESIDE it as a duplicate second
+      // surface for the same failure — the exact drift this pair guards.
       expect(
         find.byKey(const Key('booking-confirm-submit-error')),
+        findsNothing,
+        reason:
+            'the popup replaces the bottom error banner for this failure — '
+            'never both, never the banner alone',
+      );
+      // The one surface that DID render names the CLASHING booking, so the
+      // conflict is legible from it. Scoped to the row's own subtree: the
+      // service name is also the visit's own second service, so an unscoped
+      // `find.text` would match the recap and pass vacuously.
+      final Finder existingRow = find.byKey(
+        const Key('client-booking-conflict-existing'),
+      );
+      expect(existingRow, findsOneWidget);
+      expect(
+        find.descendant(
+          of: existingRow,
+          matching: find.textContaining('Ірина Шевченко'),
+        ),
         findsOneWidget,
+        reason: "the popup must name the clashing booking's master",
       );
 
       expect(repo.requests, hasLength(1));
+      expect(
+        repo.requests.single.allowClientOverlap,
+        isFalse,
+        reason: 'the FIRST attempt never waives the client overlap check',
+      );
 
-      // ── Retry → now succeeds (fail-once consumed) → success ─────────────
-      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      // ── Confirm the popup → resubmit with the override → success ────────
+      await tester.tap(
+        find.byKey(const Key('client-booking-conflict-proceed')),
+      );
       await AppHarness.settle(tester);
 
       AppHarness.expectShellLocation(router, RouteNames.bookingSuccess);
       expect(find.byType(BookingSuccessScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
+      // The single surface is GONE once resolved — it neither lingers over the
+      // success screen nor hands the failure off to the banner on its way out.
+      expect(conflictDialog, findsNothing);
+      expect(
+        find.byKey(const Key('booking-confirm-submit-error')),
+        findsNothing,
+      );
 
       // Two submits, both reusing the SAME stable idempotency key so the
-      // ambiguously-failed first attempt de-duplicates server-side.
+      // ambiguously-failed first attempt de-duplicates server-side. Only the
+      // SECOND carries the client's explicit overlap waiver.
       expect(repo.requests, hasLength(2));
       expect(repo.requests[0].idempotencyKey, 'itest-pf-key');
       expect(
         repo.requests[1].idempotencyKey,
         equals(repo.requests[0].idempotencyKey),
-        reason: 'the retry must REUSE the same key, never mint a fresh one',
+        reason: 'the resubmit must REUSE the same key, never mint a fresh one',
+      );
+      expect(
+        repo.requests[1].allowClientOverlap,
+        isTrue,
+        reason:
+            'confirming the popup is what waives the overlap check — without '
+            'the flag the resubmit would simply 409 again',
       );
     },
     timeout: const Timeout(Duration(seconds: 120)),

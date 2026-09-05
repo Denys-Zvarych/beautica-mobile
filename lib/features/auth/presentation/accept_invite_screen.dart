@@ -23,13 +23,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
+import '../../../routing/route_names.dart';
 import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/name_validator.dart';
+import '../../../shared/validators/password_validator.dart';
 import '../../../shared/validators/phone_validator.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
@@ -38,6 +41,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../domain/user_role.dart';
 import '../state/accept_invite_notifier.dart';
+import '../state/login_notice_notifier.dart';
 import 'auth_notifier.dart';
 import 'user_role_l10n.dart';
 import 'widgets/auth_scaffold.dart';
@@ -70,6 +74,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   String _passwordValue = '';
   String _firstNameValue = '';
   String _lastNameValue = '';
+  String _phoneValue = '';
   String? _inlineError;
   bool _loading = false;
 
@@ -82,7 +87,11 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   /// the user edits the corresponding field.
   Map<String, String> _fieldErrors = const <String, String>{};
 
-  /// Password policy rules — 12-char min for the invite path.
+  /// Password policy rules — same shared policy every other auth form uses
+  /// (min 8, ≥1 digit, ≥1 uppercase; see `passwordRules`'s default). The
+  /// invite path used to override this to a 12-char minimum that no longer
+  /// matches the backend's `@StrongPassword` policy (min 8, same as
+  /// register/reset) — fixed 2026-09-01.
   /// Initialised in [didChangeDependencies] so AppLocalizations is available.
   List<PasswordRule>? _rules;
 
@@ -119,7 +128,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _rules ??= passwordRules(AppLocalizations.of(context), minLength: 12);
+    _rules ??= passwordRules(AppLocalizations.of(context));
   }
 
   // Captured in initState so dispose() never touches `ref` — under Riverpod
@@ -155,10 +164,17 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   // _rules is guaranteed non-null after didChangeDependencies runs.
   bool get _passwordMeetsRules => _rules!.every((r) => r.test(_passwordValue));
 
+  // Phone is required for invited SALON_ADMIN / SALON_MASTER accounts —
+  // InviteAcceptRequest.phoneNumber carries @NotBlank on the backend
+  // unconditionally, so this form never issues an invite whose role would
+  // make phone optional. Gated the same two-tier way as first/last name:
+  // non-blank live-disables the CTA; the stricter format check
+  // (`validatePhone`) runs at submit time via `_phoneError`/`_accept`.
   bool get _formValid =>
       _passwordMeetsRules &&
       _firstNameValue.trim().isNotEmpty &&
-      _lastNameValue.trim().isNotEmpty;
+      _lastNameValue.trim().isNotEmpty &&
+      _phoneValue.trim().isNotEmpty;
 
   /// Inline first-name error: server error first, then client validator
   /// (non-blank + max-length 100), only after the first submit attempt.
@@ -177,19 +193,30 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     return validateName(_lastName.text, l10n);
   }
 
-  /// Inline phone error: server error first, then client format validator. The
-  /// phone is OPTIONAL — an empty value is valid and skips format validation.
+  /// Inline phone error: server error first, then the shared client format
+  /// validator. Phone is REQUIRED (InviteAcceptRequest.phoneNumber is
+  /// @NotBlank on the backend for every invited role this screen serves) —
+  /// [validatePhone] already rejects an empty value on its own, so there is
+  /// no separate "optional" carve-out here.
   String? _phoneError(AppLocalizations l10n) {
     final serverErr = _fieldErrors['phone'] ?? _fieldErrors['phoneNumber'];
     if (serverErr != null) return serverErr;
     if (!_submitted) return null;
-    if (_phone.text.trim().isEmpty) return null; // optional
     return validatePhone(_phone.text.trim(), l10n);
   }
 
-  /// Inline password error from the server (the client checklist already
-  /// enforces the policy live, so there is no client validator here).
-  String? get _passwordServerError => _fieldErrors['password'];
+  /// Inline password error: server error first, then the same hard-gate
+  /// validator register_step_1_screen/reset_password_screen use
+  /// (`validateNewPassword` — min 8, max 128, ≥1 digit, ≥1 uppercase). The
+  /// live [PasswordChecklist] above (driven by [_rules]) already gives
+  /// real-time feedback for the same 3 checks; this keeps the submit path
+  /// unable to diverge from what the checklist promises.
+  String? _passwordError(AppLocalizations l10n) {
+    final serverErr = _fieldErrors['password'];
+    if (serverErr != null) return serverErr;
+    if (!_submitted) return null;
+    return validateNewPassword(_password.text, l10n);
+  }
 
   void _clearServerError(String key) {
     if (_fieldErrors.containsKey(key)) {
@@ -208,15 +235,19 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
 
     final l10n = AppLocalizations.of(context);
 
-    // Client-side validation before the network call. Names: non-blank +
-    // max-length 100. Phone: OPTIONAL — empty is valid; a non-empty value must
-    // match the Ukrainian phone format. Surfaced inline via the *Error getters.
+    // Client-side validation before the network call — the same hard gate
+    // every other auth form applies, all via shared lib/shared/validators/
+    // helpers: password (min 8 / max 128 / digit / uppercase), names
+    // (non-blank + max-length 100 + no digits), phone (REQUIRED — backend's
+    // InviteAcceptRequest.phoneNumber is @NotBlank for every invited role
+    // this screen serves; a non-empty value must also match the Ukrainian
+    // phone format). Surfaced inline via the *Error getters.
     setState(() => _submitted = true);
     final bool clientInvalid =
+        validateNewPassword(_password.text, l10n) != null ||
         validateName(_firstName.text, l10n) != null ||
         validateName(_lastName.text, l10n) != null ||
-        (_phone.text.trim().isNotEmpty &&
-            validatePhone(_phone.text.trim(), l10n) != null);
+        validatePhone(_phone.text.trim(), l10n) != null;
     if (clientInvalid) {
       setState(() {});
       return;
@@ -235,7 +266,9 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           password: _password.text,
           firstName: _firstName.text.trim(),
           lastName: _lastName.text.trim(),
-          phoneNumber: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+          // Guaranteed non-empty here — the clientInvalid gate above already
+          // returned when validatePhone (which rejects empty) failed.
+          phoneNumber: _phone.text.trim(),
         );
 
     if (!mounted) return;
@@ -271,6 +304,24 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             _fieldErrors = Map<String, String>.unmodifiable(e.fieldErrors);
             _inlineError = null;
           });
+          return;
+        }
+        // Invite-accept post-success design (2026-09-01): the HTTP 2xx is
+        // the point of no return, so these three cases (response unusable /
+        // dropped after send / invite-or-email already spent) must never
+        // dead-end on a "try again" banner — the retry can never succeed on
+        // a single-use token. Hand off to /login with the reason + invited
+        // email instead. `go`, not `push` — the spent invite screen must
+        // leave the navigation stack.
+        if (e is InviteHandoffFailure) {
+          final email = ref
+              .read(acceptInviteProvider(widget.token))
+              .value
+              ?.email;
+          ref.read(loginNoticeProvider.notifier).show(e.reason, email: email);
+          setState(() => _loading = false);
+          if (!mounted) return;
+          context.go(RouteNames.login);
           return;
         }
         // ValidationFailure.userMessage() already returns the localized
@@ -329,6 +380,18 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
                 icon: Icons.error_outline_rounded,
                 message: l10n.inviteInvalidError,
                 color: BrandColors.error,
+                // Highest-value copy fix for the reported incident: this is
+                // where the user lands re-opening a CONSUMED invite link
+                // (e.g. after the accept already succeeded once). Give the
+                // existing banner an action instead of a dead end — pure
+                // reuse of [AuthBanner], no new widget, no new key.
+                actionLabel: l10n.loginSubmit,
+                onAction: () {
+                  ref
+                      .read(loginNoticeProvider.notifier)
+                      .show(InviteHandoffReason.inviteNoLongerValid);
+                  context.go(RouteNames.login);
+                },
               ),
             ],
           ),
@@ -379,14 +442,15 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             prefixIcon: const Icon(Icons.lock_outline_rounded),
             autofillHints: const <String>[AutofillHints.newPassword],
             enabled: !_loading,
-            errorText: _passwordServerError,
+            errorText: _passwordError(l10n),
             onChanged: (String v) {
               _clearServerError('password');
               setState(() => _passwordValue = v);
             },
           ),
           const SizedBox(height: VelvetSpacing.sm),
-          // Invite path requires a 12-character minimum (vs 8 for self-register).
+          // Same shared policy as register/reset (min 8, ≥1 digit, ≥1
+          // uppercase — see `passwordRules`'s default).
           // _rules is guaranteed non-null after didChangeDependencies runs.
           PasswordChecklist(value: _passwordValue, rules: _rules!),
           const SizedBox(height: VelvetSpacing.lg),
@@ -439,7 +503,6 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             textInputAction: TextInputAction.done,
             maxLength: 17,
             prefixIcon: const Icon(Icons.phone_outlined),
-            helperText: l10n.invitePhoneHelper,
             enabled: !_loading,
             errorText: _phoneError(l10n),
             inputFormatters: const <TextInputFormatter>[
@@ -448,7 +511,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             onChanged: (String v) {
               _clearServerError('phone');
               _clearServerError('phoneNumber');
-              if (_submitted) setState(() {});
+              setState(() => _phoneValue = v);
             },
             onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
           ),

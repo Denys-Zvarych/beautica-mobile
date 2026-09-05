@@ -311,14 +311,30 @@ final class HttpAuthRepository implements AuthRepository {
             ..code = otp,
         ),
       );
-      final dto = res.data!.data!;
-      return (
-        UserMapper.fromAuthResponse(dto),
-        AuthTokens(
-          accessToken: dto.accessToken!,
-          refreshToken: dto.refreshToken!,
-        ),
-      );
+      // 2xx received — the OTP is consumed and the user is verified
+      // server-side. Any throw below is a CLIENT mapping defect, never a
+      // failed verification (invite-accept post-success design, 2026-09-01).
+      try {
+        final dto = res.data!.data!;
+        return (
+          UserMapper.fromAuthResponse(dto),
+          AuthTokens(
+            accessToken: dto.accessToken!,
+            refreshToken: dto.refreshToken!,
+          ),
+        );
+      } catch (e, st) {
+        if (kDebugMode) {
+          log(
+            'verifyEmail response unusable',
+            name: 'auth.repository',
+            level: 1000,
+            error: e,
+            stackTrace: st,
+          );
+        }
+        throw ResponseUnusableFailure(cause: e);
+      }
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -564,14 +580,32 @@ final class HttpAuthRepository implements AuthRepository {
             ..phoneNumber = trimmedPhone,
         ),
       );
-      final dto = res.data!.data!;
-      return (
-        UserMapper.fromAuthResponse(dto),
-        AuthTokens(
-          accessToken: dto.accessToken!,
-          refreshToken: dto.refreshToken!,
-        ),
-      );
+      // 2xx received — the invite token is consumed and the user row exists.
+      // Any throw below is a CLIENT mapping defect, never a failed accept
+      // (invite-accept post-success design, 2026-09-01): a raw TypeError here
+      // must never be allowed to escape unmapped and read to the caller as
+      // "nothing happened" when the server already committed.
+      try {
+        final dto = res.data!.data!;
+        return (
+          UserMapper.fromAuthResponse(dto),
+          AuthTokens(
+            accessToken: dto.accessToken!,
+            refreshToken: dto.refreshToken!,
+          ),
+        );
+      } catch (e, st) {
+        if (kDebugMode) {
+          log(
+            'acceptInvite response unusable',
+            name: 'auth.repository',
+            level: 1000,
+            error: e,
+            stackTrace: st,
+          );
+        }
+        throw ResponseUnusableFailure(cause: e);
+      }
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(

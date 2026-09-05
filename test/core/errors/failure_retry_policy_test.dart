@@ -68,6 +68,12 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
+  // Invite-accept post-success design (2026-09-01): the 2xx already
+  // happened server-side, so a retry either resends an already-applied
+  // mutation or, for the invite-accept single-use token specifically,
+  // cannot possibly succeed again.
+  'ResponseUnusableFailure': false,
+  'InviteHandoffFailure': false,
   // A TLS pin miss (Phase 111). Fail-closed, and the rejected chain does not
   // change on its own — an identical retry meets it again. Classified apart
   // from NetworkFailure precisely so it cannot inherit that arm's `true`.
@@ -121,6 +127,10 @@ Map<String, Failure> _instances() {
     'ServerFailure(599)': const ServerFailure(statusCode: 599),
     'ServerFailure(409)': const ServerFailure(statusCode: 409),
     'ServerFailure(null)': const ServerFailure(),
+    'ResponseUnusableFailure': const ResponseUnusableFailure(),
+    'InviteHandoffFailure': const InviteHandoffFailure(
+      reason: InviteHandoffReason.accountReady,
+    ),
     'CertificateFailure': const CertificateFailure(),
     'NotFoundFailure': const NotFoundFailure(),
     'UnauthorizedFailure': const UnauthorizedFailure(),

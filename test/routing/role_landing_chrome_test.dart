@@ -25,6 +25,8 @@
 // qa M2). All pumps are BOUNDED (the real auth/profile screens animate, so
 // pumpAndSettle would never quiesce — same constraint as the leaked-timer test).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -40,12 +42,18 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -98,16 +106,37 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 100));
 
-          // The production redirect must deliver the role to the matrix's
-          // declared landing path (value finder — not raw text).
-          expect(
-            _currentLocation(router),
-            equals(row.expectedLandingPath),
-            reason:
-                '${row.role.name} must land on ${row.expectedLandingPath}; the '
-                'live redirect sent it to ${_currentLocation(router)}. A wrong '
-                'path here is the f929caf dispatch bug.',
-          );
+          if (row.locationIsTransient) {
+            // Phase 21.8 — the resolver row (SALON_OWNER/SALON_ADMIN) lands
+            // on `expectedLandingPath` (roleHomePath's own contract — still
+            // pinned below) and then, from its own postFrame callback, moves
+            // ON to the real chrome-bearing shell once its data resolves.
+            // Give that one extra hop room to complete before asserting
+            // chrome, then assert the FINAL location is no longer the
+            // transient stopover.
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 100));
+            expect(
+              _currentLocation(router),
+              isNot(equals(row.expectedLandingPath)),
+              reason:
+                  '${row.role.name} is declared `locationIsTransient` (the '
+                  'resolver at ${row.expectedLandingPath} forwards onward) '
+                  'but the router never left it — the postFrame navigation '
+                  'to the real shell did not fire.',
+            );
+          } else {
+            // The production redirect must deliver the role to the matrix's
+            // declared landing path (value finder — not raw text).
+            expect(
+              _currentLocation(router),
+              equals(row.expectedLandingPath),
+              reason:
+                  '${row.role.name} must land on ${row.expectedLandingPath}; '
+                  'the live redirect sent it to ${_currentLocation(router)}. '
+                  'A wrong path here is the f929caf dispatch bug.',
+            );
+          }
 
           if (row.hasChrome) {
             // THE durable assertion: the role's nav chrome actually rendered.
@@ -149,6 +178,206 @@ void main() {
       );
     }
   });
+
+  // ---------------------------------------------------------------------
+  // mobile-qa gap-closure (2026-08-28) — the H1b double-mount hazard.
+  //
+  // The SALON_OWNER/SALON_ADMIN row above (`_kLandingSalonId` in BOTH the
+  // owner's `mySalonsProvider` fixture and the admin's `User.salonId`)
+  // proves the shell mounts `SalonManagementProfileScreen(embedded: true)`
+  // TWICE (Салон + Команда) without crashing — but it CANNOT prove the H1b
+  // fix (`if (widget.embedded) return;` at the top of that screen's own
+  // `_bounceIfNotOwned`) is load-bearing: `salons.any(...)` is already TRUE
+  // for that fixture, so every listener — the shell's own, and either
+  // embedded instance's, guarded or not — reaches the exact same `return;`
+  // and NEVER calls `context.go` at all. A test that cannot observe the
+  // guarded code path prove nothing about it (mobile-qa M14).
+  //
+  // This group drives the mismatched case instead (mySalonsProvider
+  // resolves EXCLUDING the shell's own salonId, so the bounce ACTUALLY
+  // fires) and counts real `GoRouter.go(...)` calls via a spy subclass —
+  // NOT via final location or `NavigatorObserver.didPush` count, both of
+  // which were measured to read as 1 in EITHER case: go_router coalesces
+  // multiple synchronous `go()` calls to the same destination into a single
+  // Navigator push, so "did the router still land in the right place" is
+  // silently blind to the extra calls. Only counting the calls THEMSELVES
+  // (not their downstream effect) distinguishes guard-present from
+  // guard-absent.
+  group('H1b double-mount hazard — the shell owns exactly ONE ownership '
+      'listener for both embedded tabs', () {
+    setUp(
+      () => AppStartTime.setStartForTest(
+        DateTime.now().subtract(const Duration(seconds: 5)),
+      ),
+    );
+    tearDown(AppStartTime.resetForTest);
+
+    testWidgets(
+      'mySalonsProvider resolves EXCLUDING the shell\'s salonId, after BOTH '
+      'embedded tabs (Салон + Команда) have been visited -> GoRouter.go is '
+      'called exactly ONCE, not twice (or three times)',
+      (tester) async {
+        final deferred = _H1bDeferredMySalons();
+        final container = ProviderContainer(
+          retry: (_, _) => null,
+          overrides: [
+            authProvider.overrideWith(
+              () => _FixedAuthNotifier(_h1bOwnerSession),
+            ),
+            authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+            secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+            mySalonsProvider.overrideWith(() => deferred),
+            salonManagementProfileProvider(
+              _kH1bSalonId,
+            ).overrideWith(_H1bSettledSalonManagementProfile.new),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final router = _SpyGoRouter(
+          initialLocation: RouteNames.salonShell(_kH1bSalonId),
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId/shell',
+              builder: (context, state) =>
+                  SalonShellScreen(salonId: state.pathParameters['salonId']!),
+            ),
+            // roleHomePath(salonOwner) — the bounce target. A trivial marker
+            // is enough; this group asserts on CALL COUNT, not on what the
+            // destination renders.
+            GoRoute(
+              path: RouteNames.salonHome,
+              builder: (context, state) =>
+                  const Scaffold(key: Key('h1b-bounce-target')),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Visit BOTH embedded tabs BEFORE mySalonsProvider resolves, so both
+        // `SalonManagementProfileScreen` instances (Салон + Команда) are
+        // alive simultaneously in the real `IndexedStack` — the actual H1b
+        // double-mount precondition (a fixture that never visits Команда
+        // only ever has ONE embedded instance alive, which cannot exercise
+        // the double-listener hazard regardless of the guard).
+        await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // NOW resolve mySalonsProvider to a list that EXCLUDES the shell's
+        // own salonId — every listener that reaches its `context.go` call
+        // actually fires one.
+        deferred.resolve(const <Salon>[
+          Salon(id: 'a-different-salon', name: 'Different'),
+        ]);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(
+          router.goCount,
+          equals(1),
+          reason:
+              'exactly ONE listener (the shell\'s own) must call '
+              'GoRouter.go — two or three means the embedded screen\'s own '
+              '`_bounceIfNotOwned` fired too (the H1b hazard: `if '
+              '(widget.embedded) return;` missing or bypassed).',
+        );
+      },
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// H1b group harness — deliberately SEPARATE fixtures from
+// `_authedContainer`'s (that harness's salon id is always IN the owner's
+// list, which is exactly what makes its own H1b coverage vacuous — see the
+// group doc above).
+// ---------------------------------------------------------------------------
+
+const String _kH1bSalonId = 'h1b-probe-salon';
+
+const _h1bOwnerUser = User(
+  id: 'h1b-owner-1',
+  email: 'h1b-owner@example.com',
+  role: UserRole.salonOwner,
+  firstName: 'Test',
+  lastName: 'Owner',
+);
+
+const AsyncData<AuthSession> _h1bOwnerSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _h1bOwnerUser, accessToken: 'token'),
+);
+
+/// [MySalons] stub that resolves only once [resolve] is called — lets the
+/// test visit both embedded tabs (with the shell's salonId still "owned" by
+/// default, since nothing has resolved yet) BEFORE the mismatched list
+/// arrives and the bounce actually fires.
+class _H1bDeferredMySalons extends MySalons {
+  final Completer<List<Salon>> _completer = Completer<List<Salon>>();
+
+  @override
+  Future<List<Salon>> build() => _completer.future;
+
+  void resolve(List<Salon> salons) => _completer.complete(salons);
+}
+
+/// [SalonManagementProfile] stub that resolves immediately — settles BOTH
+/// embedded tabs (same family key, `_kH1bSalonId`) off the real Dio stack.
+class _H1bSettledSalonManagementProfile extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: _kH1bSalonId, name: 'H1b Probe Salon'),
+    const <SalonStaffMember>[],
+  );
+}
+
+/// [GoRouter] subclass that counts real `go(...)` calls. Necessary because
+/// go_router coalesces multiple synchronous `go()` calls to the SAME
+/// destination into a single Navigator push (measured directly — see the
+/// group doc above) — final location and `NavigatorObserver.didPush` count
+/// are both blind to the extra calls this hazard produces. `GoRouter`'s
+/// plain unnamed constructor is a FACTORY (cannot be `super()`-called from a
+/// subclass), so this goes through the generative `GoRouter.routingConfig`
+/// constructor instead, backed by a plain `ValueNotifier` (a
+/// `ValueListenable`) rather than the package-private `_ConstantRoutingConfig`
+/// the factory itself uses internally.
+class _SpyGoRouter extends GoRouter {
+  _SpyGoRouter({
+    required List<RouteBase> routes,
+    required String initialLocation,
+  }) : super.routingConfig(
+         routingConfig: ValueNotifier<RoutingConfig>(
+           RoutingConfig(routes: routes),
+         ),
+         initialLocation: initialLocation,
+       );
+
+  int goCount = 0;
+
+  @override
+  void go(String location, {Object? extra}) {
+    goCount++;
+    super.go(location, extra: extra);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +399,14 @@ ProviderContainer _authedContainer(UserRole role) {
       masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
       masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
       serviceRepositoryProvider.overrideWith((_) => FakeServiceRepository()),
+      // SalonMasterProfileScreen (the SALON_MASTER row) resolves its
+      // services via `salonMasterOwnProfileProvider`, which reads
+      // `publicServiceRepositoryProvider` — a SEPARATE provider from
+      // `serviceRepositoryProvider` above. Settle it the same way so the
+      // row never fires a real Dio call / leaks a wall-clock Timer.
+      publicServiceRepositoryProvider.overrideWith(
+        (_) => FakeServiceRepository(),
+      ),
       // MasterProfileScreen's categories section watches
       // `approvedCategoriesProvider`, which builds via the REAL authenticated
       // Dio (it bypasses serviceRepositoryProvider). Settle it with an empty
@@ -221,6 +458,24 @@ ProviderContainer _authedContainer(UserRole role) {
       // comment prescribes, matching the pattern already applied to the other
       // four home-hub providers above.
       myRatingProvider.overrideWith((ref) async => const ClientRating()),
+      // Phase 21.8 — SALON_OWNER's row now lands on SalonHomeResolverScreen
+      // (RouteNames.salonHome), which watches mySalonsProvider to pick the
+      // primary salon and forward to its shell. Settle it synchronously,
+      // with one PRIMARY salon at `_kLandingSalonId`, so the resolver has
+      // something to forward to and does not schedule a real Dio timeout
+      // Timer — mirrors every settled provider above for the exact same
+      // leaked-timer reason.
+      mySalonsProvider.overrideWith(_SettledMySalons.new),
+      // The shell's Салон + Команда tabs both mount
+      // `SalonManagementProfileScreen(salonId: _kLandingSalonId, embedded:
+      // true)`, which watches this REAL family provider. Settle the ONE
+      // instance keyed by `_kLandingSalonId` — used by BOTH the
+      // SALON_OWNER row (its resolved primary salon) and the SALON_ADMIN
+      // row (`session.user.salonId`, given the same fixed id below) — so
+      // neither leaves a real Dio call pending.
+      salonManagementProfileProvider(
+        _kLandingSalonId,
+      ).overrideWith(_SettledSalonManagementProfile.new),
     ],
   );
   addTearDown(container.dispose);
@@ -237,6 +492,10 @@ User _userFor(UserRole role) => User(
   role: role,
   firstName: 'Test',
   lastName: role.name,
+  // Phase 21.8 — SALON_ADMIN's landing (`SalonHomeResolverScreen`) reads
+  // `session.user.salonId` SYNCHRONOUSLY (no provider). Every other role
+  // ignores this field, so setting it unconditionally is harmless.
+  salonId: role == UserRole.salonAdmin ? _kLandingSalonId : null,
 );
 
 String _currentLocation(GoRouter router) =>
@@ -253,6 +512,43 @@ class _SettledMasterProfileNotifier extends MasterProfile {
     avgRating: 0,
     reviewCount: 0,
     type: MasterType.independentMaster,
+  );
+}
+
+/// Phase 21.8 — the fixed salon id both the SALON_OWNER row's (settled,
+/// single-primary) `mySalonsProvider` fixture AND the SALON_ADMIN row's
+/// `User.salonId` resolve to, so ONE `salonManagementProfileProvider`
+/// override (below) covers the shell's Салон/Команда tabs for both roles.
+const String _kLandingSalonId = 'salon-landing-test';
+
+/// [MySalons] stub that resolves immediately to a single PRIMARY salon —
+/// mirrors `_SettledMasterProfileNotifier` above. `mySalonsProvider` is now
+/// `@Riverpod(keepAlive: true)` (mobile-perf HIGH follow-up, 2026-08-28), so
+/// the plain `mySalonsProvider.overrideWith((ref) async => ...)` function
+/// override this file previously used no longer type-checks — a
+/// keepAlive-class provider's `overrideWith` takes a notifier FACTORY, not a
+/// build function.
+///
+/// Phase 21.8 — was an empty list (the SALON_OWNER row used to land on the
+/// My Salons hub itself, which renders fine with zero salons). It now lands
+/// on `SalonHomeResolverScreen`, which needs at least one salon to forward
+/// to — an empty list would send it to the hub instead, and the row's
+/// declared chrome (`SalonBottomNav`) would never render.
+class _SettledMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: _kLandingSalonId, name: 'Test Salon', isPrimary: true),
+  ];
+}
+
+/// [SalonManagementProfile] stub that resolves immediately — settles the
+/// Salon Shell's embedded Салон/Команда tabs (`_kLandingSalonId`) off the
+/// real Dio stack, mirroring `_SettledMasterProfileNotifier`'s own reasoning.
+class _SettledSalonManagementProfile extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: _kLandingSalonId, name: 'Test Salon'),
+    const <SalonStaffMember>[],
   );
 }
 

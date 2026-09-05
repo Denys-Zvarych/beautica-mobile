@@ -49,6 +49,8 @@
 // `integration_test/salon_service_filter_flow_test.dart`. Nothing here weakens
 // it: every assertion below is scoped to ENTRY, before any interaction.
 
+import 'package:beautica_api/beautica_api.dart'
+    show SiblingSalonOption, UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -62,12 +64,14 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -196,6 +200,11 @@ class _CountingSalonRepository implements SalonRepository {
   @override
   Future<void> create({required SalonCreateDto dto}) async {}
 
+  // Phase 21.1 — this screen (the PUBLIC/client profile) never calls the
+  // owner-scoped `GET /salons/mine`; empty keeps the contract satisfied.
+  @override
+  Future<List<Salon>> getMySalons() async => const <Salon>[];
+
   @override
   Future<Salon> getSalonById(String salonId) async => _kSalon;
 
@@ -233,6 +242,95 @@ class _CountingSalonRepository implements SalonRepository {
     bookableMastersServiceIds.add(serviceDefId);
     return const <BookableMasterAssignment>[];
   }
+
+  // Phase 21.2 — owner/admin write paths. This fake backs the CLIENT-facing
+  // read-only profile route under test here; neither is ever called.
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
+      throw UnimplementedError(
+        '_CountingSalonRepository.updateSalon is not stubbed — this fake '
+        'backs the CLIENT-facing read-only profile route.',
+      );
+
+  @override
+  Future<void> deleteSalon(String salonId) async => throw UnimplementedError(
+    '_CountingSalonRepository.deleteSalon is not stubbed — this fake backs '
+    'the CLIENT-facing read-only profile route.',
+  );
+
+  // Owner/admin-only invite management; unreachable from this
+  // CLIENT-facing surface, so the same UnimplementedError guard as
+  // [deleteSalon] above rather than a silent empty stub.
+  @override
+  Future<SalonInviteHistory> listSalonInvites(
+    String salonId,
+  ) async => throw UnimplementedError(
+    '_CountingSalonRepository.listSalonInvites is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> cancelInvite({
+    required String salonId,
+    required String inviteId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.cancelInvite is not stubbed — owner/admin only.',
+  );
+
+  // Phase 21.6 — owner/admin admin-management surface. Same rationale as
+  // [cancelInvite] above: this fake backs the CLIENT-facing public profile,
+  // which can never reach any of these three calls.
+  @override
+  Future<void> removeAdmin({
+    required String salonId,
+    required String userId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.removeAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> removeMaster({
+    required String salonId,
+    required String masterId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.removeMaster is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<void> rotateAdmin({
+    required String salonId,
+    required String userId,
+    required String destinationSalonId,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.rotateAdmin is not stubbed — owner/admin only.',
+  );
+
+  @override
+  Future<List<SiblingSalonOption>> getSiblingSalons(String salonId) async =>
+      throw UnimplementedError(
+        '_CountingSalonRepository.getSiblingSalons is not stubbed — '
+        'owner/admin only.',
+      );
+
+  // Phase 21.4 — owner/admin write path (Invite Staff). Same rationale as
+  // [updateSalon]/[deleteSalon] immediately above.
+  @override
+  Future<void> inviteStaff({
+    required String salonId,
+    required String email,
+    required UserRole role,
+  }) async => throw UnimplementedError(
+    '_CountingSalonRepository.inviteStaff is not stubbed — this fake backs '
+    'the CLIENT-facing read-only profile route.',
+  );
+
+  // Phase 21.5 — owner/admin read path (staff roster). Same rationale as
+  // [updateSalon]/[deleteSalon]/[inviteStaff] above.
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      throw UnimplementedError(
+        '_CountingSalonRepository.getSalonStaff is not stubbed — this fake '
+        'backs the CLIENT-facing read-only profile route.',
+      );
 }
 
 List<Object> _overrides(_CountingSalonRepository repo) => <Object>[

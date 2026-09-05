@@ -883,7 +883,20 @@ void main() {
           ),
         ).thenAnswer((_) async => _page(<Booking>[]));
 
-        await _pump(tester, repo);
+        // Pinned to a MONTH-BOUNDARY-STRADDLING week on purpose, not to an
+        // arbitrary date. 2026-09-01 is a Tuesday, so its ISO week starts
+        // Mon 2026-08-31 — in the PREVIOUS month; the month step this test
+        // then takes lands on Thu 2026-10-01, whose week likewise starts
+        // Mon 2026-09-28. Both legs therefore exercise the collapsed label's
+        // week-start-vs-selection handoff
+        // (`bookings_discovery_view.dart`'s `_onRailVisibleWeekChanged`),
+        // which is the defect this test was left un-pinned to catch by
+        // accident on 2026-08-31 when the wall clock rolled into one. A
+        // NON-straddling pin (e.g. 2026-09-10) turns this test green while
+        // leaving the defect live, so it would be strictly worse than no pin
+        // at all — verified, not assumed.
+        // future-date-ok: the straddling week is a STRUCTURAL calendar property that no now-relative helper can express, and the instant reaches the widget only through the injected `clock:` seam (never a wall-clock read), so this fixture is deterministic on every run and reads no `isPast`-shaped predicate.
+        await _pump(tester, repo, clock: () => DateTime.utc(2026, 9, 1, 9));
         await tester.pumpAndSettle();
 
         String label() => tester

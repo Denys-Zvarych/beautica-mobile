@@ -32,6 +32,7 @@ part 'user_profile_response.g.dart';
 /// * [isActive]
 /// * [emailVerified]
 /// * [salonId]
+/// * [hasMasterProfile]
 @BuiltValue()
 abstract class UserProfileResponse
     implements Built<UserProfileResponse, UserProfileResponseBuilder> {
@@ -97,6 +98,9 @@ abstract class UserProfileResponse
 
   @BuiltValueField(wireName: r'salonId')
   String? get salonId;
+
+  @BuiltValueField(wireName: r'hasMasterProfile')
+  bool? get hasMasterProfile;
 
   UserProfileResponse._();
 
@@ -274,6 +278,13 @@ class _$UserProfileResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.hasMasterProfile != null) {
+      yield r'hasMasterProfile';
+      yield serializers.serialize(
+        object.hasMasterProfile,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -445,6 +456,13 @@ class _$UserProfileResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.salonId = valueDes;
+          break;
+        case r'hasMasterProfile':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.hasMasterProfile = valueDes;
           break;
         default:
           unhandled.add(key);

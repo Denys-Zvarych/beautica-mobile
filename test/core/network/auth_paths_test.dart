@@ -468,5 +468,258 @@ void main() {
       expect(isPiiPath('/api/v1/bookings'), isTrue);
       expect(isPiiPath('/api/v1/bookings/booking-1'), isTrue);
     });
+
+    // ── Finding 2 — PATCH /salons/{salonId} PII gap (mobile-security MEDIUM,
+    // 2026-08-28) ────────────────────────────────────────────────────────────
+    //
+    // `PATCH /api/v1/salons/{salonId}` carries name/description/street/
+    // buildingNo/locationNote/phone/instagramUrl (Phase 21.10
+    // SalonAddressEditScreen is the first caller pushing precise street data
+    // through it). Neither an exact [kPiiPaths] member (dynamic {salonId})
+    // nor previously a [kPiiPathPrefixes] entry, so `LoggingInterceptor
+    // .onRequest` wrote the full body unredacted in debug builds. This is the
+    // tripwire guarding that fix — if `/api/v1/salons/` is ever removed from
+    // [kPiiPathPrefixes], this fails loudly.
+    test('PATCH /salons/{salonId} is a PII route via the /salons/ prefix', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123'),
+        isTrue,
+        reason:
+            'PATCH /salons/{salonId} carries name/description/street/'
+            'buildingNo/locationNote/phone/instagramUrl — its body must be '
+            'redacted in debug logs, exactly like PATCH /appointments/{id}.',
+      );
+    });
+
+    test('the exact-match /api/v1/salons/mine entry is unaffected by the new '
+        '/salons/ prefix (both independently resolve true, prefix does not '
+        'supersede or remove the exact entry)', () {
+      expect(kPiiPaths, contains('/api/v1/salons/mine'));
+      expect(isPiiPath('/api/v1/salons/mine'), isTrue);
+    });
+
+    test('a PII salon path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/salons/salon-123?token=secret'),
+        equals('/api/v1/salons/salon-123?[REDACTED]'),
+      );
+    });
+
+    // ── Phase 21.4 (mobile-security MEDIUM, 2026-08-29) — staff-invite PII
+    // fix ─────────────────────────────────────────────────────────────────
+    //
+    // `POST /api/v1/salons/{salonId}/invite` carries the invitee's raw email
+    // address. The dynamic {salonId} segment sits BEFORE the meaningful
+    // `/invite` tail (same shape as `/working-hours`/`/bookings` above), so
+    // neither exact membership in [kPiiPaths] nor the `/api/v1/salons/`
+    // prefix in [kPiiPathPrefixes] is enough on its own to justify skipping a
+    // dedicated tripwire — this pins the actual [isPiiPath] resolution, not
+    // just presence in one of the underlying sets. If `/invite` is ever
+    // removed from [kPiiPathSegments], this fails loudly.
+    test('salon staff-invite route is a PII route via the /invite segment '
+        '(dynamic {salonId} precedes the tail, mirrors /working-hours and '
+        '/bookings)', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123/invite'),
+        isTrue,
+        reason:
+            'POST /salons/{salonId}/invite carries the invitee\'s raw '
+            'email address in the request body — must be redacted.',
+      );
+    });
+
+    test('a PII staff-invite path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/salons/salon-123/invite?token=secret'),
+        equals('/api/v1/salons/salon-123/invite?[REDACTED]'),
+      );
+    });
+
+    // ── Phase 21.11 (mobile-security LOW, 2026-09-02) — the invite HISTORY
+    // routes ────────────────────────────────────────────────────────────────
+    //
+    // `GET /api/v1/salons/{salonId}/invites` returns EVERY invitation the
+    // salon ever sent, each carrying the recipient's raw email address — a
+    // whole list of them in one body, where `POST .../invite` carried one.
+    // `DELETE /api/v1/salons/{salonId}/invites/{inviteId}` addresses one row.
+    //
+    // Both ALREADY resolve true today, and by TWO independent routes: the
+    // `/api/v1/salons/` prefix in [kPiiPathPrefixes], and the `/invite`
+    // SUBSTRING in [kPiiPathSegments] (`/invites` contains `/invite`).
+    // Nothing named them, though — so a narrowing that removed BOTH would
+    // silently unredact a full recipient-email list in debug logs.
+    //
+    // MEASURED, not assumed (2026-09-02, one mutation per entry):
+    //   * remove `/api/v1/salons/` alone -> these two stay GREEN (the
+    //     `/invite` segment still matches); other tests in this file go red.
+    //   * remove `/invite` alone         -> these two stay GREEN, and so did
+    //     the WHOLE file. That redundancy is why the third assertion below
+    //     pins the segment's SET MEMBERSHIP directly: without it, deleting
+    //     `/invite` from [kPiiPathSegments] was invisible to every test in
+    //     the corpus, including the pre-existing `POST .../invite` tripwire
+    //     just above (which the `/salons/` prefix also satisfies).
+    //   * remove both                    -> these two go RED, as intended.
+    //
+    // NO NEW [kPiiPaths] ENTRY is added: `test/features/auth/data/
+    // auth_paths_test.dart` holds an exact-count ledger (`kPiiPaths.length ==
+    // 23`) that an addition would break, and neither route could be an exact
+    // member anyway — both carry a dynamic `{salonId}`.
+    test('the invite HISTORY list route is a PII route (a whole page of '
+        'recipient email addresses in one body)', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123/invites'),
+        isTrue,
+        reason:
+            'GET /salons/{salonId}/invites returns every invitation the '
+            'salon ever sent, each with the recipient address — the response '
+            'body must be redacted in debug logs.',
+      );
+    });
+
+    test('the invite CANCEL route is a PII route (it is a sub-path of the '
+        'history list)', () {
+      expect(
+        isPiiPath('/api/v1/salons/salon-123/invites/invite-1'),
+        isTrue,
+        reason:
+            'DELETE /salons/{salonId}/invites/{inviteId} addresses one '
+            'invitation row; its error responses echo the row.',
+      );
+    });
+
+    test('the /invite SEGMENT entry itself is still present — the one '
+        'assertion in the corpus that goes red when it is removed', () {
+      // Deliberately a set-membership pin rather than a synthetic
+      // `isPiiPath('/api/v1/somewhere/invite')` probe: no such route exists,
+      // and asserting on a path the app never issues would be pinning the
+      // guard rather than the app. See the measurement note above for why
+      // this is not redundant with the two resolution tests.
+      expect(kPiiPathSegments, contains('/invite'));
+    });
+
+    test('a PII invite-history path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/salons/salon-123/invites?page=0'),
+        equals('/api/v1/salons/salon-123/invites?[REDACTED]'),
+      );
+    });
+
+    test('/api/v1/salons/{salonId}/invite is NOT in kAuthPaths (it is '
+        'authenticated — SALON_OWNER/SALON_ADMIN only)', () {
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/salons/salon-123/invite')),
+        reason:
+            'POST .../invite requires a Bearer token from an authenticated '
+            'owner/admin — listing it in kAuthPaths would strip the token '
+            'and cause a 401, mirroring the independent-masters/me '
+            'precedent above.',
+      );
+    });
+
+    // ── Finding S1 (mobile-security MEDIUM, 2026-08-31) — the shared
+    // self-profile endpoint ────────────────────────────────────────────────
+    //
+    // `/api/v1/users/me` matched NOTHING in [kPiiPaths], [kPiiPathPrefixes]
+    // or [kPiiPathSegments], so `isPiiPath` returned false and
+    // `LoggingInterceptor.onRequest` wrote the whole `PATCH /users/me` body —
+    // and `onError` the whole error response — to `dart:developer.log()` in
+    // debug builds. That body carries email, phoneNumber, firstName,
+    // lastName, bio, instagram and professionalTitle. This pins the actual
+    // [isPiiPath] resolution, not just presence in the set.
+    //
+    // 2026-09-01 (mobile-security LOW): S1's fix was an EXACT [kPiiPaths]
+    // entry justified by "no other `/users/me/...` sub-route exists today".
+    // That was false — `GET /api/v1/users/me/rating` is live — so the entry
+    // was PROMOTED to a `/api/v1/users/me` [kPiiPathPrefixes] entry covering
+    // the whole self-scoped family. The sub-route case is pinned below.
+    test('GET/PATCH /api/v1/users/me is a PII route (redacted)', () {
+      expect(
+        isPiiPath('/api/v1/users/me'),
+        isTrue,
+        reason:
+            'PATCH /users/me carries email, phoneNumber, names, bio, '
+            'instagram and professionalTitle — the whole request body and '
+            'the whole error response must be redacted in debug logs.',
+      );
+    });
+
+    test('the whole /api/v1/users/me family is redacted, not just the bare '
+        'path (GET /users/me/rating)', () {
+      expect(
+        isPiiPath('/api/v1/users/me/rating'),
+        isTrue,
+        reason:
+            'GET /users/me/rating is a live sub-route '
+            '(user_controller_api.dart, reached via myRatingProvider). The '
+            'original exact kPiiPaths entry did NOT cover it and claimed no '
+            'such sub-route existed. It is covered now because /api/v1/users/'
+            'me lives in kPiiPathPrefixes — reverting to an exact entry '
+            'reopens the gap for this route and every future one.',
+      );
+      expect(
+        isPiiPath('/api/v1/users/me/change-password/request-otp'),
+        isTrue,
+        reason:
+            'The authenticated change-password sibling carries no body, so '
+            'redacting it costs nothing — but it must resolve through the '
+            'same prefix so the family has no unclassified member.',
+      );
+    });
+
+    test('a PII /users/me path has its whole query string redacted', () {
+      expect(
+        redactLogPath('/api/v1/users/me?expand=profile'),
+        equals('/api/v1/users/me?[REDACTED]'),
+      );
+    });
+
+    test('/api/v1/users/me is NOT in kAuthPaths (it is authenticated)', () {
+      expect(
+        kAuthPaths,
+        isNot(contains('/api/v1/users/me')),
+        reason:
+            'GET/PATCH /users/me requires a Bearer token — listing it in '
+            'kAuthPaths would strip the token and cause a 401, mirroring the '
+            'independent-masters/me precedent above.',
+      );
+    });
+
+    // ── Finding S2 (mobile-security LOW, 2026-08-31) — the public per-master
+    // catalogue read ───────────────────────────────────────────────────────
+    //
+    // `GET /api/v1/masters/{masterId}/services` puts its dynamic {masterId}
+    // BEFORE the meaningful `/services` tail, so only the [kPiiPathSegments]
+    // substring match can resolve it. The `/api/v1/services/` prefix already
+    // in [kPiiPathPrefixes] is a DIFFERENT path family (the master's own
+    // {serviceDefId} write routes) — the negative assertion below is what
+    // keeps that distinction honest. If `/services` is ever removed from
+    // [kPiiPathSegments], this fails loudly.
+    test('GET /api/v1/masters/{masterId}/services is a PII route via the '
+        '/services segment', () {
+      expect(
+        isPiiPath('/api/v1/masters/master-123/services'),
+        isTrue,
+        reason:
+            'The dynamic {masterId} precedes the /services tail, so neither '
+            'kPiiPaths nor kPiiPathPrefixes can match it — it needs the '
+            'kPiiPathSegments substring entry, mirroring /bookings.',
+      );
+    });
+
+    test('the /api/v1/services/ PREFIX does not, on its own, cover the '
+        '/masters/{masterId}/services family', () {
+      // Sanity pin on WHY the segment entry is required: a prefix match on
+      // `/api/v1/services/` never sees this path at all.
+      expect(
+        '/api/v1/masters/master-123/services'.startsWith('/api/v1/services/'),
+        isFalse,
+      );
+    });
+
+    test('a bare master detail path stays NON-PII (the /services segment did '
+        'not widen it)', () {
+      expect(isPiiPath('/api/v1/masters/master-123'), isFalse);
+    });
   });
 }

@@ -1,0 +1,28 @@
+# gitleaks false-positive ignore list.
+#
+# Rule: ONE fingerprint per line, ONE finding per entry. Never widen an entry
+# into a path allowlist, a rule allowlist, or a regex allowlist — that hides
+# real future secrets in the same file/rule, not just this false positive.
+# If you're tempted to add a path or `[allowlist]` rule instead of a
+# fingerprint here, stop: that is a different, much broader mechanism and is
+# not permitted in this file.
+#
+# Format: <commit-sha>:<file-path>:<rule-id>:<start-line>
+# (see `gitleaks detect --help` / cmd/root.go AddGitleaksIgnore for the
+# exact fingerprint shape gitleaks matches against.)
+
+# --- test/routing/role_landing_chrome_test.dart:344 (generic-api-key) ---
+# Flagged text is a Dart doc comment referencing `_kH1bSalonId`, a private
+# Dart const identifier declared in the same test file — not a credential,
+# API key, or token. The rule fired on "same family key, `<mixed-case
+# high-entropy token>`" adjacent text, a textbook generic-api-key false
+# positive on an identifier name, not a secret value.
+#
+# Rewording the comment in a later commit will NOT clear this finding:
+# gitleaks-action scans the PR's COMMIT RANGE diff
+# (`gitleaks detect --log-opts="--no-merges --first-parent <base>^..<head>"`),
+# so the original commit's blob (682fb9a716db59ed70fb21ab56a20d9870765ad6)
+# stays in the scanned history regardless of what a follow-up commit says.
+# Only this ignore entry (or a history rewrite, which is not being done for
+# a false positive) clears it.
+682fb9a716db59ed70fb21ab56a20d9870765ad6:test/routing/role_landing_chrome_test.dart:generic-api-key:344

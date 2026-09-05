@@ -22,7 +22,9 @@ class _$SalonResponse extends SalonResponse {
   @override
   final String? address;
   @override
-  final String? cityId;
+  final String cityId;
+  @override
+  final String oblastId;
   @override
   final String? districtId;
   @override
@@ -55,7 +57,8 @@ class _$SalonResponse extends SalonResponse {
       this.city,
       this.region,
       this.address,
-      this.cityId,
+      required this.cityId,
+      required this.oblastId,
       this.districtId,
       this.street,
       this.buildingNo,
@@ -86,6 +89,7 @@ class _$SalonResponse extends SalonResponse {
         region == other.region &&
         address == other.address &&
         cityId == other.cityId &&
+        oblastId == other.oblastId &&
         districtId == other.districtId &&
         street == other.street &&
         buildingNo == other.buildingNo &&
@@ -109,6 +113,7 @@ class _$SalonResponse extends SalonResponse {
     _$hash = $jc(_$hash, region.hashCode);
     _$hash = $jc(_$hash, address.hashCode);
     _$hash = $jc(_$hash, cityId.hashCode);
+    _$hash = $jc(_$hash, oblastId.hashCode);
     _$hash = $jc(_$hash, districtId.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
@@ -134,6 +139,7 @@ class _$SalonResponse extends SalonResponse {
           ..add('region', region)
           ..add('address', address)
           ..add('cityId', cityId)
+          ..add('oblastId', oblastId)
           ..add('districtId', districtId)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
@@ -183,6 +189,10 @@ class SalonResponseBuilder
   String? _cityId;
   String? get cityId => _$this._cityId;
   set cityId(String? cityId) => _$this._cityId = cityId;
+
+  String? _oblastId;
+  String? get oblastId => _$this._oblastId;
+  set oblastId(String? oblastId) => _$this._oblastId = oblastId;
 
   String? _districtId;
   String? get districtId => _$this._districtId;
@@ -239,6 +249,7 @@ class SalonResponseBuilder
       _region = $v.region;
       _address = $v.address;
       _cityId = $v.cityId;
+      _oblastId = $v.oblastId;
       _districtId = $v.districtId;
       _street = $v.street;
       _buildingNo = $v.buildingNo;
@@ -277,7 +288,10 @@ class SalonResponseBuilder
           city: city,
           region: region,
           address: address,
-          cityId: cityId,
+          cityId: BuiltValueNullFieldError.checkNotNull(
+              cityId, r'SalonResponse', 'cityId'),
+          oblastId: BuiltValueNullFieldError.checkNotNull(
+              oblastId, r'SalonResponse', 'oblastId'),
           districtId: districtId,
           street: street,
           buildingNo: buildingNo,

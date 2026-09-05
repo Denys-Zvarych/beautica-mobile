@@ -141,6 +141,213 @@ abstract final class RouteNames {
   static String salonPublicProfile(String salonId) =>
       '/salons/${Uri.encodeComponent(salonId)}';
 
+  /// Phase 21.2 — owner/admin editable salon profile (structurally a mirror
+  /// of [salonPublicProfile], with edit/staff-management/delete affordances
+  /// layered on top). `SALON_OWNER` (any owned salon) / `SALON_ADMIN` (their
+  /// own salon only) — gated in `app_router.dart` via `_salonManageGuard`,
+  /// mirroring the `/master/*`/`/salon/*` prefix-gate convention in
+  /// `auth_redirect.dart` (this route sits under `/salons/:salonId/manage`,
+  /// a NESTED child of [salonPublicProfile]'s own literal-path segment, not
+  /// the `/salon/*` prefix those gates cover, so it needs its own).
+  static String salonManage(String salonId) =>
+      '${salonPublicProfile(salonId)}/manage';
+
+  /// Phase 21.2 — the salon settings page the management profile's top-right
+  /// `Icons.tune_rounded` cover control opens. Two rows only: «Редагувати
+  /// профіль» (nav — pops back to [salonManage] with edit mode toggled on)
+  /// and, owner-only, the destructive «Видалити салон». Phase 21.9 later
+  /// supersedes this 2-row page with a full multi-row settings hub (mirroring
+  /// the preview's `salon_settings_screen.dart`) — that phase EXTENDS this
+  /// route/screen rather than replacing it outright, so the path is not
+  /// versioned or phase-suffixed.
+  static String salonManageSettings(String salonId) =>
+      '${salonManage(salonId)}/settings';
+
+  /// Phase 21.4 — the «Запросити персонал» form (form only — the «Очікують
+  /// підтвердження» pending-invites list/cancel pair is descoped to Phase
+  /// 21.11, once backend Phase 23.1's `GET/DELETE /salons/{salonId}/invites/
+  /// ...` endpoints exist). A literal `/invite` leaf below the
+  /// ALREADY-RESOLVED [salonManage] `:salonId` capture, so declaration-order
+  /// literal-vs-dynamic shadowing does not apply here (that concern is
+  /// limited to a literal declared after a dynamic SIBLING at the SAME
+  /// segment, e.g. `/salons/mine` vs `/salons/:salonId` — see [salonHome]'s
+  /// own doc). Registered as a STANDALONE top-level route in
+  /// `app_router.dart`, same "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonManageSettings] document.
+  static String salonInviteStaff(String salonId) =>
+      '${salonManage(salonId)}/invite';
+
+  /// Phase 21.11 — «Надіслані запрошення», the list of sent-but-unaccepted
+  /// staff invitations, reached from the Phase 21.9 settings hub's own row.
+  ///
+  /// Owner AND admin (that hub renders the row outside its owner-only block,
+  /// and backend 23.1's `GET/DELETE /salons/{salonId}/invites/...` pair is
+  /// owner+admin scoped), so `app_router.dart` gates it with
+  /// `salonManageGuard` — NOT the owner-only `salonManageOwnerOnlyGuard` the
+  /// three Phase 21.10 edit forms use.
+  ///
+  /// A literal `/pending-invites` leaf below the ALREADY-RESOLVED
+  /// [salonPublicProfile] `:salonId` capture, so declaration-order
+  /// literal-vs-dynamic shadowing does not apply (that concern is limited to
+  /// a literal declared after a dynamic SIBLING at the SAME segment, e.g.
+  /// `/salons/mine` vs `/salons/:salonId` — see [salonHome]'s own doc).
+  /// Registered as a STANDALONE top-level route in `app_router.dart`, same
+  /// "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonInviteStaff] document.
+  static String salonPendingInvites(String salonId) =>
+      '${salonPublicProfile(salonId)}/pending-invites';
+
+  /// Phase 21.5 — the staff member (master OR admin) management profile,
+  /// reached from a «Персонал» grid card tap. A literal `/staff/:memberId`
+  /// leaf below the ALREADY-RESOLVED [salonManage] `:salonId` capture — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents. Registered as a STANDALONE top-level route in
+  /// `app_router.dart`, same "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonInviteStaff] document — nesting under
+  /// `/salons/:salonId` would let `clientOnlyGuard` bounce owners/admins
+  /// first. Reuses `salonManageGuard` VERBATIM.
+  ///
+  /// [memberId] is the roster entry's `userId` (works for both a master and
+  /// an admin entry — an admin has no `masterId`).
+  static String salonManageStaffMember(String salonId, String memberId) =>
+      '${salonManage(salonId)}/staff/${Uri.encodeComponent(memberId)}';
+
+  /// Phase 21.6, generalized Phase 305 — «Налаштування» for ONE staff
+  /// member, reached from the trailing `tune_rounded` control on that
+  /// member's [salonManageStaffMember] profile. A literal `/settings` leaf
+  /// below the ALREADY-RESOLVED `:salonId`/`:memberId` captures, so no
+  /// literal-vs-dynamic shadowing applies (that concern is limited to a
+  /// literal declared after a dynamic SIBLING at the SAME segment — see
+  /// [salonHome]'s own doc). Registered as a STANDALONE top-level route in
+  /// `app_router.dart` for the same "an ancestor's own redirect always runs"
+  /// reason [salonManage]/[salonManageStaffMember] document, and gated by
+  /// `salonManageGuard` VERBATIM: an assigned `SALON_ADMIN` may manage a
+  /// fellow admin, exactly as the backend's own
+  /// `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon`
+  /// gate on all three endpoints this screen calls allows. As of Phase 305
+  /// only the ADMIN branch of the page exists; phase 307 adds a MASTER
+  /// branch behind the same route.
+  ///
+  /// [memberId] is the roster entry's `userId` — the same id
+  /// [salonManageStaffMember] takes, and the `{userId}` path variable of
+  /// `DELETE|PATCH /salons/{salonId}/admins/{userId}`.
+  static String salonManageStaffSettings(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/settings';
+
+  /// Phase 21.6 — the rotate-admin destination picker pushed from
+  /// [salonManageStaffSettings]'s «Перемістити до іншого салону» row. A
+  /// literal `/move` sibling of that route's `/settings` leaf, same gating,
+  /// same standalone registration, same reasoning.
+  static String salonManageAdminMove(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/move';
+
+  /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
+  /// description), reached from the Phase 21.9 settings hub's own
+  /// navigational row. A literal child of [salonManageSettings], gated by the
+  /// SAME `salonManageGuard` (registered as a standalone top-level route in
+  /// `app_router.dart`, mirroring [salonManage]/[salonManageSettings]'s own
+  /// "an ancestor's own redirect always runs" rationale). No in-app entry
+  /// point exists yet — Phase 21.9 (the settings hub) is what wires a row to
+  /// this route; that phase is unbuilt.
+  static String salonProfileEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/profile-edit';
+
+  /// Phase 21.10 — dedicated «Локація» edit screen (locality cascade +
+  /// street/buildingNo/locationNote). Sibling of [salonProfileEdit] — same
+  /// gating, same "no entry point yet" caveat.
+  static String salonAddressEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/address-edit';
+
+  /// Phase 21.10 — dedicated «Контакти» edit screen (phone + Instagram).
+  /// Sibling of [salonProfileEdit] — same gating, same "no entry point yet"
+  /// caveat.
+  static String salonContactsEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/contacts-edit';
+
+  /// Phase 21.8 — the SHARED `SALON_OWNER`/`SALON_ADMIN` landing
+  /// (`roleHomePath`), rendering [SalonHomeResolverScreen]. A transient
+  /// stopover, not a destination the viewer lingers on: it resolves which
+  /// salon's shell ([salonShell]) to enter and forwards there (a
+  /// `SALON_ADMIN` reads `session.user.salonId` synchronously; a
+  /// `SALON_OWNER` picks the primary salon from `mySalonsProvider`, falling
+  /// back to the My Salons hub when they own none).
+  ///
+  /// A LITERAL top-level path under the SAME `/salons/` prefix as
+  /// [salonPublicProfile] (`/salons/:salonId`, dynamic) — registered BEFORE
+  /// that dynamic route, same "declaration order, not specificity" rationale
+  /// [mySalons] documents (a second literal under this prefix would
+  /// otherwise be swallowed as a `:salonId` value: `/salons/home` would
+  /// resolve to the public-profile route with `salonId == 'home'`).
+  static const String salonHome = '/salons/home';
+
+  /// Phase 21.8 — the salon-scoped bottom-nav shell
+  /// ([SalonHomeResolverScreen] forwards here). `SALON_OWNER`/`SALON_ADMIN`
+  /// only — gated by `salonHomeGuard`'s route-level role check plus
+  /// `salonManageGuard` (reused VERBATIM from [salonManage]/
+  /// [salonManageSettings] — it already binds ownership for both roles) on
+  /// the route itself.
+  ///
+  /// A literal `/shell` suffix on the same `/salons/:salonId` segment
+  /// [salonManage]/[salonManageSettings] extend — registered as a STANDALONE
+  /// top-level route for the identical "an ancestor's own redirect always
+  /// runs" reason those two document, LAST among the four `/salons/:salonId`-
+  /// prefixed siblings (declaration order does not matter among them, since
+  /// none is a literal that a dynamic sibling could shadow — only [mySalons]
+  /// and [salonHome] have that concern, both literals under the shorter
+  /// `/salons/` prefix).
+  static String salonShell(String salonId) =>
+      '${salonPublicProfile(salonId)}/shell';
+
+  /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
+  /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
+  /// as a tappable card, plus the "+ Додати салон" CTA. `SALON_OWNER`-only —
+  /// a `SALON_ADMIN` belongs to exactly one salon and lands straight on
+  /// [salonManage] instead.
+  ///
+  /// A LITERAL path under the same `/salons/` prefix as [salonPublicProfile]
+  /// (`/salons/:salonId`, dynamic). Registered in `app_router.dart` as a
+  /// standalone top-level `GoRoute` (same "cannot nest under `:salonId`"
+  /// rationale as [salonManage]) and declared BEFORE the dynamic
+  /// `/salons/:salonId` route so the literal wins the match instead of being
+  /// shadowed by it — go_router resolves literal-vs-dynamic purely by
+  /// declaration order, not specificity.
+  static const String mySalons = '/salons/mine';
+
+  /// Phase 21.3 — the «+ Додати салон» form, reached from the [mySalons]
+  /// hub's own CTA. `SALON_OWNER`-only.
+  ///
+  /// A THIRD literal under the same `/salons/` prefix as [salonPublicProfile]
+  /// (`/salons/:salonId`, dynamic) — mirrors [mySalons]/[salonHome]'s own
+  /// "declaration order, not specificity" rationale: `app_router.dart`
+  /// registers this route BEFORE the dynamic `/salons/:salonId` route so the
+  /// literal `register` segment is never swallowed as a `:salonId` value
+  /// (otherwise `/salons/register` would resolve to the public-profile route
+  /// with `salonId == 'register'`). Gated by `mySalonsGuard` REUSED VERBATIM
+  /// — identical "SALON_OWNER only, bounce every other authenticated role to
+  /// its own landing" semantics [mySalons] already needs, so no second guard
+  /// closure was written.
+  static const String registerSalon = '/salons/register';
+
+  /// Phase 21.14 — the `SALON_OWNER`'s own first-person profile
+  /// (`OwnerOwnProfileScreen`), pushed STAND-ALONE with a back button. The
+  /// same screen is ALSO hosted, without a route of its own, as the «Профіль»
+  /// tab of `SalonShellScreen`'s owner branch (`embedded: true`) — the tab is
+  /// an `IndexedStack` slot, not a nested route, so this constant is only ever
+  /// the stand-alone entry.
+  ///
+  /// SHADOWING — unlike [mySalons]/[registerSalon]/[salonHome], this path has
+  /// NO dynamic sibling to lose a match to: `/profile` is a fresh top-level
+  /// prefix and `app_router.dart` registers no `/:something` route at the root
+  /// level, so there is nothing for go_router's declaration-order
+  /// literal-vs-dynamic resolution to shadow it with. Adding any future
+  /// `/profile/:id` route WOULD reintroduce that hazard and must be declared
+  /// AFTER this one.
+  ///
+  /// Gated by `mySalonsGuard` REUSED VERBATIM — identical "SALON_OWNER only,
+  /// bounce every other authenticated role to its own landing" semantics, so
+  /// no second guard closure was written.
+  static const String ownerOwnProfile = '/profile/owner';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders
@@ -401,6 +608,52 @@ abstract final class RouteNames {
   static const String masterEditPersonal = '/master/edit/personal';
   static const String masterEditContacts = '/master/edit/contacts';
   static const String masterEditLocation = '/master/edit/location';
+
+  // SALON_MASTER's own personal-profile surface — fixes the "blank home"
+  // landing bug (an invited SALON_MASTER previously fell through
+  // `roleHomePath`'s wildcard onto the bare `/` placeholder; see
+  // `role_home.dart`). Read-only self-view ONLY: no salon profile, no
+  // «Команда»/team surface — those are a later increment (product decision,
+  // see the phase doc). Hosts the same `VelvetBottomNavBar` shell as
+  // INDEPENDENT_MASTER (2026-09-01) — see
+  // `salon_master_profile_screen.dart`'s header for the gated-tile caveat.
+  //
+  // Deliberately its OWN `/staff/*` subtree, not a widened `/master/*`
+  // (INDEPENDENT_MASTER-only — bookings/schedule/services must stay fenced
+  // off from SALON_MASTER) and not `/salons/*` (salon management,
+  // owner/admin-only). Gated to SALON_MASTER exclusively in
+  // `auth_redirect.dart`.
+  static const String salonMasterProfile = '/staff/profile';
+
+  /// Settings hub reached from [salonMasterProfile]'s trailing
+  /// `tune_rounded` action. Renders the SAME [SettingsHubScreen] widget
+  /// [masterMenu] does (additive `showLocation: false` — a SALON_MASTER has
+  /// no personal location — plus `contactsEnabled: true` +
+  /// `contactsRoute: salonMasterEditContacts`, a phone-only «Контакти» edit
+  /// — see `settings_hub_screen.dart`).
+  static const String salonMasterSettings = '/staff/settings';
+
+  /// «Особисті дані» edit for a SALON_MASTER. Reuses [PersonalInfoEditScreen]
+  /// VERBATIM — the same widget [masterEditPersonal] pushes. The screen
+  /// itself picks the endpoint that admits SALON_MASTER: `PATCH
+  /// /masters/me/profile` (`MasterController.java:486-487`), NOT the
+  /// `/independent-masters/me/profile` endpoint [masterEditPersonal]'s
+  /// INDEPENDENT_MASTER save uses — see [MasterUpdate.masterType] /
+  /// [HttpMasterRepository.updateMyProfile] for the branch (a HIGH bug fixed
+  /// 2026-09-01: the repository used to hardcode the independent-master path
+  /// for every caller, 403ing every SALON_MASTER save). Registered under its
+  /// own `/staff/*` path rather than widening [masterEditPersonal]'s guard,
+  /// so the rest of `/master/*` stays fenced to INDEPENDENT_MASTER exactly as
+  /// before.
+  static const String salonMasterEditPersonal = '/staff/edit/personal';
+
+  /// «Контакти» edit for a SALON_MASTER — phone only (product decision: no
+  /// Instagram, no location, for this role). Reuses [ContactsEditScreen] via
+  /// its additive `showInstagram: false` param — the same widget
+  /// [masterEditContacts] pushes for INDEPENDENT_MASTER, same shape as
+  /// [salonMasterEditPersonal] above. Registered under its own `/staff/*`
+  /// path rather than widening [masterEditContacts]'s guard.
+  static const String salonMasterEditContacts = '/staff/edit/contacts';
 
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own

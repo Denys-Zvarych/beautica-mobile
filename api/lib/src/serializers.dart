@@ -40,7 +40,9 @@ import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
+import 'package:beautica_api/src/model/api_response_list_sibling_salon_option.dart';
 import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
@@ -70,6 +72,7 @@ import 'package:beautica_api/src/model/api_response_registration_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_invite_history_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_review_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_service_catalog_response.dart';
@@ -192,6 +195,9 @@ import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/rotate_admin_request.dart';
 import 'package:beautica_api/src/model/rotate_master_request.dart';
 import 'package:beautica_api/src/model/salon_admin_response.dart';
+import 'package:beautica_api/src/model/salon_deletion_blocked_response.dart';
+import 'package:beautica_api/src/model/salon_invite_history_response.dart';
+import 'package:beautica_api/src/model/salon_invite_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
 import 'package:beautica_api/src/model/salon_review_response.dart';
 import 'package:beautica_api/src/model/salon_review_summary_response.dart';
@@ -199,10 +205,12 @@ import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
 import 'package:beautica_api/src/model/salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/salon_service_category_group.dart';
+import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
 import 'package:beautica_api/src/model/service_summary_dto.dart';
+import 'package:beautica_api/src/model/sibling_salon_option.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
@@ -256,7 +264,9 @@ part 'serializers.g.dart';
   ApiResponseListPlatformCategoryUsageResponse,
   ApiResponseListPlatformServiceTypeResponse,
   ApiResponseListSalonResponse,
+  ApiResponseListSalonStaffMemberResponse,
   ApiResponseListScheduleOverrideResponse,
+  ApiResponseListSiblingSalonOption,
   ApiResponseListWeeklyScheduleResponse,
   ApiResponseListWorkingHoursResponse,
   ApiResponseMasterDetailResponse,
@@ -286,6 +296,7 @@ part 'serializers.g.dart';
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
   ApiResponseSalonAdminResponse,
+  ApiResponseSalonInviteHistoryResponse,
   ApiResponseSalonResponse,
   ApiResponseSalonReviewSummaryResponse,
   ApiResponseSalonServiceCatalogResponse,
@@ -408,6 +419,9 @@ part 'serializers.g.dart';
   RotateAdminRequest,
   RotateMasterRequest,
   SalonAdminResponse,
+  SalonDeletionBlockedResponse,
+  SalonInviteHistoryResponse,
+  SalonInviteResponse,
   SalonResponse,
   SalonReviewResponse,
   SalonReviewSummaryResponse,
@@ -415,10 +429,12 @@ part 'serializers.g.dart';
   SalonSearchResult,
   SalonServiceCatalogResponse,
   SalonServiceCategoryGroup,
+  SalonStaffMemberResponse,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,
   ServiceSummaryDto,
+  SiblingSalonOption,
   SortObject,
   StatusUpdateRequest,
   SuggestServiceTypeRequest,

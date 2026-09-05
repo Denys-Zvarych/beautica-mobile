@@ -95,6 +95,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
 import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
     show calendarDayIsDeemphasized, isWeekendWeekday, kCalendarDotColor;
 
@@ -179,11 +180,18 @@ DateTime railDayAt(DateTime from, int offset) =>
 /// count through the exact same function, mirroring [railDayAt]'s pattern.
 /// (It used to back the retired `_centreRailOn`'s pixel-offset math on the
 /// continuous strip; the week pager needs the same arithmetic, one level up.)
-int calendarDayCount(DateTime from, DateTime to) {
-  final DateTime fromUtc = DateTime.utc(from.year, from.month, from.day);
-  final DateTime toUtc = DateTime.utc(to.year, to.month, to.day);
-  return toUtc.difference(fromUtc).inDays;
-}
+///
+/// Phase 284 PROMOTED the body of this function to
+/// `shared/time/kyiv_day.dart`'s [kyivDaysBetween] and left this name as a
+/// delegating alias — behaviour is byte-identical, every existing caller
+/// (`railWeekIndex`, `bookings_day_rail_test.dart`,
+/// `booked_days_notifier_test.dart`) is untouched. The promotion happened
+/// because `shared/formatters/relative_date.dart` had hand-rolled the UNSAFE
+/// `.difference(...).inDays` form two directories away and shipped the exact
+/// off-by-one this doc warns about: the safe implementation was unreachable
+/// from `shared/` without importing another feature's `presentation/`, which
+/// the layering forbids. The date-token contract now owns it.
+int calendarDayCount(DateTime from, DateTime to) => kyivDaysBetween(from, to);
 
 /// The MONDAY of the calendar week containing [day], date-only.
 ///

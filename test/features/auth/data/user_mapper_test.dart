@@ -36,7 +36,8 @@ UserProfileResponse _fullProfileDto() => UserProfileResponse(
     ..districtName = 'Шевченківський'
     ..street = 'вул. Хрещатик'
     ..buildingNo = '1'
-    ..locationNote = 'Поверх 3',
+    ..locationNote = 'Поверх 3'
+    ..salonId = 'salon-uuid-1',
 );
 
 /// Builds a profile DTO with NO location set (the "client has no city" shape).
@@ -86,6 +87,14 @@ void main() {
       expect(user.locationNote, 'Поверх 3');
     });
 
+    // mobile-security MEDIUM follow-up (2026-08-27): salonId powers
+    // `salonManageGuard`'s SALON_ADMIN ownership check in `app_router.dart`.
+    test('maps salonId (SALON_ADMIN ownership binding)', () {
+      final user = UserMapper.fromProfileDto(_fullProfileDto());
+
+      expect(user.salonId, 'salon-uuid-1');
+    });
+
     test('leaves location fields null when the DTO omits them', () {
       final user = UserMapper.fromProfileDto(_locationlessProfileDto());
 
@@ -98,6 +107,7 @@ void main() {
       expect(user.street, isNull);
       expect(user.buildingNo, isNull);
       expect(user.locationNote, isNull);
+      expect(user.salonId, isNull);
     });
   });
 
@@ -120,6 +130,7 @@ void main() {
       expect(user.locationNote, isNull);
       expect(user.firstName, isNull);
       expect(user.lastName, isNull);
+      expect(user.salonId, isNull);
     });
   });
 }

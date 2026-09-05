@@ -43,6 +43,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// One row of the role → landing → chrome contract.
@@ -54,6 +55,7 @@ class RoleLandingExpectation {
     this.chromeFinder,
     this.chromeDescription,
     this.comingSoonReason,
+    this.locationIsTransient = false,
   }) : assert(
          hasChrome == (chromeFinder != null),
          'a chrome-bearing row must supply a chromeFinder; a no-chrome row '
@@ -90,6 +92,19 @@ class RoleLandingExpectation {
   /// Why this role has no chrome yet (for the no-chrome rows). Non-null iff
   /// [hasChrome] is false.
   final String? comingSoonReason;
+
+  /// Phase 21.8 — `true` when [expectedLandingPath] is a TRANSIENT resolver
+  /// stopover (`SalonHomeResolverScreen`, `RouteNames.salonHome`) that
+  /// forwards elsewhere the instant its data resolves, rather than a
+  /// destination the viewer lingers on. The pure-fn tier
+  /// (`role_landing_dispatch_guard_test.dart`) still asserts
+  /// `roleHomePath(role) == expectedLandingPath` unconditionally — that
+  /// contract does not change. The router tier
+  /// (`role_landing_chrome_test.dart`) does NOT assert the router's FINAL
+  /// settled location equals [expectedLandingPath] for a transient row (it
+  /// will have moved on to the real shell by the time chrome renders); it
+  /// only asserts the expected chrome eventually appears.
+  final bool locationIsTransient;
 }
 
 /// THE matrix — single source of truth. Verified against the real code:
@@ -98,16 +113,29 @@ class RoleLandingExpectation {
 ///   • app_router.dart     — `/home` → ClientShell(StatefulShellRoute),
 ///                           `/master/profile` → MasterProfileScreen
 ///                           (hosts VelvetBottomNavBar), `/` → _Placeholder
-///                           (NO chrome).
+///                           (NO chrome), `/salons/home` (Phase 21.8) →
+///                           SalonHomeResolverScreen, a TRANSIENT stopover
+///                           that forwards to `/salons/:salonId/shell` →
+///                           SalonShellScreen (hosts SalonBottomNav),
+///                           `/staff/profile` → SalonMasterProfileScreen
+///                           (hosts VelvetBottomNavBar, 2026-09-01).
+///
+/// "No chrome" and "lands on the bare `/` placeholder" are NOT the same
+/// thing (Phase 21.1 split them) — a no-chrome row's `expectedLandingPath`
+/// is checked per-row below, not collapsed onto one shared literal.
 ///
 /// ┌─────────────────────┬──────────────────┬──────────────────────────────┐
 /// │ Role                │ Landing path     │ Expected nav chrome           │
 /// ├─────────────────────┼──────────────────┼──────────────────────────────┤
 /// │ CLIENT              │ /home            │ ClientBottomNav  (REQUIRED)   │
 /// │ INDEPENDENT_MASTER  │ /master/profile  │ VelvetBottomNavBar (REQUIRED) │
-/// │ SALON_OWNER         │ /  (placeholder) │ none — coming soon (intended) │
-/// │ SALON_ADMIN         │ /  (placeholder) │ none — coming soon (intended) │
-/// │ SALON_MASTER        │ /  (placeholder) │ none — coming soon (intended) │
+/// │ SALON_OWNER         │ /salons/home     │ SalonBottomNav (REQUIRED) —   │
+/// │                     │ (resolver, 21.8) │ via the shell it forwards to  │
+/// │ SALON_ADMIN         │ /salons/home     │ SalonBottomNav (REQUIRED) —   │
+/// │                     │ (resolver, 21.8) │ same shared shell as owner    │
+/// │ SALON_MASTER        │ /staff/profile   │ VelvetBottomNavBar (REQUIRED) │
+/// │                     │                  │ — same shared bar as          │
+/// │                     │                  │ INDEPENDENT_MASTER (2026-09-01)│
 /// └─────────────────────┴──────────────────┴──────────────────────────────┘
 final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
   RoleLandingExpectation(
@@ -124,32 +152,46 @@ final List<RoleLandingExpectation> roleLandingMatrix = <RoleLandingExpectation>[
     chromeFinder: find.byType(VelvetBottomNavBar),
     chromeDescription: 'VelvetBottomNavBar (the master-profile 4-tile bar)',
   ),
-  // ── Intentional no-chrome rows (MVP "coming soon"). These are NOT gaps —
-  // they pin the CURRENT intended state so a future shell that ships for a
-  // salon role flips the row (hasChrome → true + a chromeFinder) and is caught.
-  const RoleLandingExpectation(
+  // Phase 21.8 — both salon roles now share ONE landing: the resolver at
+  // `/salons/home` (roleHomePath), which forwards to `/salons/:salonId
+  // /shell` (SalonShellScreen, hosting SalonBottomNav) the instant its data
+  // resolves. `expectedLandingPath` is what `roleHomePath` itself returns
+  // (the resolver's own path — needed by the pure-fn tier and by
+  // auth_redirect_test.dart's direct assertions); `locationIsTransient:
+  // true` tells the router tier not to expect the FINAL settled location to
+  // still be the resolver once its chrome-bearing shell has rendered.
+  RoleLandingExpectation(
     role: UserRole.salonOwner,
-    expectedLandingPath: RouteNames.home, // '/'
-    hasChrome: false,
-    comingSoonReason:
-        'SALON_OWNER has no mobile shell yet (MVP). Lands on the `/` '
-        'placeholder by design until the owner dashboard ships.',
+    expectedLandingPath: RouteNames.salonHome, // '/salons/home'
+    hasChrome: true,
+    chromeFinder: find.byType(SalonBottomNav),
+    chromeDescription: 'SalonBottomNav (the Salon Shell bar, Phase 21.8)',
+    locationIsTransient: true,
   ),
-  const RoleLandingExpectation(
+  RoleLandingExpectation(
     role: UserRole.salonAdmin,
-    expectedLandingPath: RouteNames.home, // '/'
-    hasChrome: false,
-    comingSoonReason:
-        'SALON_ADMIN (invited) has no mobile shell yet (MVP). Lands on `/` '
-        'by design.',
+    expectedLandingPath: RouteNames.salonHome, // '/salons/home'
+    hasChrome: true,
+    chromeFinder: find.byType(SalonBottomNav),
+    chromeDescription: 'SalonBottomNav (the Salon Shell bar, Phase 21.8)',
+    locationIsTransient: true,
   ),
-  const RoleLandingExpectation(
+  // Fixes the "blank home" bug: SALON_MASTER used to fall through
+  // `roleHomePath`'s `_` wildcard onto the bare `_Placeholder('home')` at
+  // `/`. It now lands on a REAL screen — `SalonMasterProfileScreen`, the
+  // role's own read-only personal-profile self-view (no salon profile, no
+  // team surface — still a later increment) — which, as of 2026-09-01, hosts
+  // the SAME `VelvetBottomNavBar` INDEPENDENT_MASTER's `MasterProfileScreen`
+  // does, `activeIndex: 3`. This row previously pinned `hasChrome: false`;
+  // this is the flip that comment predicted.
+  RoleLandingExpectation(
     role: UserRole.salonMaster,
-    expectedLandingPath: RouteNames.home, // '/'
-    hasChrome: false,
-    comingSoonReason:
-        'SALON_MASTER (invited, read-only calendar) has no /master shell '
-        '(that surface is INDEPENDENT_MASTER-only). Lands on `/` by design.',
+    expectedLandingPath: RouteNames.salonMasterProfile, // '/staff/profile'
+    hasChrome: true,
+    chromeFinder: find.byType(VelvetBottomNavBar),
+    chromeDescription:
+        'VelvetBottomNavBar (the master-profile 4-tile bar, shared with '
+        'INDEPENDENT_MASTER)',
   ),
 ];
 

@@ -58,6 +58,22 @@ const _cachedMaster = Master(
   type: MasterType.independentMaster,
 );
 
+// SALON_MASTER fixture — contacts page 3 (item C/3, mobile-security HIGH
+// data-loss guard, 2026-09-01). Instagram is set here specifically so a bug
+// that sends '' instead of the cached value is observable: an already-empty
+// field would make the "preserved, not cleared" assertion vacuous.
+const _salonMasterCachedMaster = Master(
+  id: 'user-2',
+  firstName: 'Марія',
+  lastName: 'Бондар',
+  bio: 'Перукар-стиліст.',
+  phoneNumber: '+380 67 111 22 33',
+  instagram: '@masha_style',
+  avgRating: 4.9,
+  reviewCount: 22,
+  type: MasterType.salonMaster,
+);
+
 class _StubMasterProfileNotifier extends MasterProfile {
   _StubMasterProfileNotifier(this._master);
   final Master _master;
@@ -86,6 +102,27 @@ GoRouter _buildRouter() => GoRouter(
       path: RouteNames.masterProfile,
       pageBuilder: (_, _) => const NoTransitionPage<void>(
         child: Scaffold(body: SizedBox(key: Key('stub-profile'))),
+      ),
+    ),
+  ],
+);
+
+// SALON_MASTER router — `showInstagram: false` (the shape `app_router.dart`
+// registers under `RouteNames.salonMasterEditContacts`) rather than the
+// default INDEPENDENT_MASTER shape `_buildRouter()` builds.
+GoRouter _buildSalonMasterRouter() => GoRouter(
+  initialLocation: RouteNames.salonMasterEditContacts,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.salonMasterEditContacts,
+      pageBuilder: (_, _) => const NoTransitionPage<void>(
+        child: ContactsEditScreen(showInstagram: false),
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterProfile,
+      pageBuilder: (_, _) => const NoTransitionPage<void>(
+        child: Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
       ),
     ),
   ],
@@ -366,6 +403,100 @@ void main() {
       expect(states.length, greaterThan(before));
     },
   );
+
+  // ── SALON_MASTER (showInstagram: false) — data-loss guard (item 3, ──────
+  // mobile-security HIGH, 2026-09-01) ─────────────────────────────────────
+  //
+  // The Instagram field is never rendered for SALON_MASTER (product
+  // decision: phone-only contacts). Because `updateMyProfile` sends the
+  // whole MasterUpdate body and the backend treats an OMITTED-then-blank
+  // key as a CLEAR, `_save` must send the CACHED Instagram verbatim, never
+  // an empty string — see `contacts_edit_screen.dart`'s `_save` doc.
+  group('SALON_MASTER contacts (showInstagram: false) — Instagram '
+      'preservation', () {
+    testWidgets('the Instagram field is not rendered at all', (tester) async {
+      await tester.pumpRoutedApp(
+        _buildSalonMasterRouter(),
+        overrides: _overrides(repo, master: _salonMasterCachedMaster),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('field-instagram')), findsNothing);
+    });
+
+    testWidgets(
+      'saving a phone-only edit sends the CACHED Instagram verbatim, never '
+      'an empty string',
+      (tester) async {
+        MasterUpdate? captured;
+        when(() => repo.updateMyProfile(any())).thenAnswer((invocation) async {
+          captured = invocation.positionalArguments.first as MasterUpdate;
+        });
+
+        await tester.pumpRoutedApp(
+          _buildSalonMasterRouter(),
+          overrides: _overrides(repo, master: _salonMasterCachedMaster),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Edit ONLY the phone — Instagram is never on screen to edit.
+        await tester.enterText(_field('field-phone'), '+380 67 999 88 77');
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-contacts')));
+        await tester.pumpAndSettle();
+
+        expect(captured, isNotNull, reason: 'updateMyProfile must be called');
+        expect(
+          captured!.instagram,
+          _salonMasterCachedMaster.instagram,
+          reason:
+              'the hidden Instagram field must round-trip the CACHED value '
+              '— sending "" would CLEAR it server-side for a role that never '
+              'saw the field, the exact data-loss bug this fix prevents.',
+        );
+        expect(
+          captured!.instagram,
+          isNot(isEmpty),
+          reason:
+              'sanity: the fixture Instagram is non-empty, so a regression '
+              'to "" is observable by this assertion, not masked by an '
+              'already-empty cached value.',
+        );
+        expect(
+          captured!.masterType,
+          MasterType.salonMaster,
+          reason:
+              'the SALON_MASTER save must also carry masterType so '
+              'updateMyProfile hits the correct endpoint (item 1).',
+        );
+      },
+    );
+
+    testWidgets(
+      'Save is disabled when pristine even though the (hidden) Instagram '
+      'controller is never dirty-tracked',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _buildSalonMasterRouter(),
+          overrides: _overrides(repo, master: _salonMasterCachedMaster),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          tester
+              .widget<NeumorphicButton>(
+                find.byKey(const Key('btn-save-contacts')),
+              )
+              .onPressed,
+          isNull,
+        );
+      },
+    );
+  });
 }
 
 class _InvalidationWatcher extends ConsumerWidget {

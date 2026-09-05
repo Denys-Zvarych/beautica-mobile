@@ -271,5 +271,90 @@ void main() {
       // Re-read the favorite provider after the dependency changed.
       expect(container.read(favoriteToggleProvider), isEmpty);
     });
+
+    // ── The auth watch is NARROWED to the user id ─────────────────────────
+    //
+    // mobile-perf LOW (2026-09-01), and a CORRECTNESS fix, not only waste.
+    // `AuthNotifier.setAccessToken` is called by `refresh_interceptor.dart`
+    // on EVERY silent token refresh and re-emits `Authenticated` with the
+    // SAME user and a new accessToken. Because rebuilding this notifier
+    // RESETS the map to empty, the old bare `ref.watch(authProvider)` meant
+    // every silent refresh silently dropped every optimistic heart the user
+    // had just tapped — the hearts on screen fell back to their `.select`
+    // default of `false`.
+    //
+    // The pair below is what makes that assertion meaningful: the token-only
+    // re-emission must be INERT, and a real identity change must STILL clear
+    // the map (that is the cross-account leak the watch exists for, and the
+    // `logout → login` test directly above covers its null arm). A `.select`
+    // returning a constant would pass the first test alone.
+    test('a silent token refresh (same user, new accessToken) does NOT clear '
+        'the map', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      await notifier.toggle(_master);
+      expect(
+        container.read(favoriteToggleProvider).containsKey(_master),
+        isTrue,
+      );
+
+      // Exactly what `refresh_interceptor.dart` does after a 401 → refresh.
+      container.read(authProvider.notifier).setAccessToken('token-rotated-2');
+
+      expect(
+        container.read(favoriteToggleProvider).containsKey(_master),
+        isTrue,
+        reason:
+            'a token rotation is not a session change — the optimistic '
+            'favorite map must survive it',
+      );
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>().having(
+          (Authenticated a) => a.accessToken,
+          'accessToken',
+          'token-rotated-2',
+        ),
+        reason:
+            'sanity: the session really did re-emit with a new token, so the '
+            'assertion above is about the .select narrowing and not about '
+            'setAccessToken having silently no-opped',
+      );
+    });
+
+    test('logging in as a DIFFERENT user DOES clear the map', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      await notifier.toggle(_master);
+      expect(
+        container.read(favoriteToggleProvider).containsKey(_master),
+        isTrue,
+      );
+
+      final auth =
+          container.read(authProvider.notifier) as _MutableAuthNotifier;
+      auth.setSession(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'u2',
+            email: 'other@example.com',
+            role: UserRole.client,
+          ),
+          accessToken: 'token',
+        ),
+      );
+
+      expect(
+        container.read(favoriteToggleProvider),
+        isEmpty,
+        reason:
+            'the next signed-in user must never inherit the previous one\'s '
+            'favorite flags through this keepAlive map',
+      );
+    });
   });
 }

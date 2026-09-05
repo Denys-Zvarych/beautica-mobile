@@ -51,6 +51,7 @@ import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -548,42 +549,16 @@ class _PublicProfileBody extends StatelessWidget {
         ],
 
         // 4 — Portfolio rail (placeholder tiles until the gallery phase).
-        // INDEPENDENT_MASTER only — hidden entirely for salon-affiliated masters.
+        // INDEPENDENT_MASTER only — hidden entirely for salon-affiliated
+        // masters. REUSE-FIRST — [PortfolioRail] promoted to
+        // shared/widgets/portfolio_rail.dart; no `onSeeAll` here (this
+        // read-only view has no gallery route), matching prior behaviour.
         if (isIndependent)
           _reveal(
             anim3,
             slide3,
-            Column(
-              key: const Key('public-master-profile-portfolio'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterPortfolioLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                SizedBox(
-                  height: 72,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    padding: EdgeInsets.zero,
-                    child: Row(
-                      children: <Widget>[
-                        for (int i = 0; i < 6; i++) ...<Widget>[
-                          _PortfolioTile(index: i),
-                          if (i < 5) const SizedBox(width: VelvetSpacing.md),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            const PortfolioRail(
+              railKey: Key('public-master-profile-portfolio'),
             ),
           ),
 
@@ -860,84 +835,6 @@ class _BookingShelf extends StatelessWidget {
                     context.push(RouteNames.bookingNew, extra: masterId),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _PortfolioTile — raised gradient placeholder thumbnail (real photos: later)
-// ---------------------------------------------------------------------------
-
-class _PortfolioTile extends StatefulWidget {
-  const _PortfolioTile({required this.index});
-
-  final int index;
-
-  @override
-  State<_PortfolioTile> createState() => _PortfolioTileState();
-}
-
-class _PortfolioTileState extends State<_PortfolioTile> {
-  bool _pressed = false;
-
-  // Hoisted so the glyph tint is allocated once for the class, not per build()
-  // (this State rebuilds on every press) — mobile-perf MP pattern.
-  static final Color _photoGlyph = BrandColors.white.withValues(alpha: 0.65);
-
-  static const List<List<Color>> _fills = <List<Color>>[
-    <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
-    <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
-    <Color>[Color(0xFFDFC6A8), Color(0xFFB89A7A)],
-    <Color>[Color(0xFFC8A878), Color(0xFF6A4A28)],
-    <Color>[Color(0xFFCFB090), Color(0xFF8A6840)],
-    <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final List<Color> fill = _fills[widget.index % _fills.length];
-    return Semantics(
-      label: AppLocalizations.of(
-        context,
-      ).masterPortfolioTileSemantics(widget.index + 1),
-      button: true,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) => setState(() => _pressed = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 130),
-          height: 72,
-          width: 72,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(VelvetRadii.field),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: fill,
-            ),
-            boxShadow: _pressed
-                ? null
-                : const <BoxShadow>[
-                    BoxShadow(
-                      color: BrandColors.shadowDarkButton,
-                      offset: Offset(2, 2),
-                      blurRadius: 5,
-                      spreadRadius: -1,
-                    ),
-                    BoxShadow(
-                      color: BrandColors.shadowLightStrong,
-                      offset: Offset(-2, -2),
-                      blurRadius: 5,
-                      spreadRadius: -1,
-                    ),
-                  ],
-          ),
-          child: Center(
-            child: Icon(Icons.photo_outlined, color: _photoGlyph, size: 22),
           ),
         ),
       ),

@@ -17,11 +17,13 @@ part 'public_salon_response.g.dart';
 /// * [city]
 /// * [region]
 /// * [address]
-/// * [cityId]
+/// * [cityId] - Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire.
+/// * [oblastId] - Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire.
 /// * [districtId]
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [phone] - Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none.
 /// * [instagramUrl]
 /// * [avatarUrl]
 /// * [coverImageUrl]
@@ -48,8 +50,13 @@ abstract class PublicSalonResponse
   @BuiltValueField(wireName: r'address')
   String? get address;
 
+  /// Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire.
   @BuiltValueField(wireName: r'cityId')
-  String? get cityId;
+  String get cityId;
+
+  /// Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire.
+  @BuiltValueField(wireName: r'oblastId')
+  String get oblastId;
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
@@ -62,6 +69,10 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  /// Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none.
+  @BuiltValueField(wireName: r'phone')
+  String? get phone;
 
   @BuiltValueField(wireName: r'instagramUrl')
   String? get instagramUrl;
@@ -149,13 +160,16 @@ class _$PublicSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.cityId != null) {
-      yield r'cityId';
-      yield serializers.serialize(
-        object.cityId,
-        specifiedType: const FullType(String),
-      );
-    }
+    yield r'cityId';
+    yield serializers.serialize(
+      object.cityId,
+      specifiedType: const FullType(String),
+    );
+    yield r'oblastId';
+    yield serializers.serialize(
+      object.oblastId,
+      specifiedType: const FullType(String),
+    );
     if (object.districtId != null) {
       yield r'districtId';
       yield serializers.serialize(
@@ -181,6 +195,13 @@ class _$PublicSalonResponseSerializer
       yield r'locationNote';
       yield serializers.serialize(
         object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.phone != null) {
+      yield r'phone';
+      yield serializers.serialize(
+        object.phone,
         specifiedType: const FullType(String),
       );
     }
@@ -293,6 +314,13 @@ class _$PublicSalonResponseSerializer
           ) as String;
           result.cityId = valueDes;
           break;
+        case r'oblastId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastId = valueDes;
+          break;
         case r'districtId':
           final valueDes = serializers.deserialize(
             value,
@@ -320,6 +348,13 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'phone':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.phone = valueDes;
           break;
         case r'instagramUrl':
           final valueDes = serializers.deserialize(

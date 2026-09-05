@@ -29,8 +29,8 @@ lib/features/schedule/presentation/weekly_schedule_notifier.dart:134     # _inva
 # exists for cannot occur. None of these swap to a DIFFERENT key first (that
 # swap — a rail tap, a sort toggle, a week page — is what creates the
 # pinned-but-unwatched element the fixes above protect).
-lib/features/booking/presentation/bookings_discovery_view.dart:943  # MyBookingsSlowLoadNotice onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 875
-lib/features/booking/presentation/bookings_discovery_view.dart:959  # MyBookingsErrorState onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 875
+lib/features/booking/presentation/bookings_discovery_view.dart:962  # MyBookingsSlowLoadNotice onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 894
+lib/features/booking/presentation/bookings_discovery_view.dart:978  # MyBookingsErrorState onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 894
 lib/features/master/presentation/widgets/master_reviews_body.dart:190  # ErrorState onRetry — self-key, same _SortableReviewList actively watches masterReviewsProvider(masterId, _sort) at line 127
 lib/features/salon/presentation/widgets/salon_reviews_section.dart:135  # ErrorState onRetry — self-key, same _SalonReviewsSectionState actively watches salonReviewsProvider(widget.salonId, _sort) at line 68
 lib/features/schedule/presentation/master_schedule_screen.dart:500  # ErrorState onRetry — self-key, same widget actively watches effectiveScheduleProvider(_range) at line 446

@@ -36,4 +36,18 @@ abstract final class StorageKeys {
   /// the password or the OTP. Cleared on `/done` arrival and on logout
   /// ([SecureStorage.deleteAll]).
   static const String pendingLocality = 'BEAUTICA_PENDING_LOCALITY';
+
+  /// Key under which the last-visited salon pointer is stashed.
+  ///
+  /// Phase 286 — storage slot only; nothing reads or writes it yet (Phase 287
+  /// adds the writer, Phase 288 the reader). Per-device, client-side (D1):
+  /// deliberately NOT a backend field — see
+  /// `docs/mobile-phases/phase-286-last-visited-salon-secure-storage-slot.md`.
+  ///
+  /// The value is `{userId, salonId}` JSON (D2), NOT a bare salon id, so a
+  /// session restored from cached [userJson] for a *different* account on
+  /// the same device cannot read the previous owner's salon id — a `userId`
+  /// mismatch is treated exactly like "no value stored". Two opaque UUIDs,
+  /// no PII (D3). Cleared on logout ([SecureStorage.deleteAll]).
+  static const String lastSalon = 'BEAUTICA_LAST_SALON';
 }

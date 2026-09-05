@@ -36,6 +36,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
+import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
+import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_own_profile_flow_test.dart' as owner_own_profile;
+import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_favorites_flow_test.dart' as client_favorites;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
@@ -79,11 +83,27 @@ import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'salon_management_profile_flow_test.dart' as salon_management_profile;
+import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
+import 'register_salon_flow_test.dart' as register_salon;
+import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
+import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
+import 'salon_staff_settings_admin_gate_flow_test.dart'
+    as salon_staff_settings_admin_gate;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('auth_login_flow', auth_login.main);
+  // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
+  // login AND the post-registration done_to_app CTA both land on the My
+  // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
+  group('salon_owner_landing_flow', salon_owner_landing.main);
+  group('salon_shell_landing_flow', salon_shell_landing.main);
+  // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
+  // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
+  group('owner_own_profile_flow', owner_own_profile.main);
+  group('salon_shell_tab_sync_flow', salon_shell_tab_sync.main);
   // Independent-master MULTI-SERVICE booking (Step 2.7 Rule 3b) — acceptance +
   // partial-failure/same-key-retry (re-authored from the removed
   // client_booking_conflict_flow against the new per-appointment contract).
@@ -226,4 +246,32 @@ void main() {
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('logout_flow', logout.main);
+  // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
+  // profile: real login → salonManageGuard admits a real session → PATCH
+  // dirty-diff proven on the real wire body (mandate 3) → DELETE.
+  group('salon_management_profile_flow', salon_management_profile.main);
+  // Phase 21.10 QA follow-up (Step 2.7 Rule 3b) — the three new edit-form
+  // routes (profile/address/contacts) reachable end-to-end via a real
+  // SALON_OWNER session, plus the address form's locality-PAIR dirty-diff
+  // regression pin (cityId/districtId diffed independently can submit an
+  // invalid pair — see the file's own header doc).
+  group('salon_edit_forms_flow', salon_edit_forms.main);
+  // Phase 21.3 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER registers a new
+  // salon end to end: real hub -> real «+ Додати салон» CTA push -> real
+  // form fill -> real POST /api/v1/salons -> real pop -> the new salon
+  // rendered on the hub via the real ref.invalidate(mySalonsProvider)
+  // refetch, no manual refresh.
+  group('register_salon_flow', register_salon.main);
+  // Phase 21.11 QA follow-up (Step 2.7 Rule 3b) — «Надіслані запрошення»:
+  // real settings-hub row push -> real GET /invites/pending -> real per-row
+  // DELETE -> the cancel PERSISTS across a genuine autoDispose refetch (the
+  // one thing an optimistic client-side removal cannot be told apart from at
+  // the widget tier). Also carries the deliberately-RED pin for the missing
+  // `pendingInvitesProvider` invalidation on invite-send.
+  group('salon_pending_invites_flow', salon_pending_invites.main);
+  group('salon_staff_settings_flow', salon_staff_settings.main);
+  group(
+    'salon_staff_settings_admin_gate_flow',
+    salon_staff_settings_admin_gate.main,
+  );
 }

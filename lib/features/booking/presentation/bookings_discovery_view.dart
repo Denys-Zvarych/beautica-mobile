@@ -757,8 +757,27 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// no rebuild, hence no provider fetch) when the settled week's month
   /// hasn't actually changed — a spring-back, or a programmatic resync that
   /// lands back on the already-shown month, is a no-op here.
+  ///
+  /// ## Straddling weeks label by the SELECTION, not by the rail's Monday
+  ///
+  /// A week that crosses a month boundary belongs to two months at once, and
+  /// its Monday is not the master's selection. Labelling such a week by its
+  /// week-START relabels the collapsed strip to the PREVIOUS month for every
+  /// selection in the tail of a straddling week — «Сьогодні» on 1–4 Oct 2026
+  /// reads «Вересень 2026», a grid-cell tap on a first-of-month day reads the
+  /// month the master just left, and so does a month page turn followed by a
+  /// collapse. All three arrive here through [_selectImmediate], whose
+  /// [_showRailWeekOf] resync fires this callback AFTER [_applySelectedDay]
+  /// has already set the correct month — so this writer clobbers it.
+  ///
+  /// So: when the settled week is the SELECTION's own week, the label is the
+  /// selected day's month. Move 2 of the contract above — a genuine browse to
+  /// a week [_day] is NOT in — is untouched and still labels by week-start,
+  /// which is the only month it can honestly name.
   void _onRailVisibleWeekChanged(DateTime weekStart) {
-    final DateTime month = DateTime(weekStart.year, weekStart.month);
+    final DateTime month = mondayOf(_day) == weekStart
+        ? DateTime(_day.year, _day.month)
+        : DateTime(weekStart.year, weekStart.month);
     if (_visibleMonth == month) return;
     setState(() => _visibleMonth = month);
   }

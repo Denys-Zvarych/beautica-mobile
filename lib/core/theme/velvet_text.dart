@@ -137,6 +137,13 @@ abstract final class VelvetText {
     fontStyle: FontStyle.italic,
   );
 
+  /// Subheading at 13 sp, camel accent — used by the salon management
+  /// profile's «Запросити в команду» add-staff tile label (Phase 21.2).
+  static final TextStyle subheading13Accent = _subheadingStyle.copyWith(
+    fontSize: 13,
+    color: BrandColors.accentDeep,
+  );
+
   /// Subheading at 15 sp — Comfortaa 15/600, espresso. Used by the master
   /// booking wizard's client-step sub-heading («Дані клієнта»). NOT the same
   /// as the pre-existing (mislabelled) [subheading15] below, which actually
@@ -175,6 +182,15 @@ abstract final class VelvetText {
   /// (mocha is reserved for actionable CTAs/links elsewhere in this system).
   static final TextStyle linkAccent = _linkStyle.copyWith(
     color: BrandColors.accent,
+  );
+
+  /// Destructive inline link — the same Nunito/700 link weight as [link], in
+  /// [BrandColors.error]. Phase 21.11: the pending-invite row's «Скасувати»
+  /// ghost action, which the approved preview renders as an error-red text
+  /// link rather than a filled destructive button (the row is a list item,
+  /// not a confirmation surface).
+  static final TextStyle linkDestructive = _linkStyle.copyWith(
+    color: BrandColors.error,
   );
 
   // ---------------------------------------------------------------------------
@@ -1329,10 +1345,21 @@ abstract final class VelvetText {
     height: 1.0,
   );
 
-  /// Cover edit-pill label — feedback white, 11 sp, w700.
-  static final TextStyle salonCoverEditPill = _feedbackBase.copyWith(
+  /// Phase 21.1 — My Salons Hub card's locality/street two-line address —
+  /// feedback textSecondary, 12.5 sp, height 1.35 (the taller line-height
+  /// carries the wrapped locality+street pair, mirroring `bookSuccessSubline`
+  /// 's own reason for a non-default height on a multi-line caption).
+  static final TextStyle salonHubAddressLine = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12.5,
+    height: 1.35,
+  );
+
+  /// Phase 21.1 — My Salons Hub card's "Основний" primary badge label —
+  /// feedback white, 10.5 sp, w700.
+  static final TextStyle salonHubPrimaryBadgeLabel = _feedbackBase.copyWith(
     color: BrandColors.white,
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: FontWeight.w700,
   );
 

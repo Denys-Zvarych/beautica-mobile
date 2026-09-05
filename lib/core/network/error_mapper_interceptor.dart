@@ -6,8 +6,11 @@
 // [DioException]s.
 //
 // Mapping rules:
-//   connectionTimeout | connectionError | sendTimeout | receiveTimeout
-//                                         → NetworkFailure
+//   any DioException carrying a 2xx response
+//                                         → ResponseUnusableFailure
+//   connectionTimeout | connectionError | sendTimeout
+//                                         → NetworkFailure(mayHaveReachedServer: false)
+//   receiveTimeout    → NetworkFailure(mayHaveReachedServer: true)
 //   HTTP 401          → UnauthorizedFailure
 //   HTTP 404          → NotFoundFailure
 //   HTTP 409          → ServerFailure(statusCode: 409)
@@ -64,13 +67,31 @@ final class ErrorMapperInterceptor extends Interceptor {
   // ---------------------------------------------------------------------------
 
   Failure _mapError(DioException err) {
+    // Invite-accept post-success design (2026-09-01): a 2xx response
+    // attached to a DioException means Dio's response transformer (or a
+    // downstream mapper) threw AFTER the server already answered success —
+    // typically surfaced as DioExceptionType.unknown. The request DID take
+    // effect; only the client-side parse failed. Must be checked before the
+    // transport-error switch below and before the status-code chain so it
+    // wins over both.
+    final sc = err.response?.statusCode;
+    if (sc != null && sc >= 200 && sc < 300) {
+      return ResponseUnusableFailure(cause: err);
+    }
+
     // Network-level errors (no HTTP response).
     switch (err.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.connectionError:
       case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
+        // The request never completed — retry is genuinely safe, and an
+        // offline user must keep seeing plain errNetwork copy, never "your
+        // account may exist" (invite-accept post-success design, 2026-09-01).
         return NetworkFailure(cause: err);
+      case DioExceptionType.receiveTimeout:
+        // The request body was fully SENT before the client gave up waiting
+        // for a response — the server may have processed it.
+        return NetworkFailure(cause: err, mayHaveReachedServer: true);
       default:
         break;
     }
@@ -149,8 +170,14 @@ final class ErrorMapperInterceptor extends Interceptor {
       // {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"}} on duplicate
       // registration. Surface as the dedicated typed failure so the step-3
       // submit handler can render an inline error + Sign In CTA without
-      // probing strings. Other 409 shapes (resource-conflict, future codes)
-      // still fall through to a generic `ServerFailure(statusCode: 409)`.
+      // probing strings. This mapping is NOT path-gated — it keys purely on
+      // the body code — so it also covers backend Phase 287's
+      // `POST /auth/invite` / `POST /salons/{id}/invite`, which return the
+      // SAME {code:"EMAIL_ALREADY_REGISTERED"} envelope when the invited
+      // email already has an account; `InviteStaffScreen` (mobile Phase 303)
+      // branches on this same typed failure to render its own inline error.
+      // Other 409 shapes (resource-conflict, future codes) still fall
+      // through to a generic `ServerFailure(statusCode: 409)`.
       //
       // That fallthrough is NOT retryable, despite `ServerFailure` being the
       // type 5xx also maps to. `beauticaProviderRetry`

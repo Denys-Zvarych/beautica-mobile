@@ -69,6 +69,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -82,6 +84,13 @@ import 'package:beautica_mobile/features/favorites/data/favorite_repository_prov
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/register_salon_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
@@ -148,6 +157,58 @@ class _CycleGuardScheduleRepository extends Fake implements ScheduleRepository {
 
 ScheduleRepository _buildCycleGuardScheduleRepo() =>
     _CycleGuardScheduleRepository();
+
+/// The salon id the `SalonManagementProfile.save()` / `.deleteSalon()`
+/// entrypoints below operate on.
+const String _cycleGuardSalonId = 'cycle-guard-salon-1';
+
+const _cycleGuardSalon = Salon(
+  id: _cycleGuardSalonId,
+  name: 'Cycle Guard Salon',
+  street: 'вул. Тестова',
+  buildingNo: '1',
+);
+
+/// A hand-written [Fake] (same reasoning as [_CycleGuardScheduleRepository]
+/// above — the `_entrypoints` list runs before `setUpAll`, too early for
+/// mocktail's `registerFallbackValue`) implementing only the
+/// [SalonRepository] members `SalonManagementProfile.build()` / `.save()` /
+/// `.deleteSalon()` actually call.
+class _CycleGuardSalonRepository extends Fake implements SalonRepository {
+  @override
+  Future<Salon> getSalonById(String salonId) async => _cycleGuardSalon;
+
+  @override
+  Future<List<SalonMasterSummary>> getSalonMasters(String salonId) async =>
+      const <SalonMasterSummary>[];
+
+  // Phase 21.5 — `SalonManagementProfile.build()` now reads the staff
+  // roster via `getSalonStaff`, not `getSalonMasters` above (still real, but
+  // no longer on this notifier's own build() path — kept for interface
+  // completeness / other callers).
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      const <SalonStaffMember>[];
+
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
+      _cycleGuardSalon.copyWith(
+        name: request.name ?? _cycleGuardSalon.name,
+        // Phase 21.10 — additive: the `saveAddress()` entrypoint below also
+        // needs `street` applied so its `settle` can assert a real change.
+        street: request.street.isNotEmpty
+            ? request.street
+            : _cycleGuardSalon.street,
+      );
+
+  @override
+  Future<void> deleteSalon(String salonId) async {}
+
+  @override
+  Future<void> create({required SalonCreateDto dto}) async {}
+}
+
+SalonRepository _buildCycleGuardSalonRepo() => _CycleGuardSalonRepository();
 
 const _testUser = User(
   id: 'u1',
@@ -408,6 +469,182 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
         container.read(effectiveScheduleProvider(_cycleGuardDayRange)).hasError,
         isFalse,
       );
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.save() — mobile-perf
+  // MEDIUM follow-up (2026-08-28, `salon_management_profile_notifier.dart`).
+  //
+  // A successful edit now `ref.invalidate(mySalonsProvider)`s so the «Мої
+  // салони» hub refetches instead of rendering the pre-edit cached list.
+  // `mySalonsProvider` (`my_salons_notifier.dart`) only watches
+  // `authProvider` — NOT `salonManagementProfileProvider` — so there is no
+  // back-edge and no cycle. This entrypoint proves that on the REAL graph:
+  // subscribing to `mySalonsProvider` registers it as a live listener, then
+  // `save()` must complete without `CircularDependencyError`.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.save() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .save(
+            name: 'Оновлена назва',
+            description: '',
+            phone: '',
+            instagramUrl: '',
+          );
+    },
+    settle: (container) {
+      final state = container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId),
+      );
+      expect(state.hasError, isFalse);
+      expect(state.value?.$1.name, 'Оновлена назва');
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.deleteSalon() — same
+  // mobile-perf MEDIUM follow-up as the `save()` row above.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.deleteSalon() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      final Failure? failure = await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .deleteSalon();
+      expect(failure, isNull);
+    },
+    settle: (container) {
+      // No further graph assertion needed — the entrypoint's own `run`
+      // already asserted a null Failure; `settle` exists to mirror every
+      // other row's shape and to leave a hook for a future stronger check.
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.saveAddress() — Phase
+  // 21.10 (SalonAddressEditScreen). ADDITIVE sibling of the `save()` row
+  // above: same `ref.invalidate(mySalonsProvider)` on success, same
+  // no-back-edge / no-cycle graph shape (`mySalonsProvider` only watches
+  // `authProvider`), so this proves the identical guarantee for the new
+  // method.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.saveAddress() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .saveAddress(
+            // cityId is `required` (Finding, 2026-08-29 — see
+            // `salon_management_profile_notifier.dart`'s header doc): the
+            // screen always sends its selected city, never a diff against
+            // the loaded snapshot. This harness's `_cycleGuardSalon` has no
+            // cityId of its own; any non-null id exercises the same
+            // cycle-guard path the street-only edit did before.
+            cityId: 'city-cycle-guard-1',
+            street: 'вул. Оновлена',
+            buildingNo: '2',
+            locationNote: '',
+          );
+    },
+    settle: (container) {
+      final state = container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId),
+      );
+      expect(state.hasError, isFalse);
+      expect(state.value?.$1.street, 'вул. Оновлена');
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // registerSalonProvider.notifier.submit() — Phase 21.3 (RegisterSalonScreen,
+  // «+ Додати салон»). Same `ref.invalidate(mySalonsProvider)`-on-success
+  // shape as the three `salonManagementProfileProvider` rows above, mirrored
+  // for the CREATE path rather than an edit: `mySalonsProvider` only watches
+  // `authProvider` — never `registerSalonProvider` — so there is no back-edge
+  // and no cycle here either.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'registerSalonProvider.notifier.submit() -> mySalonsProvider '
+        'invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      final Failure? failure = await container
+          .read(registerSalonProvider.notifier)
+          .submit(
+            name: 'Новий салон',
+            cityId: 'city-1',
+            street: 'вул. Нова',
+            buildingNo: '1',
+          );
+      expect(failure, isNull);
+    },
+    settle: (container) {
+      // No further graph assertion needed — the entrypoint's own `run`
+      // already asserted a null Failure; `settle` exists to mirror every
+      // other row's shape and to leave a hook for a future stronger check.
     },
   ),
 ];

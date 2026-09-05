@@ -45,6 +45,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/presentation/bookings_discovery_view.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -473,4 +474,277 @@ void main() {
       );
     },
   );
+
+  // =========================================================================
+  // STRADDLING WEEKS — the axis this whole suite pinned to the SAFE side by
+  // construction, which is exactly why the defect shipped (mobile-qa,
+  // 2026-09-01).
+  // =========================================================================
+  //
+  // Every fixture above — `_today` (Wed 2026-07-15) and `todayFeb`
+  // (Mon 2026-02-02) — sits in a week that lies ENTIRELY inside one month. For
+  // such a week `mondayOf(_day).month == _day.month`, so labelling by the
+  // rail's week-START and labelling by the SELECTION are the same number and
+  // the pre-fix `_onRailVisibleWeekChanged` could not be told apart from the
+  // fixed one. Same for every sibling file (`bookings_month_calendar_panel_*`,
+  // `master_bookings_screen_test.dart`).
+  //
+  // A week that CROSSES a month boundary is the axis where they diverge, and
+  // the production symptom is precisely that divergence: the collapsed strip
+  // relabelled to the PREVIOUS month for any selection in the tail of a
+  // straddling week. Recurrences: 1–4 Oct 2026, 1 Nov 2026, 1–6 Dec 2026.
+  //
+  // WHY THE COLLAPSED STATE, SPECIFICALLY: `_TopRow`'s label reads
+  // `widget.visibleMonth` only while `_railInteractive` (i.e. COLLAPSED) and
+  // falls back to `_month` (derived from the selection, always correct) while
+  // the grid is open — see `bookings_month_calendar_panel.dart:598-600`. So
+  // every assertion below reads the label AFTER collapsing, through the
+  // rendered `Text` at `bookings-month-calendar-label`. Never `_visibleMonth`
+  // as a widget/State field: a field read is vacuous (this repo has been
+  // bitten by exactly that), and the field is not even the whole story — the
+  // `if (_visibleMonth == month) return;` short-circuit means the RENDERED
+  // string is the only honest observable.
+  group('STRADDLING week — the COLLAPSED label names the SELECTED day\'s '
+      'month, never the rail week\'s Monday', () {
+    /// Thursday 2026-10-01 — a DATE TOKEN, same bare-host-local convention as
+    /// [_today] above (fed to `clockProvider` only through `_pump`'s
+    /// `asClockInstant` wrap, never raw).
+    ///
+    /// Its ISO week starts Monday **2026-09-28**, in SEPTEMBER. That is the
+    /// whole point: the selected day and its week-start disagree about the
+    /// month, so the two labelling rules produce different strings and the
+    /// fix becomes observable.
+    final DateTime todayOct1 = DateTime(2026, 10, 1);
+
+    /// Sunday 2026-11-01 — where a ONE-MONTH page turn from [todayOct1] lands
+    /// (`_stepMonth` keeps the day-of-month, clamped). Its week starts Monday
+    /// **2026-10-26**, in OCTOBER — a second, independent straddling pair, so
+    /// the page-turn case is not merely a restatement of the «Сьогодні» one.
+    final DateTime nov1 = DateTime(2026, 11, 1);
+
+    String labelFor(DateTime day) =>
+        '${monthNominative(day.month)} ${day.year}';
+
+    /// Asserts the fixture really is straddling. Without this the tests below
+    /// could silently degrade into the already-covered non-straddling case
+    /// (e.g. if someone "tidied" the dates) and keep passing while proving
+    /// nothing — the same class of quiet defang the existing cases guard with
+    /// their own `fixture guard:` expectations.
+    void expectStraddling(DateTime day) {
+      final DateTime monday = mondayOf(day);
+      expect(
+        monday.month,
+        isNot(day.month),
+        reason:
+            'fixture precondition: $day must sit in a week whose Monday '
+            '($monday) is in a DIFFERENT month — that disagreement is the '
+            'entire axis under test.',
+      );
+    }
+
+    /// A month page turn on `bookings-month-calendar-grid`.
+    ///
+    /// Deliberately the paused-before-lift recipe, NOT `tester.fling` — the
+    /// grid runs `LowThresholdPageScrollPhysics`, and 8 real 40ms-spaced
+    /// samples followed by a pump past `VelocityTracker`'s 40ms "assume
+    /// stopped" cutoff is the shape that reliably commits a page. Not
+    /// re-derived here: see `bookings_pager_commit_threshold_test.dart`'s
+    /// header for why 8 samples (4 freezes `PageController.page` mid-drag)
+    /// and why a trailing run of zero-delta samples is not a substitute.
+    Future<void> pageMonthForward(WidgetTester tester) async {
+      final Finder grid = find.byKey(const Key('bookings-month-calendar-grid'));
+      final double width = tester.getRect(grid).width;
+      const int steps = 8;
+      final double dx = -(width * 0.6) / steps;
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(grid),
+      );
+      Duration stamp = Duration.zero;
+      for (int i = 0; i < steps; i++) {
+        stamp += const Duration(milliseconds: 40);
+        await gesture.moveBy(Offset(dx, 0), timeStamp: stamp);
+        // fixed-wait-ok: advancing the pointer-sample clock in lockstep with
+        // the synthetic move timestamps, not waiting on a condition.
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      // fixed-wait-ok: past VelocityTracker's 40ms "assume stopped" cutoff.
+      await tester.pump(const Duration(milliseconds: 60));
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'PATH 1 — «Сьогодні», pressed after browsing away, relabels to the '
+      'SELECTED day\'s month (October), not to its week-start\'s (September)',
+      (tester) async {
+        expectStraddling(todayOct1);
+
+        final result = await _pump(tester, today: todayOct1);
+        result.calls.clear();
+
+        expect(
+          _label(tester),
+          labelFor(todayOct1),
+          reason:
+              'landing must already name the selected day\'s month — the rail '
+              'rests on the Sep-28 week, so a week-start label reads '
+              '«${labelFor(mondayOf(todayOct1))}» here.',
+        );
+
+        // Browse clear of the landing week — and clear of OCTOBER, so the
+        // guard below can actually observe a relabel. Six weeks forward from
+        // the Sep-28 week lands on the week of Monday 2026-11-09; four would
+        // still be inside October and would make this guard vacuous.
+        // The move also has to be a REAL page move, because only a rail
+        // SETTLE fires `onVisibleWeekChanged` at all.
+        await _flingRail(tester, times: 6);
+        expect(
+          _label(tester),
+          isNot(labelFor(todayOct1)),
+          reason:
+              'fixture guard: browsing six weeks forward from 2026-10-01 did '
+              'not relabel — the rail did not move, so the resync below would '
+              'prove nothing.',
+        );
+        expect(result.calls, isEmpty, reason: 'browsing must never fetch.');
+
+        await tester.tap(find.byKey(_todayKey));
+        await tester.pumpAndSettle();
+
+        expect(
+          _label(tester),
+          labelFor(todayOct1),
+          reason:
+              'THE PRODUCTION BUG. «Сьогодні» on 2026-10-01 re-selects a day '
+              'in OCTOBER, but the rail settles on the week starting Monday '
+              '28 September 2026 — and `_onRailVisibleWeekChanged` fires AFTER '
+              '`_applySelectedDay` has already written the correct month, so '
+              'a week-start label clobbers it back to '
+              '«${labelFor(mondayOf(todayOct1))}». The master is looking at '
+              'October\'s bookings under a September heading.',
+        );
+        expect(
+          result.calls,
+          isEmpty,
+          reason:
+              'the day never actually changed (today -> today), so the whole '
+              'round trip must stay a pure relabel.',
+        );
+      },
+    );
+
+    testWidgets(
+      'PATH 2 — a grid-cell tap on a FIRST-OF-MONTH day, then COLLAPSE, '
+      'leaves the label on the tapped day\'s month',
+      (tester) async {
+        // Today is deliberately MID-month here (Thursday 15 October 2026,
+        // whose week lies entirely inside October), so that the day the grid
+        // tap SELECTS — 1 October — is a genuinely new selection two rail
+        // pages away. That buys two things the todayOct1 anchor cannot:
+        //   • a real rail page move, and therefore a real settle, which is the
+        //     only thing that fires `onVisibleWeekChanged` at all;
+        //   • a real fetch, so "the tap registered on the day I meant" is
+        //     checkable. Re-selecting the ALREADY-selected day produces a
+        //     value-equal `BookingsDayQuery` and the keepAlive family reuses
+        //     its cached state — an empty `calls` there proves nothing.
+        // The SELECTION is what has to straddle, not `today`.
+        final DateTime oct15 = DateTime(2026, 10, 15);
+        expectStraddling(todayOct1);
+
+        final result = await _pump(tester, today: oct15);
+        result.calls.clear();
+
+        // Expand the grid. While open the label reads `_month` (the
+        // selection), so it is correct here under BOTH the bug and the fix —
+        // the divergence only appears once the panel collapses again.
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        // Tap 1 October in the grid — a day in the TAIL of the straddling
+        // week starting Monday 28 September 2026.
+        //
+        // `tapCalendarDay`, never a bare `tester.tap`: `MonthCalendar` sits in
+        // a `SingleChildScrollView` and a below-the-fold cell absorbs a blind
+        // tap into the summary bar instead of throwing, which reads as flake
+        // on exactly the dates where it bites (`forbid_blind_calendar_tap.sh`).
+        //
+        // The helper reveals ONLY a cell a tap could not otherwise reach: the
+        // panel's expanded grid puts a HORIZONTAL month pager between this
+        // cell and the vertical scroll view, and an unconditional
+        // `ensureVisible` commits a page turn on it — which SELECTS the next
+        // month before the tap lands. See `tapCalendarDay`'s doc for the
+        // measurement. Day 1 is in the grid's first row and fully hittable, so
+        // no reveal fires here.
+        await tester.tapCalendarDay(1);
+        await tester.pumpAndSettle();
+
+        expect(
+          result.calls,
+          <(DateTime?, DateTime?)>[(todayOct1, todayOct1)],
+          reason:
+              'fixture guard: the grid tap must have registered on 1 OCTOBER. '
+              'A swallowed tap issues no fetch at all, and a tap that landed '
+              'on another month\'s cell of the same number fetches that '
+              'month\'s day instead — either way the label assertion below '
+              'would be about the wrong selection.',
+        );
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        expect(
+          _label(tester),
+          labelFor(todayOct1),
+          reason:
+              'THE PRODUCTION BUG, second reachable path. Tapping 1 October '
+              'pages the rail onto the week starting Monday 28 September 2026; '
+              'the settle callback then relabels the collapsed strip to '
+              '«${labelFor(mondayOf(todayOct1))}» — the month the master just '
+              'left — instead of the October day they just picked.',
+        );
+      },
+    );
+
+    testWidgets(
+      'PATH 3 — a month PAGE TURN onto a month whose 1st is in a straddling '
+      'tail, then COLLAPSE, leaves the label on the newly selected month',
+      (tester) async {
+        expectStraddling(nov1);
+
+        final result = await _pump(tester, today: todayOct1);
+        result.calls.clear();
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        await pageMonthForward(tester);
+
+        // `_stepMonth(1)` keeps the day-of-month (1, no clamping needed), so
+        // the selection is now Sunday 2026-11-01, whose week starts Monday
+        // 2026-10-26 — in OCTOBER.
+        expect(
+          result.calls,
+          <(DateTime?, DateTime?)>[(nov1, nov1)],
+          reason:
+              'fixture guard: the page turn did not commit onto November 1 — '
+              'the assertion below would then be about the wrong selection. '
+              '(A page turn DOES select, unlike a rail week flick.)',
+        );
+
+        await tester.tap(find.byKey(_toggleKey));
+        await tester.pumpAndSettle();
+
+        expect(
+          _label(tester),
+          labelFor(nov1),
+          reason:
+              'THE PRODUCTION BUG, third reachable path. Paging to November '
+              'selects 1 November, whose week starts Monday 2026-10-26 — so '
+              'the rail settles in OCTOBER and a week-start label drags the '
+              'collapsed heading back to «${labelFor(mondayOf(nov1))}» while '
+              'the timeline shows November bookings.',
+        );
+      },
+    );
+  });
 }

@@ -4,12 +4,19 @@
 // Every `fromDto` here is a pure translation boundary between a generated
 // `beautica_api` type and a domain entity in `features/salon/domain/`.
 // Generated DTO types must not cross this boundary into the domain or
-// presentation layers.
+// presentation layers — with ONE deliberate exception, documented at
+// [SiblingSalonOptionMapper]: the generated `SiblingSalonOption` is already
+// exactly as narrow as the endpoint it models (id + name + short address),
+// so it is carried through as-is rather than mirrored by a hand-written
+// twin the compiler could not keep honest.
 //
 // Error contract (backlog pattern — ServerFailure for a missing required id):
 //   - [SalonMapper.fromDto] requires [PublicSalonResponse.id]; a null value
 //     indicates a broken backend contract and surfaces as [ServerFailure].
-//   - All other nullable fields are passed through as `null`.
+//   - All other nullable fields are passed through as `null`, except the two
+//     optional contact fields (`phone`, `instagramUrl`), which are normalised
+//     through `SalonMapper._blankToNull` — see that helper's doc for the
+//     `""`-vs-null wire contract it exists to absorb.
 
 import 'dart:developer';
 
@@ -19,13 +26,17 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart'
     show ServicePriceType;
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/util/sanitize_display_text.dart';
 
 import '../domain/bookable_master_assignment.dart';
+import '../domain/invite_status.dart';
+import '../domain/salon_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
 import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
+import '../domain/salon_staff_member.dart';
 
 /// Converts generated `beautica_api` types into the domain [Salon] entity and
 /// its related read-model entities.
@@ -56,16 +67,102 @@ abstract final class SalonMapper {
       region: dto.region,
       address: dto.address,
       cityId: dto.cityId,
+      // `PublicSalonResponse.oblastId`, shipped backend `dbe27a5` alongside
+      // the SalonAddressEditScreen work — see [Salon.oblastId]'s doc.
+      oblastId: dto.oblastId,
       districtId: dto.districtId,
       street: dto.street,
       buildingNo: dto.buildingNo,
       locationNote: dto.locationNote,
-      instagramUrl: dto.instagramUrl,
+      // `PublicSalonResponse.phone` now ships on the PUBLIC read path too
+      // (backend + regenerated client — `public_salon_response.dart`), closing
+      // the Phase 21.2 gap this line used to hard-code `null` for. Both
+      // contact fields go through [_blankToNull]: the backend serves `""`
+      // verbatim for a cleared field, which must not reach the UI as a
+      // present-but-empty contact row — see [Salon.phone]'s doc.
+      phone: _blankToNull(dto.phone),
+      instagramUrl: _blankToNull(dto.instagramUrl),
       avatarUrl: dto.avatarUrl,
       coverImageUrl: dto.coverImageUrl,
       avgRating: dto.avgRating?.toDouble(),
       reviewCount: dto.reviewCount ?? 0,
     );
+  }
+
+  /// Maps a [SalonResponse] DTO (`PATCH /salons/{salonId}`'s owner/admin-
+  /// facing response) to the domain [Salon] model.
+  ///
+  /// [SalonResponse] carries `phone` — and so, as of the backend change that
+  /// closed the Phase 21.2 gap, does [PublicSalonResponse] ([fromDto]) — but
+  /// it does NOT carry `coverImageUrl`, `avgRating`, or
+  /// `reviewCount` (those are public-read-only aggregates). This method maps
+  /// every field [SalonResponse] DOES carry and leaves the three it doesn't
+  /// as `null`/`0` — callers (`SalonManagementProfile.save`) MUST merge those
+  /// three back in from the previously-loaded [Salon] via `copyWith` rather
+  /// than rendering this result directly, or the hero card's rating/review
+  /// count/cover photo would incorrectly reset after every save.
+  ///
+  /// Throws [ServerFailure] (statusCode `null`) when [dto.id] is absent,
+  /// mirroring [fromDto].
+  static Salon fromUpdateDto(SalonResponse dto) {
+    final id = dto.id;
+    if (id == null || id.isEmpty) {
+      log(
+        'SalonResponse.id is null — broken backend contract',
+        name: 'feature.salon.mapper',
+        level: 1000,
+      );
+      throw const ServerFailure(statusCode: null);
+    }
+
+    return Salon(
+      id: id,
+      name: dto.name ?? '',
+      description: dto.description,
+      city: dto.city,
+      region: dto.region,
+      address: dto.address,
+      cityId: dto.cityId,
+      // Finding 3 (2026-08-28) — SalonResponse.oblastId, added alongside the
+      // SalonAddressEditScreen work. See [Salon.oblastId]'s doc.
+      oblastId: dto.oblastId,
+      districtId: dto.districtId,
+      street: dto.street,
+      buildingNo: dto.buildingNo,
+      locationNote: dto.locationNote,
+      // Same blank-guard as [fromDto] — `PATCH /salons/{salonId}` echoes a
+      // cleared contact field back as `""`, and the merged state this feeds
+      // is rendered by the same two «Контакти» blocks. Keeping BOTH read
+      // paths on [_blankToNull] is what makes "a blank contact never reaches
+      // the domain" a real invariant rather than a per-screen guard.
+      phone: _blankToNull(dto.phone),
+      instagramUrl: _blankToNull(dto.instagramUrl),
+      avatarUrl: dto.avatarUrl,
+      // Deliberately NOT carried by SalonResponse — see method doc. Callers
+      // must copyWith these back in from the previous [Salon].
+      coverImageUrl: null,
+      avgRating: null,
+      reviewCount: 0,
+      // Phase 21.1 — `SalonResponse.isPrimary` DOES carry this (unlike
+      // `PublicSalonResponse`, which [fromDto] above leaves `null`). Also the
+      // per-item mapping `getMySalons()` reuses for `GET /salons/mine`'s
+      // `List<SalonResponse>` — see that method's own doc for why the SAME
+      // DTO type makes this reuse exact, not a guess.
+      isPrimary: dto.isPrimary,
+    );
+  }
+
+  /// Normalises a blank optional contact field to `null`.
+  ///
+  /// LOCKED WIRE CONTRACT: the backend serves `""` VERBATIM when an owner
+  /// clears `phone`/`instagramUrl` — it is NOT normalised to `null`
+  /// server-side (pinned by backend tests). A raw pass-through would therefore
+  /// hand the UI a present-but-empty contact, rendering an empty
+  /// [ContactTile] row and an empty «Контакти» section heading. Returns `null`
+  /// for a null or whitespace-only value, the trimmed value otherwise.
+  static String? _blankToNull(String? value) {
+    final String? trimmed = value?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
 }
 
@@ -113,6 +210,207 @@ abstract final class SalonMasterMapper {
     }
     // Covers SALON_MASTER and any future/unknown value — fail-safe.
     return MasterType.salonMaster;
+  }
+}
+
+/// Maps [SalonStaffMemberResponse] (`GET /salons/{salonId}/staff`, Phase
+/// 21.5) to [SalonStaffMember].
+abstract final class SalonStaffMemberMapper {
+  /// Entries with a null/empty `userId` are dropped (logged) rather than
+  /// thrown — one broken roster entry must not blank the whole staff list.
+  static List<SalonStaffMember> fromDtoList(
+    Iterable<SalonStaffMemberResponse> dtos,
+  ) {
+    final List<SalonStaffMember> out = <SalonStaffMember>[];
+    for (final SalonStaffMemberResponse dto in dtos) {
+      final String? userId = dto.userId;
+      if (userId == null || userId.isEmpty) {
+        log(
+          'SalonStaffMemberResponse.userId is null — dropping roster entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      out.add(
+        SalonStaffMember(
+          userId: userId,
+          masterId: dto.masterId,
+          role: _staffRoleFromDto(dto.role),
+          firstName: dto.firstName ?? '',
+          lastName: dto.lastName ?? '',
+          professionalTitle: dto.professionalTitle,
+          avatarUrl: dto.avatarUrl,
+          phoneNumber: dto.phoneNumber,
+          instagram: dto.instagram,
+          bio: dto.bio,
+          avgRating: dto.avgRating?.toDouble(),
+          reviewCount: dto.reviewCount ?? 0,
+          serviceCount: dto.serviceCount ?? 0,
+        ),
+      );
+    }
+    return out;
+  }
+
+  static SalonStaffRole _staffRoleFromDto(SalonStaffMemberResponseRoleEnum? e) {
+    if (e == SalonStaffMemberResponseRoleEnum.SALON_ADMIN) {
+      return SalonStaffRole.admin;
+    }
+    // Covers SALON_MASTER and any future/unknown value — fail-safe (this
+    // endpoint's contract never returns CLIENT/SALON_OWNER/INDEPENDENT_MASTER
+    // — mirrors [SalonMasterMapper._masterTypeFromDto]'s own precedent).
+    return SalonStaffRole.master;
+  }
+}
+
+/// Maps [SalonInviteResponse] (`GET /salons/{salonId}/invites`) to the domain
+/// [SalonInvite].
+abstract final class SalonInviteMapper {
+  /// Maps one server page of invite history, PRESERVING ITS ORDER.
+  ///
+  /// The server already sorts `createdAt DESC, id DESC`; this mapper does not
+  /// re-sort. A defensive sort here would mask an ordering regression on the
+  /// endpoint and would break millisecond ties differently from the payload.
+  ///
+  /// Entries with a null/empty `inviteId` are dropped (logged) rather than
+  /// thrown — one broken row must not blank the whole history, and an entry
+  /// with no id could neither be keyed nor cancelled. Mirrors
+  /// [SalonStaffMemberMapper.fromDtoList]'s own precedent.
+  ///
+  /// A null `createdAt`/`expiresAt` falls back to the Unix epoch rather than
+  /// dropping the row: those timestamps only drive a soft caption, so a
+  /// missing one must not hide an invitation the viewer needs to see.
+  static List<SalonInvite> fromDtoList(Iterable<SalonInviteResponse> dtos) {
+    final List<SalonInvite> out = <SalonInvite>[];
+    for (final SalonInviteResponse dto in dtos) {
+      final String? inviteId = dto.inviteId;
+      if (inviteId == null || inviteId.isEmpty) {
+        log(
+          'SalonInviteResponse.inviteId is null — dropping invite entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      out.add(
+        SalonInvite(
+          inviteId: inviteId,
+          // SANITISED HERE, AT THE BOUNDARY — not in the row widget, so the
+          // one call covers BOTH the visible `Text` and the «Скасувати»
+          // semantic label built from the same string (mirrors
+          // `FavoriteMapper`'s own precedent).
+          //
+          // The address is attacker-influenced: a SALON_ADMIN types it into
+          // the invite form and the OWNER reads it back in the history.
+          // `validateEmail`'s `[^@\s]+` local part ACCEPTS U+202E, U+200B,
+          // U+2066 and U+200E (only U+FEFF is caught, incidentally via `\s`),
+          // and the backend applies no character-class check either. Until
+          // this screen the payload was accidentally bounded by a
+          // `maxLines: 1` clip; the history rework moved the address to
+          // `maxLines: 2` + soft wrap and removed that bound — verbatim the
+          // regression `sanitizeDisplayText`'s own header documents.
+          recipientEmail: sanitizeDisplayText(dto.recipientEmail ?? ''),
+          role: _inviteRoleFromWire(dto.role),
+          status: _statusFromWire(dto.status),
+          createdAt:
+              dto.createdAt ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+          expiresAt:
+              dto.expiresAt ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// The wire `status` is a bare String on this DTO (not a generated enum),
+  /// so it is matched literally.
+  ///
+  /// Anything unrecognised — a null, a malformed row, or a fifth state a
+  /// newer backend introduces — maps to [InviteStatus.unknown], which renders
+  /// no status chip and no cancel action rather than guessing. The status is
+  /// NOT re-derived from `expiresAt` and a device clock: the server owns this
+  /// decision (see [SalonInvite]'s header).
+  static InviteStatus _statusFromWire(String? status) => switch (status) {
+    'PENDING' => InviteStatus.pending,
+    'ACCEPTED' => InviteStatus.accepted,
+    'EXPIRED' => InviteStatus.expired,
+    'CANCELLED' => InviteStatus.cancelled,
+    _ => InviteStatus.unknown,
+  };
+
+  /// The wire `role` is a bare String on this DTO (not a generated enum), so
+  /// it is matched literally. Anything other than `SALON_ADMIN` — including a
+  /// null or an unknown future value — falls back to
+  /// [SalonStaffRole.master], the same fail-safe direction
+  /// [SalonStaffMemberMapper._staffRoleFromDto] takes.
+  static SalonStaffRole _inviteRoleFromWire(String? role) =>
+      role == 'SALON_ADMIN' ? SalonStaffRole.admin : SalonStaffRole.master;
+}
+
+/// Normalises the generated [SiblingSalonOption] rows of
+/// `GET /salons/{salonId}/sibling-salons` (Phase 21.6).
+///
+/// The ONE mapper in this file whose input and output are the SAME type. The
+/// generated built_value model already carries exactly the four fields this
+/// endpoint sends (`id`, `name`, `street?`, `buildingNo?`) and is as narrow
+/// as the backend's `SiblingSalonOption.java` — re-projecting it onto a
+/// hand-written twin would only re-open, by hand, a shape the compiler now
+/// enforces. So this mapper does the two things the schema CANNOT express:
+///
+///  * drops a row whose `id` is BLANK (`""` is a valid non-null `String` to
+///    built_value, but an option with no id could not be submitted as a
+///    rotate destination — a card that PATCHes nothing is worse than no
+///    card). One bad row must not blank the whole picker, so the drop is
+///    logged, never thrown — the same fail-closed-per-row direction
+///    [SalonInviteMapper.fromDtoList] takes.
+///  * collapses a blank/whitespace `street`/`buildingNo` to `null` (the same
+///    `""`-vs-null wire absorption [SalonMapper._blankToNull] performs) and
+///    trims a padded one, so a renderer may treat non-null as "renderable".
+///
+/// Wire ORDER is preserved: the picker renders rows as the backend sent them.
+///
+/// Structural malformation (a non-object row, an absent/non-String `id` or
+/// `name`) never reaches here — the generated built_value deserializer rejects
+/// the WHOLE envelope before this mapper runs. Per-row degradation for that
+/// case therefore lives one layer up, in
+/// `HttpSalonRepository._salvageSiblingSalons`, which re-reads the raw 2xx
+/// body row by row and hands the survivors back to this mapper. See that
+/// method's doc for why this endpoint degrades while `getMySalons`/
+/// `getSalonById`/`updateSalon` fail the whole call. Net effect is unchanged
+/// from the pre-codegen behaviour: one broken row costs its own card, never
+/// the picker.
+abstract final class SiblingSalonOptionMapper {
+  static List<SiblingSalonOption> fromDtoList(
+    Iterable<SiblingSalonOption> dtos,
+  ) {
+    final List<SiblingSalonOption> out = <SiblingSalonOption>[];
+    for (final SiblingSalonOption dto in dtos) {
+      if (dto.id.isEmpty) {
+        log(
+          'sibling-salons: row has no id — dropping entry',
+          name: 'feature.salon.mapper',
+          level: 900,
+        );
+        continue;
+      }
+      out.add(
+        dto.rebuild(
+          (SiblingSalonOptionBuilder b) => b
+            ..street = _stringOrNull(dto.street)
+            ..buildingNo = _stringOrNull(dto.buildingNo),
+        ),
+      );
+    }
+    return out;
+  }
+
+  static String? _stringOrNull(String? value) {
+    if (value == null) return null;
+    final String trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 }
 

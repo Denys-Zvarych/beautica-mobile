@@ -146,4 +146,61 @@ class SalonMasterControllerApi {
       extra: _response.extra,
     );
   }
+
+  /// removeMaster
+  ///
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [masterId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> removeMaster({
+    required String salonId,
+    required String masterId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/masters/{masterId}'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'masterId' '}',
+            encodeQueryParameter(_serializers, masterId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
 }

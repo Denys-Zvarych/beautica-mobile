@@ -25,6 +25,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -91,12 +92,70 @@ class SpySecureStorage extends Mock implements SecureStorage {
   Future<void> writeUserJson(String json) => _backing.writeUserJson(json);
 
   @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) => _backing.writeLastSalon(json);
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
+
+  @override
   Future<void> deleteAll() {
     // super.noSuchMethod records the invocation so verify(...) works; we then
     // delegate to the real fake so the backing map is actually cleared.
     super.noSuchMethod(Invocation.method(#deleteAll, const []));
     return _backing.deleteAll();
   }
+}
+
+/// Invite-accept post-success failure design (2026-09-01) — a [SecureStorage]
+/// fake whose [writeRefreshToken] always throws, so tests can drive
+/// [AuthNotifier._persistRefreshTokenTolerant]'s catch branch. Every other
+/// method delegates to a backing [FakeSecureStorage] (same pattern as
+/// [SpySecureStorage] above) so tests can still assert on reads that must
+/// stay untouched (e.g. no refresh token ever lands in storage).
+final class _ThrowingWriteStorage implements SecureStorage {
+  final FakeSecureStorage _backing = FakeSecureStorage();
+
+  @override
+  Future<void> writeRefreshToken(String token) async {
+    throw PlatformException(
+      code: 'write_error',
+      message: 'Keystore unavailable',
+    );
+  }
+
+  @override
+  Future<String?> readRefreshToken() => _backing.readRefreshToken();
+
+  @override
+  Future<String?> readUserJson() => _backing.readUserJson();
+
+  @override
+  Future<void> writeUserJson(String json) => _backing.writeUserJson(json);
+
+  @override
+  Future<String?> readPendingLocality() => _backing.readPendingLocality();
+
+  @override
+  Future<void> writePendingLocality(String json) =>
+      _backing.writePendingLocality(json);
+
+  @override
+  Future<void> deletePendingLocality() => _backing.deletePendingLocality();
+
+  @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) => _backing.writeLastSalon(json);
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
+
+  @override
+  Future<void> deleteAll() => _backing.deleteAll();
 }
 
 void main() {
@@ -125,7 +184,7 @@ void main() {
 
   ProviderContainer makeContainer({
     required AuthRepository repo,
-    required FakeSecureStorage storage,
+    required SecureStorage storage,
   }) {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
@@ -421,6 +480,9 @@ void main() {
       final repo = MockAuthRepository();
       final storage = FakeSecureStorage();
       await storage.writeRefreshToken('stored-refresh');
+      // Phase 286 — should_clearLastSalon_when_deleteAllCalled, pinned via
+      // the REAL logout() path (not deleteAll() called directly).
+      await storage.writeLastSalon('{"userId":"u1","salonId":"s1"}');
 
       when(
         () => repo.refresh('stored-refresh'),
@@ -440,6 +502,8 @@ void main() {
 
       // All tokens must be wiped from storage.
       expect(await storage.readRefreshToken(), isNull);
+      // Phase 286 — the last-visited-salon pointer must be wiped too.
+      expect(await storage.readLastSalon(), isNull);
     });
 
     // -----------------------------------------------------------------------
@@ -1612,6 +1676,49 @@ void main() {
         reason: 'a failed verify must clear both in-memory access-token caches',
       );
     });
+
+    // -----------------------------------------------------------------------
+    // item 13 — same tolerant-persist generalisation as acceptInvite's item
+    // 8: a secure-storage write failure after a successful verifyEmail must
+    // not become an error. verifyEmail additionally calls repo.me() — stub
+    // it so the session settles rather than surfacing the unrelated
+    // Finding-1 failure path exercised above.
+    // -----------------------------------------------------------------------
+    test('item 13: verifyEmail succeeds but writeRefreshToken throws → '
+        'refreshTokenPersisted == false, session still settles as '
+        'AsyncData(Authenticated)', () async {
+      final repo = MockAuthRepository();
+      final storage = _ThrowingWriteStorage();
+
+      when(
+        () => repo.verifyEmail(
+          email: any(named: 'email'),
+          otp: any(named: 'otp'),
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .verifyEmail(email: 'anya@example.com', otp: '123456');
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(value.hasError, isFalse);
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+            refreshTokenPersisted: false,
+          ),
+        ),
+      );
+    });
   });
 
   // =========================================================================
@@ -2172,6 +2279,420 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+
+    // =========================================================================
+    // Invite-accept post-success failure design (2026-09-01) — items 8-12 of
+    // the mobile-qa test plan. The HTTP 2xx is the point of no return: once
+    // repo.acceptInvite() returns, nothing local may downgrade success into
+    // an apparent failure (item 8). Failures BEFORE that point are
+    // classified by AuthNotifier._inviteHandoffReason into a terminal
+    // InviteHandoffFailure for exactly the 3 unrecoverable cases (items
+    // 9-12) — everything else must rethrow the original Failure unchanged.
+    // =========================================================================
+
+    // -----------------------------------------------------------------------
+    // item 8 — POINT OF NO RETURN: a secure-storage write failure AFTER a
+    // successful repo.acceptInvite() must NOT become an error state.
+    //
+    // Guards the AsyncLoading(retrying:true) trap (project memory:
+    // project_asyncvalue_haserror_retrying_trap.md) — AsyncLoading can also
+    // report hasError:true mid-retry, so `!hasError` alone cannot prove a
+    // settled success. This asserts the concrete settled AsyncData TYPE.
+    // -----------------------------------------------------------------------
+    test('item 8: acceptInvite succeeds but writeRefreshToken throws → '
+        'settled state is AsyncData(Authenticated) with '
+        'refreshTokenPersisted == false, hasError == false (tolerant persist, '
+        'point of no return)', () async {
+      final repo = MockAuthRepository();
+      final storage = _ThrowingWriteStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'invite-abc',
+            password: 'Secret1!',
+            firstName: 'Test',
+            lastName: 'User',
+            phoneNumber: '+380501234567',
+          );
+
+      final value = container.read(authProvider);
+      // Pin the concrete settled type, not `!hasError` — AsyncLoading can
+      // also report hasError:true mid-retry (see the retrying trap above).
+      expect(
+        value,
+        isA<AsyncData<AuthSession>>(),
+        reason:
+            'a tolerated storage failure must settle as AsyncData, never '
+            'AsyncError — the 2xx already happened',
+      );
+      expect(value.hasError, isFalse);
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+            refreshTokenPersisted: false,
+          ),
+        ),
+        reason:
+            'refreshTokenPersisted must observably flip to false so the '
+            'tolerated failure is assertable rather than silently lost',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // item 9 — ResponseUnusableFailure → InviteHandoffFailure(accountReady)
+    // -----------------------------------------------------------------------
+    test('item 9: acceptInvite throws ResponseUnusableFailure → AsyncError '
+        'whose error is InviteHandoffFailure(reason: accountReady)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const ResponseUnusableFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncError<AuthSession>>());
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.accountReady,
+        ),
+      );
+      expect(await storage.readRefreshToken(), isNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // item 10 — NetworkFailure.mayHaveReachedServer split
+    // -----------------------------------------------------------------------
+    test('item 10a: NetworkFailure(mayHaveReachedServer: true) → '
+        'InviteHandoffFailure(reason: accountMayBeReady)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const NetworkFailure(mayHaveReachedServer: true));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.accountMayBeReady,
+        ),
+      );
+    });
+
+    test(
+      'item 10b: NetworkFailure(mayHaveReachedServer: false, the default) → '
+      'stays a plain NetworkFailure, NO hand-off (offline retry stays safe)',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 't',
+              password: 'p',
+              firstName: 'f',
+              lastName: 'l',
+            );
+
+        final value = container.read(authProvider);
+        expect(value.error, isA<NetworkFailure>());
+        expect(
+          value.error,
+          isNot(isA<InviteHandoffFailure>()),
+          reason:
+              'an offline user (request never reached the server) must keep '
+              'seeing plain errNetwork copy, never the "account may exist" '
+              'hand-off',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // item 11 — ValidationFailure.fieldErrors emptiness split
+    // -----------------------------------------------------------------------
+    test('item 11a: ValidationFailure(fieldErrors: {}) → '
+        'InviteHandoffFailure(reason: inviteNoLongerValid)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const ValidationFailure(fieldErrors: <String, String>{}));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'spent',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.inviteNoLongerValid,
+        ),
+      );
+    });
+
+    test('item 11b: ValidationFailure with a non-empty fieldErrors map stays a '
+        'plain ValidationFailure, NO hand-off (bean-validation 400s are '
+        'ordinary form errors, not a spent-token signal)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{'phoneNumber': 'must not be blank'},
+        ),
+      );
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<ValidationFailure>().having(
+          (f) => f.fieldErrors,
+          'fieldErrors',
+          isNotEmpty,
+        ),
+      );
+      expect(value.error, isNot(isA<InviteHandoffFailure>()));
+    });
+
+    // -----------------------------------------------------------------------
+    // item 12 — ServerFailure(409) vs ServerFailure(500)
+    // -----------------------------------------------------------------------
+    test('item 12a: ServerFailure(statusCode: 409) → '
+        'InviteHandoffFailure(reason: emailAlreadyRegistered)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const ServerFailure(statusCode: 409));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.emailAlreadyRegistered,
+        ),
+      );
+    });
+
+    test(
+      'item 12b: ServerFailure(statusCode: 500) stays a plain ServerFailure, '
+      'NO hand-off (a transient 500 remains a normal retryable failure)',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(const ServerFailure(statusCode: 500));
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 't',
+              password: 'p',
+              firstName: 'f',
+              lastName: 'l',
+            );
+
+        final value = container.read(authProvider);
+        expect(
+          value.error,
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
+        );
+        expect(value.error, isNot(isA<InviteHandoffFailure>()));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // item 12c — EmailAlreadyRegisteredFailure() is a SEPARATE switch arm
+    // from ServerFailure(statusCode: 409) that reaches the same
+    // emailAlreadyRegistered reason. Adjacency in the same exhaustive switch
+    // is exactly how one arm can rot while its sibling (12a) keeps a test
+    // green — this pins the EmailAlreadyRegisteredFailure() arm on its own
+    // so deleting it independently is caught.
+    // -----------------------------------------------------------------------
+    test('item 12c: EmailAlreadyRegisteredFailure() → '
+        'InviteHandoffFailure(reason: emailAlreadyRegistered) — a SEPARATE '
+        'switch arm from ServerFailure(409) (item 12a), reaching the same '
+        'reason via a different Failure type', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const EmailAlreadyRegisteredFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncError<AuthSession>>());
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.emailAlreadyRegistered,
+        ),
+      );
+    });
   });
 
   // =========================================================================
@@ -3028,6 +3549,49 @@ void main() {
       expect(value, isA<AsyncData<AuthSession>>());
       expect(value.value, equals(const AuthSession.unauthenticated()));
       expect(notifier.lastKnownAccessToken, isNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // Phase 286 — M5-4 — should_clearLastSalon_when_userLogsOut
+    //
+    // End-to-end through the REAL logout(), not through storage.deleteAll()
+    // directly — asserted via readLastSalon() so this cannot pass by reading
+    // the fake's internal map. Mirrors M5-3: repo.logout() throws a
+    // non-Failure error and must be swallowed, but the unconditional local
+    // wipe (which clears lastSalon alongside the refresh token) still runs.
+    // -----------------------------------------------------------------------
+    test('should_clearLastSalon_when_userLogsOut — wipe survives repo.logout() '
+        'throwing, asserted through readLastSalon()', () async {
+      final repo = MockAuthRepository();
+      final backing = FakeSecureStorage();
+      await backing.writeRefreshToken('stored-refresh');
+      await backing.writeLastSalon('{"userId":"u1","salonId":"s1"}');
+      final storage = SpySecureStorage(backing);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      // Network half fails — logout() must tolerate/swallow this.
+      when(() => repo.logout()).thenThrow(const NetworkFailure());
+
+      final container = makeM5Container(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      final notifier = container.read(authProvider.notifier);
+      await expectLater(notifier.logout(), completes);
+
+      verify(() => storage.deleteAll()).called(1);
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason:
+            'logout() must clear the last-visited-salon pointer even when '
+            'the server-side revocation call fails',
+      );
+
+      final value = container.read(authProvider);
+      expect(value.value, equals(const AuthSession.unauthenticated()));
     });
   });
 

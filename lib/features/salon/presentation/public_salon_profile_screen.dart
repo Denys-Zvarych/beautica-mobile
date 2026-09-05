@@ -890,11 +890,12 @@ class _SalonHeroCard extends StatelessWidget {
   /// The hero card's locality (city) line, or `null` when unavailable.
   ///
   /// Unlike [Master]'s identity card, this never resolves `cityId` to a
-  /// human-readable name: [Salon] carries no `oblastId`, and
-  /// `LocationRepository.fetchCities` requires one to list cities — so a raw
-  /// `cityId` alone cannot be looked up client-side. When the taxonomy
-  /// `street` field is set, this method deliberately returns `null` rather
-  /// than falling back to the legacy `city` field: the backend stopped
+  /// human-readable name — a lookup would need `LocationRepository
+  /// .fetchCities(salon.oblastId)` plus a live network round-trip, which this
+  /// synchronous hero-card builder can't do; the raw id is not rendered
+  /// directly. When the taxonomy `street` field is set, this method
+  /// deliberately returns `null` rather than falling back to the legacy
+  /// `city` field: the backend stopped
   /// writing legacy `city`/`address` once a salon re-saves its location under
   /// the taxonomy (Phase 10.6+), so a still-populated `city` alongside a
   /// fresh `street` would be a STALE value the mapper never clears (mirrors
@@ -955,7 +956,7 @@ class _SalonHeroCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _AboutTab — "Про салон": blurb + optional Instagram contact
+// _AboutTab — "Про салон": blurb + optional phone/Instagram contacts
 // ---------------------------------------------------------------------------
 
 class _AboutTab extends StatelessWidget {
@@ -968,6 +969,13 @@ class _AboutTab extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final String? description = (salon.description?.trim().isNotEmpty ?? false)
         ? salon.description!.trim()
+        : null;
+    // Both contact fields arrive already blank-normalised from
+    // `SalonMapper._blankToNull` (see [Salon.phone]'s wire-contract doc); the
+    // local guards below are belt-and-braces for hand-built test fixtures,
+    // and mirror `salon_management_profile_screen.dart`'s identical pair.
+    final String? phone = (salon.phone?.trim().isNotEmpty ?? false)
+        ? salon.phone!.trim()
         : null;
     final String? instagram = (salon.instagramUrl?.isNotEmpty ?? false)
         ? salon.instagramUrl
@@ -991,7 +999,13 @@ class _AboutTab extends StatelessWidget {
                 : VelvetText.bodyStrong(),
           ),
           _SalonPortfolioRail(salonId: salon.id),
-          if (instagram != null) ...<Widget>[
+          // Each contact row is gated INDEPENDENTLY and the section heading on
+          // "either is present" — structure mirrored verbatim from
+          // `salon_management_profile_screen.dart`'s `_AboutReadView`, which
+          // already had it right. Before the `PublicSalonResponse.phone`
+          // gap-fix this whole block hung off `instagram != null` and had no
+          // phone row at all, so a phone-only salon showed no contacts.
+          if (phone != null || instagram != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.xl),
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
@@ -1000,14 +1014,29 @@ class _AboutTab extends StatelessWidget {
                 style: VelvetText.sectionLabel(),
               ),
             ),
-            ContactTile(
-              key: const Key('salon-contact-instagram'),
-              icon: Icons.alternate_email,
-              label: l10n.masterInstagramLabel,
-              value: instagram,
-              semanticLabel: l10n.masterInstagramLabel,
-              onTap: () => _openInstagram(context, instagram),
-            ),
+            if (phone != null)
+              ContactTile(
+                key: const Key('salon-contact-phone'),
+                icon: Icons.phone_outlined,
+                value: phone,
+                semanticLabel: l10n.phoneLabel,
+                // Dialing out is not wired on any Beautica profile screen yet
+                // (the master public profile has no phone row at all) — the
+                // tile stays a non-acting affordance, exactly as the
+                // owner/admin screen's own phone row does.
+                onTap: () {},
+              ),
+            if (phone != null && instagram != null)
+              const SizedBox(height: VelvetSpacing.sm + 2),
+            if (instagram != null)
+              ContactTile(
+                key: const Key('salon-contact-instagram'),
+                icon: Icons.alternate_email,
+                label: l10n.masterInstagramLabel,
+                value: instagram,
+                semanticLabel: l10n.masterInstagramLabel,
+                onTap: () => _openInstagram(context, instagram),
+              ),
           ],
         ],
       ),
