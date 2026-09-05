@@ -180,12 +180,26 @@ const Map<String, dynamic> _masterUserJson = <String, dynamic>{
 /// (`salon-owner-1`) — the admin landing must never depend on
 /// `mySalonsProvider` at all; sharing an id with the owner fixture would mask
 /// a regression that made it do so.
+///
+/// mobile-qa Phase 21.16 (2026-09-05) — `phoneNumber` and `professionalTitle`
+/// are POPULATED, for the same reason the owner persona's contacts were
+/// (21.14 F3): `AdminOwnProfileScreen` renders BOTH conditionally, so an
+/// unpopulated persona makes every assertion about them vacuous — the section
+/// would be absent whether the decode worked or not, and a tile wired to the
+/// wrong `UserProfileResponse` key would look identical to a correct one.
+/// `instagram` is deliberately LEFT OFF: the admin profile must never draw an
+/// Instagram tile, and that deny arm is proven at the widget tier
+/// (`admin_own_profile_screen_test.dart`) with a fixture that HAS a handle —
+/// adding one here would only make the E2E's own deny arm the weaker of the
+/// two.
 const Map<String, dynamic> _adminUserJson = <String, dynamic>{
   'id': 'user-admin-1',
   'email': 'admin@beautica.ua',
   'role': 'SALON_ADMIN',
   'firstName': 'Ірина',
   'lastName': 'Адміністратор',
+  'phoneNumber': '+380663334455',
+  'professionalTitle': 'Старший адміністратор',
   'salonId': 'salon-admin-1',
 };
 

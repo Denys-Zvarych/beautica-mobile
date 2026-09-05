@@ -387,6 +387,139 @@ void main() {
     expect(revealOpacity(tester), 1.0);
   });
 
+  testWidgets('a reveal interrupted mid-flight is PAUSED, then RESUMES — it '
+      'neither keeps ticking off-screen nor freezes half-faded', (
+    tester,
+  ) async {
+    // Phase 21.16 follow-up. `didUpdateWidget` used to sync ONLY the screen
+    // protection when `visible` flipped, so a reveal still running when the
+    // user tabbed away kept a `Ticker` scheduling a frame every vsync for the
+    // rest of its ~950 ms, driving five `FadeTransition`/`SlideTransition`
+    // pairs on a subtree the `IndexedStack` is not painting (it sets neither
+    // `Offstage` nor `TickerMode` — see `OwnerOwnProfileScreen.visible`).
+    //
+    // The fix is a PAIR, and this test pins both halves, because either one
+    // alone is a different bug: `stop()` without widening `_startReveal`'s
+    // restart guard from `value == 0` to `!isCompleted` would leave the
+    // entrance frozen at a fractional opacity for the rest of the shell visit.
+    await tester.pumpApp(
+      const _VisibilityHost(),
+      overrides: _overrides((owner: _owner, master: (_master, _services))),
+    );
+    await tester.pumpAndSettle();
+
+    // Show the tab and let the entrance get under way…
+    await tester.tap(find.byKey(const Key('toggle-visible')));
+    await tester.pump();
+    // fixed-wait-ok: the assertion is about a MID-animation value, which no
+    // settle-based wait can express — a settle lands at 1.0 and makes the bug
+    // and the fix indistinguishable.
+    await tester.pump(const Duration(milliseconds: 200));
+    final double atInterrupt = revealOpacity(tester);
+    expect(atInterrupt, greaterThan(0.0));
+    expect(atInterrupt, lessThan(1.0));
+
+    // …then tab away mid-reveal.
+    await tester.tap(find.byKey(const Key('toggle-visible')));
+    await tester.pump();
+    // fixed-wait-ok: the claim is that MORE THAN a full entrance's worth of
+    // time passing off-screen advances the reveal by NOTHING. That is a
+    // statement about elapsed time, so time is what has to be advanced.
+    await tester.pump(const Duration(milliseconds: 1200));
+    expect(
+      revealOpacity(tester),
+      atInterrupt,
+      reason: 'the controller must be stop()ped when the slot goes off-screen',
+    );
+
+    // …and coming back must RESUME, not leave it frozen.
+    await tester.tap(find.byKey(const Key('toggle-visible')));
+    await tester.pumpAndSettle();
+    expect(revealOpacity(tester), 1.0);
+  });
+
+  // ---------------------------------------------------------------------
+  // mobile-qa re-audit (cycle 2, 2026-09-05) — the OTHER half of the
+  // off-screen ticker fix, which the reveal tests above cannot reach.
+  //
+  // `didUpdateWidget`'s `stop()`/resume pair governs `_controller`, this
+  // State's OWN entrance controller, in the LOADED state — which is what
+  // the tests above pin. `TickerMode(enabled: widget.visible)`
+  // (`owner_own_profile_screen.dart:351`) exists for a ticker this State
+  // does not own: `SkeletonShimmerScope`'s `..repeat(reverse: true)`
+  // controller in the LOADING state. Tabbing to «Профіль» and away again
+  // before the profile read returns leaves that shimmer scheduling a vsync
+  // frame every ~16 ms on a subtree a raw `IndexedStack` never paints.
+  //
+  // Deleting the `TickerMode` wrapper leaves every reveal test above GREEN
+  // — in the loaded state `_controller.stop()` has already muted the only
+  // ticker they observe. This is the assertion that goes red instead.
+  //
+  // `transientCallbackCount` is the count of frame callbacks the scheduler
+  // holds — what a running `Ticker` registers and a muted one unregisters.
+  // Reading `TickerMode.of(context)` or the screen's own `visible` field
+  // would be vacuous: those report what was CONFIGURED, never whether a
+  // ticker stopped asking for frames.
+  //
+  // MUTATION-VERIFIED (2026-09-05) on the identical wrapper in
+  // `admin_own_profile_screen.dart` — replacing `TickerMode(enabled:
+  // widget.visible, child: …)` with its bare child flips the off-screen
+  // count from 0 to 1 and turns this shape of test RED.
+  // ---------------------------------------------------------------------
+  testWidgets('the LOADING skeleton\'s shimmer schedules NO frames while the '
+      'tab is off-screen, and resumes when it is shown', (tester) async {
+    final Completer<OwnerOwnProfileData> pending =
+        Completer<OwnerOwnProfileData>();
+    addTearDown(() {
+      if (!pending.isCompleted) {
+        pending.complete((owner: _owner, master: (_master, _services)));
+      }
+    });
+
+    await tester.pumpApp(
+      const _VisibilityHost(),
+      overrides: <Object>[
+        ownerOwnProfileProvider.overrideWith((ref) => pending.future),
+        approvedCategoriesProvider.overrideWith(
+          (ref) async => const <ServiceCategoryOption>[],
+        ),
+      ],
+    );
+    // `pump`, never `pumpAndSettle`: the shimmer REPEATS, so a settle can
+    // never return.
+    await tester.pump();
+
+    expect(
+      find.byType(SkeletonBlock, skipOffstage: false),
+      findsWidgets,
+      reason:
+          'sanity: the off-screen slot must really be in the LOADING state — '
+          'an IndexedStack lays out its non-current children, so if the '
+          'skeleton is absent this test is not reproducing the situation '
+          'under test and the count below would be zero for free.',
+    );
+    expect(
+      tester.binding.transientCallbackCount,
+      0,
+      reason:
+          'a muted Ticker unregisters its frame callback. Any non-zero count '
+          'here is the shimmer driving ~60 fps of vsync work on a subtree the '
+          'IndexedStack is not painting.',
+    );
+
+    await tester.tap(find.byKey(const Key('toggle-visible')));
+    await tester.pump();
+
+    expect(
+      tester.binding.transientCallbackCount,
+      greaterThan(0),
+      reason:
+          'and it must ACTUALLY TICK once shown — without this half, a '
+          'skeleton that never animates at all would satisfy the zero above '
+          'and the test would pin nothing.',
+    );
+  });
+
   testWidgets('screen protection is held only while the tab is VISIBLE', (
     tester,
   ) async {

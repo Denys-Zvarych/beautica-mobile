@@ -77,6 +77,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -86,6 +87,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/shared/widgets/staff_identity_card.dart';
 
 import '../../master/presentation/widgets/profile_avatar.dart';
 import '../../master/presentation/widgets/profile_scaffold.dart';
@@ -237,6 +239,20 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
     // once. `build()` runs again on this same frame — the shell rebuilt to
     // change `visible` — so the reveal is started from there, not here, where
     // `_controller` may not have a frame to animate into yet.
+    //
+    // Going the OTHER way, though, has to be handled here (mobile-perf, Phase
+    // 21.16 follow-up). [_startReveal] only guards the START of the entrance;
+    // it says nothing about one already IN FLIGHT. Tap «Профіль», then tap
+    // away inside the 950 ms entrance and the controller kept ticking — a
+    // `Ticker` scheduling a frame every vsync for up to ~950 ms, driving five
+    // `FadeTransition`/`SlideTransition` pairs on a subtree an
+    // `IndexedStack` is not painting (it sets neither `Offstage` nor
+    // `TickerMode` — see [OwnerOwnProfileScreen.visible]). `stop()` freezes it
+    // mid-reveal WITHOUT resetting `value`, which is what keeps the one-shot
+    // semantics intact: the guard in [_startReveal] is `value == 0`, so a
+    // partially-run entrance stays spent and simply resumes from where it was
+    // when the tab comes back, rather than replaying from the top.
+    if (!widget.visible) _controller.stop();
   }
 
   /// Brings the [ScreenProtectionManager] refcount in line with
@@ -270,10 +286,20 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
 
   void _startReveal() {
     // The one-shot entrance must be spent on a VISIBLE frame. Off-screen this
-    // is a no-op, so the `_controller.value == 0` guard survives until the tab
-    // is actually shown — see [OwnerOwnProfileScreen.visible].
+    // is a no-op, so the `value == 0` start survives until the tab is actually
+    // shown — see [OwnerOwnProfileScreen.visible].
+    //
+    // `isCompleted`, not `value == 0` (Phase 21.16): [didUpdateWidget] now
+    // `stop()`s a reveal that is still running when the tab goes off-screen,
+    // which parks the controller at a fractional value with `isAnimating`
+    // false. Under the old guard that state could never be left — the entrance
+    // would freeze half-faded for the rest of the shell visit. Reading
+    // "already finished" instead lets a paused reveal RESUME from where it
+    // stopped, while keeping both original properties: a completed entrance
+    // never replays, and an untouched one still starts from 0 on the first
+    // visible frame rather than jumping.
     if (!widget.visible) return;
-    if (!_controller.isAnimating && _controller.value == 0) {
+    if (!_controller.isAnimating && !_controller.isCompleted) {
       _controller.forward();
     }
   }
@@ -312,31 +338,45 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
         ref.invalidate(masterProfileProvider);
         await ref.read(ownerOwnProfileProvider.future);
       },
-      child: async.when(
-        loading: () => const _OwnerProfileSkeleton(),
-        error: (Object e, _) => ErrorState(
-          failure: e is Failure ? e : UnknownFailure(cause: e),
-          // Only the `/users/me` read can land here (see the provider), so
-          // that is the one upstream retry has to clear.
-          onRetry: () => ref.invalidate(clientEditProfileProvider),
+      // mobile-perf LOW (2026-09-05) — [OwnerOwnProfileScreen.visible] gated the
+      // ENTRANCE controller only, which this State owns and stops itself. It
+      // did NOT reach the LOADING state: [SkeletonShimmerScope] owns its own
+      // `..repeat(reverse: true)` controller, and a raw `IndexedStack` inserts
+      // neither `Offstage` nor `TickerMode`, so tapping «Профіль» and away
+      // again before `GET /users/me` returns left a shimmer scheduling a vsync
+      // frame every ~16 ms on a subtree the stack never paints. `TickerMode`
+      // mutes every ticker BELOW it — the skeleton's shimmer today, and any
+      // future implicit animation in the loaded body — without touching
+      // `_controller`, whose ticker is created by this State ABOVE this point
+      // and stays under [didUpdateWidget]'s explicit `stop()`/resume control.
+      child: TickerMode(
+        enabled: widget.visible,
+        child: async.when(
+          loading: () => const _OwnerProfileSkeleton(),
+          error: (Object e, _) => ErrorState(
+            failure: e is Failure ? e : UnknownFailure(cause: e),
+            // Only the `/users/me` read can land here (see the provider), so
+            // that is the one upstream retry has to clear.
+            onRetry: () => ref.invalidate(clientEditProfileProvider),
+          ),
+          data: (OwnerOwnProfileData data) {
+            _startReveal();
+            return _OwnerProfileBody(
+              owner: data.owner,
+              master: data.master,
+              anim0: _anim0,
+              anim1: _anim1,
+              anim2: _anim2,
+              anim3: _anim3,
+              anim4: _anim4,
+              slide0: _slide0,
+              slide1: _slide1,
+              slide2: _slide2,
+              slide3: _slide3,
+              slide4: _slide4,
+            );
+          },
         ),
-        data: (OwnerOwnProfileData data) {
-          _startReveal();
-          return _OwnerProfileBody(
-            owner: data.owner,
-            master: data.master,
-            anim0: _anim0,
-            anim1: _anim1,
-            anim2: _anim2,
-            anim3: _anim3,
-            anim4: _anim4,
-            slide0: _slide0,
-            slide1: _slide1,
-            slide2: _slide2,
-            slide3: _slide3,
-            slide4: _slide4,
-          );
-        },
       ),
     );
   }
@@ -380,17 +420,6 @@ class _OwnerProfileBody extends StatelessWidget {
   final Animation<Offset> slide3;
   final Animation<Offset> slide4;
 
-  static Widget _reveal(
-    Animation<double> fade,
-    Animation<Offset> slide,
-    Widget child,
-  ) => RepaintBoundary(
-    child: FadeTransition(
-      opacity: fade,
-      child: SlideTransition(position: slide, child: child),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -417,63 +446,26 @@ class _OwnerProfileBody extends StatelessWidget {
       children: <Widget>[
         // 1 — identity. No rating row here even when the owner works as a
         // master (see the file header) — the chip stays «Власник салону».
-        _reveal(
-          anim0,
-          slide0,
-          NeumorphicCard(
-            color: const Color(0xFFEDE4D5),
-            padding: const EdgeInsets.all(VelvetSpacing.md),
-            // [RoleChip] uses [NeumorphicInset], whose RepaintBoundary can
-            // paint near the card's rounded corners — same reason
-            // `master_profile_screen.dart` opts its identity card into
-            // ClipRRect and leaves every other card at the default.
-            clipContent: true,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                const ProfileAvatar(),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        displayName,
-                        key: const Key('owner-own-profile-name'),
-                        style: VelvetText.displayName(),
-                        maxLines: 2,
-                        softWrap: true,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: VelvetSpacing.xs + 2),
-                      RoleChip(
-                        key: const Key('owner-own-profile-role-chip'),
-                        label: l10n.masterRoleSalonOwner,
-                        icon: Icons.auto_awesome_rounded,
-                      ),
-                      // The self-declared title sits UNDER the role chip
-                      // rather than replacing its label (which is what
-                      // `master_profile_screen.dart` does): «Власник салону»
-                      // is the fact this card exists to state, so the title
-                      // supplements it instead of displacing it.
-                      if (professionalTitle != null) ...<Widget>[
-                        const SizedBox(height: VelvetSpacing.xs),
-                        Text(
-                          professionalTitle,
-                          key: const Key(
-                            'owner-own-profile-professional-title',
-                          ),
-                          style: VelvetText.feedbackMutedXs,
-                          maxLines: 2,
-                          softWrap: true,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
+        //
+        // The card itself is the PROMOTED [StaffIdentityCard]
+        // (`shared/widgets/staff_identity_card.dart`, Phase 21.16): this tree
+        // used to be written out inline here AND, minus the title sub-line,
+        // inline again in `salon_staff_profile_screen.dart`. Both now call the
+        // one widget; the keys below are unchanged, and the extraction is
+        // pixel-proven by `test/golden/staff_identity_card_golden_test.dart`
+        // against baselines generated from THIS file's pre-promotion markup.
+        RevealTransition(
+          key: const Key('owner-own-profile-reveal-0'),
+          fade: anim0,
+          slide: slide0,
+          child: StaffIdentityCard(
+            displayName: displayName,
+            roleLabel: l10n.masterRoleSalonOwner,
+            professionalTitle: professionalTitle,
+            nameKey: const Key('owner-own-profile-name'),
+            roleChipKey: const Key('owner-own-profile-role-chip'),
+            professionalTitleKey: const Key(
+              'owner-own-profile-professional-title',
             ),
           ),
         ),
@@ -482,23 +474,30 @@ class _OwnerProfileBody extends StatelessWidget {
         // 2/3/4 — the owner-as-master sections. Absent entirely when the owner
         // performs no services.
         if (section != null) ...<Widget>[
-          _reveal(
-            anim1,
-            slide1,
-            _OwnerStatsRow(master: section.$1, services: section.$2),
+          RevealTransition(
+            key: const Key('owner-own-profile-reveal-1'),
+            fade: anim1,
+            slide: slide1,
+            child: _OwnerStatsRow(master: section.$1, services: section.$2),
           ),
           const SizedBox(height: VelvetSpacing.xl),
           ..._buildBio(context, l10n, section.$1),
-          _reveal(anim3, slide3, _OwnerCategoriesSection(services: section.$2)),
+          RevealTransition(
+            key: const Key('owner-own-profile-reveal-3'),
+            fade: anim3,
+            slide: slide3,
+            child: _OwnerCategoriesSection(services: section.$2),
+          ),
           const SizedBox(height: VelvetSpacing.xl),
         ],
 
         // 5 — contacts. Phone always (em-dash when unset, matching every other
         // profile screen); Instagram only when the owner set one.
-        _reveal(
-          anim4,
-          slide4,
-          Column(
+        RevealTransition(
+          key: const Key('owner-own-profile-reveal-4'),
+          fade: anim4,
+          slide: slide4,
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Padding(
@@ -550,10 +549,11 @@ class _OwnerProfileBody extends StatelessWidget {
     final String? raw = master.bio?.trim();
     if (raw == null || raw.isEmpty) return const <Widget>[];
     return <Widget>[
-      _reveal(
-        anim2,
-        slide2,
-        Column(
+      RevealTransition(
+        key: const Key('owner-own-profile-reveal-2'),
+        fade: anim2,
+        slide: slide2,
+        child: Column(
           key: const Key('owner-own-profile-bio'),
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[

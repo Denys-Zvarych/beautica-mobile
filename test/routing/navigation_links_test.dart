@@ -361,6 +361,11 @@ void main() {
       // «Профіль» tab, but that is an `IndexedStack` slot rather than a
       // nested route, so this constant is the only registration.
       'ownerOwnProfile': RouteNames.ownerOwnProfile,
+      // Phase 21.16 — the ADMIN's own first-person profile, the literal
+      // sibling of the one above. Same shape: also hosted as the admin
+      // shell's «Профіль» tab via an `IndexedStack` slot rather than a nested
+      // route, so this constant is the only registration.
+      'adminOwnProfile': RouteNames.adminOwnProfile,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

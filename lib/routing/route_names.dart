@@ -348,6 +348,27 @@ abstract final class RouteNames {
   /// no second guard closure was written.
   static const String ownerOwnProfile = '/profile/owner';
 
+  /// Phase 21.16 — the `SALON_ADMIN`'s own first-person profile
+  /// ([AdminOwnProfileScreen]), pushed STAND-ALONE with a back button. The
+  /// same screen is ALSO hosted, without a route of its own, as the «Профіль»
+  /// tab of `SalonShellScreen`'s admin branch (`embedded: true`) — the tab is
+  /// an `IndexedStack` slot, not a nested route, so this constant is only ever
+  /// the stand-alone entry.
+  ///
+  /// SHADOWING — a second literal under the `/profile/` prefix, sibling to
+  /// [ownerOwnProfile]. Neither can shadow the other (two literals at the same
+  /// segment match exactly one path each), and `app_router.dart` still
+  /// registers no `/profile/:something` route. Adding any future
+  /// `/profile/:id` WOULD reintroduce that hazard for BOTH of these and must
+  /// be declared AFTER them.
+  ///
+  /// Gated by `salonAdminOnlyGuard` — the SALON_ADMIN mirror of the
+  /// SALON_OWNER-only `mySalonsGuard` [ownerOwnProfile] reuses. A separate
+  /// closure is unavoidable here: no shipped guard admits SALON_ADMIN and only
+  /// SALON_ADMIN (`salonManageGuard` admits both salon roles and binds them to
+  /// a `:salonId` path param this route does not have).
+  static const String adminOwnProfile = '/profile/admin';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

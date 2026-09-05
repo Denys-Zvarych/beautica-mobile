@@ -56,13 +56,67 @@ class SalonHomeResolverScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final AsyncValue<AuthSession> authAsync = ref.watch(authProvider);
-    final AuthSession? session = authAsync.value;
+    // mobile-qa MEDIUM (2026-09-05) — concrete-subtype gate, the SAME
+    // discipline `app_router.dart`'s `resolvedSession()` applies and the same
+    // one the `mySalonsProvider` read below already applied. A bare
+    // `authAsync.value` is not "the current session": `copyWithPrevious` keeps
+    // the PREVIOUS account's `AsyncData` attached to a later `AsyncError` /
+    // `AsyncLoading(retrying: true)`, and `salonHomeGuard` now deliberately
+    // ADMITS an unresolved session — so a stale `SALON_ADMIN` would reach this
+    // build, read that account's `user.salonId` and forward straight into
+    // ANOTHER salon's shell. Unresolved therefore reads as "no session yet",
+    // which falls into the skeleton below and re-resolves on the next
+    // `authProvider` emission (this is a `ref.watch`).
+    final AuthSession? session = authAsync is AsyncData<AuthSession>
+        ? authAsync.value
+        : null;
 
     if (session is! Authenticated) {
-      // The global `authRedirect` bounces an unauthenticated session to
-      // /login before this screen is ever reached in production; render the
-      // loading skeleton defensively for the brief window mid-session-change
-      // rather than crash on a null user.
+      // mobile-security LOW (2026-09-05) — `AsyncLoading` and `AsyncError` are
+      // NOT the same unresolved state, so they do not share a body.
+      //
+      //   * `AsyncError` — terminal until something re-runs the provider. The
+      //     skeleton would spin forever with no affordance, so render
+      //     [ErrorState] with a retry that invalidates `authProvider`, exactly
+      //     as the `mySalonsProvider` arm below does for its own error.
+      //   * everything else (`AsyncLoading`, or a settled
+      //     `AsyncData(Unauthenticated)` in the window before the global
+      //     `authRedirect` bounces it to /login) — genuinely "not known yet";
+      //     hold the skeleton rather than crash on a null user.
+      //
+      // Neither arm dispatches. A stale `Authenticated` riding an `AsyncError`
+      // via `copyWithPrevious` was already excluded by the concrete-subtype
+      // gate above, and stays excluded here — the retry affordance replaces an
+      // indefinite spinner, it does NOT relax that gate.
+      //
+      // Defence in depth plus re-entrancy: nothing in `lib/` invalidates
+      // `authProvider` from a healthy session (the only two
+      // `ref.invalidate(authProvider)` sites are this arm's own retry and
+      // `master_received_reviews_screen.dart:90`, both already-unresolved
+      // arms), and a cold-start `build()` rejection is bounced to `/login` by
+      // `auth_redirect.dart:250` before this screen mounts. What this arm must
+      // handle is its OWN retry re-failing — `ref.invalidate` re-runs
+      // `build()`, whose pre-`try` secure-storage statements
+      // (`auth_notifier.dart:261-262` and `:287`) sit outside the
+      // `:291`-`:335` catch-all and forward to the platform channel unguarded
+      // — so it renders the error again instead of spinning. Riverpod's
+      // auto-retry is live on this provider too
+      // — `auth_notifier.g.dart:45` `retry: null` means INHERIT, and
+      // `main.dart:138` installs `beauticaProviderRetry` on the root
+      // container, which hands a non-`Failure` error to
+      // `ProviderContainer.defaultRetry` (`failure_retry_policy.dart:135-145`).
+      if (authAsync is AsyncError<AuthSession>) {
+        final Object error = authAsync.error;
+        return Scaffold(
+          backgroundColor: BrandColors.base,
+          body: SafeArea(
+            child: ErrorState(
+              failure: error is Failure ? error : UnknownFailure(cause: error),
+              onRetry: () => ref.invalidate(authProvider),
+            ),
+          ),
+        );
+      }
       return _LoadingBody(
         semanticLabel: l10n.salonHomeResolverLoadingSemantics,
       );

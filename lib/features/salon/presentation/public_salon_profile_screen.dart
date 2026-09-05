@@ -41,6 +41,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 // 14.13) and is REUSED here rather than duplicated, so the masters grid can be
 // filtered by the selected service without a second bespoke fan-out. Only
 // triggered while a service filter is active (see [_MastersTab]).
+import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
@@ -402,17 +403,6 @@ class _LoadedBody extends StatelessWidget {
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
 
-  static Widget _reveal(
-    Animation<double> fade,
-    Animation<Offset> slide,
-    Widget child,
-  ) => RepaintBoundary(
-    child: FadeTransition(
-      opacity: fade,
-      child: SlideTransition(position: slide, child: child),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -430,15 +420,15 @@ class _LoadedBody extends StatelessWidget {
           coverHeight: coverHeight,
           topInset: topInset,
           salon: salon,
-          reveal: _reveal,
           anim0: anim0,
           slide0: slide0,
         ),
         const SizedBox(height: VelvetSpacing.lg),
-        _reveal(
-          anim1,
-          slide1,
-          Padding(
+        RevealTransition(
+          key: const Key('public-salon-profile-reveal-1'),
+          fade: anim1,
+          slide: slide1,
+          child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
             child: SalonTabBar(
               tabs: tabs,
@@ -448,10 +438,11 @@ class _LoadedBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: VelvetSpacing.lg),
-        _reveal(
-          anim2,
-          slide2,
-          KeyedSubtree(
+        RevealTransition(
+          key: const Key('public-salon-profile-reveal-2'),
+          fade: anim2,
+          slide: slide2,
+          child: KeyedSubtree(
             key: ValueKey<String>('salon-tab-body-${_tabKeys[tab]}'),
             child: switch (tab) {
               0 => _AboutTab(salon: salon),
@@ -550,7 +541,6 @@ class _CoverAndHero extends StatelessWidget {
     required this.coverHeight,
     required this.topInset,
     required this.salon,
-    required this.reveal,
     required this.anim0,
     required this.slide0,
   });
@@ -558,7 +548,6 @@ class _CoverAndHero extends StatelessWidget {
   final double coverHeight;
   final double topInset;
   final Salon salon;
-  final Widget Function(Animation<double>, Animation<Offset>, Widget) reveal;
   final Animation<double> anim0;
   final Animation<Offset> slide0;
 
@@ -638,7 +627,12 @@ class _CoverAndHero extends StatelessWidget {
             VelvetSpacing.lg,
             0,
           ),
-          child: reveal(anim0, slide0, _SalonHeroCard(salon: salon)),
+          child: RevealTransition(
+            key: const Key('public-salon-profile-reveal-0'),
+            fade: anim0,
+            slide: slide0,
+            child: _SalonHeroCard(salon: salon),
+          ),
         ),
       ],
     );

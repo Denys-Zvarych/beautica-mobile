@@ -95,6 +95,7 @@ import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/domain/salon.dart';
+import '../features/salon/presentation/admin_own_profile_screen.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
 import '../features/salon/presentation/owner_own_profile_screen.dart';
 import '../features/salon/presentation/staff_settings_screen.dart';
@@ -211,6 +212,59 @@ GoRouter appRouter(Ref ref) {
   final refresh = AuthRefreshNotifier(ref);
   ref.onDispose(refresh.dispose);
 
+  // mobile-security LOW (2026-09-05) — the ONE resolved-session read every
+  // role-only per-route guard below goes through.
+  //
+  // A bare `ref.read(authProvider).value` is NOT "the current session".
+  // Riverpod's `copyWithPrevious` keeps a prior `AsyncData`'s value attached
+  // to a LATER `AsyncError` / `AsyncLoading(retrying: true)`, so right after a
+  // same-device account switch (user A logs out, user B logs in, no restart)
+  // `.value` can still be user A for one frame while the state itself is not
+  // `AsyncData`. A role gate reading that stale value decides with the WRONG
+  // role — the exact inverse of its intent. [salonManageGuard] already applies
+  // this rule to its `mySalonsProvider` read (see its own note); this is the
+  // same rule for the session read, factored once instead of copied four
+  // times.
+  //
+  // Returning `null` on an unresolved state makes these guards ADMIT rather
+  // than bounce. That is the deliberate trade — bouncing on a stale role is a
+  // wrong decision that a later re-evaluation cannot un-make, whereas an
+  // admission is re-decided the moment the session settles, because
+  // `refreshListenable` re-runs every redirect on each `authProvider`
+  // emission. But be precise about what backs the admission, because the two
+  // unresolved states are NOT equivalent:
+  //
+  //   * `AsyncLoading` — [authRedirect] parks the visitor on `/splash` (or
+  //     leaves them on an auth route) for the whole window, so nothing under
+  //     these guards is actually rendered. Genuinely just a frame.
+  //   * `AsyncError` CARRYING a stale `AsyncData(Authenticated)` — `isLoading`
+  //     is false, so [authRedirect] skips the splash park, reads that stale
+  //     `.value` at `auth_redirect.dart:221` (the `isAuthenticated` binding —
+  //     `:172` there is now the head of its rationale comment, not the read)
+  //     and ADMITS. This state persists until the next auth action, not for
+  //     one frame, and [authRedirect] does NOT fence it. (That read is
+  //     deliberately left lenient, but NOT for the reason once given here:
+  //     hardening it is fail-CLOSED, not fail-open. It stays lenient because
+  //     all four `AsyncError` producers retain a SAME-ACCOUNT previous value,
+  //     so no cross-account stale-role read is constructible — see
+  //     `auth_redirect.dart`'s own note, which enumerates them.)
+  //
+  // So for the routes these per-route guards cover — `/salons/mine`,
+  // `/salons/home`, `/profile/admin`, `/masters/*`, `/booking/*` and
+  // `/salons/:salonId` (note: `/salons/`, PLURAL — [authRedirect]'s prefix
+  // gate is on the SINGULAR `/salon/`, and does not match any of these) —
+  // there is no second client-side fence behind this one. During an
+  // `AsyncError` window the surface is admitted, and what actually keeps
+  // another account's data off it is BACKEND authorization on every request
+  // the screen makes, not this redirect. Screens reached this way must
+  // therefore not act on a stale session either: see
+  // `salon_home_resolver_screen.dart`, which applies the same concrete-subtype
+  // gate to its own session read for exactly this reason.
+  AuthSession? resolvedSession() {
+    final AsyncValue<AuthSession> auth = ref.read(authProvider);
+    return auth is AsyncData<AuthSession> ? auth.value : null;
+  }
+
   // Per-route CLIENT gate for the public discovery surfaces that are NOT covered
   // by the prefix gates in [authRedirect] (they sit on /masters/* and /booking/*
   // rather than a client-shell branch). An authenticated non-CLIENT role that
@@ -219,7 +273,7 @@ GoRouter appRouter(Ref ref) {
   // access is still handled by the global [authRedirect] (→ /login), which runs
   // alongside this route-level redirect.
   String? clientOnlyGuard(BuildContext context, GoRouterState state) {
-    final session = ref.read(authProvider).value;
+    final session = resolvedSession();
     if (session is Authenticated && session.user.role != UserRole.client) {
       return roleHomePath(session.user.role);
     }
@@ -384,8 +438,29 @@ GoRouter appRouter(Ref ref) {
   // bounced to its own landing. Unauthenticated access is left to the global
   // [authRedirect] (-> /login).
   String? mySalonsGuard(BuildContext context, GoRouterState state) {
-    final session = ref.read(authProvider).value;
+    final session = resolvedSession();
     if (session is Authenticated && session.user.role != UserRole.salonOwner) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 21.16 — per-route SALON_ADMIN-only gate for the admin's own
+  // first-person profile (`/profile/admin`). The exact mirror of
+  // [mySalonsGuard] one role over: any other authenticated role — including
+  // SALON_OWNER, who has [RouteNames.ownerOwnProfile] instead — is bounced to
+  // its own landing, and unauthenticated access is left to the global
+  // [authRedirect] (-> /login).
+  //
+  // REUSE-FIRST was checked and does not apply: no shipped guard expresses
+  // "SALON_ADMIN and nothing else". [salonManageGuard] admits BOTH salon roles
+  // and, for an admin, binds `User.salonId` against a `:salonId` PATH PARAM —
+  // which this route does not carry, so delegating to it would compare against
+  // `null` and bounce every admin. [salonHomeGuard] admits both roles with no
+  // binding at all, which would let a SALON_OWNER onto the admin profile.
+  String? salonAdminOnlyGuard(BuildContext context, GoRouterState state) {
+    final session = resolvedSession();
+    if (session is Authenticated && session.user.role != UserRole.salonAdmin) {
       return roleHomePath(session.user.role);
     }
     return null;
@@ -398,7 +473,7 @@ GoRouter appRouter(Ref ref) {
   // own landing. Unauthenticated access is left to the global [authRedirect]
   // (-> /login).
   String? salonHomeGuard(BuildContext context, GoRouterState state) {
-    final session = ref.read(authProvider).value;
+    final session = resolvedSession();
     if (session is Authenticated &&
         session.user.role != UserRole.salonOwner &&
         session.user.role != UserRole.salonAdmin) {
@@ -916,6 +991,30 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.ownerOwnProfile,
         redirect: mySalonsGuard,
         builder: (context, state) => const OwnerOwnProfileScreen(),
+      ),
+      // Phase 21.16 — the admin's own first-person profile
+      // ([RouteNames.adminOwnProfile]), pushed STAND-ALONE (`embedded: false`
+      // → keeps a back chevron). The SAME screen is hosted as the admin
+      // shell's «Профіль» tab with `embedded: true`, but that is an
+      // `IndexedStack` slot built directly by `SalonShellScreen`, not a nested
+      // route — so this registration is the stand-alone entry only.
+      //
+      // A sibling literal of `/profile/owner` directly above: two literals at
+      // the same segment, so neither shadows the other and their relative
+      // order is irrelevant. A future `/profile/:id` would have to be declared
+      // after BOTH.
+      //
+      // No `onSalonTap` is passed here: the affiliation card's destination is
+      // a nav move inside the shell, which a stand-alone push has none of, so
+      // the card renders inert — which is also exactly what the approved
+      // preview draws (see `AdminOwnProfileScreen.onSalonTap`).
+      //
+      // Gated by [salonAdminOnlyGuard]. Nothing links here today, so this is
+      // the stand-alone entry only.
+      GoRoute(
+        path: RouteNames.adminOwnProfile,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) => const AdminOwnProfileScreen(),
       ),
       GoRoute(
         path: '/salons/:salonId',
