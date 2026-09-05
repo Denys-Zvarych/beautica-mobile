@@ -1,15 +1,12 @@
-// Phase 21.6, generalized Phase 305 — «Налаштування» for ONE staff member.
+// Phase 21.6, generalized Phase 305, MASTER branch wired Phase 307 —
+// «Налаштування» for ONE staff member.
 //
 // The full settings PAGE (never a bottom sheet) reached from the trailing
 // `Icons.tune_rounded` control on a staff member's management profile
 // (`salon_staff_profile_screen.dart`, Phase 21.5). Its body is chosen by
-// `SalonStaffMember.role`. As of THIS phase only the ADMIN branch exists —
-// phase 307 adds the MASTER branch alongside it, which is the reason this
-// screen was widened (Phase 305) rather than forked into a
-// `master_settings_screen.dart` when that need arrived. Admins are
-// administrative staff, not service-providing masters, so the master sheet's
-// service / activate / make-admin toggles have no meaning on the admin
-// branch — only the two admin-specific actions do:
+// `SalonStaffMember.role`. Admins are administrative staff, not
+// service-providing masters, so the master branch's own actions have no
+// meaning on the admin branch — only the three admin-specific rows do:
 //
 //   1. «Перемістити до іншого салону» → pushes [MoveAdminSalonScreen]
 //      (`PATCH /salons/{salonId}/admins/{userId}/salon`).
@@ -27,6 +24,32 @@
 // account. The confirmation body is where that is made honest
 // («…втратить доступ до керування салоном»), which is exactly what the
 // preview's own dialog already said.
+//
+// THE MASTER BRANCH (Phase 307) — a single terminal row, «Видалити
+// майстра» (`DELETE /salons/{salonId}/masters/{masterId}`, backend Phase
+// 297 + 298). A categorically LARGER act than the admin branch's: the
+// endpoint hard-deletes the master's account and cancels+notifies their
+// future bookings, and it is SALON_OWNER-only (unlike remove-admin, which an
+// admin may also perform). Two gates stand in front of it, both UI-
+// correctness (the server remains the real gate — see D3's own doc):
+//
+//   * not the owner              → [SalonNoticeCard] (`staffSettingsMasterOwnerOnlyTitle`/`Body`), no row at all;
+//   * the owner's OWN master row → the SAME card (same key), but DISTINCT
+//     copy (`staffSettingsMasterSelfTitle`/`Body`, mobile-security LOW fix,
+//     2026-09-05) — the "ask the owner" phrasing on the not-owner branch is
+//     factually wrong when the viewer IS the owner: there is nobody else to
+//     ask. Backend 297 409s/403s a self-target regardless; this card's copy
+//     honestly points the owner at the separate `DELETE
+//     /salons/{salonId}/master` owner-toggle instead of just saying "no".
+//     `isOwnRow` in `build()` is the switch between the two bodies.
+//
+// D2 — THE ID TRAP: the row acts on `member.masterId`, NEVER
+// `widget.memberId`/`member.userId`. See [SalonRepository.removeMaster]'s
+// own doc for why a swapped id 404s in a way indistinguishable from
+// "already removed". While the resolved entry's `masterId` is null (a data
+// anomaly — every real master row carries one) the row renders
+// `enabled: false`, the same present-but-disabled idiom
+// `adminSettingsConvertToMaster` already established on this screen.
 //
 // This is a manage-THIS-staff-member screen opened by the owner or a fellow
 // admin — NOT the viewer's own settings — so it carries no self-service rows
@@ -71,10 +94,12 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
     show kSalonTeamNavTab;
 import 'package:dio/dio.dart';
 
+import '../../auth/presentation/auth_selectors.dart';
 import '../../master/presentation/widgets/profile_avatar.dart';
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../master/presentation/widgets/settings_row.dart';
 import '../application/admin_settings_notifier.dart';
+import '../application/public_salon_profile_notifier.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../application/salon_shell_provider.dart';
 import '../application/salon_staff_member_notifier.dart';
@@ -121,11 +146,41 @@ class StaffSettingsScreen extends ConsumerStatefulWidget {
 
 class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
     with SingleTickerProviderStateMixin {
-  /// Double-tap guard for the destructive row, mirroring
-  /// `SettingsScreen`'s own delete-salon flag: it also drives
-  /// `SettingsRow(loading: ...)` so a slow network shows a spinner instead of
-  /// swallowing the second tap.
+  /// Double-tap guard for the destructive row's NETWORK call, mirroring
+  /// `SettingsScreen`'s own delete-salon flag: it drives
+  /// `SettingsRow(loading: ...)`, so a slow network shows a spinner instead
+  /// of swallowing the second tap. Flips to `true` only once the DELETE is
+  /// actually dispatched, never merely while the confirmation dialog is up
+  /// — see [_confirmOpen] for that earlier window, and why it is a SEPARATE
+  /// flag rather than this one doing double duty.
   bool _removing = false;
+
+  /// Double-tap guard for the CONFIRMATION-DIALOG window, ahead of
+  /// [_removing] (mobile-perf LOW fix, 2026-09-05).
+  ///
+  /// `_removing` used to be the only guard, and it flipped to `true` only
+  /// AFTER `showRemoveAdminDialog`/`showRemoveMasterDialog` resolved. That
+  /// left a window between "row tapped" and "dialog's modal barrier is up"
+  /// where a fast double-tap could open two stacked confirmation dialogs;
+  /// confirming both then fired TWO delete calls — and on the master path
+  /// the second one hard-deletes an account that is already gone, a 404 the
+  /// UI cannot distinguish from "already removed".
+  ///
+  /// A SEPARATE flag, not `_removing` set early, because `_removing` also
+  /// drives `SettingsRow(loading: true)`, which swaps in an indeterminate
+  /// spinner — an animation that never settles on its own. Flipping THAT on
+  /// for the entire time the confirmation dialog sits open (an
+  /// indefinite, user-paced wait, not a network round-trip) would leave the
+  /// row "spinning" behind the modal barrier for as long as the viewer takes
+  /// to decide, and makes `tester.pumpAndSettle()` hang for that whole
+  /// window in every test that opens this dialog — measured directly: this
+  /// is exactly what reusing `_removing` for both windows did. `_confirmOpen`
+  /// carries none of that chrome; it is a plain re-entrancy guard, checked
+  /// (like `_removing`) as a raw field read before any `setState`, so a
+  /// second synchronous tap during the SAME event dispatch is blocked
+  /// regardless of whether a frame has rendered yet. Reset to `false` right
+  /// after the dialog resolves, confirmed or not.
+  bool _confirmOpen = false;
 
   // Animation — pre-built in initState; zero allocations in build().
   late final AnimationController _controller;
@@ -220,34 +275,67 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
     );
   }
 
-  /// Maps a remove [Failure] to this screen's own copy.
+  /// Reads the HTTP status code off a remove [Failure].
+  ///
+  /// Prefers [ServerFailure]'s own field, falling back to unwrapping
+  /// [Failure.cause] — the shape a bare 403 arrives in, since
+  /// [ErrorMapperInterceptor] maps only an explicit list of codes to
+  /// [ServerFailure] and 403 is not on it (see
+  /// `InviteStaffScreen._errorMessage`'s own doc for that trap).
+  ///
+  /// PROMOTED (Phase 307, D5) out of [_removeErrorMessage] (admin) so
+  /// [_removeMasterErrorMessage] (master) reads a status the same way — one
+  /// extraction, shared, so the two role branches cannot drift in how they
+  /// interpret a code.
+  int? _failureStatusCode(Failure failure) => switch (failure) {
+    ServerFailure(:final statusCode) => statusCode,
+    _ => switch (failure.cause) {
+      DioException(:final response) => response?.statusCode,
+      _ => null,
+    },
+  };
+
+  /// Maps a remove-admin [Failure] to this screen's own copy.
   ///
   /// Deliberately NOT `failure.userMessage(context)`: [ServerFailure]'s is a
   /// single generic "server error" for every status, and a 403 here means
   /// something the viewer can act on (you cannot remove yourself; you need
-  /// management access). Reads the status off [Failure.cause] rather than
-  /// assuming a [ServerFailure] subtype — [ErrorMapperInterceptor] maps only
-  /// an explicit list of codes, and a bare 403 arrives as [UnknownFailure];
-  /// see `InviteStaffScreen._errorMessage`'s own doc for that trap.
+  /// management access).
   String _removeErrorMessage(Failure failure, AppLocalizations l10n) {
-    final int? statusCode = switch (failure) {
-      ServerFailure(:final statusCode) => statusCode,
-      _ => switch (failure.cause) {
-        DioException(:final response) => response?.statusCode,
-        _ => null,
-      },
-    };
-    return statusCode == 403
+    return _failureStatusCode(failure) == 403
         ? l10n.adminSettingsRemoveErrorForbidden
         : l10n.adminSettingsRemoveErrorGeneric;
   }
 
+  /// Maps a remove-master [Failure] to this screen's own copy (Phase 307,
+  /// D5) — a four-way switch, unlike the admin branch's two-way one, because
+  /// the master endpoint distinguishes 409 (stale roster picture) from 404
+  /// (the member is already gone) where the admin endpoint's callers only
+  /// ever needed 403-vs-generic.
+  String _removeMasterErrorMessage(int? statusCode, AppLocalizations l10n) {
+    return switch (statusCode) {
+      403 => l10n.removeMasterErrorForbidden,
+      409 => l10n.removeMasterErrorConflict,
+      404 => l10n.removeMasterErrorNotFound,
+      _ => l10n.removeMasterErrorGeneric,
+    };
+  }
+
   Future<void> _confirmRemove(String adminName) async {
-    if (_removing) return;
+    if (_removing || _confirmOpen) return;
     final AppLocalizations l10n = AppLocalizations.of(context);
 
+    // Set BEFORE the dialog is awaited (mobile-perf LOW fix, 2026-09-05) —
+    // see `_confirmOpen`'s own doc for why this is a plain field write, not
+    // `setState`, and why it is a SEPARATE flag from `_removing`. A second
+    // tap landing anywhere between now and the dialog resolving reads this
+    // flag straight off the field and returns before a second dialog is
+    // ever raised.
+    _confirmOpen = true;
     final bool? confirmed = await showRemoveAdminDialog(context, adminName);
-    if (confirmed != true || !mounted) return;
+    _confirmOpen = false;
+    if (!mounted) return;
+    if (confirmed != true) return;
 
     setState(() => _removing = true);
     final Failure? failure = await ref
@@ -262,6 +350,68 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
     }
 
     showSuccessSnack(context, l10n.adminSettingsRemoveSuccess);
+    _returnToStaffTab();
+  }
+
+  /// Confirms and issues the master removal (Phase 307).
+  ///
+  /// D2 — acts ONLY on [member]'s `masterId`, never `widget.memberId`. The
+  /// row that calls this is `enabled: member.masterId != null`, so a null
+  /// id should never reach here in practice; the guard below is defensive,
+  /// not load-bearing.
+  ///
+  /// D5 — four-way status handling, distinct from [_confirmRemove]'s
+  /// two-way one:
+  ///   * 404 — the member is already gone. Unwinds via [_returnToStaffTab]
+  ///     exactly like a success, with the not-found copy instead of the
+  ///     success snack.
+  ///   * 409 — every cause means this page's picture of the roster is
+  ///     stale. Stays on the page, re-enables the row, and invalidates
+  ///     [salonManagementProfileProvider] so the NEXT visit to «Персонал»
+  ///     is not stale too.
+  ///   * 403 / other — stays on the page, re-enables the row. No
+  ///     invalidation: nothing about the roster is known to be wrong.
+  Future<void> _confirmRemoveMaster(SalonStaffMember member) async {
+    if (_removing || _confirmOpen) return;
+    final String? masterId = member.masterId;
+    if (masterId == null) return;
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String masterName = '${member.firstName} ${member.lastName}'.trim();
+
+    // Set BEFORE the dialog is awaited (mobile-perf LOW fix, 2026-09-05) —
+    // see `_confirmOpen`'s own doc. Without this, no guard covered the
+    // entire pre-confirmation window and a fast double-tap could open two
+    // stacked confirmation dialogs; confirming both would fire TWO
+    // hard-delete calls against a master's account.
+    _confirmOpen = true;
+    final bool? confirmed = await showRemoveMasterDialog(context, masterName);
+    _confirmOpen = false;
+    if (!mounted) return;
+    if (confirmed != true) return;
+
+    setState(() => _removing = true);
+    final Failure? failure = await ref
+        .read(staffSettingsProvider.notifier)
+        .removeMaster(salonId: widget.salonId, masterId: masterId);
+    if (!mounted) return;
+
+    if (failure != null) {
+      final int? statusCode = _failureStatusCode(failure);
+      final String message = _removeMasterErrorMessage(statusCode, l10n);
+      if (statusCode == 404) {
+        showErrorSnack(context, message);
+        _returnToStaffTab();
+        return;
+      }
+      setState(() => _removing = false);
+      showErrorSnack(context, message);
+      if (statusCode == 409) {
+        ref.invalidate(salonManagementProfileProvider(widget.salonId));
+      }
+      return;
+    }
+
+    showSuccessSnack(context, l10n.removeMasterSuccess);
     _returnToStaffTab();
   }
 
@@ -305,8 +455,27 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
   /// the roster (it would render `NotFoundFailure`). `context.canPop()` is
   /// re-checked before each pop, so a cold deep link straight to this route
   /// falls back to `context.go` on the management profile instead.
+  ///
+  /// EXTENDED (Phase 307, D6) with two more invalidations, ahead of the
+  /// roster one, harmless for the admin flow that already called this
+  /// method unmodified:
+  ///
+  ///   * `salonStaffMemberProfileProvider(salonId, memberId)` — the SAME
+  ///     family this screen's own `build()` reads for the display name.
+  ///     Invalidating it FIRST means the staff profile underneath, on its
+  ///     way past during the pops below, cannot repaint a `NotFoundFailure`
+  ///     mid-transition.
+  ///   * `publicSalonProfileProvider(salonId)` — a **keepAlive** family
+  ///     holding the public masters rail. Being keepAlive, invalidating it
+  ///     is a seamless refetch, not a dispose; left alone it would keep
+  ///     serving a removed master to the owner's own public-profile view for
+  ///     the rest of the session.
   void _returnToStaffTab() {
+    ref.invalidate(
+      salonStaffMemberProfileProvider(widget.salonId, widget.memberId),
+    );
     ref.invalidate(salonManagementProfileProvider(widget.salonId));
+    ref.invalidate(publicSalonProfileProvider(widget.salonId));
     ref
         .read(salonManageTabProvider(widget.salonId).notifier)
         .select(kSalonStaffSubTab);
@@ -355,23 +524,149 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
         ? ''
         : '${member.firstName} ${member.lastName}'.trim();
 
-    // ROLE GUARD (mobile-perf/QA LOW, 2026-08-31) — every row below acts on
+    // ROLE GUARD (mobile-perf/QA LOW, 2026-08-31; MASTER branch Phase 307) —
+    // every row on the ADMIN branch acts on
     // `/salons/{salonId}/admins/{userId}`, which only exists for an ADMIN
     // entry. `SalonStaffProfileScreen` only offers the entry point for an
-    // admin, but the ROUTE is reachable without it: the browser/system back
-    // stack, an in-app `context.go`, or a cold deep link all land here with
-    // whatever `memberId` the URL carries. Rendering «Видалити
-    // адміністратора» against a MASTER's userId is a dead affordance — the
-    // server refuses it (that is and stays the gate; this is a UI-correctness
-    // fix, not a client-side authorization decision) — but a destructive row
-    // that cannot work must not be drawn at all.
+    // admin/eligible-master, but the ROUTE is reachable without it: the
+    // browser/system back stack, an in-app `context.go`, or a cold deep link
+    // all land here with whatever `memberId` the URL carries. Rendering
+    // «Видалити адміністратора» against a MASTER's userId is a dead
+    // affordance — the server refuses it (that is and stays the gate; this
+    // is a UI-correctness fix, not a client-side authorization decision) —
+    // but a destructive row that cannot work must not be drawn at all.
     //
     // Gated on a RESOLVED non-admin only. While the role is unknown (loading,
-    // or a failed roster read) `member` is null and the rows render as
+    // or a failed roster read) `member` is null and the ADMIN rows render as
     // before, exactly like `SalonStaffProfileScreen`'s own `maybeWhen`
-    // default — the guard never flashes over a healthy load.
+    // default — the guard never flashes over a healthy load. Since
+    // [SalonStaffRole] only has two values, a resolved non-admin IS a master.
     final bool isNotAdmin =
         member != null && member.role != SalonStaffRole.admin;
+
+    // D3/D4 (Phase 307) — the master branch's OWN gate, evaluated only when
+    // it is reachable at all (`isNotAdmin`). Owner-only, and never against
+    // the owner's own master row.
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
+    final String? currentUserId = ref.watch(currentUserProvider)?.id;
+    final bool canManageMaster =
+        isNotAdmin && isOwner && member.userId != currentUserId;
+
+    // mobile-security LOW fix (2026-09-05) — the two denial CAUSES need
+    // different copy. `staffSettingsMasterOwnerOnlyBody`'s "ask the owner"
+    // phrasing is correct for a non-owner viewer, but is factually wrong
+    // when the viewer IS the owner looking at their own master row — there
+    // is nobody else for them to ask. `isOwnRow` is `true` only in that
+    // second case; a non-owner viewing someone else's row, or a non-owner
+    // who happens to share an id with the row (cannot occur for a real
+    // master self-view, since that master would need `isOwner == true` to
+    // reach here), both fall through to the existing "owner only" copy.
+    final bool isOwnRow =
+        isNotAdmin && isOwner && member.userId == currentUserId;
+
+    final Widget body;
+    if (member == null || member.role == SalonStaffRole.admin) {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // Context subheading — WHO is being managed. Absent (never a
+          // placeholder) until the roster resolves.
+          _reveal(_anim0, _AdminContextRow(name: adminName)),
+
+          // Navigational group.
+          _reveal(
+            _anim1,
+            SettingsRow(
+              key: const Key('row-admin-move-salon'),
+              icon: Icons.swap_horiz_rounded,
+              label: l10n.adminSettingsMoveSalon,
+              onTap: _openMove,
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(
+            _anim2,
+            SettingsRow(
+              key: const Key('row-admin-convert-to-master'),
+              icon: Icons.badge_outlined,
+              label: l10n.adminSettingsConvertToMaster,
+              // No backend endpoint exists for role conversion — the row is
+              // visibly present and inert, and says so. `onTap` is a no-op
+              // that `enabled: false` never lets fire (taps are absorbed);
+              // it is not a "silently does nothing" handler.
+              enabled: false,
+              showChevron: false,
+              value: l10n.adminSettingsConvertToMasterSoon,
+              onTap: () {},
+            ),
+          ),
+
+          // Separation before the terminal action.
+          _reveal(
+            _anim3,
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+              child: Divider(
+                key: Key('admin-settings-divider'),
+                thickness: 0.6,
+                color: Color(0x38B89A7A), // accent @ ~22%
+              ),
+            ),
+          ),
+
+          // Terminal / destructive action — set apart.
+          _reveal(
+            _anim4,
+            SettingsRow(
+              key: const Key('row-admin-remove'),
+              icon: Icons.person_remove_outlined,
+              label: l10n.adminSettingsRemove,
+              destructive: true,
+              showChevron: false,
+              loading: _removing,
+              onTap: () => _confirmRemove(adminName),
+            ),
+          ),
+        ],
+      );
+    } else if (!canManageMaster) {
+      // D3/D4 — not the owner, or the owner's own master row. `member` is
+      // promoted non-null here (the `if` above ruled out both `null` and
+      // `admin`). The outer key stays the same for both sub-cases (only the
+      // copy differs) — every existing "the notice renders" assertion keys
+      // off `staff-settings-master-owner-only` regardless of which sentence
+      // is showing.
+      body = SalonNoticeCard(
+        key: const Key('staff-settings-master-owner-only'),
+        icon: Icons.lock_outline,
+        title: isOwnRow
+            ? l10n.staffSettingsMasterSelfTitle
+            : l10n.staffSettingsMasterOwnerOnlyTitle,
+        body: isOwnRow
+            ? l10n.staffSettingsMasterSelfBody
+            : l10n.staffSettingsMasterOwnerOnlyBody,
+      );
+    } else {
+      // The one master action this screen has today (D1) — single row, no
+      // context subheading, no hairline; see this file's header for why the
+      // master branch is deliberately this minimal.
+      body = _reveal(
+        _anim0,
+        SettingsRow(
+          key: const Key('row-master-remove'),
+          icon: Icons.person_remove_outlined,
+          label: l10n.staffSettingsRemoveMaster,
+          destructive: true,
+          showChevron: false,
+          // D2 — a resolved master entry with no `masterId` is a data
+          // anomaly; the row stays disabled rather than ever sending a
+          // guessed id.
+          enabled: member.masterId != null,
+          loading: _removing,
+          onTap: () => _confirmRemoveMaster(member),
+        ),
+      );
+    }
 
     return SectionScaffold(
       title: l10n.settingsTitle,
@@ -379,76 +674,7 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
       backSemanticLabel: l10n.settingsHubClose,
       backKey: const Key('btn-close-admin-settings'),
       onBack: _close,
-      body: isNotAdmin
-          ? SalonNoticeCard(
-              key: const Key('admin-settings-not-an-admin'),
-              icon: Icons.badge_outlined,
-              title: l10n.adminSettingsNotAnAdminTitle,
-              body: l10n.adminSettingsNotAnAdminBody,
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                // Context subheading — WHO is being managed. Absent (never a
-                // placeholder) until the roster resolves.
-                _reveal(_anim0, _AdminContextRow(name: adminName)),
-
-                // Navigational group.
-                _reveal(
-                  _anim1,
-                  SettingsRow(
-                    key: const Key('row-admin-move-salon'),
-                    icon: Icons.swap_horiz_rounded,
-                    label: l10n.adminSettingsMoveSalon,
-                    onTap: _openMove,
-                  ),
-                ),
-                const SizedBox(height: VelvetSpacing.md),
-                _reveal(
-                  _anim2,
-                  SettingsRow(
-                    key: const Key('row-admin-convert-to-master'),
-                    icon: Icons.badge_outlined,
-                    label: l10n.adminSettingsConvertToMaster,
-                    // No backend endpoint exists for role conversion — the row is
-                    // visibly present and inert, and says so. `onTap` is a no-op
-                    // that `enabled: false` never lets fire (taps are absorbed);
-                    // it is not a "silently does nothing" handler.
-                    enabled: false,
-                    showChevron: false,
-                    value: l10n.adminSettingsConvertToMasterSoon,
-                    onTap: () {},
-                  ),
-                ),
-
-                // Separation before the terminal action.
-                _reveal(
-                  _anim3,
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
-                    child: Divider(
-                      key: Key('admin-settings-divider'),
-                      thickness: 0.6,
-                      color: Color(0x38B89A7A), // accent @ ~22%
-                    ),
-                  ),
-                ),
-
-                // Terminal / destructive action — set apart.
-                _reveal(
-                  _anim4,
-                  SettingsRow(
-                    key: const Key('row-admin-remove'),
-                    icon: Icons.person_remove_outlined,
-                    label: l10n.adminSettingsRemove,
-                    destructive: true,
-                    showChevron: false,
-                    loading: _removing,
-                    onTap: () => _confirmRemove(adminName),
-                  ),
-                ),
-              ],
-            ),
+      body: body,
     );
   }
 }

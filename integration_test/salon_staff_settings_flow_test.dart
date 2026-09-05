@@ -78,6 +78,14 @@ const String _kAdminId = 'admin-zzz';
 /// "the roster shrank" could be satisfied by a handler that emptied the list.
 const String _kMasterId = 'master-aaa';
 
+/// Phase 307 — the SECOND seeded master, the remove-master flow's own
+/// subject. `userId` (the route's `memberId`) is DELIBERATELY DIFFERENT from
+/// `masterId` (the endpoint's path variable) — see `fake_backend.dart`'s
+/// `_salonStaff` doc for why `_kMasterId`/`master-aaa` cannot be reused for
+/// this: its two ids are identical and so cannot catch a swap.
+const String _kRemovableMasterUserId = 'user-master-removable';
+const String _kRemovableMasterId = 'master-removable';
+
 /// The rotate destination the journey picks. Deliberately the SECOND sibling
 /// — picking the first would pass even if the picker always submitted
 /// `targets.first`.
@@ -153,6 +161,51 @@ Future<GoRouter> _openStaffSettings(WidgetTester tester, FakeBackend fb) async {
     // The settings page is reached by `context.push`, which go_router
     // excludes from `currentConfiguration.uri`/`.fullPath` — `expectLocation`
     // reads the match stack instead (`forbid_naive_router_location.sh`).
+  );
+  return router;
+}
+
+/// Phase 307 — the same real UI path as [_openStaffSettings], but for the
+/// removable MASTER's card and the `btn-master-settings` gear.
+Future<GoRouter> _openMasterStaffSettings(
+  WidgetTester tester,
+  FakeBackend fb,
+) async {
+  final GoRouter router = await AppHarness.boot(tester, fb);
+
+  await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+  // fixed-wait-ok: settles the real async login/route-transition step.
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+
+  router.go(RouteNames.salonManage(_kSalonId));
+  // fixed-wait-ok: settles the real async route-transition step.
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+
+  final AppLocalizations l10n = await AppLocalizations.delegate.load(
+    const Locale('uk'),
+  );
+  await tester.tap(find.text(l10n.salonManageTabStaff));
+  await tester.pumpAndSettle();
+
+  final Finder masterCard = find.byKey(
+    const Key('salon-manage-staff-card-$_kRemovableMasterUserId'),
+  );
+  await tester.ensureVisible(masterCard);
+  await tester.pumpAndSettle();
+  await tester.tap(masterCard);
+  await tester.pumpAndSettle();
+  expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+
+  await AppHarness.tapVisible(
+    tester,
+    find.byKey(const Key('btn-master-settings')),
+  );
+  await AppHarness.settle(tester);
+
+  expect(find.byType(StaffSettingsScreen), findsOneWidget);
+  AppHarness.expectLocation(
+    router,
+    '/salons/$_kSalonId/manage/staff/$_kRemovableMasterUserId/settings',
   );
   return router;
 }
@@ -237,7 +290,7 @@ void main() {
         );
         expect(
           fb.salonStaff.map((Map<String, dynamic> r) => r['userId']),
-          <String>[_kMasterId],
+          <String>[_kMasterId, _kRemovableMasterUserId],
           reason:
               'backend state itself must show the admin gone and the master '
               'untouched',
@@ -389,7 +442,7 @@ void main() {
         );
         expect(
           fb.salonStaff.map((Map<String, dynamic> r) => r['userId']),
-          <String>[_kMasterId],
+          <String>[_kMasterId, _kRemovableMasterUserId],
         );
 
         // ── The DESTINATION ─────────────────────────────────────────────
@@ -477,9 +530,177 @@ void main() {
         );
         expect(
           fb.salonStaff.map((Map<String, dynamic> r) => r['userId']),
-          <String>[_kMasterId, _kAdminId],
+          <String>[_kMasterId, _kAdminId, _kRemovableMasterUserId],
           reason: 'a rejected removal must leave the backend roster intact',
         );
+      });
+    },
+  );
+
+  // ── ITEM 4 — REMOVE MASTER, end to end (Phase 307). ─────────────────────
+  testWidgets(
+    'SALON_OWNER opens a master\'s settings, confirms the removal via the '
+    'REAL DELETE carrying the MASTER id, and the master stays gone across a '
+    'genuine roster refetch',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+
+        final GoRouter router = await _openMasterStaffSettings(tester, fb);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(StaffSettingsScreen)),
+        );
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('row-master-remove')),
+        );
+        await AppHarness.settle(tester);
+        expect(find.byKey(const Key('dialog-remove-master')), findsOneWidget);
+
+        final int staffCallsBeforeWrite = fb.getSalonStaffCalls;
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('btn-confirm-remove-master')),
+        );
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.byType(StaffSettingsScreen),
+        );
+
+        // ── The WIRE ────────────────────────────────────────────────────
+        expect(fb.removeMasterCalls, 1);
+        expect(
+          fb.lastRemoveMasterId,
+          _kRemovableMasterId,
+          reason:
+              'the DELETE must carry the MASTER-row id, never the route\'s '
+              'userId — a swapped id would 404 (indistinguishable from '
+              '"already removed") and this assertion would fail',
+        );
+        expect(
+          fb.salonStaff.map((Map<String, dynamic> r) => r['userId']),
+          <String>[_kMasterId, _kAdminId],
+          reason:
+              'backend state itself must show the removable master gone and '
+              'the CONTROL rows (master-aaa, admin-zzz) untouched',
+        );
+
+        // ── The DESTINATION ─────────────────────────────────────────────
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage');
+        expect(find.byType(SalonStaffProfileScreen), findsNothing);
+        expect(find.text(l10n.removeMasterSuccess), findsOneWidget);
+
+        // ── PERSISTENCE against a SERVER-derived roster ─────────────────
+        expect(
+          fb.getSalonStaffCalls,
+          greaterThan(staffCallsBeforeWrite),
+          reason:
+              'the roster must be RE-FETCHED after the removal — without '
+              'that invalidation the viewer lands on «Персонал» still '
+              'listing the master they just watched disappear',
+        );
+        await _reenterStaffTab(tester, router, l10n);
+        expect(
+          find.byKey(
+            const Key('salon-manage-staff-card-$_kRemovableMasterUserId'),
+          ),
+          findsNothing,
+          reason:
+              'the removal must be gone on the SERVER, not just in the '
+              'notifier — the list rendered here came from the post-write '
+              'GET asserted above, which is the assertion the widget tier '
+              'structurally cannot make',
+        );
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-$_kMasterId')),
+          findsOneWidget,
+          reason: 'the CONTROL: removing one master must not empty the roster',
+        );
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-$_kAdminId')),
+          findsOneWidget,
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'a real 409 (stale roster) keeps the owner on the settings page with '
+    'the conflict copy',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        fb.forceRemoveMasterFailure(409);
+
+        final GoRouter router = await _openMasterStaffSettings(tester, fb);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(StaffSettingsScreen)),
+        );
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('row-master-remove')),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('btn-confirm-remove-master')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.text(l10n.removeMasterErrorConflict),
+        );
+
+        expect(fb.removeMasterCalls, 1);
+        expect(find.byType(StaffSettingsScreen), findsOneWidget);
+        AppHarness.expectLocation(
+          router,
+          '/salons/$_kSalonId/manage/staff/$_kRemovableMasterUserId/settings',
+        );
+        expect(
+          fb.salonStaff.map((Map<String, dynamic> r) => r['userId']),
+          <String>[_kMasterId, _kAdminId, _kRemovableMasterUserId],
+          reason: 'a rejected removal must leave the backend roster intact',
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'a real 404 (already gone) unwinds to the roster with the not-found '
+    'copy',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        fb.forceRemoveMasterFailure(404);
+
+        final GoRouter router = await _openMasterStaffSettings(tester, fb);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(StaffSettingsScreen)),
+        );
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('row-master-remove')),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('btn-confirm-remove-master')),
+        );
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.byType(StaffSettingsScreen),
+        );
+
+        expect(fb.removeMasterCalls, 1);
+        expect(find.text(l10n.removeMasterErrorNotFound), findsOneWidget);
+        AppHarness.expectLocation(router, '/salons/$_kSalonId/manage');
       });
     },
   );

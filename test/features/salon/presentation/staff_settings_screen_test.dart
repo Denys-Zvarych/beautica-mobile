@@ -48,6 +48,10 @@
 // literals (`forbid_cyrillic_finder.sh`). Layer: Widget.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -94,6 +98,79 @@ const SalonStaffMember _kAdmin = SalonStaffMember(
   firstName: 'Олена',
   lastName: 'Ковальчук',
 );
+
+// ─── Phase 307 — remove master fixtures ─────────────────────────────────────
+
+/// The roster's `userId` — also the route's `memberId`.
+const String _kMasterUserId = 'user-master-1';
+
+/// The `Master`-row id — DELIBERATELY DIFFERENT from [_kMasterUserId]. D2's
+/// whole point is that `removeMaster` must be called with THIS id, never the
+/// route's `memberId`; identical fixtures would let a swapped-id bug pass.
+const String _kMasterRowId = 'master-row-1';
+
+const SalonStaffMember _kMaster = SalonStaffMember(
+  userId: _kMasterUserId,
+  masterId: _kMasterRowId,
+  role: SalonStaffRole.master,
+  firstName: 'Марина',
+  lastName: 'Литвин',
+);
+
+/// This screen's own route for the MASTER fixture — the location every
+/// "we did not navigate" assertion in the remove-master group compares
+/// against.
+final String _kMasterSettingsPath = RouteNames.salonManageStaffSettings(
+  _kSalonId,
+  _kMasterUserId,
+);
+
+const User _kOwner = User(
+  id: 'owner-1',
+  email: 'owner@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Оксана',
+  lastName: 'Швець',
+);
+
+/// A SALON_ADMIN viewer — reaches the route (e.g. a stale deep link) but is
+/// not the salon owner, so backend Phase 297's owner-only gate would 403
+/// them. D3's control case.
+const User _kAdminViewer = User(
+  id: 'admin-viewer-1',
+  email: 'admin-viewer@beautica.ua',
+  role: UserRole.salonAdmin,
+  firstName: 'Ірина',
+  lastName: 'Бойко',
+);
+
+/// The owner, but ALSO the master roster entry under test («де я працюю»
+/// self-enrolment) — D4's case. Same id as [_kMasterUserId].
+const User _kOwnerAsMaster = User(
+  id: _kMasterUserId,
+  email: 'owner-master@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Марина',
+  lastName: 'Литвин',
+);
+
+class _StubAuthNotifier extends AuthNotifier {
+  _StubAuthNotifier(this._user);
+
+  final User _user;
+
+  @override
+  Future<AuthSession> build() async =>
+      AuthSession.authenticated(user: _user, accessToken: 'tok');
+}
+
+/// Overrides for a [_pump] call that needs a specific signed-in [user] AND a
+/// resolvable MASTER roster entry (the services fetch [FakeServiceRepository]
+/// stub every master-role test in this file already needs).
+List<Object> _masterViewerOverrides(User user) => <Object>[
+  authProvider.overrideWith(() => _StubAuthNotifier(user)),
+  publicServiceRepositoryProvider.overrideWithValue(FakeServiceRepository()),
+];
 
 List<SiblingSalonOption> _siblings() => <SiblingSalonOption>[
   SiblingSalonOption(
@@ -205,6 +282,8 @@ FakeSalonRepository _repo({
   // roster whose `_kAdminId` entry is a MASTER. Defaults to the single-admin
   // roster every pre-existing caller already got, so none of them change.
   List<SalonStaffMember>? staff,
+  // ADDITIVE (Phase 307): mirrors [removeError] for the master endpoint.
+  Failure? removeMasterError,
 }) {
   final repo = FakeSalonRepository(
     salon: _kSalon,
@@ -214,6 +293,7 @@ FakeSalonRepository _repo({
   repo.removeAdminError = removeError;
   repo.rotateAdminError = rotateError;
   repo.siblingSalonsError = siblingsError;
+  repo.removeMasterError = removeMasterError;
   return repo;
 }
 
@@ -654,6 +734,55 @@ void main() {
   });
 
   group('remove administrator — in-flight and roster refresh', () {
+    // mobile-perf LOW fix (2026-09-05) — admin-path sibling of the master
+    // path's same test below; see that test's doc for why this calls the
+    // row's OWN `onTap` twice directly rather than driving two
+    // `tester.tap()` gestures.
+    testWidgets(
+      'a double-tap before the confirm dialog mounts opens only one dialog, '
+      'and confirming issues only one removeAdmin call',
+      (tester) async {
+        final FakeSalonRepository repo = _repo();
+        await _pump(tester, repo);
+
+        final SettingsRow row = tester.widget<SettingsRow>(
+          find.byKey(const Key('row-admin-remove')),
+        );
+        // Two SYNCHRONOUS invocations of the exact callback a real tap
+        // fires — the row's own `onTap`. This is the fast-double-tap race
+        // itself: the first call suspends at `await
+        // showRemoveAdminDialog(...)` and returns control (its Future is
+        // never awaited by the gesture layer either — `onTap` is a fired-
+        // and-forgotten `VoidCallback`), so the second call runs while the
+        // first is still mid-dialog. Measured — two `tester.tap()` gestures
+        // fired back-to-back with NO `pump()` between them does NOT
+        // reproduce this: by the time the first call's `Future` resolves,
+        // `Navigator.push`'s synchronous portion (inside `showDialog`) has
+        // already run and the new route already occupies that hit-test
+        // position, so the second gesture silently misses the row instead
+        // of re-entering `onTap` — which would make this test pass
+        // regardless of whether the guard exists, defeating the whole
+        // point. Calling `onTap` directly sidesteps hit-testing entirely
+        // and exercises the guard at the exact seam it protects.
+        row.onTap();
+        row.onTap();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('remove-admin-dialog')),
+          findsOneWidget,
+          reason: 'the second call must not raise a second confirm dialog',
+        );
+
+        await tester.tap(find.byKey(const Key('remove-admin-confirm')));
+        await tester.pumpAndSettle();
+
+        expect(repo.removeAdminRequests, <({String salonId, String userId})>[
+          (salonId: _kSalonId, userId: _kAdminId),
+        ]);
+      },
+    );
+
     testWidgets(
       'while the DELETE is in flight the row spins and a second tap issues '
       'nothing',
@@ -947,54 +1076,37 @@ void main() {
   // master's userId — that is and stays the gate — so this is a
   // UI-correctness fix: a destructive row that cannot work must not render.
   group('role guard', () {
-    testWidgets('a MASTER member renders the notice, not the action rows', (
-      tester,
-    ) async {
-      final FakeSalonRepository repo = _repo(
-        // Same userId the route carries — only the ROLE differs from the
-        // fixture every other test in this file uses.
-        staff: const <SalonStaffMember>[
-          SalonStaffMember(
-            userId: _kAdminId,
-            masterId: 'master-1',
-            role: SalonStaffRole.master,
-            firstName: 'Олена',
-            lastName: 'Ковальчук',
-          ),
-        ],
-      );
-      await _pump(
-        tester,
-        repo,
-        // A master entry makes the profile provider load that master's
-        // services; without this the read hits the real Dio stack and the
-        // whole tuple never resolves, so the role would stay unknown and
-        // this test would pass/fail for the wrong reason.
-        extraOverrides: <Object>[
-          publicServiceRepositoryProvider.overrideWithValue(
-            FakeServiceRepository(),
-          ),
-        ],
-      );
-      final AppLocalizations l10n = _settingsL10n(tester);
+    testWidgets(
+      'a MASTER member, viewed by the OWNER, renders the remove row, not '
+      'the admin rows',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
 
-      expect(
-        find.byKey(const Key('admin-settings-not-an-admin')),
-        findsOneWidget,
-      );
-      expect(find.text(l10n.adminSettingsNotAnAdminTitle), findsOneWidget);
+        expect(find.byKey(const Key('row-master-remove')), findsOneWidget);
 
-      // The three admin-only rows, the hairline and the context subheading
-      // are all gone — not merely disabled.
-      expect(find.byKey(const Key('row-admin-remove')), findsNothing);
-      expect(find.byKey(const Key('row-admin-move-salon')), findsNothing);
-      expect(
-        find.byKey(const Key('row-admin-convert-to-master')),
-        findsNothing,
-      );
-      expect(find.byKey(const Key('admin-settings-divider')), findsNothing);
-      expect(find.byType(SettingsRow), findsNothing);
-    });
+        // The admin-only rows, the hairline, the admin context subheading
+        // and the owner-only notice are all gone — not merely disabled.
+        expect(
+          find.byKey(const Key('staff-settings-master-owner-only')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('row-admin-remove')), findsNothing);
+        expect(find.byKey(const Key('row-admin-move-salon')), findsNothing);
+        expect(
+          find.byKey(const Key('row-admin-convert-to-master')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('admin-settings-divider')), findsNothing);
+      },
+    );
 
     testWidgets('an ADMIN member is untouched by the guard', (tester) async {
       // The CONTROL. Without it the guard could be inverted (or always on)
@@ -1026,5 +1138,459 @@ void main() {
       );
       expect(find.byKey(const Key('row-admin-remove')), findsOneWidget);
     });
+  });
+
+  // -------------------------------------------------------------------
+  // 16. REMOVE MASTER (Phase 307) — D2 id trap, D3/D4 gating, D5 four-way
+  //     error mapping, D6 unwind + invalidation.
+  // -------------------------------------------------------------------
+  group('remove master — gating (D3/D4)', () {
+    testWidgets(
+      'a non-owner (ADMIN) viewer sees the owner-only notice, no remove row',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kAdminViewer),
+        );
+        final AppLocalizations l10n = _settingsL10n(tester);
+
+        expect(
+          find.byKey(const Key('staff-settings-master-owner-only')),
+          findsOneWidget,
+        );
+        expect(
+          find.text(l10n.staffSettingsMasterOwnerOnlyTitle),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('row-master-remove')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the owner viewing their OWN master row sees the notice card, no '
+      'remove row',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwnerAsMaster),
+        );
+
+        expect(
+          find.byKey(const Key('staff-settings-master-owner-only')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('row-master-remove')), findsNothing);
+      },
+    );
+
+    // mobile-security LOW fix (2026-09-05) — the notice card above renders
+    // for TWO distinct reasons (a non-owner viewer; the owner's own row),
+    // and the "ask the owner" copy is factually wrong for the second one —
+    // there is nobody else for the owner to ask. This proves the copy
+    // actually DIFFERS between the two cases, not merely that the same card
+    // renders for both. Asserted against literal l10n getters (never one
+    // getter compared to itself, which was the CRITICAL shape flagged on
+    // Phase 291) so a regression that collapses both cases back onto one
+    // string goes red here.
+    testWidgets("the owner's own-row copy is the SELF variant, never the "
+        '"ask the owner" one', (tester) async {
+      final FakeSalonRepository repo = _repo(
+        staff: const <SalonStaffMember>[_kMaster],
+      );
+      await _pump(
+        tester,
+        repo,
+        initial: _kMasterSettingsPath,
+        extraOverrides: _masterViewerOverrides(_kOwnerAsMaster),
+      );
+      final AppLocalizations l10n = _settingsL10n(tester);
+
+      expect(find.text(l10n.staffSettingsMasterSelfTitle), findsOneWidget);
+      expect(find.text(l10n.staffSettingsMasterSelfBody), findsOneWidget);
+      expect(
+        find.text(l10n.staffSettingsMasterOwnerOnlyTitle),
+        findsNothing,
+        reason:
+            'the "ask the owner" title must not appear when the viewer IS '
+            'the owner — there is nobody else to ask',
+      );
+      expect(find.text(l10n.staffSettingsMasterOwnerOnlyBody), findsNothing);
+    });
+
+    testWidgets(
+      'a genuinely non-owner viewer gets the "ask the owner" copy, never '
+      'the self-row one',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kAdminViewer),
+        );
+        final AppLocalizations l10n = _settingsL10n(tester);
+
+        expect(
+          find.text(l10n.staffSettingsMasterOwnerOnlyTitle),
+          findsOneWidget,
+        );
+        expect(
+          find.text(l10n.staffSettingsMasterSelfTitle),
+          findsNothing,
+          reason:
+              'a genuinely non-owner viewer must never see the self-row copy',
+        );
+      },
+    );
+
+    testWidgets(
+      'a resolved master with a null masterId keeps the row DISABLED',
+      (tester) async {
+        const SalonStaffMember masterWithNoRowId = SalonStaffMember(
+          userId: _kMasterUserId,
+          role: SalonStaffRole.master,
+          firstName: 'Марина',
+          lastName: 'Литвин',
+        );
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[masterWithNoRowId],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+
+        const Key rowKey = Key('row-master-remove');
+        expect(find.byKey(rowKey), findsOneWidget);
+        expect(_rowSemanticsEnabled(tester, rowKey), isFalse);
+
+        // Proven by TAPPING and asserting nothing happened, not by reading
+        // the widget's own `enabled` field back (vacuous).
+        await tester.tap(find.byKey(rowKey), warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('dialog-remove-master')), findsNothing);
+        expect(repo.removeMasterRequests, isEmpty);
+      },
+    );
+  });
+
+  group('remove master — the D2 id trap', () {
+    testWidgets(
+      'confirming calls removeMaster with the MASTER id, never the route '
+      "memberId — and the fixture's two ids are DIFFERENT",
+      (tester) async {
+        expect(
+          _kMasterRowId,
+          isNot(_kMasterUserId),
+          reason:
+              'identical fixtures would let a userId/masterId swap pass '
+              'silently — the whole point of this test',
+        );
+
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+
+        await tester.tap(find.byKey(const Key('row-master-remove')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('dialog-remove-master')), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('btn-confirm-remove-master')));
+        await tester.pumpAndSettle();
+
+        expect(repo.removeMasterRequests, <({String salonId, String masterId})>[
+          (salonId: _kSalonId, masterId: _kMasterRowId),
+        ]);
+      },
+    );
+
+    testWidgets('dismissing the dialog calls nothing', (tester) async {
+      final FakeSalonRepository repo = _repo(
+        staff: const <SalonStaffMember>[_kMaster],
+      );
+      await _pump(
+        tester,
+        repo,
+        initial: _kMasterSettingsPath,
+        extraOverrides: _masterViewerOverrides(_kOwner),
+      );
+
+      await tester.tap(find.byKey(const Key('row-master-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-cancel-remove-master')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('dialog-remove-master')), findsNothing);
+      expect(repo.removeMasterRequests, isEmpty);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
+    });
+  });
+
+  group('remove master — D5 four-way error mapping', () {
+    Future<void> confirmOnce(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('row-master-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-remove-master')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('403 shows the forbidden copy and stays on the page', (
+      tester,
+    ) async {
+      final FakeSalonRepository repo = _repo(
+        staff: const <SalonStaffMember>[_kMaster],
+        removeMasterError: _forbidden(),
+      );
+      await _pump(
+        tester,
+        repo,
+        initial: _kMasterSettingsPath,
+        extraOverrides: _masterViewerOverrides(_kOwner),
+      );
+      final AppLocalizations l10n = _settingsL10n(tester);
+
+      await confirmOnce(tester);
+
+      expect(find.text(l10n.removeMasterErrorForbidden), findsOneWidget);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
+      expect(find.byKey(const Key('row-master-remove')), findsOneWidget);
+    });
+
+    testWidgets(
+      '409 shows the conflict copy, stays on the page, and invalidates the '
+      'roster',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+          removeMasterError: const ServerFailure(statusCode: 409),
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+        final AppLocalizations l10n = _settingsL10n(tester);
+
+        final int before = repo.getSalonStaffCalls;
+        await confirmOnce(tester);
+
+        expect(find.text(l10n.removeMasterErrorConflict), findsOneWidget);
+        expect(find.byType(StaffSettingsScreen), findsOneWidget);
+        expect(
+          repo.getSalonStaffCalls,
+          greaterThan(before),
+          reason:
+              'every 409 cause means this page\'s picture of the roster is '
+              'stale',
+        );
+      },
+    );
+
+    testWidgets('404 shows the not-found copy and unwinds', (tester) async {
+      final FakeSalonRepository repo = _repo(
+        staff: const <SalonStaffMember>[_kMaster],
+        removeMasterError: const ServerFailure(statusCode: 404),
+      );
+      final GoRouter router = await _pump(
+        tester,
+        repo,
+        initial: _kMasterSettingsPath,
+        extraOverrides: _masterViewerOverrides(_kOwner),
+      );
+      final AppLocalizations l10n = _settingsL10n(tester);
+
+      await confirmOnce(tester);
+
+      expect(find.text(l10n.removeMasterErrorNotFound), findsOneWidget);
+      expect(find.byType(StaffSettingsScreen), findsNothing);
+      expect(find.byKey(const Key('stub-manage-$_kSalonId')), findsOneWidget);
+      expect(_lastMatchedLocation(router), RouteNames.salonManage(_kSalonId));
+    });
+
+    testWidgets('a non-403/409/404 failure shows the generic copy', (
+      tester,
+    ) async {
+      final FakeSalonRepository repo = _repo(
+        staff: const <SalonStaffMember>[_kMaster],
+        removeMasterError: const ServerFailure(statusCode: 500),
+      );
+      await _pump(
+        tester,
+        repo,
+        initial: _kMasterSettingsPath,
+        extraOverrides: _masterViewerOverrides(_kOwner),
+      );
+      final AppLocalizations l10n = _settingsL10n(tester);
+
+      await confirmOnce(tester);
+
+      expect(find.text(l10n.removeMasterErrorGeneric), findsOneWidget);
+      expect(find.text(l10n.removeMasterErrorForbidden), findsNothing);
+      expect(find.text(l10n.removeMasterErrorConflict), findsNothing);
+      expect(find.text(l10n.removeMasterErrorNotFound), findsNothing);
+    });
+  });
+
+  group('remove master — in-flight, success unwind and roster refresh', () {
+    // mobile-perf LOW fix (2026-09-05) — calls the row's OWN `onTap` twice,
+    // SYNCHRONOUSLY, rather than driving two `tester.tap()` gestures.
+    //
+    // `onTap` is a fired-and-forgotten `VoidCallback` — nothing awaits the
+    // `Future` `_confirmRemoveMaster` returns — so the first call runs
+    // synchronously up to its own `await showRemoveMasterDialog(...)` and
+    // returns control immediately; the second call then re-enters
+    // `_confirmRemoveMaster` while the first is still mid-dialog. That is
+    // exactly the fast-double-tap race this fix closes.
+    //
+    // Measured — two `tester.tap()` gestures fired back-to-back with no
+    // `pump()` between them does NOT reproduce this race here: by the time
+    // the FIRST `tester.tap()` call's `Future` resolves,
+    // `showRemoveMasterDialog`'s `Navigator.push` has already run its
+    // synchronous portion and the new dialog route already occupies that
+    // screen position for hit-testing, so the second gesture silently
+    // misses the row (`warnIfMissed: false` swallows exactly that) instead
+    // of re-entering `onTap` at all — a shape that would pass this test
+    // whether or not the guard existed. Calling `onTap` directly sidesteps
+    // hit-testing and exercises the guard at the exact seam it protects.
+    testWidgets(
+      'a double-tap before the confirm dialog mounts opens only one dialog, '
+      'and confirming issues only one removeMaster call',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+
+        final SettingsRow row = tester.widget<SettingsRow>(
+          find.byKey(const Key('row-master-remove')),
+        );
+        row.onTap();
+        row.onTap();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('dialog-remove-master')),
+          findsOneWidget,
+          reason: 'the second call must not raise a second confirm dialog',
+        );
+
+        await tester.tap(find.byKey(const Key('btn-confirm-remove-master')));
+        await tester.pumpAndSettle();
+
+        expect(repo.removeMasterRequests, <({String salonId, String masterId})>[
+          (salonId: _kSalonId, masterId: _kMasterRowId),
+        ]);
+      },
+    );
+
+    testWidgets(
+      'while the DELETE is in flight the row spins and a second tap issues '
+      'nothing',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        repo.removeMasterGate = Completer<void>();
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+
+        await tester.tap(find.byKey(const Key('row-master-remove')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-confirm-remove-master')));
+        await tester.pumpUntilFound(
+          find.byKey(const ValueKey<String>('settings_row_loading')),
+        );
+
+        expect(
+          find.byKey(const ValueKey<String>('settings_row_loading')),
+          findsOneWidget,
+        );
+        expect(repo.removeMasterRequests, hasLength(1));
+
+        await tester.tap(
+          find.byKey(const Key('row-master-remove')),
+          warnIfMissed: false,
+        );
+        await tester.pump();
+        expect(
+          repo.removeMasterRequests,
+          hasLength(1),
+          reason: 'a second tap must not issue a second DELETE',
+        );
+
+        repo.removeMasterGate!.complete();
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      'a successful remove shows the success snack, unwinds to «Персонал», '
+      'and REFETCHES the staff roster',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        final GoRouter router = await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+        final AppLocalizations l10n = _settingsL10n(tester);
+
+        final int before = repo.getSalonStaffCalls;
+        expect(before, greaterThan(0));
+
+        await tester.tap(find.byKey(const Key('row-master-remove')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-confirm-remove-master')));
+        await tester.pumpAndSettle();
+
+        expect(repo.removeMasterRequests, <({String salonId, String masterId})>[
+          (salonId: _kSalonId, masterId: _kMasterRowId),
+        ]);
+        expect(find.text(l10n.removeMasterSuccess), findsOneWidget);
+        expect(find.byType(StaffSettingsScreen), findsNothing);
+        expect(find.byKey(const Key('stub-manage-$_kSalonId')), findsOneWidget);
+        expect(_lastMatchedLocation(router), RouteNames.salonManage(_kSalonId));
+        expect(
+          repo.getSalonStaffCalls,
+          greaterThan(before),
+          reason:
+              'the roster must be re-read after the removal — the '
+              'destination screen renders that list',
+        );
+      },
+    );
   });
 }

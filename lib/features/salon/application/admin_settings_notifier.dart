@@ -90,6 +90,30 @@ class StaffSettings extends _$StaffSettings {
     }
   }
 
+  /// Removes master [masterId] from salon [salonId] (Phase 307; backend
+  /// Phase 297 + 298 via [SalonRepository.removeMaster], Phase 304's client).
+  ///
+  /// Returns `null` on success or the [Failure] on error. Mirrors
+  /// [removeAdmin] exactly — same shape, same "no re-check, no invalidation
+  /// here" contract from this file's header — the ONLY difference is which
+  /// repository method it calls. [masterId] is the `Master`-row id
+  /// (`SalonStaffMember.masterId`), never the roster's `userId`; the caller
+  /// (`StaffSettingsScreen._confirmRemoveMaster`) is responsible for passing
+  /// the right one — see [SalonRepository.removeMaster]'s own doc for the
+  /// D2 trap this exists to avoid.
+  Future<Failure?> removeMaster({
+    required String salonId,
+    required String masterId,
+  }) async {
+    final SalonRepository repo = ref.read(salonRepositoryProvider);
+    try {
+      await repo.removeMaster(salonId: salonId, masterId: masterId);
+      return null;
+    } on Failure catch (f) {
+      return f;
+    }
+  }
+
   /// Moves admin [userId] from salon [salonId] to [destinationSalonId].
   ///
   /// Returns `null` on success or the [Failure] on error. A destination

@@ -31,19 +31,26 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/staff_settings_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -128,6 +135,94 @@ List<Object> _overrides(
     (ref) async => const <ServiceCategoryOption>[],
   ),
 ];
+
+// ---------------------------------------------------------------------------
+// Phase 307 — the trailing management gear (ADMIN, unchanged; MASTER, new).
+// ---------------------------------------------------------------------------
+
+const User _kOwner = User(
+  id: 'owner-1',
+  email: 'owner@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Оксана',
+  lastName: 'Швець',
+);
+
+/// Reaches the route (e.g. a stale deep link) but is not the salon owner.
+const User _kAdminViewer = User(
+  id: 'admin-viewer-1',
+  email: 'admin-viewer@beautica.ua',
+  role: UserRole.salonAdmin,
+  firstName: 'Ірина',
+  lastName: 'Бойко',
+);
+
+/// The owner, but ALSO the master roster entry under test — same id as
+/// [_kMasterId].
+const User _kOwnerAsMaster = User(
+  id: _kMasterId,
+  email: 'owner-master@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+);
+
+class _StubAuthNotifier extends AuthNotifier {
+  _StubAuthNotifier(this._user);
+
+  final User _user;
+
+  @override
+  Future<AuthSession> build() async =>
+      AuthSession.authenticated(user: _user, accessToken: 'tok');
+}
+
+/// A router rooted at [SalonStaffProfileScreen] for [memberId], with the REAL
+/// [StaffSettingsScreen] mounted as the settings destination — so a push
+/// assertion pins the resolved PAGE TYPE, not merely a matched path string.
+GoRouter _profileRouter(String memberId) => GoRouter(
+  initialLocation: RouteNames.salonManageStaffMember(_kSalonId, memberId),
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId',
+      builder: (context, state) => SalonStaffProfileScreen(
+        salonId: state.pathParameters['salonId']!,
+        memberId: state.pathParameters['memberId']!,
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId/settings',
+      builder: (context, state) => StaffSettingsScreen(
+        salonId: state.pathParameters['salonId']!,
+        memberId: state.pathParameters['memberId']!,
+      ),
+    ),
+  ],
+);
+
+/// Pumps [SalonStaffProfileScreen] for [memberId] inside a real [GoRouter],
+/// with an optional signed-in [user] (defaults to unauthenticated — a
+/// non-owner, non-admin viewer, e.g. every pre-existing test in this file
+/// that never touches auth).
+Future<GoRouter> _pumpRouted(
+  WidgetTester tester,
+  String memberId,
+  FutureOr<SalonStaffMemberProfileData> Function(Ref ref) create, {
+  User? user,
+}) async {
+  final GoRouter router = _profileRouter(memberId);
+  addTearDown(router.dispose);
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      ..._overrides(memberId, create),
+      if (user != null)
+        authProvider.overrideWith(() => _StubAuthNotifier(user)),
+    ],
+  );
+  await tester.pumpAndSettle();
+  return router;
+}
 
 void main() {
   group('loading state', () {
@@ -460,6 +555,88 @@ void main() {
       );
       // i18n-finder-ok: contaminatedAdmin.bio is fixture data, not UI copy.
       expect(find.text('Це не має відображатися.'), findsNothing);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Phase 307 — the trailing management gear.
+  // -------------------------------------------------------------------
+  group('management gear', () {
+    testWidgets(
+      'an owner sees the gear on a MASTER member and it pushes the staff '
+      'settings route',
+      (tester) async {
+        await _pumpRouted(
+          tester,
+          _kMasterId,
+          (ref) async => (_masterMember, _masterServices),
+          user: _kOwner,
+        );
+
+        final Finder gear = find.byKey(const Key('btn-master-settings'));
+        expect(gear, findsOneWidget);
+        expect(find.byKey(const Key('btn-admin-settings')), findsNothing);
+
+        await tester.tap(gear);
+        await tester.pumpAndSettle();
+
+        // Pinned on the RESOLVED PAGE TYPE, not the path string — `push`
+        // (unlike `go`) is excluded from `currentConfiguration.fullPath`.
+        expect(find.byType(StaffSettingsScreen), findsOneWidget);
+        final StaffSettingsScreen settings = tester.widget<StaffSettingsScreen>(
+          find.byType(StaffSettingsScreen),
+        );
+        expect(settings.salonId, _kSalonId);
+        expect(settings.memberId, _kMasterId);
+      },
+    );
+
+    testWidgets('an ADMIN viewer sees no gear on a MASTER member', (
+      tester,
+    ) async {
+      await _pumpRouted(
+        tester,
+        _kMasterId,
+        (ref) async => (_masterMember, _masterServices),
+        user: _kAdminViewer,
+      );
+
+      expect(find.byKey(const Key('btn-master-settings')), findsNothing);
+      expect(find.byKey(const Key('btn-admin-settings')), findsNothing);
+    });
+
+    testWidgets(
+      'an ADMIN viewer still sees the gear on an ADMIN member, and it '
+      'pushes the staff settings route',
+      (tester) async {
+        await _pumpRouted(
+          tester,
+          _kAdminId,
+          (ref) async => (_adminMember, const <MasterService>[]),
+          user: _kAdminViewer,
+        );
+
+        final Finder gear = find.byKey(const Key('btn-admin-settings'));
+        expect(gear, findsOneWidget);
+
+        await tester.tap(gear);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(StaffSettingsScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets('an owner sees no gear on their OWN master row', (
+      tester,
+    ) async {
+      await _pumpRouted(
+        tester,
+        _kMasterId,
+        (ref) async => (_masterMember, _masterServices),
+        user: _kOwnerAsMaster,
+      );
+
+      expect(find.byKey(const Key('btn-master-settings')), findsNothing);
     });
   });
 }

@@ -21,9 +21,11 @@
 //   • contacts = PHONE ONLY (Instagram is intentionally not shown here — see
 //     [SalonStaffMemberProfileData]'s own header doc for the rationale),
 //     omitted when unset;
-//   • no `tune_rounded` settings action (targets unbuilt Phases 21.6/21.7)
-//     and no pinned booking shelf (client-only affordance) — both simply
-//     absent, not disabled placeholders.
+//   • the `tune_rounded` settings action — an ADMIN entry always gets it;
+//     a MASTER entry gets it only for a SALON_OWNER viewer who is not
+//     looking at their own row (Phase 307, D3/D4) — and no pinned booking
+//     shelf (client-only affordance), simply absent, not a disabled
+//     placeholder.
 //
 // Data comes from [salonStaffMemberProfileProvider] (a family keyed on
 // `(salonId, memberId)`), which resolves the roster entry from the
@@ -45,6 +47,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -170,13 +173,9 @@ class _SalonStaffProfileScreenState
       salonStaffMemberProfileProvider(widget.salonId, widget.memberId),
     );
 
-    // Phase 21.6 — the trailing management control. ADMIN entries only: it
-    // opens [StaffSettingsScreen], whose two actions
-    // (`DELETE|PATCH /salons/{salonId}/admins/{userId}`) are admin-specific
-    // and have no master equivalent. The MASTER counterpart is Phase 21.7,
-    // still unbuilt — so for a master entry the control stays absent, as
-    // this file's header already described, rather than appearing as a dead
-    // affordance.
+    // Phase 21.6 — the trailing management control. ADMIN entries: it opens
+    // [StaffSettingsScreen], whose two actions
+    // (`DELETE|PATCH /salons/{salonId}/admins/{userId}`) are admin-specific.
     //
     // Read off the SAME `maybeWhen` shape the title uses: unknown role
     // (loading/error) renders no trailing action, so the control never
@@ -186,6 +185,26 @@ class _SalonStaffProfileScreenState
           data.$1.role == SalonStaffRole.admin,
       orElse: () => false,
     );
+
+    // Phase 307 — the MASTER counterpart. `DELETE /salons/{salonId}/masters
+    // /{masterId}` is SALON_OWNER-only (unlike remove-admin, which an admin
+    // may also perform) and never against the owner's own master row (D3/
+    // D4 — see `StaffSettingsScreen`'s own header for the full rationale).
+    // Gating the GEAR here is a UI-correctness convenience, not the real
+    // gate — `StaffSettingsScreen`'s own body re-checks both conditions
+    // itself, since the route is reachable without this control (back
+    // stack, in-app `go`, cold deep link).
+    final SalonStaffMember? member = async.maybeWhen(
+      data: (SalonStaffMemberProfileData data) => data.$1,
+      orElse: () => null,
+    );
+    final bool isOwner = ref.watch(isSalonOwnerProvider);
+    final String? currentUserId = ref.watch(currentUserProvider)?.id;
+    final bool showMasterGear =
+        member != null &&
+        member.role == SalonStaffRole.master &&
+        isOwner &&
+        member.userId != currentUserId;
 
     return ProfileScaffold(
       title: async.maybeWhen(
@@ -202,6 +221,18 @@ class _SalonStaffProfileScreenState
               key: const Key('btn-admin-settings'),
               icon: Icons.tune_rounded,
               semanticLabel: l10n.adminSettingsManageSemanticLabel,
+              onTap: () => context.push(
+                RouteNames.salonManageStaffSettings(
+                  widget.salonId,
+                  widget.memberId,
+                ),
+              ),
+            )
+          : showMasterGear
+          ? NeumorphicIconButton(
+              key: const Key('btn-master-settings'),
+              icon: Icons.tune_rounded,
+              semanticLabel: l10n.staffSettingsManageMasterSemanticLabel,
               onTap: () => context.push(
                 RouteNames.salonManageStaffSettings(
                   widget.salonId,

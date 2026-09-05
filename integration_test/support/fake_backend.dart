@@ -1104,6 +1104,17 @@ final class FakeBackend {
   String? lastRotateAdminUserId;
   Map<String, dynamic>? lastRotateAdminBody;
 
+  /// Phase 307 — `DELETE /api/v1/salons/salon-xyz/masters/{masterId}` call
+  /// count + the last `masterId` PATH SEGMENT (never `userId`) it carried.
+  /// Keyed by name `lastRemoveMasterId`, not `...UserId`, on purpose: a flow
+  /// asserting `fb.lastRemoveMasterId == <masterId>` is the wire-level D2
+  /// pin — a client that sent `userId` instead would 404 (see
+  /// `SalonRepository.removeMaster`'s own doc), which is a DIFFERENT,
+  /// equally-visible failure, but this counter is what proves the byte on
+  /// the wire was right when the call DOES succeed.
+  int removeMasterCalls = 0;
+  String? lastRemoveMasterId;
+
   int siblingSalonsCalls = 0;
 
   /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
@@ -1143,6 +1154,18 @@ final class FakeBackend {
 
   void forceRotateAdminFailure(int? statusCode) {
     _rotateAdminFailureStatusCode = statusCode;
+    _wireAdminManagement();
+  }
+
+  /// Same contract as [forceRemoveAdminFailure] (Phase 307), for
+  /// `DELETE .../masters/{masterId}`. Backend 297/298 can answer 403
+  /// (not owner / self-removal), 409 (own master row / already detached /
+  /// audit-blocked) or 404 (not found) — this fixture never distinguishes
+  /// the WIRE status from its cause; the mobile mapper's own tests own that.
+  int? _removeMasterFailureStatusCode;
+
+  void forceRemoveMasterFailure(int? statusCode) {
+    _removeMasterFailureStatusCode = statusCode;
     _wireAdminManagement();
   }
 
@@ -2433,6 +2456,26 @@ final class FakeBackend {
       'instagram': null,
       // Admins carry no bio BY DESIGN — see `SalonStaffMember`'s own header
       // doc.
+      'bio': null,
+      'avgRating': null,
+      'reviewCount': 0,
+      'serviceCount': 0,
+    },
+    // Phase 307 — a SECOND master, with a `masterId` DELIBERATELY DIFFERENT
+    // from its `userId` (unlike `master-aaa`, whose two ids are identical and
+    // so cannot catch a userId/masterId swap). The one target of the
+    // remove-master flow — `master-aaa` stays untouched as that flow's own
+    // CONTROL row.
+    <String, dynamic>{
+      'userId': 'user-master-removable',
+      'masterId': 'master-removable',
+      'role': 'SALON_MASTER',
+      'firstName': 'Марина',
+      'lastName': 'Литвин',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380631112233',
+      'instagram': null,
       'bio': null,
       'avgRating': null,
       'reviewCount': 0,
@@ -4314,6 +4357,52 @@ final class FakeBackend {
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.delete),
+    );
+
+    // DELETE /api/v1/salons/salon-xyz/masters/{masterId} — Phase 307 (backend
+    // Phase 297 + 298). Registered as its OWN pattern (`/masters/` vs
+    // `/admins/` above) so the two DELETE routes can never shadow each
+    // other. Removes the row keyed by `masterId` — the WIRE proof that the
+    // client sent the Master-row id, not the roster's `userId`: a client
+    // bug that sent `userId` here would remove NOTHING (no row's `masterId`
+    // equals a `userId`) and the flow's "gone from the roster" assertion
+    // would correctly fail.
+    final int? removeMasterFail = _removeMasterFailureStatusCode;
+    _adapter.onRoute(
+      RegExp(r'/api/v1/salons/salon-xyz/masters/[^/]+$'),
+      (server) => server.replyCallback(removeMasterFail ?? 204, (req) {
+        removeMasterCalls++;
+        lastRemoveMasterId = req.path.split('/').last;
+        if (removeMasterFail != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to remove master',
+          };
+        }
+        // The backend HARD-DELETES the master's account (Phase 297) and
+        // cancels+notifies their future bookings (Phase 298) — from this
+        // salon's roster the observable effect is that the row is gone.
+        salonStaff.removeWhere(
+          (Map<String, dynamic> row) => row['masterId'] == lastRemoveMasterId,
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.delete),
+    );
+
+    // GET /api/v1/masters/master-removable/services — the removable
+    // master's active services, fetched by `salonStaffMemberProfileProvider`
+    // whenever its staff/settings profile is opened. Empty: this flow never
+    // asserts on service content, only on the roster mutation above.
+    _adapter.onRoute(
+      '/api/v1/masters/master-removable/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = 'master-removable';
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
     );
   }
 

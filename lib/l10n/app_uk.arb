@@ -6015,11 +6015,19 @@
   },
   "staffSettingsMasterOwnerOnlyTitle": "Лише власник салону",
   "@staffSettingsMasterOwnerOnlyTitle": {
-    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route."
+    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route. Phase 307 fix (2026-09-05): the owner viewing their OWN master row gets staffSettingsMasterSelfTitle/Body instead — this pair is now only for a genuinely non-owner viewer."
   },
   "staffSettingsMasterOwnerOnlyBody": "Керувати майстрами може лише власник салону. Зверніться до власника, якщо потрібно вилучити цього майстра.",
   "@staffSettingsMasterOwnerOnlyBody": {
-    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle."
+    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle. Phase 307 fix (2026-09-05): no longer shown to the owner viewing their own master row (see staffSettingsMasterSelfBody) — its 'ask the owner' phrasing is factually wrong for that viewer."
+  },
+  "staffSettingsMasterSelfTitle": "Власний профіль майстра",
+  "@staffSettingsMasterSelfTitle": {
+    "description": "mobile-security LOW fix, Phase 307 (2026-09-05) — SalonNoticeCard title shown when the SALON OWNER views their OWN master row on StaffSettingsScreen. Distinct from staffSettingsMasterOwnerOnlyTitle, whose 'ask the owner' framing is nonsensical when the viewer IS the owner."
+  },
+  "staffSettingsMasterSelfBody": "Ви не можете видалити власний профіль майстра з цього екрана. Зверніться до служби підтримки, якщо потрібно це змінити.",
+  "@staffSettingsMasterSelfBody": {
+    "description": "mobile-security LOW fix, Phase 307 (2026-09-05); reworded 2026-09-05 (second LOW pass) — paired with staffSettingsMasterSelfTitle. States plainly that the owner cannot remove their own master profile from THIS SCREEN and names no button/screen/self-service path — the earlier wording implied an in-app flow ('you manage that separately, in your own account') that does not exist; wiring one is Phase 297, PLANNED and currently blocked. Points to support instead, which stays true regardless of whether Phase 297 ever ships an in-app toggle."
   },
   "moveAdminSalonTitle": "Інший салон",
   "@moveAdminSalonTitle": {

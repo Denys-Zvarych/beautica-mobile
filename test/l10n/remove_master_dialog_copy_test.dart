@@ -19,6 +19,11 @@
 // (load AppLocalizations per locale, pin the resolved template against a
 // hard-coded literal — never the same getter under test, which can never
 // fail no matter what the ARB says).
+//
+// EXTENDED (mobile-security LOW fix, 2026-09-05) with `staffSettingsMasterSelfTitle`/
+// `Body` — a 14th and 15th key alongside the original Phase 306 twelve — for
+// the case the "owner-only" pair's "ask the owner" phrasing cannot honestly
+// cover: the salon owner viewing their own master row.
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -194,4 +199,50 @@ void main() {
       'master needs to be removed.',
     );
   });
+
+  // mobile-security LOW fix (2026-09-05) — a 14th and 15th key added to the
+  // Phase 306 set: `staffSettingsMasterOwnerOnlyBody`'s "ask the owner"
+  // phrasing is wrong for the one case where the viewer IS the owner
+  // looking at their own master row (there is nobody else to ask). This
+  // pins the distinct copy against a hard-coded literal, and separately
+  // pins that the two bodies are not the same string — a regression that
+  // collapsed the switch in `StaffSettingsScreen.build()` back onto one
+  // getter would still pass a same-getter comparison but must fail here.
+  testWidgets(
+    'staffSettingsMasterSelfTitle/Body are pinned and DIFFER from the '
+    'owner-only pair, in both uk and en',
+    (WidgetTester tester) async {
+      final AppLocalizations uk = await _loadL10n(tester, const Locale('uk'));
+      expect(uk.staffSettingsMasterSelfTitle, 'Власний профіль майстра');
+      expect(
+        uk.staffSettingsMasterSelfBody,
+        'Ви не можете видалити власний профіль майстра з цього екрана. '
+        'Зверніться до служби підтримки, якщо потрібно це змінити.',
+      );
+      expect(
+        uk.staffSettingsMasterSelfTitle,
+        isNot(uk.staffSettingsMasterOwnerOnlyTitle),
+      );
+      expect(
+        uk.staffSettingsMasterSelfBody,
+        isNot(uk.staffSettingsMasterOwnerOnlyBody),
+      );
+
+      final AppLocalizations en = await _loadL10n(tester, const Locale('en'));
+      expect(en.staffSettingsMasterSelfTitle, 'Your own master profile');
+      expect(
+        en.staffSettingsMasterSelfBody,
+        "You can't remove your own master profile from this screen. "
+        'Contact support if you need this changed.',
+      );
+      expect(
+        en.staffSettingsMasterSelfTitle,
+        isNot(en.staffSettingsMasterOwnerOnlyTitle),
+      );
+      expect(
+        en.staffSettingsMasterSelfBody,
+        isNot(en.staffSettingsMasterOwnerOnlyBody),
+      );
+    },
+  );
 }
