@@ -39,6 +39,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
@@ -285,17 +286,6 @@ class _PublicProfileBody extends StatelessWidget {
   final Animation<Offset> slide4;
   final Animation<Offset> slide5;
 
-  static Widget _reveal(
-    Animation<double> fade,
-    Animation<Offset> slide,
-    Widget child,
-  ) => RepaintBoundary(
-    child: FadeTransition(
-      opacity: fade,
-      child: SlideTransition(position: slide, child: child),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -344,10 +334,11 @@ class _PublicProfileBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         // 1 — Identity card.
-        _reveal(
-          anim0,
-          slide0,
-          NeumorphicCard(
+        RevealTransition(
+          key: const Key('public-master-profile-reveal-0'),
+          fade: anim0,
+          slide: slide0,
+          child: NeumorphicCard(
             color: const Color(0xFFEDE4D5),
             padding: const EdgeInsets.all(VelvetSpacing.md),
             clipContent: true,
@@ -437,10 +428,11 @@ class _PublicProfileBody extends StatelessWidget {
         // intentional and laid out ONCE per data render (not per frame). It
         // matches the sibling MasterProfileScreen and the approved design;
         // removing it would diverge from that locked pattern.
-        _reveal(
-          anim1,
-          slide1,
-          IntrinsicHeight(
+        RevealTransition(
+          key: const Key('public-master-profile-reveal-1'),
+          fade: anim1,
+          slide: slide1,
+          child: IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -518,10 +510,11 @@ class _PublicProfileBody extends StatelessWidget {
 
         // 3 — Bio (omitted entirely when empty).
         if (hasBio) ...<Widget>[
-          _reveal(
-            anim2,
-            slide2,
-            Column(
+          RevealTransition(
+            key: const Key('public-master-profile-reveal-2'),
+            fade: anim2,
+            slide: slide2,
+            child: Column(
               key: const Key('public-master-profile-bio'),
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -554,10 +547,11 @@ class _PublicProfileBody extends StatelessWidget {
         // shared/widgets/portfolio_rail.dart; no `onSeeAll` here (this
         // read-only view has no gallery route), matching prior behaviour.
         if (isIndependent)
-          _reveal(
-            anim3,
-            slide3,
-            const PortfolioRail(
+          RevealTransition(
+            key: const Key('public-master-profile-reveal-3'),
+            fade: anim3,
+            slide: slide3,
+            child: const PortfolioRail(
               railKey: Key('public-master-profile-portfolio'),
             ),
           ),
@@ -568,10 +562,11 @@ class _PublicProfileBody extends StatelessWidget {
         // active services, matching how Bio/Contacts are omitted when empty.
         if (services.isNotEmpty) ...<Widget>[
           const SizedBox(height: VelvetSpacing.xl),
-          _reveal(
-            anim4,
-            slide4,
-            Column(
+          RevealTransition(
+            key: const Key('public-master-profile-reveal-4'),
+            fade: anim4,
+            slide: slide4,
+            child: Column(
               key: const Key('public-master-profile-service-categories'),
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -598,10 +593,11 @@ class _PublicProfileBody extends StatelessWidget {
         // 6 — Contacts (Instagram only; omitted when not set).
         if (instagram != null) ...<Widget>[
           const SizedBox(height: VelvetSpacing.xl),
-          _reveal(
-            anim5,
-            slide5,
-            Column(
+          RevealTransition(
+            key: const Key('public-master-profile-reveal-5'),
+            fade: anim5,
+            slide: slide5,
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Padding(

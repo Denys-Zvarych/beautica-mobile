@@ -106,6 +106,10 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errSessionIncomplete": "We couldn\u2019t load all of your profile details. Tap \u201cTry again\u201d to refresh them.",
+  "@errSessionIncomplete": {
+    "description": "Error message shown when the signed-in session is authenticated but missing a field the screen needs to continue (SessionIncompleteFailure) \u2014 e.g. a SALON_ADMIN whose salonId never reached the session. Always paired with a retry that re-fetches GET /users/me."
+  },
   "errConflict": "This time slot is no longer available. Please choose another.",
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
@@ -6126,5 +6130,31 @@
   "ownerOwnProfileNoServices": "You have no services yet",
   "@ownerOwnProfileNoServices": {
     "description": "Phase 21.14 — empty state under the owner's «My categories» section when the owner works as a master but has configured no services yet."
+  },
+  "adminOwnProfileTitle": "My profile",
+  "@adminOwnProfileTitle": {
+    "description": "Phase 21.16 — top-bar title of the salon admin's own first-person profile screen. Its own key rather than a shared one with ownerOwnProfileTitle: the two screens are free to diverge, and a role-scoped key keeps the ARB readable as a per-screen inventory."
+  },
+  "adminOwnProfileSettingsSemanticLabel": "Account settings",
+  "@adminOwnProfileSettingsSemanticLabel": {
+    "description": "Phase 21.16 — screen-reader label for the trailing tune action on the admin's own profile. Rendered disabled until the Phase 21.17 Admin Personal Settings screen ships."
+  },
+  "adminOwnProfileRoleLabel": "Admin",
+  "@adminOwnProfileRoleLabel": {
+    "description": "Phase 21.16 — the RoleChip label on the admin's OWN profile. Deliberately the short form, not salonStaffRoleAdmin's «Administrator»: the approved preview draws the short form here, and this is a first-person self-view, not a roster label."
+  },
+  "adminOwnProfileSalonSectionLabel": "Salon",
+  "@adminOwnProfileSalonSectionLabel": {
+    "description": "Phase 21.16 — section label above the salon-affiliation card on the admin's own profile."
+  },
+  "salonAffiliationCardSemanticLabel": "Salon {salonName}",
+  "@salonAffiliationCardSemanticLabel": {
+    "description": "Phase 21.16 — screen-reader label for a TAPPABLE SalonAffiliationCard. Not emitted when the card is inert (no onTap).",
+    "placeholders": {
+      "salonName": {
+        "type": "String",
+        "example": "Velvet"
+      }
+    }
   }
 }

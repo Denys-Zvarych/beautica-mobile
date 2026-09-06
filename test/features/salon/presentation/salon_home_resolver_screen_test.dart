@@ -15,9 +15,16 @@
 //   * SALON_OWNER, zero salons                       -> RouteNames.mySalons.
 //   * SALON_OWNER, AsyncError                        -> ErrorState + working retry.
 //   * SALON_ADMIN, salonId set                       -> synchronous go to shell.
-//   * SALON_ADMIN, salonId null                      -> ErrorState, NEVER blank.
+//   * SALON_ADMIN, salonId null                      -> a self-describing
+//     `SessionIncompleteFailure` + a retry that re-fetches the profile, and
+//     the forward-to-shell that follows once it arrives. NEVER blank, and
+//     never the dead-end bare `UnknownFailure` it used to be.
+//   * authProvider AsyncError w/ stale session       -> retryable ErrorState,
+//     and NEVER a forward into the previous account's shell.
 
-import 'dart:async';
+// `hide AsyncError`: `dart:async` declares an unrelated, non-generic
+// `AsyncError`, which shadows Riverpod's `AsyncError<T>` state below.
+import 'dart:async' hide AsyncError;
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -31,6 +38,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -60,7 +68,50 @@ class _OwnerAuthNotifier extends AuthNotifier {
 }
 
 class _AdminAuthNotifier extends AuthNotifier {
-  _AdminAuthNotifier(this.salonId);
+  _AdminAuthNotifier(this.salonId, {this.salonIdAfterRefresh});
+
+  final String? salonId;
+
+  /// When non-null, [refreshUser] republishes the session carrying THIS
+  /// salonId — standing in for `GET /users/me` supplying the binding a
+  /// `POST /auth/invite/accept` session arrived without.
+  ///
+  /// Defaults to null so every pre-existing call site is untouched: with it
+  /// unset this notifier delegates to the real [AuthNotifier.refreshUser].
+  final String? salonIdAfterRefresh;
+
+  @override
+  Future<AuthSession> build() async => AuthSession.authenticated(
+    user: _adminUser(salonId: salonId),
+    accessToken: 'tok',
+  );
+
+  @override
+  Future<void> refreshUser() async {
+    final String? refreshed = salonIdAfterRefresh;
+    if (refreshed == null) return super.refreshUser();
+    state = AsyncData(
+      AuthSession.authenticated(
+        user: _adminUser(salonId: refreshed),
+        accessToken: 'tok',
+      ),
+    );
+  }
+}
+
+/// Settles to an [Authenticated] SALON_ADMIN session, then lets the test body
+/// drive a REAL post-settle `state = AsyncError(...)` transition.
+///
+/// A notifier whose `build()` is an `async` body that RETURNS cannot express
+/// this shape — Riverpod overwrites whatever `state` it assigned with an
+/// `AsyncData` on the next microtask. The `AsyncError`-carrying-a-stale-value
+/// shape can only be produced the way production produces it: assigning
+/// `state` AFTER the build has settled, which is exactly what [AuthNotifier]
+/// does when a token refresh / `/users/me` re-read fails. Mirrors
+/// `test/routing/resolved_session_stale_value_test.dart`'s notifier of the
+/// same shape, one layer down (the screen instead of the router guard).
+class _TransitionableAdminAuthNotifier extends AuthNotifier {
+  _TransitionableAdminAuthNotifier(this.salonId);
 
   final String? salonId;
 
@@ -69,6 +120,10 @@ class _AdminAuthNotifier extends AuthNotifier {
     user: _adminUser(salonId: salonId),
     accessToken: 'tok',
   );
+
+  void forceError(Object error) {
+    state = AsyncError<AuthSession>(error, StackTrace.current);
+  }
 }
 
 /// [MySalons] stub that resolves immediately to [salons].
@@ -308,8 +363,22 @@ void main() {
       );
     });
 
+    // Regression (2026-09-06) — INVERTED. This test used to assert
+    // `findsNothing` for the retry button, on the premise that "a missing
+    // salonId on an authenticated admin's own profile is not a
+    // transient/retryable condition". That premise was wrong, and it pinned a
+    // live bug: `UserMapper.fromAuthResponse` was DISCARDING the `salonId` the
+    // backend populates on `POST /auth/invite/accept`, and `acceptInvite` is
+    // the one session-establishing flow that never follows with `repo.me()`.
+    // So a freshly-created SALON_ADMIN landed here on a bare `UnknownFailure`
+    // — «Щось пішло не так. Спробуйте ще раз.» — with no way forward at all.
+    //
+    // The condition IS recoverable, by exactly one route: re-fetch the
+    // profile. Hence [SessionIncompleteFailure] plus a retry wired to
+    // [AuthNotifier.refreshUser].
     testWidgets(
-      'salonId null (data problem) -> ErrorState, NEVER a blank screen',
+      'salonId null (session not fully hydrated) -> a SELF-DESCRIBING '
+      'SessionIncompleteFailure WITH a retry, never a dead-end UnknownFailure',
       (tester) async {
         await tester.pumpRoutedApp(
           _router(),
@@ -321,9 +390,166 @@ void main() {
 
         expect(find.byType(ErrorState), findsOneWidget);
         expect(find.byType(Scaffold), findsOneWidget);
-        // No retry button — a missing salonId on an authenticated admin's
-        // own profile is not a transient/retryable condition.
-        expect(find.byKey(const Key('error_state_retry_button')), findsNothing);
+
+        // The failure TYPE, not just "some error" — an `UnknownFailure` here
+        // renders the generic fallback copy and is the defect this replaced.
+        final ErrorState state = tester.widget<ErrorState>(
+          find.byType(ErrorState),
+        );
+        expect(state.failure, isA<SessionIncompleteFailure>());
+        expect(state.failure, isNot(isA<UnknownFailure>()));
+        expect(state.onRetry, isNotNull);
+        expect(
+          find.byKey(const Key('error_state_retry_button')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the retry re-fetches the profile and, once salonId arrives, the screen '
+      'forwards to that salon\'s shell on its own',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _AdminAuthNotifier(
+                null,
+                salonIdAfterRefresh: 'salon-admin-rehydrated',
+              ),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Precondition: the dead-end arm, not the shell.
+        expect(find.byType(ErrorState), findsOneWidget);
+        expect(
+          find.byKey(const Key('shell-stub-salon-admin-rehydrated')),
+          findsNothing,
+        );
+
+        await tester.tap(find.byKey(const Key('error_state_retry_button')));
+        await tester.pumpAndSettle();
+
+        // `build` is a `ref.watch(authProvider)`, so the republished session
+        // re-enters it and `_goToShell` forwards without any further tap.
+        expect(find.byType(ErrorState), findsNothing);
+        expect(
+          find.byKey(const Key('shell-stub-salon-admin-rehydrated')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // mobile-qa MEDIUM (cycle 2, 2026-09-05) — the STALE-SESSION arm.
+    //
+    // Phase 21.16 changed `salonHomeGuard` (`app_router.dart`) to admit an
+    // unresolved session rather than bounce on a stale role. That is the right
+    // call for the guard — bouncing on the previous account's role is a wrong
+    // decision a later re-evaluation cannot un-make — but it hands THIS screen
+    // a frame it never used to see. Its session read was a bare
+    // `authAsync.value`, and `copyWithPrevious` keeps the previous account's
+    // `AsyncData` attached to a later `AsyncError`, so the admin arm below
+    // would read the PREVIOUS account's `user.salonId` and `context.go`
+    // straight into that salon's shell — another tenant's salon, on this
+    // device, with no error anywhere.
+    //
+    // The fixture is deliberately a SALON_ADMIN with a non-null `salonId`:
+    // that is the one role/shape where the stale read produces a visibly
+    // different destination (`shell-stub-salon-stale`) instead of merely a
+    // different reason for the same outcome. MUTATION CHECK: restoring
+    // `final AuthSession? session = authAsync.value;` in
+    // `salon_home_resolver_screen.dart` turns this test RED on the
+    // `shell-stub-salon-stale` assertion.
+    testWidgets(
+      'an AsyncError carrying a STALE authenticated session forwards nowhere '
+      '— it shows a retryable ErrorState instead of entering the previous '
+      'account\'s salon shell',
+      (tester) async {
+        final notifier = _TransitionableAdminAuthNotifier('salon-stale');
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[authProvider.overrideWith(() => notifier)],
+        );
+        await tester.pumpAndSettle();
+        // Sanity: the SETTLED session does forward — so the negative
+        // assertions below cannot pass merely because this fixture never
+        // routes anywhere.
+        expect(
+          find.byKey(const Key('shell-stub-salon-stale')),
+          findsOneWidget,
+          reason:
+              'the settled baseline. Without it a broken _router() would make '
+              'the whole test vacuous.',
+        );
+
+        // Now go back to the resolver and drive the production transition.
+        notifier.forceError(const NetworkFailure());
+        await tester.pumpAndSettle();
+
+        final BuildContext context = tester.element(
+          find.byKey(const Key('shell-stub-salon-stale')),
+        );
+        GoRouter.of(context).go(RouteNames.salonHome);
+
+        // fixed-wait-ok (pump-bounded): the resolver holds
+        // `SkeletonShimmerScope`'s
+        // REPEATING shimmer on an unresolved session, so `pumpAndSettle` can
+        // never return. Bounded, and generously — the forward this pins the
+        // absence of is scheduled from a POST-FRAME callback, so too few
+        // pumps would report "did not forward" without having pumped the
+        // frame that would.
+        for (int i = 0; i < 20; i++) {
+          // fixed-wait-ok: one 50 ms step of the bounded loop above — the
+          // step itself is arbitrary; the LOOP is the wait.
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+
+        expect(
+          find.byKey(const Key('shell-stub-salon-stale')),
+          findsNothing,
+          reason:
+              'THE finding: a bare `.value` read takes the previous account\'s '
+              'salonId and enters that salon\'s shell.',
+        );
+        // mobile-security LOW (2026-09-05) — the positive half of "no
+        // forward" MOVED. It used to be the skeleton; `AsyncError` and
+        // `AsyncLoading` are now separate arms in the screen, because an
+        // errored session is terminal and a skeleton over it spins forever
+        // with no affordance. The load-bearing assertion is unchanged and
+        // sits immediately above: NO forward into the stale account's shell.
+        expect(
+          find.byType(ErrorState),
+          findsOneWidget,
+          reason:
+              'an errored session is "known to be broken", not "not known '
+              'yet" — it gets the retryable error body, not an unbounded '
+              'skeleton. Also the positive half of "no forward": a build-time '
+              'exception cannot pass as a passing test.',
+        );
+        expect(
+          find.byKey(const Key('salon-home-resolver-loading')),
+          findsNothing,
+          reason:
+              'and specifically NOT the skeleton — that arm is reserved for '
+              'AsyncLoading / settled-Unauthenticated.',
+        );
+        // The affordance is the whole point of splitting the arm — an
+        // `AsyncError` is terminal, so without a retry button the user is
+        // stuck. `ErrorState` omits the button entirely when `onRetry` is
+        // null, so its presence is what pins that `onRetry` was passed.
+        // (Not tapped here: this fixture's `authProvider` override rebuilds
+        // to the SAME admin session, so a tap would legitimately forward and
+        // would pin the fixture rather than the screen.)
+        expect(
+          find.byKey(const Key('error_state_retry_button')),
+          findsOneWidget,
+          reason:
+              'MUTATION CHECK: dropping `onRetry` from the new AsyncError arm '
+              'in salon_home_resolver_screen.dart turns this RED.',
+        );
       },
     );
   });

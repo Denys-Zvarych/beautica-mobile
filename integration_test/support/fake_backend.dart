@@ -180,12 +180,26 @@ const Map<String, dynamic> _masterUserJson = <String, dynamic>{
 /// (`salon-owner-1`) — the admin landing must never depend on
 /// `mySalonsProvider` at all; sharing an id with the owner fixture would mask
 /// a regression that made it do so.
+///
+/// mobile-qa Phase 21.16 (2026-09-05) — `phoneNumber` and `professionalTitle`
+/// are POPULATED, for the same reason the owner persona's contacts were
+/// (21.14 F3): `AdminOwnProfileScreen` renders BOTH conditionally, so an
+/// unpopulated persona makes every assertion about them vacuous — the section
+/// would be absent whether the decode worked or not, and a tile wired to the
+/// wrong `UserProfileResponse` key would look identical to a correct one.
+/// `instagram` is deliberately LEFT OFF: the admin profile must never draw an
+/// Instagram tile, and that deny arm is proven at the widget tier
+/// (`admin_own_profile_screen_test.dart`) with a fixture that HAS a handle —
+/// adding one here would only make the E2E's own deny arm the weaker of the
+/// two.
 const Map<String, dynamic> _adminUserJson = <String, dynamic>{
   'id': 'user-admin-1',
   'email': 'admin@beautica.ua',
   'role': 'SALON_ADMIN',
   'firstName': 'Ірина',
   'lastName': 'Адміністратор',
+  'phoneNumber': '+380663334455',
+  'professionalTitle': 'Старший адміністратор',
   'salonId': 'salon-admin-1',
 };
 
@@ -243,6 +257,15 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
 /// ```
 /// The [user] map must contain `id`, `email`, and `role` keys (as produced
 /// by the fixture personas above).
+///
+/// `salonId` is forwarded when the persona has one. The real backend populates
+/// it on this envelope for an invited `SALON_ADMIN`/`SALON_MASTER`, and
+/// `POST /auth/invite/accept` NEVER follows with `GET /users/me` — so this
+/// envelope is the only place the binding can reach the session, and a fake
+/// that dropped it could not express an invite-accept → salon-home flow at all
+/// (it would land on the resolver's incomplete-session arm instead of the
+/// shell). Omitted entirely for personas with no salon so the wire stays the
+/// shape the backend actually sends.
 Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
     <String, dynamic>{
       'success': true,
@@ -251,6 +274,7 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
         'userId': user['id'],
         'email': user['email'],
         'role': user['role'],
+        if (user['salonId'] != null) 'salonId': user['salonId'],
         'accessToken': 'fake-access-token',
         'refreshToken': 'fake-refresh-token',
         'tokenType': 'Bearer',
@@ -786,6 +810,24 @@ final class FakeBackend {
   int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
   int verifyEmailCalls = 0;
+
+  /// `POST /api/v1/auth/invite/accept` call count.
+  int acceptInviteCalls = 0;
+
+  /// The full decoded body of the most recent `POST /api/v1/auth/invite/accept`
+  /// — lets a flow prove the form's own field values reached the wire, rather
+  /// than only that the button was tapped.
+  Map<String, dynamic>? lastAcceptInviteBody;
+
+  /// `GET /api/v1/auth/invite/validate` call count + the token it carried.
+  ///
+  /// The token is captured because it is the ONLY thing that links the deep
+  /// link's query string to the network call: `AcceptInviteScreen` takes it
+  /// from `state.uri.queryParameters['token']` and passes it to a FAMILY
+  /// provider, so a screen that read the wrong query key would still render a
+  /// perfectly normal form off a `''` token.
+  int validateInviteCalls = 0;
+  String? lastValidateInviteToken;
 
   // ── Beautica OTP task (Phase B) — password-reset OTP flow counters ────────
 
@@ -4630,6 +4672,64 @@ final class FakeBackend {
         loginCalls++;
         final user = userJsonForRole(currentRole);
         return _authResponse(user);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // GET /api/v1/auth/invite/validate?token=… — the invite PREVIEW the
+    // AcceptInviteScreen renders before it will show the form at all.
+    //
+    // Added with the invite-accept E2E (mobile-qa 2026-09-06). Without it the
+    // screen's `acceptInviteProvider(token)` resolved to an AsyncError against
+    // the DioAdapter's own "no matching route" reply and the screen rendered
+    // the invalid-invite banner — the form (and therefore the whole accept
+    // path) was unreachable from `integration_test/`, which is why the
+    // dropped-`salonId` regression could only ever be caught by hand.
+    //
+    // Branches on [currentRole] exactly like login/accept do, so the invited
+    // email the preview shows and the persona the accept envelope returns are
+    // the SAME account — an E2E that showed one address and signed in as
+    // another would be pinning nothing.
+    //
+    // `expiresAt` is anchored to [kFixedNow], NOT `DateTime.now()`: the screen
+    // renders `expiresInHoursFrom(ref.watch(clockProvider)())`, and the harness
+    // pins that clock to [kFixedNow]. A host-clock fixture here would be the
+    // exact fixture-clock/app-clock MIX that M15 names.
+    _adapter.onRoute(
+      '/api/v1/auth/invite/validate',
+      (server) => server.replyCallback(200, (req) {
+        validateInviteCalls++;
+        lastValidateInviteToken = _scalarQueryParam(
+          req.queryParameters,
+          'token',
+        );
+        final user = userJsonForRole(currentRole);
+        return _ok(<String, dynamic>{
+          'invitedEmail': user['email'],
+          'role': user['role'],
+          'expiresAt': kFixedNow
+              .add(const Duration(hours: 48))
+              .toUtc()
+              .toIso8601String(),
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // POST /api/v1/auth/invite/accept — the invited-staff account creation.
+    //
+    // Replies with the SAME `AuthResponse` envelope login uses, driven by
+    // [currentRole], so setting `currentRole = UserRole.salonAdmin` yields the
+    // admin persona's `salonId` on the envelope — exactly what the real
+    // backend returns (verified live: HTTP 201 with a populated `salonId`).
+    // This flow does NOT hit `GET /users/me`, so the envelope is the session's
+    // only source for that binding.
+    _adapter.onRoute(
+      '/api/v1/auth/invite/accept',
+      (server) => server.replyCallback(200, (req) {
+        acceptInviteCalls++;
+        lastAcceptInviteBody = _decodeBody(req.data);
+        return _authResponse(userJsonForRole(currentRole));
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );

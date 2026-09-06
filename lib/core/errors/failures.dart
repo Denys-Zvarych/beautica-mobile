@@ -272,6 +272,24 @@ final class UnknownFailure extends Failure {
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errUnknown;
 }
 
+/// The signed-in session is authenticated but MISSING a field the screen needs
+/// to route or render — it was never fully hydrated from `GET /users/me`.
+///
+/// NOT a transport error: there is no request to re-issue and no server fault
+/// to report. The one recovery is re-fetching the profile
+/// ([AuthNotifier.refreshUser]), so every screen raising this MUST pair it with
+/// an `onRetry` that does exactly that — a bare [UnknownFailure] here is a
+/// dead end, which is precisely the bug this type replaced
+/// (`salon_home_resolver_screen.dart`, a `SALON_ADMIN` whose `salonId` never
+/// made it into the session).
+final class SessionIncompleteFailure extends Failure {
+  const SessionIncompleteFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errSessionIncomplete;
+}
+
 /// Typed error codes returned by `POST /auth/verify-email` (backend Phase 1.5).
 ///
 /// The backend envelope `{success:false, data:{code:"..."}}` carries one of

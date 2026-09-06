@@ -56,13 +56,67 @@ class SalonHomeResolverScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final AsyncValue<AuthSession> authAsync = ref.watch(authProvider);
-    final AuthSession? session = authAsync.value;
+    // mobile-qa MEDIUM (2026-09-05) — concrete-subtype gate, the SAME
+    // discipline `app_router.dart`'s `resolvedSession()` applies and the same
+    // one the `mySalonsProvider` read below already applied. A bare
+    // `authAsync.value` is not "the current session": `copyWithPrevious` keeps
+    // the PREVIOUS account's `AsyncData` attached to a later `AsyncError` /
+    // `AsyncLoading(retrying: true)`, and `salonHomeGuard` now deliberately
+    // ADMITS an unresolved session — so a stale `SALON_ADMIN` would reach this
+    // build, read that account's `user.salonId` and forward straight into
+    // ANOTHER salon's shell. Unresolved therefore reads as "no session yet",
+    // which falls into the skeleton below and re-resolves on the next
+    // `authProvider` emission (this is a `ref.watch`).
+    final AuthSession? session = authAsync is AsyncData<AuthSession>
+        ? authAsync.value
+        : null;
 
     if (session is! Authenticated) {
-      // The global `authRedirect` bounces an unauthenticated session to
-      // /login before this screen is ever reached in production; render the
-      // loading skeleton defensively for the brief window mid-session-change
-      // rather than crash on a null user.
+      // mobile-security LOW (2026-09-05) — `AsyncLoading` and `AsyncError` are
+      // NOT the same unresolved state, so they do not share a body.
+      //
+      //   * `AsyncError` — terminal until something re-runs the provider. The
+      //     skeleton would spin forever with no affordance, so render
+      //     [ErrorState] with a retry that invalidates `authProvider`, exactly
+      //     as the `mySalonsProvider` arm below does for its own error.
+      //   * everything else (`AsyncLoading`, or a settled
+      //     `AsyncData(Unauthenticated)` in the window before the global
+      //     `authRedirect` bounces it to /login) — genuinely "not known yet";
+      //     hold the skeleton rather than crash on a null user.
+      //
+      // Neither arm dispatches. A stale `Authenticated` riding an `AsyncError`
+      // via `copyWithPrevious` was already excluded by the concrete-subtype
+      // gate above, and stays excluded here — the retry affordance replaces an
+      // indefinite spinner, it does NOT relax that gate.
+      //
+      // Defence in depth plus re-entrancy: nothing in `lib/` invalidates
+      // `authProvider` from a healthy session (the only two
+      // `ref.invalidate(authProvider)` sites are this arm's own retry and
+      // `master_received_reviews_screen.dart:90`, both already-unresolved
+      // arms), and a cold-start `build()` rejection is bounced to `/login` by
+      // `auth_redirect.dart:250` before this screen mounts. What this arm must
+      // handle is its OWN retry re-failing — `ref.invalidate` re-runs
+      // `build()`, whose pre-`try` secure-storage statements
+      // (`auth_notifier.dart:261-262` and `:287`) sit outside the
+      // `:291`-`:335` catch-all and forward to the platform channel unguarded
+      // — so it renders the error again instead of spinning. Riverpod's
+      // auto-retry is live on this provider too
+      // — `auth_notifier.g.dart:45` `retry: null` means INHERIT, and
+      // `main.dart:138` installs `beauticaProviderRetry` on the root
+      // container, which hands a non-`Failure` error to
+      // `ProviderContainer.defaultRetry` (`failure_retry_policy.dart:135-145`).
+      if (authAsync is AsyncError<AuthSession>) {
+        final Object error = authAsync.error;
+        return Scaffold(
+          backgroundColor: BrandColors.base,
+          body: SafeArea(
+            child: ErrorState(
+              failure: error is Failure ? error : UnknownFailure(cause: error),
+              onRetry: () => ref.invalidate(authProvider),
+            ),
+          ),
+        );
+      }
       return _LoadingBody(
         semanticLabel: l10n.salonHomeResolverLoadingSemantics,
       );
@@ -73,9 +127,32 @@ class SalonHomeResolverScreen extends ConsumerWidget {
       if (salonId == null) {
         // Never a blank screen — a JWT-authenticated admin with no bound
         // salon is a data problem, not a "still loading" state.
-        return const Scaffold(
+        //
+        // It is specifically a SESSION-HYDRATION problem, not an unknown one.
+        // Every session-establishing flow but one follows with `repo.me()`,
+        // whose profile DTO carries `salonId`; `acceptInvite` cannot (its
+        // "point of no return" contract forbids a network call after the 2xx)
+        // and so depends entirely on `UserMapper.fromAuthResponse` carrying
+        // the field through from the `AuthResponse`. When that binding is
+        // absent for ANY reason, a freshly-invited admin landed here on a bare
+        // [UnknownFailure] with NO retry — «Щось пішло не так» and a dead end.
+        //
+        // [SessionIncompleteFailure] says what is actually wrong, and the
+        // retry is the only thing that can fix it: [refreshUser] re-fetches
+        // `GET /users/me` and republishes the session. This `build` is a
+        // `ref.watch(authProvider)`, so a successful refresh re-enters here
+        // with a non-null `salonId` and forwards to the shell on its own. A
+        // failed refresh is swallowed by [refreshUser] (a hiccup must never
+        // tear down a valid session), leaving this same screen on-screen —
+        // the user can simply tap again.
+        return Scaffold(
           backgroundColor: BrandColors.base,
-          body: SafeArea(child: ErrorState(failure: UnknownFailure())),
+          body: SafeArea(
+            child: ErrorState(
+              failure: const SessionIncompleteFailure(),
+              onRetry: () => ref.read(authProvider.notifier).refreshUser(),
+            ),
+          ),
         );
       }
       _goToShell(context, salonId);

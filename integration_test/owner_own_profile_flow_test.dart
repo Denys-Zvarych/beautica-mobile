@@ -387,10 +387,20 @@ void main() {
   );
 
   testWidgets(
-    'the ADMIN branch is untouched: SALON_ADMIN\'s «Профіль» is still the '
-    'Phase 21.16 placeholder, never the owner screen',
+    'the ADMIN branch stays SEPARATE: SALON_ADMIN\'s «Профіль» is the admin '
+    'screen (Phase 21.16), never the owner one',
     (tester) async {
       await mockNetworkImagesFor(() async {
+        // mobile-qa (2026-09-05) — RENAMED at Phase 21.16. This test used to
+        // say the admin branch was "still the placeholder"; that phase
+        // replaced the placeholder with `AdminOwnProfileScreen`, and every
+        // assertion in the body was written loosely enough (key present,
+        // OwnerOwnProfileScreen absent, no /masters/me) to stay green through
+        // the swap — so the NAME went stale while the file stayed passing. The
+        // positive half of the swap is asserted end to end in
+        // `admin_own_profile_flow_test.dart`; what stays here is the
+        // owner-flow-scoped claim it always made.
+        //
         // Guards the swap in the OTHER direction. Without this a change that
         // hosted the owner screen for both roles would leave every assertion
         // above green while shipping an owner-shaped profile — reading

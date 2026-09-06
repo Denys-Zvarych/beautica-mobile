@@ -16,7 +16,8 @@
 //   2 Команда  — the SAME screen instance as destination 0, on its staff
 //                sub-tab (see NAV INDEX vs STACK SLOT below)
 //   3 Профіль  — owner: REAL: `OwnerOwnProfileScreen(embedded: true)`
-//                (Phase 21.14); admin: still a placeholder (Phase 21.16)
+//                (Phase 21.14); admin: REAL:
+//                `AdminOwnProfileScreen(embedded: true)` (Phase 21.16)
 //
 // NAV INDEX vs STACK SLOT (mobile-perf LOW follow-up, 2026-08-30) — these two
 // indices are NOT the same number and must never be conflated; the mapping is
@@ -27,8 +28,8 @@
 //                    ├─> stack slot 0 — the ONE hosted profile screen
 //   nav 2 «Команда» ─┘
 //   nav 1 «Записи»  ───> stack slot 1 — bookings placeholder
-//   nav 3 «Профіль» ───> stack slot 2 — own profile (owner: real; admin:
-//                        placeholder)
+//   nav 3 «Профіль» ───> stack slot 2 — own profile (owner and admin each
+//                        get their own real screen)
 //
 // Destinations 0 and 2 were previously two SEPARATE children of the same
 // `IndexedStack`, built from byte-identical configurations (same `salonId`,
@@ -108,6 +109,7 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import '../application/my_salons_notifier.dart';
 import '../application/salon_shell_provider.dart';
 import '../domain/salon.dart';
+import 'admin_own_profile_screen.dart';
 import 'owner_own_profile_screen.dart';
 import 'salon_management_profile_screen.dart';
 import 'widgets/salon_shell_tab_placeholder.dart';
@@ -412,14 +414,24 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       ),
       // TODO(phase-21.12): swap in the real salon-wide schedule host.
 
-      // Slot 2 — «Профіль» (nav 3). Phase 21.14 shipped the OWNER host; the
-      // ADMIN branch keeps its placeholder until Phase 21.16.
+      // Slot 2 — «Профіль» (nav 3). Phase 21.14 shipped the OWNER host and
+      // Phase 21.16 the ADMIN one; both branches are now real screens.
       //
       // Both branches keep their existing `Key`s
       // (`salon-shell-tab-profile-owner` / `-admin`) — those are the handles
       // the shell's own tests use to assert WHICH role's profile a slot
-      // renders, and they must stay stable across this swap so the admin case
-      // is still distinguishable from the owner case by key alone.
+      // renders, and they stayed stable across the placeholder swap so the
+      // admin case is still distinguishable from the owner case by key alone.
+      //
+      // `onSalonTap:` (admin only) — the affiliation card's "take me to this
+      // salon" destination is a NAV MOVE inside this shell, not a route, so
+      // the shell hands down [_onNavSelected]. Reusing that method rather than
+      // writing `salonShellProvider(...).select(0)` inline is what keeps the
+      // sub-tab reconciliation attached to it (see [_onNavSelected]'s doc): a
+      // raw index write would land on «Салон» while leaving the shared
+      // `salonManageTabProvider` parked on whatever sub-tab an earlier
+      // in-screen tap chose — the exact desync the TAB SYNC note above exists
+      // to prevent.
       //
       // `embedded: true` — this is a tab ROOT: there is nothing to pop, so no
       // back chevron, and the shell already supplies the `SalonBottomNav`.
@@ -427,8 +439,8 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       // `visible:` (mobile-perf MEDIUM + LOW follow-up, 2026-08-31) — a raw
       // `IndexedStack` sets neither `Offstage` nor `TickerMode` on its
       // non-current children (see the LAZY SLOTS note above), so an
-      // off-screen slot has no way to know it is off-screen. This slot's
-      // screen needs that signal for two things — spending its one-shot
+      // off-screen slot has no way to know it is off-screen. BOTH of this
+      // slot's screens need that signal for two things — spending its one-shot
       // entrance animation on a VISIBLE frame, and holding the PII
       // screen-protection refcount only while its own phone/Instagram is
       // actually on screen — so the shell, which owns the index, passes it
@@ -441,14 +453,24 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
                 embedded: true,
                 visible: stackSlot == 2,
               )
-            : SalonShellTabPlaceholder(
+            : AdminOwnProfileScreen(
                 key: const Key('salon-shell-tab-profile-admin'),
-                icon: Symbols.person_rounded,
-                title: l10n.salonShellProfileSoonTitle,
-                blurb: l10n.salonShellProfileSoonBlurb,
+                embedded: true,
+                visible: stackSlot == 2,
+                // `hostSalonId:` (mobile-perf LOW, 2026-09-05) — the admin
+                // profile's «Салон» card reads
+                // `salonManagementProfileProvider`, the SAME family slot 0
+                // above is keyed on. It used to derive that key itself from
+                // `User.salonId` (a `GET /users/me` field); any casing or
+                // formatting divergence from this PATH PARAM resolved a
+                // DIFFERENT family element and cold-started a second copy of
+                // the salon + staff-roster reads inside a shell where the
+                // correct cost is zero. Handing down the shell's own key
+                // makes the two provably the same element.
+                hostSalonId: widget.salonId,
+                onSalonTap: () => _onNavSelected(_navSalon),
               ),
       ),
-      // TODO(phase-21.16): swap in the real admin own-profile host.
     ];
 
     return Scaffold(

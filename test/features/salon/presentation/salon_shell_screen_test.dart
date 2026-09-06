@@ -64,11 +64,13 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -147,8 +149,21 @@ List<Object> _ownerOverrides() => <Object>[
   ).overrideWith(_SettledSalonManagementProfile.new),
 ];
 
+/// [ClientEditProfile] stub that resolves immediately to the signed-in admin.
+///
+/// Phase 21.16 — slot 2's admin branch is a real [AdminOwnProfileScreen] now,
+/// and that screen's identity read is the keepAlive `GET /users/me`
+/// (`clientEditProfileProvider`, reused verbatim — see its own doc). Without
+/// this the shell's admin cases would reach the real Dio stack and trip the
+/// suite-wide no-network `HttpOverrides`.
+class _SettledClientEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() async => _stubAdmin;
+}
+
 List<Object> _adminOverrides() => <Object>[
   authProvider.overrideWith(_AdminAuthNotifier.new),
+  clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
   salonManagementProfileProvider(
     _kSalonId,
   ).overrideWith(_SettledSalonManagementProfile.new),
@@ -573,7 +588,10 @@ void main() {
       );
     });
 
-    testWidgets('admin Профіль tab uses the admin key suffix', (tester) async {
+    testWidgets('admin Профіль tab uses the admin key suffix, and hosts the '
+        'REAL admin profile rather than the coming-soon placeholder', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const SalonShellScreen(salonId: _kSalonId),
         overrides: _adminOverrides(),
@@ -591,6 +609,118 @@ void main() {
         find.byKey(const Key('salon-shell-tab-profile-owner')),
         findsNothing,
       );
+      // Phase 21.16 — the resolved TYPE, not merely the key: the key survived
+      // the placeholder→screen swap on purpose (it is how the two role
+      // branches stay distinguishable), so a key-only assertion would have
+      // gone on passing against the placeholder this phase replaced.
+      expect(
+        find.byType(AdminOwnProfileScreen),
+        findsOneWidget,
+        reason:
+            'slot 2 must be the real admin host, not SalonShellTabPlaceholder',
+      );
+      expect(
+        find.byType(SalonShellTabPlaceholder, skipOffstage: false),
+        findsNothing,
+        reason:
+            'the «Профіль» placeholder is gone entirely; «Записи» (slot 1) is '
+            'still lazy and unvisited in this test, so nothing else can supply '
+            'one either.',
+      );
+      expect(
+        find.byKey(const Key('admin-own-profile-name')),
+        findsOneWidget,
+        reason: 'and it must actually render the admin\'s own identity',
+      );
+      // Embedded: the shell supplies the nav, so there is nothing to pop.
+      expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsNothing);
+    });
+
+    testWidgets('the admin Профіль slot is told whether it is the VISIBLE one', (
+      tester,
+    ) async {
+      // The same signal `OwnerOwnProfileScreen` needs, for the same two
+      // defects (spent-off-screen entrance, latched PII screen-protection) —
+      // a raw `IndexedStack` gives its non-current children neither `Offstage`
+      // nor `TickerMode`, so the shell has to say so explicitly. Asserted
+      // separately from the owner case because the two branches are two
+      // different constructor calls: threading `visible` on one of them proves
+      // nothing about the other.
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: _adminOverrides(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<AdminOwnProfileScreen>(
+              find.byKey(const Key('salon-shell-tab-profile-admin')),
+            )
+            .visible,
+        isTrue,
+      );
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<AdminOwnProfileScreen>(
+              find.byKey(
+                const Key('salon-shell-tab-profile-admin'),
+                skipOffstage: false,
+              ),
+            )
+            .visible,
+        isFalse,
+      );
+    });
+
+    testWidgets('the admin affiliation card returns the shell to «Салон» — '
+        'through the nav path, so the shared sub-tab is reconciled too', (
+      tester,
+    ) async {
+      // The card's destination is a NAV MOVE, not a route. The interesting
+      // part is not that the highlight lands on 0 — it is that the shared
+      // `salonManageTabProvider` is dragged back to the «Про салон» sub-tab
+      // with it. Park the sub-tab on «Команда» first so a raw
+      // `salonShellProvider.select(0)` (the shortcut this wiring avoids)
+      // would leave the shell on «Салон» while the hosted screen still
+      // rendered the staff grid — see `_onNavSelected`'s doc.
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: _adminOverrides(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonShellScreen)),
+      );
+      expect(
+        container.read(salonManageTabProvider(_kSalonId)),
+        kSalonStaffSubTab,
+        reason: 'sanity: the sub-tab really is parked away from «Про салон»',
+      );
+
+      await tester.tap(find.byKey(const Key('admin-own-profile-salon-card')));
+      await tester.pumpAndSettle();
+
+      expect(container.read(salonShellProvider(_kSalonId)), 0);
+      expect(
+        container.read(salonManageTabProvider(_kSalonId)),
+        0,
+        reason:
+            'the card must go through the shell\'s own nav handler, which is '
+            'the only thing that also reconciles the shared sub-tab',
+      );
+      expect(_stack(tester).index, 0);
     });
   });
 

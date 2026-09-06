@@ -49,6 +49,14 @@ abstract final class VelvetSizes {
   static const double cta = 49;
   static const double logoTile = 78;
 
+  /// Phase 21.16 — diameter of the compact [SalonLogo] mark on a
+  /// salon-affiliation card. One step below the 58 dp mark the «Мої салони»
+  /// hub card carries, which is the relative step the approved preview draws
+  /// (`docs/signup-designs/SalonManagementDesign/lib/screens/
+  /// admin_own_profile_screen.dart:227`): the affiliation card states context,
+  /// the hub card is the navigation target.
+  static const double affiliationLogo = 44;
+
   /// VelvetSnack minimum height — one line of message plus 12dp vertical
   /// padding around a 32dp icon holder. Grows to fit two lines. Transcribed
   /// verbatim from
