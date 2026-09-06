@@ -63,6 +63,8 @@ import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
+import 'invite_accept_admin_landing_flow_test.dart'
+    as invite_accept_admin_landing;
 import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_favorites_flow_test.dart' as client_favorites;
@@ -191,6 +193,11 @@ void main() {
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);
   group('admin_own_profile_flow', admin_own_profile.main);
+  // The invite-accept -> /salons/home landing (2026-09-06 incident): an
+  // invited SALON_ADMIN's session must carry `salonId` off the accept
+  // envelope alone — the ONLY session-establishing flow with no `GET
+  // /users/me` behind it to repair a dropped binding.
+  group('invite_accept_admin_landing_flow', invite_accept_admin_landing.main);
   group('salon_shell_tab_sync_flow', salon_shell_tab_sync.main);
   // Independent-master MULTI-SERVICE booking (Step 2.7 Rule 3b) — two services
   // → two POST /bookings (distinct service/start/key) → success, plus the

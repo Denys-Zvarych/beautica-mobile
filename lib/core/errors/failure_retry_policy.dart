@@ -265,6 +265,15 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // [beauticaProviderRetry] is not actually on this failure's path.
   OverrideSpanPartialFailure() => false,
 
+  // ---- deterministic: locally-raised, no request to re-issue -------------
+  // Never crosses the wire: raised by a SCREEN that found a settled session
+  // missing a field it needs. `beauticaProviderRetry` re-runs a provider
+  // BUILD, and no provider build produces this failure — the only recovery is
+  // the screen's own `onRetry` calling [AuthNotifier.refreshUser]. Classifying
+  // it `false` keeps the container from ever inventing an automatic re-attempt
+  // of something that was not a request.
+  SessionIncompleteFailure() => false,
+
   // ---- deterministic: throttles (trap 2 in the file header) --------------
   ResendThrottledFailure() => false,
   CategoryRequestThrottledFailure() => false,

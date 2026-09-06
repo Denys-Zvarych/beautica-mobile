@@ -127,9 +127,32 @@ class SalonHomeResolverScreen extends ConsumerWidget {
       if (salonId == null) {
         // Never a blank screen — a JWT-authenticated admin with no bound
         // salon is a data problem, not a "still loading" state.
-        return const Scaffold(
+        //
+        // It is specifically a SESSION-HYDRATION problem, not an unknown one.
+        // Every session-establishing flow but one follows with `repo.me()`,
+        // whose profile DTO carries `salonId`; `acceptInvite` cannot (its
+        // "point of no return" contract forbids a network call after the 2xx)
+        // and so depends entirely on `UserMapper.fromAuthResponse` carrying
+        // the field through from the `AuthResponse`. When that binding is
+        // absent for ANY reason, a freshly-invited admin landed here on a bare
+        // [UnknownFailure] with NO retry — «Щось пішло не так» and a dead end.
+        //
+        // [SessionIncompleteFailure] says what is actually wrong, and the
+        // retry is the only thing that can fix it: [refreshUser] re-fetches
+        // `GET /users/me` and republishes the session. This `build` is a
+        // `ref.watch(authProvider)`, so a successful refresh re-enters here
+        // with a non-null `salonId` and forwards to the shell on its own. A
+        // failed refresh is swallowed by [refreshUser] (a hiccup must never
+        // tear down a valid session), leaving this same screen on-screen —
+        // the user can simply tap again.
+        return Scaffold(
           backgroundColor: BrandColors.base,
-          body: SafeArea(child: ErrorState(failure: UnknownFailure())),
+          body: SafeArea(
+            child: ErrorState(
+              failure: const SessionIncompleteFailure(),
+              onRetry: () => ref.read(authProvider.notifier).refreshUser(),
+            ),
+          ),
         );
       }
       _goToShell(context, salonId);

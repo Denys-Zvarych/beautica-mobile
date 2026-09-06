@@ -29,10 +29,21 @@ abstract final class UserMapper {
   /// [dto.role] is a [AuthResponseRoleEnum] (a built_value [EnumClass]); its
   /// [name] property returns the wire string (e.g. 'INDEPENDENT_MASTER') that
   /// [UserRole.fromWire] expects.
+  ///
+  /// [salonId] IS carried, even though the rest of the profile is not. The
+  /// backend populates it on `POST /auth/invite/accept` for an invited
+  /// `SALON_ADMIN` / `SALON_MASTER`, and [AuthNotifier.acceptInvite] is the one
+  /// session-establishing flow that does NOT follow with `repo.me()` (its
+  /// "point of no return" contract forbids a network call after the 2xx). So
+  /// this mapper is the only place that binding can enter the session —
+  /// dropping it left a freshly-created admin with `salonId == null`, which
+  /// `SalonHomeResolverScreen` renders as a dead-end error instead of their
+  /// salon shell.
   static User fromAuthResponse(AuthResponse dto) => User(
     id: dto.userId!,
     email: dto.email!,
     role: UserRole.fromWire(dto.role!.name),
+    salonId: dto.salonId,
   );
 
   /// Maps a GET /users/me [UserProfileResponse] to the domain [User].

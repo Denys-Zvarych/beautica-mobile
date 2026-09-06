@@ -50,12 +50,33 @@ UserProfileResponse _locationlessProfileDto() => UserProfileResponse(
     ..lastName = 'Міста',
 );
 
-/// Builds a login-shaped [AuthResponse] (no profile / location fields).
+/// Builds an [AuthResponse] with NO `salonId` — the login/verify-email shape
+/// for a role that belongs to no salon.
 AuthResponse _authResponse() => AuthResponse(
   (b) => b
     ..userId = 'usr-3'
     ..email = 'login@beautica.test'
     ..role = AuthResponseRoleEnum.CLIENT
+    ..accessToken = 'access.jwt.token'
+    ..refreshToken = 'refresh.jwt.token'
+    ..tokenType = 'Bearer',
+);
+
+/// Builds the `POST /auth/invite/accept` shape for an invited `SALON_ADMIN`:
+/// no profile/location fields, but a POPULATED `salonId`.
+///
+/// The non-null value is load-bearing. This is the ONLY session-establishing
+/// flow that never follows with `GET /users/me`, so if the mapper drops
+/// `salonId` the admin's session carries null and `SalonHomeResolverScreen`
+/// dead-ends instead of forwarding to their salon shell. A fixture that left
+/// `salonId` unset would make the assertion below pass whether the mapper
+/// carries the field or discards it.
+AuthResponse _adminInviteAcceptResponse() => AuthResponse(
+  (b) => b
+    ..userId = 'usr-4'
+    ..email = 'admin@beautica.test'
+    ..role = AuthResponseRoleEnum.SALON_ADMIN
+    ..salonId = 'salon-uuid-4'
     ..accessToken = 'access.jwt.token'
     ..refreshToken = 'refresh.jwt.token'
     ..tokenType = 'Bearer',
@@ -130,6 +151,28 @@ void main() {
       expect(user.locationNote, isNull);
       expect(user.firstName, isNull);
       expect(user.lastName, isNull);
+    });
+
+    // Regression (2026-09-06): this assertion USED to read `isNull`, against a
+    // fixture that never set `salonId` — the defect written down as correct
+    // behaviour, and vacuous besides. A newly-invited SALON_ADMIN reached
+    // `roleHomePath(salonAdmin)` → `SalonHomeResolverScreen` with a null
+    // `salonId` and got «Щось пішло не так. Спробуйте ще раз.» with no retry,
+    // because `acceptInvite` is the one session-establishing flow that never
+    // follows with `repo.me()` (its "point of no return" contract forbids a
+    // network call after the 2xx). The backend DOES populate `salonId` on this
+    // envelope — the mapper was discarding it.
+    test('carries salonId (invite-accept SALON_ADMIN salon binding)', () {
+      final user = UserMapper.fromAuthResponse(_adminInviteAcceptResponse());
+
+      expect(user.id, 'usr-4');
+      expect(user.role, UserRole.salonAdmin);
+      expect(user.salonId, 'salon-uuid-4');
+    });
+
+    test('leaves salonId null when the response omits it', () {
+      final user = UserMapper.fromAuthResponse(_authResponse());
+
       expect(user.salonId, isNull);
     });
   });

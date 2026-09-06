@@ -106,6 +106,10 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errSessionIncomplete": "We couldn\u2019t load all of your profile details. Tap \u201cTry again\u201d to refresh them.",
+  "@errSessionIncomplete": {
+    "description": "Error message shown when the signed-in session is authenticated but missing a field the screen needs to continue (SessionIncompleteFailure) \u2014 e.g. a SALON_ADMIN whose salonId never reached the session. Always paired with a retry that re-fetches GET /users/me."
+  },
   "errConflict": "This time slot is no longer available. Please choose another.",
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."

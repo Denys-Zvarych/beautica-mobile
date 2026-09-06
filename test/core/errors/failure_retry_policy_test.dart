@@ -115,6 +115,11 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'ScheduleOverrideRateLimitedFailure': false,
   'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
+  // Raised by a SCREEN, never by a repository — a settled session missing a
+  // field the screen needs. There is no request to re-issue, so the container
+  // must never invent an automatic re-attempt; the only recovery is the
+  // screen's own onRetry calling AuthNotifier.refreshUser.
+  'SessionIncompleteFailure': false,
 };
 
 /// One instance per key in [_expectedTransience].
@@ -190,6 +195,7 @@ Map<String, Failure> _instances() {
       failedDates: <DateTime>[at],
     ),
     'UnknownFailure': const UnknownFailure(),
+    'SessionIncompleteFailure': const SessionIncompleteFailure(),
   };
 }
 

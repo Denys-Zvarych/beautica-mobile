@@ -15,7 +15,10 @@
 //   * SALON_OWNER, zero salons                       -> RouteNames.mySalons.
 //   * SALON_OWNER, AsyncError                        -> ErrorState + working retry.
 //   * SALON_ADMIN, salonId set                       -> synchronous go to shell.
-//   * SALON_ADMIN, salonId null                      -> ErrorState, NEVER blank.
+//   * SALON_ADMIN, salonId null                      -> a self-describing
+//     `SessionIncompleteFailure` + a retry that re-fetches the profile, and
+//     the forward-to-shell that follows once it arrives. NEVER blank, and
+//     never the dead-end bare `UnknownFailure` it used to be.
 //   * authProvider AsyncError w/ stale session       -> retryable ErrorState,
 //     and NEVER a forward into the previous account's shell.
 
@@ -65,15 +68,35 @@ class _OwnerAuthNotifier extends AuthNotifier {
 }
 
 class _AdminAuthNotifier extends AuthNotifier {
-  _AdminAuthNotifier(this.salonId);
+  _AdminAuthNotifier(this.salonId, {this.salonIdAfterRefresh});
 
   final String? salonId;
+
+  /// When non-null, [refreshUser] republishes the session carrying THIS
+  /// salonId — standing in for `GET /users/me` supplying the binding a
+  /// `POST /auth/invite/accept` session arrived without.
+  ///
+  /// Defaults to null so every pre-existing call site is untouched: with it
+  /// unset this notifier delegates to the real [AuthNotifier.refreshUser].
+  final String? salonIdAfterRefresh;
 
   @override
   Future<AuthSession> build() async => AuthSession.authenticated(
     user: _adminUser(salonId: salonId),
     accessToken: 'tok',
   );
+
+  @override
+  Future<void> refreshUser() async {
+    final String? refreshed = salonIdAfterRefresh;
+    if (refreshed == null) return super.refreshUser();
+    state = AsyncData(
+      AuthSession.authenticated(
+        user: _adminUser(salonId: refreshed),
+        accessToken: 'tok',
+      ),
+    );
+  }
 }
 
 /// Settles to an [Authenticated] SALON_ADMIN session, then lets the test body
@@ -340,8 +363,22 @@ void main() {
       );
     });
 
+    // Regression (2026-09-06) — INVERTED. This test used to assert
+    // `findsNothing` for the retry button, on the premise that "a missing
+    // salonId on an authenticated admin's own profile is not a
+    // transient/retryable condition". That premise was wrong, and it pinned a
+    // live bug: `UserMapper.fromAuthResponse` was DISCARDING the `salonId` the
+    // backend populates on `POST /auth/invite/accept`, and `acceptInvite` is
+    // the one session-establishing flow that never follows with `repo.me()`.
+    // So a freshly-created SALON_ADMIN landed here on a bare `UnknownFailure`
+    // — «Щось пішло не так. Спробуйте ще раз.» — with no way forward at all.
+    //
+    // The condition IS recoverable, by exactly one route: re-fetch the
+    // profile. Hence [SessionIncompleteFailure] plus a retry wired to
+    // [AuthNotifier.refreshUser].
     testWidgets(
-      'salonId null (data problem) -> ErrorState, NEVER a blank screen',
+      'salonId null (session not fully hydrated) -> a SELF-DESCRIBING '
+      'SessionIncompleteFailure WITH a retry, never a dead-end UnknownFailure',
       (tester) async {
         await tester.pumpRoutedApp(
           _router(),
@@ -353,9 +390,56 @@ void main() {
 
         expect(find.byType(ErrorState), findsOneWidget);
         expect(find.byType(Scaffold), findsOneWidget);
-        // No retry button — a missing salonId on an authenticated admin's
-        // own profile is not a transient/retryable condition.
-        expect(find.byKey(const Key('error_state_retry_button')), findsNothing);
+
+        // The failure TYPE, not just "some error" — an `UnknownFailure` here
+        // renders the generic fallback copy and is the defect this replaced.
+        final ErrorState state = tester.widget<ErrorState>(
+          find.byType(ErrorState),
+        );
+        expect(state.failure, isA<SessionIncompleteFailure>());
+        expect(state.failure, isNot(isA<UnknownFailure>()));
+        expect(state.onRetry, isNotNull);
+        expect(
+          find.byKey(const Key('error_state_retry_button')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the retry re-fetches the profile and, once salonId arrives, the screen '
+      'forwards to that salon\'s shell on its own',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _AdminAuthNotifier(
+                null,
+                salonIdAfterRefresh: 'salon-admin-rehydrated',
+              ),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Precondition: the dead-end arm, not the shell.
+        expect(find.byType(ErrorState), findsOneWidget);
+        expect(
+          find.byKey(const Key('shell-stub-salon-admin-rehydrated')),
+          findsNothing,
+        );
+
+        await tester.tap(find.byKey(const Key('error_state_retry_button')));
+        await tester.pumpAndSettle();
+
+        // `build` is a `ref.watch(authProvider)`, so the republished session
+        // re-enters it and `_goToShell` forwards without any further tap.
+        expect(find.byType(ErrorState), findsNothing);
+        expect(
+          find.byKey(const Key('shell-stub-salon-admin-rehydrated')),
+          findsOneWidget,
+        );
       },
     );
 
