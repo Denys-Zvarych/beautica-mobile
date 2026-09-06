@@ -154,6 +154,12 @@ Future<void> _pumpSheet(
       retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
+        // Phase 311 — this whole file exercises the EDITABLE
+        // (INDEPENDENT_MASTER) path; without this the new
+        // scheduleEditableProvider self-check would resolve `false` (no
+        // Authenticated session) and hide every control this suite asserts
+        // on. The role-gating cases live in day_hours_sheet_read_only_test.dart.
+        authProvider.overrideWith(_StubAuthNotifier.new),
       ].cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -912,6 +918,7 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1180,6 +1187,7 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1235,6 +1243,7 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1514,6 +1523,7 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1573,6 +1583,7 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1651,6 +1662,7 @@ void main() {
             retry: beauticaProviderRetry,
             overrides: <Object>[
               scheduleRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
             ].cast(),
             child: MaterialApp(
               localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -1782,6 +1794,7 @@ void main() {
             retry: beauticaProviderRetry,
             overrides: <Object>[
               scheduleRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
             ].cast(),
             child: MaterialApp(
               localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -2343,6 +2356,12 @@ Future<void> _pumpSheetWithSink(
       retry: beauticaProviderRetry,
       overrides: <Object>[
         scheduleRepositoryProvider.overrideWithValue(repo),
+        // Phase 311 — this whole file exercises the EDITABLE
+        // (INDEPENDENT_MASTER) path; without this the new
+        // scheduleEditableProvider self-check would resolve `false` (no
+        // Authenticated session) and hide every control this suite asserts
+        // on. The role-gating cases live in day_hours_sheet_read_only_test.dart.
+        authProvider.overrideWith(_StubAuthNotifier.new),
       ].cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,

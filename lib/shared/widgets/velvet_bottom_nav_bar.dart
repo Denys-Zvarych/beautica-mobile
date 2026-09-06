@@ -82,9 +82,27 @@ const List<_NavItem> _navItems = <_NavItem>[
 /// `docs/signup-designs/MasterProfileScreen/lib/widgets/profile_widgets.dart`.
 /// `VelvetColors.*` → `BrandColors.*`.
 class VelvetBottomNavBar extends StatelessWidget {
-  const VelvetBottomNavBar({super.key, required this.activeIndex});
+  const VelvetBottomNavBar({
+    super.key,
+    required this.activeIndex,
+    this.scheduleRoute,
+    this.profileRoute,
+  });
 
   final int activeIndex;
+
+  /// Phase 310 D1 — additive override for tile 2's («Графік») destination.
+  /// `null` (every current caller) means `RouteNames.masterSchedule`,
+  /// byte-identical to before this param existed. Any override MUST also be
+  /// a top-level tab root — see [_VelvetNavTile._routeFor]'s doc for why
+  /// `context.go` relies on that.
+  final String? scheduleRoute;
+
+  /// Phase 310 D2 — additive override for tile 3's («Профіль») destination.
+  /// `null` (every current caller except `master_schedule_screen.dart`)
+  /// means `RouteNames.masterProfile`, byte-identical to before this param
+  /// existed. Same top-level-tab-root precondition as [scheduleRoute].
+  final String? profileRoute;
 
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
 
@@ -135,6 +153,8 @@ class VelvetBottomNavBar extends StatelessWidget {
                           item: _navItems[i],
                           index: i,
                           active: i == activeIndex,
+                          scheduleRoute: scheduleRoute,
+                          profileRoute: profileRoute,
                         ),
                       ),
                   ],
@@ -154,11 +174,15 @@ class _VelvetNavTile extends StatelessWidget {
     required this.item,
     required this.index,
     required this.active,
+    this.scheduleRoute,
+    this.profileRoute,
   });
 
   final _NavItem item;
   final int index;
   final bool active;
+  final String? scheduleRoute;
+  final String? profileRoute;
 
   /// Resolves the go_router path for a nav-bar [index]. Every index maps to
   /// its real destination; tapping the already-active tile resolves to
@@ -170,14 +194,16 @@ class _VelvetNavTile extends StatelessWidget {
   /// Every branch below is a TOP-LEVEL tab root (registered as a flat
   /// `GoRoute` in `app_router.dart`, never nested under another tab) — that
   /// is what makes `context.go` in [build] safe here specifically: see that
-  /// call site's comment for why.
+  /// call site's comment for why. An override passed via [scheduleRoute] /
+  /// [profileRoute] (Phase 310 D1/D2) MUST also be a top-level tab root for
+  /// the same reason.
   String? _routeFor(int index) {
     if (active) return null;
     return switch (index) {
       0 => RouteNames.services, // Послуги
       1 => RouteNames.masterBookings, // Мої записи → Phase 7.6
-      2 => RouteNames.masterSchedule, // Графік → Phase 15.2 schedule screen
-      _ => RouteNames.masterProfile, // Профіль
+      2 => scheduleRoute ?? RouteNames.masterSchedule, // Графік
+      _ => profileRoute ?? RouteNames.masterProfile, // Профіль
     };
   }
 

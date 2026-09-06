@@ -2146,6 +2146,10 @@
   "@scheduleViewOnly": {
     "description": "Read-only badge label replacing the edit pencil for past days (Phase 15.2)."
   },
+  "scheduleReadOnlyEditorBody": "You don't have permission to edit this schedule.",
+  "@scheduleReadOnlyEditorBody": {
+    "description": "Phase 311 — SalonNoticeCard body shown by WeeklyTemplateEditorScreen, DayHoursSheet and ApplyScheduleSheet when scheduleEditableProvider is false (a read-only viewer, e.g. SALON_MASTER, reached one of these edit surfaces). Paired with the existing scheduleViewOnly ('View only') as the card's title — no new title key needed."
+  },
   "scheduleDaySummaryWorking": "Working day: {intervals}",
   "@scheduleDaySummaryWorking": {
     "description": "Selected-day summary line for a working day (Phase 15.2). {intervals} is the formatted interval list (e.g. '09:00–18:00').",

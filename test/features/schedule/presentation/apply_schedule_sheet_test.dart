@@ -14,6 +14,10 @@
 // (M6). `today` is injected so the presets/cap are deterministic (no wall-clock).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
@@ -28,6 +32,25 @@ import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
+
+/// Phase 311 — settled INDEPENDENT_MASTER session so `scheduleEditableProvider`
+/// resolves `true`. This whole file exercises the EDITABLE path (the sheet
+/// itself is an edit surface); without this override the new self-check
+/// would resolve `false` (no Authenticated session) and hide every control
+/// this suite asserts on. Mirrors `day_hours_sheet_test.dart`'s identical stub.
+class _StubAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-1',
+      email: 'master1@beautica.ua',
+      role: UserRole.independentMaster,
+      firstName: 'Оля',
+      lastName: 'Коваль',
+    ),
+    accessToken: 'token-1',
+  );
+}
 
 /// Fixed "today" so the presets, day-count, and far-future cap are stable.
 final DateTime _today = DateTime(2024, 5, 22);
@@ -96,6 +119,7 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
           ...extraOverrides,
         ].cast(),
         child: MaterialApp.router(
@@ -286,6 +310,7 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: <Object>[
           scheduleRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
         child: MaterialApp.router(
           routerConfig: router,
@@ -380,6 +405,7 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             scheduleRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
           child: MaterialApp.router(
             routerConfig: router,

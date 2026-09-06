@@ -52,12 +52,14 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 import 'apply_schedule_sheet.dart';
+import 'schedule_capability.dart';
 import 'weekly_schedule_notifier.dart';
 import 'widgets/discrete_times_editor.dart';
 import 'widgets/interval_editor.dart';
@@ -550,6 +552,16 @@ class _WeeklyTemplateEditorScreenState
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   Future<void> _save() async {
+    // Phase 311 D2 — belt-and-braces: the control that reaches this handler
+    // is already hidden for a non-editable viewer (see `build`), but refuse
+    // the write here too, so a future entry point that calls `_save`
+    // directly (keyboard action, different affordance) can't bypass the
+    // hidden control. Guards BOTH branches below (`allOff` → delete,
+    // otherwise → save) since both live in this one method.
+    if (!ref.read(scheduleEditableProvider)) {
+      log('save: blocked — viewer is read-only', name: _tag);
+      return;
+    }
     final AppLocalizations l10n = AppLocalizations.of(context);
     if (_hasErrors) {
       showErrorSnack(context, l10n.weeklyEditorErrorsBanner);
@@ -761,6 +773,11 @@ class _WeeklyTemplateEditorScreenState
     final AsyncValue<List<WeeklySchedule>> asyncWeekly = ref.watch(
       weeklyScheduleProvider,
     );
+    // Phase 311 — safety net under the `/schedule` router gate (which is
+    // what actually keeps a read-only viewer off this screen today): if that
+    // gate is ever weakened, moved or refactored away, this self-check keeps
+    // the edit surface enclosed on its own.
+    final bool editable = ref.watch(scheduleEditableProvider);
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -795,6 +812,20 @@ class _WeeklyTemplateEditorScreenState
                     return const Center(
                       child: CircularProgressIndicator(
                         color: BrandColors.accent,
+                      ),
+                    );
+                  }
+                  if (!editable) {
+                    // D1 — normal chrome (VelvetTopBar above) stays; the day
+                    // rows' editors and the save/delete actions are omitted
+                    // entirely rather than rendered disabled.
+                    return Padding(
+                      padding: const EdgeInsets.all(VelvetSpacing.lg),
+                      child: SalonNoticeCard(
+                        key: const Key('weekly-editor-read-only-notice'),
+                        icon: Icons.lock_outline,
+                        title: l10n.scheduleViewOnly,
+                        body: l10n.scheduleReadOnlyEditorBody,
                       ),
                     );
                   }

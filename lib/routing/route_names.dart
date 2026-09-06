@@ -676,6 +676,20 @@ abstract final class RouteNames {
   /// path rather than widening [masterEditContacts]'s guard.
   static const String salonMasterEditContacts = '/staff/edit/contacts';
 
+  /// «Графік роботи» read-only view for a SALON_MASTER. Renders the SAME
+  /// [MasterScheduleScreen] widget [masterSchedule] does — every edit
+  /// affordance on that screen is already gated on `scheduleEditableProvider`
+  /// (which already resolves `SALON_MASTER → false`), so this route reuses it
+  /// verbatim rather than forking a read-only variant. Registered under its
+  /// own `/staff/*` subtree rather than widening [masterSchedule]'s guard, so
+  /// `/schedule/weekly`, `/schedule/day` and `/schedule/copy` — full edit
+  /// surfaces — stay fenced to INDEPENDENT_MASTER exactly as before; see
+  /// `auth_redirect.dart`'s `/schedule` gate comment. No `?date=` query
+  /// param: [masterSchedule]'s param has exactly one producer
+  /// (`master_bookings_screen.dart`, an INDEPENDENT_MASTER-only surface), so
+  /// there is no producer for this role and nothing to parse.
+  static const String salonMasterSchedule = '/staff/schedule';
+
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
   // masterId from the session (authProvider), so the reviews are always the

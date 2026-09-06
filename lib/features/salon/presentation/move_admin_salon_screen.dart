@@ -59,6 +59,7 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
     show kSalonTeamNavTab;
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:dio/dio.dart';
 
@@ -72,7 +73,6 @@ import '../domain/salon_staff_member.dart';
 import 'salon_management_profile_screen.dart' show kSalonStaffSubTab;
 import 'widgets/admin_action_dialogs.dart';
 import 'widgets/salon_hub_card.dart';
-import 'widgets/salon_notice_card.dart';
 
 /// The destination picker for moving administrator [memberId] out of salon
 /// [salonId].

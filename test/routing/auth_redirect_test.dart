@@ -820,6 +820,14 @@ void main() {
         RouteNames.salonMasterSettings, // /staff/settings
         RouteNames.salonMasterEditPersonal, // /staff/edit/personal
         RouteNames.salonMasterEditContacts, // /staff/edit/contacts
+        // Phase 309 — /staff/schedule (read-only MasterScheduleScreen reuse).
+        // Added to this EXISTING matrix rather than a new group: the row
+        // generator below already produces the exact five assertions this
+        // phase's test list calls for (SALON_MASTER admitted;
+        // INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/CLIENT/unauthenticated
+        // each bounced to their own landing) for every route in this list —
+        // one insertion covers all five without hand-duplicating them.
+        RouteNames.salonMasterSchedule, // /staff/schedule
       ];
 
       for (final route in staffRoutes) {

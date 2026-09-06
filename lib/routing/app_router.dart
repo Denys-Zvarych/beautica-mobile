@@ -1751,6 +1751,18 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             const ContactsEditScreen(showInstagram: false),
       ),
+      // Phase 309 — «Графік роботи» read-only view for a SALON_MASTER. Reuses
+      // [MasterScheduleScreen] VERBATIM (see `route_names.dart`'s
+      // [RouteNames.salonMasterSchedule] doc). Registered as a top-level flat
+      // route (a `VelvetBottomNavBar` nav-tile precondition — see that
+      // widget's `_routeFor` doc), same as every other `/staff/*` and
+      // `/master/*` tab root. `builder:` (MaterialPage), matching
+      // [RouteNames.masterSchedule] immediately below. No `?date=` handling
+      // (D2 — no producer for this role exists).
+      GoRoute(
+        path: RouteNames.salonMasterSchedule,
+        builder: (context, state) => const MasterScheduleScreen(),
+      ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.
       // Pushed from the home-hub burger icon; all three edit pages PATCH

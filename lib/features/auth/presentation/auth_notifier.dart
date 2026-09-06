@@ -95,6 +95,74 @@ String? authUserIdOrNull(AsyncValue<AuthSession> session) =>
       Unauthenticated() || null => null,
     };
 
+/// The selector for a call site that only cares WHAT ROLE is signed in — not
+/// the identity, not the token, not the rest of [AuthSession].
+///
+/// Returns the authenticated user's [UserRole], or `null` for every
+/// non-authenticated shape (`Unauthenticated`, and the cold-start
+/// `AsyncLoading` whose `.value` is still `null`).
+///
+/// WHY IT EXISTS (mobile-perf finding, 2026-09-06,
+/// `master_schedule_screen.dart` build()): a bare `ref.watch(authProvider)`
+/// there was measured (isolated `ProviderContainer` probe, same methodology
+/// as [authUserIdOrNull]'s 2026-08-31 sweep) to renotify on every
+/// `AuthNotifier.setAccessToken` call — i.e. every silent token refresh —
+/// because `Authenticated`'s `@freezed` equality includes `accessToken`
+/// (`auth_session.dart`), so a same-user, new-token `AsyncData` compares
+/// unequal. That is a real rebuild of the whole calendar screen for the
+/// screen's entire session lifetime, on top of its own rebuild triggers. The
+/// role, unlike the token, is stable across a refresh (same user, same
+/// role), so narrowing the watch to it via `.select` absorbs the churn the
+/// same way [authUserIdOrNull] does for identity-only call sites.
+///
+/// Callers that ALSO need the id, the token, or the whole session must NOT
+/// use this — they either watch `authProvider` un-narrowed or write their own
+/// `.select` for the field they actually read.
+UserRole? authUserRoleOrNull(AsyncValue<AuthSession> session) =>
+    switch (session.value) {
+      Authenticated(:final User user) => user.role,
+      Unauthenticated() || null => null,
+    };
+
+/// The STRICT counterpart to [authUserRoleOrNull], for a call site that must
+/// treat anything short of a settled, authenticated session as "no role" —
+/// a write-gate, not a nav-target pick.
+///
+/// Returns the authenticated user's [UserRole] only when [session] is
+/// currently a settled `AsyncData<AuthSession>` carrying [Authenticated] —
+/// the same concrete-subtype gate used by
+/// `salon_home_resolver_screen.dart`, `app_router.dart`, and
+/// `auth_redirect.dart`'s `resolvedAuth` (never [AsyncValue.value]'s lenient
+/// unwrap). Returns `null` for every other shape: `Unauthenticated`,
+/// `AsyncLoading` — including one carrying a `copyWithPrevious`-attached
+/// stale `Authenticated` value — and `AsyncError` (ditto).
+///
+/// WHY THIS MUST NOT COLLAPSE INTO [authUserRoleOrNull] (mobile-security
+/// MEDIUM, phase 309–311 track, 2026-09-06): Riverpod 3 auto-applies
+/// `copyWithPrevious` to every `Notifier`/`AsyncNotifier` state transition
+/// (`riverpod-3.2.1/.../element.dart:66`), so a stale
+/// `AsyncData(Authenticated(...))` can ride along attached to a LATER
+/// `AsyncLoading` / `AsyncError` — e.g. mid token-refresh, mid-logout, or a
+/// failed re-fetch — and `.value` (what [authUserRoleOrNull] reads) still
+/// happily returns it. That leniency is exactly right for a NAV-TARGET read
+/// like `master_schedule_screen.dart`'s `profileRoute`, where worst case a
+/// fallback route is one frame stale — but it is wrong for
+/// `schedule_capability.dart`'s `scheduleEditable`, the WRITE-GATE for
+/// schedule mutation: resolving an edit affordance from a session that is no
+/// longer definitely authenticated is exactly the hazard a write gate exists
+/// to close. Use THIS selector for any gate that must fail closed
+/// (read-only / no-op) the instant the session is not a settled
+/// [Authenticated] `AsyncData`; use [authUserRoleOrNull] for anything that
+/// only picks a display/navigation target and can tolerate a one-frame-stale
+/// read. Do not "simplify" the two into one — that is the bug this selector
+/// exists to prevent.
+UserRole? authUserRoleSettledOrNull(AsyncValue<AuthSession> session) {
+  final AuthSession? settled = session is AsyncData<AuthSession>
+      ? session.value
+      : null;
+  return settled is Authenticated ? settled.user.role : null;
+}
+
 /// Manages the user's authentication session for the Beautica app lifetime.
 ///
 /// Exposes [AsyncValue<AuthSession>] so that all consumers — interceptors,

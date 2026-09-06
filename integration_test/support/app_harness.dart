@@ -929,8 +929,11 @@ abstract final class AppHarness {
       // actually checks them, the omission becomes a silent wrong-persona
       // login. (mobile-qa 21.14 F2.)
       UserRole.salonAdmin => 'admin@beautica.ua',
+      // Must match `_salonMasterUserJson.email` in fake_backend.dart — same
+      // reasoning as the SALON_ADMIN arm above (mobile-qa, Phase 309-311
+      // track, 2026-09-06 gap-closure).
+      UserRole.salonMaster => 'salonmaster@beautica.ua',
       UserRole.independentMaster => 'master@beautica.ua',
-      _ => 'master@beautica.ua',
     };
 
     // Drain any in-flight splash→login redirect / route transition BEFORE

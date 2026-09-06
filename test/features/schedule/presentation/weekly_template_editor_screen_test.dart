@@ -30,6 +30,10 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
@@ -284,6 +288,25 @@ class _CountingEffective extends EffectiveScheduleNotifier {
   }
 }
 
+/// Phase 311 — settled INDEPENDENT_MASTER session so `scheduleEditableProvider`
+/// resolves `true`. This whole file exercises the EDITABLE path (it is the
+/// editor itself); without this override the new self-check would resolve
+/// `false` (no Authenticated session) and hide every control this suite
+/// asserts on. Mirrors `day_hours_sheet_test.dart`'s identical stub.
+class _StubAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-1',
+      email: 'master1@beautica.ua',
+      role: UserRole.independentMaster,
+      firstName: 'Оля',
+      lastName: 'Коваль',
+    ),
+    accessToken: 'token-1',
+  );
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Harness.
 // ───────────────────────────────────────────────────────────────────────────
@@ -298,7 +321,14 @@ Future<ProviderContainer> _pump(
 }) async {
   final ProviderContainer container = ProviderContainer(
     retry: beauticaProviderRetry,
-    overrides: overrides.cast(),
+    // Phase 311 — default editable session, appended (not prepended) so a
+    // caller wanting a different role would need to pass their own
+    // authProvider override BEFORE this one loses — no current caller does,
+    // so this is purely additive.
+    overrides: <Object>[
+      ...overrides,
+      authProvider.overrideWith(_StubAuthNotifier.new),
+    ].cast(),
   );
   final GoRouter router = GoRouter(
     initialLocation: RouteNames.scheduleWeeklyEditor,
@@ -2925,6 +2955,7 @@ void main() {
           ),
           effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
           clockProvider.overrideWithValue(() => pinned),
+          authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
       );
       addTearDown(c.dispose);
@@ -3017,6 +3048,7 @@ void main() {
           ),
           effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
           clockProvider.overrideWithValue(() => pinned),
+          authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
       );
       addTearDown(c.dispose);
@@ -3239,7 +3271,11 @@ Future<ProviderContainer> _pumpWithClock(
 }) async {
   final ProviderContainer container = ProviderContainer(
     retry: beauticaProviderRetry,
-    overrides: overrides.cast(),
+    // Phase 311 — see [_pump]'s identical comment.
+    overrides: <Object>[
+      ...overrides,
+      authProvider.overrideWith(_StubAuthNotifier.new),
+    ].cast(),
   );
   final GoRouter router = GoRouter(
     initialLocation: RouteNames.scheduleWeeklyEditor,

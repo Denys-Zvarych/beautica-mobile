@@ -31,7 +31,10 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -448,6 +451,27 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // alongside the visible range so the empty-state decision is a global
     // verdict (no weekly template defined) rather than a per-month one.
     final asyncWeekly = ref.watch(weeklyScheduleProvider);
+    // Phase 309 D4 — role-aware landing for both the top-bar back-fallback
+    // AND (Phase 310 D2) the bottom nav's «Профіль» tile. Without this, a
+    // SALON_MASTER's fallback `context.go` targets `RouteNames.masterProfile`
+    // (INDEPENDENT_MASTER-only) and is immediately re-redirected by the
+    // `/master/*` gate to `/staff/profile` — a double navigation that hides a
+    // routing bug behind a guard's correction. Narrowed via
+    // `authUserRoleOrNull` rather than a bare `ref.watch(authProvider)`: the
+    // role is the only thing this block reads, and it is stable across a
+    // silent token refresh (same user, same role) — a bare watch was
+    // measured to renotify on every such refresh (`accessToken` is part of
+    // `Authenticated`'s `@freezed` equality), which would rebuild this whole
+    // calendar screen for no visible reason. See [authUserRoleOrNull]'s doc
+    // comment for the full measurement.
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    final bool isSalonMaster = role == UserRole.salonMaster;
+    final String profileRoute = role != null
+        ? roleHomePath(role)
+        : RouteNames.masterProfile;
+    final String scheduleRoute = isSalonMaster
+        ? RouteNames.salonMasterSchedule
+        : RouteNames.masterSchedule;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -458,7 +482,17 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       // `Scaffold` zeroes the bottom `MediaQuery` padding it hands to `body`
       // whenever `bottomNavigationBar` is non-null, so the outer `SafeArea`
       // below consumes nothing extra here — no double-counted inset.
-      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 2),
+      // Phase 310 D2 — non-const: passes role-resolved `scheduleRoute` /
+      // `profileRoute` so tile 3 («Профіль») lands a SALON_MASTER on
+      // `/staff/profile` in one navigation instead of bouncing through
+      // `/master/profile`. For an INDEPENDENT_MASTER both resolve to the
+      // current literals (`RouteNames.masterSchedule` /
+      // `RouteNames.masterProfile`) — byte-identical behaviour.
+      bottomNavigationBar: VelvetBottomNavBar(
+        activeIndex: 2,
+        scheduleRoute: scheduleRoute,
+        profileRoute: profileRoute,
+      ),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -469,7 +503,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 if (context.canPop()) {
                   context.pop();
                 } else {
-                  context.go(RouteNames.masterProfile);
+                  context.go(profileRoute);
                 }
               },
             ),

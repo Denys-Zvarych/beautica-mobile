@@ -344,19 +344,24 @@ String? authRedirectForLocation(
   }
 
   // Role gate (Phase 15.6 — OQ-2 hardening): the schedule EDIT surfaces are
-  // INDEPENDENT_MASTER-only in MVP. `/schedule` (MasterScheduleScreen) already
-  // gates every edit affordance on `scheduleEditableProvider` and is a safe
-  // read-only landing for any future viewer; but the deep edit destinations —
+  // INDEPENDENT_MASTER-only, PERMANENTLY — this is not an interim MVP state.
+  // `/schedule` (MasterScheduleScreen) already gates every edit affordance on
+  // `scheduleEditableProvider`; but the deep edit destinations —
   // `/schedule/weekly` (WeeklyTemplateEditorScreen), `/schedule/day`,
-  // `/schedule/copy` — are full edit surfaces that do NOT self-check the
-  // capability. A read-only role (SALON_MASTER) deep-linking/pushing straight
-  // to one of those would otherwise reach editable controls. Redirect every
-  // non-INDEPENDENT_MASTER role away from the entire `/schedule` subtree to the
-  // home "coming soon" shell, mirroring the `/master/*` and `/services` gates
-  // above. When salon staff gain a (read-only/editable-per-membership) schedule
-  // surface in a later phase, this gate widens to admit those roles and the
-  // editor screens add their own `scheduleEditableProvider` check — but for MVP
-  // the single-point router gate keeps the edit surfaces fully enclosed.
+  // `/schedule/copy` — are full edit surfaces. Redirect every
+  // non-INDEPENDENT_MASTER role away from the entire `/schedule` subtree to
+  // the home "coming soon" shell, mirroring the `/master/*` and `/services`
+  // gates above.
+  //
+  // Phase 309 (CLOSED, D1/D3): salon staff do NOT get this gate widened.
+  // `SALON_MASTER` reads the SAME `MasterScheduleScreen` at the SEPARATE
+  // `/staff/schedule` route instead — the `/staff/*` gate above is what
+  // admits them there, not this one. `/schedule` and its subtree stay
+  // INDEPENDENT_MASTER-only whether or not `/staff/schedule` exists. Phase
+  // 311 (CLOSED) then made `WeeklyTemplateEditorScreen`, `DayHoursSheet` and
+  // `ApplyScheduleSheet` self-check `scheduleEditableProvider` too, so the
+  // edit surfaces are enclosed by two independent mechanisms — this router
+  // gate is not made redundant by that; both stay in force.
   if (isAuthenticated && location.startsWith('/schedule')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {

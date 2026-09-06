@@ -403,6 +403,10 @@ void main() {
       'salonMasterSettings': RouteNames.salonMasterSettings,
       'salonMasterEditPersonal': RouteNames.salonMasterEditPersonal,
       'salonMasterEditContacts': RouteNames.salonMasterEditContacts,
+      // Phase 309 — SALON_MASTER's read-only «Графік роботи», reusing
+      // MasterScheduleScreen at its own /staff/* path (see route_names.dart's
+      // doc). Same rationale as the salonMaster* rows immediately above.
+      'salonMasterSchedule': RouteNames.salonMasterSchedule,
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,

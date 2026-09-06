@@ -203,14 +203,41 @@ const Map<String, dynamic> _adminUserJson = <String, dynamic>{
   'salonId': 'salon-admin-1',
 };
 
+/// mobile-qa gap-closure (Phase 309-311 track, 2026-09-06) — the SAME class
+/// of bug the 21.8 fix above closed for SALON_ADMIN, just not yet fixed for
+/// this role: `userJsonForRole` fell through the `_ => _masterUserJson`
+/// default, so `currentRole = UserRole.salonMaster` silently logged in as an
+/// INDEPENDENT_MASTER (wrong role string, no way to reach `/staff/*` at all)
+/// — no E2E flow could exercise ANY SALON_MASTER journey until this was
+/// added, discovered while authoring
+/// `salon_master_schedule_nav_flow_test.dart`. `salonId` is deliberately
+/// OMITTED (unlike the admin persona above): `salonMasterOwnProfileNotifier`
+/// treats a null `salonId` as "no employing salon" and degrades the
+/// identity card gracefully (no salon-name/address rows), which is exactly
+/// what this fixture needs for a role whose ONLY currently-shipped surfaces
+/// (`/staff/profile`, `/staff/schedule`) do not depend on that salon read
+/// resolving — see that notifier's own doc for the degrade-to-null path.
+const Map<String, dynamic> _salonMasterUserJson = <String, dynamic>{
+  'id': 'user-salon-master-1',
+  'email': 'salonmaster@beautica.ua',
+  'role': 'SALON_MASTER',
+  'firstName': 'Тарас',
+  'lastName': 'Майстренко',
+};
+
 /// Returns the stub JSON body for [UserRole] in `GET /users/me` shape.
+///
+/// Exhaustive over every [UserRole] (no wildcard default) — the SALON_ADMIN
+/// and SALON_MASTER doc comments above both record what a wildcard here
+/// actually costs: a role that silently logs in as INDEPENDENT_MASTER
+/// instead of failing to compile the day a sixth role is added.
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
     UserRole.salonOwner => _ownerUserJson,
     UserRole.salonAdmin => _adminUserJson,
+    UserRole.salonMaster => _salonMasterUserJson,
     UserRole.independentMaster => _masterUserJson,
-    _ => _masterUserJson,
   };
 }
 

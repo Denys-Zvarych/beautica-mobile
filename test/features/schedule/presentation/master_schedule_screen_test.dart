@@ -837,6 +837,23 @@ List<RouteBase> _routes() => <RouteBase>[
     builder: (context, state) =>
         const Scaffold(key: Key('master-profile-stub')),
   ),
+  // Phase 309 — the SALON_MASTER read-only landing, reusing this same
+  // MasterScheduleScreen (see route_names.dart's [RouteNames
+  // .salonMasterSchedule] doc). Registered here too so the back-fallback
+  // tests (Phase 309 D4) can pump this screen at its OWN `/staff/schedule`
+  // location, mirroring production's second GoRoute registration.
+  GoRoute(
+    path: RouteNames.salonMasterSchedule,
+    builder: (context, state) =>
+        MasterScheduleScreen(clock: () => asClockInstant(_today)),
+  ),
+  // Phase 309 D4 — the SALON_MASTER role-home stub, distinct from the
+  // INDEPENDENT_MASTER master-profile-stub above so a back-fallback test can
+  // tell the two apart.
+  GoRoute(
+    path: RouteNames.salonMasterProfile,
+    builder: (context, state) => const Scaffold(key: Key('staff-profile-stub')),
+  ),
   GoRoute(
     path: RouteNames.home,
     builder: (context, state) => const Scaffold(key: Key('home-stub')),
@@ -856,11 +873,28 @@ GoRouter _router() =>
 /// [authProvider]. Used by the CTA-navigation tests so a CTA aimed at the wrong
 /// screen (e.g. a non-`/master/*` dead stub, or a screen the role can't reach)
 /// is rejected by the real guard — the exact gap that let BUG #1 ship.
-GoRouter _redirectRouter(ProviderContainer container) => GoRouter(
-  initialLocation: RouteNames.masterSchedule,
+///
+/// [initialLocation] defaults to [RouteNames.masterSchedule] (every existing
+/// call site's behaviour, unchanged) — the Phase 309 D4 back-fallback tests
+/// pass [RouteNames.salonMasterSchedule] instead, so a SALON_MASTER session
+/// starts on ITS OWN schedule route with an empty navigator stack (`canPop ==
+/// false`), matching production.
+///
+/// [redirectLog], when given, records every `state.matchedLocation` the
+/// `redirect:` callback is asked to resolve (Phase 309 D4 proof: a SINGLE
+/// entry after a back-fallback tap means no intermediate hop through the
+/// wrong role-home literal before the guard corrects it).
+GoRouter _redirectRouter(
+  ProviderContainer container, {
+  String initialLocation = RouteNames.masterSchedule,
+  List<String>? redirectLog,
+}) => GoRouter(
+  initialLocation: initialLocation,
   refreshListenable: _ContainerListenable(container),
-  redirect: (context, state) =>
-      authRedirect(container.read(authProvider), state),
+  redirect: (context, state) {
+    redirectLog?.add(state.matchedLocation);
+    return authRedirect(container.read(authProvider), state);
+  },
   routes: _routes(),
 );
 
@@ -899,6 +933,8 @@ Object _fakeWorkingHours() => workingHoursRepositoryProvider.overrideWithValue(
 Future<ProviderContainer> _pumpGuarded(
   WidgetTester tester, {
   required List<Object> overrides,
+  String initialLocation = RouteNames.masterSchedule,
+  List<String>? redirectLog,
 }) async {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
@@ -908,7 +944,11 @@ Future<ProviderContainer> _pumpGuarded(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp.router(
-        routerConfig: _redirectRouter(container),
+        routerConfig: _redirectRouter(
+          container,
+          initialLocation: initialLocation,
+          redirectLog: redirectLog,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('uk'),
@@ -1850,12 +1890,62 @@ void main() {
         // Read content still renders.
         expect(find.byType(MasterScheduleScreen), findsOneWidget);
 
+        // Phase 311/309 test-list requirement: a test that only proves
+        // absence would pass on a blank screen. Prove the read content
+        // actually rendered — the day rail and the slot legend — not just
+        // that the edit affordances below are gone.
+        expect(
+          find.byType(WeekStripDay),
+          findsWidgets,
+          reason: 'the week strip must render for a read-only viewer too',
+        );
+        expect(
+          find.byType(SlotLegend),
+          findsOneWidget,
+          reason: 'the slot legend must render for a read-only viewer too',
+        );
+
         // Every edit affordance is gone.
         expect(find.byKey(const Key('schedule-weekly-card')), findsNothing);
         expect(find.byKey(const Key('schedule-day-pencil')), findsNothing);
         expect(find.byKey(const Key('schedule-add-hours')), findsNothing);
         expect(find.byKey(const Key('schedule-time-off')), findsNothing);
         expect(find.byKey(const Key('schedule-copy')), findsNothing);
+
+        // No GestureDetector/InkWell hides under the (semantics-only) weekly
+        // card either — tapping where the card renders must not navigate.
+        final router = _router();
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: <Object>[
+              ..._withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+                _template(),
+              ]),
+              _fakeWorkingHours(),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final String beforeTap =
+            // router-location-ok: go-only navigation in this harness.
+            router.routerDelegate.currentConfiguration.uri.toString();
+        await tester.tap(find.text(_l10n(tester).scheduleWeeklyCardTitle));
+        await tester.pumpAndSettle();
+        expect(
+          // router-location-ok: go-only navigation in this harness, no push.
+          router.routerDelegate.currentConfiguration.uri.toString(),
+          beforeTap,
+          reason:
+              'tapping the read-only weekly-summary card must never '
+              'navigate to the weekly editor',
+        );
 
         await expectLater(
           find.byType(MasterScheduleScreen),
@@ -1956,6 +2046,89 @@ void main() {
       expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
     });
   });
+
+  // ── Back-fallback lands on role home (Phase 309 D4) ───────────────────────
+  //
+  // `VelvetTopBar.onBack` falls back to `context.go(roleHomePath(role))` when
+  // there is nothing to pop (empty navigator stack — this screen is the FIRST
+  // route, exactly as it is when reached via `context.go` from either
+  // `/schedule` or `/staff/schedule`). Before D4 the literal
+  // `RouteNames.masterProfile` was hardcoded, so a SALON_MASTER's fallback
+  // bounced through the wrong role home before the `/master/*` guard
+  // corrected it to `/staff/profile` — a double navigation. These tests pin
+  // BOTH the final location AND that no such intermediate hop occurs.
+  group(
+    'MasterScheduleScreen — back-fallback lands on role home (Phase 309 D4)',
+    () {
+      testWidgets('INDEPENDENT_MASTER: back-fallback from /schedule lands on '
+          '/master/profile in ONE navigation (byte-identical to before D4)', (
+        tester,
+      ) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        final redirectLog = <String>[];
+        final container = await _pumpGuarded(
+          tester,
+          overrides: _editableData(days),
+          redirectLog: redirectLog,
+        );
+        addTearDown(container.dispose);
+        redirectLog.clear();
+
+        expect(
+          find.byType(NeumorphicIconButton),
+          findsOneWidget,
+          reason: 'the back arrow must be present (onBack != null)',
+        );
+        await tester.tap(find.byType(NeumorphicIconButton));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('master-profile-stub')), findsOneWidget);
+        expect(find.byKey(const Key('staff-profile-stub')), findsNothing);
+        expect(
+          redirectLog,
+          <String>[RouteNames.masterProfile],
+          reason:
+              'exactly one matched location — the fallback goes straight '
+              'to /master/profile, never through a wrong literal first',
+        );
+      });
+
+      testWidgets(
+        'SALON_MASTER: back-fallback from /staff/schedule lands on '
+        '/staff/profile in ONE navigation — no intermediate /master/profile hop',
+        (tester) async {
+          final days = _weekWith(todayDay: _working, filler: _working);
+          final redirectLog = <String>[];
+          final container = await _pumpGuarded(
+            tester,
+            overrides: _withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+              _template(),
+            ]),
+            initialLocation: RouteNames.salonMasterSchedule,
+            redirectLog: redirectLog,
+          );
+          addTearDown(container.dispose);
+          redirectLog.clear();
+
+          await tester.tap(find.byType(NeumorphicIconButton));
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('staff-profile-stub')), findsOneWidget);
+          expect(find.byKey(const Key('master-profile-stub')), findsNothing);
+          expect(
+            redirectLog,
+            <String>[RouteNames.salonMasterProfile],
+            reason:
+                'if D4 regressed to the RouteNames.masterProfile literal, the '
+                'tap would `go` to /master/profile (rejected by the /master/* '
+                'guard) and THEN /staff/profile (the correction) — two '
+                'matched locations for one tap. Exactly one proves the '
+                'single-hop landing.',
+          );
+        },
+      );
+    },
+  );
 
   // ── Focused "no schedule at all" empty state ──────────────────────────────
   //

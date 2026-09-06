@@ -96,6 +96,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
     show kSalonTeamNavTab;
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:dio/dio.dart';
 
 import '../../auth/presentation/auth_selectors.dart';
@@ -110,7 +111,6 @@ import '../application/salon_staff_member_notifier.dart';
 import '../domain/salon_staff_member.dart';
 import 'salon_management_profile_screen.dart' show kSalonStaffSubTab;
 import 'widgets/admin_action_dialogs.dart';
-import 'widgets/salon_notice_card.dart';
 
 /// The two halves of one row's staggered entrance, built once in
 /// `initState` and only READ in `build` — see
