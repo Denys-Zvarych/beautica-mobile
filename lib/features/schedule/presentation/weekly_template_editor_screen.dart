@@ -52,12 +52,16 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
+import '../application/own_schedule_scope.dart';
 import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import '../domain/weekly_schedule.dart';
 import 'apply_schedule_sheet.dart';
+import 'schedule_capability.dart';
 import 'weekly_schedule_notifier.dart';
 import 'widgets/discrete_times_editor.dart';
 import 'widgets/interval_editor.dart';
@@ -95,8 +99,18 @@ enum _SaveGate {
 
 /// The full-screen weekly-template editor.
 class WeeklyTemplateEditorScreen extends ConsumerStatefulWidget {
-  const WeeklyTemplateEditorScreen({super.key, DateTime Function()? clock})
-    : _clock = clock;
+  const WeeklyTemplateEditorScreen({
+    super.key,
+    DateTime Function()? clock,
+    this.scope,
+  }) : _clock = clock;
+
+  /// Additive (Phase 312) — `null` (every pre-existing call site, both root
+  /// `/schedule/weekly` push sites) resolves through `ownScheduleScopeProvider`,
+  /// unchanged from before this parameter existed. A non-null
+  /// [ScheduleScope.salonMaster] points every provider this editor
+  /// reads/writes at a chosen salon master instead of "me".
+  final ScheduleScope? scope;
 
   /// Injectable LIVE "now" source (M6 / wall-clock decoupling): a fresh create
   /// anchors — and, at submit, re-anchors — its `validFrom` on the value this
@@ -548,8 +562,26 @@ class _WeeklyTemplateEditorScreenState
     _onDayMutated();
   }
 
+  /// Resolves [widget.scope], falling back to `ownScheduleScopeProvider`
+  /// ("me") — Phase 312. `ref.read`, for use OUTSIDE `build()`; `build()`
+  /// itself uses a `ref.watch`d local instead — same split
+  /// `day_hours_sheet.dart`'s `_readScope` documents.
+  ScheduleScope _readScope() =>
+      widget.scope ?? ref.read(ownScheduleScopeProvider);
+
   // ── Save ──────────────────────────────────────────────────────────────────────
   Future<void> _save() async {
+    // Phase 311 D2 — belt-and-braces: the control that reaches this handler
+    // is already hidden for a non-editable viewer (see `build`), but refuse
+    // the write here too, so a future entry point that calls `_save`
+    // directly (keyboard action, different affordance) can't bypass the
+    // hidden control. Guards BOTH branches below (`allOff` → delete,
+    // otherwise → save) since both live in this one method.
+    final ScheduleScope scope = _readScope();
+    if (!ref.read(scheduleEditableProvider(scope))) {
+      log('save: blocked — viewer is read-only', name: _tag);
+      return;
+    }
     final AppLocalizations l10n = AppLocalizations.of(context);
     if (_hasErrors) {
       showErrorSnack(context, l10n.weeklyEditorErrorsBanner);
@@ -602,7 +634,7 @@ class _WeeklyTemplateEditorScreenState
     _saveGateNotifier.value = _saveGate;
     try {
       final WeeklyScheduleNotifier notifier = ref.read(
-        weeklyScheduleProvider.notifier,
+        weeklyScheduleProvider(scope).notifier,
       );
 
       // Whether the all-off branch actually had a template to delete. When
@@ -644,7 +676,7 @@ class _WeeklyTemplateEditorScreenState
       // template) never touched the provider, so skip the check for it.
       if (mutated) {
         final AsyncValue<List<WeeklySchedule>> result = ref.read(
-          weeklyScheduleProvider,
+          weeklyScheduleProvider(scope),
         );
         if (result.hasError) {
           final Object? error = result.error;
@@ -758,9 +790,19 @@ class _WeeklyTemplateEditorScreenState
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // Phase 312 — additive: `null` (every pre-existing caller) resolves
+    // through `ownScheduleScopeProvider` and renders byte-identically to
+    // before this phase.
+    final ScheduleScope scope =
+        widget.scope ?? ref.watch(ownScheduleScopeProvider);
     final AsyncValue<List<WeeklySchedule>> asyncWeekly = ref.watch(
-      weeklyScheduleProvider,
+      weeklyScheduleProvider(scope),
     );
+    // Phase 311 — safety net under the `/schedule` router gate (which is
+    // what actually keeps a read-only viewer off this screen today): if that
+    // gate is ever weakened, moved or refactored away, this self-check keeps
+    // the edit surface enclosed on its own.
+    final bool editable = ref.watch(scheduleEditableProvider(scope));
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -773,6 +815,18 @@ class _WeeklyTemplateEditorScreenState
               onBack: () {
                 if (context.canPop()) {
                   context.pop();
+                } else if (scope is SalonMasterScheduleScope) {
+                  // Phase 312 — a cold-deep-linked salon-scoped editor with no
+                  // back stack must fall back to the SALON-scoped schedule
+                  // route, never the root `/schedule` (INDEPENDENT_MASTER-only
+                  // — an owner/admin would be immediately role-gate-bounced
+                  // away from it).
+                  context.go(
+                    RouteNames.salonManageStaffSchedule(
+                      scope.salonId,
+                      scope.masterId,
+                    ),
+                  );
                 } else {
                   context.go(RouteNames.masterSchedule);
                 }
@@ -785,7 +839,7 @@ class _WeeklyTemplateEditorScreenState
                 ),
                 error: (Object e, _) => _ErrorBody(
                   failure: e,
-                  onRetry: () => ref.invalidate(weeklyScheduleProvider),
+                  onRetry: () => ref.invalidate(weeklyScheduleProvider(scope)),
                 ),
                 data: (List<WeeklySchedule> serverList) {
                   _seed(serverList);
@@ -795,6 +849,20 @@ class _WeeklyTemplateEditorScreenState
                     return const Center(
                       child: CircularProgressIndicator(
                         color: BrandColors.accent,
+                      ),
+                    );
+                  }
+                  if (!editable) {
+                    // D1 — normal chrome (VelvetTopBar above) stays; the day
+                    // rows' editors and the save/delete actions are omitted
+                    // entirely rather than rendered disabled.
+                    return Padding(
+                      padding: const EdgeInsets.all(VelvetSpacing.lg),
+                      child: SalonNoticeCard(
+                        key: const Key('weekly-editor-read-only-notice'),
+                        icon: Icons.lock_outline,
+                        title: l10n.scheduleViewOnly,
+                        body: l10n.scheduleReadOnlyEditorBody,
                       ),
                     );
                   }
@@ -846,6 +914,7 @@ class _WeeklyTemplateEditorScreenState
       context,
       baseSchedule: base,
       today: _today,
+      scope: _readScope(),
     );
     if (!mounted) return;
 

@@ -49,10 +49,14 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 
+import '../application/own_schedule_scope.dart';
 import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart' show formatDay;
+import '../domain/schedule_scope.dart';
 import '../domain/weekly_schedule.dart';
+import 'schedule_capability.dart';
 import 'weekly_schedule_notifier.dart';
 
 /// Opens the «Період дії графіка» sheet. The result depends on whether the
@@ -73,6 +77,7 @@ Future<Object?> showApplyScheduleSheet(
   BuildContext context, {
   required WeeklySchedule baseSchedule,
   required DateTime today,
+  ScheduleScope? scope,
 }) {
   return showModalBottomSheet<Object?>(
     context: context,
@@ -84,8 +89,11 @@ Future<Object?> showApplyScheduleSheet(
         top: Radius.circular(VelvetRadii.card),
       ),
     ),
-    builder: (BuildContext sheetContext) =>
-        ApplyScheduleSheet(baseSchedule: baseSchedule, today: today),
+    builder: (BuildContext sheetContext) => ApplyScheduleSheet(
+      baseSchedule: baseSchedule,
+      today: today,
+      scope: scope,
+    ),
   );
 }
 
@@ -95,6 +103,7 @@ class ApplyScheduleSheet extends ConsumerStatefulWidget {
     super.key,
     required this.baseSchedule,
     required this.today,
+    this.scope,
   });
 
   /// The active template whose validity window is being set; `days` preserved.
@@ -102,6 +111,13 @@ class ApplyScheduleSheet extends ConsumerStatefulWidget {
 
   /// Injectable "now" (date-only) anchoring the presets and far-future cap.
   final DateTime today;
+
+  /// Additive (Phase 312) — `null` (every pre-existing call site) resolves
+  /// through `ownScheduleScopeProvider`, unchanged from before this
+  /// parameter existed. A non-null [ScheduleScope.salonMaster] points every
+  /// provider this sheet reads/writes at a chosen salon master instead of
+  /// "me".
+  final ScheduleScope? scope;
 
   @override
   ConsumerState<ApplyScheduleSheet> createState() => _ApplyScheduleSheetState();
@@ -233,6 +249,16 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
   /// Save button is the single commit point on first create, so applying a
   /// window here must not write to the provider or invalidate the calendar.
   Future<void> _apply() async {
+    // Phase 311 D2 — belt-and-braces: the control that reaches this handler
+    // is already hidden for a non-editable viewer (see `build`), but refuse
+    // the write here too — covers both the first-create draft-stage branch
+    // below and the `notifier.save` branch further down.
+    final ScheduleScope scope =
+        widget.scope ?? ref.read(ownScheduleScopeProvider);
+    if (!ref.read(scheduleEditableProvider(scope))) {
+      log('apply: blocked — viewer is read-only', name: _tag);
+      return;
+    }
     final DateTimeRange? range = _range;
     if (range == null) return;
 
@@ -274,7 +300,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
     }
 
     final WeeklyScheduleNotifier notifier = ref.read(
-      weeklyScheduleProvider.notifier,
+      weeklyScheduleProvider(scope).notifier,
     );
     await notifier.save(updated, scheduleId: widget.baseSchedule.id);
 
@@ -284,7 +310,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
     // throw — it lands as an [AsyncError] on the provider state. Branch on it:
     // surface the overlap/validation error inline and DO NOT close the sheet.
     final AsyncValue<List<WeeklySchedule>> result = ref.read(
-      weeklyScheduleProvider,
+      weeklyScheduleProvider(scope),
     );
     if (result.hasError) {
       setState(() {
@@ -312,6 +338,12 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    // Phase 311 — safety net under the `/schedule` router gate (see
+    // `weekly_template_editor_screen.dart`'s identical comment for why this
+    // self-check exists alongside, not instead of, that gate).
+    final ScheduleScope scope =
+        widget.scope ?? ref.watch(ownScheduleScopeProvider);
+    final bool editable = ref.watch(scheduleEditableProvider(scope));
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
@@ -358,131 +390,144 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
               Text(l10n.applyScheduleBody, style: VelvetText.body13),
               const SizedBox(height: VelvetSpacing.md + 2),
 
-              // ── Quick-pick presets ─────────────────────────────────────────
-              Text(l10n.applyScheduleQuickPick, style: VelvetText.label()),
-              const SizedBox(height: VelvetSpacing.sm),
-              Wrap(
-                spacing: VelvetSpacing.sm,
-                runSpacing: VelvetSpacing.sm,
-                children: <Widget>[
-                  _PresetChip(
-                    key: const Key('preset-this-month'),
-                    label: l10n.applySchedulePresetThisMonth,
-                    selected: _sameRange(_thisMonth, _range),
-                    onTap: () => _applyPreset(_thisMonth),
+              if (!editable)
+                // D1 — normal chrome (grabber, title row) stays above; the
+                // presets, manual range well and apply action below are
+                // omitted entirely for a non-editable viewer rather than
+                // rendered disabled.
+                SalonNoticeCard(
+                  key: const Key('apply-schedule-read-only-notice'),
+                  icon: Icons.lock_outline,
+                  title: l10n.scheduleViewOnly,
+                  body: l10n.scheduleReadOnlyEditorBody,
+                )
+              else ...<Widget>[
+                // ── Quick-pick presets ─────────────────────────────────────────
+                Text(l10n.applyScheduleQuickPick, style: VelvetText.label()),
+                const SizedBox(height: VelvetSpacing.sm),
+                Wrap(
+                  spacing: VelvetSpacing.sm,
+                  runSpacing: VelvetSpacing.sm,
+                  children: <Widget>[
+                    _PresetChip(
+                      key: const Key('preset-this-month'),
+                      label: l10n.applySchedulePresetThisMonth,
+                      selected: _sameRange(_thisMonth, _range),
+                      onTap: () => _applyPreset(_thisMonth),
+                    ),
+                    _PresetChip(
+                      key: const Key('preset-next-3-months'),
+                      label: l10n.applySchedulePresetNextThreeMonths,
+                      selected: _sameRange(_nextThreeMonths, _range),
+                      onTap: () => _applyPreset(_nextThreeMonths),
+                    ),
+                    _PresetChip(
+                      key: const Key('preset-whole-year'),
+                      label: l10n.applySchedulePresetWholeYear,
+                      selected: _sameRange(_wholeYear, _range),
+                      onTap: () => _applyPreset(_wholeYear),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
+
+                // ── Manual range well ──────────────────────────────────────────
+                Text(l10n.applySchedulePeriodLabel, style: VelvetText.label()),
+                const SizedBox(height: VelvetSpacing.sm),
+                GestureDetector(
+                  key: const Key('apply-schedule-date-well'),
+                  onTap: _saving ? null : _pickRange,
+                  child: NeumorphicInset(
+                    child: SizedBox(
+                      height: VelvetSizes.field,
+                      child: Row(
+                        children: <Widget>[
+                          const SizedBox(width: VelvetSpacing.md),
+                          const Icon(
+                            Icons.event_rounded,
+                            size: 20,
+                            color: BrandColors.muted,
+                          ),
+                          const SizedBox(width: VelvetSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              _hasRange
+                                  ? '${formatDay(_range!.start)} — '
+                                        '${formatDay(_range!.end)}'
+                                  : l10n.applyScheduleRangePlaceholder,
+                              style: _hasRange
+                                  ? VelvetText.input()
+                                  : VelvetText.input().copyWith(
+                                      color: BrandColors.placeholder,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: VelvetSpacing.sm),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 22,
+                            color: BrandColors.muted,
+                          ),
+                          const SizedBox(width: VelvetSpacing.sm),
+                        ],
+                      ),
+                    ),
                   ),
-                  _PresetChip(
-                    key: const Key('preset-next-3-months'),
-                    label: l10n.applySchedulePresetNextThreeMonths,
-                    selected: _sameRange(_nextThreeMonths, _range),
-                    onTap: () => _applyPreset(_nextThreeMonths),
-                  ),
-                  _PresetChip(
-                    key: const Key('preset-whole-year'),
-                    label: l10n.applySchedulePresetWholeYear,
-                    selected: _sameRange(_wholeYear, _range),
-                    onTap: () => _applyPreset(_wholeYear),
+                ),
+
+                // ── Live day-count readout ─────────────────────────────────────
+                if (_hasRange) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.md),
+                  Center(
+                    child: NeumorphicCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: VelvetSpacing.md,
+                        vertical: VelvetSpacing.sm,
+                      ),
+                      shadows: VelvetShadows.extrudedSmall,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Icon(
+                            Icons.event_available_rounded,
+                            size: 18,
+                            color: BrandColors.accent,
+                          ),
+                          const SizedBox(width: VelvetSpacing.sm),
+                          Text(
+                            l10n.applyScheduleDayCount(_dayCount!),
+                            style: VelvetText.bodyStrong13,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
-              ),
-              const SizedBox(height: VelvetSpacing.lg),
 
-              // ── Manual range well ──────────────────────────────────────────
-              Text(l10n.applySchedulePeriodLabel, style: VelvetText.label()),
-              const SizedBox(height: VelvetSpacing.sm),
-              GestureDetector(
-                key: const Key('apply-schedule-date-well'),
-                onTap: _saving ? null : _pickRange,
-                child: NeumorphicInset(
-                  child: SizedBox(
-                    height: VelvetSizes.field,
-                    child: Row(
-                      children: <Widget>[
-                        const SizedBox(width: VelvetSpacing.md),
-                        const Icon(
-                          Icons.event_rounded,
-                          size: 20,
-                          color: BrandColors.muted,
-                        ),
-                        const SizedBox(width: VelvetSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            _hasRange
-                                ? '${formatDay(_range!.start)} — '
-                                      '${formatDay(_range!.end)}'
-                                : l10n.applyScheduleRangePlaceholder,
-                            style: _hasRange
-                                ? VelvetText.input()
-                                : VelvetText.input().copyWith(
-                                    color: BrandColors.placeholder,
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(width: VelvetSpacing.sm),
-                        const Icon(
-                          Icons.chevron_right_rounded,
-                          size: 22,
-                          color: BrandColors.muted,
-                        ),
-                        const SizedBox(width: VelvetSpacing.sm),
-                      ],
-                    ),
+                // ── Inline overlap / validation error ──────────────────────────
+                if (_inlineError != null) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.md),
+                  _InlineErrorCard(
+                    key: const Key('apply-schedule-error'),
+                    message: _inlineError!,
                   ),
-                ),
-              ),
+                ],
 
-              // ── Live day-count readout ─────────────────────────────────────
-              if (_hasRange) ...<Widget>[
-                const SizedBox(height: VelvetSpacing.md),
-                Center(
-                  child: NeumorphicCard(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: VelvetSpacing.md,
-                      vertical: VelvetSpacing.sm,
-                    ),
-                    shadows: VelvetShadows.extrudedSmall,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const Icon(
-                          Icons.event_available_rounded,
-                          size: 18,
-                          color: BrandColors.accent,
-                        ),
-                        const SizedBox(width: VelvetSpacing.sm),
-                        Text(
-                          l10n.applyScheduleDayCount(_dayCount!),
-                          style: VelvetText.bodyStrong13,
-                        ),
-                      ],
+                const SizedBox(height: VelvetSpacing.lg),
+                Opacity(
+                  opacity: _hasRange ? 1 : 0.55,
+                  child: IgnorePointer(
+                    ignoring: !_hasRange,
+                    child: NeumorphicButton(
+                      key: const Key('btn-apply-schedule'),
+                      label: l10n.applyScheduleCta,
+                      icon: Icons.check_rounded,
+                      loading: _saving,
+                      onPressed: _saving ? null : _apply,
                     ),
                   ),
                 ),
               ],
-
-              // ── Inline overlap / validation error ──────────────────────────
-              if (_inlineError != null) ...<Widget>[
-                const SizedBox(height: VelvetSpacing.md),
-                _InlineErrorCard(
-                  key: const Key('apply-schedule-error'),
-                  message: _inlineError!,
-                ),
-              ],
-
-              const SizedBox(height: VelvetSpacing.lg),
-              Opacity(
-                opacity: _hasRange ? 1 : 0.55,
-                child: IgnorePointer(
-                  ignoring: !_hasRange,
-                  child: NeumorphicButton(
-                    key: const Key('btn-apply-schedule'),
-                    label: l10n.applyScheduleCta,
-                    icon: Icons.check_rounded,
-                    loading: _saving,
-                    onPressed: _saving ? null : _apply,
-                  ),
-                ),
-              ),
             ],
           ),
         ),

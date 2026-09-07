@@ -48,6 +48,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_revision_provider.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
@@ -68,6 +69,7 @@ void main() {
   test("an older build's late-resolving fetch must not clobber a newer "
       'build\'s cached result', () async {
     final repo = _MockScheduleRepository();
+    const ScheduleScope scope = ScheduleScope.own(masterId: 'm1');
     final range = ScheduleRange(
       from: DateTime(2026, 6, 15),
       to: DateTime(2026, 6, 15),
@@ -92,7 +94,9 @@ void main() {
 
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
-      overrides: [scheduleRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+      ],
     );
     addTearDown(container.dispose);
 
@@ -100,7 +104,7 @@ void main() {
     // `effectiveSchedule` call.
     final ProviderSubscription<AsyncValue<List<EffectiveDay>>> sub = container
         .listen<AsyncValue<List<EffectiveDay>>>(
-          effectiveScheduleProvider(range),
+          effectiveScheduleProvider(scope, range),
           (_, _) {},
         );
     addTearDown(sub.close);
@@ -115,7 +119,7 @@ void main() {
     // ── 2. Force gen2 (NEWER) on the SAME instance — a same-range
     // revision bump, exactly like a second rapid write would cause —
     // WHILE gen1 is still in flight.
-    container.read(overridesRevisionProvider.notifier).bump(range);
+    container.read(overridesRevisionProvider(scope).notifier).bump(range);
     await Future<void>.delayed(Duration.zero);
     expect(
       completers,
@@ -138,9 +142,9 @@ void main() {
 
     // ── 5. A THIRD build, forced by a revision bump for a NON-overlapping
     // range, must short-circuit off the cache rather than refetch.
-    container.read(overridesRevisionProvider.notifier).bump(otherRange);
+    container.read(overridesRevisionProvider(scope).notifier).bump(otherRange);
     final List<EffectiveDay> served = await container.read(
-      effectiveScheduleProvider(range).future,
+      effectiveScheduleProvider(scope, range).future,
     );
 
     expect(

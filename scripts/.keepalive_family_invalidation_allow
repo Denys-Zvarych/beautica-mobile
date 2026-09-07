@@ -18,7 +18,16 @@ lib/features/booking/application/booking_calendar_invalidation.dart:162  # inval
 lib/features/booking/application/booking_calendar_invalidation.dart:287  # invalidateBookingViewsAfterProviderClose — FIX B (ITEM 1), wasPinned-gated via DayKeepAliveLru.contains
 lib/features/booking/application/booking_calendar_invalidation.dart:426  # invalidateBookingViewsAfterBookingCreated — FIX (mobile-debugger, DayKeepAliveLru.contains-tautology fix, this track): now gated on DayKeepAliveLru.isWatched (backed by real onAddListener/onRemoveListener tracking in BookingsDayNotifier.build, not the old contains-against-its-own-enumeration check) — a genuinely-orphaned pinned member still gets the eager ref.read, a paused-but-watched one no longer does. Line shifted from 409 by this track's doc + isWatched-gate edit — no change to the allow-listed shape (still invalidate-then-conditionally-eager-read).
 lib/features/booking/application/booking_calendar_invalidation.dart:535  # invalidateBookingsDayAfterAppointmentItemReschedule — pre-existing FIX A, wasPinned-gated via DayKeepAliveLru.contains (line shifted from 518 by the isWatched-fix's doc addition above it, this track — no logic change at this site)
-lib/features/schedule/presentation/weekly_schedule_notifier.dart:134     # _invalidateEffectiveScheduleWindows — FIX D (ITEM 4), wasPinned-gated via WidgetRef.exists + EffectiveScheduleRangeTracker enumeration
+#
+# Phase 312 — three rows DELETED here (weekly_schedule_notifier.dart:134,
+# master_schedule_screen.dart:534, master_schedule_screen.dart:682): all
+# three sat in files this phase edits and already carried "Line renumbered
+# from ..." scars from the PRIOR renumbering (phase 309/310). Rather than
+# re-pin three new line numbers this phase would only re-break on its own
+# next edit, each site now carries its reason as an inline
+# `// keepalive-safe: <reason>` comment (verbatim) directly above its
+# `ref.invalidate(...)` call — PASS 2 accepts either form, and a comment
+# travels with the code so it can never de-sync again.
 #
 # --- Self-key retry / refresh, invalidating the SAME instance the SAME ------
 # --- still-mounted widget is ACTIVELY watching in the SAME build -----------
@@ -29,9 +38,7 @@ lib/features/schedule/presentation/weekly_schedule_notifier.dart:134     # _inva
 # exists for cannot occur. None of these swap to a DIFFERENT key first (that
 # swap — a rail tap, a sort toggle, a week page — is what creates the
 # pinned-but-unwatched element the fixes above protect).
-lib/features/booking/presentation/bookings_discovery_view.dart:962  # MyBookingsSlowLoadNotice onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 894
-lib/features/booking/presentation/bookings_discovery_view.dart:978  # MyBookingsErrorState onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 894
+lib/features/booking/presentation/bookings_discovery_view.dart:969  # MyBookingsSlowLoadNotice onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 896. Line renumbered from 962 (phase 312 inserted an `ownScheduleScopeProvider` doc comment + watch ahead of it, +7 lines); site and reasoning unchanged.
+lib/features/booking/presentation/bookings_discovery_view.dart:985  # MyBookingsErrorState onRetry — self-key, same Consumer actively watches bookingsDayProvider(_liveQuery) at line 896. Line renumbered from 978 (phase 312, same +7-line shift as the row above); site and reasoning unchanged.
 lib/features/master/presentation/widgets/master_reviews_body.dart:190  # ErrorState onRetry — self-key, same _SortableReviewList actively watches masterReviewsProvider(masterId, _sort) at line 127
 lib/features/salon/presentation/widgets/salon_reviews_section.dart:135  # ErrorState onRetry — self-key, same _SalonReviewsSectionState actively watches salonReviewsProvider(widget.salonId, _sort) at line 68
-lib/features/schedule/presentation/master_schedule_screen.dart:500  # ErrorState onRetry — self-key, same widget actively watches effectiveScheduleProvider(_range) at line 446
-lib/features/schedule/presentation/master_schedule_screen.dart:648  # AppRefreshIndicator.onRefresh — pre-existing invalidate-then-immediate-read idiom (self-key, invalidate followed by ref.read(...future) at line 652); predates this track, left alone per instruction

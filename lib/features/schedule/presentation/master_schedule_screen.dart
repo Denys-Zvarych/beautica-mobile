@@ -31,14 +31,19 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
+import '../application/own_schedule_scope.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import '../domain/weekly_schedule.dart';
 import 'day_hours_sheet.dart';
 import 'effective_schedule_notifier.dart';
@@ -55,7 +60,23 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
     super.key,
     DateTime Function()? clock,
     this.initialDate,
+    this.scope,
   }) : _clock = clock;
+
+  /// Additive (Phase 312) — `null` (every pre-existing call site: `/schedule`
+  /// for an INDEPENDENT_MASTER, `/staff/schedule` for a SALON_MASTER's
+  /// read-only self-view) resolves through `ownScheduleScopeProvider` and
+  /// renders byte-identically to before this parameter existed (D1). A
+  /// non-null [ScheduleScope.salonMaster] is how a SALON_OWNER/SALON_ADMIN
+  /// reaches THIS SAME SCREEN — same header, same weekly-template pill card,
+  /// same «Календар», same month navigator, week strip, day panel, grid,
+  /// legend, and the SAME no-schedule/empty state — pointed at a chosen
+  /// master's schedule instead of their own (D1: *"the schedule screen
+  /// should be EXACTLY same as on independent master"*). D4 (CLOSED, user
+  /// 2026-09-07): NO identity treatment — this screen carries no on-screen
+  /// cue for whose schedule is on display; do not re-propose one without a
+  /// fresh product decision.
+  final ScheduleScope? scope;
 
   /// Injectable LIVE "now" source (wall-clock decoupling, mirroring
   /// [WeeklyTemplateEditorScreen]): "today" — which day the calendar selects on
@@ -303,9 +324,29 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // ── Edit entry points (routed stubs; gated by [scheduleEditableProvider]) ───
   void _openTemplateEditor() {
     if (kDebugMode) log('open weekly template editor', name: _tag, level: 800);
+    // Phase 312 — a SALON_OWNER/SALON_ADMIN viewing a chosen salon master
+    // must land on the PARAMETERISED editor route (under `/salons/*`), never
+    // the root `/schedule/weekly` — that route (and the repository chain
+    // beneath it) is hard-wired to "me", so a bare push here would drive the
+    // wrong masterId (or 403 an admin outright). `extra:` carries the
+    // already-resolved [ScheduleScope] so the editor never has to re-resolve
+    // it from the URL's `:memberId` on the normal (non-cold-deep-link) path.
+    final ScheduleScope scope =
+        widget.scope ?? ref.read(ownScheduleScopeProvider);
+    if (scope is SalonMasterScheduleScope) {
+      context.push(
+        RouteNames.salonManageStaffScheduleWeekly(
+          scope.salonId,
+          scope.masterId,
+        ),
+        extra: scope,
+      );
+      return;
+    }
     // Phase 15.5 — route to the REAL weekly-template editor (saves via the
     // `weekly-schedules` data path the calendar reads), NOT the deprecated
-    // `working_hours` editor at [RouteNames.workingHours].
+    // `working_hours` editor at [RouteNames.workingHours]. Byte-identical to
+    // before Phase 312 for every `ScheduleScope.own` viewer (D1).
     context.push(RouteNames.scheduleWeeklyEditor);
   }
 
@@ -328,8 +369,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // Capture the range the edit targets BEFORE awaiting — a month step while
     // the sheet is open would change `_range` out from under us.
     final ScheduleRange editedRange = _range;
+    // Phase 312 — the sheet is a direct modal (no route involved), so the
+    // already-resolved scope is simply passed straight through.
+    final ScheduleScope scope =
+        widget.scope ?? ref.read(ownScheduleScopeProvider);
     final DateTime? changed = await DayHoursSheet.show(
       context,
+      scope: scope,
       date: day.date,
       weekdayFull: _weekdayFull(day.date),
       dateLabel: formatDay(day.date),
@@ -369,7 +415,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // override already resolved — no stale render, no manual re-tap. Scoped to
     // the edited range only (does not widen the family invalidation).
     try {
-      await ref.read(effectiveScheduleProvider(editedRange).future);
+      await ref.read(effectiveScheduleProvider(scope, editedRange).future);
     } on Object {
       // A failed refetch surfaces through the normal AsyncError → _ErrorBody
       // path on the next build; nothing extra to do here.
@@ -442,12 +488,39 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // getter's rollover contract.
     _refreshTodayCache();
     final l10n = AppLocalizations.of(context);
-    final editable = ref.watch(scheduleEditableProvider);
-    final asyncDays = ref.watch(effectiveScheduleProvider(_range));
+    // Phase 312 — additive: `null` (every pre-existing caller) resolves
+    // through `ownScheduleScopeProvider` and renders byte-identically to
+    // before this phase (D1); a non-null [ScheduleScope.salonMaster] points
+    // every provider below at the chosen salon master instead of "me".
+    final ScheduleScope scope =
+        widget.scope ?? ref.watch(ownScheduleScopeProvider);
+    final editable = ref.watch(scheduleEditableProvider(scope));
+    final asyncDays = ref.watch(effectiveScheduleProvider(scope, _range));
     // The global "has the master published ANY schedule?" signal. Watched
     // alongside the visible range so the empty-state decision is a global
     // verdict (no weekly template defined) rather than a per-month one.
-    final asyncWeekly = ref.watch(weeklyScheduleProvider);
+    final asyncWeekly = ref.watch(weeklyScheduleProvider(scope));
+    // Phase 309 D4 — role-aware landing for both the top-bar back-fallback
+    // AND (Phase 310 D2) the bottom nav's «Профіль» tile. Without this, a
+    // SALON_MASTER's fallback `context.go` targets `RouteNames.masterProfile`
+    // (INDEPENDENT_MASTER-only) and is immediately re-redirected by the
+    // `/master/*` gate to `/staff/profile` — a double navigation that hides a
+    // routing bug behind a guard's correction. Narrowed via
+    // `authUserRoleOrNull` rather than a bare `ref.watch(authProvider)`: the
+    // role is the only thing this block reads, and it is stable across a
+    // silent token refresh (same user, same role) — a bare watch was
+    // measured to renotify on every such refresh (`accessToken` is part of
+    // `Authenticated`'s `@freezed` equality), which would rebuild this whole
+    // calendar screen for no visible reason. See [authUserRoleOrNull]'s doc
+    // comment for the full measurement.
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    final bool isSalonMaster = role == UserRole.salonMaster;
+    final String profileRoute = role != null
+        ? roleHomePath(role)
+        : RouteNames.masterProfile;
+    final String scheduleRoute = isSalonMaster
+        ? RouteNames.salonMasterSchedule
+        : RouteNames.masterSchedule;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -458,7 +531,17 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       // `Scaffold` zeroes the bottom `MediaQuery` padding it hands to `body`
       // whenever `bottomNavigationBar` is non-null, so the outer `SafeArea`
       // below consumes nothing extra here — no double-counted inset.
-      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 2),
+      // Phase 310 D2 — non-const: passes role-resolved `scheduleRoute` /
+      // `profileRoute` so tile 3 («Профіль») lands a SALON_MASTER on
+      // `/staff/profile` in one navigation instead of bouncing through
+      // `/master/profile`. For an INDEPENDENT_MASTER both resolve to the
+      // current literals (`RouteNames.masterSchedule` /
+      // `RouteNames.masterProfile`) — byte-identical behaviour.
+      bottomNavigationBar: VelvetBottomNavBar(
+        activeIndex: 2,
+        scheduleRoute: scheduleRoute,
+        profileRoute: profileRoute,
+      ),
       body: SafeArea(
         child: Column(
           children: <Widget>[
@@ -469,11 +552,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 if (context.canPop()) {
                   context.pop();
                 } else {
-                  context.go(RouteNames.masterProfile);
+                  context.go(profileRoute);
                 }
               },
             ),
-            Expanded(child: _body(l10n, editable, asyncDays, asyncWeekly)),
+            Expanded(
+              child: _body(l10n, editable, asyncDays, asyncWeekly, scope),
+            ),
           ],
         ),
       ),
@@ -492,18 +577,21 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     bool editable,
     AsyncValue<List<EffectiveDay>> asyncDays,
     AsyncValue<List<WeeklySchedule>> asyncWeekly,
+    ScheduleScope scope,
   ) {
     // Either source erroring takes precedence: show the retry body.
     if (asyncDays.hasError) {
       return _ErrorBody(
         failure: asyncDays.error!,
-        onRetry: () => ref.invalidate(effectiveScheduleProvider(_range)),
+        onRetry: () =>
+            // keepalive-safe: ErrorState onRetry — self-key, same widget actively watches effectiveScheduleProvider(_range) at line 449. Line renumbered from 500 (Phase 309/310 D4/D2 inserted the role/profileRoute resolution block earlier in build(), a net +34 lines, not +32); site and reasoning unchanged.
+            ref.invalidate(effectiveScheduleProvider(scope, _range)),
       );
     }
     if (asyncWeekly.hasError) {
       return _ErrorBody(
         failure: asyncWeekly.error!,
-        onRetry: () => ref.invalidate(weeklyScheduleProvider),
+        onRetry: () => ref.invalidate(weeklyScheduleProvider(scope)),
       );
     }
 
@@ -582,16 +670,18 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         // OQ-2: the CTA is present only for editable viewers (read-only
         // SALON_MASTER sees the message informationally, no action button).
         onAddHours: editable ? _openTemplateEditor : null,
+        editable: editable,
       );
     }
 
-    return _content(l10n, editable, days, reloading: reloading);
+    return _content(l10n, editable, days, scope, reloading: reloading);
   }
 
   Widget _content(
     AppLocalizations l10n,
     bool editable,
-    List<EffectiveDay> days, {
+    List<EffectiveDay> days,
+    ScheduleScope scope, {
     bool reloading = false,
   }) {
     final _DayIndex index = _indexOf(days);
@@ -645,12 +735,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
     return AppRefreshIndicator(
       onRefresh: () async {
-        ref.invalidate(effectiveScheduleProvider(_range));
-        ref.invalidate(weeklyScheduleProvider);
+        // keepalive-safe: AppRefreshIndicator.onRefresh — pre-existing invalidate-then-immediate-read idiom (self-key, invalidate followed by ref.read(...future) at line 686); predates this track, left alone per instruction. Line renumbered from 648 (Phase 309/310 D4/D2 inserted code earlier in build(), a net +34 lines, not +32); site and reasoning unchanged.
+        ref.invalidate(effectiveScheduleProvider(scope, _range));
+        ref.invalidate(weeklyScheduleProvider(scope));
         try {
           await Future.wait([
-            ref.read(effectiveScheduleProvider(_range).future),
-            ref.read(weeklyScheduleProvider.future),
+            ref.read(effectiveScheduleProvider(scope, _range).future),
+            ref.read(weeklyScheduleProvider(scope).future),
           ]);
         } on Object {
           // Errors surface through the normal AsyncError → _ErrorBody path.
@@ -1098,10 +1189,19 @@ class _ErrorBody extends StatelessWidget {
 // shows informationally with no action button — identical to the in-grid banner.
 // ─────────────────────────────────────────────────────────────────────────────
 class _EmptyScheduleBody extends StatelessWidget {
-  const _EmptyScheduleBody({required this.onAddHours});
+  const _EmptyScheduleBody({required this.onAddHours, this.editable = false});
 
   /// Tap handler for the CTA. Null → read-only viewer → CTA is hidden.
   final VoidCallback? onAddHours;
+
+  /// Additive — permission-derived flags fail closed, so the default is
+  /// `false` (read-only) rather than `true`. The single call site
+  /// (`:669`–`:673`) always passes the real `scheduleEditableProvider`
+  /// value explicitly, so this default is dead code today; it exists as
+  /// defence-in-depth against a future second caller that forgets to pass
+  /// it — REUSE-FIRST makes that plausible, since this private widget is a
+  /// promotion candidate. Do not flip this back to `true`.
+  final bool editable;
 
   @override
   Widget build(BuildContext context) {
@@ -1112,7 +1212,9 @@ class _EmptyScheduleBody extends StatelessWidget {
         padding: const EdgeInsets.all(VelvetSpacing.lg),
         child: NoScheduleBanner(
           message: l10n.scheduleNoSchedulePeriod,
-          helper: l10n.scheduleNoScheduleHelper,
+          helper: editable
+              ? l10n.scheduleNoScheduleHelper
+              : l10n.scheduleNoScheduleHelperReadOnly,
           ctaLabel: l10n.scheduleAddHoursCta,
           onAddHours: onAddHours,
         ),
@@ -1318,7 +1420,15 @@ class _SelectedDayView extends StatelessWidget {
             message: wholeWeekUnscheduled
                 ? l10n.scheduleNoSchedulePeriod
                 : l10n.scheduleNoScheduleDay,
-            helper: l10n.scheduleNoScheduleHelper,
+            // Role-aware helper: a read-only viewer (SALON_MASTER) cannot act
+            // on the imperative "add your hours" copy — Phase 312 gave that
+            // action to the salon owner/admin only — so they get the
+            // owner/admin-addressed variant instead. Selected on `editable`
+            // (the single source of truth from `scheduleEditableProvider`),
+            // not on role directly.
+            helper: editable
+                ? l10n.scheduleNoScheduleHelper
+                : l10n.scheduleNoScheduleHelperReadOnly,
             ctaLabel: l10n.scheduleAddHoursCta,
             // OQ-2: read-only viewers get the banner WITHOUT the CTA.
             onAddHours: editable && !isPast ? onAddHours : null,

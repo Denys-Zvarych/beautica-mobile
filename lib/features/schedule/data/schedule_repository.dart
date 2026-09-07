@@ -13,8 +13,11 @@
 //
 // [_masterId] is the Master-row UUID (from MasterDetailResponse.masterId), NOT
 // the User UUID from the auth session — they differ (see the working-hours and
-// services features' long-standing note). Resolved from [masterProfileProvider]
-// at provider construction time. Empty id → [UnauthorizedFailure], no API call.
+// services features' long-standing note). Resolved from [ScheduleScope
+// .masterId] at provider construction time (Phase 312 — was
+// [masterProfileProvider] directly; see `schedule_repository_provider.dart`'s
+// header for why that watch moved out). Empty id → [UnauthorizedFailure], no
+// API call.
 //
 // BOUNDED-RANGE GUARD: the backend caps effective-schedule / overrides range
 // queries (range too large / past windows → 400). [effectiveSchedule] and

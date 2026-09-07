@@ -156,6 +156,7 @@ import '../application/booked_days_notifier.dart';
 import '../application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/schedule/application/own_schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
@@ -905,10 +906,16 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
           // caller — the doc'd invariant on
           // `BookingsDiscoveryView.useScheduleWindow` is unchanged, just
           // enforced one level up.
+          // Phase 312 — `effectiveScheduleProvider` gained a [ScheduleScope]
+          // parameter; this view always reads the master's OWN calendar
+          // (never a viewed-colleague's), so it resolves through
+          // `ownScheduleScopeProvider` exactly like every other pre-Phase-312
+          // caller — unaffected by the new owner/admin viewed-master path.
           final AsyncValue<List<EffectiveDay>>? scheduleAsync =
               widget.useScheduleWindow
               ? ref.watch(
                   effectiveScheduleProvider(
+                    ref.watch(ownScheduleScopeProvider),
                     ScheduleRange(from: _day, to: _day),
                   ),
                 )

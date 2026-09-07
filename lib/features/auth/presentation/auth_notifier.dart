@@ -51,6 +51,18 @@ import '../../../shared/util/mask_email.dart';
 // `authProvider` back, so it cannot reopen the CircularDependencyError the
 // NOTE further down in [logout] warns about.
 import '../../booking/application/bookings_day_notifier.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
+// (mobile-perf P2-1, 2026-09-07) — same shape as the `bookings_day_notifier
+// .dart` import above: `weeklyScheduleProvider`/`effectiveScheduleProvider`
+// are `ScheduleScope`-keyed `keepAlive` caches that do NOT watch
+// `authProvider` (traced through `scheduleRepositoryProvider` →
+// `masterApiProvider` → `dioProvider` — none of which watch it either), so
+// they cannot self-clear via the ordinary cascade. These are plain method/
+// function calls, not a `ref.watch`, and neither watches `authProvider`
+// back, so this cannot reopen the CircularDependencyError the NOTE further
+// down in [logout] warns about.
+import '../../schedule/presentation/effective_schedule_notifier.dart';
+import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/auth_tokens.dart';
@@ -94,6 +106,94 @@ String? authUserIdOrNull(AsyncValue<AuthSession> session) =>
       Authenticated(:final User user) => user.id,
       Unauthenticated() || null => null,
     };
+
+/// The selector for a call site that only cares WHAT ROLE is signed in — not
+/// the identity, not the token, not the rest of [AuthSession].
+///
+/// Returns the authenticated user's [UserRole], or `null` for every
+/// non-authenticated shape (`Unauthenticated`, and the cold-start
+/// `AsyncLoading` whose `.value` is still `null`).
+///
+/// WHY IT EXISTS (mobile-perf finding, 2026-09-06,
+/// `master_schedule_screen.dart` build()): a bare `ref.watch(authProvider)`
+/// there was measured (isolated `ProviderContainer` probe, same methodology
+/// as [authUserIdOrNull]'s 2026-08-31 sweep) to renotify on every
+/// `AuthNotifier.setAccessToken` call — i.e. every silent token refresh —
+/// because `Authenticated`'s `@freezed` equality includes `accessToken`
+/// (`auth_session.dart`), so a same-user, new-token `AsyncData` compares
+/// unequal. That is a real rebuild of the whole calendar screen for the
+/// screen's entire session lifetime, on top of its own rebuild triggers. The
+/// role, unlike the token, is stable across a refresh (same user, same
+/// role), so narrowing the watch to it via `.select` absorbs the churn the
+/// same way [authUserIdOrNull] does for identity-only call sites.
+///
+/// Callers that ALSO need the id, the token, or the whole session must NOT
+/// use this — they either watch `authProvider` un-narrowed or write their own
+/// `.select` for the field they actually read.
+UserRole? authUserRoleOrNull(AsyncValue<AuthSession> session) =>
+    switch (session.value) {
+      Authenticated(:final User user) => user.role,
+      Unauthenticated() || null => null,
+    };
+
+/// The STRICT counterpart to [authUserRoleOrNull], for a call site that must
+/// treat anything short of a settled, authenticated session as "no role" —
+/// a write-gate, not a nav-target pick.
+///
+/// Returns the authenticated user's [UserRole] only when [session] is
+/// currently a settled `AsyncData<AuthSession>` carrying [Authenticated] —
+/// the same concrete-subtype gate used by
+/// `salon_home_resolver_screen.dart`, `app_router.dart`, and
+/// `auth_redirect.dart`'s `resolvedAuth` (never [AsyncValue.value]'s lenient
+/// unwrap). Returns `null` for every other shape: `Unauthenticated`,
+/// `AsyncLoading` — including one carrying a `copyWithPrevious`-attached
+/// stale `Authenticated` value — and `AsyncError` (ditto).
+///
+/// WHY THIS MUST NOT COLLAPSE INTO [authUserRoleOrNull] (mobile-security
+/// MEDIUM, phase 309–311 track, 2026-09-06): Riverpod 3 auto-applies
+/// `copyWithPrevious` to every `Notifier`/`AsyncNotifier` state transition
+/// (`riverpod-3.2.1/.../element.dart:66`), so a stale
+/// `AsyncData(Authenticated(...))` can ride along attached to a LATER
+/// `AsyncLoading` / `AsyncError` — e.g. mid token-refresh, mid-logout, or a
+/// failed re-fetch — and `.value` (what [authUserRoleOrNull] reads) still
+/// happily returns it. That leniency is exactly right for a NAV-TARGET read
+/// like `master_schedule_screen.dart`'s `profileRoute`, where worst case a
+/// fallback route is one frame stale — but it is wrong for
+/// `schedule_capability.dart`'s `scheduleEditable`, the WRITE-GATE for
+/// schedule mutation: resolving an edit affordance from a session that is no
+/// longer definitely authenticated is exactly the hazard a write gate exists
+/// to close. Use THIS selector for any gate that must fail closed
+/// (read-only / no-op) the instant the session is not a settled
+/// [Authenticated] `AsyncData`; use [authUserRoleOrNull] for anything that
+/// only picks a display/navigation target and can tolerate a one-frame-stale
+/// read. Do not "simplify" the two into one — that is the bug this selector
+/// exists to prevent.
+UserRole? authUserRoleSettledOrNull(AsyncValue<AuthSession> session) {
+  final AuthSession? settled = session is AsyncData<AuthSession>
+      ? session.value
+      : null;
+  return settled is Authenticated ? settled.user.role : null;
+}
+
+/// The STRICT, `User.salonId`-reading counterpart to [authUserRoleSettledOrNull]
+/// — for [scheduleEditable]'s (`schedule_capability.dart`) SALON_ADMIN arm
+/// (phase 312, D8): "does the caller manage THIS scope's salon".
+///
+/// Returns `null` for every session shape that is not a settled, authenticated
+/// [AsyncData] — same concrete-subtype gate as [authUserRoleSettledOrNull], for
+/// the same write-gate reason (never the lenient [AsyncValue.value] unwrap,
+/// which can still return a `copyWithPrevious`-attached STALE salonId mid
+/// token-refresh / mid-logout / a failed re-fetch). A non-admin authenticated
+/// user (whose `User.salonId` is meaningless) also reads `null` here — callers
+/// must gate on the role themselves before trusting this value, exactly like
+/// `app_router.dart`'s `salonManageGuard` admin arm does with the un-narrowed
+/// `session.user.salonId` read it mirrors.
+String? authUserSalonIdSettledOrNull(AsyncValue<AuthSession> session) {
+  final AuthSession? settled = session is AsyncData<AuthSession>
+      ? session.value
+      : null;
+  return settled is Authenticated ? settled.user.salonId : null;
+}
 
 /// Manages the user's authentication session for the Beautica app lifetime.
 ///
@@ -1162,6 +1262,24 @@ class AuthNotifier extends _$AuthNotifier {
       // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
       // the full reasoning, including the Riverpod internals this depends on.
       ref.read(dayKeepAliveLruProvider).clear();
+      // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
+      // sweep, for the same reason the day-timeline one above is needed:
+      // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on
+      // `ScheduleScope` (salonId+masterId), NOT on the authenticated
+      // identity, and watch neither `authProvider` nor anything that
+      // transitively does — see `effective_schedule_notifier.dart`'s
+      // `invalidateAllEffectiveScheduleWindows` doc for the full reasoning
+      // and why the two families need two different invalidation shapes.
+      // `weeklyScheduleProvider` is bare-invalidated: neither of its two
+      // watch sites (`master_schedule_screen.dart`, `salon_staff_profile_
+      // screen.dart`) keys it off LOCAL mutable state, and `@Riverpod
+      // (keepAlive: true)` never actually disposes on zero listeners, so
+      // there is no queued-disposal race a bare invalidate could hit.
+      // keepalive-safe: session-boundary sweep (logout) — weeklyScheduleProvider is never watched via local mutable state (see comment above) and @Riverpod(keepAlive:true) never disposes on zero listeners, so invalidateSelf's queued-disposal race this guard protects against cannot occur here
+      // cycle-safe: weeklyScheduleProvider only watches scheduleRepositoryProvider(scope), which watches masterApiProvider -> dioProvider — none of which watch authProvider, so no back-edge into this notifier, no cycle. Proven on the real graph by provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider" entrypoint.
+      ref.invalidate(weeklyScheduleProvider);
+      // cycle-safe: invalidateAllEffectiveScheduleWindows only touches effectiveScheduleProvider, which watches overridesProvider + overridesRevisionProvider + scheduleRepositoryProvider — none of which watch authProvider (same chain as weeklyScheduleProvider above), so no back-edge into this notifier, no cycle. Same test coverage as above.
+      invalidateAllEffectiveScheduleWindows(ref);
       // NOTE — this belt-and-braces list is NOT the app's full inventory of
       // keepAlive, user-scoped state, and must not be read as one (mobile-security
       // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of

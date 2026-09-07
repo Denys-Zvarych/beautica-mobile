@@ -241,6 +241,64 @@ abstract final class RouteNames {
   static String salonManageAdminMove(String salonId, String memberId) =>
       '${salonManageStaffMember(salonId, memberId)}/move';
 
+  /// Phase 312 — «Графік роботи» for a chosen MASTER on the roster,
+  /// reached from the `SettingsRow` D3 adds to [salonManageStaffMember]'s
+  /// profile screen. Renders the SAME `MasterScheduleScreen` widget
+  /// [masterSchedule] does, pointed at a [ScheduleScope.salonMaster] instead
+  /// of "me" (D1: byte-identical screen). A literal `/schedule` leaf below
+  /// the ALREADY-RESOLVED `:salonId`/`:memberId` captures — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents — registered as a STANDALONE top-level route, same
+  /// "an ancestor's own redirect always runs" reason [salonManage] /
+  /// [salonManageStaffMember] document. Gated by `salonManageGuard`
+  /// VERBATIM, exactly like every sibling route under this subtree.
+  ///
+  /// [memberId] is the roster entry's `userId` — the SAME id
+  /// [salonManageStaffMember] takes. The route builder resolves the viewed
+  /// master id from `state.extra` (the caller's already-resolved
+  /// [ScheduleScope], the normal in-app tap path) and falls back to
+  /// re-resolving it from this [memberId] via `salonStaffMemberProfileProvider`
+  /// only for a genuine cold deep link with no `extra` — see
+  /// `app_router.dart`'s builder for the full reasoning.
+  static String salonManageStaffSchedule(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/schedule';
+
+  /// Phase 312 (D9) — the PARAMETERISED weekly-template editor. A SIBLING of
+  /// [salonManageStaffSchedule] under the SAME `:memberId` capture (D9's own
+  /// text lists `/schedule`, `/weekly`, `/day`, `/copy` as four peer
+  /// suffixes on the identical base — NOT `/weekly` nested under `/schedule`;
+  /// `app_router.dart` registers all four as siblings, and this helper must
+  /// match that literally or `NL-R01` (`navigation_links_test.dart`) fails
+  /// with a genuine unresolved-route gap).
+  /// `MasterScheduleScreen._openTemplateEditor` pushes here (never the root
+  /// `/schedule/weekly`, which is hard-wired to "me") whenever its resolved
+  /// scope is a [ScheduleScope.salonMaster] — otherwise an admin's
+  /// «Редагувати» tap would either 403 or silently edit the WRONG master's
+  /// template. Always pushed with `extra:` carrying the [ScheduleScope] —
+  /// the caller already has it resolved, so [memberId]'s URL VALUE is never
+  /// re-resolved for this leaf (unlike [salonManageStaffSchedule] itself,
+  /// which IS a genuine entry point).
+  static String salonManageStaffScheduleWeekly(
+    String salonId,
+    String memberId,
+  ) => '${salonManageStaffMember(salonId, memberId)}/weekly';
+
+  /// Phase 312 (D9) — registered for symmetry with the root `/schedule/day`
+  /// (auth-guarded but not a live UI destination — `DayHoursSheet` is a
+  /// direct modal, never routed, for either scope shape). A SIBLING of
+  /// [salonManageStaffSchedule], same reasoning as
+  /// [salonManageStaffScheduleWeekly]'s doc.
+  static String salonManageStaffScheduleDay(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/day';
+
+  /// Phase 312 (D9) — registered for symmetry with the root `/schedule/copy`
+  /// (auth-guarded but not a live UI destination — `ApplyScheduleSheet` is a
+  /// direct modal, never routed, for either scope shape). A SIBLING of
+  /// [salonManageStaffSchedule], same reasoning as
+  /// [salonManageStaffScheduleWeekly]'s doc.
+  static String salonManageStaffScheduleCopy(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/copy';
+
   /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
   /// description), reached from the Phase 21.9 settings hub's own
   /// navigational row. A literal child of [salonManageSettings], gated by the
@@ -675,6 +733,20 @@ abstract final class RouteNames {
   /// [salonMasterEditPersonal] above. Registered under its own `/staff/*`
   /// path rather than widening [masterEditContacts]'s guard.
   static const String salonMasterEditContacts = '/staff/edit/contacts';
+
+  /// «Графік роботи» read-only view for a SALON_MASTER. Renders the SAME
+  /// [MasterScheduleScreen] widget [masterSchedule] does — every edit
+  /// affordance on that screen is already gated on `scheduleEditableProvider`
+  /// (which already resolves `SALON_MASTER → false`), so this route reuses it
+  /// verbatim rather than forking a read-only variant. Registered under its
+  /// own `/staff/*` subtree rather than widening [masterSchedule]'s guard, so
+  /// `/schedule/weekly`, `/schedule/day` and `/schedule/copy` — full edit
+  /// surfaces — stay fenced to INDEPENDENT_MASTER exactly as before; see
+  /// `auth_redirect.dart`'s `/schedule` gate comment. No `?date=` query
+  /// param: [masterSchedule]'s param has exactly one producer
+  /// (`master_bookings_screen.dart`, an INDEPENDENT_MASTER-only surface), so
+  /// there is no producer for this role and nothing to parse.
+  static const String salonMasterSchedule = '/staff/schedule';
 
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own

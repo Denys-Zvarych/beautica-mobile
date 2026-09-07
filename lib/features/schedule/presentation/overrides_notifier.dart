@@ -52,6 +52,7 @@ import '../../../core/errors/failures.dart';
 import '../data/schedule_repository.dart';
 import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import 'overrides_revision_provider.dart';
 import 'schedule_range.dart';
 
@@ -79,22 +80,27 @@ const int _kPutSpanChunkSize = 6;
 /// and idle windows release after the TTL.
 const Duration _kOverridesCacheTtl = Duration(minutes: 5);
 
-/// Loads and mutates the per-date overrides for [range].
+/// Loads and mutates the per-date overrides for [scope]'s [range].
 ///
 /// Generated provider name: `overridesProvider` (a family — call
-/// `overridesProvider(range)`).
+/// `overridesProvider(scope, range)`; Phase 312 added [ScheduleScope] as the
+/// first parameter).
 @riverpod
 class OverridesNotifier extends _$OverridesNotifier {
   static const _tag = 'feature.schedule.overrides';
 
   @override
-  Future<List<ScheduleOverride>> build(ScheduleRange range) async {
-    // `watch` (not `read`): the schedule repository rebuilds when
-    // `masterProfileProvider` resolves the masterId from '' → the real UUID.
-    // An instance created pre-resolution must refetch once the authenticated
-    // repository is available, otherwise it stays stuck on UnauthorizedFailure.
+  Future<List<ScheduleOverride>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
+    // `watch` (not `read`): the schedule repository rebuilds when the
+    // resolved scope's masterId changes (e.g. `ownScheduleScopeProvider`
+    // resolving '' → the real UUID). An instance created pre-resolution must
+    // refetch once the authenticated repository is available, otherwise it
+    // stays stuck on UnauthorizedFailure.
     final List<ScheduleOverride> overrides = await ref
-        .watch(scheduleRepositoryProvider)
+        .watch(scheduleRepositoryProvider(scope))
         .listOverrides(range.from, range.to);
 
     // SUCCESS path only: pin this range for [_kOverridesCacheTtl] so a revisit
@@ -111,7 +117,7 @@ class OverridesNotifier extends _$OverridesNotifier {
     return overrides;
   }
 
-  ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider);
+  ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider(scope));
 
   /// Read-only preview (2026-07-26 booking-conflict design) of every
   /// CONFIRMED booking that saving [span] would leave without availability —
@@ -319,7 +325,9 @@ class OverridesNotifier extends _$OverridesNotifier {
       // THIS notifier's own `range` so a watcher whose range provably shares
       // no date with it can skip its refetch — see
       // `overrides_revision_provider.dart`'s `OverridesRevisionEvent` doc.
-      ref.read(overridesRevisionProvider.notifier).bump(range);
+      // Scoped to THIS notifier's own `scope` (Phase 312) — a write for one
+      // viewed master never bumps a DIFFERENT master's revision counter.
+      ref.read(overridesRevisionProvider(scope).notifier).bump(range);
     }
   }
 }

@@ -13,15 +13,18 @@
 // Bottom nav (2026-09-01, later same day — "add nav bar exactly as on
 // independent master", confirmed literally when offered alternatives): this
 // screen hosts the SAME [VelvetBottomNavBar] the INDEPENDENT_MASTER's
-// [MasterProfileScreen] does, `activeIndex: 3` (Профіль). The other three
-// tiles (Послуги/Мої записи/Графік) target INDEPENDENT_MASTER-only routes
-// this role is gated away from — `auth_redirect.dart`'s `/services`,
-// `/master/*` and `/schedule` role gates bounce a SALON_MASTER straight back
-// to `roleHomePath` (`/staff/profile`, this same screen) before any frame of
-// the guarded destination ever builds, since `redirect` resolves ahead of
-// the route match. Verified live via
+// [MasterProfileScreen] does, `activeIndex: 3` (Профіль). Since Phase 310,
+// tile 2 (Графік) targets `RouteNames.salonMasterSchedule` (`/staff/schedule`,
+// Phase 309) and lands on the role's own read-only «Графік роботи» — it no
+// longer bounces. The remaining two tiles (Послуги/Мої записи) still target
+// INDEPENDENT_MASTER-only routes this role is gated away from —
+// `auth_redirect.dart`'s `/services` and `/master/*` role gates bounce a
+// SALON_MASTER straight back to `roleHomePath` (`/staff/profile`, this same
+// screen) before any frame of the guarded destination ever builds, since
+// `redirect` resolves ahead of the route match. Verified live via
 // `test/routing/navigation_links_test.dart`'s matrix-driven harness. This is
-// accepted as the current interim state, not a bug to fix here.
+// accepted as the current interim state for those two tiles, not a bug to
+// fix here — neither has a `/staff/*` counterpart yet.
 //
 // Identity card also carries the EMPLOYING salon's name + address, read-only
 // (user requirement, 2026-09-01: "location for salon master should [be the]
@@ -228,8 +231,15 @@ class _SalonMasterProfileScreenState
       // `showBack: false`.
       showBack: false,
       // Same shared bar every other master "tab" screen hosts — see this
-      // file's header for the tile-3-active / other-three-gated rationale.
-      bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
+      // file's header for the tile-3-active / other-two-gated rationale.
+      // Phase 310 — tile 3 (Профіль) is active here so `profileRoute` is
+      // never read; `scheduleRoute` targets the SALON_MASTER's read-only
+      // «Графік роботи» at `/staff/schedule` (Phase 309) instead of the
+      // INDEPENDENT_MASTER-only default.
+      bottomNavBar: const VelvetBottomNavBar(
+        activeIndex: 3,
+        scheduleRoute: RouteNames.salonMasterSchedule,
+      ),
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-salon-master'),
         icon: Icons.tune_rounded,

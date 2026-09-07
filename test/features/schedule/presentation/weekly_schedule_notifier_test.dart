@@ -11,6 +11,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
@@ -62,6 +63,10 @@ WeeklySchedule _schedule({String? id, int validFromDay = 1}) => WeeklySchedule(
 
 void main() {
   late _MockScheduleRepository repo;
+  // Phase 312 — this file is not about scope identity, so one fixed "own"
+  // scope is reused everywhere `weeklyScheduleProvider`/
+  // `effectiveScheduleProvider`/`scheduleRepositoryProvider` are keyed.
+  const scope = ScheduleScope.own(masterId: 'weekly-notifier-test-master');
 
   setUpAll(() {
     registerFallbackValue(_schedule());
@@ -74,7 +79,9 @@ void main() {
   ProviderContainer makeContainer() {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
-      overrides: [scheduleRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+      ],
     );
     addTearDown(container.dispose);
     return container;
@@ -86,7 +93,7 @@ void main() {
     ).thenAnswer((_) async => <WeeklySchedule>[_schedule(id: 's1')]);
 
     final container = makeContainer();
-    final list = await container.read(weeklyScheduleProvider.future);
+    final list = await container.read(weeklyScheduleProvider(scope).future);
 
     expect(list, hasLength(1));
     expect(list.single.id, 's1');
@@ -109,11 +116,15 @@ void main() {
     ).thenAnswer((_) async => _schedule(id: 's1'));
 
     final container = makeContainer();
-    await container.read(weeklyScheduleProvider.future); // initial empty load
+    await container.read(
+      weeklyScheduleProvider(scope).future,
+    ); // initial empty load
 
-    await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+    await container
+        .read(weeklyScheduleProvider(scope).notifier)
+        .save(_schedule());
 
-    final state = container.read(weeklyScheduleProvider);
+    final state = container.read(weeklyScheduleProvider(scope));
     expect(state.hasError, isFalse);
     expect(state.value, hasLength(1));
     // The re-emitted state is the RELOADED list, not the upsert's return value.
@@ -153,18 +164,20 @@ void main() {
 
       // Keep the effective window watched so it re-fetches when invalidated.
       final sub = container.listen(
-        effectiveScheduleProvider(range),
+        effectiveScheduleProvider(scope, range),
         (_, _) {},
         fireImmediately: true,
       );
       addTearDown(sub.close);
-      await container.read(effectiveScheduleProvider(range).future);
+      await container.read(effectiveScheduleProvider(scope, range).future);
 
-      await container.read(weeklyScheduleProvider.future);
-      await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+      await container.read(weeklyScheduleProvider(scope).future);
+      await container
+          .read(weeklyScheduleProvider(scope).notifier)
+          .save(_schedule());
 
       // Allow the invalidated effective provider to rebuild.
-      await container.read(effectiveScheduleProvider(range).future);
+      await container.read(effectiveScheduleProvider(scope, range).future);
 
       // Fetched once on first watch, once after the save invalidation.
       verify(() => repo.effectiveSchedule(any(), any())).called(2);
@@ -220,8 +233,10 @@ void main() {
     // Deliberately NO subscription/read for ANY ScheduleRange before
     // save() runs — no `EffectiveScheduleNotifier` element exists yet, so
     // the tracker's candidate set is genuinely empty.
-    await container.read(weeklyScheduleProvider.future);
-    await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+    await container.read(weeklyScheduleProvider(scope).future);
+    await container
+        .read(weeklyScheduleProvider(scope).notifier)
+        .save(_schedule());
 
     verifyNever(() => repo.effectiveSchedule(any(), any()));
   });
@@ -295,17 +310,19 @@ void main() {
       // drives through real widgets; here it is driven directly through the
       // container, matching this file's own unit-test level.
       final sub = container.listen(
-        effectiveScheduleProvider(range),
+        effectiveScheduleProvider(scope, range),
         (_, _) {},
         fireImmediately: true,
       );
-      await container.read(effectiveScheduleProvider(range).future);
+      await container.read(effectiveScheduleProvider(scope, range).future);
       sub.close();
 
       verify(() => repo.effectiveSchedule(any(), any())).called(1);
 
-      await container.read(weeklyScheduleProvider.future);
-      await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+      await container.read(weeklyScheduleProvider(scope).future);
+      await container
+          .read(weeklyScheduleProvider(scope).notifier)
+          .save(_schedule());
 
       // Flush pending microtasks WITHOUT reading `range` ourselves — the
       // eager `ref.read` inside `_invalidateEffectiveScheduleWindows` (if it
@@ -358,22 +375,24 @@ void main() {
         to: DateTime(2026, 6, 30),
       );
       final sub = container.listen(
-        effectiveScheduleProvider(range),
+        effectiveScheduleProvider(scope, range),
         (_, _) {},
         fireImmediately: true,
       );
       addTearDown(sub.close);
-      await container.read(effectiveScheduleProvider(range).future);
+      await container.read(effectiveScheduleProvider(scope, range).future);
 
-      await container.read(weeklyScheduleProvider.future);
-      await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+      await container.read(weeklyScheduleProvider(scope).future);
+      await container
+          .read(weeklyScheduleProvider(scope).notifier)
+          .save(_schedule());
 
-      final state = container.read(weeklyScheduleProvider);
+      final state = container.read(weeklyScheduleProvider(scope));
       expect(state.hasError, isTrue);
       expect(state.error, isA<ServerFailure>());
 
       // No invalidation → effective window still resolves from its first fetch.
-      await container.read(effectiveScheduleProvider(range).future);
+      await container.read(effectiveScheduleProvider(scope, range).future);
       verify(() => repo.effectiveSchedule(any(), any())).called(1);
     },
   );
@@ -397,15 +416,17 @@ void main() {
         ).thenAnswer((_) async => _schedule(id: 's1'));
 
         final container = makeContainer();
-        await container.read(weeklyScheduleProvider.future);
+        await container.read(weeklyScheduleProvider(scope).future);
 
         final schedule = _explicitSchedule(const <TimeOfDay>[
           TimeOfDay(hour: 9, minute: 0),
           TimeOfDay(hour: 13, minute: 0),
         ]);
-        await container.read(weeklyScheduleProvider.notifier).save(schedule);
+        await container
+            .read(weeklyScheduleProvider(scope).notifier)
+            .save(schedule);
 
-        expect(container.read(weeklyScheduleProvider).hasError, isFalse);
+        expect(container.read(weeklyScheduleProvider(scope)).hasError, isFalse);
 
         // The persisted schedule reached the repo with the EXPLICIT_TIMES Monday
         // intact (mode + the discrete times, no intervals).
@@ -434,19 +455,19 @@ void main() {
       ).thenAnswer((_) async => <WeeklySchedule>[]);
 
       final container = makeContainer();
-      await container.read(weeklyScheduleProvider.future);
+      await container.read(weeklyScheduleProvider(scope).future);
 
       // A non-empty (so NOT a day-off) EXPLICIT_TIMES Monday whose single
       // start time is not 15-min aligned — an invalid working day. (An EMPTY
       // times list is treated as a DAY-OFF in EXPLICIT_TIMES mode and is
       // intentionally valid, so the reject path is exercised via alignment.)
       await container
-          .read(weeklyScheduleProvider.notifier)
+          .read(weeklyScheduleProvider(scope).notifier)
           .save(
             _explicitSchedule(const <TimeOfDay>[TimeOfDay(hour: 9, minute: 7)]),
           );
 
-      final state = container.read(weeklyScheduleProvider);
+      final state = container.read(weeklyScheduleProvider(scope));
       expect(state.hasError, isTrue);
       expect(state.error, isA<ValidationFailure>());
       // Guard fired BEFORE any upsert — no network mutation.
@@ -474,13 +495,15 @@ void main() {
       ).thenAnswer((_) async => _schedule(id: 's1'));
 
       final container = makeContainer();
-      await container.read(weeklyScheduleProvider.future);
+      await container.read(weeklyScheduleProvider(scope).future);
 
       // A plain INTERVAL schedule (all day-off) still saves without the guard
       // tripping — EXPLICIT_TIMES validation ignores INTERVAL days entirely.
-      await container.read(weeklyScheduleProvider.notifier).save(_schedule());
+      await container
+          .read(weeklyScheduleProvider(scope).notifier)
+          .save(_schedule());
 
-      expect(container.read(weeklyScheduleProvider).hasError, isFalse);
+      expect(container.read(weeklyScheduleProvider(scope)).hasError, isFalse);
       verify(
         () => repo.upsertWeeklySchedule(any(), scheduleId: null),
       ).called(1);

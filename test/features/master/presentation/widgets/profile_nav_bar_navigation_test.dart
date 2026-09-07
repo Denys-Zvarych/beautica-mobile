@@ -375,4 +375,119 @@ void main() {
       },
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 310 D1/D2 — additive `scheduleRoute`/`profileRoute` overrides.
+  //
+  // Every test above already proves the "params omitted" default case
+  // extensively (all four tiles resolve to the four pre-existing literals) —
+  // that IS the "every current caller renders identically" guarantee D1
+  // promises, so it is not re-duplicated here. This group covers what is new:
+  // an override actually being read, and the active-tile no-op guard still
+  // holding when an override is ALSO supplied.
+  // ---------------------------------------------------------------------------
+  group('VelvetBottomNavBar additive scheduleRoute override (Phase 310)', () {
+    const String staffScheduleMarkerRoute = '/staff/schedule';
+    const Key staffScheduleMarker = Key('stub-staff-schedule-screen');
+
+    GoRouter buildRouterWithOverride() => GoRouter(
+      initialLocation: RouteNames.masterProfile,
+      redirect: (context, state) => null,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.masterProfile,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: _profileMarker),
+            // scheduleRoute given, profileRoute omitted — tile 3 (active
+            // here) must still resolve to the default RouteNames.masterProfile
+            // literal when reached from elsewhere, proven by the OTHER
+            // pre-existing tests in this file (which never pass either
+            // override) rather than re-asserted here.
+            bottomNavigationBar: VelvetBottomNavBar(
+              activeIndex: 3,
+              scheduleRoute: staffScheduleMarkerRoute,
+            ),
+          ),
+        ),
+        GoRoute(
+          path: staffScheduleMarkerRoute,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: staffScheduleMarker),
+            bottomNavigationBar: VelvetBottomNavBar(
+              activeIndex: 2,
+              scheduleRoute: staffScheduleMarkerRoute,
+            ),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.services,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: _servicesMarker),
+            bottomNavigationBar: VelvetBottomNavBar(activeIndex: 0),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.masterBookings,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: _bookingsMarker),
+            bottomNavigationBar: VelvetBottomNavBar(activeIndex: 1),
+          ),
+        ),
+      ],
+    );
+
+    testWidgets(
+      'scheduleRoute override: tile 2 navigates to the OVERRIDE target '
+      '(not RouteNames.masterSchedule); tiles 0/1/3 are unchanged',
+      (tester) async {
+        final router = buildRouterWithOverride();
+        await tester.pumpWidget(_app(router));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(staffScheduleMarker), findsOneWidget);
+        expect(
+          _location(router),
+          staffScheduleMarkerRoute,
+          reason:
+              'the override must win over the default RouteNames.masterSchedule',
+        );
+        expect(_location(router), isNot(RouteNames.masterSchedule));
+
+        // Tiles 0/1 unaffected by the override — still resolve to their
+        // default literals from the new destination's own (override-bearing)
+        // bar instance.
+        await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(_servicesMarker), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'activeIndex 2 WITH scheduleRoute set: tile 2 is still a no-op — the '
+      'active guard in _routeFor short-circuits before the override is read',
+      (tester) async {
+        final router = buildRouterWithOverride();
+        router.go(staffScheduleMarkerRoute);
+        await tester.pumpWidget(_app(router));
+        await tester.pumpAndSettle();
+        expect(find.byKey(staffScheduleMarker), findsOneWidget);
+
+        final String before = _location(router);
+        final int depthBefore = _stackDepth(router);
+
+        // onTap resolves to null for the active tile regardless of any
+        // override — GestureDetector still exists (Semantics/hit box), but
+        // tapping it must do nothing.
+        await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+        await tester.pumpAndSettle();
+
+        expect(_location(router), before);
+        expect(_stackDepth(router), depthBefore);
+        expect(find.byKey(staffScheduleMarker), findsOneWidget);
+      },
+    );
+  });
 }

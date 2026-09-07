@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/declared_t
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -100,7 +101,10 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   _DataSchedule(this._days);
   final List<EffectiveDay> _days;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => _days;
 }
 
 void main() {

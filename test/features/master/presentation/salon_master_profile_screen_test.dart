@@ -669,4 +669,55 @@ void main() {
       expect(find.byKey(const Key('stub-staff-settings')), findsOneWidget);
     });
   });
+
+  // Phase 310 — the REAL production wiring at this screen's own call site
+  // (`salon_master_profile_screen.dart:232`'s `scheduleRoute:` param), as
+  // opposed to `salon_master_bottom_nav_redirect_test.dart`'s synthetic
+  // router (which reconstructs its own `VelvetBottomNavBar` call and would
+  // NOT catch a regression at THIS file's actual call site). Mutation-tested
+  // 2026-09-06: reverting this screen's `scheduleRoute:` param to the
+  // omitted default turned this test red (tile 2 landed on the
+  // INDEPENDENT_MASTER-only `/schedule` stub instead of `/staff/schedule`).
+  group('bottom nav — Графік tile (Phase 310)', () {
+    testWidgets(
+      'tapping master-nav-tile-2 lands on RouteNames.salonMasterSchedule, '
+      'NOT the default RouteNames.masterSchedule',
+      (tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.salonMasterProfile,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.salonMasterProfile,
+              builder: (_, _) => const SalonMasterProfileScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.salonMasterSchedule,
+              builder: (_, _) => const Scaffold(
+                body: SizedBox(key: Key('stub-staff-schedule')),
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.masterSchedule,
+              builder: (_, _) => const Scaffold(
+                body: SizedBox(key: Key('stub-master-schedule')),
+              ),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides((_master, _services, _salon)),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-staff-schedule')), findsOneWidget);
+        expect(find.byKey(const Key('stub-master-schedule')), findsNothing);
+      },
+    );
+  });
 }

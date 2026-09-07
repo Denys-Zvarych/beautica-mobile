@@ -155,6 +155,11 @@ import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
+import 'salon_admin_edit_master_schedule_flow_test.dart'
+    as salon_admin_edit_master_schedule;
+import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
+import 'salon_owner_edit_master_schedule_flow_test.dart'
+    as salon_owner_edit_master_schedule;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
@@ -517,6 +522,27 @@ void main() {
   // DayOffConflictDialog, confirming declines the conflicting booking,
   // backing out persists nothing at all.
   group('schedule_override_conflict_flow', schedule_override_conflict.main);
+  // Phase 312 (Step 2.7 Rule 3b) — a SALON_ADMIN opens a chosen master's
+  // schedule from the roster («Команда» tab) and edits it, pinned to NEVER
+  // reach `GET /masters/me` (an admin has no master row of their own). The
+  // SALON_OWNER counterpart lives below.
+  group(
+    'salon_admin_edit_master_schedule_flow',
+    salon_admin_edit_master_schedule.main,
+  );
+  // Phase 309-311 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Графік»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting
+  // `/staff/schedule`, landing on the SAME `MasterScheduleScreen` an
+  // INDEPENDENT_MASTER edits their own hours with.
+  group('salon_master_schedule_nav_flow', salon_master_schedule_nav.main);
+  // Phase 312 (Step 2.7 Rule 3b) — the SALON_OWNER counterpart of the admin
+  // flow above: roster -> a chosen master's schedule -> a real edit and
+  // write against the VIEWED master, never "me".
+  group(
+    'salon_owner_edit_master_schedule_flow',
+    salon_owner_edit_master_schedule.main,
+  );
   // Phase 240 (mobile-qa) — hearting a SERVICE on the booking service-
   // selection sheet is a REAL POST /favorites; the wish list read-back is the
   // "origin story" the phase exists for.

@@ -28,8 +28,10 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -113,6 +115,24 @@ GoRoute? _findRoute(List<RouteBase> routes, String path) {
     }
   }
   return null;
+}
+
+/// Never-invoked stand-ins for a `GoRoute.builder`'s `(BuildContext, state)`
+/// signature — Phase 309's `RouteNames.salonMasterSchedule` registration
+/// (`builder: (context, state) => const MasterScheduleScreen()`) reads
+/// neither argument, so a `Fake` that would throw if any member were
+/// actually called is sufficient to invoke the closure and inspect its
+/// RETURN VALUE's runtime type — without pumping a widget tree.
+class _NeverUsedBuildContext extends Fake implements BuildContext {}
+
+/// [RouteNames.masterSchedule]'s builder additionally reads
+/// `state.uri.queryParameters['date']` (its optional pre-select param) — so,
+/// unlike a bare `Fake`, this stub answers `.uri` with an empty query string
+/// rather than throwing, so the fake exercises the "no date param" branch
+/// (`initialDate == null`) rather than crashing before returning a widget.
+class _NeverUsedGoRouterState extends Fake implements GoRouterState {
+  @override
+  Uri get uri => Uri.parse('/schedule');
 }
 
 // ---------------------------------------------------------------------------
@@ -738,4 +758,74 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 309 — RouteNames.salonMasterSchedule (/staff/schedule) is
+  // registered as a top-level flat route (a VelvetBottomNavBar nav-tile
+  // precondition — Phase 310 D1) and resolves to the SAME MasterScheduleScreen
+  // class as RouteNames.masterSchedule (/schedule) — pinned by the resolved
+  // page TYPE, not merely the route string, per this track's mutation check
+  // #1: renaming the registered path away from the RouteNames constant (e.g.
+  // hardcoding '/staff/schedule2') must turn BOTH assertions below red — the
+  // `_findRoute` lookup (keyed on the constant) and the built widget's type.
+  // -------------------------------------------------------------------------
+  group(
+    'app_router Phase 309 — /staff/schedule resolves MasterScheduleScreen',
+    () {
+      late GoRouter router;
+
+      setUp(() {
+        router = _makeContainer().read(appRouterProvider);
+      });
+
+      test('PT-1: RouteNames.salonMasterSchedule is registered as a TOP-LEVEL '
+          'route and builds a MasterScheduleScreen', () {
+        final route = _findRoute(
+          router.configuration.routes,
+          RouteNames.salonMasterSchedule,
+        );
+        expect(
+          route,
+          isNotNull,
+          reason:
+              'RouteNames.salonMasterSchedule '
+              '(${RouteNames.salonMasterSchedule}) must be registered in '
+              'appRouter',
+        );
+        expect(
+          route!.builder,
+          isNotNull,
+          reason: '/staff/schedule must use builder: (MaterialPage)',
+        );
+        expect(route.pageBuilder, isNull);
+
+        final Widget built = route.builder!(
+          _NeverUsedBuildContext(),
+          _NeverUsedGoRouterState(),
+        );
+        expect(
+          built,
+          isA<MasterScheduleScreen>(),
+          reason:
+              'Phase 309 D1: /staff/schedule reuses MasterScheduleScreen '
+              'VERBATIM — a different widget type here means the route was '
+              'forked rather than reused',
+        );
+      });
+
+      test('PT-2: RouteNames.masterSchedule (/schedule) ALSO builds a '
+          'MasterScheduleScreen — both routes share one widget tree', () {
+        final route = _findRoute(
+          router.configuration.routes,
+          RouteNames.masterSchedule,
+        );
+        expect(route, isNotNull);
+        final Widget built = route!.builder!(
+          _NeverUsedBuildContext(),
+          _NeverUsedGoRouterState(),
+        );
+        expect(built, isA<MasterScheduleScreen>());
+      });
+    },
+  );
 }

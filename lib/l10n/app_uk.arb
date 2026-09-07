@@ -2146,6 +2146,10 @@
   "@scheduleViewOnly": {
     "description": "Read-only badge label replacing the edit pencil for past days (Phase 15.2)."
   },
+  "scheduleReadOnlyEditorBody": "У вас немає прав редагувати цей графік.",
+  "@scheduleReadOnlyEditorBody": {
+    "description": "Phase 311 — SalonNoticeCard body shown by WeeklyTemplateEditorScreen, DayHoursSheet and ApplyScheduleSheet when scheduleEditableProvider is false (a read-only viewer, e.g. SALON_MASTER, reached one of these edit surfaces). Paired with the existing scheduleViewOnly ('Лише перегляд') as the card's title — no new title key needed."
+  },
   "scheduleDaySummaryWorking": "Робочий день: {intervals}",
   "@scheduleDaySummaryWorking": {
     "description": "Selected-day summary line for a working day (Phase 15.2). {intervals} is the formatted interval list (e.g. '09:00–18:00').",
@@ -2183,7 +2187,11 @@
   },
   "scheduleNoScheduleHelper": "Додайте робочі години, щоб клієнти могли бронювати.",
   "@scheduleNoScheduleHelper": {
-    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3)."
+    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3). Shown to an EDITABLE viewer (INDEPENDENT_MASTER, or a SALON_MASTER-editable membership) who can act on the imperative CTA themselves. Do NOT merge with scheduleNoScheduleHelperReadOnly — that variant is addressed to a DIFFERENT person (the salon owner/admin) for a viewer who cannot add their own hours."
+  },
+  "scheduleNoScheduleHelperReadOnly": "Власник або адміністратор салону може додати робочі години, щоб клієнти могли записуватись до вас.",
+  "@scheduleNoScheduleHelperReadOnly": {
+    "description": "NO_SCHEDULE banner secondary helper line for a READ-ONLY salon-master viewer (scheduleEditableProvider == false). Phase 312 restricted setting a salon master's hours to the salon owner/admin, so this viewer cannot act on scheduleNoScheduleHelper's imperative 'you add hours' copy — it would address the wrong person. This variant is addressed to the owner/admin in the third person; do NOT merge it with scheduleNoScheduleHelper, whose audience is the viewer themselves."
   },
   "scheduleAddHoursCta": "Додати робочі години",
   "@scheduleAddHoursCta": {
@@ -4426,6 +4434,10 @@
   "@bookingDetailSublineCancelled": {
     "description": "Booking detail subline — CANCELLED."
   },
+  "bookingDetailSublineCancelledProvider": "Клієнт скасував цей запис.",
+  "@bookingDetailSublineCancelledProvider": {
+    "description": "Booking detail subline — CANCELLED, PROVIDER viewer. No rebooking affordance offered."
+  },
   "bookingDetailSublineDeclined": "Запис скасовано",
   "@bookingDetailSublineDeclined": {
     "description": "Booking detail subline — DECLINED. Neutral, no who-cancelled distinction."
@@ -5298,6 +5310,10 @@
   "salonStaffRoleAdmin": "Адміністратор",
   "@salonStaffRoleAdmin": {
     "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Команда grid card and the staff member profile screen's identity card RoleChip."
+  },
+  "staffProfileScheduleNotSet": "Не задано",
+  "@staffProfileScheduleNotSet": {
+    "description": "Phase 312, D3/D11 — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen (master branch) when the viewed master has no weekly template (an AsyncData with an empty/no-working-day schedule list). Do NOT reuse this for an AsyncError on the same row — that renders '—' instead, since «Не задано» would assert a fact (no schedule set) the app does not actually have."
   },
   "salonSettingsMySalons": "Мої салони",
   "@salonSettingsMySalons": {

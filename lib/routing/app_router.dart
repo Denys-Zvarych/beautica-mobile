@@ -21,6 +21,7 @@
 // [MaterialApp.router].
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -94,6 +95,7 @@ import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/application/my_salons_notifier.dart';
+import '../features/salon/application/salon_staff_member_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/presentation/admin_own_profile_screen.dart';
 import '../features/salon/presentation/my_salons_screen.dart';
@@ -114,6 +116,7 @@ import '../features/salon/presentation/salon_shell_screen.dart';
 import '../features/salon/presentation/salon_staff_profile_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
+import '../features/schedule/domain/schedule_scope.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
@@ -1136,6 +1139,84 @@ GoRouter appRouter(Ref ref) {
           memberId: state.pathParameters['memberId'] ?? '',
         ),
       ),
+      // Phase 312 (D9) — a chosen master's «Графік роботи», reached from the
+      // `SettingsRow` D3 adds to [SalonStaffProfileScreen]. Renders the SAME
+      // [MasterScheduleScreen] widget the INDEPENDENT_MASTER's own `/schedule`
+      // does (D1 — byte-identical), pointed at a `ScheduleScope.salonMaster`
+      // instead of "me". Literal `/schedule` leaf below the ALREADY-RESOLVED
+      // `:salonId`/`:memberId` captures, STANDALONE top-level route, gated by
+      // `salonManageGuard` VERBATIM — same reasoning as every sibling route
+      // in this subtree (`/settings`, `/move`, directly above).
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/schedule',
+        redirect: salonManageGuard,
+        builder: (context, state) => _SalonMasterScheduleRoute(
+          salonId: state.pathParameters['salonId'] ?? '',
+          memberId: state.pathParameters['memberId'] ?? '',
+          extra: state.extra,
+        ),
+      ),
+      // Phase 312 (D9) — the PARAMETERISED weekly-template editor.
+      // `MasterScheduleScreen._openTemplateEditor` pushes here (never the
+      // root `/schedule/weekly`, hard-wired to "me") whenever its resolved
+      // scope is a `ScheduleScope.salonMaster` — WITHOUT this route
+      // «Редагувати» would land an admin on the root editor and either 403 or
+      // silently drive the WRONG masterId. Always pushed with `extra:`
+      // carrying the already-resolved [ScheduleScope]; a request with no
+      // `extra` (a genuine cold deep link straight to this leaf — never the
+      // normal tap path, which always goes through the `/schedule` entry
+      // route above first) redirects back to that entry route rather than
+      // guessing a scope.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/weekly',
+        redirect: (context, state) {
+          final String? baseRedirect = salonManageGuard(context, state);
+          if (baseRedirect != null) return baseRedirect;
+          if (state.extra is! ScheduleScope) {
+            return RouteNames.salonManageStaffSchedule(
+              state.pathParameters['salonId'] ?? '',
+              state.pathParameters['memberId'] ?? '',
+            );
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            WeeklyTemplateEditorScreen(scope: state.extra as ScheduleScope),
+      ),
+      // Phase 312 (D9) — registered for symmetry with the root
+      // `/schedule/day` immediately below in this file: auth-guarded, but
+      // NOT a live UI destination — [DayHoursSheet] is a direct modal for
+      // either scope shape, never routed. Kept dead-but-registered exactly
+      // like its root counterpart.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/day',
+        redirect: salonManageGuard,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const PerDateOverrideStubScreen()),
+      ),
+      // Phase 312 (D9) — registered for symmetry with the root
+      // `/schedule/copy` immediately below in this file: auth-guarded, but
+      // NOT a live UI destination — [ApplyScheduleSheet] is a direct modal
+      // for either scope shape, never routed. Same `extra`-required /
+      // redirect-to-entry-route shape as the `/weekly` leaf above.
+      GoRoute(
+        path: '/salons/:salonId/manage/staff/:memberId/copy',
+        redirect: (context, state) {
+          final String? baseRedirect = salonManageGuard(context, state);
+          if (baseRedirect != null) return baseRedirect;
+          if (state.extra is! ScheduleScope) {
+            return RouteNames.salonManageStaffSchedule(
+              state.pathParameters['salonId'] ?? '',
+              state.pathParameters['memberId'] ?? '',
+            );
+          }
+          return null;
+        },
+        pageBuilder: (context, state) => _instantPage(
+          state,
+          WeeklyTemplateEditorScreen(scope: state.extra as ScheduleScope),
+        ),
+      ),
       // Phase 21.10 — the three lightweight edit-form screens the Phase 21.9
       // settings hub pushes to. STANDALONE top-level routes,
       // same "an ancestor's own redirect always runs" reason
@@ -1751,6 +1832,18 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             const ContactsEditScreen(showInstagram: false),
       ),
+      // Phase 309 — «Графік роботи» read-only view for a SALON_MASTER. Reuses
+      // [MasterScheduleScreen] VERBATIM (see `route_names.dart`'s
+      // [RouteNames.salonMasterSchedule] doc). Registered as a top-level flat
+      // route (a `VelvetBottomNavBar` nav-tile precondition — see that
+      // widget's `_routeFor` doc), same as every other `/staff/*` and
+      // `/master/*` tab root. `builder:` (MaterialPage), matching
+      // [RouteNames.masterSchedule] immediately below. No `?date=` handling
+      // (D2 — no producer for this role exists).
+      GoRoute(
+        path: RouteNames.salonMasterSchedule,
+        builder: (context, state) => const MasterScheduleScreen(),
+      ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.
       // Pushed from the home-hub burger icon; all three edit pages PATCH
@@ -1905,6 +1998,53 @@ GoRouter appRouter(Ref ref) {
       ),
     ],
   );
+}
+
+/// Phase 312 (D9) — resolves the [ScheduleScope] for
+/// `/salons/:salonId/manage/staff/:memberId/schedule`.
+///
+/// The normal in-app tap path ([SalonStaffProfileScreen]'s D3 `SettingsRow`)
+/// always supplies [extra] pre-resolved as a [ScheduleScope.salonMaster] —
+/// `state.extra` is threaded straight through with NO async gap, so
+/// [MasterScheduleScreen] renders SYNCHRONOUSLY, no spinner, matching D1's
+/// "byte-identical" screen for the common case.
+///
+/// Only a genuine cold deep link (`extra` absent) falls back to resolving the
+/// viewed master id from the roster via [salonStaffMemberProfileProvider]
+/// (`salonId` + the route's `:memberId`, the roster row's real `userId`) — OQ-5,
+/// ACCEPTED: edit affordances render one frame late there. D1 forbids a
+/// resolver spinner (the independent master's own `/schedule` never shows
+/// one), so none is added here either — the screen renders immediately with
+/// whatever masterId is currently known (`''` while unresolved), and every
+/// downstream provider ([scheduleEditableProvider] included) already fails
+/// closed on that, exactly like an unresolved "me" session does today.
+class _SalonMasterScheduleRoute extends ConsumerWidget {
+  const _SalonMasterScheduleRoute({
+    required this.salonId,
+    required this.memberId,
+    required this.extra,
+  });
+
+  final String salonId;
+  final String memberId;
+  final Object? extra;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (extra is ScheduleScope) {
+      return MasterScheduleScreen(scope: extra as ScheduleScope);
+    }
+    final AsyncValue<SalonStaffMemberProfileData> async = ref.watch(
+      salonStaffMemberProfileProvider(salonId, memberId),
+    );
+    final String masterId = async.maybeWhen(
+      data: (SalonStaffMemberProfileData data) => data.$1.masterId ?? '',
+      orElse: () => '',
+    );
+    return MasterScheduleScreen(
+      scope: ScheduleScope.salonMaster(salonId: salonId, masterId: masterId),
+    );
+  }
 }
 
 /// Throwaway scaffold used by the home route until Phase 3+ replaces it with

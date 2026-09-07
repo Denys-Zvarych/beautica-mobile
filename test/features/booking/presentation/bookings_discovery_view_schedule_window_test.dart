@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_boo
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -99,20 +100,25 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   _DataSchedule(this._days);
   final List<EffectiveDay> _days;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => _days;
 }
 
 class _LoadingSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     return Completer<List<EffectiveDay>>().future; // never completes
   }
 }
 
 class _ErrorSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async =>
-      throw Exception('schedule fetch boom');
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => throw Exception('schedule fetch boom');
 }
 
 /// EVERY rendered gridline (`BookingsTimelineGrid`'s hour + half-hour

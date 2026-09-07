@@ -203,14 +203,41 @@ const Map<String, dynamic> _adminUserJson = <String, dynamic>{
   'salonId': 'salon-admin-1',
 };
 
+/// mobile-qa gap-closure (Phase 309-311 track, 2026-09-06) — the SAME class
+/// of bug the 21.8 fix above closed for SALON_ADMIN, just not yet fixed for
+/// this role: `userJsonForRole` fell through the `_ => _masterUserJson`
+/// default, so `currentRole = UserRole.salonMaster` silently logged in as an
+/// INDEPENDENT_MASTER (wrong role string, no way to reach `/staff/*` at all)
+/// — no E2E flow could exercise ANY SALON_MASTER journey until this was
+/// added, discovered while authoring
+/// `salon_master_schedule_nav_flow_test.dart`. `salonId` is deliberately
+/// OMITTED (unlike the admin persona above): `salonMasterOwnProfileNotifier`
+/// treats a null `salonId` as "no employing salon" and degrades the
+/// identity card gracefully (no salon-name/address rows), which is exactly
+/// what this fixture needs for a role whose ONLY currently-shipped surfaces
+/// (`/staff/profile`, `/staff/schedule`) do not depend on that salon read
+/// resolving — see that notifier's own doc for the degrade-to-null path.
+const Map<String, dynamic> _salonMasterUserJson = <String, dynamic>{
+  'id': 'user-salon-master-1',
+  'email': 'salonmaster@beautica.ua',
+  'role': 'SALON_MASTER',
+  'firstName': 'Тарас',
+  'lastName': 'Майстренко',
+};
+
 /// Returns the stub JSON body for [UserRole] in `GET /users/me` shape.
+///
+/// Exhaustive over every [UserRole] (no wildcard default) — the SALON_ADMIN
+/// and SALON_MASTER doc comments above both record what a wildcard here
+/// actually costs: a role that silently logs in as INDEPENDENT_MASTER
+/// instead of failing to compile the day a sixth role is added.
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
     UserRole.salonOwner => _ownerUserJson,
     UserRole.salonAdmin => _adminUserJson,
+    UserRole.salonMaster => _salonMasterUserJson,
     UserRole.independentMaster => _masterUserJson,
-    _ => _masterUserJson,
   };
 }
 
@@ -1172,6 +1199,27 @@ final class FakeBackend {
           'professionalTitle': null,
           'avatarUrl': null,
           'phoneNumber': '+380639998877',
+          'instagram': null,
+          'bio': null,
+          'avgRating': null,
+          'reviewCount': 0,
+          'serviceCount': 0,
+        },
+        // Phase 312 (mobile-qa) — a MASTER row on the SALON_ADMIN persona's
+        // OWN salon (`salon-admin-1`), added so the real "admin opens a
+        // master's schedule" E2E journey has a roster entry to tap. `userId`
+        // is DELIBERATELY DIFFERENT from `masterId` (mirrors `_salonStaff`'s
+        // `master-removable` row) so a userId/masterId swap bug on the ADMIN
+        // path is caught the same way it already is on the owner path.
+        <String, dynamic>{
+          'userId': 'user-master-under-admin',
+          'masterId': 'master-admin-target',
+          'role': 'SALON_MASTER',
+          'firstName': 'Настя',
+          'lastName': 'Майстриня',
+          'professionalTitle': null,
+          'avatarUrl': null,
+          'phoneNumber': '+380671119900',
           'instagram': null,
           'bio': null,
           'avgRating': null,
@@ -4487,6 +4535,24 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+
+    // GET /api/v1/masters/master-admin-target/services — Phase 312
+    // (mobile-qa). `salonAdminOneStaff`'s new master row's active services,
+    // fetched by the SAME `salonStaffMemberProfileProvider` chain the two
+    // registrations above serve — without this, opening that roster row's
+    // profile (a prerequisite for reaching its D3 schedule row) throws and
+    // the whole staff-profile screen renders `ErrorState` instead. Empty,
+    // same reasoning as `master-removable` above: this fixture's flows never
+    // assert on service content.
+    _adapter.onRoute(
+      '/api/v1/masters/master-admin-target/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = 'master-admin-target';
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
   }
 
   /// (Re-)registers `GET /api/v1/favorites/masters`.
@@ -6030,6 +6096,11 @@ final class FakeBackend {
     for (final path in <String>[
       '/api/v1/masters/me/weekly-schedules',
       '/api/v1/masters/user-master-1/weekly-schedules',
+      // Phase 312 (mobile-qa) — the two viewed-master ids the owner/admin
+      // "edit a chosen master's schedule" E2E journeys drive: `master-aaa`
+      // (salon-xyz roster) and `master-admin-target` (salon-admin-1 roster).
+      '/api/v1/masters/master-aaa/weekly-schedules',
+      '/api/v1/masters/master-admin-target/weekly-schedules',
     ]) {
       _adapter.onRoute(
         path,
@@ -6046,6 +6117,11 @@ final class FakeBackend {
     for (final path in <String>[
       '/api/v1/masters/me/weekly-schedules',
       '/api/v1/masters/user-master-1/weekly-schedules',
+      // Phase 312 (mobile-qa) — the two viewed-master ids the owner/admin
+      // "edit a chosen master's schedule" E2E journeys drive: `master-aaa`
+      // (salon-xyz roster) and `master-admin-target` (salon-admin-1 roster).
+      '/api/v1/masters/master-aaa/weekly-schedules',
+      '/api/v1/masters/master-admin-target/weekly-schedules',
     ]) {
       _adapter.onRoute(
         path,
@@ -6087,6 +6163,9 @@ final class FakeBackend {
     for (final path in <String>[
       '/api/v1/masters/me/weekly-schedules/schedule-1',
       '/api/v1/masters/user-master-1/weekly-schedules/schedule-1',
+      // Phase 312 (mobile-qa) — see the GET loop above for why these two.
+      '/api/v1/masters/master-aaa/weekly-schedules/schedule-1',
+      '/api/v1/masters/master-admin-target/weekly-schedules/schedule-1',
     ]) {
       _adapter.onRoute(
         path,
@@ -6126,7 +6205,13 @@ final class FakeBackend {
     // RegExp route matches every date for both the /me alias and the real id.
     // The reply echoes a ScheduleOverrideResponse-shaped envelope built from the
     // request body so the mapper can deserialize it (kind/mode/intervals/times).
-    for (final masterId in <String>['me', 'user-master-1']) {
+    for (final masterId in <String>[
+      'me',
+      'user-master-1',
+      // Phase 312 (mobile-qa) — see the weekly-schedules GET loop's comment.
+      'master-aaa',
+      'master-admin-target',
+    ]) {
       _adapter.onRoute(
         RegExp(
           '/api/v1/masters/$masterId/overrides/'
@@ -6167,7 +6252,13 @@ final class FakeBackend {
     // a flow seeded in [conflictPreviewRows] (empty by default, so every flow
     // that never sets it keeps the pre-existing "no gate to see" behaviour —
     // `_noConflicts`-equivalent at the wire boundary).
-    for (final masterId in <String>['me', 'user-master-1']) {
+    for (final masterId in <String>[
+      'me',
+      'user-master-1',
+      // Phase 312 (mobile-qa) — see the weekly-schedules GET loop's comment.
+      'master-aaa',
+      'master-admin-target',
+    ]) {
       _adapter.onRoute(
         '/api/v1/masters/$masterId/overrides/conflicts',
         (server) => server.replyCallback(200, (req) {
@@ -6285,6 +6376,9 @@ final class FakeBackend {
     for (final path in <String>[
       '/api/v1/masters/me/effective-schedule',
       '/api/v1/masters/user-master-1/effective-schedule',
+      // Phase 312 (mobile-qa) — see the weekly-schedules GET loop's comment.
+      '/api/v1/masters/master-aaa/effective-schedule',
+      '/api/v1/masters/master-admin-target/effective-schedule',
     ]) {
       _adapter.onRoute(
         path,
@@ -6301,6 +6395,9 @@ final class FakeBackend {
     for (final path in <String>[
       '/api/v1/masters/me/overrides',
       '/api/v1/masters/user-master-1/overrides',
+      // Phase 312 (mobile-qa) — see the weekly-schedules GET loop's comment.
+      '/api/v1/masters/master-aaa/overrides',
+      '/api/v1/masters/master-admin-target/overrides',
     ]) {
       _adapter.onRoute(
         path,

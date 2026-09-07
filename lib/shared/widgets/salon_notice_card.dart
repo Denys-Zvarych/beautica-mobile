@@ -3,17 +3,30 @@
 //
 // PROMOTED (REUSE-FIRST, Phase 21.6 audit follow-up) out of
 // `move_admin_salon_screen.dart`, where it was the file-private
-// `_MoveTargetsEmptyState`. [StaffSettingsScreen]'s new "this staff member is
+// `_MoveTargetsEmptyState`. [StaffSettingsScreen]'s "this staff member is
 // not an administrator" guard needs EXACTLY this shape, and being private was
 // the signal a promotion was due — not a licence to copy it.
+//
+// MOVED (Phase 311, REUSE-FIRST) from `features/salon/presentation/widgets/`
+// to here: the three schedule editors (`WeeklyTemplateEditorScreen`,
+// `DayHoursSheet`, `ApplyScheduleSheet`) need this exact "you cannot act
+// here" shape too, and `features/schedule/presentation/` importing
+// `features/salon/presentation/widgets/` would be a cross-feature
+// presentation→presentation import — forbidden by the architecture's
+// layering rule (cross-feature imports go through `domain/` or `shared/`
+// only). The widget has no salon-specific dependency (only `core/theme` +
+// `core/widgets`), so it belongs here, not in a feature folder. Name kept as
+// `SalonNoticeCard` — renaming would touch call sites for no behavioural
+// gain; a future pass may rename it if a clearer generic name earns its
+// churn.
 //
 // The geometry is byte-identical to the private original (glyph disc 56 dp,
 // `accent @ 16%` fill, 26 dp icon, `VelvetSpacing.xl` padding, `md`/`sm`
 // gaps, `subheadingWizard15` title over `feedbackMutedSm` body, both
-// centred), so `MoveAdminSalonScreen` renders exactly as it did before the
-// move. Everything that varied between the two call sites — the glyph, the
-// two copy lines and the widget key — is a parameter; nothing else was made
-// configurable, so there is no way for a caller to drift the shape.
+// centred), so every existing caller renders exactly as before the move.
+// Everything that varied between call sites — the glyph, the two copy lines
+// and the widget key — is a parameter; nothing else was made configurable,
+// so there is no way for a caller to drift the shape.
 
 import 'package:flutter/material.dart';
 

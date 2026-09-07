@@ -48,6 +48,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
@@ -75,6 +76,12 @@ const Master _stubMaster = Master(
   reviewCount: 0,
   type: MasterType.independentMaster,
 );
+
+/// What `ownScheduleScopeProvider` resolves to for `_stubMaster` — this test
+/// never passes an explicit `scope` to `MasterScheduleScreen`/
+/// `WeeklyTemplateEditorScreen`, so every screen resolves "me" via that
+/// provider, which watches `masterProfileProvider` (stubbed above).
+const ScheduleScope _scope = ScheduleScope.own(masterId: 'master-1');
 
 class _StubAuthNotifier extends AuthNotifier {
   @override
@@ -224,7 +231,7 @@ GoRouter _router() => GoRouter(
             child: TextButton(
               key: const Key('run-weekly-schedule-save'),
               onPressed: () => ref
-                  .read(weeklyScheduleProvider.notifier)
+                  .read(weeklyScheduleProvider(_scope).notifier)
                   .save(_template(), scheduleId: 's1'),
               child: const Text('save'),
             ),
@@ -245,8 +252,8 @@ void main() {
         overrides: <Object>[
           authProvider.overrideWith(_StubAuthNotifier.new),
           masterProfileProvider.overrideWith(_StubMasterProfile.new),
-          scheduleRepositoryProvider.overrideWithValue(
-            _FakeScheduleRepository(),
+          scheduleRepositoryProvider.overrideWith(
+            (ref, scope) => _FakeScheduleRepository(),
           ),
         ].cast(),
         child: MaterialApp.router(
