@@ -336,6 +336,34 @@ void main() {
         kSampleId,
         kSampleId,
       ),
+      // Phase 312 (D9) — a chosen master's «Графік роботи», reached from the
+      // D3 `SettingsRow` on `SalonStaffProfileScreen`. Standalone top-level
+      // route, same rationale as `salonManageStaffMember()` above; gated by
+      // `salonManageGuard`.
+      'salonManageStaffSchedule()': RouteNames.salonManageStaffSchedule(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 312 (D9) — the PARAMETERISED weekly-template editor under the
+      // same subtree; always pushed with `extra:` carrying the resolved
+      // `ScheduleScope` (see `app_router.dart`'s own doc).
+      'salonManageStaffScheduleWeekly()':
+          RouteNames.salonManageStaffScheduleWeekly(kSampleId, kSampleId),
+      // Phase 312 (D9) — registered for symmetry with the root
+      // `/schedule/day` — auth-guarded but NOT a live UI destination
+      // (`DayHoursSheet` is a direct modal for either scope shape, never
+      // routed). See `app_router.dart`'s own doc for the full reasoning.
+      'salonManageStaffScheduleDay()': RouteNames.salonManageStaffScheduleDay(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 312 (D9) — registered for symmetry with the root
+      // `/schedule/copy` — same "dead but registered" reasoning as
+      // `salonManageStaffScheduleDay()` immediately above.
+      'salonManageStaffScheduleCopy()': RouteNames.salonManageStaffScheduleCopy(
+        kSampleId,
+        kSampleId,
+      ),
       // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
       // Phase 21.9 settings hub will push to. Standalone top-level routes,
       // same rationale as `salonManage()`/`salonManageSettings()` above.

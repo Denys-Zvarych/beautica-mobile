@@ -118,7 +118,7 @@ void main() {
       ProviderScope(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          scheduleRepositoryProvider.overrideWithValue(repo),
+          scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           authProvider.overrideWith(_StubAuthNotifier.new),
           ...extraOverrides,
         ].cast(),
@@ -222,7 +222,7 @@ void main() {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
       overrides: <Object>[
-        scheduleRepositoryProvider.overrideWithValue(repo),
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
       ].cast(),
     );
     addTearDown(container.dispose);
@@ -309,7 +309,7 @@ void main() {
       ProviderScope(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          scheduleRepositoryProvider.overrideWithValue(repo),
+          scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
         child: MaterialApp.router(
@@ -404,7 +404,7 @@ void main() {
         ProviderScope(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
             authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
           child: MaterialApp.router(

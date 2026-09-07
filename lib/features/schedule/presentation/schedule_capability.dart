@@ -1,46 +1,52 @@
 // Phase 15.2 — Schedule edit-capability resolver (OQ-2 role gating).
+// Phase 312 — became MEMBERSHIP-AWARE (D8): takes the viewed [ScheduleScope]
+// and, for a SALON_OWNER/SALON_ADMIN, verifies the viewed master actually
+// belongs to a salon the caller manages, instead of returning an
+// unconditional `true` for that role pair. THIS IS A SECURITY-RELEVANT
+// CHANGE — see the header note below and `master_schedule_screen.dart` /
+// `weekly_template_editor_screen.dart` / `day_hours_sheet.dart` /
+// `apply_schedule_sheet.dart` for the eight call sites this gates.
 //
 // Resolves whether the current viewer may EDIT the schedule they are viewing,
-// from the auth/role state. The schedule screen gates every edit affordance
+// from the auth/role state (plus, for the owner/admin arm, server-derived
+// salon-membership facts). The schedule screen gates every edit affordance
 // (Редагувати, day pencil, + Додати час, + Time Off, copy/propagate, and the
 // NO_SCHEDULE CTA) on this capability so a read-only role never sees an edit
 // entry point — client-side, not relying on a backend 403 alone.
 //
 // MVP scope (ARCHITECTURE-mobile § 4 — INDEPENDENT_MASTER first):
-//   • INDEPENDENT_MASTER (viewing own schedule)            → editable.
-//   • SALON_OWNER / SALON_ADMIN (their salon's master)     → editable.
-//   • SALON_MASTER (viewing own schedule, read-only role)  → read-only.
-//   • CLIENT / loading / unauthenticated                   → read-only
+//   • INDEPENDENT_MASTER (viewing own scope)                → editable.
+//   • SALON_OWNER / SALON_ADMIN (viewing a master ON THEIR
+//     OWN salon's roster — [ScheduleScope.salonMaster])     → editable (D2).
+//   • SALON_MASTER (viewing own scope, read-only role)      → read-only.
+//   • CLIENT / loading / unauthenticated                    → read-only
 //     (defensive: a CLIENT never reaches this screen, but defaulting to
 //     read-only keeps the gate fail-safe).
-//
-// The screen-owning master is implicitly the authenticated user. This
-// resolver is still session-only — "may THIS viewer edit A schedule", not
-// "may this viewer edit THAT master's schedule" — because every viewer that
-// can currently reach a schedule screen only ever views their own: the
-// INDEPENDENT_MASTER at `/schedule` and, since Phase 309, the SALON_MASTER
-// reading the SAME `MasterScheduleScreen` read-only at `/staff/schedule`.
-// Phase 311 additionally made `WeeklyTemplateEditorScreen`, `DayHoursSheet`
-// and `ApplyScheduleSheet` read this provider, so it is no longer "the
-// schedule screen" alone that gates on it. When salon staff/owners can view a
-// SPECIFIC other master's schedule (phase-312-owner-edits-master-schedule,
-// DEFERRED) this resolver will take the viewed master id and compare salon
-// membership; the SALON_OWNER/SALON_ADMIN → editable rule above is already
-// encoded for that path.
+//   • ANY role viewing a [ScheduleScope.salonMaster] that is NOT proven to
+//     belong to a salon the caller manages, or whose viewed master is not
+//     proven to be on that salon's roster → read-only. Fail-closed, never
+//     "trust the route's `:salonId`" — see [_ownerOrAdminCanEdit]'s doc.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
+import '../../salon/application/my_salons_notifier.dart';
+import '../../salon/application/salon_management_profile_notifier.dart';
+import '../../salon/domain/salon.dart';
+import '../../salon/domain/salon_staff_member.dart';
+import '../domain/schedule_scope.dart';
 
 part 'schedule_capability.g.dart';
 
-/// `true` when the current viewer may edit the schedule on screen.
+/// `true` when the current viewer may edit the schedule on screen (Phase 312:
+/// the schedule identified by [scope]).
 ///
 /// Read-only resolves to `false` for SALON_MASTER (and defensively for any
 /// non-master / unresolved session). Generated provider name:
-/// `scheduleEditableProvider`.
+/// `scheduleEditableProvider` (a family — call
+/// `scheduleEditableProvider(scope)`).
 ///
 /// Watches through [authUserRoleSettledOrNull] — the STRICT selector, not
 /// [authUserRoleOrNull] (mobile-security MEDIUM, phase 309–311 track,
@@ -64,13 +70,108 @@ part 'schedule_capability.g.dart';
 /// `Authenticated`'s `@freezed` equality) — see [authUserRoleOrNull]'s doc
 /// comment (mobile-perf MEDIUM, 2026-09-06) for the measurement. Un-narrowing
 /// this watch would reintroduce that churn on the four screens above.
+///
+/// Stays a plain SYNC `bool` (Phase 312, D8) rather than an `AsyncValue<bool>`
+/// — the owner/admin membership check below reads two ALREADY-RESOLVED
+/// provider states rather than awaiting anything, so wrapping the return type
+/// would ripple through every one of the eight existing `ref.watch`/`ref.read`
+/// call sites for no benefit.
 @riverpod
-bool scheduleEditable(Ref ref) {
+bool scheduleEditable(Ref ref, ScheduleScope scope) {
   final role = ref.watch(authProvider.select(authUserRoleSettledOrNull));
   return switch (role) {
-    UserRole.independentMaster ||
+    UserRole.independentMaster => scope is OwnScheduleScope,
     UserRole.salonOwner ||
-    UserRole.salonAdmin => true,
+    UserRole.salonAdmin => _ownerOrAdminCanEdit(ref, scope),
     UserRole.salonMaster || UserRole.client || null => false,
   };
+}
+
+/// The owner/admin arm of [scheduleEditable] (Phase 312, D8) — the ONE
+/// unconditional `true` this phase's brief calls out as WRONG the moment a
+/// schedule screen becomes reachable for these two roles: "may edit whatever
+/// schedule is on screen", with no proof the viewed master belongs to a salon
+/// the caller manages.
+///
+/// `scope is! SalonMasterScheduleScope` → `false` immediately: an
+/// owner/admin has no "own" master row this feature ever constructs a scope
+/// for (`own_schedule_scope.dart`'s OQ-4 refusal), so any OTHER scope shape
+/// reaching here is already a bug upstream — fail closed rather than trust
+/// it.
+///
+/// Otherwise this is the AND of two server-derived, ALREADY-RESOLVED facts,
+/// each gated on the concrete `AsyncData` SUBTYPE (never `value == null`,
+/// never `hasError` — `AsyncLoading(retrying: true)` satisfies `hasError`
+/// without meaning failure, and a bare `.value` read tolerates a
+/// `copyWithPrevious`-attached STALE value exactly like
+/// [authUserRoleSettledOrNull]'s own doc warns against):
+///
+///   1. The caller manages [SalonMasterScheduleScope.salonId] — admin via
+///      [authUserSalonIdSettledOrNull] (a strict, non-churning selector —
+///      see that function's own doc for why a bare `ref.watch(authProvider)`
+///      is not used here), owner via [mySalonsProvider] containing the id,
+///      reusing `app_router.dart`'s `salonManageGuard` owner arm's EXACT
+///      gate (`AsyncData<List<Salon>>` subtype check, then `.any(id ==)`).
+///   2. The viewed master is actually ON that salon's roster —
+///      [salonManagementProfileProvider]'s resolved roster contains an entry
+///      whose [SalonStaffMember.masterId] equals [SalonMasterScheduleScope
+///      .masterId] with [SalonStaffMember.role] == [SalonStaffRole.master].
+///      This is the part [SalonMasterScheduleScope.salonId] alone CANNOT
+///      prove: the route's `:salonId` only PROPOSES a salon, and
+///      [salonManagementProfileProvider]'s own backend read is already gated
+///      on `canManageSalon` — reusing it here is how this provider gets real
+///      roster proof for free, with no new network call.
+///
+///      NOT [salonStaffMemberProfileProvider] — that family is keyed on the
+///      roster row's `userId`, a DIFFERENT id than [ScheduleScope.masterId]
+///      (the Master-row UUID; see `salon_staff_member.dart`'s header for why
+///      the two never coincide). [ScheduleScope.salonMaster] never carries a
+///      `userId` at all, so this scans [salonManagementProfileProvider]'s
+///      roster by `masterId` directly instead.
+bool _ownerOrAdminCanEdit(Ref ref, ScheduleScope scope) {
+  if (scope is! SalonMasterScheduleScope) return false;
+
+  final bool managesSalon = _managesSalon(ref, scope.salonId);
+  if (!managesSalon) return false;
+
+  final AsyncValue<SalonManagementProfileData> rosterAsync = ref.watch(
+    salonManagementProfileProvider(scope.salonId),
+  );
+  if (rosterAsync is! AsyncData<SalonManagementProfileData>) return false;
+  final List<SalonStaffMember> roster = rosterAsync.value.$2;
+  return roster.any(
+    (SalonStaffMember member) =>
+        member.masterId == scope.masterId &&
+        member.role == SalonStaffRole.master,
+  );
+}
+
+/// Fact 1 of [_ownerOrAdminCanEdit] — "does the caller manage [salonId]" —
+/// factored out so its two role arms (admin / owner) each read exactly one
+/// already-resolved provider, mirroring `salonManageGuard`'s own shape
+/// (`app_router.dart:305-368`) as closely as a `Ref`-based provider can (that
+/// guard runs as a synchronous `GoRouterState` redirect and cannot itself be
+/// called from here).
+bool _managesSalon(Ref ref, String salonId) {
+  final UserRole? role = ref.watch(
+    authProvider.select(authUserRoleSettledOrNull),
+  );
+  if (role == UserRole.salonAdmin) {
+    final String? myAdminSalonId = ref.watch(
+      authProvider.select(authUserSalonIdSettledOrNull),
+    );
+    return myAdminSalonId != null && myAdminSalonId == salonId;
+  }
+  if (role == UserRole.salonOwner) {
+    final AsyncValue<List<Salon>> mySalons = ref.watch(mySalonsProvider);
+    if (mySalons is! AsyncData<List<Salon>>) return false;
+    return mySalons.value.any((Salon salon) => salon.id == salonId);
+  }
+  // Fail CLOSED. `_managesSalon` is only ever reached from the
+  // salonOwner/salonAdmin arm of [scheduleEditable], so this is unreachable
+  // today — but a future role added to that arm without a branch here must
+  // be DENIED, never admitted by default. (Reverted 2026-09-07: a mutation
+  // artifact `return true` was left live in the tree by an interrupted
+  // mutation-testing pass, which admitted any unrecognized role.)
+  return false;
 }

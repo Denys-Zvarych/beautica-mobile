@@ -20,6 +20,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
@@ -67,6 +69,26 @@ const User _salonMasterUser = User(
   firstName: 'Іван',
   lastName: 'Петров',
 );
+
+/// Phase 312 — `ApplyScheduleSheet` (no explicit `scope:` in this file — see
+/// `showApplyScheduleSheet` below) resolves `ownScheduleScopeProvider`, which
+/// watches `masterProfileProvider` for BOTH roles this file exercises
+/// (INDEPENDENT_MASTER and SALON_MASTER both have an own master row). Without
+/// a stub it falls through to the real `masterRepositoryProvider` → a
+/// genuine Dio HTTP attempt that leaves a pending platform timer and trips
+/// `!timersPending` on this file's D2 tests (no intervening `tester.pump()`
+/// between the session flip and the tap, by design — see this file's header).
+class _StubMasterProfile extends MasterProfile {
+  @override
+  Future<Master> build() async => const Master(
+    id: 'master-row-1',
+    firstName: 'Оля',
+    lastName: 'Коваль',
+    avgRating: null,
+    reviewCount: 0,
+    type: MasterType.independentMaster,
+  );
+}
 
 final DateTime _today = DateTime(2024, 5, 22);
 
@@ -122,8 +144,10 @@ Future<_MutableAuthNotifier> _pump(
     ProviderScope(
       retry: beauticaProviderRetry,
       overrides: <Object>[
-        scheduleRepositoryProvider.overrideWithValue(repo),
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
         authProvider.overrideWith(() => authNotifier),
+        // Phase 312 — see `_StubMasterProfile`'s doc.
+        masterProfileProvider.overrideWith(_StubMasterProfile.new),
       ].cast(),
       child: MaterialApp.router(
         routerConfig: router,

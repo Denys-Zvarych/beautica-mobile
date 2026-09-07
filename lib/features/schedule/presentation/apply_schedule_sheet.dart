@@ -51,8 +51,10 @@ import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 
+import '../application/own_schedule_scope.dart';
 import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart' show formatDay;
+import '../domain/schedule_scope.dart';
 import '../domain/weekly_schedule.dart';
 import 'schedule_capability.dart';
 import 'weekly_schedule_notifier.dart';
@@ -75,6 +77,7 @@ Future<Object?> showApplyScheduleSheet(
   BuildContext context, {
   required WeeklySchedule baseSchedule,
   required DateTime today,
+  ScheduleScope? scope,
 }) {
   return showModalBottomSheet<Object?>(
     context: context,
@@ -86,8 +89,11 @@ Future<Object?> showApplyScheduleSheet(
         top: Radius.circular(VelvetRadii.card),
       ),
     ),
-    builder: (BuildContext sheetContext) =>
-        ApplyScheduleSheet(baseSchedule: baseSchedule, today: today),
+    builder: (BuildContext sheetContext) => ApplyScheduleSheet(
+      baseSchedule: baseSchedule,
+      today: today,
+      scope: scope,
+    ),
   );
 }
 
@@ -97,6 +103,7 @@ class ApplyScheduleSheet extends ConsumerStatefulWidget {
     super.key,
     required this.baseSchedule,
     required this.today,
+    this.scope,
   });
 
   /// The active template whose validity window is being set; `days` preserved.
@@ -104,6 +111,13 @@ class ApplyScheduleSheet extends ConsumerStatefulWidget {
 
   /// Injectable "now" (date-only) anchoring the presets and far-future cap.
   final DateTime today;
+
+  /// Additive (Phase 312) — `null` (every pre-existing call site) resolves
+  /// through `ownScheduleScopeProvider`, unchanged from before this
+  /// parameter existed. A non-null [ScheduleScope.salonMaster] points every
+  /// provider this sheet reads/writes at a chosen salon master instead of
+  /// "me".
+  final ScheduleScope? scope;
 
   @override
   ConsumerState<ApplyScheduleSheet> createState() => _ApplyScheduleSheetState();
@@ -239,7 +253,9 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
     // is already hidden for a non-editable viewer (see `build`), but refuse
     // the write here too — covers both the first-create draft-stage branch
     // below and the `notifier.save` branch further down.
-    if (!ref.read(scheduleEditableProvider)) {
+    final ScheduleScope scope =
+        widget.scope ?? ref.read(ownScheduleScopeProvider);
+    if (!ref.read(scheduleEditableProvider(scope))) {
       log('apply: blocked — viewer is read-only', name: _tag);
       return;
     }
@@ -284,7 +300,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
     }
 
     final WeeklyScheduleNotifier notifier = ref.read(
-      weeklyScheduleProvider.notifier,
+      weeklyScheduleProvider(scope).notifier,
     );
     await notifier.save(updated, scheduleId: widget.baseSchedule.id);
 
@@ -294,7 +310,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
     // throw — it lands as an [AsyncError] on the provider state. Branch on it:
     // surface the overlap/validation error inline and DO NOT close the sheet.
     final AsyncValue<List<WeeklySchedule>> result = ref.read(
-      weeklyScheduleProvider,
+      weeklyScheduleProvider(scope),
     );
     if (result.hasError) {
       setState(() {
@@ -325,7 +341,9 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
     // Phase 311 — safety net under the `/schedule` router gate (see
     // `weekly_template_editor_screen.dart`'s identical comment for why this
     // self-check exists alongside, not instead of, that gate).
-    final bool editable = ref.watch(scheduleEditableProvider);
+    final ScheduleScope scope =
+        widget.scope ?? ref.watch(ownScheduleScopeProvider);
+    final bool editable = ref.watch(scheduleEditableProvider(scope));
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(

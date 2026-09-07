@@ -77,6 +77,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import '../domain/weekly_schedule.dart';
 import 'overrides_notifier.dart';
 import 'overrides_revision_provider.dart';
@@ -91,11 +92,27 @@ part 'effective_schedule_notifier.g.dart';
 /// each window releases once it has been unwatched for this duration.
 const Duration _kRangeCacheTtl = Duration(minutes: 5);
 
-/// Tracks every [ScheduleRange] whose [EffectiveScheduleNotifier] element
-/// currently exists (built at least once this session, not yet disposed) —
-/// i.e. every range a bare-family cross-file invalidate of
-/// [effectiveScheduleProvider] (`WeeklyScheduleNotifier.save`/`delete`, a
-/// DIFFERENT screen's write) could reach.
+/// Tracks every `(`[ScheduleScope]`, `[ScheduleRange]`)` tuple whose
+/// [EffectiveScheduleNotifier] element currently exists (built at least once
+/// this session, not yet disposed) — i.e. every key a bare-family cross-file
+/// invalidate of [effectiveScheduleProvider]
+/// (`WeeklyScheduleNotifier.save`/`delete`, a DIFFERENT screen's write) could
+/// reach.
+///
+/// Phase 312 — KEYED ON THE IDENTICAL TUPLE THE PROVIDER ITSELF IS KEYED ON,
+/// not on [ScheduleRange] alone. `effectiveScheduleProvider` gained a
+/// [ScheduleScope] parameter this phase (an owner/admin viewing a chosen
+/// salon master, alongside the pre-existing "me" scope); if this tracker had
+/// stayed range-only, `WeeklyScheduleNotifier._invalidateEffectiveScheduleWindows`'s
+/// `ref.exists` probe would test the WRONG element (a `(range)`-shaped probe
+/// against a `(scope, range)`-keyed family never resolves to the element that
+/// is actually pinned), `wasPinned` would read `false`, no eager re-pinning
+/// read would fire, and the paused-but-still-pinned element would be disposed
+/// on schedule — a blank calendar on return from the editor. A `(ScheduleScope,
+/// ScheduleRange)` Dart record is used as the set element: both halves are
+/// `@freezed` (structural `==`/`hashCode`), so the record's own auto-derived
+/// structural equality is exactly the identity this tracker needs, with no
+/// hand-written `==` to keep in sync.
 ///
 /// FIX D (mobile-debugger, this track) — the SAME `ProviderSubscription`-
 /// closed race `booking_calendar_invalidation.dart` fixes for
@@ -123,16 +140,18 @@ const Duration _kRangeCacheTtl = Duration(minutes: 5);
 /// the bare family invalidate. A range this session never built is never
 /// remembered, so it costs nothing extra to enumerate.
 class EffectiveScheduleRangeTracker {
-  final Set<ScheduleRange> _ranges = <ScheduleRange>{};
+  final Set<(ScheduleScope, ScheduleRange)> _keys =
+      <(ScheduleScope, ScheduleRange)>{};
 
-  /// Every range with a currently-existing element, snapshotted into a
-  /// `List` — safe to iterate while a caller invalidates/reads members of the
-  /// family, which can synchronously mutate this set via [_forget]
-  /// (`ref.onDispose` firing mid-iteration).
-  List<ScheduleRange> get liveRanges => _ranges.toList(growable: false);
+  /// Every `(scope, range)` key with a currently-existing element,
+  /// snapshotted into a `List` — safe to iterate while a caller
+  /// invalidates/reads members of the family, which can synchronously mutate
+  /// this set via [_forget] (`ref.onDispose` firing mid-iteration).
+  List<(ScheduleScope, ScheduleRange)> get liveKeys =>
+      _keys.toList(growable: false);
 
-  void _remember(ScheduleRange range) => _ranges.add(range);
-  void _forget(ScheduleRange range) => _ranges.remove(range);
+  void _remember((ScheduleScope, ScheduleRange) key) => _keys.add(key);
+  void _forget((ScheduleScope, ScheduleRange) key) => _keys.remove(key);
 }
 
 /// Container-scoped home for [EffectiveScheduleRangeTracker] — same
@@ -149,7 +168,8 @@ EffectiveScheduleRangeTracker effectiveScheduleRangeTracker(Ref ref) =>
 /// repository asserts and rejects an over-wide window before any network call.
 ///
 /// Generated provider name: `effectiveScheduleProvider` (a family — call
-/// `effectiveScheduleProvider(range)`).
+/// `effectiveScheduleProvider(scope, range)`; Phase 312 added [ScheduleScope]
+/// as the first parameter).
 @riverpod
 class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
   /// The last `overridesProvider(range)`-awaited value this instance saw,
@@ -224,23 +244,27 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
   }
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async {
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
     final int myGen = ++_buildGen;
 
     // FIX D — see [EffectiveScheduleRangeTracker]'s doc. Registered
     // unconditionally on EVERY build (mirrors [_pinForTtl]'s own "both the
     // cache-hit short-circuit and the real-fetch path" reasoning): this
-    // element now exists for `range`, so it is a candidate the tracker must
-    // report; `onDispose` fires the moment this specific build is superseded
-    // (by a rebuild OR a genuine disposal) — a superseding rebuild
-    // immediately re-remembers `range` on its own next line here, so the net
-    // effect is a no-op; a genuine disposal (evicted, TTL lapsed, no rebuild
-    // follows) correctly drops `range` out of the candidate set.
+    // element now exists for `(scope, range)`, so it is a candidate the
+    // tracker must report; `onDispose` fires the moment this specific build
+    // is superseded (by a rebuild OR a genuine disposal) — a superseding
+    // rebuild immediately re-remembers the key on its own next line here, so
+    // the net effect is a no-op; a genuine disposal (evicted, TTL lapsed, no
+    // rebuild follows) correctly drops the key out of the candidate set.
     final EffectiveScheduleRangeTracker tracker = ref.read(
       effectiveScheduleRangeTrackerProvider,
     );
-    tracker._remember(range);
-    ref.onDispose(() => tracker._forget(range));
+    final (ScheduleScope, ScheduleRange) key = (scope, range);
+    tracker._remember(key);
+    ref.onDispose(() => tracker._forget(key));
 
     // Reactive dependency (the core save-refresh fix): the effective schedule is
     // a server-side composition of the weekly template + the per-date overrides.
@@ -251,7 +275,7 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
     // override list has resolved (read-after-write ordering on the client),
     // guaranteeing the subsequent `getEffectiveSchedule` reflects the new state.
     final List<ScheduleOverride> overrides = await ref.watch(
-      overridesProvider(range).future,
+      overridesProvider(scope, range).future,
     );
     // Compared against whatever the MOST RECENT non-stale build last wrote —
     // see [_buildGen]'s doc: a stale build's own write below is skipped, so
@@ -268,7 +292,7 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
     // recompute `build` even though the write happened under a different
     // [ScheduleRange] than `range`.
     final OverridesRevisionEvent revision = ref.watch(
-      overridesRevisionProvider,
+      overridesRevisionProvider(scope),
     );
     final ScheduleRange? writtenRange = revision.writtenRange;
     // `null` only for the provider's never-bumped initial state, which never
@@ -301,7 +325,7 @@ class EffectiveScheduleNotifier extends _$EffectiveScheduleNotifier {
     // `range` is date-only by construction (see [ScheduleRange]), so the family
     // key already equals the fetched window — no late normalisation needed.
     final List<EffectiveDay> days = await ref
-        .watch(scheduleRepositoryProvider)
+        .watch(scheduleRepositoryProvider(scope))
         .effectiveSchedule(range.from, range.to);
 
     // SUCCESS path only (this line is reached only after both awaits resolved):

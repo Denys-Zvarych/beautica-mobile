@@ -38,6 +38,7 @@
 // cycle-safe as the plain counter it replaces.
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../domain/schedule_scope.dart';
 import 'schedule_range.dart';
 
 part 'overrides_revision_provider.g.dart';
@@ -63,16 +64,25 @@ class OverridesRevisionEvent {
 }
 
 /// Bumped by [OverridesNotifier] after every successful override write
-/// (`putOverride` / `putSpan` / `clearOverride`), regardless of that write's
-/// own [ScheduleRange]. Watched by [EffectiveScheduleNotifier.build] purely as
-/// a recompute-or-skip signal — see [OverridesRevisionEvent]'s doc.
+/// (`putOverride` / `putSpan` / `clearOverride`) for [scope], regardless of
+/// that write's own [ScheduleRange]. Watched by [EffectiveScheduleNotifier
+/// .build] purely as a recompute-or-skip signal — see [OverridesRevisionEvent]'s
+/// doc.
+///
+/// A FAMILY keyed on [ScheduleScope] (Phase 312 — was a single container-wide
+/// counter): a write for one viewed master must only force THAT master's own
+/// live effective-schedule windows to recompute, never a DIFFERENT master's
+/// pinned calendar an owner/admin happens to also have visited this session.
 ///
 /// Deliberately watches nothing: that is what makes bumping it safe to call
 /// from [OverridesNotifier] without forming a watch cycle back into itself.
+///
+/// Generated provider name: `overridesRevisionProvider` (a family — call
+/// `overridesRevisionProvider(scope)`).
 @riverpod
 class OverridesRevision extends _$OverridesRevision {
   @override
-  OverridesRevisionEvent build() =>
+  OverridesRevisionEvent build(ScheduleScope scope) =>
       const OverridesRevisionEvent(writtenRange: null);
 
   /// Signals "an override changed somewhere, at [writtenRange]" to every

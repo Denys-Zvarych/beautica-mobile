@@ -66,6 +66,7 @@ import 'package:beautica_mobile/features/booking/presentation/master_bookings_sc
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
@@ -104,13 +105,13 @@ class _LoadingServicesList extends ServicesList {
 
 class _LoadingEffectiveSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) =>
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) =>
       Completer<List<EffectiveDay>>().future;
 }
 
 class _LoadingWeeklySchedule extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() =>
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) =>
       Completer<List<WeeklySchedule>>().future;
 }
 

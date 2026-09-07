@@ -5303,6 +5303,10 @@
   "@salonStaffRoleAdmin": {
     "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Команда grid card and the staff member profile screen's identity card RoleChip."
   },
+  "staffProfileScheduleNotSet": "Not set",
+  "@staffProfileScheduleNotSet": {
+    "description": "Phase 312, D3/D11 — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen (master branch) when the viewed master has no weekly template (an AsyncData with an empty/no-working-day schedule list). Do NOT reuse this for an AsyncError on the same row — that renders '—' instead, since «Не задано» would assert a fact (no schedule set) the app does not actually have."
+  },
   "salonSettingsMySalons": "My salons",
   "@salonSettingsMySalons": {
     "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."

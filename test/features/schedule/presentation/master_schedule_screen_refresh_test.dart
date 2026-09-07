@@ -196,7 +196,7 @@ Future<_CountingFakeScheduleRepository> _pumpScreen(WidgetTester tester) async {
       overrides: <Object>[
         authProvider.overrideWith(_StubAuthNotifier.new),
         masterProfileProvider.overrideWith(_StubMasterProfile.new),
-        scheduleRepositoryProvider.overrideWithValue(fakeRepo),
+        scheduleRepositoryProvider.overrideWith((ref, scope) => fakeRepo),
       ].cast(),
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,

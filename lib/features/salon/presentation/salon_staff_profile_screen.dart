@@ -46,14 +46,20 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/weekly_schedule_summary.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
@@ -62,6 +68,7 @@ import '../../master/presentation/widgets/profile_avatar.dart';
 import '../../master/presentation/widgets/profile_scaffold.dart';
 import '../../master/presentation/widgets/service_category_cards.dart';
 import '../../master/presentation/widgets/services_stat_tile.dart';
+import '../../master/presentation/widgets/settings_row.dart';
 
 /// Owner/admin-facing management profile of the salon staff member
 /// identified by [memberId] (the roster row's `userId`) within [salonId].
@@ -87,18 +94,20 @@ class _SalonStaffProfileScreenState
 
   // Pre-built staggered-entrance animations (mobile-perf pattern, mirrors
   // `PublicMasterProfileScreen`) so build() never allocates a
-  // CurvedAnimation/Tween per frame. Five sections: identity / stats / bio /
-  // service categories / contacts.
+  // CurvedAnimation/Tween per frame. Six sections: identity / stats / bio /
+  // service categories / schedule row (Phase 312, D3) / contacts.
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
   late final CurvedAnimation _anim3;
   late final CurvedAnimation _anim4;
+  late final CurvedAnimation _anim5;
   late final Animation<Offset> _slide0;
   late final Animation<Offset> _slide1;
   late final Animation<Offset> _slide2;
   late final Animation<Offset> _slide3;
   late final Animation<Offset> _slide4;
+  late final Animation<Offset> _slide5;
 
   @override
   void initState() {
@@ -127,6 +136,14 @@ class _SalonStaffProfileScreenState
       parent: _controller,
       curve: const Interval(0.50, 1.0, curve: Curves.easeOutCubic),
     );
+    // Phase 312 (D3) — schedule row, appended as the LAST section (after
+    // contacts) rather than interleaved: every pre-existing interval above
+    // (_anim0.._anim4) stays byte-identical, so this addition cannot shift
+    // the timing/keys of any section that predates it.
+    _anim5 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.60, 1.0, curve: Curves.easeOutCubic),
+    );
     const Offset slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
       begin: slideBegin,
@@ -148,6 +165,10 @@ class _SalonStaffProfileScreenState
       begin: slideBegin,
       end: Offset.zero,
     ).animate(_anim4);
+    _slide5 = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_anim5);
   }
 
   @override
@@ -157,6 +178,7 @@ class _SalonStaffProfileScreenState
     _anim2.dispose();
     _anim3.dispose();
     _anim4.dispose();
+    _anim5.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -253,6 +275,8 @@ class _SalonStaffProfileScreenState
         data: (SalonStaffMemberProfileData data) {
           _startReveal();
           return _StaffProfileBody(
+            salonId: widget.salonId,
+            memberId: widget.memberId,
             member: data.$1,
             services: data.$2,
             anim0: _anim0,
@@ -260,11 +284,13 @@ class _SalonStaffProfileScreenState
             anim2: _anim2,
             anim3: _anim3,
             anim4: _anim4,
+            anim5: _anim5,
             slide0: _slide0,
             slide1: _slide1,
             slide2: _slide2,
             slide3: _slide3,
             slide4: _slide4,
+            slide5: _slide5,
           );
         },
       ),
@@ -278,6 +304,8 @@ class _SalonStaffProfileScreenState
 
 class _StaffProfileBody extends StatelessWidget {
   const _StaffProfileBody({
+    required this.salonId,
+    required this.memberId,
     required this.member,
     required this.services,
     required this.anim0,
@@ -285,12 +313,20 @@ class _StaffProfileBody extends StatelessWidget {
     required this.anim2,
     required this.anim3,
     required this.anim4,
+    required this.anim5,
     required this.slide0,
     required this.slide1,
     required this.slide2,
     required this.slide3,
     required this.slide4,
+    required this.slide5,
   });
+
+  /// Phase 312 (D3) — needed for the schedule row's provider watch
+  /// (`weeklyScheduleProvider(ScheduleScope.salonMaster(...))`) and its
+  /// `onTap` navigation target.
+  final String salonId;
+  final String memberId;
 
   final SalonStaffMember member;
 
@@ -304,11 +340,13 @@ class _StaffProfileBody extends StatelessWidget {
   final Animation<double> anim2;
   final Animation<double> anim3;
   final Animation<double> anim4;
+  final Animation<double> anim5;
   final Animation<Offset> slide0;
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
   final Animation<Offset> slide4;
+  final Animation<Offset> slide5;
 
   @override
   Widget build(BuildContext context) {
@@ -534,6 +572,78 @@ class _StaffProfileBody extends StatelessWidget {
                   onTap: () {},
                 ),
               ],
+            ),
+          ),
+
+        // 6 — schedule row (Phase 312, D3) — MASTER ONLY; an admin has no
+        // master row and therefore no schedule. Appended LAST (after
+        // contacts, not interleaved) — see `_anim5`'s own doc for why.
+        // Built from the real [SettingsRow] (D11 — `value`/`loading`/
+        // `enabled` already exist there; no additive param needed).
+        if (!isAdmin)
+          RevealTransition(
+            key: const Key('salon-staff-profile-reveal-5'),
+            fade: anim5,
+            slide: slide5,
+            child: Consumer(
+              builder: (BuildContext context, WidgetRef ref, _) {
+                final String masterId = member.masterId ?? '';
+                final bool hasMasterId = masterId.isNotEmpty;
+                final ScheduleScope scope = ScheduleScope.salonMaster(
+                  salonId: salonId,
+                  masterId: masterId,
+                );
+                final AsyncValue<List<WeeklySchedule>> asyncWeekly = ref.watch(
+                  weeklyScheduleProvider(scope),
+                );
+
+                // D11 — switch on the CONCRETE AsyncValue SUBTYPE, never
+                // `.hasError` (an `AsyncLoading(retrying: true)` mid-retry
+                // satisfies `hasError` without meaning failure — see
+                // `project_asyncvalue_haserror_retrying_trap`) and never
+                // `value == null` (would read a genuinely-empty schedule the
+                // same as "still loading").
+                final String value;
+                final bool rowLoading;
+                if (asyncWeekly is AsyncData<List<WeeklySchedule>>) {
+                  value = weeklyScheduleSummary(
+                    asyncWeekly.value,
+                    kyivToday(ref.watch(clockProvider)),
+                    l10n.staffProfileScheduleNotSet,
+                  );
+                  rowLoading = false;
+                } else if (asyncWeekly is AsyncError<List<WeeklySchedule>>) {
+                  // AsyncError → '—', NOT «Не задано» — that would assert a
+                  // fact ("no schedule set") the app does not actually have.
+                  value = '—';
+                  rowLoading = false;
+                } else {
+                  value = '';
+                  rowLoading = true;
+                }
+
+                return SettingsRow(
+                  key: const Key('salon-staff-profile-schedule-row'),
+                  icon: Icons.calendar_month_rounded,
+                  label: l10n.scheduleTitle,
+                  value: value,
+                  loading: rowLoading,
+                  // D2-mirrored data-anomaly guard (`staff_settings_screen
+                  // .dart`'s identical `enabled: member.masterId != null`) —
+                  // a resolved master entry with no `masterId` never sends a
+                  // guessed id.
+                  enabled: hasMasterId,
+                  onTap: !hasMasterId
+                      ? () {}
+                      : () => context.push(
+                          RouteNames.salonManageStaffSchedule(
+                            salonId,
+                            memberId,
+                          ),
+                          extra: scope,
+                        ),
+                );
+              },
             ),
           ),
       ],

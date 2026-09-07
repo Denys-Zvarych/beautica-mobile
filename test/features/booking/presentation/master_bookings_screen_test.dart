@@ -48,6 +48,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_boo
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -2060,7 +2061,10 @@ class _NoScheduleFake extends EffectiveScheduleNotifier {
   final DateTime _date;
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => <EffectiveDay>[
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => <EffectiveDay>[
     EffectiveDay(
       date: _date,
       source: EffectiveSource.noSchedule,

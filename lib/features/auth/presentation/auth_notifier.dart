@@ -163,6 +163,26 @@ UserRole? authUserRoleSettledOrNull(AsyncValue<AuthSession> session) {
   return settled is Authenticated ? settled.user.role : null;
 }
 
+/// The STRICT, `User.salonId`-reading counterpart to [authUserRoleSettledOrNull]
+/// — for [scheduleEditable]'s (`schedule_capability.dart`) SALON_ADMIN arm
+/// (phase 312, D8): "does the caller manage THIS scope's salon".
+///
+/// Returns `null` for every session shape that is not a settled, authenticated
+/// [AsyncData] — same concrete-subtype gate as [authUserRoleSettledOrNull], for
+/// the same write-gate reason (never the lenient [AsyncValue.value] unwrap,
+/// which can still return a `copyWithPrevious`-attached STALE salonId mid
+/// token-refresh / mid-logout / a failed re-fetch). A non-admin authenticated
+/// user (whose `User.salonId` is meaningless) also reads `null` here — callers
+/// must gate on the role themselves before trusting this value, exactly like
+/// `app_router.dart`'s `salonManageGuard` admin arm does with the un-narrowed
+/// `session.user.salonId` read it mirrors.
+String? authUserSalonIdSettledOrNull(AsyncValue<AuthSession> session) {
+  final AuthSession? settled = session is AsyncData<AuthSession>
+      ? session.value
+      : null;
+  return settled is Authenticated ? settled.user.salonId : null;
+}
+
 /// Manages the user's authentication session for the Beautica app lifetime.
 ///
 /// Exposes [AsyncValue<AuthSession>] so that all consumers — interceptors,

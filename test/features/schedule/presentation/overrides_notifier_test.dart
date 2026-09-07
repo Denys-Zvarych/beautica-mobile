@@ -11,6 +11,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
@@ -38,6 +39,10 @@ void main() {
     from: DateTime(2026, 6, 1),
     to: DateTime(2026, 8, 31),
   );
+  // Phase 312 — this file is not about scope identity, so one fixed "own"
+  // scope is reused everywhere `overridesProvider`/`scheduleRepositoryProvider`
+  // are keyed.
+  const scope = ScheduleScope.own(masterId: 'overrides-notifier-test-master');
 
   setUpAll(() {
     registerFallbackValue(
@@ -59,7 +64,9 @@ void main() {
   ProviderContainer makeContainer() {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
-      overrides: [scheduleRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+      ],
     );
     addTearDown(container.dispose);
     return container;
@@ -69,7 +76,7 @@ void main() {
     'putSpan over kMaxOverrideSpanDays throws ValidationFailure before any PUT',
     () async {
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       // 93 days inclusive (start..start+92) — one past the cap of 92.
       final start = DateTime(2026, 6, 1);
@@ -78,10 +85,10 @@ void main() {
       ); // 92 days later = 93 dates
 
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(_spanDayOff(start, end));
 
-      final state = container.read(overridesProvider(range));
+      final state = container.read(overridesProvider(scope, range));
       expect(state.hasError, isTrue);
       expect(state.error, isA<ValidationFailure>());
       // Guard fired before any network mutation.
@@ -95,16 +102,16 @@ void main() {
     );
 
     final container = makeContainer();
-    await container.read(overridesProvider(range).future);
+    await container.read(overridesProvider(scope, range).future);
 
     // A 5-day span → 5 PUTs, one per calendar date.
     final start = DateTime(2026, 6, 10);
     final end = DateTime(2026, 6, 14);
     await container
-        .read(overridesProvider(range).notifier)
+        .read(overridesProvider(scope, range).notifier)
         .putSpan(_spanDayOff(start, end));
 
-    final state = container.read(overridesProvider(range));
+    final state = container.read(overridesProvider(scope, range));
     expect(state.hasError, isFalse);
 
     final captured = verify(
@@ -137,13 +144,13 @@ void main() {
       });
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(_spanDayOff(DateTime(2026, 6, 10), DateTime(2026, 6, 14)));
 
-      final state = container.read(overridesProvider(range));
+      final state = container.read(overridesProvider(scope, range));
       expect(state.hasError, isTrue);
       final err = state.error;
       // Typed failure, not a hand-built ValidationFailure.serverMessage
@@ -163,13 +170,13 @@ void main() {
     );
 
     final container = makeContainer();
-    await container.read(overridesProvider(range).future);
+    await container.read(overridesProvider(scope, range).future);
 
     await container
-        .read(overridesProvider(range).notifier)
+        .read(overridesProvider(scope, range).notifier)
         .putOverride(_spanDayOff(DateTime(2026, 6, 20), DateTime(2026, 6, 20)));
 
-    expect(container.read(overridesProvider(range)).hasError, isFalse);
+    expect(container.read(overridesProvider(scope, range)).hasError, isFalse);
     verify(() => repo.putOverride(any())).called(1);
     verify(() => repo.listOverrides(any(), any())).called(2);
   });
@@ -187,10 +194,10 @@ void main() {
         );
 
         final container = makeContainer();
-        await container.read(overridesProvider(range).future);
+        await container.read(overridesProvider(scope, range).future);
 
         await container
-            .read(overridesProvider(range).notifier)
+            .read(overridesProvider(scope, range).notifier)
             .putOverride(
               _explicit(DateTime(2026, 6, 20), const <TimeOfDay>[
                 TimeOfDay(hour: 9, minute: 0),
@@ -198,7 +205,10 @@ void main() {
               ]),
             );
 
-        expect(container.read(overridesProvider(range)).hasError, isFalse);
+        expect(
+          container.read(overridesProvider(scope, range)).hasError,
+          isFalse,
+        );
         final sent =
             verify(() => repo.putOverride(captureAny())).captured.single
                 as ScheduleOverride;
@@ -217,13 +227,13 @@ void main() {
     test('rejects an empty-times EXPLICIT_TIMES override → ValidationFailure, '
         'no PUT', () async {
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putOverride(_explicit(DateTime(2026, 6, 20), const <TimeOfDay>[]));
 
-      final state = container.read(overridesProvider(range));
+      final state = container.read(overridesProvider(scope, range));
       expect(state.hasError, isTrue);
       expect(state.error, isA<ValidationFailure>());
       verifyNever(() => repo.putOverride(any()));
@@ -263,11 +273,11 @@ void main() {
         );
 
         final container = makeContainer();
-        await container.read(overridesProvider(range).future);
+        await container.read(overridesProvider(scope, range).future);
 
         // A 3-day EXPLICIT_TIMES span → 3 EXPLICIT_TIMES PUTs, one per date.
         await container
-            .read(overridesProvider(range).notifier)
+            .read(overridesProvider(scope, range).notifier)
             .putSpan(
               ScheduleOverride.explicitTimes(
                 start: DateTime(2026, 6, 10),
@@ -279,7 +289,10 @@ void main() {
               ),
             );
 
-        expect(container.read(overridesProvider(range)).hasError, isFalse);
+        expect(
+          container.read(overridesProvider(scope, range)).hasError,
+          isFalse,
+        );
         final captured = verify(
           () => repo.putOverride(captureAny()),
         ).captured.cast<ScheduleOverride>();
@@ -304,10 +317,10 @@ void main() {
       'any PUT',
       () async {
         final container = makeContainer();
-        await container.read(overridesProvider(range).future);
+        await container.read(overridesProvider(scope, range).future);
 
         await container
-            .read(overridesProvider(range).notifier)
+            .read(overridesProvider(scope, range).notifier)
             .putSpan(
               ScheduleOverride.explicitTimes(
                 start: DateTime(2026, 6, 10),
@@ -316,7 +329,7 @@ void main() {
               ),
             );
 
-        final state = container.read(overridesProvider(range));
+        final state = container.read(overridesProvider(scope, range));
         expect(state.hasError, isTrue);
         expect(state.error, isA<ValidationFailure>());
         verifyNever(() => repo.putOverride(any()));
@@ -357,23 +370,23 @@ void main() {
       ).thenAnswer((_) async => previewResult);
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       // The provider's state is settled AsyncData before the check.
       final AsyncValue<List<ScheduleOverride>> before = container.read(
-        overridesProvider(range),
+        overridesProvider(scope, range),
       );
       expect(before, isA<AsyncData<List<ScheduleOverride>>>());
 
       final span = _spanDayOff(DateTime(2026, 6, 20), DateTime(2026, 6, 20));
       final result = await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .checkConflicts(span);
 
       expect(result, same(previewResult));
       verify(() => repo.previewConflicts(span)).called(1);
       // State is untouched by the check — same instance as before.
-      expect(container.read(overridesProvider(range)), same(before));
+      expect(container.read(overridesProvider(scope, range)), same(before));
     });
 
     test(
@@ -384,7 +397,7 @@ void main() {
         ).thenThrow(const ServerFailure(statusCode: 500));
 
         final container = makeContainer();
-        await container.read(overridesProvider(range).future);
+        await container.read(overridesProvider(scope, range).future);
 
         // `checkConflicts` is not itself `async` — it returns
         // `_repo.previewConflicts(span)` directly — so a mocktail
@@ -395,7 +408,7 @@ void main() {
         // closure (the sync `expect` idiom) lets `throwsA` catch it.
         expect(
           () => container
-              .read(overridesProvider(range).notifier)
+              .read(overridesProvider(scope, range).notifier)
               .checkConflicts(
                 _spanDayOff(DateTime(2026, 6, 20), DateTime(2026, 6, 20)),
               ),
@@ -403,7 +416,10 @@ void main() {
         );
         // The already-loaded override list is left intact — a failed CHECK must
         // not disturb the provider's settled state.
-        expect(container.read(overridesProvider(range)).hasError, isFalse);
+        expect(
+          container.read(overridesProvider(scope, range)).hasError,
+          isFalse,
+        );
       },
     );
   });
@@ -417,15 +433,15 @@ void main() {
       );
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       final start = DateTime(2026, 6, 10);
       final end = DateTime(2026, 6, 12);
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(_spanDayOff(start, end), cancelOverlapping: true);
 
-      expect(container.read(overridesProvider(range)).hasError, isFalse);
+      expect(container.read(overridesProvider(scope, range)).hasError, isFalse);
       final captured = verify(
         () => repo.putOverride(
           captureAny(),
@@ -453,10 +469,10 @@ void main() {
       );
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(_spanDayOff(DateTime(2026, 6, 10), DateTime(2026, 6, 11)));
 
       final captured = verify(
@@ -491,7 +507,7 @@ void main() {
       );
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       // A 3-day span: intervals [10:00–18:00] with the outer window
       // 09:00–18:00 (a break 09:00–10:00 carved off the start edge).
@@ -502,9 +518,11 @@ void main() {
         window: _wi(9, 0, 18, 0),
       );
 
-      await container.read(overridesProvider(range).notifier).putSpan(span);
+      await container
+          .read(overridesProvider(scope, range).notifier)
+          .putSpan(span);
 
-      expect(container.read(overridesProvider(range)).hasError, isFalse);
+      expect(container.read(overridesProvider(scope, range)).hasError, isFalse);
       final captured = verify(
         () => repo.putOverride(captureAny(), cancelOverlapping: false),
       ).captured.cast<ScheduleOverride>();
@@ -533,11 +551,11 @@ void main() {
       );
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       final window = _wi(9, 0, 18, 0);
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(
             ScheduleOverride.custom(
               start: DateTime(2026, 6, 10),
@@ -564,10 +582,10 @@ void main() {
       );
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(_spanDayOff(DateTime(2026, 6, 10), DateTime(2026, 6, 12)));
 
       final captured = verify(
@@ -583,10 +601,10 @@ void main() {
       );
 
       final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+      await container.read(overridesProvider(scope, range).future);
 
       await container
-          .read(overridesProvider(range).notifier)
+          .read(overridesProvider(scope, range).notifier)
           .putSpan(
             ScheduleOverride.explicitTimes(
               start: DateTime(2026, 6, 10),

@@ -94,6 +94,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
@@ -120,6 +121,13 @@ final ScheduleRange _cycleGuardMonthRange = ScheduleRange.month(
 final ScheduleRange _cycleGuardDayRange = ScheduleRange(
   from: DateTime(2026, 6, 20),
   to: DateTime(2026, 6, 20),
+);
+
+/// Phase 312 — [ScheduleScope] is now the first family-key arg for every
+/// schedule provider below; this row is not about scope identity, so one
+/// fixed "own" scope is reused everywhere.
+const ScheduleScope _cycleGuardScope = ScheduleScope.own(
+  masterId: 'cycle-guard-master',
 );
 
 /// A [ScheduleRepository] leaf stub for the cycle-guard row — no
@@ -425,18 +433,18 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
         'effectiveScheduleProvider(monthRange) AND '
         'effectiveScheduleProvider(dayRange) are both subscribed',
     extraOverrides: <Object>[
-      scheduleRepositoryProvider.overrideWithValue(
-        _buildCycleGuardScheduleRepo(),
+      scheduleRepositoryProvider.overrideWith(
+        (ref, scope) => _buildCycleGuardScheduleRepo(),
       ),
     ],
     subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
       container.listen<Object?>(
-        effectiveScheduleProvider(_cycleGuardMonthRange),
+        effectiveScheduleProvider(_cycleGuardScope, _cycleGuardMonthRange),
         (_, _) {},
         fireImmediately: true,
       ),
       container.listen<Object?>(
-        effectiveScheduleProvider(_cycleGuardDayRange),
+        effectiveScheduleProvider(_cycleGuardScope, _cycleGuardDayRange),
         (_, _) {},
         fireImmediately: true,
       ),
@@ -444,7 +452,9 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
     run: (container) async {
       await container.read(authProvider.future);
       await container
-          .read(overridesProvider(_cycleGuardMonthRange).notifier)
+          .read(
+            overridesProvider(_cycleGuardScope, _cycleGuardMonthRange).notifier,
+          )
           .putOverride(
             ScheduleOverride.explicitTimes(
               start: _cycleGuardDayRange.from,
@@ -455,18 +465,29 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
     },
     settle: (container) {
       expect(
-        container.read(overridesProvider(_cycleGuardMonthRange)).hasError,
+        container
+            .read(overridesProvider(_cycleGuardScope, _cycleGuardMonthRange))
+            .hasError,
         isFalse,
         reason: 'the write itself must succeed against the fake repo',
       );
       expect(
         container
-            .read(effectiveScheduleProvider(_cycleGuardMonthRange))
+            .read(
+              effectiveScheduleProvider(
+                _cycleGuardScope,
+                _cycleGuardMonthRange,
+              ),
+            )
             .hasError,
         isFalse,
       );
       expect(
-        container.read(effectiveScheduleProvider(_cycleGuardDayRange)).hasError,
+        container
+            .read(
+              effectiveScheduleProvider(_cycleGuardScope, _cycleGuardDayRange),
+            )
+            .hasError,
         isFalse,
       );
     },

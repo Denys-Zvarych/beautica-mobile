@@ -32,6 +32,12 @@ import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
 import 'package:beautica_mobile/features/calendar/presentation/working_hours_screen.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/schedule/application/own_schedule_scope.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
@@ -209,7 +215,10 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   _DataSchedule(this._days);
   final List<EffectiveDay> _days;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => _days;
 }
 
 /// RANGE-AWARE fake for the month-boundary spillover regression.
@@ -237,7 +246,10 @@ class _PerWeekdayRangeSchedule extends EffectiveScheduleNotifier {
   static final List<ScheduleRange> observedRanges = <ScheduleRange>[];
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async {
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
     observedRanges.add(range);
     final List<EffectiveDay> out = <EffectiveDay>[];
     DateTime cursor = _dateOnly(range.from);
@@ -310,7 +322,7 @@ class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
   }
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     _initialRange ??= range;
     if (range == _initialRange) {
       return Future<List<EffectiveDay>>.value(_resolveDays(range));
@@ -326,15 +338,17 @@ class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
 
 class _LoadingSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     return Completer<List<EffectiveDay>>().future; // never completes
   }
 }
 
 class _ErrorSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async =>
-      throw Exception('boom');
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => throw Exception('boom');
 }
 
 /// Month-change fake for the loading-flash regression: resolves [_days] for the
@@ -355,7 +369,7 @@ class _MonthAwareSchedule extends EffectiveScheduleNotifier {
   final List<EffectiveDay> _days;
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     if (range == _initialMonth) return Future<List<EffectiveDay>>.value(_days);
     // Any other month (e.g. after tapping `>`) stays loading forever.
     return Completer<List<EffectiveDay>>().future;
@@ -717,14 +731,42 @@ class _WeeklyData extends WeeklyScheduleNotifier {
   _WeeklyData(this._templates);
   final List<WeeklySchedule> _templates;
   @override
-  Future<List<WeeklySchedule>> build() async => _templates;
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async => _templates;
+}
+
+/// Phase 312 (D8) — the SALON_OWNER edit-affordances test's membership
+/// fixtures: `scheduleEditable`'s owner arm reads `mySalonsProvider` (fact 1
+/// — does the caller manage the viewed scope's salon) and
+/// `salonManagementProfileProvider` (fact 2 — is the viewed master actually
+/// on that salon's roster, scanned by `masterId`).
+class _SettledMySalonsOwning extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: 'salon-owner-test', name: 'Test Salon'),
+  ];
+}
+
+class _SettledSalonRosterWithMaster extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: 'salon-owner-test', name: 'Test Salon'),
+    const <SalonStaffMember>[
+      SalonStaffMember(
+        userId: 'user-for-msst-test-master',
+        masterId: 'msst-test-master',
+        role: SalonStaffRole.master,
+        firstName: 'Майстер',
+        lastName: 'Тестовий',
+      ),
+    ],
+  );
 }
 
 /// Never-completing weekly signal — used to assert the empty-state verdict is
 /// deferred until BOTH sources resolve (no premature empty state flash).
 class _LoadingWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() {
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) {
     return Completer<List<WeeklySchedule>>().future; // never completes
   }
 }
@@ -733,7 +775,8 @@ class _LoadingWeekly extends WeeklyScheduleNotifier {
 /// empty-state verdict (the second error branch in `_body`).
 class _ErrorWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() async => throw Exception('weekly boom');
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async =>
+      throw Exception('weekly boom');
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -964,6 +1007,15 @@ Future<ProviderContainer> _pumpGuarded(
 /// calendar renders, not the focused empty state).
 List<Object> _editableData(List<EffectiveDay> days) => <Object>[
   authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
+  // Phase 312 — additive `scope` on MasterScheduleScreen defaults to null,
+  // resolving through `ownScheduleScopeProvider`, which (for
+  // INDEPENDENT_MASTER/SALON_MASTER) watches the REAL `masterProfileProvider`.
+  // Forced here so no test in this file ever touches real Dio; the exact
+  // masterId is irrelevant — every `effectiveScheduleProvider`/
+  // `weeklyScheduleProvider` fake below ignores its scope argument.
+  ownScheduleScopeProvider.overrideWithValue(
+    const ScheduleScope.own(masterId: 'msst-test-master'),
+  ),
   effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
   weeklyScheduleProvider.overrideWith(
     () => _WeeklyData(<WeeklySchedule>[_template()]),
@@ -979,6 +1031,9 @@ List<Object> _withWeekly(
   List<WeeklySchedule> templates,
 ) => <Object>[
   authProvider.overrideWith(() => _FixedAuth(role)),
+  ownScheduleScopeProvider.overrideWithValue(
+    const ScheduleScope.own(masterId: 'msst-test-master'),
+  ),
   effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
   weeklyScheduleProvider.overrideWith(() => _WeeklyData(templates)),
 ];
@@ -1649,7 +1704,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
             _fakeWorkingHours(),
           ].cast(),
         );
@@ -2034,12 +2092,39 @@ void main() {
     testWidgets('SALON_OWNER (their salon master): edit affordances present', (
       tester,
     ) async {
+      // Phase 312 (D8) — a SALON_OWNER is editable ONLY when viewing a
+      // [ScheduleScope.salonMaster] for a salon they manage AND whose roster
+      // contains the viewed master — never an unconditional `true` for the
+      // role, and never for an [OwnScheduleScope] (D8's own doc: "an
+      // owner/admin has no 'own' master row this feature ever constructs a
+      // scope for"). So this test — unlike every other case in this file —
+      // does NOT use `_withWeekly`'s fixed `own(...)` scope override; it
+      // wires the full membership chain `scheduleEditable`'s owner arm
+      // actually reads: `mySalonsProvider` (fact 1) and
+      // `salonManagementProfileProvider` (fact 2, the roster scan by
+      // `masterId`).
+      const String salonId = 'salon-owner-test';
+      const String masterId = 'msst-test-master';
       final days = _weekWith(todayDay: _working, filler: _working);
       await _pump(
         tester,
-        overrides: _withWeekly(UserRole.salonOwner, days, <WeeklySchedule>[
-          _template(),
-        ]),
+        overrides: <Object>[
+          authProvider.overrideWith(() => _FixedAuth(UserRole.salonOwner)),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.salonMaster(
+              salonId: salonId,
+              masterId: masterId,
+            ),
+          ),
+          effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
+          mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
+          salonManagementProfileProvider.overrideWith(
+            () => _SettledSalonRosterWithMaster(),
+          ),
+        ],
       );
 
       expect(find.byKey(const Key('schedule-weekly-card')), findsOneWidget);
@@ -2328,6 +2413,9 @@ void main() {
               authProvider.overrideWith(
                 () => _FixedAuth(UserRole.independentMaster),
               ),
+              ownScheduleScopeProvider.overrideWithValue(
+                const ScheduleScope.own(masterId: 'msst-test-master'),
+              ),
               effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
               weeklyScheduleProvider.overrideWith(() => _LoadingWeekly()),
             ].cast(),
@@ -2363,6 +2451,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(() => _ErrorWeekly()),
           ],
@@ -2386,6 +2477,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(() => _LoadingSchedule()),
             weeklyScheduleProvider.overrideWith(
@@ -2440,6 +2534,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(
               () => _MonthAwareSchedule(month1, days),
@@ -2537,6 +2634,9 @@ void main() {
         overrides: <Object>[
           authProvider.overrideWith(
             () => _FixedAuth(UserRole.independentMaster),
+          ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
           effectiveScheduleProvider.overrideWith(() => _ErrorSchedule()),
           weeklyScheduleProvider.overrideWith(
@@ -3052,6 +3152,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(
               () => _MonthAwareSchedule(month1, days),
             ),
@@ -3151,7 +3254,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -3278,7 +3384,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -3395,6 +3504,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(
@@ -3526,6 +3638,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(
               () => _PerWeekdayRangeSchedule(),
@@ -3661,6 +3776,9 @@ void main() {
           authProvider.overrideWith(
             () => _FixedAuth(UserRole.independentMaster),
           ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
+          ),
           effectiveScheduleProvider.overrideWith(
             () => _PerWeekdayRangeSchedule(),
           ),
@@ -3780,6 +3898,9 @@ void main() {
         overrides: <Object>[
           authProvider.overrideWith(
             () => _FixedAuth(UserRole.independentMaster),
+          ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
           effectiveScheduleProvider.overrideWith(
             () => _PendingNewRangeSchedule(),
@@ -3907,7 +4028,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -4237,7 +4361,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -4299,7 +4426,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -4365,6 +4495,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(
               () => _WeeklyData(<WeeklySchedule>[_template()]),
@@ -4395,6 +4528,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(
@@ -4460,7 +4596,10 @@ Future<ProviderContainer> _pumpOverrideFlow(
     retry: beauticaProviderRetry,
     overrides: <Object>[
       authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
-      scheduleRepositoryProvider.overrideWithValue(repo),
+      ownScheduleScopeProvider.overrideWithValue(
+        const ScheduleScope.own(masterId: 'msst-test-master'),
+      ),
+      scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
     ].cast(),
   );
   addTearDown(container.dispose);
@@ -4503,7 +4642,8 @@ Future<void> _drainKeepAliveTimers(WidgetTester tester) async {
 }
 
 _StatefulFakeScheduleRepository _repoOf(ProviderContainer c) =>
-    c.read(scheduleRepositoryProvider) as _StatefulFakeScheduleRepository;
+    c.read(scheduleRepositoryProvider(c.read(ownScheduleScopeProvider)))
+        as _StatefulFakeScheduleRepository;
 
 /// Opens the day-override sheet (via the pencil) for the currently-selected day,
 /// adds a 13:00–14:00 pause by inserting a break, and saves. The shared

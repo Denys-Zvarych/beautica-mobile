@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
@@ -53,13 +54,16 @@ class _FixedAuth extends AuthNotifier {
 /// about any particular calendar content.
 class _EmptySchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async =>
-      const <EffectiveDay>[];
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => const <EffectiveDay>[];
 }
 
 class _EmptyWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() async => const <WeeklySchedule>[];
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async =>
+      const <WeeklySchedule>[];
 }
 
 /// Verbatim mirror of `app_router.dart`'s `RouteNames.masterSchedule` builder

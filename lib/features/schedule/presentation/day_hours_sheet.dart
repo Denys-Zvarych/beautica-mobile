@@ -70,7 +70,9 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 
+import '../application/own_schedule_scope.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import 'overrides_notifier.dart';
 import 'schedule_capability.dart';
 import 'schedule_range.dart';
@@ -99,7 +101,15 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     this.initialMode = WeekdayMode.interval,
     this.initialTimes = const <TimeOfDay>[],
     this.clock,
+    this.scope,
   });
+
+  /// Additive (Phase 312) — `null` (every pre-existing call site) resolves
+  /// through `ownScheduleScopeProvider`, unchanged from before this
+  /// parameter existed. A non-null [ScheduleScope.salonMaster] points every
+  /// provider this sheet reads/writes at a chosen salon master instead of
+  /// "me".
+  final ScheduleScope? scope;
 
   /// The single calendar date this override targets (date-only). `start == end`
   /// for the built [ScheduleOverride].
@@ -170,6 +180,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     WeekdayMode initialMode = WeekdayMode.interval,
     List<TimeOfDay> initialTimes = const <TimeOfDay>[],
     DateTime Function()? clock,
+    ScheduleScope? scope,
   }) {
     return showModalBottomSheet<DateTime>(
       context: context,
@@ -188,6 +199,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialMode: initialMode,
         initialTimes: initialTimes,
         clock: clock,
+        scope: scope,
       ),
     );
   }
@@ -213,6 +225,15 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   late List<TimeOfDay> _times;
 
   bool _saving = false;
+
+  /// Resolves [widget.scope], falling back to `ownScheduleScopeProvider`
+  /// ("me") — Phase 312. `ref.read`, for use OUTSIDE `build()` (the save/
+  /// clear handlers below); `build()` itself uses a `ref.watch`d local
+  /// instead, mirroring the codebase's established watch-in-build /
+  /// read-in-handler split (`master_schedule_screen.dart`'s identical
+  /// resolution).
+  ScheduleScope _readScope() =>
+      widget.scope ?? ref.read(ownScheduleScopeProvider);
 
   @override
   void initState() {
@@ -256,7 +277,8 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     // handler is already hidden for a non-editable viewer (see `build`), but
     // refuse the write here too so a bypass of the hidden control can't
     // reach `putOverride`.
-    if (!ref.read(scheduleEditableProvider)) {
+    final ScheduleScope scope = _readScope();
+    if (!ref.read(scheduleEditableProvider(scope))) {
       log('save: blocked — viewer is read-only', name: _tag);
       return;
     }
@@ -336,7 +358,11 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     }
 
     try {
-      final bool persisted = await _saveWithConflictCheck(override, l10n);
+      final bool persisted = await _saveWithConflictCheck(
+        override,
+        l10n,
+        scope,
+      );
       if (!persisted || !mounted) return;
       // Resolve the sheet's future with the edited date so the host moves the
       // selected day onto it and re-reads the now-fresh override (rather than a
@@ -386,9 +412,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   Future<bool> _saveWithConflictCheck(
     ScheduleOverride override,
     AppLocalizations l10n,
+    ScheduleScope scope,
   ) async {
     final OverridesNotifier notifier = ref.read(
-      overridesProvider(widget.range).notifier,
+      overridesProvider(scope, widget.range).notifier,
     );
     int attempt = 0;
 
@@ -454,7 +481,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
       // so a failed PUT does NOT throw here — it surfaces as an [AsyncError]
       // on the provider state. Read that resulting state and branch on it.
       final AsyncValue<List<ScheduleOverride>> result = ref.read(
-        overridesProvider(widget.range),
+        overridesProvider(scope, widget.range),
       );
       if (mounted) setState(() => _saving = false);
 
@@ -488,7 +515,8 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     // Phase 311 D2 — same belt-and-braces guard as [_save]: refuse the
     // `clearOverride` write itself, in addition to the delete action being
     // hidden for a non-editable viewer.
-    if (!ref.read(scheduleEditableProvider)) {
+    final ScheduleScope scope = _readScope();
+    if (!ref.read(scheduleEditableProvider(scope))) {
       log('clear: blocked — viewer is read-only', name: _tag);
       return;
     }
@@ -503,14 +531,14 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     setState(() => _saving = true);
     try {
       await ref
-          .read(overridesProvider(widget.range).notifier)
+          .read(overridesProvider(scope, widget.range).notifier)
           .clearOverride(widget.date);
       if (!mounted) return;
       // As in [_save]: `clearOverride` swallows a [Failure] into the provider's
       // [AsyncError] state rather than rethrowing, so inspect the resulting
       // state and only pop + report success on a clean clear.
       final AsyncValue<List<ScheduleOverride>> result = ref.read(
-        overridesProvider(widget.range),
+        overridesProvider(scope, widget.range),
       );
       if (result.hasError) {
         final Object? error = result.error;
@@ -537,7 +565,9 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     // Phase 311 — safety net under the `/schedule` router gate (see
     // `weekly_template_editor_screen.dart`'s identical comment for why this
     // self-check exists alongside, not instead of, that gate).
-    final bool editable = ref.watch(scheduleEditableProvider);
+    final ScheduleScope scope =
+        widget.scope ?? ref.watch(ownScheduleScopeProvider);
+    final bool editable = ref.watch(scheduleEditableProvider(scope));
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: DecoratedBox(
