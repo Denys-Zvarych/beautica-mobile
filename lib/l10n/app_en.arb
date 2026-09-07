@@ -2187,7 +2187,11 @@
   },
   "scheduleNoScheduleHelper": "Add working hours so clients can book.",
   "@scheduleNoScheduleHelper": {
-    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3)."
+    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3). Shown to an EDITABLE viewer (INDEPENDENT_MASTER, or a SALON_MASTER-editable membership) who can act on the imperative CTA themselves. Do NOT merge with scheduleNoScheduleHelperReadOnly — that variant is addressed to a DIFFERENT person (the salon owner/admin) for a viewer who cannot add their own hours."
+  },
+  "scheduleNoScheduleHelperReadOnly": "The salon owner or admin can add working hours so clients can book with you.",
+  "@scheduleNoScheduleHelperReadOnly": {
+    "description": "NO_SCHEDULE banner secondary helper line for a READ-ONLY salon-master viewer (scheduleEditableProvider == false). Phase 312 restricted setting a salon master's hours to the salon owner/admin, so this viewer cannot act on scheduleNoScheduleHelper's imperative 'you add hours' copy — it would address the wrong person. This variant is addressed to the owner/admin in the third person; do NOT merge it with scheduleNoScheduleHelper, whose audience is the viewer themselves."
   },
   "scheduleAddHoursCta": "Add working hours",
   "@scheduleAddHoursCta": {

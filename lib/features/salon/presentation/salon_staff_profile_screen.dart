@@ -542,8 +542,10 @@ class _StaffProfileBody extends StatelessWidget {
         ],
 
         // 5 — contacts (phone only; Instagram intentionally NOT shown here —
-        // see this file's header doc). Omitted when unset.
-        if (phone != null)
+        // see this file's header doc). Omitted when unset. Owns its own
+        // trailing gap, matching sections 2/3/4 — there are no leading gaps
+        // anywhere on this screen.
+        if (phone != null) ...<Widget>[
           RevealTransition(
             key: const Key('salon-staff-profile-reveal-4'),
             fade: anim4,
@@ -574,13 +576,15 @@ class _StaffProfileBody extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: VelvetSpacing.xl),
+        ],
 
         // 6 — schedule row (Phase 312, D3) — MASTER ONLY; an admin has no
         // master row and therefore no schedule. Appended LAST (after
         // contacts, not interleaved) — see `_anim5`'s own doc for why.
         // Built from the real [SettingsRow] (D11 — `value`/`loading`/
         // `enabled` already exist there; no additive param needed).
-        if (!isAdmin)
+        if (!isAdmin) ...<Widget>[
           RevealTransition(
             key: const Key('salon-staff-profile-reveal-5'),
             fade: anim5,
@@ -646,6 +650,7 @@ class _StaffProfileBody extends StatelessWidget {
               },
             ),
           ),
+        ],
       ],
     );
   }

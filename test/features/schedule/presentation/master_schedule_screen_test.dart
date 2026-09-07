@@ -1788,6 +1788,9 @@ void main() {
         final l10n = _l10n(tester);
         expect(find.text(l10n.scheduleNoScheduleDay), findsOneWidget);
         expect(find.text(l10n.scheduleNoSchedulePeriod), findsNothing);
+        // Editable viewer → the imperative helper, not the read-only variant.
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsOneWidget);
+        expect(find.text(l10n.scheduleNoScheduleHelperReadOnly), findsNothing);
 
         await expectLater(
           find.byType(MasterScheduleScreen),
@@ -2030,6 +2033,15 @@ void main() {
         expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
         // ...but the CTA is suppressed for the read-only role.
         expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+
+        // Phase 312 role-aware helper: the owner/admin-addressed variant,
+        // never the imperative "you add hours" one this viewer cannot act on.
+        final l10n = _l10n(tester);
+        expect(
+          find.text(l10n.scheduleNoScheduleHelperReadOnly),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsNothing);
       },
     );
 
@@ -2242,6 +2254,10 @@ void main() {
         expect(find.byKey(const Key('no-schedule-add-hours')), findsOneWidget);
         final l10n = _l10n(tester);
         expect(find.text(l10n.scheduleNoSchedulePeriod), findsOneWidget);
+        // Editable viewer → the imperative "you add hours" helper, NOT the
+        // owner/admin-addressed read-only variant (Phase 312 role-aware copy).
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsOneWidget);
+        expect(find.text(l10n.scheduleNoScheduleHelperReadOnly), findsNothing);
 
         // The full layout is ABSENT — no week strip, no day cells, no legend,
         // no template card, no month-navigator "Today" action, no quick actions.
@@ -2279,6 +2295,17 @@ void main() {
         expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
         // ...but the CTA is suppressed for the read-only role (OQ-2).
         expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+
+        // Phase 312 role-aware helper copy: a read-only SALON_MASTER cannot
+        // act on the imperative "you add hours" text (only the salon
+        // owner/admin can set their hours), so they get the owner/admin-
+        // addressed variant instead — and NEVER the imperative one.
+        final l10n = _l10n(tester);
+        expect(
+          find.text(l10n.scheduleNoScheduleHelperReadOnly),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsNothing);
 
         // Full layout still absent.
         expect(find.byType(WeekStripDay), findsNothing);

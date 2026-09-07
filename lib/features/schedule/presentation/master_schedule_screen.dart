@@ -670,6 +670,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         // OQ-2: the CTA is present only for editable viewers (read-only
         // SALON_MASTER sees the message informationally, no action button).
         onAddHours: editable ? _openTemplateEditor : null,
+        editable: editable,
       );
     }
 
@@ -1188,10 +1189,19 @@ class _ErrorBody extends StatelessWidget {
 // shows informationally with no action button — identical to the in-grid banner.
 // ─────────────────────────────────────────────────────────────────────────────
 class _EmptyScheduleBody extends StatelessWidget {
-  const _EmptyScheduleBody({required this.onAddHours});
+  const _EmptyScheduleBody({required this.onAddHours, this.editable = false});
 
   /// Tap handler for the CTA. Null → read-only viewer → CTA is hidden.
   final VoidCallback? onAddHours;
+
+  /// Additive — permission-derived flags fail closed, so the default is
+  /// `false` (read-only) rather than `true`. The single call site
+  /// (`:669`–`:673`) always passes the real `scheduleEditableProvider`
+  /// value explicitly, so this default is dead code today; it exists as
+  /// defence-in-depth against a future second caller that forgets to pass
+  /// it — REUSE-FIRST makes that plausible, since this private widget is a
+  /// promotion candidate. Do not flip this back to `true`.
+  final bool editable;
 
   @override
   Widget build(BuildContext context) {
@@ -1202,7 +1212,9 @@ class _EmptyScheduleBody extends StatelessWidget {
         padding: const EdgeInsets.all(VelvetSpacing.lg),
         child: NoScheduleBanner(
           message: l10n.scheduleNoSchedulePeriod,
-          helper: l10n.scheduleNoScheduleHelper,
+          helper: editable
+              ? l10n.scheduleNoScheduleHelper
+              : l10n.scheduleNoScheduleHelperReadOnly,
           ctaLabel: l10n.scheduleAddHoursCta,
           onAddHours: onAddHours,
         ),
@@ -1408,7 +1420,15 @@ class _SelectedDayView extends StatelessWidget {
             message: wholeWeekUnscheduled
                 ? l10n.scheduleNoSchedulePeriod
                 : l10n.scheduleNoScheduleDay,
-            helper: l10n.scheduleNoScheduleHelper,
+            // Role-aware helper: a read-only viewer (SALON_MASTER) cannot act
+            // on the imperative "add your hours" copy — Phase 312 gave that
+            // action to the salon owner/admin only — so they get the
+            // owner/admin-addressed variant instead. Selected on `editable`
+            // (the single source of truth from `scheduleEditableProvider`),
+            // not on role directly.
+            helper: editable
+                ? l10n.scheduleNoScheduleHelper
+                : l10n.scheduleNoScheduleHelperReadOnly,
             ctaLabel: l10n.scheduleAddHoursCta,
             // OQ-2: read-only viewers get the banner WITHOUT the CTA.
             onAddHours: editable && !isPast ? onAddHours : null,

@@ -31,6 +31,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -1006,6 +1007,69 @@ void main() {
         expect(pushed.scope, _scheduleRowScope);
       },
     );
+  });
+
+  // ── Gap ownership regression (follows Phase 312's schedule row) ────────
+  //
+  // Reproduces the doubled-gap bug: when phone is null (contacts section
+  // omitted) but an earlier optional section rendered (here: the stats row,
+  // unconditional for every master), the gap between that section and the
+  // schedule row must be exactly ONE `VelvetSpacing.xl` — not two stacked
+  // (the stats row's own trailing gap plus a stray leading gap the schedule
+  // section used to add) and not zero. Asserts actual rendered geometry
+  // (`getBottomLeft`/`getTopLeft` on keyed widgets), not merely that both
+  // widgets exist — see `project_widget_field_assertion_is_vacuous`.
+  group('gap ownership — null phone + schedule row (regression)', () {
+    testWidgets('exactly one VelvetSpacing.xl separates the stats row from the '
+        'schedule row when contacts are omitted', (tester) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMemberNoExtras, const <MasterService>[]),
+          ),
+          weeklyScheduleProvider(
+            _scheduleRowScope,
+          ).overrideWith(_FixedWeekly.new),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // Sanity: contacts really are omitted (null phone) and bio/services
+      // really are omitted too — `_masterMemberNoExtras` carries none of
+      // them — otherwise this would measure the wrong gap entirely.
+      expect(
+        find.byKey(const Key('salon-staff-profile-contact-phone')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('salon-staff-profile-bio')), findsNothing);
+      expect(
+        find.byKey(const Key('salon-staff-profile-service-categories')),
+        findsNothing,
+      );
+
+      final double statsRowBottom = tester
+          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-1')))
+          .dy;
+      final double scheduleRowTop = tester
+          .getTopLeft(find.byKey(const Key('salon-staff-profile-schedule-row')))
+          .dy;
+
+      expect(
+        scheduleRowTop - statsRowBottom,
+        moreOrLessEquals(VelvetSpacing.xl, epsilon: 0.5),
+        reason:
+            'a doubled gap (stats-row trailing xl stacked with a stray '
+            'leading xl on the schedule section) or a missing gap must '
+            'both fail this assertion',
+      );
+    });
   });
 }
 
