@@ -93,6 +93,10 @@ import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
+import 'salon_admin_edit_master_schedule_flow_test.dart'
+    as salon_admin_edit_master_schedule;
+import 'salon_owner_edit_master_schedule_flow_test.dart'
+    as salon_owner_edit_master_schedule;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -282,5 +286,20 @@ void main() {
   group(
     'salon_staff_settings_admin_gate_flow',
     salon_staff_settings_admin_gate.main,
+  );
+  // Phase 312 (Step 2.7 Rule 3b) — a SALON_ADMIN opens a chosen master's
+  // schedule from the roster («Команда» tab) and edits it, pinned to NEVER
+  // reach `GET /masters/me` (an admin has no master row of their own). The
+  // SALON_OWNER counterpart is registered directly below it.
+  group(
+    'salon_admin_edit_master_schedule_flow',
+    salon_admin_edit_master_schedule.main,
+  );
+  // Phase 312 (Step 2.7 Rule 3b) — the SALON_OWNER counterpart of the admin
+  // flow above: roster -> a chosen master's schedule -> a real edit and
+  // write against the VIEWED master, never "me".
+  group(
+    'salon_owner_edit_master_schedule_flow',
+    salon_owner_edit_master_schedule.main,
   );
 }
