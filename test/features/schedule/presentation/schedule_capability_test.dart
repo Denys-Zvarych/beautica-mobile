@@ -250,6 +250,30 @@ class _FixedRoster extends SalonManagementProfile {
   Future<SalonManagementProfileData> build(String salonId) async => data;
 }
 
+/// Settles to [data], then exposes [forceError]/[forceLoading] to drive a
+/// REAL `copyWithPrevious`-carrying transition from the test body — same
+/// idiom as `_TransitionableMySalons` above, mirrored onto fact 2's provider
+/// (`salonManagementProfileProvider`) rather than fact 1's
+/// (`mySalonsProvider`). Fact 1 already has this hardening (tests 1/2 for
+/// `authProvider`, test 15 for `mySalonsProvider`); fact 2's own
+/// `rosterAsync is! AsyncData<...>` gate
+/// (`schedule_capability.dart:140`) had none before this.
+class _TransitionableRoster extends SalonManagementProfile {
+  _TransitionableRoster(this.data);
+  final SalonManagementProfileData data;
+
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => data;
+
+  void forceError(Object error) {
+    state = AsyncError<SalonManagementProfileData>(error, StackTrace.current);
+  }
+
+  void forceLoading() {
+    state = const AsyncLoading<SalonManagementProfileData>();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Container factories
 // ---------------------------------------------------------------------------
@@ -684,6 +708,105 @@ void main() {
         reason:
             'must fail closed even though .value still reports the '
             'stale, matching salon list',
+      );
+    });
+
+    // ---------------------------------------------------------------
+    // Test 16 — mobile-qa gap-closure (branch QA audit): fact 2's OWN
+    // `rosterAsync is! AsyncData<...>` gate (`schedule_capability.dart:140`)
+    // had no equivalent to test 15's hardening. The audit mutated that gate
+    // to a lenient `.value != null` read and all 15 prior tests stayed
+    // green — this is the proof. Mirrors test 15's shape exactly, but
+    // transitions `salonManagementProfileProvider` (fact 2) instead of
+    // `mySalonsProvider` (fact 1), with fact 1 held settled and genuinely
+    // matching throughout so ONLY fact 2's gate is under test.
+    // ---------------------------------------------------------------
+    test('SALON_OWNER whose salonManagementProfileProvider TRANSITIONS to '
+        'AsyncError carrying a stale (previously resolved, matching) '
+        'roster → still false', () async {
+      final rosterNotifier = _TransitionableRoster(_kRosterWithMaster);
+      final container = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+        extraOverrides: [
+          mySalonsProvider.overrideWith(
+            () => _SettledMySalons(const <Salon>[_kSalon]),
+          ),
+          salonManagementProfileProvider.overrideWith(() => rosterNotifier),
+        ],
+      );
+      await container.read(authProvider.future);
+      await container.read(mySalonsProvider.future);
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+      // Sanity: editable BEFORE the transition, and the roster genuinely
+      // contains the viewed master — otherwise this test could pass for
+      // the wrong reason.
+      expect(
+        container.read(scheduleEditableProvider(_viewedMasterScope)),
+        isTrue,
+      );
+
+      rosterNotifier.forceError(const NetworkFailure());
+      final AsyncValue<SalonManagementProfileData> afterError = container.read(
+        salonManagementProfileProvider(_kSalonId),
+      );
+      expect(afterError.hasError, isTrue);
+      expect(
+        afterError.value,
+        isNotNull,
+        reason:
+            'sanity: if .value were null here, the mutation this test '
+            'exists to catch (.value != null) would ALSO read false, '
+            'and this test would not be pinning anything',
+      );
+
+      expect(
+        container.read(scheduleEditableProvider(_viewedMasterScope)),
+        isFalse,
+        reason:
+            'must fail closed even though .value still reports the '
+            'stale, matching roster',
+      );
+    });
+
+    // ---------------------------------------------------------------
+    // Test 17 — the AsyncLoading(retrying) shape of test 16, mirroring
+    // GROUP 1's test 2. `AsyncLoading(retrying: true)` satisfies
+    // `hasError`/carries `.value` forward too — pinning the concrete
+    // subtype, not just an outcome, per
+    // `project_asyncvalue_haserror_retrying_trap`.
+    // ---------------------------------------------------------------
+    test('SALON_OWNER whose salonManagementProfileProvider is mid-retry '
+        '(AsyncLoading) carrying the same stale matching roster → still '
+        'false', () async {
+      final rosterNotifier = _TransitionableRoster(_kRosterWithMaster);
+      final container = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+        extraOverrides: [
+          mySalonsProvider.overrideWith(
+            () => _SettledMySalons(const <Salon>[_kSalon]),
+          ),
+          salonManagementProfileProvider.overrideWith(() => rosterNotifier),
+        ],
+      );
+      await container.read(authProvider.future);
+      await container.read(mySalonsProvider.future);
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+
+      rosterNotifier.forceError(const NetworkFailure());
+      rosterNotifier.forceLoading();
+      final AsyncValue<SalonManagementProfileData> midRetry = container.read(
+        salonManagementProfileProvider(_kSalonId),
+      );
+      expect(midRetry, isA<AsyncLoading<SalonManagementProfileData>>());
+      expect(
+        midRetry.value,
+        isNotNull,
+        reason: 'sanity: the stale roster must actually be riding along',
+      );
+
+      expect(
+        container.read(scheduleEditableProvider(_viewedMasterScope)),
+        isFalse,
       );
     });
   });

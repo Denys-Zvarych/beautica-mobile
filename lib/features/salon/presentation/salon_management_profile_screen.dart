@@ -284,7 +284,28 @@ class _SalonManagementProfileScreenState
             ),
           ),
           data: (SalonManagementProfileData data) {
-            final (Salon salon, List<SalonStaffMember> staff) = data;
+            final (Salon salon, List<SalonStaffMember> rawStaff) = data;
+            // UX scoping, not an authz boundary — the server authorizes
+            // `GET /salons/{id}/staff` and still returns admin entries for a
+            // SALON_ADMIN viewer; the product rule is "an admin's «Команда»
+            // tab shows masters only, and never themselves". Since the
+            // roster already excludes the viewer's own owner row (it's built
+            // from `masterRepository`/`SALON_ADMIN` queries that never match
+            // a `SALON_OWNER`, `SalonService.java:721-732`), dropping admin
+            // entries for an admin viewer satisfies both halves at once —
+            // masters-only, and self-exclusion, since the viewer is
+            // themselves an admin. Owner-as-master is out of scope (not
+            // implemented), so the owner path needs no branch.
+            final bool viewerIsAdmin =
+                session is Authenticated &&
+                session.user.role == UserRole.salonAdmin;
+            final List<SalonStaffMember> staff = viewerIsAdmin
+                ? rawStaff
+                      .where(
+                        (SalonStaffMember m) => m.role != SalonStaffRole.admin,
+                      )
+                      .toList(growable: false)
+                : rawStaff;
             return _LoadedBody(
               salonId: widget.salonId,
               salon: salon,

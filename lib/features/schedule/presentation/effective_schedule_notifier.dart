@@ -163,6 +163,52 @@ class EffectiveScheduleRangeTracker {
 EffectiveScheduleRangeTracker effectiveScheduleRangeTracker(Ref ref) =>
     EffectiveScheduleRangeTracker();
 
+/// Session-boundary sweep (mobile-perf P2-1, 2026-09-07) — invalidates EVERY
+/// live `(scope, range)` window this session has ever resolved, across EVERY
+/// [ScheduleScope] (contrast [EffectiveScheduleNotifier]'s sibling
+/// `WeeklyScheduleNotifier._invalidateEffectiveScheduleWindows`, which is
+/// deliberately filtered to the ONE scope a template edit affects — this
+/// sweep has no such "one scope changed" precondition, because the whole
+/// SESSION is ending).
+///
+/// Called from `AuthNotifier.logout` — see that call site's doc for why a
+/// stale schedule cache surviving a session boundary is a correctness bug,
+/// not just a memory one: `weeklyScheduleProvider`/`effectiveScheduleProvider`
+/// are keyed on [ScheduleScope] (salonId+masterId), NOT on the authenticated
+/// identity, and neither watches `authProvider` (traced through
+/// `scheduleRepositoryProvider` → `masterApiProvider` → `dioProvider` — none
+/// of which watch it either). Two different accounts that both manage the
+/// same salon and both open the same master's schedule hit the IDENTICAL
+/// cache key, so without this sweep the second account's session would
+/// silently render whatever the first account's session last fetched.
+///
+/// Same wasPinned-gated invalidate+eager-read idiom as
+/// `WeeklyScheduleNotifier._invalidateEffectiveScheduleWindows` (FIX D) —
+/// required here for the identical reason: `effectiveScheduleProvider` is
+/// watched via LOCAL mutable state (`master_schedule_screen.dart`'s
+/// `_range`), so a bare family invalidate risks the
+/// `ProviderSubscription`-closed race
+/// `forbid_bare_keepalive_family_invalidation.sh` guards against — gating on
+/// `WidgetRef.exists` first, then invalidating, then (only when it was
+/// pinned) an eager `ref.read` so `element.flush()` cancels the queued
+/// disposal before a later revisit of the same key can race it.
+void invalidateAllEffectiveScheduleWindows(Ref ref) {
+  final EffectiveScheduleRangeTracker tracker = ref.read(
+    effectiveScheduleRangeTrackerProvider,
+  );
+  for (final (ScheduleScope, ScheduleRange) key in tracker.liveKeys) {
+    final bool wasPinned = ref.exists(
+      effectiveScheduleProvider(key.$1, key.$2),
+    );
+    // keepalive-safe: session-boundary sweep (AuthNotifier.logout), wasPinned-gated via WidgetRef.exists + EffectiveScheduleRangeTracker enumeration — same idiom as WeeklyScheduleNotifier._invalidateEffectiveScheduleWindows (FIX D)
+    // cycle-safe: effectiveScheduleProvider's build() only watches overridesProvider(scope, range), overridesRevisionProvider(scope), effectiveScheduleRangeTrackerProvider, and scheduleRepositoryProvider(scope) — none of which watch authProvider or any provider owned by this function's caller — so this invalidate can never close a back-edge into whichever notifier's `ref` is passed in. Proven on the real graph by provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider" entrypoint.
+    ref.invalidate(effectiveScheduleProvider(key.$1, key.$2));
+    if (wasPinned) {
+      ref.read(effectiveScheduleProvider(key.$1, key.$2));
+    }
+  }
+}
+
 /// Resolves the effective schedule for the dates in [range] (date-only,
 /// inclusive). The range MUST be bounded (≤ `kMaxScheduleRangeDays`); the
 /// repository asserts and rejects an over-wide window before any network call.

@@ -62,7 +62,7 @@ void main() {
 
   testWidgets(
     'CLIENT opens My Bookings, cancels a CONFIRMED booking with a note, and it '
-    'moves to Скасовані as «Ви скасували»',
+    'moves to Скасовані as «Скасовано»',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);

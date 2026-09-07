@@ -230,6 +230,15 @@ void main() {
     const MasterScheduleScreen(),
     overrides: <Object>[
       authProvider.overrideWith(_FixedAuth.new),
+      // Phase 312 — `MasterScheduleScreen` with no explicit `scope` now
+      // resolves "me" through `ownScheduleScopeProvider`
+      // (own_schedule_scope.dart), which for INDEPENDENT_MASTER watches
+      // `masterProfileProvider` before this provider ever runs. Without this
+      // override that reaches the REAL (unmocked) `HttpMasterRepository` and
+      // leaves a pending Dio timer at teardown ("A Timer is still pending
+      // even after the widget tree was disposed") — mirrors
+      // `pumpMasterProfile`'s own override above.
+      masterProfileProvider.overrideWith(_LoadingMasterProfile.new),
       effectiveScheduleProvider.overrideWith(_LoadingEffectiveSchedule.new),
       weeklyScheduleProvider.overrideWith(_LoadingWeeklySchedule.new),
     ],

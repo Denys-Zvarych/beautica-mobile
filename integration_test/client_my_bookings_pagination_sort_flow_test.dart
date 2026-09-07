@@ -167,10 +167,10 @@ void main() {
       expect(find.byKey(const ValueKey<String>('upcoming-25')), findsNothing);
 
       // ── Bug A — Минулі pages the full 45-item, 2-status dataset ──────────
+      final int callsBeforePast = fb.getMyBookingsCalls;
+
       await tester.tap(find.byKey(const ValueKey<BookingTab>(BookingTab.past)));
       await AppHarness.settle(tester);
-
-      final int callsBeforePast = fb.getMyBookingsCalls;
 
       // Page 0.
       expect(

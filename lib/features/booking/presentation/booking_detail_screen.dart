@@ -461,14 +461,21 @@ class _DetailBody extends StatelessWidget {
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
 
-    // The big status TITLE still shows for COMPLETED and NOT_COMPLETED — the
-    // finished outcome deserves a header label. CONFIRMED drops it (a confirmed
-    // booking needs no ceremony — the subline suffices); CANCELLED and DECLINED
-    // drop it too (product decision 2026-07-15: no big «Скасовано» title — the
-    // neutral state reads through the subline alone).
+    // The big status TITLE shows for COMPLETED, NOT_COMPLETED, CANCELLED and
+    // DECLINED — the finished/closed outcome deserves a header label.
+    // CONFIRMED alone drops it (a confirmed booking needs no ceremony — the
+    // subline suffices).
+    //
+    // The 2026-07-15 product decision to suppress the title for
+    // CANCELLED/DECLINED ("neutral state reads through the subline alone")
+    // was REVERSED by explicit user decision on 2026-09-07 — the big
+    // «Скасовано» title is back for both. Do not restore the old
+    // subline-only behaviour.
     final bool showStatusTitle =
         booking.status == BookingStatus.completed ||
-        booking.status == BookingStatus.notCompleted;
+        booking.status == BookingStatus.notCompleted ||
+        booking.status == BookingStatus.cancelled ||
+        booking.status == BookingStatus.declined;
 
     // The top status MEDALLION (hero icon) is now dropped for COMPLETED too
     // (product decision 2026-07-16) — a finished booking needs no ceremonial
@@ -595,6 +602,14 @@ class _DetailBody extends StatelessWidget {
       case BookingStatus.notCompleted:
         return l10n.bookingDetailSublineNotCompleted(b.providerGenitive);
       case BookingStatus.cancelled:
+        // CANCELLED is client-initiated by domain rule (see CLAUDE.md's
+        // Booking flow) — no ambiguity about who acted, but the wording still
+        // must be viewer-relative: the CLIENT reads "you cancelled"; the
+        // PROVIDER must read "the client cancelled", and gets no rebooking
+        // affordance ("Записатись знову" is a client-only capability).
+        if (viewer.isProvider) {
+          return l10n.bookingDetailSublineCancelledProvider;
+        }
         return l10n.bookingDetailSublineCancelled;
       case BookingStatus.declined:
         return l10n.bookingDetailSublineDeclined;

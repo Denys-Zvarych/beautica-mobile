@@ -4434,6 +4434,10 @@
   "@bookingDetailSublineCancelled": {
     "description": "Booking detail subline — CANCELLED."
   },
+  "bookingDetailSublineCancelledProvider": "The client cancelled this booking.",
+  "@bookingDetailSublineCancelledProvider": {
+    "description": "Booking detail subline — CANCELLED, PROVIDER viewer. No rebooking affordance offered."
+  },
   "bookingDetailSublineDeclined": "Booking cancelled",
   "@bookingDetailSublineDeclined": {
     "description": "Booking detail subline — DECLINED. Neutral, no who-cancelled distinction."

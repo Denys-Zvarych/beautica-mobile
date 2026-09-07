@@ -4434,6 +4434,10 @@
   "@bookingDetailSublineCancelled": {
     "description": "Booking detail subline — CANCELLED."
   },
+  "bookingDetailSublineCancelledProvider": "Клієнт скасував цей запис.",
+  "@bookingDetailSublineCancelledProvider": {
+    "description": "Booking detail subline — CANCELLED, PROVIDER viewer. No rebooking affordance offered."
+  },
   "bookingDetailSublineDeclined": "Запис скасовано",
   "@bookingDetailSublineDeclined": {
     "description": "Booking detail subline — DECLINED. Neutral, no who-cancelled distinction."

@@ -51,6 +51,18 @@ import '../../../shared/util/mask_email.dart';
 // `authProvider` back, so it cannot reopen the CircularDependencyError the
 // NOTE further down in [logout] warns about.
 import '../../booking/application/bookings_day_notifier.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
+// (mobile-perf P2-1, 2026-09-07) — same shape as the `bookings_day_notifier
+// .dart` import above: `weeklyScheduleProvider`/`effectiveScheduleProvider`
+// are `ScheduleScope`-keyed `keepAlive` caches that do NOT watch
+// `authProvider` (traced through `scheduleRepositoryProvider` →
+// `masterApiProvider` → `dioProvider` — none of which watch it either), so
+// they cannot self-clear via the ordinary cascade. These are plain method/
+// function calls, not a `ref.watch`, and neither watches `authProvider`
+// back, so this cannot reopen the CircularDependencyError the NOTE further
+// down in [logout] warns about.
+import '../../schedule/presentation/effective_schedule_notifier.dart';
+import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/auth_tokens.dart';
@@ -1250,6 +1262,24 @@ class AuthNotifier extends _$AuthNotifier {
       // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
       // the full reasoning, including the Riverpod internals this depends on.
       ref.read(dayKeepAliveLruProvider).clear();
+      // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
+      // sweep, for the same reason the day-timeline one above is needed:
+      // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on
+      // `ScheduleScope` (salonId+masterId), NOT on the authenticated
+      // identity, and watch neither `authProvider` nor anything that
+      // transitively does — see `effective_schedule_notifier.dart`'s
+      // `invalidateAllEffectiveScheduleWindows` doc for the full reasoning
+      // and why the two families need two different invalidation shapes.
+      // `weeklyScheduleProvider` is bare-invalidated: neither of its two
+      // watch sites (`master_schedule_screen.dart`, `salon_staff_profile_
+      // screen.dart`) keys it off LOCAL mutable state, and `@Riverpod
+      // (keepAlive: true)` never actually disposes on zero listeners, so
+      // there is no queued-disposal race a bare invalidate could hit.
+      // keepalive-safe: session-boundary sweep (logout) — weeklyScheduleProvider is never watched via local mutable state (see comment above) and @Riverpod(keepAlive:true) never disposes on zero listeners, so invalidateSelf's queued-disposal race this guard protects against cannot occur here
+      // cycle-safe: weeklyScheduleProvider only watches scheduleRepositoryProvider(scope), which watches masterApiProvider -> dioProvider — none of which watch authProvider, so no back-edge into this notifier, no cycle. Proven on the real graph by provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider" entrypoint.
+      ref.invalidate(weeklyScheduleProvider);
+      // cycle-safe: invalidateAllEffectiveScheduleWindows only touches effectiveScheduleProvider, which watches overridesProvider + overridesRevisionProvider + scheduleRepositoryProvider — none of which watch authProvider (same chain as weeklyScheduleProvider above), so no back-edge into this notifier, no cycle. Same test coverage as above.
+      invalidateAllEffectiveScheduleWindows(ref);
       // NOTE — this belt-and-braces list is NOT the app's full inventory of
       // keepAlive, user-scoped state, and must not be read as one (mobile-security
       // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of

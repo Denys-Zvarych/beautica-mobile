@@ -669,6 +669,123 @@ void main() {
     );
   });
 
+  // mobile-qa gap-closure (feat/salon-master-schedule-read-only) — the
+  // `viewerIsAdmin` filter at `salon_management_profile_screen.dart:287-306`
+  // (an admin's «Команда» tab shows masters only, never themselves; the
+  // owner sees masters AND admins — there is deliberately no owner-side
+  // filter, since the roster is already built from master + SALON_ADMIN
+  // queries that never include the owner) shipped with 149 passing tests in
+  // this file and ZERO of them exercising a mixed roster under an admin
+  // viewer — every existing `_adminOverrides` pump in this file uses an
+  // empty staff list (see the «Про салон» `pumpAs` helper above), which
+  // cannot distinguish "filtered" from "nothing to filter".
+  group('Команда tab admin filter (mobile-qa gap-closure)', () {
+    testWidgets(
+      'admin viewer + mixed roster (master + admin) — only the master card '
+      'renders',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _adminOverrides(repo),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-admin-1')),
+          findsNothing,
+        );
+        // Exactly one rendered card — proves the GRID itself was rebuilt on
+        // a shrunk list (itemCount == staff.length + 1), not merely that
+        // the admin's specific key was hidden by some other means while the
+        // grid still allocated a slot for it.
+        expect(find.byType(SalonMasterCard), findsOneWidget);
+        expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
+        expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'owner viewer + the same mixed roster — the admin card still renders',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-admin-1')),
+          findsOneWidget,
+          reason:
+              'without this, a mutation that filters admin rows for EVERY '
+              'viewer (not just an admin one) stays green.',
+        );
+        expect(find.byType(SalonMasterCard), findsNWidgets(2));
+      },
+    );
+
+    testWidgets(
+      'admin viewer + an admins-ONLY roster lands in the empty state, not a '
+      'roster of invisible cards',
+      (tester) async {
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[
+            SalonStaffMember(
+              userId: 'admin-only-1',
+              role: SalonStaffRole.admin,
+              firstName: 'Ірина',
+              lastName: 'Ковальська',
+            ),
+            SalonStaffMember(
+              userId: 'admin-only-2',
+              role: SalonStaffRole.admin,
+              firstName: 'Наталя',
+              lastName: 'Бондар',
+            ),
+          ],
+        );
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: _adminOverrides(repo),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        // Filtered to zero — the empty-state message must show and the
+        // grid must hold zero master cards, not two admin cards rendered
+        // invisibly (that shape would mean the filter was applied inside
+        // `itemBuilder`, e.g. returning an empty SizedBox per admin entry,
+        // instead of at the source list — itemCount would then still be
+        // wrong even though no admin key is findable).
+        expect(
+          find.byKey(const Key('salon-manage-staff-empty')),
+          findsOneWidget,
+        );
+        expect(find.byType(SalonMasterCard), findsNothing);
+        expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
+      },
+    );
+  });
+
   // The logo used to centre against the name+rating row only, leaving it
   // above the card's true midpoint whenever an address line added a second
   // band below (root-caused 2026-08-29: the address row reserved an empty

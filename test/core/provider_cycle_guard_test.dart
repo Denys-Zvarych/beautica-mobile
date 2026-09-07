@@ -99,6 +99,7 @@ import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
+import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
@@ -144,6 +145,10 @@ const ScheduleScope _cycleGuardScope = ScheduleScope.own(
 /// custom type like [ScheduleOverride]. A plain [Fake] needs no matcher
 /// registration at all.
 class _CycleGuardScheduleRepository extends Fake implements ScheduleRepository {
+  @override
+  Future<List<WeeklySchedule>> listWeeklySchedules() async =>
+      const <WeeklySchedule>[];
+
   @override
   Future<List<ScheduleOverride>> listOverrides(
     DateTime from,
@@ -353,6 +358,72 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
         reason:
             'logout() must settle the session to Unauthenticated via the '
             'auth-watch cascade — no manual invalidation, no cycle.',
+      );
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // authProvider.notifier.logout() — mobile-perf P2-1 (2026-09-07)
+  // session-boundary schedule-cache sweep.
+  //
+  // logout() now ALSO `ref.invalidate(weeklyScheduleProvider)` (bare family)
+  // and `invalidateAllEffectiveScheduleWindows(ref)` (a wasPinned-gated,
+  // per-key `ref.invalidate(effectiveScheduleProvider(scope, range))` loop —
+  // see `effective_schedule_notifier.dart`'s doc). Neither
+  // `weeklyScheduleProvider` nor `effectiveScheduleProvider` watches
+  // `authProvider` (traced through `scheduleRepositoryProvider` →
+  // `masterApiProvider` → `dioProvider`, none of which watch it either), so
+  // there is no back-edge and no cycle — this entrypoint proves that on the
+  // REAL graph: subscribing to both families registers them as live
+  // listeners (populating `EffectiveScheduleRangeTracker` for the
+  // `effectiveScheduleProvider` sweep to enumerate), then `logout()` must
+  // complete without `CircularDependencyError`.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'authProvider.notifier.logout() -> weeklyScheduleProvider + '
+        'effectiveScheduleProvider session-boundary invalidate',
+    extraOverrides: <Object>[
+      scheduleRepositoryProvider.overrideWith(
+        (ref, scope) => _buildCycleGuardScheduleRepo(),
+      ),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        weeklyScheduleProvider(_cycleGuardScope),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+      container.listen<Object?>(
+        effectiveScheduleProvider(_cycleGuardScope, _cycleGuardMonthRange),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      // Let both watched families resolve their first build BEFORE logging
+      // out — an un-built element has nothing for `ref.invalidate` to
+      // touch, which would make this entrypoint pass trivially without ever
+      // exercising the back-edge check (mirrors the `overridesProvider`
+      // entrypoint's identical reasoning above).
+      await container.read(weeklyScheduleProvider(_cycleGuardScope).future);
+      await container.read(
+        effectiveScheduleProvider(
+          _cycleGuardScope,
+          _cycleGuardMonthRange,
+        ).future,
+      );
+      await container.read(authProvider.notifier).logout();
+    },
+    settle: (container) {
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+        reason:
+            'logout() must settle the session to Unauthenticated via the '
+            'auth-watch cascade AND complete the new schedule-cache sweep — '
+            'no cycle.',
       );
     },
   ),
