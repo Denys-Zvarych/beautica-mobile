@@ -140,6 +140,14 @@
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
   },
+  "accountDeleteErrTooManyBookings": "Please cancel some upcoming bookings first, then try deleting your account again.",
+  "@accountDeleteErrTooManyBookings": {
+    "description": "Fallback shown when DELETE /users/me returns HTTP 422 (more than 50 upcoming bookings) but the backend response carried no usable message. AccountDeleteBookingLimitFailure.userMessage prefers the backend's own message when present — this key is the defensive fallback only."
+  },
+  "accountDeleteErrRateLimited": "Too many account-deletion attempts. Please try again later.",
+  "@accountDeleteErrRateLimited": {
+    "description": "Error message shown when DELETE /users/me returns HTTP 429 (delete-account rate limit, 3 attempts/hour)."
+  },
   "bookingErrMasterNotPermitted": "You don't have permission to create this booking.",
   "@bookingErrMasterNotPermitted": {
     "description": "Error message shown when POST /api/v1/masters/{masterId}/bookings returns HTTP 403 (backend Phase 22.4 @authz.canBookForMaster) — the caller may not book this master (wrong salon, not the independent master's own profile, read-only SALON_MASTER caller) OR the master id is unknown/inactive (deliberately collapsed into the same 403 as a probe defence). Surfaced via MasterBookingNotPermittedFailure.userMessage — must never imply the master was not found, which would leak that distinction."
@@ -2916,6 +2924,14 @@
   "settingsHubHelp": "Help / Contact us",
   "@settingsHubHelp": {
     "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
+  },
+  "settingsHubDeleteAccount": "Delete account",
+  "@settingsHubDeleteAccount": {
+    "description": "Label for the CLIENT-only delete-account row at the bottom of the CLIENT settings hub, below logout. Also reused as the confirm dialog's title and destructive confirm-button label (mirrors how `logout` is reused for the logout dialog)."
+  },
+  "deleteAccountConfirmBody": "All your upcoming bookings will be cancelled. This action cannot be undone — you will permanently lose access and all your data in Beautica.",
+  "@deleteAccountConfirmBody": {
+    "description": "Short body copy of the delete-account confirm dialog. Deliberately does NOT state a booking count (locked product decision) — just that upcoming bookings are cancelled, the action is irreversible, and the client loses all access and data."
   },
   "contactSupportTitle": "Contact us",
   "@contactSupportTitle": {

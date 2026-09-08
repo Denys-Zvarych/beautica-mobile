@@ -194,6 +194,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
+[*UserControllerApi*](doc/UserControllerApi.md) | [**deleteMyAccount**](doc/UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMyRating**](doc/UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**requestChangePasswordOtp**](doc/UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 

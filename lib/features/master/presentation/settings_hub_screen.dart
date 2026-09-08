@@ -99,8 +99,12 @@ class SettingsHubScreen extends ConsumerStatefulWidget {
 
 class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
     with SingleTickerProviderStateMixin {
-  // Logout double-tap guard, shared with [runLogoutFlow].
+  // Logout re-entrancy guard, shared with [runLogoutFlow]. Never bound to a
+  // widget — see `logout_action.dart`'s flag-lifetime doc.
   final ValueNotifier<bool> _loggingOut = ValueNotifier<bool>(false);
+  // Logout UI-visible loading flag — drives `SettingsRow(loading:)` only.
+  // Flips true after consent, immediately before the network call.
+  final ValueNotifier<bool> _loggingOutLoading = ValueNotifier<bool>(false);
 
   // Animation — pre-built in initState; zero allocations in build().
   late final AnimationController _controller;
@@ -153,6 +157,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
     _anim7.dispose();
     _controller.dispose();
     _loggingOut.dispose();
+    _loggingOutLoading.dispose();
     super.dispose();
   }
 
@@ -282,15 +287,31 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
           ),
 
           // Terminal / destructive action — set apart.
+          //
+          // mobile-perf consistency fix (2026-09-08) — wired to
+          // `SettingsRow`'s EXISTING `loading` param via `_loggingOut`, the
+          // same one-line pattern the CLIENT settings hub's logout row and
+          // the sibling delete-salon/delete-account rows already use
+          // (dims the row, swaps the chevron for a spinner, absorbs taps
+          // for the duration of the network call).
           _reveal(
             _anim7,
-            SettingsRow(
-              key: const Key('row-logout'),
-              icon: Icons.logout_rounded,
-              label: l10n.logout,
-              destructive: true,
-              showChevron: false,
-              onTap: () => runLogoutFlow(context, ref, _loggingOut),
+            ValueListenableBuilder<bool>(
+              valueListenable: _loggingOutLoading,
+              builder: (context, loggingOutLoading, _) => SettingsRow(
+                key: const Key('row-logout'),
+                icon: Icons.logout_rounded,
+                label: l10n.logout,
+                destructive: true,
+                showChevron: false,
+                loading: loggingOutLoading,
+                onTap: () => runLogoutFlow(
+                  context,
+                  ref,
+                  inFlight: _loggingOut,
+                  loading: _loggingOutLoading,
+                ),
+              ),
             ),
           ),
         ],

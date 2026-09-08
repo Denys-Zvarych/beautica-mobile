@@ -3,9 +3,9 @@
 // both entry points share one confirm-dialog → authProvider.logout() →
 // go(/login) implementation with a single double-tap guard.
 //
-// The guard is a [ValueNotifier<bool>] owned by the caller (each page holds one
-// for its lifetime) so a logout in flight cannot be triggered twice and the
-// caller can reflect the in-flight state in its row if desired.
+// Two [ValueNotifier<bool>]s, owned by the caller (each page holds one pair
+// for its lifetime), do two DIFFERENT jobs — see the mobile-perf fix note
+// below for why they must not be merged back into one flag.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,14 +22,35 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 /// Runs the full logout flow: confirm dialog → [AuthNotifier.logout] →
 /// `context.go(RouteNames.login)`. Shows a failure snack on error.
 ///
-/// [inFlight] is a double-tap guard owned by the calling widget; this helper
-/// flips it true for the duration of the network call and resets it afterwards.
+/// Two flags, two different lifetimes — DO NOT merge them back into one:
+///
+/// * [inFlight] is the RE-ENTRANCY GUARD. It is never bound to any widget —
+///   it exists purely to make a second tap a no-op. Set synchronously HERE,
+///   before the `showDialog` await, not after it resolves: two rapid taps
+///   (finger bounce, or a double-activate via a screen reader) both used to
+///   read `inFlight.value == false` before either await returned, stacking
+///   two confirm dialogs and — if both were confirmed — firing two
+///   concurrent logout calls (mobile-security LOW fix, 2026-09-08). Reset on
+///   every exit path that does NOT end in navigation: cancel, the
+///   post-dialog unmounted early-return, and the error path.
+///
+/// * [loading] is the UI-VISIBLE flag — what the caller binds to
+///   `SettingsRow(loading:)` / `IgnorePointer(ignoring:)`. It is set true
+///   only AFTER `confirmed == true`, immediately before the network call —
+///   never on the initial tap. Setting it before consent (the original,
+///   single-flag version of this fix) made the indeterminate spinner run,
+///   and froze sibling rows, for the entire unbounded time the confirm
+///   dialog sits open — implying the logout had already started
+///   (mobile-perf MEDIUM fix, 2026-09-08). Reset on every exit path that
+///   does NOT end in navigation, same as [inFlight].
 Future<void> runLogoutFlow(
   BuildContext context,
-  WidgetRef ref,
-  ValueNotifier<bool> inFlight,
-) async {
+  WidgetRef ref, {
+  required ValueNotifier<bool> inFlight,
+  required ValueNotifier<bool> loading,
+}) async {
   if (inFlight.value) return;
+  inFlight.value = true;
 
   final l10n = AppLocalizations.of(context);
 
@@ -60,18 +81,35 @@ Future<void> runLogoutFlow(
     ),
   );
 
-  if (confirmed != true) return;
-  if (!context.mounted) return;
+  if (confirmed != true) {
+    inFlight.value = false;
+    return;
+  }
+  if (!context.mounted) {
+    // mobile-security LOW fix (2026-09-08) — this used to fall straight
+    // through without resetting the guard. Before `inFlight` was set
+    // synchronously pre-dialog it didn't matter (nothing was set yet); now
+    // it must be reset or a screen torn down mid-dialog (e.g. an auth
+    // redirect) leaves the guard stuck `true` forever. `loading` is not
+    // set yet at this point — it only flips below, after this check — so
+    // there is nothing to reset for it here.
+    inFlight.value = false;
+    return;
+  }
 
-  inFlight.value = true;
+  // UI flag starts here — after consent, immediately before the network
+  // call. See the flag-lifetime doc on [runLogoutFlow] above.
+  loading.value = true;
   try {
     await ref.read(authProvider.notifier).logout();
     if (!context.mounted) return;
     context.go(RouteNames.login);
+    // Deliberately no reset of either flag here — navigation away follows,
+    // and the calling widget (and its notifiers) is about to be torn down.
   } catch (_) {
+    inFlight.value = false;
+    loading.value = false;
     if (!context.mounted) return;
     showErrorSnack(context, l10n.logoutFailed);
-  } finally {
-    inFlight.value = false;
   }
 }

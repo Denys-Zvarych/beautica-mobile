@@ -264,6 +264,12 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — `_loggingOut` (the
+      // re-entrancy guard) flips synchronously on this tap, but it is no
+      // longer bound to `SettingsRow(loading:)`; only `_loggingOutLoading`
+      // drives the spinner, and it flips true only AFTER confirm. So
+      // nothing is ticking yet here — a real `pumpAndSettle` works again
+      // (stronger sync than the bounded pump it replaced).
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsOneWidget);
@@ -289,6 +295,9 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — see the identical note above:
+      // the spinner-driving flag no longer flips until AFTER confirm, so
+      // nothing is ticking here — a real `pumpAndSettle` works again.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-cancel')));
       await tester.pumpAndSettle();
@@ -315,11 +324,16 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — see the identical note above:
+      // the spinner-driving flag no longer flips until AFTER confirm, so
+      // nothing is ticking here — a real `pumpAndSettle` works again.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
       // Pump frames to drive the dialog's deterministic dismiss transition.
-      // We cannot pumpAndSettle because logout() blocks forever by design (the
-      // in-flight guard test fixture), so we advance just the pop animation.
+      // We cannot pumpAndSettle here — confirming flips `_loggingOutLoading`
+      // true immediately before `logout()`, which blocks forever by design
+      // (the in-flight guard test fixture) and keeps its spinner ticking —
+      // so we advance just the pop animation.
       await tester.pump(); // apply ctx.pop(true) + start logout()
       await tester.pump(const Duration(milliseconds: 300)); // dialog dismiss
 
@@ -361,6 +375,10 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
+        // mobile-perf MEDIUM fix (2026-09-08) — see the identical note
+        // above: the spinner-driving flag no longer flips until AFTER
+        // confirm, so nothing is ticking here — a real `pumpAndSettle`
+        // works again.
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
         await tester.pumpAndSettle();
@@ -398,13 +416,23 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
+        // mobile-perf MEDIUM fix (2026-09-08) — the spinner-driving flag
+        // (`_loggingOutLoading`) does not flip on this tap (only the
+        // re-entrancy guard `_loggingOut` does, and it is unbound), so
+        // nothing is ticking yet — a real `pumpAndSettle` works here.
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+        // From here `_loggingOutLoading` flips true immediately before
+        // `logout()`, which blocks forever by design (`_TrackingAuthNotifier`)
+        // and neither flag is reset on the (never-reached) success path —
+        // so every subsequent step in this test uses bounded pumps, never
+        // `pumpAndSettle`.
         await tester.pump(); // logout() now in flight (blocks forever)
 
         // Re-open + re-confirm: the inFlight guard must short-circuit.
         await tester.tap(find.byKey(const Key('row-logout')));
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
         if (find.byKey(const Key('btn-logout-confirm')).evaluate().isNotEmpty) {
           await tester.tap(find.byKey(const Key('btn-logout-confirm')));
           await tester.pump();
@@ -437,6 +465,9 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — see the identical note above:
+      // the spinner-driving flag no longer flips until AFTER confirm, so
+      // nothing is ticking here — a real `pumpAndSettle` works again.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
       await tester.pumpAndSettle();
@@ -515,6 +546,10 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
+        // mobile-perf MEDIUM fix (2026-09-08) — see the identical note
+        // above: the spinner-driving flag no longer flips until AFTER
+        // confirm, so nothing is ticking here — a real `pumpAndSettle`
+        // works again.
         await tester.pumpAndSettle();
 
         expect(

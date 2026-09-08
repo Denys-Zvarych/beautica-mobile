@@ -320,6 +320,9 @@ final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
     this.masterMeNotFound = false,
+    this.deleteMyAccountFailureStatusCode,
+    this.deleteMyAccountFailureMessage =
+        'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -1382,6 +1385,28 @@ final class FakeBackend {
   /// When set, `DELETE /api/v1/salons/salon-xyz` replies with this status and
   /// a failure envelope instead of succeeding.
   int? deleteSalonFailureStatusCode;
+
+  /// `DELETE /api/v1/users/me` call count — the CLIENT delete-account
+  /// endpoint (mobile-qa, 2026-09-08).
+  int deleteMyAccountCalls = 0;
+
+  /// When set (constructor-time — see [masterMeNotFound]'s identical note:
+  /// `DioAdapter.onRoute` fixes a route's STATUS CODE at registration, only
+  /// the BODY is resolved per request, and route wiring runs from THIS
+  /// constructor, so this cannot be a mutable field), `DELETE
+  /// /api/v1/users/me` replies with this status instead of the default 204.
+  /// 422 carries [deleteMyAccountFailureMessage] as the envelope's
+  /// `message` (surfaced verbatim via
+  /// `AccountDeleteBookingLimitFailure.serverMessage`); 429 carries no body
+  /// (the repository maps 429 by status code alone, before any body is
+  /// read — see `HttpUserRepository._mapDeleteAccountException`).
+  final int? deleteMyAccountFailureStatusCode;
+
+  /// The 422 envelope's `message` — a distinctive default so a flow that
+  /// asserts the message reached the UI verbatim actually proves the wire
+  /// round-trip, not a fallback string that would pass regardless.
+  /// CONSTRUCTOR-TIME, same reason as [deleteMyAccountFailureStatusCode].
+  final String deleteMyAccountFailureMessage;
 
   /// Phase 21.4 — `POST /api/v1/salons/{salonId}/invite` call count + the
   /// exact last decoded wire body (email/role), so a flow can assert the
@@ -5126,6 +5151,36 @@ final class FakeBackend {
         return _ok(_clientProfileBody());
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/users/me — CLIENT delete-account (mobile-qa,
+    // 2026-09-08). Same path string as the GET/PATCH handlers above,
+    // differentiated by method — `http_mock_adapter` already resolves that
+    // combination correctly for this exact path (GET + PATCH already share
+    // it). Default 204; [deleteMyAccountFailureStatusCode] forces 422 (body
+    // carries [deleteMyAccountFailureMessage] so `ValidationFailure
+    // .serverMessage` → `AccountDeleteBookingLimitFailure.serverMessage`
+    // round-trips through the REAL `ErrorMapperInterceptor`, not a
+    // hand-mapped stand-in) or 429 (no body needed — the repository maps 429
+    // by status code alone, before any body is read).
+    _adapter.onRoute(
+      '/api/v1/users/me',
+      (server) =>
+          server.replyCallback(deleteMyAccountFailureStatusCode ?? 204, (_) {
+            deleteMyAccountCalls++;
+            if (deleteMyAccountFailureStatusCode == 422) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': deleteMyAccountFailureMessage,
+              };
+            }
+            if (deleteMyAccountFailureStatusCode != null) {
+              return <String, dynamic>{'success': false, 'data': null};
+            }
+            return null;
+          }),
+      request: const Request(method: RequestMethods.delete),
     );
 
     // GET /api/v1/masters/me
