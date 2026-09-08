@@ -645,4 +645,194 @@ void main() {
       });
     });
   });
+
+  // =========================================================================
+  // canSelfDeleteAccountProvider (mobile-qa — staff/master delete-account
+  // widening audit, 2026-09-08) — the selector `SettingsScreen
+  // ._showDeleteAccountRow` ACTUALLY watches for the widened gate. Written
+  // because neither `isSalonOwnerProvider`'s nor `isClientProvider`'s
+  // copyWithPrevious hardening group covers this provider — it is a
+  // separate `@riverpod` function, not a reuse of either — and the
+  // widget-tier truth table in `settings_screen_delete_account_row_test
+  // .dart` only exercises unauthenticated / never-resolved-loading /
+  // salonOwner, never the settled-then-errored transition. Same idiom
+  // (`if (session.hasError) return false;` before `.value`), same hazard:
+  // a stale `Authenticated` value surviving a `copyWithPrevious`-carried
+  // `AsyncError` would leave a DESTRUCTIVE, IRREVERSIBLE action ("Видалити
+  // акаунт") visible for a session the app itself believes has failed.
+  //
+  // Test matrix:
+  //   1-4. Ordinary truth table — client / salonAdmin / salonMaster /
+  //        independentMaster → true.
+  //   5. salonOwner → false (server-side 403; already covered elsewhere,
+  //      repeated here for this provider directly).
+  //   6. Unauthenticated → false.
+  //   7. Never-resolved AsyncLoading (no prior value) → false.
+  //   8-10. Riverpod copyWithPrevious hardening (independentMaster — the
+  //      role this branch newly grants access to, not one already proven
+  //      by a pre-existing selector): settled-then-AsyncError → false (THE
+  //      ONE THAT MATTERS), AsyncLoading mid-retry (hasError true) →
+  //      false, non-error refresh → still true (preserved).
+  group('canSelfDeleteAccountProvider', () {
+    // -----------------------------------------------------------------------
+    // Tests 1-4 — ordinary truth table: every self-delete-eligible role
+    // → true.
+    // -----------------------------------------------------------------------
+    for (final UserRole role in <UserRole>[
+      UserRole.client,
+      UserRole.salonAdmin,
+      UserRole.salonMaster,
+      UserRole.independentMaster,
+    ]) {
+      test('${role.name} session → true', () async {
+        final container = _makeContainerFor(_AuthenticatedAs(_userWith(role)));
+        await container.read(authProvider.future);
+
+        expect(container.read(canSelfDeleteAccountProvider), isTrue);
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 5 — SALON_OWNER → false (excluded; owns a salon with staff
+    // beneath them; 403 server-side).
+    // -----------------------------------------------------------------------
+    test('SALON_OWNER session → false', () async {
+      final container = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+      );
+      await container.read(authProvider.future);
+
+      expect(container.read(canSelfDeleteAccountProvider), isFalse);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 6 — Unauthenticated → false
+    // -----------------------------------------------------------------------
+    test('unauthenticated session → false', () async {
+      final container = _makeContainer(
+        const AsyncData<AuthSession>(AuthSession.unauthenticated()),
+      );
+      await container.read(authProvider.future);
+
+      expect(container.read(canSelfDeleteAccountProvider), isFalse);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 7 — never-resolved AsyncLoading (no prior value) → false
+    // -----------------------------------------------------------------------
+    test(
+      'never-resolved AsyncLoading (no prior value) → false (fails closed)',
+      () async {
+        final container = _makeContainerFor(_LoadingForeverNotifier());
+        container.read(authProvider); // trigger build, do not await
+        await Future<void>.delayed(Duration.zero);
+
+        expect(container.read(canSelfDeleteAccountProvider), isFalse);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Tests 8-10 — Riverpod copyWithPrevious hardening, driven via
+    // independentMaster — the role this branch's widening newly grants
+    // access to.
+    // -----------------------------------------------------------------------
+    group('Riverpod copyWithPrevious hardening', () {
+      // Test 8 — THE ONE THAT MATTERS.
+      test(
+        'an Authenticated(independentMaster) session that TRANSITIONS to '
+        'AsyncError yields false — NOT the stale carried-forward role',
+        () async {
+          final notifier = _TransitionableAuthNotifier(
+            _userWith(UserRole.independentMaster),
+          );
+          final container = _makeContainerFor(notifier);
+          await container.read(authProvider.future);
+          // Sanity: the settled master session reads true BEFORE the
+          // transition — otherwise this test could pass for the wrong
+          // reason.
+          expect(container.read(canSelfDeleteAccountProvider), isTrue);
+
+          notifier.forceError(const NetworkFailure());
+          final AsyncValue<AuthSession> afterError = container.read(
+            authProvider,
+          );
+          // Prove the trap is real BEFORE asserting the fix: Riverpod's own
+          // copyWithPrevious carries the stale Authenticated value forward
+          // onto the AsyncError.
+          expect(afterError.hasError, isTrue);
+          expect(
+            afterError.value,
+            isNotNull,
+            reason:
+                'sanity: if .value were null here, '
+                'canSelfDeleteAccountProvider would read false for a '
+                'DIFFERENT reason (no stale value to leak) and this test '
+                'would not be pinning the actual bug',
+          );
+
+          expect(
+            container.read(canSelfDeleteAccountProvider),
+            isFalse,
+            reason:
+                'must fail closed on AsyncError even though .value still '
+                'reports the stale Authenticated(independentMaster) '
+                'session — otherwise a failed session would still see the '
+                'destructive, irreversible «Видалити акаунт» row',
+          );
+        },
+      );
+
+      // Test 9 — the AsyncLoading(retrying) shape.
+      test('AsyncLoading mid-retry (hasError true, runtime type AsyncLoading) '
+          'yields false (fails closed)', () async {
+        final notifier = _TransitionableAuthNotifier(
+          _userWith(UserRole.independentMaster),
+        );
+        final container = _makeContainerFor(notifier);
+        await container.read(authProvider.future);
+
+        notifier.forceError(const NetworkFailure());
+        notifier.forceLoading();
+        final AsyncValue<AuthSession> midRetry = container.read(authProvider);
+        // Pin the shape itself, not just the outcome —
+        // `project_asyncvalue_haserror_retrying_trap`: a test asserting
+        // only `hasError`/`error` cannot distinguish this from a terminal
+        // AsyncError.
+        expect(midRetry, isA<AsyncLoading<AuthSession>>());
+        expect(
+          midRetry.hasError,
+          isTrue,
+          reason:
+              'AsyncLoading(retrying) reports hasError == true even '
+              'though the runtime type is AsyncLoading, not AsyncError',
+        );
+
+        expect(container.read(canSelfDeleteAccountProvider), isFalse);
+      });
+
+      // Test 10 — the deliberately-preserved non-error refresh.
+      test('a non-error refresh (AsyncLoading with NO error) carrying a '
+          'prior Authenticated(independentMaster) forward still yields '
+          'true', () async {
+        final notifier = _TransitionableAuthNotifier(
+          _userWith(UserRole.independentMaster),
+        );
+        final container = _makeContainerFor(notifier);
+        await container.read(authProvider.future);
+
+        notifier.forceLoading();
+        final AsyncValue<AuthSession> refreshing = container.read(authProvider);
+        expect(refreshing.hasError, isFalse);
+
+        expect(
+          container.read(canSelfDeleteAccountProvider),
+          isTrue,
+          reason:
+              'a loading refresh with no error must not regress every '
+              'pre-promotion call site — none of them special-cased '
+              'isLoading',
+        );
+      });
+    });
+  });
 }

@@ -84,16 +84,24 @@
 // owner-as-master section.
 //
 // ── THE TRAILING TUNE ─────────────────────────────────────────────────────
-// Rendered VISIBLE BUT INERT (`enabled: false`): its destination, the Phase
-// 21.17 Admin Personal Settings screen, is unbuilt. The phase doc's
-// `context.push(RouteNames.adminSettings)` cannot be honoured yet — that
-// constant does not exist. This is deliberately NOT a route stub (dead weight
-// the router-shadowing tests would then have to police) and NOT a snackbar (a
-// fake acknowledgement); it is the identical treatment
-// `owner_own_profile_screen.dart` gives its own unbuilt Phase 21.15 target.
+// Points at [RouteNames.settings] (2026-09-08) — the shared «Акаунт» page
+// both master roles (INDEPENDENT_MASTER via the master menu,
+// SALON_MASTER via `salonMasterSettings` → the same `SettingsHubScreen` →
+// `row-account`) already reach, and where the (also 2026-09-08) widened
+// «Видалити акаунт» row now surfaces for SALON_ADMIN too. Pushed with NO
+// `extra` — this is a bare `context.push(RouteNames.settings)`, exactly
+// like the master menu's own `row-account` push, so `state.extra` resolves
+// to `null` at the route builder (`app_router.dart`) and `SettingsScreen`
+// falls through to its all-`false`/`null` defaults (no owner-only
+// delete-salon row; an admin isn't a salon owner regardless). The
+// dedicated Phase 21.17 Admin Personal Settings screen this control was
+// ORIGINALLY meant to open is still unbuilt — `RouteNames.adminSettings`
+// still does not exist — so this is a real but partial destination, not a
+// stand-in for the eventual richer screen.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -104,6 +112,7 @@ import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/shared/widgets/staff_identity_card.dart';
@@ -325,11 +334,10 @@ class _AdminOwnProfileScreenState extends ConsumerState<AdminOwnProfileScreen>
         key: const Key('btn-admin-own-profile-settings'),
         icon: Icons.tune_rounded,
         semanticLabel: l10n.adminOwnProfileSettingsSemanticLabel,
-        // Phase 21.17 is unbuilt — the control is present but inert. See the
-        // file header's THE TRAILING TUNE note for why this is neither a
-        // route stub nor a snackbar.
-        enabled: false,
-        onTap: () {},
+        // Opens the shared «Акаунт» page — see the file header's THE
+        // TRAILING TUNE note. Phase 21.17's dedicated Admin Personal
+        // Settings screen remains unbuilt.
+        onTap: () => context.push(RouteNames.settings),
       ),
       // Pull-to-refresh. `clientEditProfileProvider` is a keepAlive singleton,
       // so it is the invalidation target itself; the salon card follows from

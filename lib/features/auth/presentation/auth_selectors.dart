@@ -99,3 +99,36 @@ bool isClient(Ref ref) {
   final AuthSession? value = session.value;
   return value is Authenticated && value.user.role == UserRole.client;
 }
+
+/// Returns `true` only when the settled session is [Authenticated] with a
+/// role the backend allows to self-delete via `DELETE /api/v1/users/me`:
+/// [UserRole.client], [UserRole.salonAdmin], [UserRole.salonMaster], or
+/// [UserRole.independentMaster]. `false` for [UserRole.salonOwner] — an
+/// owner owns a salon with staff beneath them and is deliberately excluded
+/// server-side (403).
+///
+/// One capability selector rather than four separate `isX` watches at the
+/// call site: [SettingsScreen._showDeleteAccountRow] needs a single yes/no
+/// answer ("can THIS session self-delete"), not four role identities to OR
+/// together — folding the role list into the selector keeps that
+/// enumeration in one place (here) instead of duplicated at every call
+/// site, and matches [isSalonOwner] / [isClient] precedent of naming the
+/// selector after the QUESTION a call site actually asks. Sibling of
+/// [isSalonOwner] and [isClient] — same `hasError`-before-`.value` idiom,
+/// same fail-closed hardening against Riverpod 3.x's `copyWithPrevious`
+/// (see [isSalonOwner]'s doc for the full mechanism). [isClient] itself is
+/// left untouched, not repurposed — this is an additive sibling.
+@riverpod
+bool canSelfDeleteAccount(Ref ref) {
+  final AsyncValue<AuthSession> session = ref.watch(authProvider);
+  if (session.hasError) return false;
+  final AuthSession? value = session.value;
+  if (value is! Authenticated) return false;
+  return switch (value.user.role) {
+    UserRole.client ||
+    UserRole.salonAdmin ||
+    UserRole.salonMaster ||
+    UserRole.independentMaster => true,
+    UserRole.salonOwner => false,
+  };
+}
