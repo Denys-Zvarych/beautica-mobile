@@ -38,6 +38,15 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 /// [AccountDeleteBookingLimitFailure]) and leaves the caller on the current
 /// screen.
 ///
+/// [confirmBody] is additive: `null` (the default) keeps every pre-existing
+/// caller's copy — [l10n.deleteAccountConfirmBody] — verbatim. Widened
+/// (2026-09-08) so [SettingsScreen] can pass a role-aware variant: a
+/// SALON_MASTER / INDEPENDENT_MASTER's upcoming bookings belong to their
+/// CLIENTS, not to them, so the CLIENT-authored default ("your upcoming
+/// bookings will be cancelled") would be factually wrong for those roles —
+/// see `deleteAccountConfirmBodyMaster` / `deleteAccountConfirmBodyAdmin`
+/// in the ARB files and `SettingsScreen._deleteAccountConfirmBody`.
+///
 /// Two [ValueNotifier<bool>]s, owned by the calling widget, mirror
 /// [runLogoutFlow]'s own contract — they do two DIFFERENT jobs and must not
 /// be merged back into one flag:
@@ -67,6 +76,7 @@ Future<void> runDeleteAccountFlow(
   WidgetRef ref, {
   required ValueNotifier<bool> inFlight,
   required ValueNotifier<bool> loading,
+  String? confirmBody,
 }) async {
   if (inFlight.value) return;
   inFlight.value = true;
@@ -81,7 +91,10 @@ Future<void> runDeleteAccountFlow(
         borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.card)),
       ),
       title: Text(l10n.settingsHubDeleteAccount, style: VelvetText.heading()),
-      content: Text(l10n.deleteAccountConfirmBody, style: VelvetText.body()),
+      content: Text(
+        confirmBody ?? l10n.deleteAccountConfirmBody,
+        style: VelvetText.body(),
+      ),
       actions: <Widget>[
         TextButton(
           key: const Key('btn-delete-account-cancel'),

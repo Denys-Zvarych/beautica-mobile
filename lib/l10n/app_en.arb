@@ -2931,7 +2931,15 @@
   },
   "deleteAccountConfirmBody": "All your upcoming bookings will be cancelled. This action cannot be undone — you will permanently lose access and all your data in Beautica.",
   "@deleteAccountConfirmBody": {
-    "description": "Short body copy of the delete-account confirm dialog. Deliberately does NOT state a booking count (locked product decision) — just that upcoming bookings are cancelled, the action is irreversible, and the client loses all access and data."
+    "description": "Short body copy of the delete-account confirm dialog. Deliberately does NOT state a booking count (locked product decision) — just that upcoming bookings are cancelled, the action is irreversible, and the client loses all access and data. CLIENT ONLY — this role's own bookings are their own, so \"your upcoming bookings\" is accurate here. Do not reuse for SALON_MASTER / INDEPENDENT_MASTER, whose upcoming bookings belong to their CLIENTS, not to them — see deleteAccountConfirmBodyMaster."
+  },
+  "deleteAccountConfirmBodyMaster": "All your clients' upcoming appointments will be cancelled. This action cannot be undone — you will permanently lose access and all your data in Beautica.",
+  "@deleteAccountConfirmBodyMaster": {
+    "description": "Body copy of the delete-account confirm dialog for SALON_MASTER and INDEPENDENT_MASTER. A master's upcoming bookings are their CLIENTS' appointments, not their own — deleteAccountConfirmBody's \"your upcoming bookings\" is factually wrong for this role, so this variant says clients' appointments are cancelled instead. Keeps the irreversibility and data-loss sentences unchanged. Deliberately no booking count (same locked product decision as deleteAccountConfirmBody)."
+  },
+  "deleteAccountConfirmBodyAdmin": "This action cannot be undone — you will permanently lose access and all your data in Beautica.",
+  "@deleteAccountConfirmBodyAdmin": {
+    "description": "Body copy of the delete-account confirm dialog for SALON_ADMIN. An admin has no calendar of their own (D3) and performs no bookings, so — unlike deleteAccountConfirmBody (CLIENT) and deleteAccountConfirmBodyMaster (SALON_MASTER / INDEPENDENT_MASTER) — this variant drops the bookings-cancelled sentence entirely rather than stating something untrue; the backend's StaffAccountSelfDeletionService confirms an admin's self-delete never checks or cancels any booking. Keeps only the irreversibility and data-loss sentences."
   },
   "contactSupportTitle": "Contact us",
   "@contactSupportTitle": {

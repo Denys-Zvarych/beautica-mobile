@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -369,49 +370,50 @@ void main() {
       expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsNothing);
     });
 
-    testWidgets('professionalTitle is omitted when unset; stand-alone keeps a '
-        'back affordance; the tune renders but is inert', (tester) async {
-      await tester.pumpApp(
-        const AdminOwnProfileScreen(),
-        overrides: _overrides(_admin.copyWith(professionalTitle: null)),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'professionalTitle is omitted when unset; stand-alone keeps a back '
+      'affordance; the tune renders ENABLED — 2026-09-08, it now opens the '
+      'shared Account page rather than sitting inert',
+      (tester) async {
+        await tester.pumpApp(
+          const AdminOwnProfileScreen(),
+          overrides: _overrides(_admin.copyWith(professionalTitle: null)),
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('admin-own-profile-professional-title')),
-        findsNothing,
-      );
-      // …but the chip that the title supplements is still there. Without this
-      // the assertion above would also pass on a card that rendered nothing.
-      expect(
-        find.byKey(const Key('admin-own-profile-role-chip')),
-        findsOneWidget,
-      );
+        expect(
+          find.byKey(const Key('admin-own-profile-professional-title')),
+          findsNothing,
+        );
+        // …but the chip that the title supplements is still there. Without
+        // this the assertion above would also pass on a card that rendered
+        // nothing.
+        expect(
+          find.byKey(const Key('admin-own-profile-role-chip')),
+          findsOneWidget,
+        );
 
-      final tune = find.byKey(const Key('btn-admin-own-profile-settings'));
-      expect(tune, findsOneWidget);
-      expect(
-        tester
-            .widget<Opacity>(
-              find.descendant(of: tune, matching: find.byType(Opacity)),
-            )
-            .opacity,
-        0.6,
-        reason:
-            'Phase 21.17 is unbuilt, so the control is present but dimmed — '
-            'neither a route stub nor a fake snackbar acknowledgement.',
-      );
-      expect(
-        tester
-            .widget<AbsorbPointer>(
-              find.descendant(of: tune, matching: find.byType(AbsorbPointer)),
-            )
-            .absorbing,
-        isTrue,
-      );
+        final tune = find.byKey(const Key('btn-admin-own-profile-settings'));
+        expect(tune, findsOneWidget);
+        // Enabled (2026-09-08): NeumorphicIconButton's `enabled` default is
+        // `true`, which is additive-by-omission — no Opacity/AbsorbPointer
+        // wrapper at all (see `neumorphic.dart`'s own doc on that branch), so
+        // the absence of both is the enabled signal, not a 1.0 opacity value.
+        expect(
+          find.descendant(of: tune, matching: find.byType(Opacity)),
+          findsNothing,
+          reason:
+              'the dimmed-and-absorbed treatment was Phase 21.17\'s '
+              'inert-stub styling; the button is a real, tappable action now.',
+        );
+        expect(
+          find.descendant(of: tune, matching: find.byType(AbsorbPointer)),
+          findsNothing,
+        );
 
-      expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsOneWidget);
-    });
+        expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsOneWidget);
+      },
+    );
 
     testWidgets('no phone on file — the whole «Контакти» section is absent, '
         'not an em-dash tile', (tester) async {
@@ -1220,6 +1222,31 @@ void main() {
             'the shell tab it must keep a way back.',
       );
     });
+
+    testWidgets(
+      'the tune button pushes the shared Account page (RouteNames.settings) '
+      '— 2026-09-08, replacing the unbuilt Phase 21.17 inert stub',
+      (tester) async {
+        final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+
+        router.go(RouteNames.adminOwnProfile);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('btn-admin-own-profile-settings')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(SettingsScreen),
+          findsOneWidget,
+          reason:
+              'a bare context.push(RouteNames.settings), no `extra` — the '
+              'same shape the master menu\'s own row-account push already '
+              'uses — must resolve to the Account page.',
+        );
+      },
+    );
 
     testWidgets('a SALON_OWNER is BOUNCED — this is the ADMIN profile, and the '
         'owner has one of their own', (tester) async {

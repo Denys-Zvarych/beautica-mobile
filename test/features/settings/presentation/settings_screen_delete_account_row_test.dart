@@ -1,21 +1,28 @@
-// Widget tests for the CLIENT-only «Видалити акаунт» row on the Account page
+// Widget tests for the «Видалити акаунт» row on the Account page
 // (SettingsScreen) — relocated here (2026-09-08) from the CLIENT settings hub
 // (`client_settings_hub_screen_test.dart`), which was the wrong screen: that
 // hub's title is «Налаштування», while THIS page's title (`accountTitle`) is
 // «Акаунт» — the screen the row was always meant to sit on.
 //
+// Widened (2026-09-08, same day) from CLIENT-only to CLIENT / SALON_ADMIN /
+// SALON_MASTER / INDEPENDENT_MASTER, matching the backend's own
+// `@PreAuthorize` role list on `DELETE /api/v1/users/me` — SALON_OWNER stays
+// excluded (403 server-side; an owner owns a salon with staff beneath them).
+//
 // Two groups:
 //   • role-gate truth table — mirrors
 //     `settings_screen_delete_salon_row_test.dart`'s own truth-table shape
-//     for `_showDeleteSalonRow`, one conjunct swapped: CLIENT session ⇒ row
-//     renders; every other role (or unauthenticated / unsettled session) ⇒
-//     hidden. `DELETE /api/v1/users/me` is CLIENT-only server-side (403 for
-//     every other role) — see `_showDeleteAccountRow`'s doc in
-//     `settings_screen.dart`.
+//     for `_showDeleteSalonRow`: CLIENT / SALON_ADMIN / SALON_MASTER /
+//     INDEPENDENT_MASTER sessions ⇒ row renders; SALON_OWNER (or an
+//     unauthenticated / unsettled session) ⇒ hidden. See
+//     `_showDeleteAccountRow`'s doc in `settings_screen.dart` and
+//     `canSelfDeleteAccountProvider` in `auth_selectors.dart`.
 //   • interaction flow — the full confirm/cancel/dismiss/spinner/double-tap/
 //     failure suite, moved verbatim (only the pumped widget + router changed)
 //     from the hub's now-removed `ClientSettingsHubScreen delete-account row`
-//     group. [runDeleteAccountFlow] itself is untouched.
+//     group. [runDeleteAccountFlow] itself is untouched structurally; a
+//     second interaction group below covers the role-aware `confirmBody` it
+//     now receives for a master session.
 //
 // Finders use widget Keys — never localized strings (M2), except where the
 // existing hub tests already asserted on localized dialog copy (kept as-is).
@@ -100,31 +107,14 @@ Finder get _dividerFinder =>
     find.byKey(const Key('account-settings-delete-account-divider'));
 
 void main() {
-  group('SettingsScreen — CLIENT-only delete-account row truth table', () {
-    testWidgets('CLIENT session → row AND divider render', (tester) async {
-      await tester.pumpApp(
-        const SettingsScreen(),
-        overrides: [
-          authProvider.overrideWith(
-            () => _AuthenticatedAs(_userWith(UserRole.client)),
-          ),
-          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        ],
-      );
-      await tester.pumpAndSettle();
-
-      expect(_rowFinder, findsOneWidget);
-      expect(_dividerFinder, findsOneWidget);
-    });
-
+  group('SettingsScreen — delete-account row role-gate truth table', () {
     for (final role in [
-      UserRole.salonOwner,
+      UserRole.client,
       UserRole.salonAdmin,
       UserRole.salonMaster,
       UserRole.independentMaster,
     ]) {
-      testWidgets('${role.name} session → row AND divider hidden', (
+      testWidgets('${role.name} session → row AND divider render', (
         tester,
       ) async {
         await tester.pumpApp(
@@ -137,10 +127,27 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(_rowFinder, findsNothing);
-        expect(_dividerFinder, findsNothing);
+        expect(_rowFinder, findsOneWidget);
+        expect(_dividerFinder, findsOneWidget);
       });
     }
+
+    testWidgets('salonOwner session → row AND divider hidden', (tester) async {
+      await tester.pumpApp(
+        const SettingsScreen(),
+        overrides: [
+          authProvider.overrideWith(
+            () => _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          ),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(_rowFinder, findsNothing);
+      expect(_dividerFinder, findsNothing);
+    });
 
     testWidgets('Unauthenticated session → row AND divider hidden', (
       tester,
@@ -554,6 +561,110 @@ void main() {
         1,
         reason: 'only the first tap should have reached the network',
       );
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  group('SettingsScreen delete-account row — role-aware confirm copy', () {
+    GoRouter router() => GoRouter(
+      initialLocation: RouteNames.settings,
+      redirect: (context, state) => null,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.settings,
+          builder: (_, _) => const SettingsScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.login,
+          builder: (_, _) =>
+              const Scaffold(body: SizedBox(key: Key('stub-login'))),
+        ),
+      ],
+    );
+
+    Future<void> pumpAs(WidgetTester tester, UserRole role) async {
+      final r = router();
+      addTearDown(r.dispose);
+      await tester.pumpRoutedApp(
+        r,
+        overrides: <Object>[
+          authProvider.overrideWith(() => _AuthenticatedAs(_userWith(role))),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'INDEPENDENT_MASTER sees the master variant, not the client string',
+      (tester) async {
+        await pumpAs(tester, UserRole.independentMaster);
+
+        await tester.ensureVisible(_rowFinder);
+        await tester.pumpAndSettle();
+        await tester.tap(_rowFinder);
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(find.text(l10n.deleteAccountConfirmBodyMaster), findsOneWidget);
+        expect(find.text(l10n.deleteAccountConfirmBody), findsNothing);
+
+        await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets('SALON_MASTER sees the master variant, not the client string', (
+      tester,
+    ) async {
+      await pumpAs(tester, UserRole.salonMaster);
+
+      await tester.ensureVisible(_rowFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(_rowFinder);
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteAccountConfirmBodyMaster), findsOneWidget);
+      expect(find.text(l10n.deleteAccountConfirmBody), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('SALON_ADMIN sees the admin variant — no bookings sentence, no '
+        "master or client copy", (tester) async {
+      await pumpAs(tester, UserRole.salonAdmin);
+
+      await tester.ensureVisible(_rowFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(_rowFinder);
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteAccountConfirmBodyAdmin), findsOneWidget);
+      expect(find.text(l10n.deleteAccountConfirmBody), findsNothing);
+      expect(find.text(l10n.deleteAccountConfirmBodyMaster), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('CLIENT still sees the original, unchanged string', (
+      tester,
+    ) async {
+      await pumpAs(tester, UserRole.client);
+
+      await tester.ensureVisible(_rowFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(_rowFinder);
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteAccountConfirmBody), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
       await tester.pumpAndSettle();
