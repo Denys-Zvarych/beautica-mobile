@@ -41,6 +41,12 @@
 //         behaviour is deliberately preserved (every pre-promotion call
 //         site never special-cased `isLoading`), so #14/#15's hardening
 //         must not regress it.
+//   isClientProvider (mobile-security LOW — regression-coverage asymmetry,
+//   relocated delete-account row audit 2026-09-08) — byte-for-byte sibling
+//   of isSalonOwnerProvider's group, one role swapped; same 10-test shape
+//   (truth table, unauthenticated, unsettled AsyncLoading, and the three
+//   copyWithPrevious hardening cases). See the `isClientProvider` group
+//   below for details.
 //
 // Tests 14-16 do NOT call the `@internal` `AsyncValue.copyWithPrevious`
 // directly (that API is package-internal and would trip
@@ -458,6 +464,178 @@ void main() {
 
         expect(
           container.read(isSalonOwnerProvider),
+          isTrue,
+          reason:
+              'a loading refresh with no error must not regress every '
+              'pre-promotion call site — none of them special-cased '
+              'isLoading',
+        );
+      });
+    });
+  });
+
+  // =========================================================================
+  // isClientProvider (mobile-security LOW — regression-coverage asymmetry,
+  // relocated delete-account row audit 2026-09-08) — byte-for-byte sibling
+  // of isSalonOwnerProvider above: same hardened idiom
+  // (`if (session.hasError) return false;` before reading `.value`), one
+  // role swapped. Mirrors that group's test matrix exactly:
+  //   1. CLIENT session → true
+  //   2-5. every other role (salonOwner/salonAdmin/salonMaster/
+  //        independentMaster) → false
+  //   6. Unauthenticated → false
+  //   7. Never-resolved AsyncLoading (no prior value) → false
+  //   8. THE ONE THAT MATTERS — an Authenticated(client) session that
+  //      TRANSITIONS to AsyncError → false, NOT the stale carried-forward
+  //      role (real `state = AsyncError(...)` transition, same mechanism as
+  //      isSalonOwnerProvider's test 14 above — not a simulation).
+  //   9. AsyncLoading mid-retry (hasError true, runtime type AsyncLoading)
+  //      → false.
+  //   10. Non-error refresh (AsyncLoading with no error) carrying a prior
+  //       Authenticated(client) forward → still true (preserved, not
+  //       regressed by the hardening).
+  // =========================================================================
+
+  group('isClientProvider', () {
+    // -----------------------------------------------------------------------
+    // Test 1 — ordinary truth table: CLIENT → true
+    // -----------------------------------------------------------------------
+    test('CLIENT session → true', () async {
+      final container = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.client)),
+      );
+      await container.read(authProvider.future);
+
+      expect(container.read(isClientProvider), isTrue);
+    });
+
+    // -----------------------------------------------------------------------
+    // Tests 2-5 — ordinary truth table: every other role → false
+    // -----------------------------------------------------------------------
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+      UserRole.salonMaster,
+      UserRole.independentMaster,
+    ]) {
+      test('${role.name} session → false', () async {
+        final container = _makeContainerFor(_AuthenticatedAs(_userWith(role)));
+        await container.read(authProvider.future);
+
+        expect(container.read(isClientProvider), isFalse);
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 6 — Unauthenticated → false
+    // -----------------------------------------------------------------------
+    test('unauthenticated session → false', () async {
+      final container = _makeContainer(
+        const AsyncData<AuthSession>(AuthSession.unauthenticated()),
+      );
+      await container.read(authProvider.future);
+
+      expect(container.read(isClientProvider), isFalse);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 7 — never-resolved AsyncLoading (no prior value) → false
+    // -----------------------------------------------------------------------
+    test(
+      'never-resolved AsyncLoading (no prior value) → false (fails closed)',
+      () async {
+        final container = _makeContainerFor(_LoadingForeverNotifier());
+        container.read(authProvider); // trigger build, do not await
+        await Future<void>.delayed(Duration.zero);
+
+        expect(container.read(isClientProvider), isFalse);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Tests 8-10 — Riverpod copyWithPrevious hardening.
+    // -----------------------------------------------------------------------
+    group('Riverpod copyWithPrevious hardening', () {
+      // Test 8 — THE ONE THAT MATTERS.
+      test('an Authenticated(client) session that TRANSITIONS to AsyncError '
+          'yields false — NOT the stale carried-forward role', () async {
+        final notifier = _TransitionableAuthNotifier(
+          _userWith(UserRole.client),
+        );
+        final container = _makeContainerFor(notifier);
+        await container.read(authProvider.future);
+        // Sanity: the settled client session reads true BEFORE the
+        // transition — otherwise this test could pass for the wrong
+        // reason.
+        expect(container.read(isClientProvider), isTrue);
+
+        notifier.forceError(const NetworkFailure());
+        final AsyncValue<AuthSession> afterError = container.read(authProvider);
+        // Prove the trap is real BEFORE asserting the fix: Riverpod's own
+        // copyWithPrevious carries the stale Authenticated value forward
+        // onto the AsyncError.
+        expect(afterError.hasError, isTrue);
+        expect(
+          afterError.value,
+          isNotNull,
+          reason:
+              'sanity: if .value were null here, isClientProvider would '
+              'read false for a DIFFERENT reason (no stale value to leak) '
+              'and this test would not be pinning the actual bug',
+        );
+
+        expect(
+          container.read(isClientProvider),
+          isFalse,
+          reason:
+              'must fail closed on AsyncError even though .value still '
+              'reports the stale Authenticated(client) session',
+        );
+      });
+
+      // Test 9 — the AsyncLoading(retrying) shape.
+      test('AsyncLoading mid-retry (hasError true, runtime type AsyncLoading) '
+          'yields false (fails closed)', () async {
+        final notifier = _TransitionableAuthNotifier(
+          _userWith(UserRole.client),
+        );
+        final container = _makeContainerFor(notifier);
+        await container.read(authProvider.future);
+
+        notifier.forceError(const NetworkFailure());
+        notifier.forceLoading();
+        final AsyncValue<AuthSession> midRetry = container.read(authProvider);
+        // Pin the shape itself, not just the outcome — see
+        // `project_asyncvalue_haserror_retrying_trap`: a test asserting
+        // only `hasError`/`error` cannot distinguish this from a terminal
+        // AsyncError.
+        expect(midRetry, isA<AsyncLoading<AuthSession>>());
+        expect(
+          midRetry.hasError,
+          isTrue,
+          reason:
+              'AsyncLoading(retrying) reports hasError == true even '
+              'though the runtime type is AsyncLoading, not AsyncError',
+        );
+
+        expect(container.read(isClientProvider), isFalse);
+      });
+
+      // Test 10 — the deliberately-preserved non-error refresh.
+      test('a non-error refresh (AsyncLoading with NO error) carrying a prior '
+          'Authenticated(client) forward still yields true', () async {
+        final notifier = _TransitionableAuthNotifier(
+          _userWith(UserRole.client),
+        );
+        final container = _makeContainerFor(notifier);
+        await container.read(authProvider.future);
+
+        notifier.forceLoading();
+        final AsyncValue<AuthSession> refreshing = container.read(authProvider);
+        expect(refreshing.hasError, isFalse);
+
+        expect(
+          container.read(isClientProvider),
           isTrue,
           reason:
               'a loading refresh with no error must not regress every '

@@ -1,37 +1,37 @@
 // Widget test for `runDeleteAccountFlow`
 // (`lib/features/settings/presentation/delete_account_flow.dart`) covering
-// the ONE branch that cannot be exercised through the real
-// `ClientSettingsHubScreen`.
+// the ONE branch that cannot be exercised through the real caller screen.
 //
 // WHY THIS FILE IS DELIBERATELY THIN
 // -----------------------------------
-// `runDeleteAccountFlow` has exactly ONE production call site
-// (`client_settings_hub_screen.dart` — verified via
-// `grep -a -rln "runDeleteAccountFlow" lib/`, unlike `runDeleteSalonFlow`'s
-// two entry points). `client_settings_hub_screen_test.dart`'s
-// "ClientSettingsHubScreen delete-account row" group already drives the flow
-// through that real caller and covers: row position, the no-digit dialog
-// copy (locked product decision), cancel / barrier-tap / OS-back all
-// resetting `inFlight`, a successful confirm calling `deleteMyAccount()`
-// once + tearing auth down + landing on `/login`, the spinner being
-// post-consent only, the double-tap guard, the 422/429 failure surfaces, and
-// both flags resetting on failure. Re-deriving all of that against a second,
-// synthetic harness here would be pure duplication (REUSE-FIRST /
-// Step 2.7 Rule 2 — scope proportional to the change), not new coverage.
+// `runDeleteAccountFlow` has exactly ONE production call site — the
+// «Акаунт» page, `SettingsScreen`
+// (`lib/features/settings/presentation/settings_screen.dart`; relocated
+// there 2026-09-08 from `ClientSettingsHubScreen`, which was the wrong
+// screen — verified via `grep -a -rln "runDeleteAccountFlow" lib/`, unlike
+// `runDeleteSalonFlow`'s two entry points).
+// `settings_screen_delete_account_row_test.dart`'s "SettingsScreen
+// delete-account row interaction" group already drives the flow through
+// that real caller and covers: row position, the no-digit dialog copy
+// (locked product decision), cancel / barrier-tap / OS-back all resetting
+// `inFlight`, a successful confirm calling `deleteMyAccount()` once +
+// tearing auth down + landing on `/login`, the spinner being post-consent
+// only, the double-tap guard, the 422/429 failure surfaces, and both flags
+// resetting on failure. Re-deriving all of that against a second, synthetic
+// harness here would be pure duplication (REUSE-FIRST / Step 2.7 Rule 2 —
+// scope proportional to the change), not new coverage.
 //
 // What THIS file proves instead: the caller-unmounted-WHILE-the-DELETE-call-
 // is-still-in-flight path (`delete_account_flow.dart`, the
 // `if (!context.mounted) return;` immediately after the
 // `deleteMyAccount()` await succeeds). That branch needs a harness because
 // it requires unmounting the CALLER widget at a precise mid-await point —
-// nothing in the real hub screen navigates itself away while its own
+// nothing in the real `SettingsScreen` navigates itself away while its own
 // delete-account row is mid-flight in a way this suite can drive
-// deterministically (the sibling rows sit under an `IgnorePointer` while
-// loading; only the hub's own close affordance sits outside it, and driving
-// that race through the full hub adds machinery without adding assurance
-// over the isolated version here). Mirrors
-// `delete_salon_flow_test.dart`'s "invalidation survives caller unmount"
-// test's proven technique for the equivalent salon-delete branch.
+// deterministically, and driving that race through the full screen adds
+// machinery without adding assurance over the isolated version here.
+// Mirrors `delete_salon_flow_test.dart`'s "invalidation survives caller
+// unmount" test's proven technique for the equivalent salon-delete branch.
 //
 // Finders use widget Keys — never Cyrillic literals (M2).
 // Layer: Widget.
@@ -131,8 +131,9 @@ void main() {
     'the inFlight guard alone blocks a second invocation issued before the '
     'first showDialog await returns',
     (tester) async {
-      // `client_settings_hub_screen_test.dart`'s own "double-tap guard" test
-      // proves two rapid ROW TAPS yield one `deleteMyAccount()` call, but a
+      // `settings_screen_delete_account_row_test.dart`'s own "double-tap
+      // guard" test proves two rapid ROW TAPS yield one `deleteMyAccount()`
+      // call, but a
       // mutation probe there (removing `inFlight.value = true;` entirely)
       // stayed GREEN — the row's OWN `loading`-driven `AbsorbPointer`
       // (`SettingsRow`) already blocks the second tap by itself once

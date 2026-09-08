@@ -3,22 +3,29 @@
 //
 // WHY THIS FILE EXISTS
 // ---------------------
-// The `row-delete-account` row (`ClientSettingsHubScreen`, below
-// `row-logout`) and its confirm→delete→teardown flow
+// The `row-delete-account` row and its confirm→delete→teardown flow
 // (`runDeleteAccountFlow`, `delete_account_flow.dart`) were wired into the
-// CLIENT settings hub with ZERO test coverage anywhere in the suite — this
-// closes that gap end-to-end, against a real `DELETE /api/v1/users/me`
-// round trip through the fake backend (not a mocked repository — see the
-// widget-level coverage in `client_settings_hub_screen_test.dart` and
+// «Акаунт» page (`SettingsScreen`) with ZERO test coverage anywhere in the
+// suite — this closes that gap end-to-end, against a real
+// `DELETE /api/v1/users/me` round trip through the fake backend (not a
+// mocked repository — see the widget-level coverage in
+// `settings_screen_delete_account_row_test.dart` and
 // `delete_account_flow_test.dart` for that).
+//
+// Relocation (2026-09-08): the row used to sit on `ClientSettingsHubScreen`
+// (`/client/menu`, title «Налаштування»); it moved to `SettingsScreen`
+// (`/settings`, title «Акаунт» — `l10n.accountTitle`), reached by tapping
+// that hub's OWN `row-account`. The navigation path this file drives
+// changed accordingly: Account tab → «Акаунт» row → delete row.
 //
 // WHAT THIS FLOW PROVES (the gate)
 // ---------------------------------
 //   1. Login as CLIENT → land on /client/home → open the burger →
-//      /client/menu renders the real ClientSettingsHubScreen — same
-//      preamble as `client_logout_flow_test.dart`.
+//      /client/menu renders the real ClientSettingsHubScreen → tap
+//      `row-account` → /settings renders the real SettingsScreen — same
+//      hub preamble as `client_logout_flow_test.dart`, one hop further.
 //   2. CANCEL path: open the delete-account row → cancel → dialog
-//      dismisses, stays on /client/menu, DELETE /api/v1/users/me is NEVER
+//      dismisses, stays on /settings, DELETE /api/v1/users/me is NEVER
 //      called, the refresh token survives.
 //   3. CONFIRM path (success): DELETE /api/v1/users/me fires exactly once,
 //      POST /auth/logout fires (delete-account reuses runLogoutFlow's own
@@ -30,7 +37,7 @@
 //      router guard, with storage still empty.
 //   4. FAILURE path (422 booking-limit): DELETE /api/v1/users/me fires,
 //      the backend's own message renders verbatim in the error VelvetSnack,
-//      the app stays on /client/menu (no navigation, no teardown), and the
+//      the app stays on /settings (no navigation, no teardown), and the
 //      row is usable again (a second attempt raises the dialog once more).
 //
 // NATIVE TIER: NONE NEEDED. Pure in-app Flutter widgets + HTTP + secure
@@ -49,6 +56,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/client_settings_hub_screen.dart';
+import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -96,6 +104,31 @@ void main() {
     return router;
   }
 
+  /// Opens the CLIENT settings hub (see [openClientHub]), then taps its own
+  /// `row-account` to land on the «Акаунт» page (`SettingsScreen`,
+  /// `RouteNames.settings`) — the delete-account row's real home since the
+  /// 2026-09-08 relocation off the hub.
+  Future<GoRouter> openClientAccountPage(
+    WidgetTester tester,
+    FakeBackend fb,
+    FakeSecureStorage storage,
+  ) async {
+    final GoRouter router = await openClientHub(tester, fb, storage);
+
+    await tester.ensureVisible(find.byKey(const Key('row-account')));
+    await tester.tap(find.byKey(const Key('row-account')));
+    // fixed-wait-ok: integration test, real async (route push); bounded pumpAndSettle is the recommended real-async settle.
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    AppHarness.expectLocation(router, RouteNames.settings);
+    expect(
+      find.byType(SettingsScreen),
+      findsOneWidget,
+      reason: 'row-account must push the «Акаунт» page (SettingsScreen)',
+    );
+    return router;
+  }
+
   /// Scrolls the delete-account row into view and taps it to raise the
   /// confirm dialog.
   Future<void> openDeleteAccountDialog(WidgetTester tester) async {
@@ -114,12 +147,12 @@ void main() {
   // ── Test 1 — CANCEL keeps the account (no wipe, no nav, no DELETE) ──────
 
   testWidgets('CLIENT delete-account CANCEL → dialog dismisses, stays on '
-      '/client/menu, DELETE /api/v1/users/me never fires, the refresh token '
+      '/settings, DELETE /api/v1/users/me never fires, the refresh token '
       'survives', (tester) async {
     final fb = FakeBackend()..currentRole = UserRole.client;
     final storage = FakeSecureStorage();
 
-    final router = await openClientHub(tester, fb, storage);
+    final router = await openClientAccountPage(tester, fb, storage);
 
     expect(
       await storage.readRefreshToken(),
@@ -133,8 +166,8 @@ void main() {
     await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
     await tester.pumpAndSettle();
 
-    AppHarness.expectLocation(router, RouteNames.clientMenu);
-    expect(find.byType(ClientSettingsHubScreen), findsOneWidget);
+    AppHarness.expectLocation(router, RouteNames.settings);
+    expect(find.byType(SettingsScreen), findsOneWidget);
     expect(fb.deleteMyAccountCalls, equals(deleteCallsBefore));
     expect(
       await storage.readRefreshToken(),
@@ -152,7 +185,7 @@ void main() {
     final fb = FakeBackend()..currentRole = UserRole.client;
     final storage = FakeSecureStorage();
 
-    final router = await openClientHub(tester, fb, storage);
+    final router = await openClientAccountPage(tester, fb, storage);
 
     expect(
       await storage.readRefreshToken(),
@@ -169,7 +202,7 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     // 1) Landed on /login — if the call had thrown, context.go(login)
-    //    would never run and we'd still be on /client/menu.
+    //    would never run and we'd still be on /settings.
     AppHarness.expectLocation(router, RouteNames.login);
     expect(
       find.byKey(const ValueKey<String>('login_email')),
@@ -227,7 +260,7 @@ void main() {
 
   testWidgets(
     'CLIENT delete-account 422 (too many upcoming bookings) → the backend '
-    'message renders verbatim, stays on /client/menu, and the row is '
+    'message renders verbatim, stays on /settings, and the row is '
     'usable again',
     (tester) async {
       const String marker =
@@ -243,7 +276,7 @@ void main() {
       )..currentRole = UserRole.client;
       final storage = FakeSecureStorage();
 
-      final router = await openClientHub(tester, fb, storage);
+      final router = await openClientAccountPage(tester, fb, storage);
 
       final int logoutCallsBefore = fb.logoutCalls;
 
@@ -263,8 +296,8 @@ void main() {
       );
 
       // Stayed put — no teardown, no navigation.
-      AppHarness.expectLocation(router, RouteNames.clientMenu);
-      expect(find.byType(ClientSettingsHubScreen), findsOneWidget);
+      AppHarness.expectLocation(router, RouteNames.settings);
+      expect(find.byType(SettingsScreen), findsOneWidget);
       expect(
         fb.logoutCalls,
         equals(logoutCallsBefore),

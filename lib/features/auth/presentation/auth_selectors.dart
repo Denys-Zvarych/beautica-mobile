@@ -81,3 +81,21 @@ bool isSalonOwner(Ref ref) {
   final AuthSession? value = session.value;
   return value is Authenticated && value.user.role == UserRole.salonOwner;
 }
+
+/// Returns `true` only when the settled session is [Authenticated] with
+/// `role == UserRole.client`.
+///
+/// Sibling of [isSalonOwner] — same idiom, same hardening, one role swapped.
+/// Added for the CLIENT-only «Видалити акаунт» row on [SettingsScreen]
+/// (`DELETE /api/v1/users/me` is CLIENT-only server-side; every other role
+/// gets a 403). See [isSalonOwner]'s doc for why `hasError` is checked
+/// before `.value` — the same `copyWithPrevious`-staleness hazard applies
+/// here: gating a destructive, irreversible action must fail closed on an
+/// `AsyncError`, never fall back to a stale settled role.
+@riverpod
+bool isClient(Ref ref) {
+  final AsyncValue<AuthSession> session = ref.watch(authProvider);
+  if (session.hasError) return false;
+  final AuthSession? value = session.value;
+  return value is Authenticated && value.user.role == UserRole.client;
+}
