@@ -85,8 +85,14 @@ class SalonSettingsScreen extends ConsumerStatefulWidget {
 
 class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
     with SingleTickerProviderStateMixin {
-  // Logout double-tap guard, shared with [runLogoutFlow].
+  // Logout re-entrancy guard, shared with [runLogoutFlow]. Never bound to a
+  // widget — see `logout_action.dart`'s flag-lifetime doc.
   final ValueNotifier<bool> _loggingOut = ValueNotifier<bool>(false);
+  // Logout UI-visible loading flag, required by [runLogoutFlow]'s signature.
+  // This screen's «Вийти» row does not bind `SettingsRow(loading:)` (no
+  // current call site did before this fix either) — kept unbound here, same
+  // as before.
+  final ValueNotifier<bool> _loggingOutLoading = ValueNotifier<bool>(false);
 
   late final AnimationController _controller;
   late final CurvedAnimation _animContext; // salon logo + name subheading
@@ -149,6 +155,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
     _animLogout.dispose();
     _controller.dispose();
     _loggingOut.dispose();
+    _loggingOutLoading.dispose();
     super.dispose();
   }
 
@@ -321,7 +328,12 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
               label: l10n.logout,
               destructive: true,
               showChevron: false,
-              onTap: () => runLogoutFlow(context, ref, _loggingOut),
+              onTap: () => runLogoutFlow(
+                context,
+                ref,
+                inFlight: _loggingOut,
+                loading: _loggingOutLoading,
+              ),
             ),
           ),
         ],

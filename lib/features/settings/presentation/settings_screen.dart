@@ -18,6 +18,22 @@
 // (`features/salon/presentation/delete_salon_flow.dart`), the same function
 // `SalonSettingsScreen` (Phase 21.2) was rewired onto in this same change.
 //
+// Relocation (2026-09-08) — CLIENT-only «Видалити акаунт» row, at the very
+// bottom, below the delete-salon block. It used to sit on the CLIENT
+// settings HUB (`client_settings_hub_screen.dart`), which was the wrong
+// screen — that hub's own title is «Налаштування»; THIS page (`accountTitle`
+// = «Акаунт») is the «Акаунт» screen the row belongs on. `DELETE
+// /api/v1/users/me` is CLIENT-only server-side (403 for every other role),
+// and this screen is shared across roles (reached by CLIENT via the hub's
+// row-account, and by INDEPENDENT_MASTER via the master menu), so the row is
+// gated behind [_showDeleteAccountRow] — the [isClientProvider] sibling of
+// [isSalonOwnerProvider] above, same hardened idiom. REUSE-FIRST: the flow
+// itself is untouched — [runDeleteAccountFlow]
+// (`features/settings/presentation/delete_account_flow.dart`), moved here
+// verbatim from the hub along with its two-`ValueNotifier` flag pair
+// (`inFlight` / `loading` — see that file's header doc for why they are NOT
+// merged into one).
+//
 // Security: screenshot protection acquired via the app-wide
 // ScreenProtectionManager (ref-counted; active in non-debug builds).
 //
@@ -41,6 +57,7 @@ import '../../../features/auth/presentation/auth_selectors.dart';
 import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../features/salon/presentation/delete_salon_flow.dart';
+import '../../../features/settings/presentation/delete_account_flow.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
@@ -75,6 +92,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   late final CurvedAnimation _anim3; // change password
   late final CurvedAnimation _anim4; // delete-salon divider (Phase 21.13)
   late final CurvedAnimation _anim5; // delete-salon row (Phase 21.13)
+  late final CurvedAnimation _anim6; // delete-account divider (relocated)
+  late final CurvedAnimation _anim7; // delete-account row (relocated)
+
+  // Delete-account re-entrancy guard, shared with [runDeleteAccountFlow].
+  // Never bound to a widget — see `delete_account_flow.dart`'s flag-lifetime
+  // doc. Relocated here verbatim from `client_settings_hub_screen.dart`.
+  final ValueNotifier<bool> _deletingAccount = ValueNotifier<bool>(false);
+  // Delete-account UI-visible loading flag — drives `SettingsRow(loading:)`.
+  // Flips true after consent, immediately before the network call.
+  final ValueNotifier<bool> _deletingAccountLoading = ValueNotifier<bool>(
+    false,
+  );
 
   static final Tween<Offset> _slideTween = Tween<Offset>(
     begin: const Offset(0, 0.035),
@@ -103,6 +132,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _anim3 = _curve(0.24, 0.66);
     _anim4 = _curve(0.30, 0.74);
     _anim5 = _curve(0.36, 0.82);
+    _anim6 = _curve(0.42, 0.90);
+    _anim7 = _curve(0.48, 0.98);
     _controller.forward();
   }
 
@@ -120,7 +151,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _anim3.dispose();
     _anim4.dispose();
     _anim5.dispose();
+    _anim6.dispose();
+    _anim7.dispose();
     _controller.dispose();
+    _deletingAccount.dispose();
+    _deletingAccountLoading.dispose();
     super.dispose();
   }
 
@@ -198,6 +233,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     salonId: widget.salonId!,
     setLoading: (bool loading) => setState(() => _deletingSalon = loading),
   );
+
+  /// Relocated (2026-09-08) — CLIENT-only, unlike [_showDeleteSalonRow] this
+  /// row needs no caller-supplied opt-in or target id: `DELETE
+  /// /api/v1/users/me` always targets "me", so the session role alone
+  /// decides. Derived the SAME way as [_showDeleteSalonRow] — watching the
+  /// hardened, `hasError`-checked selector sibling [isSalonOwnerProvider]
+  /// was promoted from, [isClientProvider] (`auth_selectors.dart`) — rather
+  /// than a third hand-rolled inline `authProvider.select` role check. Fails
+  /// closed on every non-CLIENT role (including an unauthenticated or
+  /// unsettled/errored session).
+  bool get _showDeleteAccountRow => ref.watch(isClientProvider);
 
   @override
   Widget build(BuildContext context) {
@@ -310,6 +356,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 showChevron: false,
                 loading: _deletingSalon,
                 onTap: _deleteSalon,
+              ),
+            ),
+          ],
+          // Relocated (2026-09-08) — CLIENT-only «Видалити акаунт», last row
+          // on the page. Fails closed on every non-CLIENT role — see
+          // [_showDeleteAccountRow]. A user who is both a SALON_OWNER and
+          // (impossible today, but the ordering is deliberate regardless)
+          // sees delete-salon first, delete-account last.
+          //
+          // Divider styling matches the delete-salon divider above verbatim
+          // (thickness 0.6, accent @ ~22%, VelvetSpacing.lg vertical pad) —
+          // read, don't invent.
+          //
+          // No `IgnorePointer` around the sibling rows while this call is in
+          // flight: unlike the hub it was moved off (which froze every row
+          // during the delete), this screen's OWN pre-existing destructive
+          // row (`row-delete-salon` above) never froze its siblings either —
+          // matching that established, already-shipped pattern on this same
+          // screen takes precedence over reintroducing the hub's freeze.
+          if (_showDeleteAccountRow) ...<Widget>[
+            _reveal(
+              _anim6,
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+                child: Divider(
+                  key: Key('account-settings-delete-account-divider'),
+                  thickness: 0.6,
+                  color: Color(0x38B89A7A), // accent @ ~22%
+                ),
+              ),
+            ),
+            _reveal(
+              _anim7,
+              ValueListenableBuilder<bool>(
+                valueListenable: _deletingAccountLoading,
+                builder: (context, deletingAccountLoading, _) => SettingsRow(
+                  key: const Key('row-delete-account'),
+                  icon: Icons.delete_outline_rounded,
+                  label: l10n.settingsHubDeleteAccount,
+                  destructive: true,
+                  showChevron: false,
+                  loading: deletingAccountLoading,
+                  onTap: () => runDeleteAccountFlow(
+                    context,
+                    ref,
+                    inFlight: _deletingAccount,
+                    loading: _deletingAccountLoading,
+                  ),
+                ),
               ),
             ),
           ],

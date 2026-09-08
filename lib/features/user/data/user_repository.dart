@@ -24,7 +24,9 @@
 
 import 'dart:developer';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -50,15 +52,31 @@ abstract interface class UserRepository {
     String? buildingNo,
     String? locationNote,
   });
+
+  /// Permanently deletes the authenticated CLIENT's account via
+  /// `DELETE /api/v1/users/me`.
+  ///
+  /// CLIENT role only (enforced server-side). No request body; a 204 means
+  /// the account is gone and the bearer token is denylisted. Throws
+  /// [AccountDeleteBookingLimitFailure] on 422 (more than 50 upcoming
+  /// bookings — the backend's own message names the limit) and
+  /// [AccountDeleteRateLimitedFailure] on 429 (3 attempts/hour exhausted).
+  /// Any other transport or server error throws the usual typed [Failure].
+  Future<void> deleteMyAccount();
 }
 
 /// HTTP implementation of [UserRepository].
 ///
 /// Inject via [userRepositoryProvider] — never construct directly.
 final class HttpUserRepository implements UserRepository {
-  HttpUserRepository(this._dio);
+  HttpUserRepository(this._dio, this._userApi);
 
   final Dio _dio;
+
+  /// Generated client backing [deleteMyAccount] — the hand-written [_dio]
+  /// field above still backs [updateLocality] pending the
+  /// `TODO(phase-3.2)` migration at the top of this file.
+  final UserControllerApi _userApi;
 
   @override
   Future<void> updateLocality({
@@ -123,12 +141,76 @@ final class HttpUserRepository implements UserRepository {
         return ServerFailure(statusCode: e.response?.statusCode, cause: e);
     }
   }
+
+  @override
+  Future<void> deleteMyAccount() async {
+    try {
+      await _userApi.deleteMyAccount();
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'deleteMyAccount failed: ${e.type} ${e.response?.statusCode}',
+          name: 'user.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDeleteAccountException(e);
+    }
+  }
+
+  /// Maps a [DioException] from `DELETE /users/me` to a typed [Failure].
+  ///
+  /// The 422 (booking-count limit) and 429 (rate limit) checks run BEFORE
+  /// deferring to any [Failure] the [ErrorMapperInterceptor] already
+  /// attached — the interceptor has no delete-account-specific case for
+  /// either status (422 falls into a generic [ValidationFailure] whose
+  /// [ValidationFailure.serverMessage] is read straight through here rather
+  /// than re-parsed; 429 has no generic branch at all and would otherwise
+  /// surface a bare [UnknownFailure]) — mirroring the re-map-by-status-code
+  /// precedent in `booking_repository.dart` / `service_repository.dart`.
+  ///
+  /// `badCertificate` gets its OWN [CertificateFailure] arm, unlike the
+  /// sibling [_mapDioException] above (a recorded backlog item: several
+  /// sibling repositories still collapse it into [ServerFailure]) — this is
+  /// new code, so it classifies the MITM case correctly from the start.
+  Failure _mapDeleteAccountException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 422) {
+      final existing = e.error;
+      final serverMessage = existing is ValidationFailure
+          ? existing.serverMessage
+          : null;
+      return AccountDeleteBookingLimitFailure(
+        serverMessage: serverMessage,
+        cause: e,
+      );
+    }
+    if (statusCode == 429) {
+      return AccountDeleteRateLimitedFailure(cause: e);
+    }
+    if (e.error is Failure) return e.error as Failure;
+    switch (e.type) {
+      case DioExceptionType.connectionError:
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return NetworkFailure(cause: e);
+      case DioExceptionType.badCertificate:
+        return CertificateFailure(cause: e);
+      case DioExceptionType.badResponse:
+      case DioExceptionType.cancel:
+      case DioExceptionType.unknown:
+        return ServerFailure(statusCode: statusCode, cause: e);
+    }
+  }
 }
 
-/// Provides the [UserRepository] singleton backed by the authenticated Dio.
+/// Provides the [UserRepository] singleton backed by the authenticated Dio
+/// and the generated [UserControllerApi].
 ///
 /// Override in tests with a mocktail mock — never construct
 /// [HttpUserRepository] directly in tests.
 @Riverpod(keepAlive: true)
 UserRepository userRepository(Ref ref) =>
-    HttpUserRepository(ref.watch(dioProvider));
+    HttpUserRepository(ref.watch(dioProvider), ref.watch(userApiProvider));

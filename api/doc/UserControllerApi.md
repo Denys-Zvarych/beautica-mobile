@@ -9,11 +9,48 @@ All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[**deleteMyAccount**](UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | 
 [**getMe**](UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [**getMyRating**](UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [**requestChangePasswordOtp**](UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
 [**updateMe**](UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
+
+# **deleteMyAccount**
+> deleteMyAccount()
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getUserControllerApi();
+
+try {
+    api.deleteMyAccount();
+} catch on DioException (e) {
+    print('Exception when calling UserControllerApi->deleteMyAccount: $e\n');
+}
+```
+
+### Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **getMe**
 > ApiResponseUserProfileResponse getMe()

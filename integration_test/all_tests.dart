@@ -88,6 +88,7 @@ import 'client_review_refreshes_salon_surfaces_flow_test.dart'
     as client_review_refreshes_salon_surfaces;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_delete_account_flow_test.dart' as client_delete_account;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
     as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
@@ -301,6 +302,7 @@ void main() {
   group('client_home_hub_flow', client_home_hub.main);
   group('client_favorites_flow', client_favorites.main);
   group('client_logout_flow', client_logout.main);
+  group('client_delete_account_flow', client_delete_account.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`

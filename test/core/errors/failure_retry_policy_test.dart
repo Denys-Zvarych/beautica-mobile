@@ -91,6 +91,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'SupportAttachmentTooLargeFailure': false,
   'SupportChannelUnavailableFailure': false,
   'ConflictFailure': false,
+  // DELETE /users/me, 422 — more than 50 upcoming bookings. An identical
+  // retry meets the identical booking count, so it 422s again; recovery is
+  // a deliberate user action (cancel some bookings first).
+  'AccountDeleteBookingLimitFailure': false,
   'DuplicateServiceFailure': false,
   'ServiceDuplicateFailure': false,
   'ClientBookingConflictFailure': false,
@@ -113,6 +117,9 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // not change on its own, so an automatic retry just 409s again.
   'MasterBookingDuplicateFailure': false,
   'ScheduleOverrideRateLimitedFailure': false,
+  // DELETE /users/me, 429 — 3 attempts/hour exhausted. Same "false to both"
+  // treatment as the older throttles (see isThrottleFailure below).
+  'AccountDeleteRateLimitedFailure': false,
   'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
   // Raised by a SCREEN, never by a repository — a settled session missing a
@@ -162,6 +169,9 @@ Map<String, Failure> _instances() {
       retryAfterSeconds: 20,
     ),
     'ConflictFailure': const ConflictFailure(),
+    'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
+      serverMessage: 'Скасуйте деякі записи перед видаленням акаунта.',
+    ),
     'DuplicateServiceFailure': const DuplicateServiceFailure(),
     'ServiceDuplicateFailure': const ServiceDuplicateFailure(),
     'ClientBookingConflictFailure': ClientBookingConflictFailure(
@@ -191,6 +201,7 @@ Map<String, Failure> _instances() {
     'MasterBookingDuplicateFailure': const MasterBookingDuplicateFailure(),
     'ScheduleOverrideRateLimitedFailure':
         const ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
+    'AccountDeleteRateLimitedFailure': const AccountDeleteRateLimitedFailure(),
     'OverrideSpanPartialFailure': OverrideSpanPartialFailure(
       failedDates: <DateTime>[at],
     ),
@@ -394,6 +405,7 @@ void main() {
         'ServiceRateLimitedFailure': ServiceRateLimitedFailure(
           retryAfterSeconds: 20,
         ),
+        'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
       };
       for (final MapEntry<String, Failure> e in throttles.entries) {
         expect(

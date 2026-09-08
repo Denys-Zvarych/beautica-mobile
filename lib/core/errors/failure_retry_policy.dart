@@ -177,7 +177,8 @@ bool isThrottleFailure(Failure failure) =>
     failure is CategoryRequestThrottledFailure ||
     failure is BookingRateLimitedFailure ||
     failure is ScheduleOverrideRateLimitedFailure ||
-    failure is ServiceRateLimitedFailure;
+    failure is ServiceRateLimitedFailure ||
+    failure is AccountDeleteRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
 ///
@@ -236,6 +237,11 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   CategoryAlreadyExistsFailure() => false,
   SupportAttachmentTooLargeFailure() => false,
   ConflictFailure() => false,
+  // 422 — the client has more than 50 upcoming bookings. Deterministic: an
+  // identical retry meets the identical booking count, so a retry burns a
+  // spinner and 422s again. The only recovery is a deliberate user action
+  // (cancel some bookings first), never an automatic re-issue.
+  AccountDeleteBookingLimitFailure() => false,
   // 403 — the caller's authorization/scoping over the target master, or the
   // master's existence/active state. Neither can change by re-issuing the
   // identical request (Phase 246).
@@ -279,6 +285,7 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   CategoryRequestThrottledFailure() => false,
   BookingRateLimitedFailure() => false,
   ScheduleOverrideRateLimitedFailure() => false,
+  AccountDeleteRateLimitedFailure() => false,
 
   // ---- deterministic: server-side configuration --------------------------
   // Nominally a 503, but it means "the support channel is not configured on

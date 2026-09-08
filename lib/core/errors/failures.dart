@@ -1112,3 +1112,52 @@ final class OverrideSpanPartialFailure extends Failure {
     ctx,
   ).scheduleOverrideSpanPartialFailure(failedDates.length);
 }
+
+/// Emitted when `DELETE /api/v1/users/me` returns HTTP **422** because the
+/// authenticated CLIENT has more than 50 upcoming bookings — the backend
+/// requires cancelling some first before the account can be deleted.
+///
+/// [serverMessage] carries the backend's own Ukrainian copy (already
+/// extracted onto the interceptor's [ValidationFailure.serverMessage] and
+/// truncated to 200 chars) — unlike most [ValidationFailure] call sites,
+/// this ONE is shown verbatim by design: the backend authors real,
+/// user-facing Ukrainian text for this specific business rule, not a
+/// generic/technical validation message. Falls back to a localized generic
+/// message only if the body was malformed and carried no usable text, so a
+/// user never sees a dead end.
+///
+/// Decoded by `HttpUserRepository._mapDeleteAccountException` — the 422
+/// status check runs BEFORE deferring to the [ValidationFailure] the
+/// [ErrorMapperInterceptor] already attached, reading its [serverMessage]
+/// straight through rather than re-parsing the response body.
+final class AccountDeleteBookingLimitFailure extends Failure {
+  const AccountDeleteBookingLimitFailure({this.serverMessage, super.cause});
+
+  /// The backend's own Ukrainian message telling the client to cancel some
+  /// upcoming bookings first. `null`/blank only on a malformed body.
+  final String? serverMessage;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final message = serverMessage?.trim();
+    if (message != null && message.isNotEmpty) return message;
+    return AppLocalizations.of(ctx).accountDeleteErrTooManyBookings;
+  }
+}
+
+/// Emitted when `DELETE /api/v1/users/me` returns HTTP **429** — the
+/// per-account delete-account rate limit (3 attempts/hour) is exhausted.
+///
+/// Decoded by `HttpUserRepository._mapDeleteAccountException` — checked
+/// BEFORE deferring to any [Failure] the [ErrorMapperInterceptor] already
+/// attached (that interceptor has no delete-account-specific 429 case and
+/// would otherwise surface a generic [UnknownFailure]), mirroring the
+/// [CategoryRequestThrottledFailure] / [BookingRateLimitedFailure]
+/// precedents.
+final class AccountDeleteRateLimitedFailure extends Failure {
+  const AccountDeleteRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).accountDeleteErrRateLimited;
+}
