@@ -13,12 +13,32 @@
 //   5.  deactivate()     — correct API method called; idempotent (2× → no throw)
 //   6.  update()         — happy path; PATCH issued, domain object returned (no second GET)
 //   7.  empty masterId   — listMyServices() throws UnauthorizedFailure without network call
+//   7b. _assertAuthenticated D4 matrix (phase 314) — FIVE named rows over the
+//       (ServiceTarget, masterId-empty) combinations: the phase doc's four,
+//       plus row 4b, which splits the salon arm's `salonId.isEmpty ||
+//       masterId.isEmpty` into two independently load-bearing halves.
+//       Mutation-verified 2026-09-09: reducing the salon arm to
+//       `masterId.isEmpty` reddens row 4 ALONE, reducing it to
+//       `salonId.isEmpty` reddens row 4b ALONE, and neutering the null arm
+//       reddens row 2 ALONE — no row masks another. A single "salon mode does
+//       not throw" test would hide row 2, the independent-master arm a careless
+//       "just make salon mode work" refactor deletes.
+//
+//       Row 5 — "salon target on an UNAUTHENTICATED session" — deliberately
+//       does NOT live here. HttpServiceRepository holds no session object, and
+//       row 3 exists precisely to allow `_masterId` to be empty in salon mode,
+//       so the case is only expressible where target and session meet: see
+//       `service_repository_provider_test.dart`'s `row 5`. That row is LIVE —
+//       unskipped and green since the phase-314 audit pass landed the
+//       `sessionUserId` readiness predicate on the salon arm (D4 revision). Do
+//       not read it as an inert placeholder.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1133,6 +1153,145 @@ void main() {
         );
       },
     );
+  });
+
+  // ── 7b. _assertAuthenticated — the phase 314 D4 matrix ─────────────────────
+  //
+  // `_assertAuthenticated()` is the repository's readiness guard. Phase 314
+  // gave it a SECOND arm rather than widening the first:
+  //
+  //   | target                          | masterId   | expected             |
+  //   |---------------------------------|------------|----------------------|
+  //   | null (independent master)       | non-empty  | passes               |
+  //   | null (independent master)       | ''         | UnauthorizedFailure  |
+  //   | SalonMasterTarget (both set)    | '' (owner) | PASSES               |
+  //   | SalonMasterTarget(salonId: '')  | anything   | UnauthorizedFailure  |
+  //
+  // Row 3 is the whole point of the second arm: in salon mode the acting user
+  // is a SALON_OWNER/SALON_ADMIN who has NO master row of their own, so
+  // `_masterId` is legitimately '' and the first arm would reject every call.
+  // Row 2 is the arm that must survive that change — it is pinned separately
+  // for exactly that reason.
+  //
+  // Driven through `listMyServices()` because it is the first thing the guard
+  // runs on and `verifyNever` proves the guard fired BEFORE any network call.
+
+  group('_assertAuthenticated D4 matrix', () {
+    /// [sessionUserId] is the signed-in principal's User UUID — the salon
+    /// arm's session-readiness evidence. It defaults to a non-empty value
+    /// here because every row below is about the TARGET/masterId axes, not
+    /// the session axis: "salon target on an unauthenticated session" is not
+    /// expressible on the guard alone (D4 row 3 exists precisely to allow an
+    /// empty `masterId` in salon mode, so the repository holds no other
+    /// session evidence) and is pinned at the provider seam instead —
+    /// `service_repository_provider_test`'s row 5.
+    HttpServiceRepository repoWith({
+      required String masterId,
+      ServiceTarget? target,
+      String sessionUserId = 'user-row-uuid',
+    }) => HttpServiceRepository(
+      serviceApi: serviceApi,
+      categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: Dio(),
+      masterId: masterId,
+      target: target,
+      sessionUserId: sessionUserId,
+    );
+
+    test('row 1 — target null + non-empty masterId → PASSES (the independent '
+        'master, i.e. every shipped call site today)', () async {
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse(const []));
+
+      await expectLater(
+        repoWith(masterId: _masterId).listMyServices(),
+        completion(isEmpty),
+      );
+
+      verify(() => serviceApi.getMyServices()).called(1);
+    });
+
+    test(
+      'row 2 — target null + EMPTY masterId → throws UnauthorizedFailure with '
+      'no network call (the arm a "just make salon mode work" edit deletes)',
+      () async {
+        await expectLater(
+          repoWith(masterId: '').listMyServices(),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test(
+      'row 3 — SalonMasterTarget + EMPTY masterId → PASSES; an owner/admin has '
+      'no master row of their own, so an empty masterId is legitimate here',
+      () async {
+        when(
+          () => serviceApi.getMyServices(),
+        ).thenAnswer((_) async => _listResponse(const []));
+
+        await expectLater(
+          repoWith(
+            masterId: '',
+            target: const SalonMasterTarget(
+              salonId: 'salon-row-uuid',
+              // The `masters` ROW id — NOT a userId. A userId on
+              // /salons/{s}/masters/{m}/... yields 404, not 403.
+              masterId: 'master-row-uuid',
+            ),
+          ).listMyServices(),
+          completion(isEmpty),
+        );
+
+        verify(() => serviceApi.getMyServices()).called(1);
+      },
+    );
+
+    test(
+      'row 4 — SalonMasterTarget with an EMPTY salonId → throws '
+      'UnauthorizedFailure with no network call, whatever masterId says',
+      () async {
+        const unresolved = SalonMasterTarget(
+          salonId: '',
+          masterId: 'master-row-uuid',
+        );
+
+        // Non-empty masterId on the repository: proves the salon arm is what
+        // rejected the call, not a fallback onto the independent-master arm.
+        await expectLater(
+          repoWith(masterId: _masterId, target: unresolved).listMyServices(),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        // And with an empty one too.
+        await expectLater(
+          repoWith(masterId: '', target: unresolved).listMyServices(),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test('row 4b — SalonMasterTarget with an EMPTY masterId → throws '
+        'UnauthorizedFailure with no network call', () async {
+      await expectLater(
+        repoWith(
+          masterId: _masterId,
+          target: const SalonMasterTarget(
+            salonId: 'salon-row-uuid',
+            masterId: '',
+          ),
+        ).listMyServices(),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      verifyNever(() => serviceApi.getMyServices());
+    });
   });
 
   // ── 8. fetchApprovedCategories ──────────────────────────────────────────────

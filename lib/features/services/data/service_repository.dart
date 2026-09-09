@@ -31,13 +31,16 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'master_service_mapper.dart';
@@ -236,11 +239,14 @@ final class HttpServiceRepository implements ServiceRepository {
     required ServiceCatalogControllerApi catalogApi,
     required Dio dio,
     required String masterId,
+    this.target,
+    String sessionUserId = '',
   }) : _serviceApi = serviceApi,
        _categoryApi = categoryApi,
        _catalogApi = catalogApi,
        _dio = dio,
-       _masterId = masterId;
+       _masterId = masterId,
+       _sessionUserId = sessionUserId;
 
   final ServiceControllerApi _serviceApi;
   final CategoryRequestControllerApi _categoryApi;
@@ -252,18 +258,93 @@ final class HttpServiceRepository implements ServiceRepository {
   final Dio _dio;
   final String _masterId;
 
+  /// The signed-in principal's User UUID, or `''` when no session has resolved.
+  ///
+  /// This is the SESSION-READINESS evidence the salon arm of
+  /// [_assertAuthenticated] needs, and it is deliberately NOT [_masterId]:
+  /// in salon mode the acting user is a SALON_OWNER/SALON_ADMIN who has no
+  /// master row at all, so [_masterId] is legitimately `''` there (D4 row 3)
+  /// and carries no session information.
+  ///
+  /// Pre-phase-314 a non-empty [_masterId] implied `masterProfileProvider` had
+  /// resolved, i.e. an authenticated session — the guard's stated purpose
+  /// ("fail fast instead of firing a call that would 401 mid-flight"). The
+  /// salon arm broke that implication by passing on two arbitrary non-empty
+  /// strings; this field restores it (security LOW, phase 314 audit).
+  ///
+  /// Defaults to `''` — FAIL CLOSED. A direct construction that says nothing
+  /// about the session is treated as "no session", so a caller must opt IN to
+  /// salon mode by supplying the evidence. `serviceRepositoryProvider` is the
+  /// only production constructor and supplies it from
+  /// `authProvider.select(authUserIdOrNull)`; the narrowed selector is
+  /// mandatory (a bare `ref.watch(authProvider)` renotifies on every silent
+  /// token refresh — `authUserIdOrNull`'s doc, and
+  /// `project_bare_auth_watch_destroys_state`).
+  ///
+  /// The User UUID, NOT the Master-row UUID — the two are different rows
+  /// (User.id != Master.id) and this one is never sent on the wire.
+  final String _sessionUserId;
+
+  /// Whose services this repository operates on.
+  ///
+  /// `null` — the default and the value every shipped call site produces —
+  /// means the authenticated INDEPENDENT_MASTER's own services, i.e. exactly
+  /// today's behaviour. A [SalonMasterTarget] means a SALON_OWNER/SALON_ADMIN
+  /// is driving a named master on their own salon's roster.
+  ///
+  /// Phase 314 stores this and consults it ONLY in [_assertAuthenticated]
+  /// (D4). It drives NO path dispatch: reads and bulk are phase 315, delete is
+  /// phase 316. A repository built with `target: null` is observationally
+  /// identical to one built without the argument at all.
+  ///
+  /// Public (not `_`-prefixed) on purpose: `service_repository_provider_test`
+  /// asserts on the value the provider threaded in, including the
+  /// `ProviderScope` unwind case.
+  final ServiceTarget? target;
+
   static const _tag = 'feature.services.repository';
 
-  /// Throws [UnauthorizedFailure] immediately if [_masterId] is empty.
+  /// Readiness guard. Throws [UnauthorizedFailure] before any network call.
   ///
-  /// An empty masterId means the master profile has not yet resolved (the auth
-  /// session is not [Authenticated]). The owner endpoints derive the master
-  /// from the JWT principal, so this is no longer about a missing path segment;
-  /// it is a readiness guard that surfaces the real cause to callers instead of
-  /// firing a call that would 401 mid-flight.
+  /// Two arms, one per [target] state — [ServiceTarget] is sealed so the
+  /// `switch` below is exhaustive and a third state cannot be added silently:
+  ///
+  ///   • `null` (independent master) — byte-identical to the pre-phase-314
+  ///     check: throw when [_masterId] is empty. An empty masterId means the
+  ///     master profile has not yet resolved (the auth session is not
+  ///     [Authenticated]). The owner endpoints derive the master from the JWT
+  ///     principal, so this is no longer about a missing path segment; it is a
+  ///     readiness guard that surfaces the real cause to callers instead of
+  ///     firing a call that would 401 mid-flight. THIS ARM IS THE ONE A
+  ///     CARELESS "just make salon mode work" REFACTOR DELETES — it is pinned
+  ///     by its own row in the `service_repository_test` D4 matrix.
+  ///
+  ///   • [SalonMasterTarget] — the acting user is an owner or admin who has no
+  ///     master row of their own, so [_masterId] is LEGITIMATELY empty and the
+  ///     arm above would reject every call. The readiness question is asked in
+  ///     two halves instead: is there a SESSION at all ([_sessionUserId]
+  ///     non-empty), and did the TARGET resolve (both `salonId` and `masterId`
+  ///     non-empty)?
+  ///
+  ///     The session half is not decoration. Pre-314 the null arm's non-empty
+  ///     [_masterId] implied `masterProfileProvider` had resolved, i.e. an
+  ///     authenticated session; the salon arm as first written passed on any
+  ///     two non-empty strings and lost that implication, so the guard no
+  ///     longer did the one thing it claims to do. The backend still rejects
+  ///     an unauthenticated call, so this is a READINESS guard, never an
+  ///     authz gate — but it is the readiness guard's whole contract.
+  ///     Pinned by `service_repository_provider_test`'s row 5, which is the
+  ///     only place target and session actually meet.
   void _assertAuthenticated() {
-    if (_masterId.isEmpty) {
-      throw const UnauthorizedFailure();
+    switch (target) {
+      case null:
+        if (_masterId.isEmpty) {
+          throw const UnauthorizedFailure();
+        }
+      case SalonMasterTarget(:final salonId, :final masterId):
+        if (_sessionUserId.isEmpty || salonId.isEmpty || masterId.isEmpty) {
+          throw const UnauthorizedFailure();
+        }
     }
   }
 
@@ -938,6 +1019,27 @@ final class HttpServiceRepository implements ServiceRepository {
   }
 }
 
+/// The retarget seam: whose services [serviceRepositoryProvider] operates on.
+///
+/// Returns `null` — the INDEPENDENT_MASTER's own services — everywhere except
+/// inside the `ProviderScope` phase 317 wraps around the salon-target route
+/// subtree, which overrides this with a [SalonMasterTarget].
+///
+/// It is a SEPARATE provider rather than a parameter on
+/// [serviceRepositoryProvider] on purpose. That provider is `keepAlive: true`
+/// and read from a dozen places; making it a `family` keyed by target would
+/// change every one of those call sites, and a `keepAlive` family leaks one
+/// repository instance per master forever. Watching an overridable value here
+/// keeps every existing `ref.read(serviceRepositoryProvider)` byte-identical.
+///
+/// Override ONLY via `ProviderScope(overrides: [...])`. No notifier, no
+/// setter, no `ref.read(...).state = ...`: the scope IS the widget subtree, so
+/// it unwinds on pop. An imperative setter would leave the app pointed at a
+/// master after the owner navigates away — the exact bug a `keepAlive` list
+/// provider hides until someone reopens `/services` and sees a stranger's menu.
+@Riverpod(keepAlive: true)
+ServiceTarget? serviceTarget(Ref ref) => null;
+
 /// Provides the [ServiceRepository] singleton backed by the authenticated Dio,
 /// the generated [ServiceControllerApi], and the current master's UUID from
 /// [masterProfileProvider].
@@ -956,6 +1058,54 @@ final class HttpServiceRepository implements ServiceRepository {
 ///
 /// Override in tests with a mocktail mock — never construct
 /// [HttpServiceRepository] directly in production or test code.
+///
+/// ⚠️ PHASE 317 BLOCKER — READ BEFORE WIRING THE SALON ROUTE.
+/// This provider does NOT declare `dependencies: [serviceTarget]`, so a
+/// [serviceTargetProvider] override installed in a NESTED [ProviderScope] does
+/// NOT reach it: riverpod 3 only re-creates a provider in a child scope when
+/// that provider — and every provider that watches it, transitively — declares
+/// the scoped dependency. Measured on riverpod 3.1.0: a nested-scope probe
+/// reads `target: null` without the declaration and the overridden
+/// [SalonMasterTarget] with it.
+///
+/// ⛔ A ROOT-LEVEL OVERRIDE IS NOT AN OPTION — DO NOT SHIP ONE.
+/// It happens to work in both riverpod configurations, and the phase-314 tests
+/// use one at ROOT because a unit test's `ProviderContainer` IS the root and
+/// is disposed in `addTearDown`. That is a test FIXTURE, never a pattern to
+/// copy into production code. A root override is PROCESS-LIFETIME: it unwinds
+/// on nothing — not on `pop`, not on a tab switch, not on logout — so an app
+/// that installs one stays pointed at a named salon master until the process
+/// dies. Combined with the still-open backlog row at
+/// `services_list_notifier.dart:28` (`serviceRepositoryProvider` is not
+/// evicted on the auth boundary), it would retain a CROSS-TENANT
+/// [SalonMasterTarget] across navigation AND across a session change: log out,
+/// log in as somebody else, open /services, and the previous account's salon
+/// master's menu is what loads. Only the scoped mechanism below unwinds.
+///
+/// The declaration is deliberately absent HERE because it cascades. With it,
+/// riverpod throws `StateError: servicesListProvider depends on
+/// serviceRepositoryProvider, which may be scoped` for every dependent that
+/// omits it — `servicesListProvider`, `serviceByIdProvider`,
+/// `serviceTypesProvider`, `masterServiceCatalogProvider`, … 68 existing tests
+/// go red. Those notifiers live under `presentation/`, which phase 314 is
+/// forbidden to touch. Phase 317 therefore owns the choice and MUST take one
+/// of these TWO — the root override above is not a third option:
+///   (a) add `dependencies:` down the whole chain (services `presentation/`
+///       notifiers included), or
+///   (b) override `serviceRepositoryProvider` itself inside the salon
+///       [ProviderScope], with [serviceTargetProvider] supplying the value it
+///       threads in.
+///
+/// AND, either way, phase 317 must ALSO evict [serviceRepositoryProvider] and
+/// `servicesListProvider` on the auth boundary (the open
+/// `services_list_notifier.dart:28` backlog row). A scoped override bounds the
+/// target to a route subtree, but the keepAlive repository and the keepAlive
+/// services list are still whole-process caches of ONE tenant's catalogue;
+/// scoping alone fixes navigation and leaves the session change unfixed.
+/// Landing that eviction in 317 is what closes the backlog row.
+///
+/// Until then the seam is inert in production: nothing constructs a non-null
+/// target and no override of any kind is installed.
 @Riverpod(keepAlive: true)
 ServiceRepository serviceRepository(Ref ref) {
   // masterId is the Master-row UUID (from MasterDetailResponse.masterId),
@@ -972,6 +1122,19 @@ ServiceRepository serviceRepository(Ref ref) {
     // which the generated ServiceControllerApi does not yet expose.
     dio: ref.watch(dioProvider),
     masterId: masterId,
+    // Phase 314 — the retarget seam. `null` outside phase 317's ProviderScope,
+    // which is every call site shipped today, so this argument changes nothing.
+    target: ref.watch(serviceTargetProvider),
+    // Session-readiness evidence for the salon arm of _assertAuthenticated.
+    // NARROWED to the signed-in identity on purpose: a bare
+    // `ref.watch(authProvider)` renotifies on every silent token refresh
+    // (`refresh_interceptor.dart` → `AuthNotifier.setAccessToken`), which
+    // would churn this keepAlive repository — see [authUserIdOrNull]'s doc and
+    // `project_bare_auth_watch_destroys_state`. This adds NO new dependency
+    // edge: `masterProfileProvider`, already watched above, watches
+    // `authProvider.select(authUserIdOrNull)` itself
+    // (`master_profile_notifier.dart:56`).
+    sessionUserId: ref.watch(authProvider.select(authUserIdOrNull)) ?? '',
   );
 }
 
