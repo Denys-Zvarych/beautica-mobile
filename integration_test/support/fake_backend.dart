@@ -323,6 +323,7 @@ final class FakeBackend {
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
+    this.deleteServiceDelay,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -1675,6 +1676,47 @@ final class FakeBackend {
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
   int createServiceCalls = 0;
+
+  /// `DELETE /api/v1/services/{serviceDefId}` call count — the NULL-TARGET
+  /// (independent-master) delete, mobile phase 316's central claim: the
+  /// dispatch added to `HttpServiceRepository.deactivate` must leave this path
+  /// firing byte-identically when no [SalonMasterTarget] is in scope.
+  ///
+  /// GENUINELY STATEFUL, mirroring `deleteSalonCalls` / `deleteMyAccountCalls`:
+  /// a successful DELETE also REMOVES the row from [_services], so the very
+  /// next `GET /independent-masters/me/services` reflects it. Without that a
+  /// flow could only prove the DELETE was SENT — the list would keep serving
+  /// the "deleted" card forever and a post-delete "the card is gone" assertion
+  /// could not distinguish a correct refresh from a broken one.
+  int deleteServiceCalls = 0;
+
+  /// The service-DEFINITION id carried in the path of the last
+  /// `DELETE /api/v1/services/{serviceDefId}`.
+  ///
+  /// The seeded fixtures deliberately give every service an assignment id that
+  /// DIFFERS from its definition id (`assign-1` vs `svc-1`), so a flow
+  /// asserting this value pins the definition-id contract
+  /// (`service_edit_screen.dart` passes `service.serviceDefId`, never
+  /// `service.id`) rather than passing on either
+  /// (`project_fixture_values_can_defang_assertions`).
+  String? lastDeletedServiceDefId;
+
+  /// Artificial latency for `DELETE /api/v1/services/{serviceDefId}`.
+  ///
+  /// Constructor-time (`onRoute` freezes the reply at registration, same
+  /// reason [deleteMyAccountFailureStatusCode] is final). `null` (default)
+  /// answers immediately, so every existing flow is unchanged.
+  ///
+  /// Exists for ONE flow: the double-tap re-entrancy guard
+  /// (`_ServiceEditScreenState._deleting`, mobile phase 316). That race only
+  /// exists WHILE the DELETE is in flight — once the confirmation dialog pops,
+  /// the delete icon behind it is hit-testable again but the screen has not
+  /// popped yet. With an immediate reply that window is sub-frame and cannot
+  /// be driven from a test; the counter increments at DISPATCH time (the
+  /// `replyCallback` body runs BEFORE the adapter awaits `delay` —
+  /// `dio_adapter.dart:59`), so the delay widens the window without hiding a
+  /// second call that did happen.
+  final Duration? deleteServiceDelay;
 
   /// Count of `POST /independent-masters/me/services/bulk` (first-time setup)
   /// calls, and the exact `items` list of the last one — lets a flow prove the
@@ -6105,6 +6147,46 @@ final class FakeBackend {
           method: RequestMethods.patch,
           data: Matchers.any,
         ),
+      );
+    }
+
+    // DELETE /api/v1/services/{serviceDefId} — the REAL deactivate endpoint
+    // (`deactivateServiceDefinition`, keyed on the service-DEFINITION id, NOT
+    // the assignment id). Mobile phase 316 (mobile-qa, 2026-09-10): before
+    // this, NO integration flow exercised service delete at all, so the
+    // phase's central claim — "`DELETE /services/{id}` still fires unchanged
+    // for a null target" — rested on unit tests alone.
+    //
+    // Registered per SEEDED definition id (the same per-service loop shape the
+    // PATCH handlers above use) rather than as one catch-all, so a DELETE for
+    // an id that was never seeded fails loudly as an unmatched route instead
+    // of silently counting.
+    //
+    // Follows the `DELETE /salons/salon-xyz` precedent: count the call, record
+    // the id, and MUTATE [_services] so the follow-up GET reflects the
+    // deletion. Note the counter/removal run at DISPATCH time — the adapter
+    // awaits [deleteServiceDelay] only AFTER this callback returns
+    // (`dio_adapter.dart:59`) — which is what lets the double-tap flow assert
+    // "exactly one DELETE" against a still-in-flight first one.
+    for (final defId in <String>[
+      for (final svc in _services)
+        (svc['serviceDefinition'] as Map<String, dynamic>?)?['id'] as String? ??
+            '',
+    ]) {
+      if (defId.isEmpty) continue;
+      _adapter.onRoute(
+        '/api/v1/services/$defId',
+        (server) => server.replyCallback(204, (_) {
+          deleteServiceCalls++;
+          lastDeletedServiceDefId = defId;
+          _services.removeWhere(
+            (Map<String, dynamic> s) =>
+                (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }, delay: deleteServiceDelay),
+        request: const Request(method: RequestMethods.delete),
       );
     }
 

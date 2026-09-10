@@ -22,10 +22,13 @@
 // identity equality a `ProviderScope` that rebuilds and hands down a FRESH
 // target carrying the SAME two ids tears down and re-creates
 // `serviceRepositoryProvider` — `keepAlive: true`, read from a dozen call
-// sites, two of whose watchers (`services_list_notifier.dart:34`,
-// `master_service_catalog_provider.dart:125`) fire `listMyServices()`
-// unconditionally in `build()`. From phase 317 that is two GETs and an
-// `AsyncLoading` spinner flash per ancestor rebuild, for no semantic change.
+// sites, one of whose watchers (`master_service_catalog_provider.dart:162`)
+// fires `listMyServices()` unconditionally in `build()`. From phase 317 that
+// is a GET and an `AsyncLoading` spinner flash per ancestor rebuild, for no
+// semantic change. (It was TWO until N2, 2026-09-10: `servicesListProvider`
+// had its own identical fetch. It now wraps the catalogue provider's `.future`
+// — `services_list_notifier.dart:132` — so the duplicate GET is gone, but the
+// spinner flash still reaches «Мої послуги» through that wrap.)
 //
 // `ScheduleScope` — this track's exact analogue, the viewer-scope union of the
 // schedule feature — is `@freezed` for precisely this reason

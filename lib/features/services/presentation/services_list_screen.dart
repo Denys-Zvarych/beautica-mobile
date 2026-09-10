@@ -40,6 +40,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -196,7 +197,20 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
               ErrorState(
                 key: const Key('services_error_state'),
                 failure: failure,
-                onRetry: () => ref.invalidate(servicesListProvider),
+                // N2: routed through the ONE fan-out helper rather than
+                // `ref.invalidate(servicesListProvider)`. Measured honestly:
+                // the old form still worked here, because the screen holds a
+                // live subscription and Riverpod re-runs the errored upstream
+                // when the rebuilt wrapper re-watches it. It is kept out of the
+                // screen anyway so the structural guard in
+                // `services_catalogue_invalidation_test.dart` can be absolute —
+                // no `onRetry` exemption, and no dependence on a `dart format`
+                // line break landing in the right place to keep that exemption
+                // working. Behaviourally covered by "the error-state RETRY
+                // BUTTON re-fetches and recovers to the list" in
+                // `services_list_screen_test.dart`, which had no coverage at
+                // all before N2.
+                onRetry: () => invalidateMasterServiceCatalogues(ref),
               ),
             );
           },

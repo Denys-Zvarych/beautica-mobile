@@ -26,7 +26,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -108,39 +107,72 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     super.dispose();
   }
 
+  /// Re-entrancy guard for [_onDelete] (mobile-perf LOW, phase 316).
+  ///
+  /// Held for the WHOLE flow — confirmation dialog included — not just the
+  /// `deactivate` await. Once the dialog pops, the delete icon behind it is
+  /// hit-testable again while the DELETE is still in flight, so a double tap
+  /// used to open a second dialog and issue a second DELETE. By then the
+  /// backend has already deactivated (independent master) / unassigned (salon
+  /// target) the row, so the second call answers `404` → [NotFoundFailure] →
+  /// an error snackbar for an operation that SUCCEEDED. Phase 316 D2 names
+  /// this exact race: a `404` here means "already gone" and must not alarm.
+  ///
+  /// Mirrors `services_list_notifier.dart`'s `_refreshing` guard rather than
+  /// inventing a second mechanism. Cleared in a `finally` so neither an error
+  /// path nor a cancelled dialog can latch it permanently.
+  bool _deleting = false;
+
   /// Shows the [DeleteServiceDialog] and, if confirmed, deactivates the service.
   ///
-  /// On success the services list is invalidated and the edit screen is popped.
-  /// On failure a snackbar is shown via [_showServiceEditFailureSnackbar].
+  /// On success the service catalogues are invalidated and the edit screen is
+  /// popped. On failure a snackbar is shown via
+  /// [_showServiceEditFailureSnackbar].
   Future<void> _onDelete(
     BuildContext context,
     WidgetRef ref,
     MasterService service,
     AppLocalizations l10n,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => const DeleteServiceDialog(),
-    );
-    if (confirmed != true || !context.mounted) return;
+    if (_deleting) return;
+    _deleting = true;
     try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => const DeleteServiceDialog(),
+      );
+      if (confirmed != true || !context.mounted) return;
       // Capture the repository BEFORE any invalidation so the DELETE runs
-      // against a stable auth/master snapshot. serviceRepositoryProvider watches
-      // masterProfileProvider; invalidating that provider while a DELETE is
-      // composing would rebuild the repo (and momentarily unresolve the auth
-      // provider the interceptor reads), causing the request to be sent
-      // tokenless → false 401 ("Сесія завершилась"). Read once, then invalidate
-      // only AFTER the await completes.
+      // against a stable auth/master snapshot: serviceRepositoryProvider
+      // watches masterProfileProvider (narrowed to the master id) and the auth
+      // provider the interceptor reads, and rebuilding it mid-compose can send
+      // the request tokenless → false 401 ("Сесія завершилась"). Read once,
+      // then invalidate only AFTER the await completes.
       final repository = ref.read(serviceRepositoryProvider);
       // Backend keys DELETE /api/v1/services/{serviceDefId} on the
-      // service-definition id, NOT the assignment id (service.id).
+      // service-definition id, NOT the assignment id (service.id). With a
+      // SalonMasterTarget in scope the repository dispatches to the per-master
+      // unassign endpoint instead (phase 316 D1) — same call, same argument.
       await repository.deactivate(service.serviceDefId);
       if (context.mounted) _popServiceEditScreen(context);
       // Invalidate AFTER the delete await completes (and after pop, so
       // ServicesListScreen is active and listening when the re-fetch arrives).
       // ref outlives the frame.
+      //
+      // This is the COMPLETE fan-out: the two catalogue views are the only
+      // cached state a service delete can falsify. masterProfileProvider is
+      // deliberately NOT invalidated here (mobile-perf MEDIUM, phase 316) —
+      // [Master] carries no service-derived field (see `master.dart`), and the
+      // profile screen's services section and stat tile watch
+      // `servicesListProvider` directly (`master_profile_screen.dart:505,746`),
+      // which the call above already invalidates. A profile invalidation would
+      // therefore buy a redundant `GET /masters/me` plus an AsyncLoading churn
+      // through every keepAlive dependent (repositories, schedule scope, nav
+      // header) — and with a salon target it would refetch the OPERATOR's
+      // profile, never the unassigned master's, so it cannot even be right.
+      // Same reasoning `working_hours_notifier.dart` already documents for the
+      // weekly-schedule write.
       invalidateMasterServiceCatalogues(ref);
-      ref.invalidate(masterProfileProvider);
     } catch (e) {
       if (kDebugMode) {
         log(
@@ -152,6 +184,8 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       if (context.mounted) {
         _showServiceEditFailureSnackbar(context, e, l10n);
       }
+    } finally {
+      _deleting = false;
     }
   }
 
@@ -219,8 +253,23 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
           }
           // Invalidate AFTER pop so ServicesListScreen is active and
           // listening when the re-fetch arrives. ref outlives the frame.
+          //
+          // This is the COMPLETE fan-out, and it mirrors `_onDelete`'s: the two
+          // catalogue views are the only cached state a service EDIT can
+          // falsify. `masterProfileProvider` is deliberately NOT invalidated
+          // here (mobile-perf LOW, phase 316) — a rename / reprice /
+          // recategorize moves no field on [Master] (`master.dart` carries none
+          // that is service-derived), and the profile screen's services stat
+          // tile and category section both watch `servicesListProvider`
+          // directly (`master_profile_screen.dart:505,746`), which the call
+          // above already invalidates. Invalidating the profile would buy a
+          // redundant `GET /masters/me` and — because `serviceRepositoryProvider`
+          // watches it — an AsyncLoading churn through every keepAlive
+          // dependent, for a value that cannot have changed. Same reasoning
+          // `working_hours_notifier.dart` documents for the weekly-schedule
+          // write, and the same trim `_onDelete` carries, so the two writes on
+          // this screen no longer fan out asymmetrically.
           invalidateMasterServiceCatalogues(ref);
-          ref.invalidate(masterProfileProvider);
         },
         onError: (Object e) {
           if (kDebugMode) {

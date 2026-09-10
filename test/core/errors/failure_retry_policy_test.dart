@@ -103,6 +103,9 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // An identical retry meets the identical salon-governed price shape and
   // 400s again; recovery is a deliberate user action.
   'ServicePriceShapeMismatchFailure': false,
+  // 409 on salon-target unassign (phase 316 D2/D4) — backend refuses before
+  // any write when future CONFIRMED bookings exist; deterministic.
+  'ServiceUnassignBlockedFailure': false,
   'ClientBookingConflictFailure': false,
   'BookingAlreadyElapsedFailure': false,
   'ProviderDeclineWindowClosedFailure': false,
@@ -185,6 +188,7 @@ Map<String, Failure> _instances() {
       salonPriceMin: 400,
       salonPriceMax: 900,
     ),
+    'ServiceUnassignBlockedFailure': const ServiceUnassignBlockedFailure(),
     'ClientBookingConflictFailure': ClientBookingConflictFailure(
       conflictingBookingId: 'booking-1',
       serviceName: 'Манікюр',

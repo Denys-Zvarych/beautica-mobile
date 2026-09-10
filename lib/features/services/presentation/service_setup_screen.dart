@@ -201,12 +201,22 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // the manager is internally !kDebugMode-guarded).
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
 
-    // Snapshot the existing catalogue once. `.value` is null while the provider
-    // is loading/errored; an empty set then means "exclude nothing", which is
-    // exactly the SETUP behaviour and is the correct degradation — see
-    // [_ownedServiceTypeIds] on why over-blocking would be the worse failure.
+    // Snapshot the existing catalogue once.
+    //
+    // `asData?.value`, NOT `.value` — this comment used to assert that `.value`
+    // "is null while the provider is loading/errored", which is false:
+    // `AsyncValue.value` hands back RETAINED previous data in AsyncLoading and
+    // AsyncError. Since N2 `servicesListProvider` is a view over
+    // `masterServiceCatalogProvider`, whose header documents that hazard — a
+    // logout leaves it errored while still holding the PREVIOUS master's
+    // catalogue — so `.value` could have seeded `_appending` and the exclusion
+    // set from another account's services on a shared device. `asData?.value`
+    // is null in every non-AsyncData state, giving the empty set: "exclude
+    // nothing", which is exactly the SETUP behaviour and is the correct
+    // degradation — see [_ownedServiceTypeIds] on why over-blocking would be
+    // the worse failure.
     final List<MasterService> existing =
-        ref.read(servicesListProvider).value ?? const <MasterService>[];
+        ref.read(servicesListProvider).asData?.value ?? const <MasterService>[];
     _appending = existing.isNotEmpty;
     _ownedServiceTypeIds = <String>{
       for (final MasterService s in existing)

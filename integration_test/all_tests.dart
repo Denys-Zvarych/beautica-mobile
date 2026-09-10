@@ -165,6 +165,7 @@ import 'salon_owner_edit_master_schedule_flow_test.dart'
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
+import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
@@ -561,6 +562,7 @@ void main() {
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
   group('service_crud_flow', service_crud.main);
+  group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
   // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).
   group('service_duplicate_flow', service_duplicate.main);

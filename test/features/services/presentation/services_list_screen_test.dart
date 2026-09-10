@@ -1292,6 +1292,74 @@ void main() {
       expect(find.text('Манікюр'), findsOneWidget);
     });
 
+    // N2 (2026-09-10) — the error state's RETRY BUTTON. The group above covers
+    // a retry that STILL FAILS (error state stays put), which a retry button
+    // that never fetched at all would also satisfy; nothing covered the
+    // recovery path, so nothing could tell a working button from a no-op one.
+    //
+    // `servicesListProvider` is now a view over `masterServiceCatalogProvider`,
+    // the app's single GET, so what the button must ultimately do is drop THAT
+    // cache. It calls `invalidateMasterServiceCatalogues` for that reason.
+    //
+    // MUTATION (2026-09-10): reverted `onRetry` to
+    // `ref.invalidate(servicesListProvider)` → this test stayed GREEN. Reported
+    // rather than hidden: the screen holds a live subscription, so the rebuilt
+    // wrapper re-watches the errored upstream and Riverpod re-runs it. The old
+    // form was therefore not broken; the helper is used for guard uniformity
+    // (see this screen's `onRetry` comment), not to fix a bug. What this test
+    // DOES pin is that the button re-fetches and recovers at all — break the
+    // fetch and it goes red.
+    //
+    // `retry: (_, _) => null` disables Riverpod's own failed-build retry, so
+    // `calls` counts the button and nothing else — see pump_app.dart's knob.
+    testWidgets(
+      'the error-state RETRY BUTTON re-fetches and recovers to the list',
+      (tester) async {
+        var calls = 0;
+        when(() => mockRepo.listMyServices()).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkFailure();
+          return _stubServiceList;
+        });
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          retry: (_, _) => null,
+          overrides: [
+            _repoBackedOverride(),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byKey(const Key('services_error_state')), findsOneWidget);
+        expect(calls, 1);
+
+        await tester.tap(find.byKey(const Key('error_state_retry_button')));
+        await tester.pumpAndSettle();
+
+        expect(
+          calls,
+          2,
+          reason:
+              'the retry button must drop the SHARED catalogue cache — '
+              'invalidating the wrapper alone re-reads the errored upstream '
+              'and never asks the server again',
+        );
+        expect(
+          find.byKey(const Key('services_error_state')),
+          findsNothing,
+          reason: 'a successful retry must clear the error state',
+        );
+
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+      },
+    );
+
     testWidgets(
       'pull-to-refresh on the error state re-fetches and recovers to the list',
       (tester) async {

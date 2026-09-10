@@ -47,14 +47,25 @@ part 'service_by_id_notifier.g.dart';
 @riverpod
 Future<MasterService> serviceById(Ref ref, String id) async {
   // Cache-hit: check the in-memory list provider first.
-  // `.value` returns the data when in AsyncData state, null otherwise.
+  //
+  // `asData?.value`, NOT `.value` — the comment here used to claim `.value`
+  // "returns the data when in AsyncData state, null otherwise", which is false:
+  // `AsyncValue.value` hands back RETAINED previous data in AsyncLoading and
+  // AsyncError too. Since N2 `servicesListProvider` is a view over
+  // `masterServiceCatalogProvider`, whose header documents that hazard in full
+  // — a logout leaves it errored while still holding the PREVIOUS master's
+  // catalogue — so a `.value` cache-hit here could have answered an edit-screen
+  // deep link with another account's service. `asData?.value` is null in every
+  // non-AsyncData state, which falls through to the network path below: the
+  // safe degradation this comment always claimed to describe.
+  //
   // ref.read is intentional AND STAYS read: subscribing to list changes while
   // the edit screen is open would re-run this provider — flickering the edit
   // form back to a loading state (and discarding in-progress edits) on any
-  // list refresh, including the `ref.invalidate(servicesListProvider)` the
+  // list refresh, including the `invalidateMasterServiceCatalogues(ref)` the
   // save path fires. The list is a pure optimisation here; it is never what
   // unblocks a failed build.
-  final cached = ref.read(servicesListProvider).value;
+  final cached = ref.read(servicesListProvider).asData?.value;
   final hit = cached?.where((MasterService s) => s.id == id).firstOrNull;
   if (hit != null) return hit;
 

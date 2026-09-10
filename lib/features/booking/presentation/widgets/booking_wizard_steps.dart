@@ -152,6 +152,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart'
     show approvedCategoriesProvider;
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart'
+    show invalidateMasterServiceCatalogues;
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart'
     show servicesListProvider;
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
@@ -500,16 +502,22 @@ class _ServiceStepState extends ConsumerState<ServiceStep> {
   List<ServiceCategoryOption>? _cachedCategories;
   List<CategoryGroup>? _cachedGroups;
 
-  // Named (not inlined as `() => ref.invalidate(servicesListProvider)`) so
-  // `dart format` can never re-wrap the call onto a line without `onRetry`
-  // on it. `test/features/services/presentation/services_catalogue_invalidation_test.dart`
-  // greps `lib/**.dart` LINE BY LINE for `invalidate(servicesListProvider)`
-  // and only exempts lines that also contain `onRetry` — a retry of this
-  // step's own failed read is not a catalogue mutation, but the guard is
-  // line-based, so a wrapped `onRetry: widget.onRetryOverride ?? () => ...`
-  // closure (line break landing between `onRetry:` and the invalidate call)
-  // false-positives. Do not "simplify" this back into an inline closure.
-  void _onRetry() => ref.invalidate(servicesListProvider);
+  // N2 (2026-09-10): routed through the one fan-out helper. Under a single
+  // shared fetch a retry and a post-mutation refresh are the same operation —
+  // drop the cache and ask again — so there is no longer a reason for this to
+  // be a different call from the one every mutation site makes.
+  //
+  // The old `ref.invalidate(servicesListProvider)` was NOT broken (verified by
+  // mutation, 2026-09-10: this step holds a live subscription, so the rebuilt
+  // wrapper re-watches the errored upstream and Riverpod re-runs it). What the
+  // change buys is the guard: the `onRetry` exemption in
+  // `services_catalogue_invalidation_test.dart` is gone, so no line anywhere in
+  // `lib/` may invalidate either catalogue provider outside the helper. That
+  // also retires the old footgun this comment used to describe — the exemption
+  // was line-based, so a `dart format` re-wrap that moved `onRetry:` off the
+  // invalidate's line silently turned a legitimate call site into a build
+  // failure.
+  void _onRetry() => invalidateMasterServiceCatalogues(ref);
 
   List<CategoryGroup> _resolveGroups(
     List<MasterService> services,

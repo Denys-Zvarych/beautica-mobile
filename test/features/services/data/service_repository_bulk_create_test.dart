@@ -39,6 +39,20 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+/// The path segments Dio ACTUALLY puts on the wire for [rawPath].
+///
+/// Dio sends `RequestOptions.uri`, i.e. `Uri.parse(baseUrl + path)
+/// .normalizePath()` (`dio-5.9.2/lib/src/options.dart:642`) — NOT the string
+/// handed to `Dio.delete/get/post`. `normalizePath` REMOVES dot-segments
+/// (RFC 3986 §5.2.4) and `Uri.encodeComponent` does not escape `.`, so a
+/// corpus asserted against the raw argument string is structurally incapable
+/// of failing on a bare `..` (mobile-security S2, phase-316 audit cycle 1).
+/// Note [Uri.pathSegments] DECODES, so an injected value is compared verbatim
+/// — what is being pinned is that it is ONE element, not that it looks
+/// encoded.
+List<String> _wireSegments(String rawPath) =>
+    Uri.parse('http://localhost:8080$rawPath').normalizePath().pathSegments;
+
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 class _MockServiceControllerApi extends Mock implements ServiceControllerApi {}
@@ -710,7 +724,52 @@ void main() {
       'x?y=1',
       'z#frag',
       '%2Falready-encoded',
+      // The deliberate near-miss (mobile-security S2): CONTAINS dot-segments,
+      // but its separators encode to %2F and `normalizePath` splits on
+      // literal `/` only — so it must still fly, as ONE segment. `'../evil'`
+      // above is NOT this case: it encodes to `..%2Fevil`. Neither of them is
+      // a BARE `..`, which is the input that actually collapses the path and
+      // which `_pathSegment` now rejects outright (see the reject rows below
+      // and `service_repository_contract_test.dart`).
+      'a/../../b',
     ];
+
+    // Bare dot-segments survive `Uri.encodeComponent` verbatim and are eaten
+    // by dio's `normalizePath()` — `_pathSegment` REJECTS them rather than
+    // sanitising, so no request is issued at all.
+    const pathRejections = <String>['..', '.'];
+
+    for (final injected in pathRejections) {
+      test(
+        'a salonId of "$injected" is REJECTED and NO bulk POST is issued',
+        () async {
+          when(
+            () => dio.post<Object?>(any(), data: any(named: 'data')),
+          ).thenAnswer(
+            (_) async => _bulkOkResponse(const <Map<String, Object?>>[]),
+          );
+
+          final injectedRepo = HttpServiceRepository(
+            serviceApi: serviceApi,
+            categoryApi: categoryApi,
+            catalogApi: catalogApi,
+            dio: dio,
+            masterId: '',
+            target: SalonMasterTarget(
+              salonId: injected,
+              masterId: _salonMasterId,
+            ),
+            sessionUserId: 'user-row-uuid',
+          );
+
+          await expectLater(
+            injectedRepo.bulkCreate(<MasterServiceBulkItem>[_fixedItem]),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => dio.post<Object?>(any(), data: any(named: 'data')));
+        },
+      );
+    }
 
     test('salonId containing a path-significant character is percent-encoded '
         'in the bulk path, never widening the path shape', () async {
@@ -738,17 +797,14 @@ void main() {
 
         await injectedRepo.bulkCreate(<MasterServiceBulkItem>[_fixedItem]);
 
-        final segments = capturedPath!
-            .split('/')
-            .where((s) => s.isNotEmpty)
-            .toList();
+        final segments = _wireSegments(capturedPath!);
         expect(
           segments,
           <String>[
             'api',
             'v1',
             'salons',
-            Uri.encodeComponent(injected),
+            injected,
             'masters',
             _salonMasterId,
             'services',
@@ -784,10 +840,7 @@ void main() {
 
         await injectedRepo.bulkCreate(<MasterServiceBulkItem>[_fixedItem]);
 
-        final segments = capturedPath!
-            .split('/')
-            .where((s) => s.isNotEmpty)
-            .toList();
+        final segments = _wireSegments(capturedPath!);
         expect(
           segments,
           <String>[
@@ -796,7 +849,7 @@ void main() {
             'salons',
             _salonId,
             'masters',
-            Uri.encodeComponent(injected),
+            injected,
             'services',
             'bulk',
           ],

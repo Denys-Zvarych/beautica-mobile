@@ -172,14 +172,34 @@ abstract interface class ServiceRepository {
   });
 
   /// Deactivates (soft-deletes) a service identified by its service-definition
-  /// id ([serviceDefId]).
+  /// id ([serviceDefId]) — or, with a [SalonMasterTarget] in scope, unassigns
+  /// ONE master from it (phase 316 D1).
   ///
-  /// Wraps `DELETE /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
+  /// `null` target (every shipped call site today): wraps
+  /// `DELETE /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
   /// [MasterService.serviceDefId] (the underlying service-definition UUID), NOT
   /// [MasterService.id] (the assignment UUID) — the backend keys this endpoint
   /// on the definition and a wrong id fails to resolve/authorise. The backend
-  /// marks the service inactive rather than removing it. Calling this method
-  /// twice is idempotent — a 200 on either call resolves without throwing.
+  /// marks the *definition* inactive rather than removing it — every master in
+  /// the salon (or the sole independent master) loses the service. Calling
+  /// this method twice is idempotent — a 200 on either call resolves without
+  /// throwing.
+  ///
+  /// [SalonMasterTarget] target: wraps
+  /// `DELETE /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// (backend phase 307). Deactivates ONE `master_services` ROW — the shared
+  /// definition and every OTHER master in the salon are untouched. This is the
+  /// surgical operation the salon surface must use: after backend phase 302 a
+  /// salon master's definitions are salon-owned and shared, so the null-target
+  /// branch above would silently remove the service from the whole salon (and
+  /// backend phase 306 admits `SALON_ADMIN` on that endpoint, so it would
+  /// *succeed*). [serviceDefId] carries the same definition-id contract as the
+  /// null-target branch — never the assignment id.
+  ///
+  /// Throws [ServiceUnassignBlockedFailure] on the salon branch's **409**: the
+  /// master still has future CONFIRMED bookings for this service and nothing
+  /// was written. This refusal is the shipping contract (backend phase 307
+  /// D4) — there is no cascade-cancel follow-up.
   Future<void> deactivate(String serviceDefId);
 
   /// Returns the list of approved service categories for the picker.
@@ -380,6 +400,73 @@ final class HttpServiceRepository implements ServiceRepository {
     }
   }
 
+  /// Percent-encodes [value] so it lands as EXACTLY ONE path segment of a
+  /// hand-built raw-[Dio] path, REJECTING any value that cannot be one.
+  ///
+  /// The single encoder for all three raw paths in this file
+  /// ([_listForSalonMaster], [bulkCreate], [_unassignFromSalonMaster]) — those
+  /// bypass the generated client's automatic encoding (see
+  /// `api/lib/src/api/service_controller_api.dart`), so an id carrying a
+  /// path-significant character would otherwise retarget the request on the
+  /// authenticated [_dio] that holds the bearer token. One helper, three call
+  /// sites: a fix here reaches every raw path at once.
+  ///
+  /// **Encoding alone is NOT sufficient, which is why this also rejects.**
+  /// [Uri.encodeComponent] does not escape `.`, so a bare `..` or `.` survives
+  /// it verbatim. Dio then issues the request as
+  /// `Uri.parse(url).normalizePath()` (`dio-5.9.2/lib/src/options.dart:642`),
+  /// and `normalizePath` REMOVES dot-segments per RFC 3986 §5.2.4. Measured,
+  /// not assumed: with `masterId` and `serviceDefId` both `'..'`,
+  /// `DELETE /api/v1/salons/S/masters/../services/..` collapses to
+  /// `DELETE /api/v1/salons/S/` — one trailing slash away from the
+  /// delete-the-whole-salon endpoint (`SalonController.java:208`). A single
+  /// `'.'` deletes its own segment and shifts every later one left.
+  ///
+  /// REJECT rather than sanitise: these ids are server-issued UUIDs, so a
+  /// dot-segment here is a PROGRAMMING error, not user input to be repaired.
+  /// Silently rewriting a caller's id would send a well-formed request about
+  /// the wrong resource, which is strictly worse than not sending one.
+  ///
+  /// Composite values that merely CONTAIN dot-segments (`a/../../b`) are safe
+  /// and pass: the separators encode to `%2F`, and `normalizePath` splits on
+  /// literal `/` only. Nor can encoding manufacture a dot-segment —
+  /// [Uri.encodeComponent] emits `%2E` for no input (it never escapes `.`, and
+  /// any literal `%` becomes `%25`), so Dart's unreserved-character
+  /// normalization has nothing to decode back into `.`.
+  ///
+  /// Throws [UnknownFailure] wrapping an [ArgumentError]: unreachable in
+  /// production (nothing constructs a [SalonMasterTarget] yet and the ids are
+  /// UUIDs), non-transient in [failureRetryPolicy], and a [Failure] rather
+  /// than a raw [ArgumentError] so the repository never leaks an unmapped
+  /// error type past its boundary.
+  static String _pathSegment(String value, String name) {
+    final encoded = Uri.encodeComponent(value);
+    // `encoded.contains('/')` cannot fire for encodeComponent (it escapes `/`
+    // to `%2F`); it is kept so a future swap onto a laxer encoder — encodeFull
+    // does NOT escape `/` — trips here instead of shipping a path split.
+    if (encoded.isEmpty ||
+        encoded == '.' ||
+        encoded == '..' ||
+        encoded.contains('/')) {
+      if (kDebugMode) {
+        log(
+          '_pathSegment: refusing to build a path with $name="$value" — it is '
+          'empty or a dot-segment that Dio\'s normalizePath() would collapse',
+          name: _tag,
+          level: 1000,
+        );
+      }
+      throw UnknownFailure(
+        cause: ArgumentError.value(
+          value,
+          name,
+          'must be a single non-empty path segment (not "." or "..")',
+        ),
+      );
+    }
+    return encoded;
+  }
+
   @override
   Future<List<MasterService>> listMyServices() async {
     _assertAuthenticated();
@@ -461,16 +548,14 @@ final class HttpServiceRepository implements ServiceRepository {
   /// layer is a pass-through, and resolving a userId to a `masters` row id is
   /// phase 317's job, not this one's.
   Future<List<MasterService>> _listForSalonMaster(SalonMasterTarget t) async {
+    // [t.salonId] / [t.masterId] go through the shared [_pathSegment] encoder,
+    // which BOTH percent-encodes and rejects dot-segments — encoding alone is
+    // not enough, see that method's doc. Deliberately OUTSIDE the `try`: its
+    // [UnknownFailure] must reach the caller as-is, not be reshaped by the
+    // handlers below. Encoding a well-formed UUID is a no-op.
+    final salonId = _pathSegment(t.salonId, 'salonId');
+    final masterId = _pathSegment(t.masterId, 'masterId');
     try {
-      // [t.salonId] / [t.masterId] are percent-encoded before interpolation —
-      // this raw path bypasses the generated client's automatic encoding (see
-      // `api/lib/src/api/service_controller_api.dart`), so an id containing a
-      // path-significant character (`/`, `..`, `?`, `#`) would otherwise
-      // silently retarget this request on the authenticated [_dio] instance,
-      // which carries the bearer token. Encoding a well-formed UUID is a
-      // no-op.
-      final salonId = Uri.encodeComponent(t.salonId);
-      final masterId = Uri.encodeComponent(t.masterId);
       final res = await _dio.get<Object?>(
         '/api/v1/salons/$salonId/masters/$masterId/services',
       );
@@ -630,11 +715,14 @@ final class HttpServiceRepository implements ServiceRepository {
     // swapping either branch onto the generated client is explicitly deferred
     // (see the interface doc comment).
     final t = target;
-    // Same percent-encoding requirement as [_listForSalonMaster] — this raw
-    // path also bypasses the generated client's automatic encoding.
+    // Same encode-AND-REJECT requirement as [_listForSalonMaster] — this raw
+    // path also bypasses the generated client's automatic encoding, and
+    // [Uri.encodeComponent] on its own lets a bare `..` through into Dio's
+    // `normalizePath()`. Built before the `try` below, so [_pathSegment]'s
+    // rejection propagates untouched by the DioException handlers.
     final path = t is SalonMasterTarget
-        ? '/api/v1/salons/${Uri.encodeComponent(t.salonId)}/masters/'
-              '${Uri.encodeComponent(t.masterId)}/services/bulk'
+        ? '/api/v1/salons/${_pathSegment(t.salonId, 'salonId')}/masters/'
+              '${_pathSegment(t.masterId, 'masterId')}/services/bulk'
         : '/api/v1/independent-masters/me/services/bulk';
 
     try {
@@ -966,6 +1054,14 @@ final class HttpServiceRepository implements ServiceRepository {
   @override
   Future<void> deactivate(String serviceDefId) async {
     _assertAuthenticated();
+    // Phase 316 D1 — dispatch INSIDE this method rather than a parallel
+    // public method or an `if (target != null)` at the call site: one seam,
+    // so `service_edit_screen.dart`'s delete button retargets for free with
+    // no fork to repeat there. Mirrors [listMyServices] / [bulkCreate].
+    final t = target;
+    if (t is SalonMasterTarget) {
+      return _unassignFromSalonMaster(t, serviceDefId);
+    }
     try {
       // DELETE /api/v1/services/{serviceDefId} — keyed on the service-definition
       // id, NOT the assignment id.
@@ -989,6 +1085,111 @@ final class HttpServiceRepository implements ServiceRepository {
       // it changes nothing else.
       throw _mapServiceWriteException(e);
     }
+  }
+
+  /// Unassigns [t.masterId] from the service identified by [serviceDefId] —
+  /// the [SalonMasterTarget] arm of [deactivate] (phase 316 D1).
+  ///
+  /// Wraps
+  /// `DELETE /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// (backend phase 307). Deactivates ONE `master_services` ROW — the shared
+  /// service DEFINITION and every other master in the salon are untouched.
+  /// This is the surgical counterpart to the null-target branch in
+  /// [deactivate], which would instead deactivate the definition for the
+  /// WHOLE salon (see this file's header and phase 316's "Why this is not
+  /// optional").
+  ///
+  /// No generated binding exists for this exact path today — mirrors
+  /// [_listForSalonMaster]'s and [bulkCreate]'s raw-`_dio` precedent: the
+  /// `DELETE /salons/{s}/masters/{m}/services/{serviceDefId}` endpoint
+  /// (backend phase 307) exists only on the unmerged
+  /// `beautica-backend@feat/salon-owned-master-services` branch, so
+  /// `ServiceControllerApi.unassignServiceFromMaster` — the binding phase
+  /// 313's OpenAPI regen would generate — cannot be committed until that
+  /// branch reaches `dev`. This method is implemented literally per phase
+  /// 316's mandatory deviation and is exercised only against a mocked/faked
+  /// Dio in tests; nothing in-app calls it yet (no salon UI exists before
+  /// phase 317, which is BLOCKED on this method landing first).
+  ///
+  /// [serviceDefId] MUST be the service-DEFINITION id
+  /// ([MasterService.serviceDefId]), NOT the assignment id
+  /// ([MasterService.id]) — same contract [deactivate]'s null-target branch
+  /// and [update] already carry. `service_edit_screen.dart:115-156` already
+  /// passes `service.serviceDefId`, unchanged by this phase.
+  Future<void> _unassignFromSalonMaster(
+    SalonMasterTarget t,
+    String serviceDefId,
+  ) async {
+    // [t.salonId] / [t.masterId] / [serviceDefId] ALL go through the shared
+    // [_pathSegment] encoder — this raw path bypasses the generated client's
+    // automatic encoding, so an id containing a path-significant character
+    // (`/`, `?`, `#`) would otherwise silently retarget this DELETE on the
+    // authenticated [_dio] instance, which carries the bearer token.
+    //
+    // Percent-encoding alone does NOT cover `..`/`.`: [Uri.encodeComponent]
+    // leaves them verbatim and Dio's `normalizePath()` then collapses them —
+    // `masters/../services/..` measurably degenerates to `/api/v1/salons/S/`,
+    // adjacent to the delete-the-salon endpoint. [_pathSegment] REJECTS those
+    // rather than sanitising; see its doc. This is why the comment that used
+    // to sit here — claiming the encoding "neutralizes" `..` — was FALSE.
+    //
+    // [serviceDefId] is caller-supplied too (it flows from
+    // `ServiceEditScreen`'s route argument), so it gets the same treatment as
+    // the other two. Deliberately OUTSIDE the `try`: the rejection is a
+    // programming error, not a transport fault, and must not be reshaped by
+    // [_mapUnassignException]. Encoding a well-formed UUID is a no-op.
+    final salonId = _pathSegment(t.salonId, 'salonId');
+    final masterId = _pathSegment(t.masterId, 'masterId');
+    final defId = _pathSegment(serviceDefId, 'serviceDefId');
+    try {
+      await _dio.delete<Object?>(
+        '/api/v1/salons/$salonId/masters/$masterId/services/$defId',
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_unassignFromSalonMaster(${t.salonId}, ${t.masterId}, '
+          '$serviceDefId) failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapUnassignException(e);
+    }
+  }
+
+  /// Maps a [DioException] from [_unassignFromSalonMaster] to a typed
+  /// [Failure] (phase 316 D2):
+  ///   - **409** → [ServiceUnassignBlockedFailure] — future CONFIRMED
+  ///     bookings block the unassign; nothing was written. No count is parsed
+  ///     out of the body (D3 — it is a plain English `String`, not a
+  ///     structured payload), so this check is on STATUS CODE ALONE, unlike
+  ///     [_isDuplicateService] / [_isPriceShapeMismatch].
+  ///   - **429** → [ServiceRateLimitedFailure] — shares the per-master
+  ///     single-write bucket [_mapServiceWriteException] uses.
+  ///   - **404** → falls through to [_mapDioException], which already maps it
+  ///     to [NotFoundFailure] (no active assignment for this pair, backend
+  ///     phase 307 D7 — typically a second tap after a first one raced with a
+  ///     stale list). No special-casing needed here.
+  ///   - **403** → falls through to [_mapDioException] with NO special
+  ///     handling (D2): the route guard makes an unauthorised salon target
+  ///     unreachable, and a repository that pretends otherwise would be lying
+  ///     about its guarantees.
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The 409/429 checks run BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may already have attached (it maps a non-auth
+  /// 409 to a generic [ServerFailure] and has no 429 branch at all), mirroring
+  /// [_mapServiceWriteException] / [_mapBulkCreateException].
+  Failure _mapUnassignException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) return const ServiceUnassignBlockedFailure();
+    if (statusCode == 429) return _rateLimited(e);
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
   }
 
   @override
@@ -1270,12 +1471,14 @@ ServiceTarget? serviceTarget(Ref ref) => null;
 /// copy into production code. A root override is PROCESS-LIFETIME: it unwinds
 /// on nothing — not on `pop`, not on a tab switch, not on logout — so an app
 /// that installs one stays pointed at a named salon master until the process
-/// dies. Combined with the still-open backlog row at
-/// `services_list_notifier.dart:28` (`serviceRepositoryProvider` is not
-/// evicted on the auth boundary), it would retain a CROSS-TENANT
-/// [SalonMasterTarget] across navigation AND across a session change: log out,
-/// log in as somebody else, open /services, and the previous account's salon
-/// master's menu is what loads. Only the scoped mechanism below unwinds.
+/// dies. It would therefore retain a CROSS-TENANT [SalonMasterTarget] across
+/// navigation AND across a session change: log out, log in as somebody else,
+/// open /services, and the previous account's salon master's menu is what
+/// loads. Note that the auth-boundary watches do NOT save you here — this
+/// provider rebuilds on an identity change (`sessionUserId` below) and
+/// `servicesListProvider` does too (`services_list_notifier.dart:127`), but a
+/// rebuild simply RE-READS the root override and gets the same stale target
+/// back. Only the scoped mechanism below unwinds.
 ///
 /// The declaration is deliberately absent HERE because it cascades. With it,
 /// riverpod throws `StateError: servicesListProvider depends on
@@ -1291,13 +1494,19 @@ ServiceTarget? serviceTarget(Ref ref) => null;
 ///       [ProviderScope], with [serviceTargetProvider] supplying the value it
 ///       threads in.
 ///
-/// AND, either way, phase 317 must ALSO evict [serviceRepositoryProvider] and
-/// `servicesListProvider` on the auth boundary (the open
-/// `services_list_notifier.dart:28` backlog row). A scoped override bounds the
-/// target to a route subtree, but the keepAlive repository and the keepAlive
-/// services list are still whole-process caches of ONE tenant's catalogue;
-/// scoping alone fixes navigation and leaves the session change unfixed.
-/// Landing that eviction in 317 is what closes the backlog row.
+/// The auth-boundary half of what phase 317 was told to land is now DONE and
+/// is no longer 317's to do: [serviceRepositoryProvider] rebuilds on an
+/// identity change via the `sessionUserId` watch below,
+/// `masterServiceCatalogProvider` via its own
+/// (`master_service_catalog_provider.dart:162`), and — since 2026-09-10 —
+/// `servicesListProvider` via `services_list_notifier.dart:127`, which it
+/// needs independently because the `.future` edge it reads coalesces. What
+/// scoping still owes is only the NAVIGATION bound: a keepAlive repository
+/// and a keepAlive services list are whole-process caches of ONE tenant's
+/// catalogue, and the session change is what the watches cover, not the pop.
+/// (Backlog row `mobile-backlog.md` «`ServicesListProvider` `keepAlive:true`
+/// has no auth-boundary / logout-triggered eviction» — its stated condition is
+/// satisfied; leave the row's disposition to the orchestrator.)
 ///
 /// Until then the seam is inert in production: nothing constructs a non-null
 /// target and no override of any kind is installed.
@@ -1308,7 +1517,24 @@ ServiceRepository serviceRepository(Ref ref) {
   // AsyncValue.value returns null when loading/error; ?? '' keeps the
   // _assertAuthenticated() guard intact until the profile resolves.
   // masterProfileProvider is also keepAlive: true, so this watch is stable.
-  final masterId = ref.watch(masterProfileProvider).value?.id ?? '';
+  //
+  // NARROWED to the id with `.select`, exactly as the `sessionUserId` line
+  // below is narrowed via [authUserIdOrNull]. A bare
+  // `ref.watch(masterProfileProvider)` renotifies on EVERY AsyncValue
+  // transition — including the retained-value `Loading → Data` an invalidate
+  // or a refresh produces — rebuilding this keepAlive repository and
+  // cascading a refetch through `master_service_catalog_provider.dart:162`
+  // (which since N2 is the app's only `listMyServices()` in a `build`, and
+  // republishes to `servicesListProvider` from there)
+  // (`project_riverpod_seamless_invalidate_gotcha`). The readiness contract
+  // is UNCHANGED and still pinned: the selected String goes '' → masterId the
+  // moment the profile resolves, which is a real value change, so the
+  // repository is still rebuilt exactly once at that boundary
+  // (`service_repository_provider_test`, `service_by_id_readiness_test`).
+  // What is dropped is only the churn where the id did not move.
+  final masterId = ref.watch(
+    masterProfileProvider.select((profile) => profile.value?.id ?? ''),
+  );
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),

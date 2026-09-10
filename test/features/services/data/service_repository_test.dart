@@ -39,10 +39,26 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_target.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+/// The path segments Dio ACTUALLY puts on the wire for [rawPath].
+///
+/// Dio sends `RequestOptions.uri`, i.e. `Uri.parse(baseUrl + path)
+/// .normalizePath()` (`dio-5.9.2/lib/src/options.dart:642`) — NOT the string
+/// handed to `Dio.delete/get/post`. `normalizePath` REMOVES dot-segments
+/// (RFC 3986 §5.2.4) and `Uri.encodeComponent` does not escape `.`, so a
+/// corpus asserted against the raw argument string is structurally incapable
+/// of failing on a bare `..` (mobile-security S2, phase-316 audit cycle 1).
+/// Note [Uri.pathSegments] DECODES, so an injected value is compared verbatim
+/// — what is being pinned is that it is ONE element, not that it looks
+/// encoded.
+List<String> _wireSegments(String rawPath) =>
+    Uri.parse('http://localhost:8080$rawPath').normalizePath().pathSegments;
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -505,7 +521,46 @@ void main() {
       'x?y=1',
       'z#frag',
       '%2Falready-encoded',
+      // The deliberate near-miss (mobile-security S2): CONTAINS dot-segments,
+      // but its separators encode to %2F and `normalizePath` splits on
+      // literal `/` only — so it must still fly, as ONE segment. `'../evil'`
+      // above is NOT this case: it encodes to `..%2Fevil`. Neither of them is
+      // a BARE `..`, which is the input that actually collapses the path and
+      // which `_pathSegment` now rejects outright (see the reject rows below
+      // and `service_repository_contract_test.dart`).
+      'a/../../b',
     ];
+
+    // Bare dot-segments survive `Uri.encodeComponent` verbatim and are eaten
+    // by dio's `normalizePath()` — `_pathSegment` REJECTS them rather than
+    // sanitising, so no request is issued at all.
+    const pathRejections = <String>['..', '.'];
+
+    for (final injected in pathRejections) {
+      test(
+        'SalonMasterTarget — a masterId of "$injected" is REJECTED and NO GET '
+        'is issued: encoding leaves it verbatim and dio normalizePath() would '
+        'then delete/collapse its segment',
+        () async {
+          when(() => mockDio.get<Object?>(any())).thenAnswer(
+            (_) async => Response<Object?>(
+              requestOptions: RequestOptions(path: '/'),
+              statusCode: 200,
+              data: <String, Object?>{'success': true, 'data': <Object?>[]},
+            ),
+          );
+
+          await expectLater(
+            salonRepo(
+              salonId: 'salon-abc',
+              masterId: injected,
+            ).listMyServices(),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => mockDio.get<Object?>(any()));
+        },
+      );
+    }
 
     test(
       'SalonMasterTarget — a salonId containing a path-significant '
@@ -529,17 +584,14 @@ void main() {
             masterId: 'master-xyz',
           ).listMyServices();
 
-          final segments = capturedPath!
-              .split('/')
-              .where((s) => s.isNotEmpty)
-              .toList();
+          final segments = _wireSegments(capturedPath!);
           expect(
             segments,
             <String>[
               'api',
               'v1',
               'salons',
-              Uri.encodeComponent(injected),
+              injected,
               'masters',
               'master-xyz',
               'services',
@@ -574,10 +626,7 @@ void main() {
             masterId: injected,
           ).listMyServices();
 
-          final segments = capturedPath!
-              .split('/')
-              .where((s) => s.isNotEmpty)
-              .toList();
+          final segments = _wireSegments(capturedPath!);
           expect(
             segments,
             <String>[
@@ -586,7 +635,7 @@ void main() {
               'salons',
               'salon-abc',
               'masters',
-              Uri.encodeComponent(injected),
+              injected,
               'services',
             ],
             reason:
@@ -1037,6 +1086,512 @@ void main() {
         repository.deactivate(_serviceDefId),
         throwsA(isA<NetworkFailure>()),
       );
+    });
+  });
+
+  // ── 5b. deactivate — salon-target dispatch (phase 316 D1) ───────────────────
+  //
+  // Mirrors the "listMyServices — salon-target dispatch (phase 315 D1)" group
+  // above: null target keeps using the generated client (already pinned in
+  // the `deactivate` group above, byte-identical); a SalonMasterTarget hits
+  // the raw-Dio salon-scoped DELETE. Assert the URI the fake Dio actually
+  // SAW, never a mocked success payload — a mapper test passes on either path
+  // (`project_widget_field_assertion_is_vacuous`).
+
+  group('deactivate — salon-target dispatch (phase 316 D1)', () {
+    late _MockDio mockDio;
+
+    setUp(() {
+      mockDio = _MockDio();
+    });
+
+    HttpServiceRepository salonRepo({
+      String salonId = 'salon-row-uuid',
+      String masterId = 'master-row-uuid',
+    }) => HttpServiceRepository(
+      serviceApi: serviceApi,
+      categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: mockDio,
+      masterId: '',
+      target: SalonMasterTarget(salonId: salonId, masterId: masterId),
+      sessionUserId: 'user-row-uuid',
+    );
+
+    /// Stubs [mockDio.delete] to succeed with [statusCode] and returns a
+    /// getter for the path the fake Dio actually saw.
+    String? Function() stubDelete({int statusCode = 204}) {
+      String? capturedPath;
+      when(() => mockDio.delete<Object?>(any())).thenAnswer((invocation) async {
+        capturedPath = invocation.positionalArguments[0] as String;
+        return Response<Object?>(
+          requestOptions: RequestOptions(path: capturedPath!),
+          statusCode: statusCode,
+        );
+      });
+      return () => capturedPath;
+    }
+
+    test('null target — deactivate() hits the generated client, NEVER the raw '
+        'Dio (the byte-identical-to-today branch)', () async {
+      when(
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(
+            path: '/api/v1/services/$_serviceDefId',
+          ),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.deactivate(_serviceDefId);
+
+      verify(
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
+      ).called(1);
+      verifyNever(() => mockDio.delete<Object?>(any()));
+    });
+
+    test('SalonMasterTarget — DELETEs '
+        '/api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}, '
+        'NEVER DELETE /api/v1/services/{serviceDefId}', () async {
+      final capturedPath = stubDelete();
+
+      await salonRepo(
+        salonId: 'salon-abc',
+        masterId: 'master-xyz',
+      ).deactivate(_serviceDefId);
+
+      expect(
+        capturedPath(),
+        '/api/v1/salons/salon-abc/masters/master-xyz/services/$_serviceDefId',
+      );
+      verifyNever(
+        () => serviceApi.deactivateServiceDefinition(
+          serviceDefId: any(named: 'serviceDefId'),
+        ),
+      );
+    });
+
+    test('SalonMasterTarget — the id sent is the DEFINITION id, NOT the '
+        'assignment id (differing-ids fixture: $_serviceDefId vs $_serviceId — '
+        'with equal ids this assertion would pass on either, which is exactly '
+        'how this bug ships)', () async {
+      final capturedPath = stubDelete();
+
+      // Mirrors `service_edit_screen.dart:115-156`, which passes
+      // `service.serviceDefId` — never `service.id`.
+      await salonRepo(
+        salonId: 'salon-abc',
+        masterId: 'master-xyz',
+      ).deactivate(_serviceDefId);
+
+      expect(capturedPath(), endsWith('/services/$_serviceDefId'));
+      expect(
+        capturedPath(),
+        isNot(contains(_serviceId)),
+        reason: 'the assignment id must never appear in the unassign path',
+      );
+    });
+
+    // ── Status mapping (salon branch) — phase 316 D2 ───────────────────────
+    //
+    // Five NAMED rows: a single "non-2xx throws" test would hide the two
+    // that are handled DIFFERENTLY upstream (409, 429) from the three that
+    // fall through to the shared mapper unchanged (204, 404, 403).
+
+    DioException badResponse(int status) => DioException(
+      requestOptions: RequestOptions(
+        path:
+            '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+            '$_serviceDefId',
+      ),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(
+          path:
+              '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+              '$_serviceDefId',
+        ),
+        statusCode: status,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test('204 → completes normally', () async {
+      stubDelete(statusCode: 204);
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        completes,
+      );
+    });
+
+    test('409 → ServiceUnassignBlockedFailure (future CONFIRMED bookings block '
+        'the unassign; NOTHING written)', () async {
+      when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(409));
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        throwsA(isA<ServiceUnassignBlockedFailure>()),
+      );
+    });
+
+    test('404 → NotFoundFailure (no active assignment for this pair — a '
+        'second tap after a stale-list race)', () async {
+      when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(404));
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test('403 → falls through to the shared mapper with NO special handling '
+        '(D2 — the route guard makes this unreachable)', () async {
+      when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(403));
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 403),
+        ),
+      );
+    });
+
+    test(
+      '429 → ServiceRateLimitedFailure (shares the single-write bucket)',
+      () async {
+        when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(429));
+
+        await expectLater(
+          salonRepo(
+            salonId: 'salon-abc',
+            masterId: 'master-xyz',
+          ).deactivate(_serviceDefId),
+          throwsA(isA<ServiceRateLimitedFailure>()),
+        );
+      },
+    );
+
+    // ── Encoding — every segment, mirroring phase 315's list/bulk precedent ──
+
+    const pathInjections = <String>[
+      'a/b',
+      '../evil',
+      'x?y=1',
+      'z#frag',
+      '%2Falready-encoded',
+      // The deliberate near-miss (mobile-security S2): CONTAINS dot-segments,
+      // but its separators encode to %2F and `normalizePath` splits on
+      // literal `/` only — so it must still fly, as ONE segment. `'../evil'`
+      // above is NOT this case: it encodes to `..%2Fevil`. Neither of them is
+      // a BARE `..`, which is the input that actually collapses the path and
+      // which `_pathSegment` now rejects outright (see the reject rows below
+      // and `service_repository_contract_test.dart`).
+      'a/../../b',
+    ];
+
+    // Bare dot-segments survive `Uri.encodeComponent` verbatim and are eaten
+    // by dio's `normalizePath()` — `_pathSegment` REJECTS them rather than
+    // sanitising, so no request is issued at all.
+    const pathRejections = <String>['..', '.'];
+
+    for (final injected in pathRejections) {
+      test(
+        'a masterId of "$injected" is REJECTED and NO DELETE is issued',
+        () async {
+          stubDelete();
+
+          await expectLater(
+            salonRepo(
+              salonId: 'salon-abc',
+              masterId: injected,
+            ).deactivate(_serviceDefId),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => mockDio.delete<Object?>(any()));
+        },
+      );
+
+      test(
+        'a serviceDefId of "$injected" is REJECTED and NO DELETE is issued — '
+        'unlike salonId/masterId it has NO _assertAuthenticated guard behind '
+        'it, so this is the only thing between it and the wire',
+        () async {
+          stubDelete();
+
+          await expectLater(
+            salonRepo(
+              salonId: 'salon-abc',
+              masterId: 'master-xyz',
+            ).deactivate(injected),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => mockDio.delete<Object?>(any()));
+        },
+      );
+    }
+
+    test(
+      'a salonId containing a path-significant character is percent-encoded, '
+      'never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          final capturedPath = stubDelete();
+
+          await salonRepo(
+            salonId: injected,
+            masterId: 'master-xyz',
+          ).deactivate(_serviceDefId);
+
+          final segments = _wireSegments(capturedPath()!);
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              injected,
+              'masters',
+              'master-xyz',
+              'services',
+              _serviceDefId,
+            ],
+            reason:
+                'injected salonId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
+
+    test(
+      'a masterId containing a path-significant character is percent-encoded, '
+      'never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          final capturedPath = stubDelete();
+
+          await salonRepo(
+            salonId: 'salon-abc',
+            masterId: injected,
+          ).deactivate(_serviceDefId);
+
+          final segments = _wireSegments(capturedPath()!);
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              'salon-abc',
+              'masters',
+              injected,
+              'services',
+              _serviceDefId,
+            ],
+            reason:
+                'injected masterId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
+
+    test('a serviceDefId containing a path-significant character is '
+        'percent-encoded, never widening the path shape — it is '
+        'CALLER-SUPPLIED too', () async {
+      for (final injected in pathInjections) {
+        final capturedPath = stubDelete();
+
+        await salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(injected);
+
+        final segments = _wireSegments(capturedPath()!);
+        expect(
+          segments,
+          <String>[
+            'api',
+            'v1',
+            'salons',
+            'salon-abc',
+            'masters',
+            'master-xyz',
+            'services',
+            injected,
+          ],
+          reason:
+              'injected serviceDefId "$injected" must land as ONE encoded '
+              'segment, not create/shift a segment boundary',
+        );
+      }
+    });
+  });
+
+  // ── 5c. deactivate — D4: a 409 leaves servicesListProvider untouched ────────
+  //
+  // The backend refuses BEFORE any write (`ServiceCatalogService.java:289-297`),
+  // so the mobile side must leave local state exactly as it found it: no
+  // optimistic removal, no `ref.invalidate(servicesListProvider)`, no pop.
+  //
+  // ⚠️ Riverpod seamless-invalidate trap: `invalidate` RETAINS `.value`, so
+  // "the list is still non-null" would pass even after an invalidation that
+  // is merely PENDING a rebuild. This asserts on the underlying GET call
+  // count (via the fake Dio `verify(...).called(n)`) AND a rebuild-notify
+  // counter — both are insensitive to `.value` staying populated and only
+  // move if a REAL re-fetch happens.
+
+  group('deactivate — D4 no-write-on-refusal (salon 409)', () {
+    test('a 409 leaves servicesListProvider untouched — no invalidation, no '
+        'refetch, list still holds all three seeded services', () async {
+      final mockDio = _MockDio();
+      final salonRepository = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: mockDio,
+        masterId: '',
+        target: const SalonMasterTarget(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ),
+        sessionUserId: 'user-row-uuid',
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          serviceRepositoryProvider.overrideWithValue(salonRepository),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Seed with three services via the salon-target GET. A manual
+      // counter (not a second `verify(...).called()`) tracks invocations —
+      // mocktail's `verify` CONSUMES matched calls, so a second `verify`
+      // with the same matcher only sees calls made AFTER the first verify,
+      // which is exactly right for "no NEW call happened" but reads
+      // confusingly; a plain counter is unambiguous either way.
+      var getCallCount = 0;
+      when(() => mockDio.get<Object?>(any())).thenAnswer((_) async {
+        getCallCount++;
+        return Response<Object?>(
+          requestOptions: RequestOptions(
+            path: '/api/v1/salons/salon-abc/masters/master-xyz/services',
+          ),
+          statusCode: 200,
+          data: <String, Object?>{
+            'success': true,
+            'data': <Map<String, Object?>>[
+              for (final id in ['svc-1', 'svc-2', 'svc-3'])
+                <String, Object?>{
+                  'id': id,
+                  'masterId': 'master-xyz',
+                  'serviceDefinition': <String, Object?>{
+                    'id': 'def-$id',
+                    'name': 'Послуга $id',
+                    'baseDurationMinutes': 60,
+                    'priceType': 'FIXED',
+                    'priceMin': 500,
+                    'priceDisplay': '500 ₴',
+                    'isActive': true,
+                  },
+                  'isActive': true,
+                },
+            ],
+          },
+        );
+      });
+
+      final initial = await container.read(servicesListProvider.future);
+      expect(initial, hasLength(3));
+      expect(getCallCount, 1);
+
+      // A widget still watching the list (e.g. ServicesListScreen behind
+      // the just-closed delete dialog) would receive a rebuild
+      // notification if the provider were invalidated.
+      var notifyCount = 0;
+      container.listen(
+        servicesListProvider,
+        (_, _) => notifyCount++,
+        fireImmediately: false,
+      );
+
+      // Drive the 409.
+      when(() => mockDio.delete<Object?>(any())).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(
+            path:
+                '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+                '$_serviceDefId',
+          ),
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(
+              path:
+                  '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+                  '$_serviceDefId',
+            ),
+            statusCode: 409,
+          ),
+          type: DioExceptionType.badResponse,
+        ),
+      );
+
+      await expectLater(
+        container.read(serviceRepositoryProvider).deactivate(_serviceDefId),
+        throwsA(isA<ServiceUnassignBlockedFailure>()),
+      );
+
+      // ⚠️ DRAIN THE EVENT LOOP BEFORE ASSERTING — without this the test is
+      // VACUOUS against the very mutation it exists to catch.
+      //
+      // `ref.invalidate` is LAZY: it marks the provider dirty and the rebuild
+      // (and therefore the re-fetch and the listener notification) is
+      // scheduled, not synchronous. `expectLater` above resolves the moment
+      // `deactivate` throws, so assertions placed directly after it run in the
+      // SAME event-loop turn — before any scheduled rebuild could possibly be
+      // observed. Measured, not assumed (phase-316 mutation check 4,
+      // 2026-09-10): injecting `container.invalidate(servicesListProvider)` at
+      // the 409 handler left this test GREEN without the drain and turns it
+      // RED with it (`getCallCount` 1 → 2).
+      //
+      // `Future.delayed(Duration.zero)` and not `Future.value()`: the latter
+      // yields ONE microtask, which is not guaranteed to cover Riverpod's
+      // scheduling plus the repository's own async GET; a full event-loop turn
+      // covers both.
+      await Future<void>.delayed(Duration.zero);
+
+      // D4 — assert on the GET call count / rebuild-notify count, never on
+      // `.value != null` (that stays non-null through an invalidation too).
+      expect(
+        getCallCount,
+        1,
+        reason: 'a 409 refusal must not trigger any re-fetch of the list',
+      );
+      expect(
+        notifyCount,
+        0,
+        reason:
+            'a 409 refusal must not trigger any rebuild of '
+            'servicesListProvider',
+      );
+      expect(container.read(servicesListProvider).value, hasLength(3));
     });
   });
 

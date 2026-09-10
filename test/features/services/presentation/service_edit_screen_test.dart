@@ -662,38 +662,29 @@ void main() {
     },
   );
 
-  // ── Gap 9. masterProfileProvider invalidated after save ──────────────────
-
-  testWidgets('gap 9. masterProfileProvider is invalidated after valid save', (
-    tester,
-  ) async {
-    final masterProfileStates = <AsyncValue<Object?>>[];
-    await _pumpEdit(tester, repo, masterProfileStates: masterProfileStates);
-
-    await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
-    await tester.pump();
-
-    // All fields pre-filled; tap save.
-    await tester.tap(find.byKey(const Key('btn-submit-service')));
-    await tester.pump();
-    await tester.pumpAndSettle();
-
-    // masterProfileProvider must have emitted additional states (AsyncLoading
-    // or a rebuild) after ref.invalidate(masterProfileProvider) is called on
-    // the successful save path.
-    expect(
-      masterProfileStates.length,
-      greaterThan(1),
-      reason:
-          'masterProfileProvider must be invalidated after a successful '
-          'service save',
-    );
-  });
-
-  // ── Gap 10. masterProfileProvider invalidated after confirmed delete ──────
+  // ── Gap 9. Save fan-out is TRIMMED to the service catalogues ─────────────
+  //
+  // Rewritten (phase 316, mobile-perf LOW). The save path used to also
+  // `ref.invalidate(masterProfileProvider)`, buying a redundant
+  // `GET /masters/me` on every rename / reprice / recategorize — none of which
+  // moves a field on [Master] (`master.dart` carries nothing service-derived)
+  // — and leaving the two writes on this screen fanning out asymmetrically
+  // after `_onDelete` was trimmed. The profile screen's services stat tile and
+  // category section watch `servicesListProvider` directly
+  // (`master_profile_screen.dart:505,746`), which the catalogue invalidation
+  // already covers.
+  //
+  // The PREVIOUS assertion here was VACUOUS, in exactly the way gap 10's was:
+  // it read `masterProfileStates.length > 1`, and the stub notifier's `async
+  // build()` emits `AsyncLoading` → `AsyncData` at MOUNT, so the expectation
+  // was already satisfied before the save happened. Verified empirically —
+  // with `ref.invalidate(masterProfileProvider)` deleted from the save path,
+  // the old test still passed. This version counts from a post-mount baseline
+  // and pins BOTH halves: the catalogues are invalidated, the profile is not.
 
   testWidgets(
-    'gap 10. masterProfileProvider is invalidated after confirmed delete',
+    'gap 9. a valid save invalidates the service catalogues and does NOT '
+    'invalidate masterProfileProvider',
     (tester) async {
       final listStates = <AsyncValue<Object?>>[];
       final masterProfileStates = <AsyncValue<Object?>>[];
@@ -704,6 +695,108 @@ void main() {
         masterProfileStates: masterProfileStates,
       );
 
+      // Baseline: whatever each watcher saw while the screen mounted
+      // (AsyncLoading → AsyncData). Counting from HERE rather than asserting an
+      // absolute length is what stops the mount transitions from satisfying the
+      // assertion on their own — the defect this rewrite removes.
+      final int profileStatesBeforeSave = masterProfileStates.length;
+      final int listStatesBeforeSave = listStates.length;
+
+      // Drain the mount-time list fetches so the verification after the save
+      // counts ONLY what the save caused. mocktail excludes already-verified
+      // invocations from later `verify` calls, which is what makes the
+      // post-save `called(1)` an exact figure rather than a running total.
+      verify(() => repo.listMyServices()).called(greaterThanOrEqualTo(1));
+
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+
+      // All fields pre-filled; tap save.
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // The PATCH fired — without this the assertions below would pass on a
+      // save that never happened.
+      verify(
+        () => repo.update(
+          _stubService.serviceDefId,
+          any(),
+          assignmentId: _stubService.id,
+        ),
+      ).called(1);
+
+      // servicesListProvider must have been invalidated — proven by the REFETCH
+      // it causes, exactly once. `any((s) => s is AsyncLoading)` would not work
+      // here: a seamless invalidate emits `AsyncData(previous, isLoading: true)`
+      // rather than `AsyncLoading` (project_riverpod_seamless_invalidate_gotcha)
+      // and that flag is already back to false by the frame the watcher
+      // rebuilds on.
+      verify(() => repo.listMyServices()).called(1);
+      expect(
+        listStates.length,
+        greaterThan(listStatesBeforeSave),
+        reason:
+            'servicesListProvider should re-emit to its watchers after a '
+            'successful save invalidates it',
+      );
+
+      // masterProfileProvider must NOT be invalidated: an edit cannot change
+      // anything [Master] carries. Asserting the watcher saw no NEW state is
+      // the non-vacuous form — `ref.invalidate` retains `.value`
+      // (project_riverpod_seamless_invalidate_gotcha), so asserting
+      // "still has data" would pass even after an invalidation.
+      expect(
+        masterProfileStates.length,
+        profileStatesBeforeSave,
+        reason:
+            'masterProfileProvider must NOT be invalidated by a service save '
+            '— Master carries no service-derived field, and the profile '
+            'surfaces read services through servicesListProvider',
+      );
+    },
+  );
+
+  // ── Gap 10. Delete fan-out is TRIMMED to the service catalogues ───────────
+  //
+  // Rewritten (phase 316, mobile-perf MEDIUM): the delete path used to also
+  // `ref.invalidate(masterProfileProvider)`, buying a redundant `GET
+  // /masters/me` — and, with a salon target in scope, refetching the
+  // OPERATOR's profile rather than the unassigned master's. [Master] carries
+  // no service-derived field and the profile screen's services section watches
+  // `servicesListProvider` directly, so the catalogue invalidation below is
+  // the complete fan-out. This test now pins BOTH halves: the catalogues are
+  // invalidated, the profile is not.
+  //
+  // The SAVE path carries the identical trim (gap 9), so the two writes on this
+  // screen no longer fan out asymmetrically.
+
+  testWidgets(
+    'gap 10. confirmed delete invalidates the service catalogues and does '
+    'NOT invalidate masterProfileProvider',
+    (tester) async {
+      final listStates = <AsyncValue<Object?>>[];
+      final masterProfileStates = <AsyncValue<Object?>>[];
+      await _pumpEdit(
+        tester,
+        repo,
+        watcherStates: listStates,
+        masterProfileStates: masterProfileStates,
+      );
+
+      // Baseline: whatever the profile watcher saw while the screen mounted
+      // (AsyncLoading → AsyncData). Counting from HERE rather than asserting an
+      // absolute length keeps the test honest about the mount transitions
+      // without letting a post-delete invalidation hide inside them.
+      final int profileStatesBeforeDelete = masterProfileStates.length;
+      final int listStatesBeforeDelete = listStates.length;
+
+      // Drain the mount-time list fetches so the verification after the delete
+      // counts ONLY what the delete caused. mocktail excludes already-verified
+      // invocations from later `verify` calls, which is what makes the
+      // post-delete `called(1)` an exact figure rather than a running total.
+      verify(() => repo.listMyServices()).called(greaterThanOrEqualTo(1));
+
       // Open the delete dialog.
       await tester.tap(find.byKey(const Key('btn-delete-service')));
       await tester.pumpAndSettle();
@@ -712,21 +805,121 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
       await tester.pumpAndSettle();
 
-      // servicesListProvider must have been invalidated (emitted AsyncLoading).
-      final listHasLoading = listStates.any((s) => s is AsyncLoading);
+      // servicesListProvider must have been invalidated — proven by the REFETCH
+      // it causes, exactly once.
+      //
+      // Two traps this replaces. The previous shape was
+      // `listStates.any((s) => s is AsyncLoading)` over the WHOLE list, which
+      // the mount-time AsyncLoading satisfied for free: it passed whether or
+      // not the delete invalidated anything. And narrowing it to the states
+      // observed after the delete does not rescue it, because a seamless
+      // invalidate emits `AsyncData(previous, isLoading: true)` rather than
+      // `AsyncLoading` (project_riverpod_seamless_invalidate_gotcha) AND that
+      // flag is already back to false by the frame the watcher rebuilds on —
+      // the widget never observes it at all.
+      //
+      // `called(1)` is also what pins the TRIMMED fan-out: before this phase,
+      // `ref.invalidate(masterProfileProvider)` on this path rebuilt
+      // `serviceRepositoryProvider` (watched by `services_list_notifier.dart`)
+      // and cascaded a SECOND `listMyServices()`.
+      verify(() => repo.listMyServices()).called(1);
       expect(
-        listHasLoading,
-        isTrue,
+        listStates.length,
+        greaterThan(listStatesBeforeDelete),
         reason:
-            'servicesListProvider should be invalidated after confirmed delete',
+            'servicesListProvider should re-emit to its watchers after a '
+            'confirmed delete invalidates it',
       );
 
-      // masterProfileProvider must also have been invalidated.
+      // masterProfileProvider must NOT be invalidated: the delete cannot change
+      // anything the profile carries. Asserting the watcher saw no NEW state is
+      // the non-vacuous form — `ref.invalidate` retains `.value`
+      // (project_riverpod_seamless_invalidate_gotcha), so asserting
+      // "still has data" would pass even after an invalidation.
       expect(
         masterProfileStates.length,
-        greaterThan(1),
+        profileStatesBeforeDelete,
         reason:
-            'masterProfileProvider must be invalidated after confirmed delete',
+            'masterProfileProvider must NOT be invalidated by a service '
+            'delete — Master carries no service-derived field, and in salon '
+            'mode GET /masters/me reads the operator, not the target master',
+      );
+    },
+  );
+
+  // ── Gap 10b. Double tap issues exactly ONE delete ─────────────────────────
+
+  testWidgets(
+    'gap 10b. a second delete tap while the first DELETE is in flight is '
+    'dropped — deactivate fires once and no error snack is shown',
+    (tester) async {
+      // The DELETE is held open on a Completer so the second tap provably
+      // overlaps the FIRST call's pending future. A test that taps twice after
+      // the first call already resolved proves nothing.
+      final deleteGate = Completer<void>();
+      var deactivateCalls = 0;
+      when(() => repo.deactivate(_stubService.serviceDefId)).thenAnswer((_) {
+        deactivateCalls++;
+        return deleteGate.future;
+      });
+
+      await _pumpEdit(tester, repo);
+
+      // Tap 1 → dialog → confirm. The dialog dismissal settles; the DELETE
+      // stays pending (a pending Future is not an animation, so pumpAndSettle
+      // returns without draining it).
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      // NON-VACUITY PIN: the first DELETE has been issued and has NOT resolved.
+      // If either of these fails the overlap the test claims to exercise did
+      // not happen and every assertion below is worthless.
+      expect(
+        deactivateCalls,
+        1,
+        reason: 'the first DELETE must already be in flight',
+      );
+      expect(
+        deleteGate.isCompleted,
+        isFalse,
+        reason: 'the first DELETE must still be pending at the second tap',
+      );
+      // The screen is still mounted and the delete icon is hit-testable again —
+      // the dialog barrier is gone, which is exactly why a user can double tap.
+      expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+
+      // Tap 2, mid-flight. The in-flight guard drops it before showDialog, so
+      // no second confirmation dialog opens and no second DELETE is issued.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('delete-service-dialog')),
+        findsNothing,
+        reason:
+            'the re-entrancy guard must drop the second tap before the '
+            'confirmation dialog is shown',
+      );
+
+      // Release the first DELETE.
+      deleteGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        deactivateCalls,
+        1,
+        reason: 'a double tap must issue exactly one DELETE',
+      );
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+
+      // And no error snackbar: the pre-guard behaviour was a second DELETE
+      // answering 404 → NotFoundFailure → an error snack for a delete that
+      // SUCCEEDED (phase 316 D2).
+      expect(
+        find.byType(VelvetSnack),
+        findsNothing,
+        reason: 'a successful delete must not surface an error snack',
       );
     },
   );
