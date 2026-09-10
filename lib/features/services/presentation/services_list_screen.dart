@@ -70,12 +70,43 @@ export 'services_list_notifier.dart' show servicesListProvider;
 /// builds on entry and lifted on exit, matching the project-wide pattern
 /// used by [MasterProfileScreen].
 class ServicesListScreen extends ConsumerStatefulWidget {
-  const ServicesListScreen({super.key, this.initialExpandCategory});
+  const ServicesListScreen({
+    super.key,
+    this.initialExpandCategory,
+    this.setupRoute,
+    this.editRouteBuilder,
+  });
 
   /// Optional upper-cased wire slug. When set, the matching category section
   /// is pre-expanded and all others start collapsed on first entry. When null
   /// or empty all sections start collapsed (the default).
   final String? initialExpandCategory;
+
+  /// Phase 317 (D3) — where the FAB and the empty-state CTA push to.
+  ///
+  /// ADDITIVE and NULLABLE: `null` means [RouteNames.serviceSetup], i.e.
+  /// exactly what every call site shipped before phase 317 did, so no existing
+  /// caller changes. The salon-target route
+  /// ([RouteNames.salonManageStaffServiceSetup]) supplies its own leaf so the
+  /// operator stays inside the salon subtree — and therefore inside the
+  /// `ProviderScope` that points the repository at that salon master.
+  ///
+  /// Deliberately NOT `ref.watch(serviceTargetProvider)` inside this screen:
+  /// D3 rejects that because the screen would then know about salons, which is
+  /// the exact knowledge the repository seam exists to keep out of it.
+  final String? setupRoute;
+
+  /// Phase 317 (D3) — how a card's «Редагувати» builds its destination from a
+  /// service id. `null` means [RouteNames.serviceEdit]. Same additive/nullable
+  /// contract as [setupRoute].
+  final String Function(String serviceId)? editRouteBuilder;
+
+  /// Resolved setup destination — the parameter, or today's literal.
+  String get resolvedSetupRoute => setupRoute ?? RouteNames.serviceSetup;
+
+  /// Resolved edit-destination builder — the parameter, or today's literal.
+  String Function(String serviceId) get resolvedEditRouteBuilder =>
+      editRouteBuilder ?? RouteNames.serviceEdit;
 
   @override
   ConsumerState<ServicesListScreen> createState() => _ServicesListScreenState();
@@ -161,7 +192,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
                 // already has services) and the empty-state CTA below both open
                 // the multi-select setup screen. The backend bulk endpoint is
                 // additive, so the same screen appends to an existing catalogue.
-                onTap: () => _openAndRefresh(RouteNames.serviceSetup),
+                onTap: () => _openAndRefresh(widget.resolvedSetupRoute),
               ),
         orElse: () => null,
       ),
@@ -221,11 +252,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
               // close, which is what lets [_openAndRefresh]'s awaited push
               // resolve and re-fire the category invalidation.
               return _EmptyState(
-                onCreate: () => _openAndRefresh(RouteNames.serviceSetup),
+                onCreate: () => _openAndRefresh(widget.resolvedSetupRoute),
               );
             }
             return _LoadedBody(
               onOpen: _openAndRefresh,
+              editRouteBuilder: widget.resolvedEditRouteBuilder,
               services: list,
               initialExpandCategory: widget.initialExpandCategory,
             );
@@ -277,6 +309,7 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 class _LoadedBody extends ConsumerStatefulWidget {
   const _LoadedBody({
     required this.onOpen,
+    required this.editRouteBuilder,
     required this.services,
     this.initialExpandCategory,
   });
@@ -284,6 +317,12 @@ class _LoadedBody extends ConsumerStatefulWidget {
   /// Pushes a route and invalidates [approvedCategoriesProvider] on return.
   /// Provided by [_ServicesListScreenState._openAndRefresh].
   final Future<void> Function(String location) onOpen;
+
+  /// Phase 317 (D3) — already resolved by
+  /// [ServicesListScreen.resolvedEditRouteBuilder], so this private widget
+  /// never re-applies the `?? RouteNames.serviceEdit` default and cannot drift
+  /// from the public one.
+  final String Function(String serviceId) editRouteBuilder;
 
   final List<MasterService> services;
 
@@ -409,7 +448,7 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                         key: Key('service_card_${entry.service.id}'),
                         service: entry.service,
                         onEdit: () => widget.onOpen(
-                          RouteNames.serviceEdit(entry.service.id),
+                          widget.editRouteBuilder(entry.service.id),
                         ),
                         // P-M3 fix: cap the effective stagger index at 5 so
                         // the maximum outstanding delay is 90*5 = 450 ms,

@@ -97,6 +97,8 @@ import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
 import 'salon_admin_edit_master_schedule_flow_test.dart'
     as salon_admin_edit_master_schedule;
+import 'salon_master_services_target_flow_test.dart'
+    as salon_master_services_target;
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
 
@@ -307,6 +309,7 @@ void main() {
   // Phase 312 (Step 2.7 Rule 3b) — the SALON_OWNER counterpart of the admin
   // flow above: roster -> a chosen master's schedule -> a real edit and
   // write against the VIEWED master, never "me".
+  group('salon_master_services_target_flow', salon_master_services_target.main);
   group(
     'salon_owner_edit_master_schedule_flow',
     salon_owner_edit_master_schedule.main,

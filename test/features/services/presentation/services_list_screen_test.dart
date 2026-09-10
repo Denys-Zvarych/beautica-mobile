@@ -514,6 +514,201 @@ void main() {
     expect(expectedPath, '/services/svc-001/edit');
   });
 
+  // ── 6b. Phase 317 D3 — the two additive, nullable destination parameters ───
+  //
+  // `null` must mean exactly what the screen did before phase 317, so every
+  // caller shipped today renders and navigates identically. Both halves are
+  // here on purpose: the OMITTED case is the "nothing changed" proof (and the
+  // one most likely to be vacuous if skipped), the SUPPLIED case is the proof
+  // the parameters are actually threaded rather than accepted and ignored.
+  //
+  // Destinations are asserted by the PAGE that builds, never by a location
+  // string — go_router's literal-before-dynamic shadowing makes a string
+  // assertion pass while a different page mounts
+  // (`project_gorouter_literal_before_dynamic_shadowing`).
+
+  group('Phase 317 D3 — setupRoute / editRouteBuilder', () {
+    const String kSalonId = 'salon-S';
+    const String kMemberId = 'user-U';
+
+    String salonSetup() =>
+        RouteNames.salonManageStaffServiceSetup(kSalonId, kMemberId);
+    String salonEdit(String id) =>
+        RouteNames.salonManageStaffServiceEdit(kSalonId, kMemberId, id);
+
+    /// A router carrying BOTH destination families, each landing on a
+    /// DISTINCTLY LABELLED dummy page, so "which page mounted" answers "which
+    /// destination was pushed".
+    GoRouter routerFor(ServicesListScreen screen) => GoRouter(
+      initialLocation: RouteNames.services,
+      routes: <RouteBase>[
+        GoRoute(path: RouteNames.services, builder: (_, _) => screen),
+        GoRoute(
+          path: RouteNames.serviceSetup,
+          builder: (_, _) => const _DummyPage(label: 'own-setup'),
+        ),
+        GoRoute(
+          path: '/services/:id/edit',
+          builder: (_, _) => const _DummyPage(label: 'own-edit'),
+        ),
+        GoRoute(
+          path: '/salons/:salonId/manage/staff/:memberId/services/setup',
+          builder: (_, _) => const _DummyPage(label: 'salon-setup'),
+        ),
+        GoRoute(
+          path:
+              '/salons/:salonId/manage/staff/:memberId/services'
+              '/:serviceId/edit',
+          builder: (_, _) => const _DummyPage(label: 'salon-edit'),
+        ),
+      ],
+    );
+
+    Future<void> pumpWith(
+      WidgetTester tester,
+      ServicesListScreen screen, {
+      required AsyncValue<List<MasterService>> services,
+    }) async {
+      await tester.pumpRoutedApp(
+        routerFor(screen),
+        overrides: [
+          _servicesOverride(services),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    /// Taps the extended FAB. `_NeumorphicExtendedFab` wraps an
+    /// `AnimatedScale` (0.97 on press), so a tap addressed at the keyed root
+    /// can miss its hit box mid-animation. The remedy is a better finder — the
+    /// `GestureDetector` that actually receives the pointer — never
+    /// `warnIfMissed: false` (`project_animatedscale_root_breaks_tap_by_key`).
+    Future<void> tapFab(WidgetTester tester) async {
+      final Finder fab = find.byKey(const Key('btn-create-service'));
+      expect(fab, findsOneWidget);
+      await tester.tap(
+        find.descendant(of: fab, matching: find.byType(GestureDetector)).first,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'OMITTED — the FAB pushes RouteNames.serviceSetup (own), unchanged',
+      (tester) async {
+        await pumpWith(
+          tester,
+          const ServicesListScreen(),
+          services: const AsyncData(_stubServiceList),
+        );
+
+        await tapFab(tester);
+
+        expect(find.text('Dummy own-setup'), findsOneWidget);
+        expect(find.text('Dummy salon-setup'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'OMITTED — the EMPTY-STATE CTA pushes RouteNames.serviceSetup (own), '
+      'unchanged',
+      (tester) async {
+        await pumpWith(
+          tester,
+          const ServicesListScreen(),
+          services: const AsyncData(<MasterService>[]),
+        );
+
+        await tester.tap(find.byKey(const Key('btn-create-service-empty')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Dummy own-setup'), findsOneWidget);
+        expect(find.text('Dummy salon-setup'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      "OMITTED — a card's onEdit pushes RouteNames.serviceEdit (own), "
+      'unchanged',
+      (tester) async {
+        await pumpWith(
+          tester,
+          const ServicesListScreen(),
+          services: const AsyncData(_stubServiceList),
+        );
+
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('service_card_svc-001')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Dummy own-edit'), findsOneWidget);
+        expect(find.text('Dummy salon-edit'), findsNothing);
+      },
+    );
+
+    testWidgets('SUPPLIED — the FAB pushes the SALON setup leaf', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        ServicesListScreen(
+          setupRoute: salonSetup(),
+          editRouteBuilder: salonEdit,
+        ),
+        services: const AsyncData(_stubServiceList),
+      );
+
+      await tapFab(tester);
+
+      expect(find.text('Dummy salon-setup'), findsOneWidget);
+      expect(find.text('Dummy own-setup'), findsNothing);
+    });
+
+    testWidgets('SUPPLIED — the EMPTY-STATE CTA pushes the SALON setup leaf', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        ServicesListScreen(
+          setupRoute: salonSetup(),
+          editRouteBuilder: salonEdit,
+        ),
+        services: const AsyncData(<MasterService>[]),
+      );
+
+      await tester.tap(find.byKey(const Key('btn-create-service-empty')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Dummy salon-setup'), findsOneWidget);
+      expect(find.text('Dummy own-setup'), findsNothing);
+    });
+
+    testWidgets("SUPPLIED — a card's onEdit pushes the SALON edit leaf", (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        ServicesListScreen(
+          setupRoute: salonSetup(),
+          editRouteBuilder: salonEdit,
+        ),
+        services: const AsyncData(_stubServiceList),
+      );
+
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('service_card_svc-001')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Dummy salon-edit'), findsOneWidget);
+      expect(find.text('Dummy own-edit'), findsNothing);
+    });
+  });
+
   // ── 7. Ukrainian plural forms for _serviceWordUk ───────────────────────────
 
   group('_serviceWordUk plural forms', () {

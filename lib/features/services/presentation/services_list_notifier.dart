@@ -112,7 +112,20 @@ part 'services_list_notifier.g.dart';
 /// cached `GET /independent-masters/me/services` — so a create/edit/delete must
 /// invalidate THAT provider (via `invalidateMasterServiceCatalogues`) rather
 /// than this one; see this file's header.
-@Riverpod(keepAlive: true)
+/// Phase 317 — BOTH direct edges are declared. `build` watches
+/// [masterServiceCatalogProvider] (`:137`), but `refresh` additionally
+/// `ref.read`s [serviceRepositoryProvider] (`:150`), and riverpod's transitive
+/// closure does NOT cover a provider this one reads but does not go through —
+/// measured: declaring only the catalogue throws
+/// `Bad state: ServicesList depends on serviceRepositoryProvider, which may be
+/// scoped` the first time `refresh()` runs (5 reds in
+/// `services_list_notifier_test.dart`). Both are named for that reason; the
+/// phase doc's one-entry table was wrong. See [serviceRepositoryProvider]'s
+/// SCOPED-TARGET CONTRACT doc.
+@Riverpod(
+  keepAlive: true,
+  dependencies: [masterServiceCatalog, serviceRepository],
+)
 class ServicesList extends _$ServicesList {
   bool _refreshing = false;
 

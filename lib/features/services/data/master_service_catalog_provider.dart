@@ -153,7 +153,14 @@ part 'master_service_catalog_provider.g.dart';
 /// («Мої послуги») wraps this provider's `.future`; see the file header for the
 /// forced import direction and for why mutations must invalidate THIS provider
 /// rather than the wrapper.
-@Riverpod(keepAlive: true)
+/// Phase 317 — `dependencies: [serviceRepository]` is MANDATORY, not
+/// decorative: without it this provider resolves against the ROOT container
+/// even inside the salon-target `ProviderScope`, hands back the OPERATOR's own
+/// catalogue, and the delete button on a service card would hit
+/// `DELETE /services/{id}` (destroying a shared salon definition) instead of
+/// the unassign endpoint. The guard assert is `kDebugMode`-only — see
+/// [serviceRepositoryProvider]'s SCOPED-TARGET CONTRACT doc.
+@Riverpod(keepAlive: true, dependencies: [serviceRepository])
 Future<List<MasterService>> masterServiceCatalog(Ref ref) {
   // Security (mobile-security MEDIUM-2, 2026-07-20) — see the file header.
   // Explicit identity watch, independent of whatever `serviceRepositoryProvider`

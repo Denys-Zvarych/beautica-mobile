@@ -364,6 +364,26 @@ void main() {
         kSampleId,
         kSampleId,
       ),
+      // Phase 317 — a chosen master's «Послуги» and the two leaves under it.
+      // The three render the SAME `ServicesListScreen` / `ServiceSetupScreen`
+      // / `ServiceEditScreen` the INDEPENDENT_MASTER's own `/services*` routes
+      // do, inside ONE `ProviderScope` supplied by the subtree's `ShellRoute`.
+      // Each leaf keeps its own full path and its own `salonManageGuard`, so
+      // `findMatch` resolves each independently — exactly like every other row
+      // in this map.
+      'salonManageStaffServices()': RouteNames.salonManageStaffServices(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageStaffServiceSetup()': RouteNames.salonManageStaffServiceSetup(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageStaffServiceEdit()': RouteNames.salonManageStaffServiceEdit(
+        kSampleId,
+        kSampleId,
+        kSampleId,
+      ),
       // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
       // Phase 21.9 settings hub will push to. Standalone top-level routes,
       // same rationale as `salonManage()`/`salonManageSettings()` above.

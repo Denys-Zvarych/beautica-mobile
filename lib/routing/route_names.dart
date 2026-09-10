@@ -299,6 +299,66 @@ abstract final class RouteNames {
   static String salonManageStaffScheduleCopy(String salonId, String memberId) =>
       '${salonManageStaffMember(salonId, memberId)}/copy';
 
+  /// Phase 317 — «Послуги» for a chosen MASTER on the roster. Renders the
+  /// SAME `ServicesListScreen` [services] does, inside a `ProviderScope` that
+  /// points `serviceTargetProvider` at that salon master instead of "me"
+  /// (D2 — byte-identical screen, no new pixels). A literal `/services` leaf
+  /// below the ALREADY-RESOLVED `:salonId`/`:memberId` captures — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents.
+  ///
+  /// Its OWN subtree rather than a widened guard on [services]: D1 rejects
+  /// `/services?salonId=…&masterId=…` because a query parameter is not gated
+  /// by `salonManageGuard`, which would leave an `INDEPENDENT_MASTER` free to
+  /// hand-craft a URL into another salon's catalogue and rely on the backend
+  /// 403 as the only fence. Registered under a `ShellRoute` (the one in
+  /// `app_router.dart`) so all three leaves share ONE `ProviderScope`, but
+  /// each leaf keeps its own full path and its own `redirect:
+  /// salonManageGuard` VERBATIM — the flat-guard convention every sibling
+  /// route in this subtree follows.
+  ///
+  /// ⚠️ [memberId] is the roster entry's `userId` — the SAME id
+  /// [salonManageStaffMember] takes, NOT a `masters` row id. ⚠️ The route
+  /// builder resolves the master row id itself, from
+  /// `salonStaffMemberProfileProvider(salonId, memberId)`; a userId on
+  /// `/salons/{s}/masters/{m}/...` yields 404, not 403.
+  static String salonManageStaffServices(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/services';
+
+  /// Phase 317 — the bulk service-setup screen for a chosen MASTER. Renders
+  /// the SAME `ServiceSetupScreen` [serviceSetup] does, inside the same
+  /// `ProviderScope` as [salonManageStaffServices]; its `bulkCreate` therefore
+  /// POSTs to `/salons/{s}/masters/{m}/services/bulk`. A literal `/setup` leaf
+  /// under the already-resolved [salonManageStaffServices] path, declared
+  /// BEFORE the `:serviceId` sibling in `app_router.dart` so the literal wins
+  /// (`project_gorouter_literal_before_dynamic_shadowing` — this is the one
+  /// place in the subtree where the trap is live, since `/setup` and
+  /// `/:serviceId` are peers at the same segment).
+  ///
+  /// ⚠️ [memberId] is the roster entry's `userId`, and ⚠️ the route builder
+  /// resolves the master row id itself — same two warnings
+  /// [salonManageStaffServices] carries.
+  static String salonManageStaffServiceSetup(String salonId, String memberId) =>
+      '${salonManageStaffServices(salonId, memberId)}/setup';
+
+  /// Phase 317 — the single-service edit screen for a chosen MASTER. Renders
+  /// the SAME `ServiceEditScreen` [serviceEdit] does, inside the same
+  /// `ProviderScope`, so its delete button dispatches to the UNASSIGN
+  /// endpoint (phase 316) rather than `DELETE /services/{id}` — which on a
+  /// salon-owned definition would destroy it for every master who performs it.
+  ///
+  /// ⚠️ [memberId] is the roster entry's `userId`, and ⚠️ the route builder
+  /// resolves the master row id itself — same two warnings
+  /// [salonManageStaffServices] carries. [serviceId] is the master-service id,
+  /// exactly what [serviceEdit] takes.
+  static String salonManageStaffServiceEdit(
+    String salonId,
+    String memberId,
+    String serviceId,
+  ) =>
+      '${salonManageStaffServices(salonId, memberId)}'
+      '/${Uri.encodeComponent(serviceId)}/edit';
+
   /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
   /// description), reached from the Phase 21.9 settings hub's own
   /// navigational row. A literal child of [salonManageSettings], gated by the

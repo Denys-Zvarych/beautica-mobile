@@ -1433,7 +1433,12 @@ final class HttpServiceRepository implements ServiceRepository {
 /// it unwinds on pop. An imperative setter would leave the app pointed at a
 /// master after the owner navigates away — the exact bug a `keepAlive` list
 /// provider hides until someone reopens `/services` and sees a stranger's menu.
-@Riverpod(keepAlive: true)
+///
+/// Phase 317 — declares `dependencies: []` explicitly. It is not required
+/// (a provider with no watches of its own is scopable without it), but it is
+/// declared as INTENT: this is the root of the scoped chain, and the four
+/// `dependencies:` declarations below all point back here.
+@Riverpod(keepAlive: true, dependencies: [])
 ServiceTarget? serviceTarget(Ref ref) => null;
 
 /// Provides the [ServiceRepository] singleton backed by the authenticated Dio,
@@ -1455,62 +1460,79 @@ ServiceTarget? serviceTarget(Ref ref) => null;
 /// Override in tests with a mocktail mock — never construct
 /// [HttpServiceRepository] directly in production or test code.
 ///
-/// ⚠️ PHASE 317 BLOCKER — READ BEFORE WIRING THE SALON ROUTE.
-/// This provider does NOT declare `dependencies: [serviceTarget]`, so a
-/// [serviceTargetProvider] override installed in a NESTED [ProviderScope] does
-/// NOT reach it: riverpod 3 only re-creates a provider in a child scope when
-/// that provider — and every provider that watches it, transitively — declares
-/// the scoped dependency. Measured on riverpod 3.1.0: a nested-scope probe
-/// reads `target: null` without the declaration and the overridden
-/// [SalonMasterTarget] with it.
+/// ⚠️ SCOPED-TARGET CONTRACT — READ BEFORE TOUCHING `dependencies:` BELOW.
+/// (Historically the "PHASE 317 BLOCKER" comment. Phase 317 landed the
+/// cascade on 2026-09-10; what follows is the resulting contract, not a
+/// blocker.)
+///
+/// This provider declares `dependencies: [serviceTarget]`, which is what makes
+/// a [serviceTargetProvider] override installed in a NESTED [ProviderScope]
+/// actually reach it. Riverpod 3 only re-creates a provider in a child scope
+/// when that provider — and every provider that watches it, transitively —
+/// declares the scoped dependency, so the declaration CASCADES: every
+/// dependent carries its own (`masterServiceCatalogProvider`,
+/// `servicesListProvider`, `serviceByIdProvider`, `serviceTypesProvider`,
+/// `serviceSetupProvider`). Removing any ONE of them silently re-roots that
+/// branch of the chain in release AOT, because the guard assert
+/// (`riverpod-3.1.0/.../element.dart:922`) is `kDebugMode`-gated and
+/// `riverpod_lint` was removed on 2026-08-18. Do not drop a declaration
+/// "because nothing complains".
 ///
 /// ⛔ A ROOT-LEVEL OVERRIDE IS NOT AN OPTION — DO NOT SHIP ONE.
-/// It happens to work in both riverpod configurations, and the phase-314 tests
-/// use one at ROOT because a unit test's `ProviderContainer` IS the root and
-/// is disposed in `addTearDown`. That is a test FIXTURE, never a pattern to
-/// copy into production code. A root override is PROCESS-LIFETIME: it unwinds
-/// on nothing — not on `pop`, not on a tab switch, not on logout — so an app
-/// that installs one stays pointed at a named salon master until the process
-/// dies. It would therefore retain a CROSS-TENANT [SalonMasterTarget] across
-/// navigation AND across a session change: log out, log in as somebody else,
-/// open /services, and the previous account's salon master's menu is what
-/// loads. Note that the auth-boundary watches do NOT save you here — this
-/// provider rebuilds on an identity change (`sessionUserId` below) and
-/// `servicesListProvider` does too (`services_list_notifier.dart:127`), but a
-/// rebuild simply RE-READS the root override and gets the same stale target
-/// back. Only the scoped mechanism below unwinds.
+/// The phase-314 tests use one at ROOT because a unit test's
+/// `ProviderContainer` IS the root and is disposed in `addTearDown`. That is a
+/// test FIXTURE, never a pattern to copy into production code. A root override
+/// is PROCESS-LIFETIME: it unwinds on nothing — not on `pop`, not on a tab
+/// switch, not on logout — so an app that installs one stays pointed at a
+/// named salon master until the process dies. It would therefore retain a
+/// CROSS-TENANT [SalonMasterTarget] across navigation AND across a session
+/// change: log out, log in as somebody else, open /services, and the previous
+/// account's salon master's menu is what loads. Note that the auth-boundary
+/// watches do NOT save you here — this provider rebuilds on an identity change
+/// (`sessionUserId` below) and `servicesListProvider` does too
+/// (`services_list_notifier.dart:127`), but a rebuild simply RE-READS the root
+/// override and gets the same stale target back. Only a widget-subtree
+/// `ProviderScope` unwinds. The one production installation is the
+/// `ShellRoute` scope in `app_router.dart` (`_SalonMasterServicesScope`).
 ///
-/// The declaration is deliberately absent HERE because it cascades. With it,
-/// riverpod throws `StateError: servicesListProvider depends on
-/// serviceRepositoryProvider, which may be scoped` for every dependent that
-/// omits it — `servicesListProvider`, `serviceByIdProvider`,
-/// `serviceTypesProvider`, `masterServiceCatalogProvider`, … 68 existing tests
-/// go red. Those notifiers live under `presentation/`, which phase 314 is
-/// forbidden to touch. Phase 317 therefore owns the choice and MUST take one
-/// of these TWO — the root override above is not a third option:
-///   (a) add `dependencies:` down the whole chain (services `presentation/`
-///       notifiers included), or
-///   (b) override `serviceRepositoryProvider` itself inside the salon
-///       [ProviderScope], with [serviceTargetProvider] supplying the value it
-///       threads in.
+/// ⛔ OVERRIDING `serviceRepositoryProvider` ITSELF IS ALSO NOT AN OPTION —
+/// MEASURED DEAD (2026-09-10). The escape hatch this comment used to offer as
+/// option (b) does not work: the scope's own widgets get the right repository,
+/// but `masterServiceCatalogProvider` and `servicesListProvider` — which have
+/// no scoped dependency of their own under that scheme — still resolve against
+/// the ROOT and still carry `target: null`. Bit-for-bit the same failure the
+/// cascade exists to fix. It is additionally inert to auth flips
+/// (`overrideWithValue` freezes the value, defeating the `sessionUserId` watch
+/// below) and would mean hand-rebuilding all five [HttpServiceRepository]
+/// constructor arguments in a route builder — a second copy of this function
+/// body, free to drift.
 ///
-/// The auth-boundary half of what phase 317 was told to land is now DONE and
-/// is no longer 317's to do: [serviceRepositoryProvider] rebuilds on an
-/// identity change via the `sessionUserId` watch below,
-/// `masterServiceCatalogProvider` via its own
-/// (`master_service_catalog_provider.dart:162`), and — since 2026-09-10 —
-/// `servicesListProvider` via `services_list_notifier.dart:127`, which it
-/// needs independently because the `.future` edge it reads coalesces. What
-/// scoping still owes is only the NAVIGATION bound: a keepAlive repository
-/// and a keepAlive services list are whole-process caches of ONE tenant's
-/// catalogue, and the session change is what the watches cover, not the pop.
-/// (Backlog row `mobile-backlog.md` «`ServicesListProvider` `keepAlive:true`
-/// has no auth-boundary / logout-triggered eviction» — its stated condition is
-/// satisfied; leave the row's disposition to the orchestrator.)
+/// BLAST RADIUS OF THE CASCADE, MEASURED — NOT the "68 existing tests go red"
+/// this comment used to claim. Exactly ONE test flipped:
+/// `service_repository_provider_test.dart`'s nested-scope case, which was
+/// written to flip. Zero incidental reds across `test/routing/`, `test/core/`,
+/// `test/features/services|salon|master|booking/`, `test/golden/` and the two
+/// service integration flows. Root reads, root `overrideWithValue(mock)` in
+/// tests, `autoDispose` families, and unrelated nested `ProviderScope`s in
+/// pump helpers are all unaffected — a nested scope that overrides nothing on
+/// this chain does not fork it.
 ///
-/// Until then the seam is inert in production: nothing constructs a non-null
-/// target and no override of any kind is installed.
-@Riverpod(keepAlive: true)
+/// The auth-boundary half is DONE and independent of scoping:
+/// [serviceRepositoryProvider] rebuilds on an identity change via the
+/// `sessionUserId` watch below, `masterServiceCatalogProvider` via its own
+/// (`master_service_catalog_provider.dart:162`), and `servicesListProvider`
+/// via `services_list_notifier.dart:127`, which it needs independently because
+/// the `.future` edge it reads coalesces. Under the cascade there is no
+/// repository override at all — the scoped element is a genuine build of THIS
+/// function body watching the ROOT `authProvider` — so scoping does not defeat
+/// any of them.
+///
+/// The seam is no longer inert: `app_router.dart`\'s `_SalonMasterServicesShell`
+/// constructs a [SalonMasterTarget] for the
+/// `/salons/:salonId/manage/staff/:memberId/services**` subtree. Every OTHER
+/// call site still resolves the root `null` target and is byte-identical to
+/// its pre-phase-314 behaviour.
+@Riverpod(keepAlive: true, dependencies: [serviceTarget])
 ServiceRepository serviceRepository(Ref ref) {
   // masterId is the Master-row UUID (from MasterDetailResponse.masterId),
   // NOT the User UUID from the auth session. User.id != Master.id.
@@ -1532,9 +1554,41 @@ ServiceRepository serviceRepository(Ref ref) {
   // repository is still rebuilt exactly once at that boundary
   // (`service_repository_provider_test`, `service_by_id_readiness_test`).
   // What is dropped is only the churn where the id did not move.
-  final masterId = ref.watch(
-    masterProfileProvider.select((profile) => profile.value?.id ?? ''),
-  );
+  //
+  // ⚠️ CONDITIONAL ON PURPOSE — the watch happens ONLY on the null-target
+  // (independent-master) arm. Under a [SalonMasterTarget] the acting user is
+  // an owner or an admin and `_masterId` is PROVABLY UNUSED: it is read in
+  // exactly one place, [_assertAuthenticated]'s `case null` arm (`:393`), and
+  // the salon arm reads only `_sessionUserId` and `target`. Watching it
+  // anyway costs two things, both measured:
+  //
+  //   • SECURITY/CORRECTNESS — `masterProfileProvider` fires
+  //     `GET /masters/me`, which `MasterController`'s `@PreAuthorize`
+  //     REFUSES for a SALON_ADMIN. Phase 317 admits SALON_ADMIN to the
+  //     salon-target services subtree, so an unconditional watch is a
+  //     GUARANTEED 403 — retried ~4× by `beauticaProviderRetry` — with the
+  //     operator's bearer token, on every entry into the subtree.
+  //   • PERF — for an owner who IS a master, the `'' → masterId` transition
+  //     is a real value change that rebuilds this keepAlive repository, which
+  //     refires `masterServiceCatalogProvider` and costs a SECOND
+  //     `GET /salons/S/masters/M/services` plus an `AsyncLoading` flash.
+  //
+  // This is the exact hazard phase 312 identified and removed from the
+  // SCHEDULE seam — see `schedule_repository_provider.dart:1-16`, which
+  // documents the same 403 and the same remedy. The services seam
+  // re-introduced it in phase 317 and this restores parity.
+  //
+  // A conditional `ref.watch` is legal riverpod: dependencies are recollected
+  // on every build, and a dependency dropped between builds is unsubscribed.
+  // The null-target path is BYTE-IDENTICAL to before (same select, same
+  // `?? ''`), which the untouched `service_repository_provider_test` and
+  // `service_by_id_readiness_test` readiness rows pin.
+  final ServiceTarget? target = ref.watch(serviceTargetProvider);
+  final String masterId = target == null
+      ? ref.watch(
+          masterProfileProvider.select((profile) => profile.value?.id ?? ''),
+        )
+      : '';
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),
@@ -1544,17 +1598,29 @@ ServiceRepository serviceRepository(Ref ref) {
     dio: ref.watch(dioProvider),
     masterId: masterId,
     // Phase 314 — the retarget seam. `null` outside phase 317's ProviderScope,
-    // which is every call site shipped today, so this argument changes nothing.
-    target: ref.watch(serviceTargetProvider),
+    // so on every call site but the salon subtree this argument changes
+    // nothing. Hoisted above (it now also gates the `masterProfileProvider`
+    // watch); still a `ref.watch`, still the same single dependency edge.
+    target: target,
     // Session-readiness evidence for the salon arm of _assertAuthenticated.
     // NARROWED to the signed-in identity on purpose: a bare
     // `ref.watch(authProvider)` renotifies on every silent token refresh
     // (`refresh_interceptor.dart` → `AuthNotifier.setAccessToken`), which
     // would churn this keepAlive repository — see [authUserIdOrNull]'s doc and
-    // `project_bare_auth_watch_destroys_state`. This adds NO new dependency
-    // edge: `masterProfileProvider`, already watched above, watches
-    // `authProvider.select(authUserIdOrNull)` itself
-    // (`master_profile_notifier.dart:56`).
+    // `project_bare_auth_watch_destroys_state`.
+    //
+    // ⚠️ CORRECTED (audit cycle 2, item C). This line used to claim it added
+    // "NO new dependency edge" because `masterProfileProvider` — watched above
+    // — watches `authProvider.select(authUserIdOrNull)` itself
+    // (`master_profile_notifier.dart:56`). That holds ONLY on the null-target
+    // arm. Since F1 made the `masterProfileProvider` watch CONDITIONAL, under
+    // a [SalonMasterTarget] this IS a genuine new edge — and it must be: the
+    // salon arm has no other input to `_assertAuthenticated`, and it is the
+    // one that would otherwise go stale across a session change. The edge is
+    // correctly narrowed (identity only, not the whole session), so it
+    // renotifies on a real sign-in change and on nothing else. The null-target
+    // arm is unaffected either way — there the edge is still a duplicate of
+    // one `masterProfileProvider` already holds.
     sessionUserId: ref.watch(authProvider.select(authUserIdOrNull)) ?? '',
   );
 }

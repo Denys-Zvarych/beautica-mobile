@@ -31,19 +31,20 @@
 //      from the OUTER scope. This is the D2 claim that the seam cannot leak
 //      past the subtree (an imperative setter would leave the app pointed at a
 //      stranger's menu after the owner navigates away).
-//   6. PHASE 317 BLOCKER — that same nested override does NOT yet reach
-//      `serviceRepositoryProvider`, because that provider does not declare
-//      `dependencies: [serviceTarget]`. Riverpod 3 only re-creates a provider
-//      in a child scope when that provider — and every provider that watches
-//      it, transitively — declares the scoped dependency; without it the read
-//      resolves against the ROOT container and returns `target: null`.
+//   6. PHASE 317 — that same nested override DOES reach
+//      `serviceRepositoryProvider`, because that provider (and every provider
+//      that watches it, transitively) now declares the scoped dependency.
+//      Riverpod 3 only re-creates a provider in a child scope under that
+//      declaration; before phase 317 landed the cascade this row pinned the
+//      opposite (the read resolved against the ROOT container and returned
+//      `target: null`) and it is the ONE expectation the cascade flipped.
 //
 //      (5) and (6) are two SEPARATE cases on purpose. Written as one case they
 //      asserted `innerTarget == null` AND `outerTarget == null`, which cannot
 //      distinguish "the seam does not leak" from "the seam never fired at
 //      all" — both hold when the override is silently inert. Split, each fails
 //      for exactly one reason: (5) goes red on a LEAK, (6) goes red the day
-//      phase 317 wires the dependency (which is the signal 317 wants).
+//      the `dependencies:` cascade is dropped from any link in the chain.
 //   7. REBUILD IDENTITY — an equal-valued but distinct `SalonMasterTarget`
 //      must NOT hand back a new repository. `serviceRepositoryProvider` is
 //      `keepAlive: true` and riverpod gates dependent rebuilds on `!=`
@@ -361,15 +362,30 @@ void main() {
     /// even with no `await` inside), so callers MUST follow this with a
     /// second `tester.pump()` to let the watch's rebuild actually happen —
     /// the WATCH only schedules it; a further pump flushes it.
+    ///
+    /// [authenticated] is ADDITIVE and defaults to `false`, so the containment
+    /// case below is unaffected by it. The phase-317 case sets it to supply an
+    /// authenticated session, which the salon arm of `_assertAuthenticated`
+    /// requires before a real salon dispatch can leave the repository.
+    /// (The override list is built INSIDE this helper because riverpod 3.1.0
+    /// does not export the `Override` type publicly — the same reason
+    /// `baseOverrides`' return type is inferred.)
     Future<void> pumpNestedScopes(
       WidgetTester tester, {
       required ServiceTarget target,
       required void Function(WidgetRef outerRef) onOuter,
       required void Function(WidgetRef innerRef) onInner,
+      bool authenticated = false,
     }) => tester.pumpWidget(
       ProviderScope(
         // ROOT scope: no serviceTargetProvider override anywhere here.
-        overrides: baseOverrides(),
+        overrides: [
+          ...baseOverrides(),
+          if (authenticated)
+            authProvider.overrideWith(
+              () => _FixedAuthNotifier(_salonOwnerSession),
+            ),
+        ],
         child: Consumer(
           builder: (context, outerRef, _) {
             outerRef.watch(masterProfileProvider);
@@ -457,8 +473,8 @@ void main() {
     );
 
     testWidgets(
-      'PHASE 317 BLOCKER — the nested override reaches serviceTargetProvider '
-      'but NOT serviceRepositoryProvider',
+      'PHASE 317 — the nested override reaches serviceTargetProvider AND '
+      'serviceRepositoryProvider, which dispatches to the salon path',
       (tester) async {
         const target = SalonMasterTarget(
           salonId: 'salon-row-uuid',
@@ -476,6 +492,11 @@ void main() {
             innerSeam = seamOf(innerRef);
             innerRepo = repoOf(innerRef);
           },
+          // Session-readiness evidence: the salon arm of _assertAuthenticated
+          // requires a non-empty sessionUserId before salonPathHitBy's real
+          // dispatch call can get past the guard. Additive — the containment
+          // case above leaves it false and is untouched.
+          authenticated: true,
         );
         // Let masterProfileProvider settle — see pumpNestedScopes' doc comment.
         await tester.pump();
@@ -486,36 +507,38 @@ void main() {
           reason: 'the seam itself IS scoped — it is overridden right here',
         );
 
-        // ⚠️ PHASE 317 MUST FLIP THIS EXPECTATION.
-        // `serviceRepositoryProvider` does not declare
-        // `dependencies: [serviceTarget]`, so riverpod resolves it against the
-        // ROOT container and it reads the root's null target. Phase 314 cannot
-        // add that declaration — it cascades onto every dependent
-        // (`servicesListProvider`, `serviceByIdProvider`, …), all of which live
-        // under `presentation/`, out of this phase's scope, and 68 existing
-        // tests go red without it. This case pins the CURRENT truth so 317
-        // cannot ship a silently inert scope: 317 either adds `dependencies:`
-        // down the whole chain or overrides `serviceRepositoryProvider` itself
-        // inside the salon scope, and flips this to `isA<SalonMasterTarget>()`
-        // in the same commit.
+        // ⚠️ FLIPPED BY PHASE 317 (2026-09-10). Before the phase this case
+        // pinned the BLOCKER: `serviceRepositoryProvider` did not declare
+        // `dependencies: [serviceTarget]`, so riverpod resolved it against the
+        // ROOT container and it read the root's null target. Phase 317 landed
+        // that declaration and the four dependent ones it cascades onto
+        // (`masterServiceCatalog`, `ServicesList`, `serviceById`,
+        // `serviceTypes`, `ServiceSetup`), so the nested override now reaches
+        // the repository. Measured blast radius of that cascade: this ONE
+        // expectation, zero incidental reds.
         //
         // Note the division of labour with the case above: THIS case is the
-        // one 317 turns red on purpose. The containment case is the one that
-        // must stay green forever — 317 rewiring the dependency must not start
-        // leaking the target into the outer scope.
+        // one 317 flipped. The containment case is the one that must stay
+        // green forever — 317 rewiring the dependency must not start leaking
+        // the target into the outer scope, and it does not.
         //
-        // PATH OBSERVATION (phase 315): the inner-scope repository must still
-        // dispatch to the owner endpoint — proving the blocker by EFFECT
-        // rather than by reading `HttpServiceRepository.target`.
+        // PATH OBSERVATION (phase 315), never a `HttpServiceRepository.target`
+        // field read: the assertion is the URI the raw Dio actually SAW, so it
+        // fails if the target reaches the repository but dispatch does not
+        // follow (`project_widget_field_assertion_is_vacuous`).
         final innerHitPath = await salonPathHitBy(innerRepo!);
         expect(
           innerHitPath,
-          isNull,
+          '/api/v1/salons/salon-row-uuid/masters/'
+          'master-row-uuid-of-the-staff-member/services',
           reason:
-              'Nested serviceTargetProvider overrides do not reach '
-              "serviceRepositoryProvider yet — see that provider's "
-              'PHASE 317 BLOCKER doc comment. Flip this in phase 317.',
+              'a nested serviceTargetProvider override MUST reach '
+              "serviceRepositoryProvider — see that provider's SCOPED-TARGET "
+              'CONTRACT doc. Without the `dependencies:` cascade this resolves '
+              'against the root and the salon screens render the operator\'s '
+              'own catalogue.',
         );
+        verifyNever(() => mockApi.getMyServices());
       },
     );
 

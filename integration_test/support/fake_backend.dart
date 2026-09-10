@@ -1701,6 +1701,94 @@ final class FakeBackend {
   /// (`project_fixture_values_can_defang_assertions`).
   String? lastDeletedServiceDefId;
 
+  // ── Phase 317 — the SALON-TARGET services seam ──────────────────────────
+  //
+  // `GET  /api/v1/salons/{salonId}/masters/{masterId}/services`      (BE 309)
+  // `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}`  (BE 307)
+  //
+  // These are the two endpoints `HttpServiceRepository` dispatches to when a
+  // `SalonMasterTarget` is in scope (`_listForSalonMaster` /
+  // `_unassignFromSalonMaster`). Wired for the roster row whose `userId`
+  // (`user-master-removable`) DIFFERS from its `masterId`
+  // (`master-removable`), so a flow that asserts the emitted path proves the
+  // route builder resolved the `masters` ROW id — with `master-aaa`, whose two
+  // ids are identical, the assertion would pass on either
+  // (`project_fixture_values_can_defang_assertions`).
+  //
+  // Registered per EXACT path (the same shape every other salon-xyz route in
+  // this file uses) so a request for any other salon/master fails loudly as an
+  // unmatched route rather than silently counting.
+
+  /// `GET /api/v1/salons/salon-xyz/masters/master-removable/services` call
+  /// count, and the exact path the last one carried.
+  int getSalonMasterServicesCalls = 0;
+  String? lastSalonMasterServicesPath;
+
+  /// `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
+  /// per-master UNASSIGN. GENUINELY STATEFUL, mirroring [deleteServiceCalls]:
+  /// a successful unassign REMOVES the row from [_salonMasterServices], so the
+  /// next `GET .../services` reflects it and a "the card is gone" assertion
+  /// can tell a correct refresh from a broken one.
+  int unassignServiceCalls = 0;
+  String? lastUnassignedServiceDefId;
+  String? lastUnassignPath;
+
+  /// The salon master's OWN catalogue — deliberately DISJOINT from [_services]
+  /// (different names, different ids, different prices), so a screen that
+  /// resolved to the ROOT repository and rendered the OPERATOR's own menu is
+  /// visibly, assertably wrong rather than indistinguishable.
+  final List<Map<String, dynamic>> _salonMasterServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-assign-1',
+          'masterId': 'master-removable',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 750,
+          'priceMax': null,
+          'priceDisplay': '750 ₴',
+          'effectiveDurationMinutes': 90,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-def-1',
+            'name': 'Нарощення нігтів',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 90,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 750,
+            'priceMax': null,
+            'priceDisplay': '750 ₴',
+            'photoUrl': null,
+          },
+        },
+        <String, dynamic>{
+          'id': 'salon-assign-2',
+          'masterId': 'master-removable',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 300,
+          'priceMax': null,
+          'priceDisplay': '300 ₴',
+          'effectiveDurationMinutes': 30,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-def-2',
+            'name': 'Зняття покриття',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 30,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 300,
+            'priceMax': null,
+            'priceDisplay': '300 ₴',
+            'photoUrl': null,
+          },
+        },
+      ];
+
   /// Artificial latency for `DELETE /api/v1/services/{serviceDefId}`.
   ///
   /// Constructor-time (`onRoute` freezes the reply at registration, same
@@ -4236,6 +4324,57 @@ final class FakeBackend {
   // `server.reply*(<flag> ? … : …, …)` directly in [_wire] — give it a
   // `_wireX()` + re-wiring setter like these two.
 
+  /// Wires the two Phase 317 SALON-TARGET service endpoints for the
+  /// `salon-xyz` / `master-removable` pair. See [getSalonMasterServicesCalls].
+  void _wireSalonMasterServices() {
+    const String base =
+        '/api/v1/salons/salon-xyz/masters/master-removable/services';
+
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        getSalonMasterServicesCalls++;
+        lastSalonMasterServicesPath = base;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonMasterServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // One DELETE route per SEEDED definition id — an unassign for an id that
+    // was never seeded fails loudly as an unmatched route instead of silently
+    // counting (the same rule the `DELETE /api/v1/services/{defId}` loop
+    // follows). Note the path is keyed on the DEFINITION id, never the
+    // assignment id: `service_edit_screen.dart` passes `service.serviceDefId`,
+    // and the fixture gives the two rows DIFFERENT values for those.
+    for (final Map<String, dynamic> svc in _salonMasterServices) {
+      final String defId =
+          (svc['serviceDefinition'] as Map<String, dynamic>?)?['id']
+              as String? ??
+          '';
+      if (defId.isEmpty) continue;
+      final String path = '$base/$defId';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(204, (_) {
+          unassignServiceCalls++;
+          lastUnassignedServiceDefId = defId;
+          lastUnassignPath = path;
+          _salonMasterServices.removeWhere(
+            (Map<String, dynamic> s) =>
+                (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+    }
+  }
+
   /// (Re-)registers `POST /api/v1/independent-masters/me/services`.
   /// See [createRejectDuplicate].
   void _wireCreateService() {
@@ -6090,6 +6229,8 @@ final class FakeBackend {
     _wireCreateService();
 
     _wireBulkCreateServices();
+
+    _wireSalonMasterServices();
 
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).

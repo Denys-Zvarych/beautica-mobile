@@ -44,7 +44,12 @@ part 'service_by_id_notifier.g.dart';
 /// inspecting `masterProfileProvider.value == null`: Riverpod 3's
 /// `ref.invalidate` retains the previous `.value` (seamless reload), so that
 /// check reads stale-true. Watching the source is the correct shape.
-@riverpod
+/// Phase 317 — both scoped edges declared: the cache-hit path reads
+/// [servicesListProvider] and the network path reads
+/// [serviceRepositoryProvider]. Naming only one would re-root the other inside
+/// the salon `ProviderScope`. See [serviceRepositoryProvider]'s
+/// SCOPED-TARGET CONTRACT doc.
+@Riverpod(dependencies: [serviceRepository, ServicesList])
 Future<MasterService> serviceById(Ref ref, String id) async {
   // Cache-hit: check the in-memory list provider first.
   //

@@ -84,7 +84,25 @@ import 'package:beautica_mobile/features/services/presentation/service_catalogue
 /// Service setup — the single "add services" screen, for a master with zero
 /// services (SETUP) and for one adding to an existing catalogue (APPEND).
 class ServiceSetupScreen extends ConsumerStatefulWidget {
-  const ServiceSetupScreen({super.key});
+  const ServiceSetupScreen({super.key, this.exitRoute});
+
+  /// Phase 317 (D3) — the `go` fallback destination when there is nothing to
+  /// pop (a genuine deep link / cold start straight onto this route).
+  ///
+  /// ADDITIVE and NULLABLE: `null` means [RouteNames.services], i.e. exactly
+  /// what [_ServiceSetupScreenState._leave] did before phase 317, so no
+  /// existing caller changes. The salon-target route supplies
+  /// [RouteNames.salonManageStaffServices] instead — without it a cold start
+  /// on `/salons/S/manage/staff/U/services/setup` lands the operator on their
+  /// OWN services list, which is a different master's catalogue under the
+  /// heading they just left. The phase doc's claim that this screen needs no
+  /// change was wrong, and deep-link / cold-start is the live case for as long
+  /// as phase 318's tile is unlanded (these routes are deep-link-only until
+  /// then).
+  ///
+  /// The POP path is unchanged and is still the normal exit — see [_leave]'s
+  /// own doc for why popping is a contract, not a preference.
+  final String? exitRoute;
 
   @override
   ConsumerState<ServiceSetupScreen> createState() => _ServiceSetupScreenState();
@@ -792,7 +810,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go(RouteNames.services);
+      context.go(widget.exitRoute ?? RouteNames.services);
     }
   }
 

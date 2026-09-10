@@ -84,6 +84,10 @@ import 'package:beautica_mobile/features/salon/presentation/salon_settings_scree
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -304,6 +308,21 @@ const _salonMasterSession = AsyncData<AuthSession>(
   AuthSession.authenticated(user: _salonMasterUser, accessToken: 'token'),
 );
 
+/// Phase 317 — the INDEPENDENT_MASTER row of the new guard matrix. The role
+/// this phase's own `/services*` routes belong to, and therefore the one most
+/// likely to be admitted by accident if the salon leaves were bolted onto the
+/// existing `/services` guard instead of getting their own subtree (D1).
+const _independentMasterUser = User(
+  id: 'independent-master-1',
+  email: 'solo@example.com',
+  role: UserRole.independentMaster,
+  firstName: 'Соло',
+  lastName: 'Майстер',
+);
+const _independentSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _independentMasterUser, accessToken: 'token'),
+);
+
 const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
@@ -439,6 +458,21 @@ void main() {
           masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
           publicServiceRepositoryProvider.overrideWith(
             (_) => FakeServiceRepository(),
+          ),
+          // Phase 317 — the three salon-target services leaves mount
+          // `ServicesListScreen` / `ServiceSetupScreen` / `ServiceEditScreen`
+          // on the ADMITTED rows, and those screens read the OWNER-side
+          // service seam. Settled here for the same leaked-Dio-request reason
+          // every override above exists; a fake repository also keeps the
+          // guard group honest about what it measures (the REDIRECT, not the
+          // catalogue). Overridden at the ROOT: the shell's `ProviderScope`
+          // builds its own element from this same (overridden) function body,
+          // so the fake reaches the scoped element too.
+          serviceRepositoryProvider.overrideWith(
+            (_) => FakeServiceRepository(),
+          ),
+          approvedCategoriesProvider.overrideWith(
+            (_) async => const <ServiceCategoryOption>[],
           ),
         ],
       );
@@ -714,6 +748,140 @@ void main() {
           expect(find.byType(SalonStaffProfileScreen), findsNothing);
         },
       );
+    });
+
+    // Phase 317 — the three salon-target services leaves. Six NAMED rows per
+    // path family: a single "some other role bounces" test hides the role that
+    // is admitted by accident. NOTE the division of labour with
+    // `salon_manage_staff_services_route_test.dart`: THIS file measures the
+    // REDIRECT (which role reaches which location); that file pins which PAGE
+    // TYPE each path builds and which URI the repository emits. A location
+    // assertion alone cannot see go_router's literal-vs-dynamic shadowing.
+    //
+    // The ADMITTED rows assert the resolved LOCATION only — which page type
+    // each admitted path builds is the sibling file's job, per the division of
+    // labour above. The BOUNCED rows assert the roleHomePath AND that NO
+    // services screen is anywhere in the tree, because "bounced" is precisely
+    // the claim that the screen must not be reachable.
+    group('/salons/:salonId/manage/staff/:memberId/services* (Phase 317)', () {
+      const String kServiceId = 'svc-guard-1';
+
+      final Map<String, String Function()> paths = <String, String Function()>{
+        '/services': () =>
+            RouteNames.salonManageStaffServices(_kSalonId, _kMemberId),
+        '/services/setup': () =>
+            RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberId),
+        '/services/:serviceId/edit': () =>
+            RouteNames.salonManageStaffServiceEdit(
+              _kSalonId,
+              _kMemberId,
+              kServiceId,
+            ),
+      };
+
+      void expectNoServicesScreen() {
+        expect(find.byType(ServicesListScreen), findsNothing);
+        expect(find.byType(ServiceSetupScreen), findsNothing);
+        expect(find.byType(ServiceEditScreen), findsNothing);
+      }
+
+      for (final MapEntry<String, String Function()> entry in paths.entries) {
+        final String label = entry.key;
+        final String Function() path = entry.value;
+
+        testWidgets('$label — SALON_OWNER is ADMITTED', (tester) async {
+          final router = await pumpRouterAs(tester, _ownerSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(path()));
+        });
+
+        testWidgets('$label — SALON_ADMIN is ADMITTED on their OWN salonId', (
+          tester,
+        ) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(path()),
+            reason:
+                'backend phase 306 parity — an assigned SALON_ADMIN manages '
+                "a fellow master's services",
+          );
+        });
+
+        testWidgets(
+          '$label — SALON_ADMIN on a DIFFERENT salonId is redirected to '
+          'roleHomePath, never admitted',
+          (tester) async {
+            final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+            router.go(path());
+            await tester.pumpAndSettle();
+
+            expect(
+              locationOf(router),
+              equals(RouteNames.salonShell('salon-guard-2')),
+            );
+            expectNoServicesScreen();
+          },
+        );
+
+        testWidgets('$label — SALON_MASTER is redirected to roleHomePath '
+            '(RouteNames.salonMasterProfile), never admitted', (tester) async {
+          final router = await pumpRouterAs(tester, _salonMasterSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+          expectNoServicesScreen();
+        });
+
+        testWidgets(
+          '$label — INDEPENDENT_MASTER is redirected to roleHomePath, never '
+          'admitted',
+          (tester) async {
+            final router = await pumpRouterAs(tester, _independentSession);
+
+            router.go(path());
+            await tester.pumpAndSettle();
+
+            expect(locationOf(router), equals(RouteNames.masterProfile));
+            expectNoServicesScreen();
+          },
+        );
+
+        testWidgets('$label — CLIENT is redirected to roleHomePath '
+            '(RouteNames.clientHome), never admitted', (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectNoServicesScreen();
+        });
+
+        testWidgets(
+          '$label — unauthenticated is redirected to /login by the global '
+          'authRedirect gate',
+          (tester) async {
+            final router = await pumpRouterAs(tester, _unauthenticatedSession);
+
+            router.go(path());
+            await tester.pumpAndSettle();
+
+            expect(locationOf(router), equals(RouteNames.login));
+            expectNoServicesScreen();
+          },
+        );
+      }
     });
 
     group('/salons/:salonId/manage/settings', () {

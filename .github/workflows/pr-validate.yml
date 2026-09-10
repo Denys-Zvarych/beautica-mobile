@@ -456,6 +456,21 @@ jobs:
         shell: bash
         run: ./scripts/forbid_bare_keepalive_family_invalidation.sh
 
+      # 2026-09-10 — phase 317 points the three services screens at a salon
+      # master through ONE `ProviderScope` overriding `serviceTargetProvider`.
+      # Riverpod 3 does not inherit scope transitively, so the whole watcher
+      # chain carries an explicit `dependencies:` declaration. A provider
+      # added to that chain later WITHOUT one does not crash — riverpod's
+      # "may be scoped" assert is kDebugMode-only and `riverpod_lint` was
+      # removed on 2026-08-18 — it silently resolves to ROOT, rendering the
+      # operator's own catalogue under the salon master's heading and
+      # dispatching `DELETE /services/{id}` against the SHARED salon service
+      # definition on a delete. This gate makes the missing declaration fail
+      # CI instead.
+      - name: Forbid an undeclared scoped-services provider dependency
+        shell: bash
+        run: ./scripts/forbid_undeclared_scoped_service_dep.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
