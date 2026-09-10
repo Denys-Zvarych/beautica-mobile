@@ -49,6 +49,8 @@ import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
+import 'salon_owner_set_master_services_flow_test.dart'
+    as salon_owner_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
@@ -230,6 +232,14 @@ void main() {
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
+  // Phase 318 (Step 2.7 Rule 3b) — the «Послуги» roster tile end to end: real
+  // roster tap -> real salon-scoped ServicesListScreen -> real FAB bulk-add
+  // -> D4 refetch -> real unassign -> D4 refetch again (closes the inherited
+  // backlog row 802 MEDIUM), plus the INDEPENDENT_MASTER control arm.
+  group(
+    'salon_owner_set_master_services_flow',
+    salon_owner_set_master_services.main,
+  );
   group('service_crud_flow', service_crud.main);
   group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays

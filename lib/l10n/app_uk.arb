@@ -5339,6 +5339,16 @@
   "@staffProfileScheduleNotSet": {
     "description": "Phase 312, D3/D11 — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen (master branch) when the viewed master has no weekly template (an AsyncData with an empty/no-working-day schedule list). Do NOT reuse this for an AsyncError on the same row — that renders '—' instead, since «Не задано» would assert a fact (no schedule set) the app does not actually have."
   },
+  "staffProfileServicesCount": "{count, plural, one{{count} послуга} few{{count} послуги} many{{count} послуг} other{{count} послуг}}",
+  "@staffProfileServicesCount": {
+    "description": "Phase 318, D3 — trailing value of the «Послуги» SettingsRow on SalonStaffProfileScreen (master branch): the active-service count already backing the services stat tile at the top of the same screen (no second fetch — see `salonStaffMemberProfileProvider`).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
   "salonSettingsMySalons": "Мої салони",
   "@salonSettingsMySalons": {
     "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."

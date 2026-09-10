@@ -164,6 +164,8 @@ import 'salon_master_services_target_flow_test.dart'
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
+import 'salon_owner_set_master_services_flow_test.dart'
+    as salon_owner_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
@@ -554,6 +556,14 @@ void main() {
   group(
     'salon_owner_edit_master_schedule_flow',
     salon_owner_edit_master_schedule.main,
+  );
+  // Phase 318 (Step 2.7 Rule 3b) — the «Послуги» roster tile end to end: real
+  // roster tap -> real salon-scoped ServicesListScreen -> real FAB bulk-add
+  // -> D4 refetch -> real unassign -> D4 refetch again (closes the inherited
+  // backlog row 802 MEDIUM), plus the INDEPENDENT_MASTER control arm.
+  group(
+    'salon_owner_set_master_services_flow',
+    salon_owner_set_master_services.main,
   );
   // Phase 240 (mobile-qa) — hearting a SERVICE on the booking service-
   // selection sheet is a REAL POST /favorites; the wish list read-back is the

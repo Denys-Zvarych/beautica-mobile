@@ -579,9 +579,12 @@ class _StaffProfileBody extends StatelessWidget {
           const SizedBox(height: VelvetSpacing.xl),
         ],
 
-        // 6 — schedule row (Phase 312, D3) — MASTER ONLY; an admin has no
-        // master row and therefore no schedule. Appended LAST (after
-        // contacts, not interleaved) — see `_anim5`'s own doc for why.
+        // 6 — schedule row (Phase 312, D3) + services row (Phase 318, D1) —
+        // MASTER ONLY; an admin has no master row and therefore no schedule
+        // or services block. Appended LAST (after contacts, not interleaved)
+        // — see `_anim5`'s own doc for why. Both share the SAME reveal
+        // animation (no new interval added for the services row — it is a
+        // sibling inside the same block, not a new section).
         // Built from the real [SettingsRow] (D11 — `value`/`loading`/
         // `enabled` already exist there; no additive param needed).
         if (!isAdmin) ...<Widget>[
@@ -626,26 +629,67 @@ class _StaffProfileBody extends StatelessWidget {
                   rowLoading = true;
                 }
 
-                return SettingsRow(
-                  key: const Key('salon-staff-profile-schedule-row'),
-                  icon: Icons.calendar_month_rounded,
-                  label: l10n.scheduleTitle,
-                  value: value,
-                  loading: rowLoading,
-                  // D2-mirrored data-anomaly guard (`staff_settings_screen
-                  // .dart`'s identical `enabled: member.masterId != null`) —
-                  // a resolved master entry with no `masterId` never sends a
-                  // guessed id.
-                  enabled: hasMasterId,
-                  onTap: !hasMasterId
-                      ? () {}
-                      : () => context.push(
-                          RouteNames.salonManageStaffSchedule(
-                            salonId,
-                            memberId,
-                          ),
-                          extra: scope,
-                        ),
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    SettingsRow(
+                      key: const Key('salon-staff-profile-schedule-row'),
+                      icon: Icons.calendar_month_rounded,
+                      label: l10n.scheduleTitle,
+                      value: value,
+                      loading: rowLoading,
+                      // D2-mirrored data-anomaly guard (`staff_settings_screen
+                      // .dart`'s identical `enabled: member.masterId != null`)
+                      // — a resolved master entry with no `masterId` never
+                      // sends a guessed id.
+                      enabled: hasMasterId,
+                      onTap: !hasMasterId
+                          ? () {}
+                          : () => context.push(
+                              RouteNames.salonManageStaffSchedule(
+                                salonId,
+                                memberId,
+                              ),
+                              extra: scope,
+                            ),
+                    ),
+                    const SizedBox(height: VelvetSpacing.md),
+                    // Phase 318 — «Послуги» sibling row, same shape/guard as
+                    // the schedule row above (D1). The value is the active-
+                    // service count ALREADY loaded for the services stat
+                    // tile (D3) — no second fetch, no new provider.
+                    SettingsRow(
+                      key: const Key('salon-staff-profile-services-row'),
+                      icon: Icons.design_services_rounded,
+                      label: l10n.masterServicesLabel,
+                      value: l10n.staffProfileServicesCount(services.length),
+                      enabled: hasMasterId,
+                      onTap: !hasMasterId
+                          ? () {}
+                          : () async {
+                              // D4 — await the push, then invalidate the
+                              // profile provider so the stat tile and the
+                              // category grid pick up services added/removed
+                              // in the subtree. Pattern:
+                              // `services_list_screen.dart`'s
+                              // `_openAndRefresh`.
+                              await context.push<void>(
+                                RouteNames.salonManageStaffServices(
+                                  salonId,
+                                  memberId,
+                                ),
+                              );
+                              if (context.mounted) {
+                                ref.invalidate(
+                                  salonStaffMemberProfileProvider(
+                                    salonId,
+                                    memberId,
+                                  ),
+                                );
+                              }
+                            },
+                    ),
+                  ],
                 );
               },
             ),

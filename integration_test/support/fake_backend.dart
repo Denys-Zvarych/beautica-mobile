@@ -694,6 +694,12 @@ final class FakeBackend {
 
   int _nextServiceSeq = 3;
 
+  /// Phase 318 (mobile-qa) — sequence for rows created through the
+  /// SALON-scoped bulk-create route. A SEPARATE counter from
+  /// [_nextServiceSeq] (the independent-master one) so the two id spaces
+  /// never collide when a single test flow exercises both.
+  int _nextSalonServiceSeq = 1;
+
   // ── Schedule ID sequence (deterministic — never wall-clock) ──────────────
   // Starts at 100 to avoid collision with the seeded 'schedule-1'.
   int _scheduleSeq = 100;
@@ -1732,6 +1738,15 @@ final class FakeBackend {
   int unassignServiceCalls = 0;
   String? lastUnassignedServiceDefId;
   String? lastUnassignPath;
+
+  /// Phase 318 (mobile-qa) — `POST /api/v1/salons/{s}/masters/{m}/services
+  /// /bulk`, the SALON-scoped counterpart to [bulkCreateCalls]. GENUINELY
+  /// STATEFUL: a successful call APPENDS to [_salonMasterServices], so the
+  /// next `GET .../services` (both the salon-scoped list AND the public
+  /// `/masters/{id}/services` read the staff profile uses) reflects it.
+  int salonBulkCreateCalls = 0;
+  List<dynamic>? lastSalonBulkItems;
+  String? lastSalonBulkPath;
 
   /// The salon master's OWN catalogue — deliberately DISJOINT from [_services]
   /// (different names, different ids, different prices), so a screen that
@@ -4375,6 +4390,67 @@ final class FakeBackend {
     }
   }
 
+  /// Phase 318 (mobile-qa) — `POST /api/v1/salons/salon-xyz/masters/
+  /// master-removable/services/bulk`, the SALON-scoped counterpart to
+  /// [_wireBulkCreateServices]. Mirrors that method's success shape (echo one
+  /// created service per submitted item) but APPENDS into
+  /// [_salonMasterServices] instead of the independent master's [_services] —
+  /// this is the ONE thing that makes the phase-318 FAB→setup→submit flow's
+  /// "new service appears in the list" and "the stat tile count increased on
+  /// return" assertions genuine rather than reading a fixture that never
+  /// changed. No rejection outcomes are wired (unlike
+  /// [_wireBulkCreateServices]) — nothing in this repo's test suite yet drives
+  /// a validation/duplicate failure through the salon-scoped path.
+  void _wireSalonMasterServicesBulk() {
+    const String path =
+        '/api/v1/salons/salon-xyz/masters/master-removable/services/bulk';
+    _adapter.onRoute(
+      path,
+      (server) => server.replyCallback(200, (req) {
+        salonBulkCreateCalls++;
+        lastSalonBulkPath = path;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastSalonBulkItems = items;
+
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'salon-def-bulk-$_nextSalonServiceSeq';
+          final row = <String, dynamic>{
+            'id': 'salon-assign-bulk-$_nextSalonServiceSeq',
+            'masterId': 'master-removable',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Salon bulk service $_nextSalonServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+              'photoUrl': null,
+            },
+          };
+          _salonMasterServices.add(row);
+          created.add(row);
+          _nextSalonServiceSeq++;
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
   /// (Re-)registers `POST /api/v1/independent-masters/me/services`.
   /// See [createRejectDuplicate].
   void _wireCreateService() {
@@ -4730,14 +4806,27 @@ final class FakeBackend {
 
     // GET /api/v1/masters/master-removable/services — the removable
     // master's active services, fetched by `salonStaffMemberProfileProvider`
-    // whenever its staff/settings profile is opened. Empty: this flow never
-    // asserts on service content, only on the roster mutation above.
+    // whenever its staff/settings profile is opened.
+    //
+    // Phase 318 (mobile-qa) — WIDENED from a static empty reply to mirror the
+    // LIVE [_salonMasterServices] state. Both endpoints describe the SAME
+    // underlying master catalogue (this one via the PUBLIC per-master read,
+    // `/salons/{s}/masters/{m}/services` via the salon-scoped one) — a real
+    // backend's two reads would agree, and a static empty reply here made the
+    // phase-318 D4 refetch assertion and the inherited backlog-802 stale-count
+    // regression (unassign in the subtree must move THIS screen's count)
+    // structurally untestable, since the read this screen renders from never
+    // moved no matter what the subtree wrote.
     _adapter.onRoute(
       '/api/v1/masters/master-removable/services',
       (server) => server.replyCallback(200, (_) {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-removable';
-        return _okList(const <Map<String, dynamic>>[]);
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonMasterServices.map(Map<String, dynamic>.from),
+          ),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6231,6 +6320,8 @@ final class FakeBackend {
     _wireBulkCreateServices();
 
     _wireSalonMasterServices();
+
+    _wireSalonMasterServicesBulk();
 
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).

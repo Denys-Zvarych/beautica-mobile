@@ -1286,4 +1286,170 @@ void main() {
       );
     },
   );
+
+  // ---------------------------------------------------------------------
+  // mobile-security audit (phase 318, cycle 1) — LOW, pre-existing.
+  //
+  // `salonManageStaffServices`/`salonManageStaffServiceSetup` compose ON TOP
+  // of `salonManageStaffMember` (which encodes `memberId`) and
+  // `salonPublicProfile` (which encodes `salonId`) rather than encoding
+  // those two ids themselves — that is CORRECT, not an omission: encoding
+  // them again here would DOUBLE-ENCODE (`%20` -> `%2520`) and break every
+  // route in this subtree. `salonManageStaffServiceEdit` is different: it
+  // adds its OWN new segment (`serviceId`) that no base builder already
+  // covers, so it calls `Uri.encodeComponent` on that one segment directly.
+  //
+  // These pure, router-free cases feed a hostile id through all three
+  // builders and pin that inherited/direct split — a future sibling copied
+  // from any of them without reading the doc comments would regress it
+  // silently (no analyzer or lint catches a double-encode).
+  // ---------------------------------------------------------------------
+
+  group('RouteNames salon-master-services builders — hostile-id encoding '
+      '(mobile-security LOW, phase 318 cycle 1)', () {
+    // 'a%2Fb' is deliberately NOT in this list — a raw '%' in the INPUT
+    // legitimately becomes '%25' on a single, correct encode (turning the
+    // literal string "a%2Fb" into "a%252Fb" is NOT a double-encode bug);
+    // the dedicated "%" case below tests that distinction properly by
+    // checking against %2525, not %252F.
+    const List<String> hostileIds = <String>['a b', 'a/b'];
+
+    for (final String hostile in hostileIds) {
+      test('salonManageStaffServices("$hostile", "$hostile") is encoded '
+          'EXACTLY ONCE and round-trips to the literal id', () {
+        final String path = RouteNames.salonManageStaffServices(
+          hostile,
+          hostile,
+        );
+        expect(
+          Uri.parse(path).pathSegments,
+          <String>['salons', hostile, 'manage', 'staff', hostile, 'services'],
+          reason: 'the encoded id must DECODE back to the exact input',
+        );
+        expect(
+          path,
+          allOf(isNot(contains('%2520')), isNot(contains('%252F'))),
+          reason:
+              'doubled escapes (%20 -> %2520, %2F -> %252F) are the '
+              'double-encode regression this pin guards against',
+        );
+      });
+
+      test('salonManageStaffServiceSetup("$hostile", "$hostile") is encoded '
+          'EXACTLY ONCE and round-trips to the literal id', () {
+        final String path = RouteNames.salonManageStaffServiceSetup(
+          hostile,
+          hostile,
+        );
+        expect(Uri.parse(path).pathSegments, <String>[
+          'salons',
+          hostile,
+          'manage',
+          'staff',
+          hostile,
+          'services',
+          'setup',
+        ]);
+        expect(path, allOf(isNot(contains('%2520')), isNot(contains('%252F'))));
+      });
+
+      test(
+        'salonManageStaffServiceEdit("$hostile", "$hostile", "$hostile") '
+        'is encoded EXACTLY ONCE on every segment, INHERITED and OWN alike',
+        () {
+          final String path = RouteNames.salonManageStaffServiceEdit(
+            hostile,
+            hostile,
+            hostile,
+          );
+          expect(Uri.parse(path).pathSegments, <String>[
+            'salons',
+            hostile,
+            'manage',
+            'staff',
+            hostile,
+            'services',
+            hostile,
+            'edit',
+          ]);
+          expect(
+            path,
+            allOf(isNot(contains('%2520')), isNot(contains('%252F'))),
+          );
+        },
+      );
+    }
+
+    // A bare '%' round-trips through Uri.encodeComponent to '%25' — this
+    // one is the case that actually DISTINGUISHES "encoded once" from
+    // "encoded twice": a double-encode would turn the ALREADY-ONE-STEP
+    // '%25' into '%2525', which is exactly what a stray second
+    // `Uri.encodeComponent` call on an already-encoded upstream segment
+    // would produce.
+    test('a literal "%" id is encoded to a single %25, never %2525', () {
+      final String services = RouteNames.salonManageStaffServices('%', '%');
+      expect(Uri.parse(services).pathSegments, <String>[
+        'salons',
+        '%',
+        'manage',
+        'staff',
+        '%',
+        'services',
+      ]);
+      expect(services, isNot(contains('%2525')));
+
+      final String edit = RouteNames.salonManageStaffServiceEdit('%', '%', '%');
+      expect(Uri.parse(edit).pathSegments, <String>[
+        'salons',
+        '%',
+        'manage',
+        'staff',
+        '%',
+        'services',
+        '%',
+        'edit',
+      ]);
+      expect(edit, isNot(contains('%2525')));
+    });
+
+    // '..' is the one hostile id `Uri.encodeComponent` does NOT escape at
+    // all — a dot is an unreserved RFC 3986 character, so
+    // `Uri.encodeComponent('..') == '..'` verbatim. That is correct,
+    // spec-conformant Dart behaviour, not a double-encoding bug in these
+    // builders (there is nothing to double-encode). What matters for
+    // "cannot escape the intended path" is the FAIL-CLOSED direction: a
+    // literal '..' segment does not resolve into some OTHER *valid*
+    // `/salons/:salonId/...` route with an attacker-chosen salonId — when
+    // parsed, it collapses the preceding 'salons' segment instead, which
+    // no longer matches this subtree's registered route pattern at all —
+    // go_router 17.2.3 applies the same `Uri.parse` normalization on the
+    // real navigation path before matching (`configuration.dart:648`,
+    // `findMatch(normalizeUri(Uri.parse(...)))`), and no bare
+    // `/manage/staff/:memberId/services` route is registered, so the
+    // collapsed path matches nothing and fails closed (404), not a
+    // guard-redirect (`salon_manage_route_guard_test.dart` covers
+    // `salonManageGuard`'s role/ownership redirects for matched routes
+    // only, not unmatched-location 404 behaviour).
+    test('a literal ".." salonId is NOT re-escaped by Uri.encodeComponent, '
+        'and the raw string cannot masquerade as a different valid '
+        '/salons/:salonId prefix once parsed', () {
+      expect(Uri.encodeComponent('..'), '..');
+
+      final String path = RouteNames.salonManageStaffServices('..', 'member-1');
+      expect(path, '/salons/../manage/staff/member-1/services');
+
+      // Parsing (what a `Uri`-based router does with the location)
+      // collapses 'salons/..' away entirely rather than resolving to a
+      // DIFFERENT concrete salonId segment — there is no salonId capture
+      // left to escape with.
+      expect(
+        Uri.parse(path).pathSegments,
+        isNot(contains('salons')),
+        reason:
+            'the traversal collapses the very segment a route match '
+            'needs, so this cannot land on a valid — merely wrong — '
+            'salon; it fails to match at all',
+      );
+    });
+  });
 }

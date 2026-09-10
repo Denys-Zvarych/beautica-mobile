@@ -322,6 +322,19 @@ abstract final class RouteNames {
   /// builder resolves the master row id itself, from
   /// `salonStaffMemberProfileProvider(salonId, memberId)`; a userId on
   /// `/salons/{s}/masters/{m}/...` yields 404, not 403.
+  ///
+  /// mobile-security audit (phase 318, cycle 1) — LOW: this builder appends a
+  /// bare literal `/services` and does **not** call `Uri.encodeComponent`
+  /// itself. That is correct, not an omission: both path VARIABLES are
+  /// already percent-encoded by the base builders it composes —
+  /// [salonId] by [salonPublicProfile] and [memberId] by
+  /// [salonManageStaffMember] — so encoding again here would DOUBLE-ENCODE
+  /// (`%20` → `%2520`) and break every route in this subtree. A future
+  /// sibling copied from this one MUST keep composing on an encoding base
+  /// (`salonManageStaffMember(...)` or [salonManageStaffServices] itself)
+  /// rather than interpolating a raw [salonId]/[memberId] of its own — see
+  /// `test/routing/salon_manage_staff_services_route_test.dart`'s "hostile
+  /// id" group for the pinned proof.
   static String salonManageStaffServices(String salonId, String memberId) =>
       '${salonManageStaffMember(salonId, memberId)}/services';
 
@@ -338,6 +351,12 @@ abstract final class RouteNames {
   /// ⚠️ [memberId] is the roster entry's `userId`, and ⚠️ the route builder
   /// resolves the master row id itself — same two warnings
   /// [salonManageStaffServices] carries.
+  ///
+  /// mobile-security audit (phase 318, cycle 1) — LOW: same inherited-not-
+  /// omitted encoding as [salonManageStaffServices] — [salonId]/[memberId]
+  /// are already encoded two call-levels up ([salonPublicProfile] /
+  /// [salonManageStaffMember]); do not add a local `Uri.encodeComponent`
+  /// here, it would double-encode.
   static String salonManageStaffServiceSetup(String salonId, String memberId) =>
       '${salonManageStaffServices(salonId, memberId)}/setup';
 
@@ -351,6 +370,13 @@ abstract final class RouteNames {
   /// resolves the master row id itself — same two warnings
   /// [salonManageStaffServices] carries. [serviceId] is the master-service id,
   /// exactly what [serviceEdit] takes.
+  ///
+  /// mobile-security audit (phase 318, cycle 1) — LOW: unlike its two
+  /// siblings above, this builder DOES call `Uri.encodeComponent` itself —
+  /// on [serviceId], the one segment it adds that no base builder already
+  /// covers. [salonId]/[memberId] remain inherited from
+  /// [salonManageStaffServices] and must NOT be re-encoded here for the same
+  /// double-encoding reason.
   static String salonManageStaffServiceEdit(
     String salonId,
     String memberId,
