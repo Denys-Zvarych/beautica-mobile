@@ -54,6 +54,11 @@ class _MockCategoryRequestControllerApi extends Mock
 class _MockServiceCatalogControllerApi extends Mock
     implements ServiceCatalogControllerApi {}
 
+/// Only exercised by the phase 315 D1 salon-target read-dispatch group below
+/// — every other test in this file uses a real `Dio()` because it never
+/// leaves the generated-client (mocked `serviceApi`) path.
+class _MockDio extends Mock implements Dio {}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const _masterId = 'master-abc';
@@ -318,6 +323,279 @@ void main() {
         () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
       );
     });
+  });
+
+  // ── Phase 315 D1 — listMyServices() salon-target dispatch ─────────────────
+  //
+  // Read dispatch: a `null` target hits the owner endpoint via the generated
+  // client (already pinned above); a SalonMasterTarget hits the raw-Dio
+  // salon-scoped GET. Assert the URI the fake Dio actually SAW, never the
+  // response payload — a mapper test passes on either path
+  // (`project_widget_field_assertion_is_vacuous`).
+
+  group('listMyServices — salon-target dispatch (phase 315 D1)', () {
+    late _MockDio mockDio;
+
+    setUp(() {
+      mockDio = _MockDio();
+    });
+
+    HttpServiceRepository salonRepo({
+      String salonId = 'salon-row-uuid',
+      String masterId = 'master-row-uuid',
+    }) => HttpServiceRepository(
+      serviceApi: serviceApi,
+      categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: mockDio,
+      masterId: '',
+      target: SalonMasterTarget(salonId: salonId, masterId: masterId),
+      sessionUserId: 'user-row-uuid',
+    );
+
+    test(
+      'null target — listMyServices() hits the owner endpoint, NEVER the raw '
+      'Dio (the byte-identical-to-today branch)',
+      () async {
+        when(
+          () => serviceApi.getMyServices(),
+        ).thenAnswer((_) async => _listResponse(const []));
+
+        final result = await repository.listMyServices();
+
+        expect(result, isEmpty);
+        verify(() => serviceApi.getMyServices()).called(1);
+      },
+    );
+
+    test(
+      'SalonMasterTarget — GETs /api/v1/salons/{salonId}/masters/{masterId}/services',
+      () async {
+        String? capturedPath;
+        when(() => mockDio.get<Object?>(any())).thenAnswer((invocation) async {
+          capturedPath = invocation.positionalArguments[0] as String;
+          return Response<Object?>(
+            requestOptions: RequestOptions(path: capturedPath!),
+            statusCode: 200,
+            data: <String, Object?>{'success': true, 'data': <Object?>[]},
+          );
+        });
+
+        final result = await salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).listMyServices();
+
+        expect(result, isEmpty);
+        expect(
+          capturedPath,
+          '/api/v1/salons/salon-abc/masters/master-xyz/services',
+        );
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test('SalonMasterTarget — masterId is sent VERBATIM even when it is a '
+        'user-id-shaped UUID (no re-derivation from the session; resolving the '
+        'id kind is phase 317\'s job)', () async {
+      const userIdShaped = '11111111-2222-3333-4444-555555555555';
+      String? capturedPath;
+      when(() => mockDio.get<Object?>(any())).thenAnswer((invocation) async {
+        capturedPath = invocation.positionalArguments[0] as String;
+        return Response<Object?>(
+          requestOptions: RequestOptions(path: capturedPath!),
+          statusCode: 200,
+          data: <String, Object?>{'success': true, 'data': <Object?>[]},
+        );
+      });
+
+      await salonRepo(
+        salonId: 'salon-abc',
+        masterId: userIdShaped,
+      ).listMyServices();
+
+      expect(
+        capturedPath,
+        '/api/v1/salons/salon-abc/masters/$userIdShaped/services',
+        reason:
+            'this layer is a pass-through — a future "helpful" '
+            'normalisation must be caught here',
+      );
+    });
+
+    test(
+      'SalonMasterTarget — a populated response maps to domain objects',
+      () async {
+        when(() => mockDio.get<Object?>(any())).thenAnswer(
+          (_) async => Response<Object?>(
+            requestOptions: RequestOptions(
+              path: '/api/v1/salons/salon-abc/masters/master-xyz/services',
+            ),
+            statusCode: 200,
+            data: <String, Object?>{
+              'success': true,
+              'data': <Map<String, Object?>>[
+                <String, Object?>{
+                  'id': 'svc-001',
+                  'masterId': 'master-xyz',
+                  'serviceDefinition': <String, Object?>{
+                    'id': 'def-001',
+                    'name': 'Манікюр',
+                    'baseDurationMinutes': 60,
+                    'priceType': 'FIXED',
+                    'priceMin': 500,
+                    'priceDisplay': '500 ₴',
+                    'isActive': true,
+                  },
+                  'isActive': true,
+                },
+              ],
+            },
+          ),
+        );
+
+        final result = await salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).listMyServices();
+
+        expect(result, hasLength(1));
+        expect(result.first.name, 'Манікюр');
+        expect(result.first.priceMin, 500.0);
+      },
+    );
+
+    test(
+      'SalonMasterTarget — connectionError maps to NetworkFailure through the '
+      'shared mapper',
+      () async {
+        when(() => mockDio.get<Object?>(any())).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(
+              path: '/api/v1/salons/salon-abc/masters/master-xyz/services',
+            ),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(
+          salonRepo(
+            salonId: 'salon-abc',
+            masterId: 'master-xyz',
+          ).listMyServices(),
+          throwsA(isA<NetworkFailure>()),
+        );
+      },
+    );
+
+    // ── mobile-security finding 1/2 (phase-315 audit-fix cycle 1) ──────────
+    //
+    // [t.salonId] / [t.masterId] are interpolated raw into this path (no
+    // generated-client encoding, unlike every other salon/master path param
+    // in this codebase). A value containing `/`, `..`, `?`, or `#` could
+    // silently retarget this request on the authenticated [_dio] — the one
+    // that carries the bearer token. These pin the SHAPE of the resulting
+    // path (exactly the intended segments, no extra one carved out by an
+    // unencoded separator), not merely "the string changed" — a broken
+    // re-implementation that still mangles the URL differently would still
+    // pass a weaker assertion.
+    const pathInjections = <String>[
+      'a/b',
+      '../evil',
+      'x?y=1',
+      'z#frag',
+      '%2Falready-encoded',
+    ];
+
+    test(
+      'SalonMasterTarget — a salonId containing a path-significant '
+      'character is percent-encoded, never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          String? capturedPath;
+          when(() => mockDio.get<Object?>(any())).thenAnswer((
+            invocation,
+          ) async {
+            capturedPath = invocation.positionalArguments[0] as String;
+            return Response<Object?>(
+              requestOptions: RequestOptions(path: capturedPath!),
+              statusCode: 200,
+              data: <String, Object?>{'success': true, 'data': <Object?>[]},
+            );
+          });
+
+          await salonRepo(
+            salonId: injected,
+            masterId: 'master-xyz',
+          ).listMyServices();
+
+          final segments = capturedPath!
+              .split('/')
+              .where((s) => s.isNotEmpty)
+              .toList();
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              Uri.encodeComponent(injected),
+              'masters',
+              'master-xyz',
+              'services',
+            ],
+            reason:
+                'injected salonId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
+
+    test(
+      'SalonMasterTarget — a masterId containing a path-significant '
+      'character is percent-encoded, never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          String? capturedPath;
+          when(() => mockDio.get<Object?>(any())).thenAnswer((
+            invocation,
+          ) async {
+            capturedPath = invocation.positionalArguments[0] as String;
+            return Response<Object?>(
+              requestOptions: RequestOptions(path: capturedPath!),
+              statusCode: 200,
+              data: <String, Object?>{'success': true, 'data': <Object?>[]},
+            );
+          });
+
+          await salonRepo(
+            salonId: 'salon-abc',
+            masterId: injected,
+          ).listMyServices();
+
+          final segments = capturedPath!
+              .split('/')
+              .where((s) => s.isNotEmpty)
+              .toList();
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              'salon-abc',
+              'masters',
+              Uri.encodeComponent(injected),
+              'services',
+            ],
+            reason:
+                'injected masterId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
   });
 
   // ── getMyService — list round-trip + filter + failure mapping ───────────────
@@ -1189,11 +1467,12 @@ void main() {
       required String masterId,
       ServiceTarget? target,
       String sessionUserId = 'user-row-uuid',
+      Dio? dio,
     }) => HttpServiceRepository(
       serviceApi: serviceApi,
       categoryApi: categoryApi,
       catalogApi: catalogApi,
-      dio: Dio(),
+      dio: dio ?? Dio(),
       masterId: masterId,
       target: target,
       sessionUserId: sessionUserId,
@@ -1230,9 +1509,23 @@ void main() {
       'row 3 — SalonMasterTarget + EMPTY masterId → PASSES; an owner/admin has '
       'no master row of their own, so an empty masterId is legitimate here',
       () async {
-        when(
-          () => serviceApi.getMyServices(),
-        ).thenAnswer((_) async => _listResponse(const []));
+        // Phase 315 D1 — a SalonMasterTarget now DISPATCHES to the raw-Dio
+        // salon GET (see the dedicated "salon-target dispatch" group above),
+        // never `serviceApi.getMyServices()`. This row's job is ONLY the
+        // readiness guard (`_assertAuthenticated` must not throw with an
+        // empty masterId in salon mode), so the mocked Dio just needs to
+        // resolve — the URI itself is pinned by the dispatch group.
+        final mockDio = _MockDio();
+        when(() => mockDio.get<Object?>(any())).thenAnswer(
+          (_) async => Response<Object?>(
+            requestOptions: RequestOptions(
+              path:
+                  '/api/v1/salons/salon-row-uuid/masters/master-row-uuid/services',
+            ),
+            statusCode: 200,
+            data: <String, Object?>{'success': true, 'data': <Object?>[]},
+          ),
+        );
 
         await expectLater(
           repoWith(
@@ -1243,11 +1536,12 @@ void main() {
               // /salons/{s}/masters/{m}/... yields 404, not 403.
               masterId: 'master-row-uuid',
             ),
+            dio: mockDio,
           ).listMyServices(),
           completion(isEmpty),
         );
 
-        verify(() => serviceApi.getMyServices()).called(1);
+        verifyNever(() => serviceApi.getMyServices());
       },
     );
 

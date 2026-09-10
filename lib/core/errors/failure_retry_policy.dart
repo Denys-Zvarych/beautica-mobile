@@ -255,6 +255,13 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   MasterBookingDuplicateFailure() => false,
   DuplicateServiceFailure() => false,
   ServiceDuplicateFailure() => false,
+  // 400 SERVICE_PRICE_SHAPE_MISMATCH (phase 315 D3) — an identical retry
+  // meets the identical salon-governed price shape and 400s again. Recovery
+  // is a deliberate user action (change the item's price to match, or accept
+  // the salon's existing shape), never an automatic re-issue. Also
+  // effectively advisory in practice — bulkCreate runs through a notifier
+  // mutation, never a provider build.
+  ServicePriceShapeMismatchFailure() => false,
   ClientBookingConflictFailure() => false,
   BookingAlreadyElapsedFailure() => false,
   ProviderDeclineWindowClosedFailure() => false,

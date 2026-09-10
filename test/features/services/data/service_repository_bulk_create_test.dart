@@ -34,6 +34,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -54,6 +55,13 @@ class _MockDio extends Mock implements Dio {}
 
 const _masterId = 'master-abc';
 const _bulkPath = '/api/v1/independent-masters/me/services/bulk';
+
+// ── Phase 315 D2 — salon-target bulk dispatch fixtures ─────────────────────
+
+const _salonId = 'salon-abc';
+const _salonMasterId = 'master-xyz';
+const _salonBulkPath =
+    '/api/v1/salons/$_salonId/masters/$_salonMasterId/services/bulk';
 
 const _fixedItem = MasterServiceBulkItem(
   serviceTypeId: 'type-fixed',
@@ -101,14 +109,44 @@ Response<Object?> _bulkOkResponse(List<Map<String, Object?>> services) =>
       data: <String, Object?>{'success': true, 'data': services},
     );
 
-DioException _dioWithStatus(int status) => DioException(
-  requestOptions: RequestOptions(path: _bulkPath),
-  type: DioExceptionType.badResponse,
-  response: Response<dynamic>(
-    requestOptions: RequestOptions(path: _bulkPath),
-    statusCode: status,
-  ),
-);
+DioException _dioWithStatus(int status, {String path = _bulkPath}) =>
+    DioException(
+      requestOptions: RequestOptions(path: path),
+      type: DioExceptionType.badResponse,
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: path),
+        statusCode: status,
+      ),
+    );
+
+/// A 400 `SERVICE_PRICE_SHAPE_MISMATCH` envelope. Every field differs from
+/// [_fixedItem] / [_rangeItem] so a defaulting bug in the mapper cannot pass
+/// (`project_fixture_values_can_defang_assertions`) — the salon already
+/// charges RANGE 900–1500 for a service the batch submitted as FIXED 500.
+DioException _priceShapeMismatch400({String path = _salonBulkPath}) =>
+    DioException(
+      requestOptions: RequestOptions(path: path),
+      type: DioExceptionType.badResponse,
+      error: const ServerFailure(statusCode: 400),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: path),
+        statusCode: 400,
+        data: <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{
+            'code': 'SERVICE_PRICE_SHAPE_MISMATCH',
+            'serviceName': 'Манікюр класичний',
+            'existingServiceDefId': 'def-salon-existing',
+            'salonPriceType': 'RANGE',
+            'salonPriceMin': 900,
+            'salonPriceMax': 1500,
+          },
+          'message':
+              'Price shape does not match the salon\'s existing '
+              'definition',
+        },
+      ),
+    );
 
 // ── Test suite ───────────────────────────────────────────────────────────────
 
@@ -484,5 +522,289 @@ void main() {
         verifyNever(() => dio.post<Object?>(any(), data: any(named: 'data')));
       },
     );
+  });
+
+  // ── Phase 315 D2/D3/D4 — salon-target bulk dispatch ────────────────────────
+  //
+  // bulkCreate() dispatches by PATH STRING ONLY — the body builder is shared
+  // verbatim (pinned separately by the contract test's body-equality case).
+  // D4 pins that the salon path's 409 inherits the SAME ServiceDuplicateFailure
+  // type the me-path already has, no new type. D3 pins the 400
+  // SERVICE_PRICE_SHAPE_MISMATCH discrimination, salon-path only, and the
+  // negative case that keeps it honest.
+
+  group('bulkCreate — salon-target dispatch (phase 315 D2/D3/D4)', () {
+    late HttpServiceRepository salonRepository;
+
+    setUp(() {
+      salonRepository = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: dio,
+        masterId: '',
+        target: const SalonMasterTarget(
+          salonId: _salonId,
+          masterId: _salonMasterId,
+        ),
+        sessionUserId: 'user-row-uuid',
+      );
+    });
+
+    test(
+      'POSTs to the salon-scoped bulk path, never the independent-master one',
+      () async {
+        when(
+          () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+        ).thenAnswer(
+          (_) async => _bulkOkResponse(<Map<String, Object?>>[
+            _wireServiceJson(id: 'svc-001', name: 'Манікюр', priceMin: 500),
+          ]),
+        );
+
+        final result = await salonRepository.bulkCreate(<MasterServiceBulkItem>[
+          _fixedItem,
+        ]);
+
+        expect(result, hasLength(1));
+        verify(
+          () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+        ).called(1);
+        verifyNever(
+          () => dio.post<Object?>(_bulkPath, data: any(named: 'data')),
+        );
+      },
+    );
+
+    test('409 DUPLICATE_SERVICE on the salon path → the SAME '
+        'ServiceDuplicateFailure type as the me-path (D4 — no new duplicate '
+        'type)', () async {
+      when(
+        () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _salonBulkPath),
+          type: DioExceptionType.badResponse,
+          error: const ServerFailure(statusCode: 409),
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _salonBulkPath),
+            statusCode: 409,
+            data: <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{
+                'code': 'DUPLICATE_SERVICE',
+                'serviceName': null,
+                'existingServiceDefId': 'def-existing-on-salon',
+              },
+              'message': 'This service already exists',
+            },
+          ),
+        ),
+      );
+
+      final failure = await salonRepository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(
+        failure,
+        isA<ServiceDuplicateFailure>(),
+        reason:
+            'under a salon target the 409 now means "this master already '
+            'performs it" — the SAME user-facing fact, the SAME flag '
+            '(_flagRowsNowOwned), so it must be the same Failure type',
+      );
+      expect(
+        (failure! as ServiceDuplicateFailure).existingServiceDefId,
+        'def-existing-on-salon',
+      );
+    });
+
+    test(
+      '400 SERVICE_PRICE_SHAPE_MISMATCH → ServicePriceShapeMismatchFailure '
+      'with the salon shape POPULATED from the response, not defaulted',
+      () async {
+        when(
+          () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+        ).thenThrow(_priceShapeMismatch400());
+
+        final failure = await salonRepository
+            .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+            .then<Object?>((_) => null, onError: (Object e) => e);
+
+        expect(failure, isA<ServicePriceShapeMismatchFailure>());
+        final mismatch = failure! as ServicePriceShapeMismatchFailure;
+        // Every field differs from the FIXED-500 item submitted above —
+        // a defaulting bug in the mapper cannot pass this fixture.
+        expect(mismatch.serviceName, 'Манікюр класичний');
+        expect(mismatch.existingServiceDefId, 'def-salon-existing');
+        expect(mismatch.salonPriceType, ServicePriceType.range);
+        expect(mismatch.salonPriceMin, 900.0);
+        expect(mismatch.salonPriceMax, 1500.0);
+      },
+    );
+
+    test('400 WITHOUT the SERVICE_PRICE_SHAPE_MISMATCH code still maps to '
+        'ValidationFailure — keeps the D3 discrimination honest', () async {
+      when(
+        () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _salonBulkPath),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _salonBulkPath),
+            statusCode: 400,
+            data: <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{'code': 'SOMETHING_ELSE'},
+              'message': 'Validation failed',
+            },
+          ),
+        ),
+      );
+
+      final failure = await salonRepository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(failure, isNot(isA<ServicePriceShapeMismatchFailure>()));
+      expect(failure, isA<ValidationFailure>());
+    });
+
+    test('503 on the salon path → BulkSetupBusyFailure', () async {
+      when(
+        () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+      ).thenThrow(_dioWithStatus(503, path: _salonBulkPath));
+
+      final failure = await salonRepository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(failure, isA<BulkSetupBusyFailure>());
+    });
+
+    test('429 on the salon path → ServiceRateLimitedFailure', () async {
+      when(
+        () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
+      ).thenThrow(_dioWithStatus(429, path: _salonBulkPath));
+
+      final failure = await salonRepository
+          .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(failure, isA<ServiceRateLimitedFailure>());
+    });
+
+    // ── mobile-security finding 1/2 (phase-315 audit-fix cycle 1) ──────────
+    //
+    // Same raw-interpolation gap as `_listForSalonMaster` — [t.salonId] /
+    // [t.masterId] are pasted straight into this bulk path too, bypassing
+    // the generated client's automatic encoding. These pin the SHAPE of the
+    // resulting path (exactly 8 segments, no extra one carved out by an
+    // unencoded separator) rather than merely "the string differs" — a
+    // read-path-only fix would leave this branch unguarded.
+    const pathInjections = <String>[
+      'a/b',
+      '../evil',
+      'x?y=1',
+      'z#frag',
+      '%2Falready-encoded',
+    ];
+
+    test('salonId containing a path-significant character is percent-encoded '
+        'in the bulk path, never widening the path shape', () async {
+      for (final injected in pathInjections) {
+        String? capturedPath;
+        when(
+          () => dio.post<Object?>(any(), data: any(named: 'data')),
+        ).thenAnswer((invocation) async {
+          capturedPath = invocation.positionalArguments[0] as String;
+          return _bulkOkResponse(const <Map<String, Object?>>[]);
+        });
+
+        final injectedRepo = HttpServiceRepository(
+          serviceApi: serviceApi,
+          categoryApi: categoryApi,
+          catalogApi: catalogApi,
+          dio: dio,
+          masterId: '',
+          target: SalonMasterTarget(
+            salonId: injected,
+            masterId: _salonMasterId,
+          ),
+          sessionUserId: 'user-row-uuid',
+        );
+
+        await injectedRepo.bulkCreate(<MasterServiceBulkItem>[_fixedItem]);
+
+        final segments = capturedPath!
+            .split('/')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        expect(
+          segments,
+          <String>[
+            'api',
+            'v1',
+            'salons',
+            Uri.encodeComponent(injected),
+            'masters',
+            _salonMasterId,
+            'services',
+            'bulk',
+          ],
+          reason:
+              'injected salonId "$injected" must land as ONE encoded '
+              'segment, not create/shift a segment boundary',
+        );
+      }
+    });
+
+    test('masterId containing a path-significant character is percent-encoded '
+        'in the bulk path, never widening the path shape', () async {
+      for (final injected in pathInjections) {
+        String? capturedPath;
+        when(
+          () => dio.post<Object?>(any(), data: any(named: 'data')),
+        ).thenAnswer((invocation) async {
+          capturedPath = invocation.positionalArguments[0] as String;
+          return _bulkOkResponse(const <Map<String, Object?>>[]);
+        });
+
+        final injectedRepo = HttpServiceRepository(
+          serviceApi: serviceApi,
+          categoryApi: categoryApi,
+          catalogApi: catalogApi,
+          dio: dio,
+          masterId: '',
+          target: SalonMasterTarget(salonId: _salonId, masterId: injected),
+          sessionUserId: 'user-row-uuid',
+        );
+
+        await injectedRepo.bulkCreate(<MasterServiceBulkItem>[_fixedItem]);
+
+        final segments = capturedPath!
+            .split('/')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        expect(
+          segments,
+          <String>[
+            'api',
+            'v1',
+            'salons',
+            _salonId,
+            'masters',
+            Uri.encodeComponent(injected),
+            'services',
+            'bulk',
+          ],
+          reason:
+              'injected masterId "$injected" must land as ONE encoded '
+              'segment, not create/shift a segment boundary',
+        );
+      }
+    });
   });
 }

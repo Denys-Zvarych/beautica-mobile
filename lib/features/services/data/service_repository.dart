@@ -54,14 +54,25 @@ part 'service_repository.g.dart';
 /// from `core/errors/failures.dart`. Raw [DioException]s are caught inside
 /// the implementation and never escape.
 abstract interface class ServiceRepository {
-  /// Returns the full list of services configured for the authenticated master.
+  /// Returns the services of the current `serviceTarget` — the caller's own
+  /// when the target is `null`.
   ///
-  /// Wraps `GET /api/v1/independent-masters/me/services` — the authenticated
-  /// owner endpoint, master derived from the JWT principal. Returns an empty
-  /// list when the master has no services configured — but ONLY for a
-  /// well-formed empty array. A 200 whose envelope carries a null `data`
-  /// throws [ServerFailure]: a malformed success must never be presentable as
-  /// an empty catalogue.
+  /// `null` target (every shipped call site today): wraps `GET
+  /// /api/v1/independent-masters/me/services` — the authenticated owner
+  /// endpoint, master derived from the JWT principal.
+  ///
+  /// [SalonMasterTarget] (phase 315 D1): wraps `GET
+  /// /api/v1/salons/{salonId}/masters/{masterId}/services` — the same named
+  /// master's services, as driven by that salon's OWNER/ADMIN. The dispatch
+  /// lives INSIDE this method (`HttpServiceRepository._listForSalonMaster`)
+  /// rather than as a parallel public method, so every existing caller
+  /// (`ServicesList.build()`, `getMyService()`, `serviceByIdProvider`, …)
+  /// retargets for free.
+  ///
+  /// Returns an empty list when the master has no services configured — but
+  /// ONLY for a well-formed empty array. A 200 whose envelope carries a null
+  /// `data` throws [ServerFailure]: a malformed success must never be
+  /// presentable as an empty catalogue.
   Future<List<MasterService>> listMyServices();
 
   /// Returns a single service by its assignment [id].
@@ -90,34 +101,55 @@ abstract interface class ServiceRepository {
   /// newly-created [MasterService] as mapped from the backend response.
   Future<MasterService> create(MasterServiceCreate input);
 
-  /// Creates ALL of [items] in one request for the authenticated master.
+  /// Creates ALL of [items] in one request for the current `serviceTarget` —
+  /// the authenticated master's own catalogue when the target is `null`.
   ///
-  /// Wraps `POST /api/v1/independent-masters/me/services/bulk` — the one-pass
-  /// multi-select setup endpoint. **Additive** since `beautica-backend` c5e420f:
-  /// callable whether or not the master already has a catalogue, so it backs
-  /// both first-time setup and "add more services". The backend derives each
-  /// service's name + category from its `serviceTypeId`, then persists the
-  /// per-item duration + pricing block. Returns the list of newly-created
-  /// [MasterService] records as mapped from the response (same envelope shape
-  /// `listMyServices()` parses).
+  /// `null` target (every shipped call site today): wraps `POST
+  /// /api/v1/independent-masters/me/services/bulk` — the one-pass multi-select
+  /// setup endpoint. **Additive** since `beautica-backend` c5e420f: callable
+  /// whether or not the master already has a catalogue, so it backs both
+  /// first-time setup and "add more services".
+  ///
+  /// [SalonMasterTarget] (phase 315 D2): wraps `POST
+  /// /api/v1/salons/{salonId}/masters/{masterId}/services/bulk` — the same
+  /// named master's catalogue, driven by that salon's OWNER/ADMIN. Only the
+  /// path string differs; the request-body builder is shared verbatim between
+  /// both branches (`BulkCreateServicesRequest` is the same DTO on both
+  /// endpoints).
+  ///
+  /// Either way, the backend derives each service's name + category from its
+  /// `serviceTypeId`, then persists the per-item duration + pricing block.
+  /// Returns the list of newly-created [MasterService] records as mapped from
+  /// the response (same envelope shape `listMyServices()` parses).
   ///
   /// All-or-nothing: if any item collides, the whole batch is rolled back and
   /// nothing is written.
   ///
-  /// The generated [ServiceControllerApi] does NOT yet expose this operation
-  /// (the backend endpoint is on an unpushed branch; the mobile OpenAPI spec is
-  /// stale), so the implementation issues the POST via the raw authenticated
-  /// [Dio] instance and deserializes the response with the same
-  /// [standardSerializers] used by the generated client.
+  /// A generated `ServiceControllerApi.bulkCreateMasterServices` binding
+  /// already exists for the salon path in today's committed snapshot, but
+  /// swapping EITHER branch onto the generated client is explicitly deferred
+  /// (phase 315 D2) — mixing "raw Dio on one branch, generated client on the
+  /// other" would make the diff unreviewable and put two independent risks in
+  /// one change. Both branches issue the POST via the raw authenticated [Dio]
+  /// instance and deserialize the response with the same [standardSerializers]
+  /// used by the generated client.
   ///
   /// Throws:
   ///   - [ServiceDuplicateFailure] on **409** (`data.code ==
   ///     "DUPLICATE_SERVICE"` — one item names a service the master already
-  ///     offers; the batch was rolled back).
+  ///     offers; the batch was rolled back). Under a salon target this now
+  ///     means "this master already performs it" — the SAME failure type, the
+  ///     same "already in your menu" copy (phase 315 D4 — the existing handler
+  ///     is inherited unchanged).
+  ///   - [ServicePriceShapeMismatchFailure] on **400** (`data.code ==
+  ///     "SERVICE_PRICE_SHAPE_MISMATCH"`, salon target only) — an item's price
+  ///     shape cannot be represented on the salon's already-reused service
+  ///     definition. Carries the salon's actual governing shape (phase 315 D3).
   ///   - [BulkSetupBusyFailure] on **503** (per-master lock held past the
   ///     backend's 3 s ceiling). Transient; safe to retry, nothing was written.
-  ///   - [ValidationFailure] on **400/422** (malformed items, or a service-type
-  ///     id repeated within the batch).
+  ///   - [ValidationFailure] on **400/422** WITHOUT the price-shape-mismatch
+  ///     code (malformed items, or a service-type id repeated within the
+  ///     batch).
   ///   - [NetworkFailure] / [ServerFailure] on other transport errors.
   Future<List<MasterService>> bulkCreate(List<MasterServiceBulkItem> items);
 
@@ -351,6 +383,14 @@ final class HttpServiceRepository implements ServiceRepository {
   @override
   Future<List<MasterService>> listMyServices() async {
     _assertAuthenticated();
+    // Phase 315 D1 — dispatch INSIDE this method rather than a parallel
+    // public method: one seam, so every existing caller (ServicesList.build(),
+    // getMyService(), serviceByIdProvider, …) retargets for free with no fork
+    // to repeat at each call site.
+    final t = target;
+    if (t is SalonMasterTarget) {
+      return _listForSalonMaster(t);
+    }
     try {
       // The owner's own services list uses the authenticated endpoint
       // `GET /api/v1/independent-masters/me/services`, which derives the master
@@ -384,6 +424,91 @@ final class HttpServiceRepository implements ServiceRepository {
       if (kDebugMode) {
         log(
           'listMyServices failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  /// Salon-target counterpart of [listMyServices]'s try block above (phase 315
+  /// D1): `GET /api/v1/salons/{salonId}/masters/{masterId}/services` — the
+  /// named master's full services list (including drafts), as driven by that
+  /// salon's OWNER/ADMIN.
+  ///
+  /// ⚠️ UNVERIFIED AGAINST A REAL BACKEND. Phase 315's Background section
+  /// asserts this GET already exists in the committed snapshot alongside the
+  /// bulk POST — that is NOT true: as of this writing, neither
+  /// `beautica-backend@dev` nor `feat/salon-owned-master-services` declares
+  /// any `@GetMapping` at this path (only the bulk-create POST and the
+  /// per-master unassign DELETE exist at `/salons/{s}/masters/{m}/...`), and
+  /// mobile phase 313's own "delta is one endpoint, not twelve" table lists
+  /// only the DELETE as new. This method is implemented literally per the
+  /// phase-315 D1 spec and is exercised only against a mocked Dio in tests;
+  /// nothing in-app calls it yet (no salon UI exists before phase 318). Until
+  /// a real GET lands at this path server-side, this call 404s. Flagged to the
+  /// phase owner — do not remove this comment without confirming the endpoint
+  /// is live.
+  ///
+  /// No generated binding exists for this exact path today — mirrors
+  /// [bulkCreate]'s raw-`_dio.post` precedent (D2's reasoning applies equally
+  /// here: no generated client method, so the raw authenticated [Dio] is used
+  /// directly and the envelope is hand-parsed with the same
+  /// [standardSerializers] deserializer [bulkCreate] uses). [t.masterId] is
+  /// interpolated EXACTLY as given — no re-derivation from the session; this
+  /// layer is a pass-through, and resolving a userId to a `masters` row id is
+  /// phase 317's job, not this one's.
+  Future<List<MasterService>> _listForSalonMaster(SalonMasterTarget t) async {
+    try {
+      // [t.salonId] / [t.masterId] are percent-encoded before interpolation —
+      // this raw path bypasses the generated client's automatic encoding (see
+      // `api/lib/src/api/service_controller_api.dart`), so an id containing a
+      // path-significant character (`/`, `..`, `?`, `#`) would otherwise
+      // silently retarget this request on the authenticated [_dio] instance,
+      // which carries the bearer token. Encoding a well-formed UUID is a
+      // no-op.
+      final salonId = Uri.encodeComponent(t.salonId);
+      final masterId = Uri.encodeComponent(t.masterId);
+      final res = await _dio.get<Object?>(
+        '/api/v1/salons/$salonId/masters/$masterId/services',
+      );
+      final raw = res.data;
+      final dataList = (raw is Map<String, Object?>) ? raw['data'] : null;
+      if (dataList is! List) {
+        // Same malformed-success guard as the null-target branch above: a 200
+        // whose envelope carries no `data` array must never render as "this
+        // master has zero services".
+        if (kDebugMode) {
+          log(
+            '_listForSalonMaster(${t.salonId}, ${t.masterId}): response '
+            '`data` is not a list (got ${dataList.runtimeType})',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return dataList
+          .map((Object? element) {
+            final dto = standardSerializers.deserializeWith(
+              MasterServiceResponse.serializer,
+              element,
+            );
+            if (dto == null) {
+              throw const ServerFailure(statusCode: null);
+            }
+            return MasterServiceMapper.fromDto(dto);
+          })
+          .toList(growable: false);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_listForSalonMaster(${t.salonId}, ${t.masterId}) failed: '
+          '${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -499,6 +624,19 @@ final class HttpServiceRepository implements ServiceRepository {
       ],
     };
 
+    // Phase 315 D2 — dispatch by PATH STRING ONLY. The body builder above is
+    // shared verbatim between both branches (BulkCreateServicesRequest is the
+    // same DTO on both endpoints), and the raw-_dio.post shape is unchanged —
+    // swapping either branch onto the generated client is explicitly deferred
+    // (see the interface doc comment).
+    final t = target;
+    // Same percent-encoding requirement as [_listForSalonMaster] — this raw
+    // path also bypasses the generated client's automatic encoding.
+    final path = t is SalonMasterTarget
+        ? '/api/v1/salons/${Uri.encodeComponent(t.salonId)}/masters/'
+              '${Uri.encodeComponent(t.masterId)}/services/bulk'
+        : '/api/v1/independent-masters/me/services/bulk';
+
     try {
       // Path note: the generated client's relative paths all begin with
       // `/api/v1/...` (e.g. `r'/api/v1/independent-masters/me/services'`), and
@@ -506,10 +644,7 @@ final class HttpServiceRepository implements ServiceRepository {
       // So the raw path MUST include `/api/v1` to match the generated calls —
       // omitting it would 404. (This is the inverse of the "double-prefix"
       // trap: here the prefix lives on the path, not the base URL.)
-      final res = await _dio.post<Object?>(
-        '/api/v1/independent-masters/me/services/bulk',
-        data: body,
-      );
+      final res = await _dio.post<Object?>(path, data: body);
 
       // The response envelope is ApiResponse<List<MasterServiceResponse>> — the
       // same shape `getMyServices()` parses. Deserialize each element with the
@@ -588,8 +723,15 @@ final class HttpServiceRepository implements ServiceRepository {
   ///   - **429** → [ServiceRateLimitedFailure] (the per-master bulk bucket,
   ///     10/min, is exhausted). Reachable in ordinary use because the 503 branch
   ///     hands the master an explicit retry action.
-  ///   - **400/422** → [ValidationFailure] (includes the in-batch duplicate
-  ///     service-type-id case and the per-item `items[i].field` errors).
+  ///   - **400** with `data.code == "SERVICE_PRICE_SHAPE_MISMATCH"` (salon
+  ///     target only) → [ServicePriceShapeMismatchFailure], carrying the
+  ///     salon's governing shape (phase 315 D3). Discriminated on the typed
+  ///     code, NEVER on the bare 400 — any other 400 on this path is an
+  ///     ordinary validation failure and must keep mapping to
+  ///     [ValidationFailure] below.
+  ///   - **400/422** (any other body) → [ValidationFailure] (includes the
+  ///     in-batch duplicate service-type-id case and the per-item
+  ///     `items[i].field` errors).
   /// All other statuses defer to the shared [_mapDioException].
   ///
   /// Both status checks run BEFORE deferring to any [Failure] the
@@ -613,6 +755,13 @@ final class HttpServiceRepository implements ServiceRepository {
       // `serviceName` is null on the bulk envelope, so [ServiceDuplicateFailure]
       // renders its plain "already in your menu" message.
       return _extractDuplicateService(e);
+    }
+    // Phase 315 D3 — checked BEFORE the generic 400/422 → ValidationFailure
+    // fallthrough in `_mapDioException`, and gated on the TYPED code, never on
+    // the bare 400: any other 400 on this path must keep mapping to
+    // ValidationFailure (pinned by a dedicated negative test).
+    if (statusCode == 400 && _isPriceShapeMismatch(e)) {
+      return _extractPriceShapeMismatch(e);
     }
     // Decoded by STATUS CODE alone — the 503 body is deliberately generic
     // (`data: null`, non-machine-readable `message`), and there is no
@@ -689,6 +838,52 @@ final class HttpServiceRepository implements ServiceRepository {
     return ServiceDuplicateFailure(
       serviceName: readString(map['serviceName']),
       existingServiceDefId: readString(map['existingServiceDefId']),
+      cause: e,
+    );
+  }
+
+  /// `true` when [e] is a 400 whose body is the
+  /// `{ "data": { "code": "SERVICE_PRICE_SHAPE_MISMATCH" } }` envelope
+  /// (phase 315 D3) — a batch item's price shape cannot be represented on the
+  /// salon's already-reused service definition. Hand-decoded from the raw
+  /// JSON body, mirroring [_isDuplicateService].
+  bool _isPriceShapeMismatch(DioException e) {
+    final body = e.response?.data;
+    if (body is! Map<String, dynamic>) return false;
+    final data = body['data'];
+    if (data is! Map<String, dynamic>) return false;
+    return data['code'] == 'SERVICE_PRICE_SHAPE_MISMATCH';
+  }
+
+  /// Builds a [ServicePriceShapeMismatchFailure] from a 400
+  /// `SERVICE_PRICE_SHAPE_MISMATCH` body, threading through the salon's
+  /// governing shape. `salonPriceType` defaults to [ServicePriceType.fixed]
+  /// only when the wire value is neither `"FIXED"` nor `"RANGE"` (a malformed
+  /// body must still resolve to a value — the field is non-nullable on the
+  /// failure). `salonPriceMin` / `salonPriceMax` are read defensively — a
+  /// non-numeric value degrades to `null` rather than throwing.
+  /// Precondition: [_isPriceShapeMismatch] returned `true` for [e].
+  ServicePriceShapeMismatchFailure _extractPriceShapeMismatch(DioException e) {
+    String? readString(Object? value) => value is String ? value : null;
+    double? readDouble(Object? value) => switch (value) {
+      num n => n.toDouble(),
+      _ => null,
+    };
+    final body = e.response?.data;
+    final data = (body is Map<String, dynamic>) ? body['data'] : null;
+    final map = (data is Map<String, dynamic>)
+        ? data
+        : const <String, dynamic>{};
+    final salonPriceType = switch (map['salonPriceType']) {
+      'RANGE' => ServicePriceType.range,
+      _ => ServicePriceType.fixed,
+    };
+    return ServicePriceShapeMismatchFailure(
+      serviceName: readString(map['serviceName']),
+      existingServiceDefId: readString(map['existingServiceDefId']),
+      salonPriceType: salonPriceType,
+      salonPriceMin: readDouble(map['salonPriceMin']),
+      salonPriceMax: readDouble(map['salonPriceMax']),
       cause: e,
     );
   }

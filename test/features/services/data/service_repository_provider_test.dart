@@ -60,6 +60,10 @@
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -106,6 +110,39 @@ class _StubMasterProfileNotifier extends MasterProfile {
 class _UnauthenticatedMasterProfileNotifier extends MasterProfile {
   @override
   Future<Master> build() async => throw const UnauthorizedFailure();
+}
+
+// ── Phase 315 — session fixture for the "positive" salon-dispatch case ────
+//
+// The "with a root override…" test below is the only one in this file that
+// exercises a REAL salon dispatch (`salonPathHitBy` actually calls the raw
+// Dio), so it is the only one that needs `_assertAuthenticated`'s salon arm
+// to see a non-empty `sessionUserId`. Every other case in this file leaves
+// `authProvider` un-overridden on purpose (row 5 is the deliberate
+// no-session negative case). Mirrors `salon_manage_route_guard_test.dart`'s
+// `_FixedAuthNotifier` precedent.
+
+const _salonOwnerUser = User(
+  id: 'owner-user-uuid',
+  email: 'owner@example.com',
+  role: UserRole.salonOwner,
+  firstName: 'Salon',
+  lastName: 'Owner',
+);
+const _salonOwnerSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _salonOwnerUser, accessToken: 'token'),
+);
+
+class _FixedAuthNotifier extends AuthNotifier {
+  _FixedAuthNotifier(this._fixed);
+
+  final AsyncValue<AuthSession> _fixed;
+
+  @override
+  Future<AuthSession> build() async {
+    state = _fixed;
+    return _fixed.value ?? const AuthSession.unauthenticated();
+  }
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -184,25 +221,43 @@ void main() {
     ];
 
     /// Reads `serviceRepositoryProvider` through [ref] and returns the
-    /// [ServiceTarget] the provider threaded into it.
+    /// repository instance itself.
     ///
-    /// ⚠️ THIS IS A FIELD READ, NOT AN OBSERVED EFFECT
-    /// (`project_widget_field_assertion_is_vacuous`). It is acceptable in
-    /// phase 314 for exactly one reason, and only while that reason holds:
-    /// D3 says the `target` field is STORED AND DISPATCHED NOWHERE — the only
-    /// consumer is `_assertAuthenticated`. There is, by design, no request path
-    /// to observe yet, so a field read is the only thing there is to assert.
+    /// Captured DURING the widget build (a `Consumer` builder cannot
+    /// `await`), so [salonPathHitBy] can drive `listMyServices()` against the
+    /// returned repository AFTERWARD, outside the widget lifecycle, to
+    /// observe the actual dispatch path.
+    ServiceRepository repoOf(WidgetRef ref) =>
+        ref.read(serviceRepositoryProvider);
+
+    /// PATH OBSERVATION — phase 315's mandatory acceptance criterion.
     ///
-    /// PHASE 315 MUST CONVERT THIS to a PATH OBSERVATION — assert the URL the
-    /// mocked Dio / generated client actually receives for a salon target,
-    /// not the value of `HttpServiceRepository.target`. The moment 315 adds
-    /// path dispatch, a field-read assertion goes green while dispatch is
-    /// broken, which is the precise failure mode this repo has been bitten by
-    /// before. It is an explicit acceptance criterion of
-    /// `docs/mobile-phases/phase-315-service-repository-salon-target-reads.md`:
-    /// a field-read `targetOf` surviving into 315 is a FAIL.
-    ServiceTarget? targetOf(WidgetRef ref) =>
-        (ref.read(serviceRepositoryProvider) as HttpServiceRepository).target;
+    /// Supersedes the former field-read `targetOf`, which asserted
+    /// `HttpServiceRepository.target` directly
+    /// (`project_widget_field_assertion_is_vacuous`): that was acceptable
+    /// ONLY while phase 314's D3 held — the `target` field was stored and
+    /// dispatched NOWHERE, so there was no effect to observe. The moment
+    /// phase 315 adds path dispatch, a field read stays green while dispatch
+    /// is broken (or dispatches to the wrong place), which is exactly the
+    /// failure mode this repo has been bitten by before.
+    ///
+    /// Stubs the mocked raw [Dio]'s `GET`, drives [repo].listMyServices(),
+    /// and returns the URI the raw Dio actually SAW — or `null` when the call
+    /// went through the generated client (`mockApi.getMyServices()`) instead,
+    /// i.e. the repository behaved as a null-target one.
+    Future<String?> salonPathHitBy(ServiceRepository repo) async {
+      String? capturedPath;
+      when(() => mockDio.get<Object?>(any())).thenAnswer((invocation) async {
+        capturedPath = invocation.positionalArguments[0] as String;
+        return Response<Object?>(
+          requestOptions: RequestOptions(path: capturedPath!),
+          statusCode: 200,
+          data: <String, Object?>{'success': true, 'data': <Object?>[]},
+        );
+      });
+      await repo.listMyServices();
+      return capturedPath;
+    }
 
     test(
       'with NO override the seam is null and the repository is built exactly '
@@ -257,25 +312,31 @@ void main() {
           overrides: [
             ...baseOverrides(),
             serviceTargetProvider.overrideWithValue(target),
+            // Session-readiness evidence: the salon arm of
+            // _assertAuthenticated requires a non-empty sessionUserId before
+            // salonPathHitBy's real dispatch call can get past the guard.
+            authProvider.overrideWith(
+              () => _FixedAuthNotifier(_salonOwnerSession),
+            ),
           ],
         );
         addTearDown(container.dispose);
 
         await container.read(masterProfileProvider.future);
+        await container.read(authProvider.future);
 
-        final repo =
-            container.read(serviceRepositoryProvider) as HttpServiceRepository;
-        final threaded = repo.target;
+        final repo = container.read(serviceRepositoryProvider);
+        final hitPath = await salonPathHitBy(repo);
 
-        expect(threaded, isA<SalonMasterTarget>());
-        expect((threaded! as SalonMasterTarget).salonId, 'salon-row-uuid');
         expect(
-          (threaded as SalonMasterTarget).masterId,
-          'master-row-uuid-of-the-staff-member',
+          hitPath,
+          '/api/v1/salons/salon-row-uuid/masters/'
+          'master-row-uuid-of-the-staff-member/services',
           reason:
               'masterId is the `masters` ROW id, never a userId — a userId on '
               '/salons/{s}/masters/{m}/... yields 404, not 403.',
         );
+        verifyNever(() => mockApi.getMyServices());
       },
     );
 
@@ -289,6 +350,17 @@ void main() {
     /// phase 317 wraps around the salon-target route subtree, and the reason
     /// it unwinds on pop. A single FLAT scope would make both cases below
     /// vacuous, so the nesting is the fixture, not decoration.
+    ///
+    /// Both `Consumer` builders `ref.watch(masterProfileProvider)` (result
+    /// discarded) BEFORE invoking [onOuter]/[onInner] — needed since phase 315:
+    /// [salonPathHitBy] drives a real `listMyServices()` call, which runs
+    /// `_assertAuthenticated()`, which requires the master profile to have
+    /// resolved for the null-target arm. `AsyncNotifier.build()` never
+    /// completes synchronously within the first frame (a Dart `async`
+    /// function's Future is never fulfilled before the first microtask tick,
+    /// even with no `await` inside), so callers MUST follow this with a
+    /// second `tester.pump()` to let the watch's rebuild actually happen —
+    /// the WATCH only schedules it; a further pump flushes it.
     Future<void> pumpNestedScopes(
       WidgetTester tester, {
       required ServiceTarget target,
@@ -300,11 +372,13 @@ void main() {
         overrides: baseOverrides(),
         child: Consumer(
           builder: (context, outerRef, _) {
+            outerRef.watch(masterProfileProvider);
             onOuter(outerRef);
             return ProviderScope(
               overrides: [serviceTargetProvider.overrideWithValue(target)],
               child: Consumer(
                 builder: (context, innerRef, _) {
+                  innerRef.watch(masterProfileProvider);
                   onInner(innerRef);
                   return const SizedBox.shrink();
                 },
@@ -326,17 +400,22 @@ void main() {
 
         ServiceTarget? innerSeam;
         ServiceTarget? outerSeam;
-        ServiceTarget? outerRepoTarget;
+        ServiceRepository? outerRepo;
 
         await pumpNestedScopes(
           tester,
           target: target,
           onOuter: (outerRef) {
             outerSeam = seamOf(outerRef);
-            outerRepoTarget = targetOf(outerRef);
+            outerRepo = repoOf(outerRef);
           },
           onInner: (innerRef) => innerSeam = seamOf(innerRef),
         );
+        // Let masterProfileProvider settle and the watch-triggered rebuild
+        // flush — see pumpNestedScopes' doc comment. `outerRepo`/`innerSeam`
+        // above are overwritten with the settled-state values by the second
+        // build.
+        await tester.pump();
 
         // ANTI-VACUITY HALF. Without this the two null assertions below hold
         // just as well when the override is silently inert, and the case
@@ -361,13 +440,19 @@ void main() {
               "navigates away — someone reopens /services and sees a "
               "stranger's menu.",
         );
+        // PATH OBSERVATION: the outer scope's repository must still dispatch
+        // to the owner endpoint, never the raw-Dio salon path — proves
+        // containment by EFFECT, not by reading `HttpServiceRepository.target`.
+        final outerHitPath = await salonPathHitBy(outerRepo!);
         expect(
-          outerRepoTarget,
+          outerHitPath,
           isNull,
           reason:
               'and the repository the OUTER scope hands out stays the '
-              "independent master's, untouched",
+              "independent master's, untouched — it must never reach the "
+              'raw-Dio salon path',
         );
+        verify(() => mockApi.getMyServices()).called(1);
       },
     );
 
@@ -381,7 +466,7 @@ void main() {
         );
 
         ServiceTarget? innerSeam;
-        ServiceTarget? innerRepoTarget;
+        ServiceRepository? innerRepo;
 
         await pumpNestedScopes(
           tester,
@@ -389,9 +474,11 @@ void main() {
           onOuter: (_) {},
           onInner: (innerRef) {
             innerSeam = seamOf(innerRef);
-            innerRepoTarget = targetOf(innerRef);
+            innerRepo = repoOf(innerRef);
           },
         );
+        // Let masterProfileProvider settle — see pumpNestedScopes' doc comment.
+        await tester.pump();
 
         expect(
           innerSeam,
@@ -416,8 +503,13 @@ void main() {
         // one 317 turns red on purpose. The containment case is the one that
         // must stay green forever — 317 rewiring the dependency must not start
         // leaking the target into the outer scope.
+        //
+        // PATH OBSERVATION (phase 315): the inner-scope repository must still
+        // dispatch to the owner endpoint — proving the blocker by EFFECT
+        // rather than by reading `HttpServiceRepository.target`.
+        final innerHitPath = await salonPathHitBy(innerRepo!);
         expect(
-          innerRepoTarget,
+          innerHitPath,
           isNull,
           reason:
               'Nested serviceTargetProvider overrides do not reach '
