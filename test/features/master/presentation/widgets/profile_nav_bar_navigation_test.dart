@@ -490,4 +490,145 @@ void main() {
       },
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 321 D1 — additive `servicesRoute` override. Same shape as the
+  // scheduleRoute group immediately above, for tile 0 instead of tile 2.
+  // ---------------------------------------------------------------------------
+  group('VelvetBottomNavBar additive servicesRoute override (Phase 321)', () {
+    const String staffServicesMarkerRoute = '/staff/services';
+    const Key staffServicesMarker = Key('stub-staff-services-screen');
+
+    GoRouter buildRouterWithServicesOverride() => GoRouter(
+      initialLocation: RouteNames.masterProfile,
+      redirect: (context, state) => null,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.masterProfile,
+          // servicesRoute given, scheduleRoute/profileRoute omitted — tiles
+          // 2/3 must still resolve to their default literals when reached
+          // from elsewhere, proven by the OTHER pre-existing tests in this
+          // file (which never pass any override) rather than re-asserted
+          // here.
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: _profileMarker),
+            bottomNavigationBar: VelvetBottomNavBar(
+              activeIndex: 3,
+              servicesRoute: staffServicesMarkerRoute,
+            ),
+          ),
+        ),
+        GoRoute(
+          path: staffServicesMarkerRoute,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: staffServicesMarker),
+            bottomNavigationBar: VelvetBottomNavBar(
+              activeIndex: 0,
+              servicesRoute: staffServicesMarkerRoute,
+            ),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.masterSchedule,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: _scheduleMarker),
+            bottomNavigationBar: VelvetBottomNavBar(activeIndex: 2),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.masterBookings,
+          builder: (context, _) => const Scaffold(
+            body: SizedBox.shrink(key: _bookingsMarker),
+            bottomNavigationBar: VelvetBottomNavBar(activeIndex: 1),
+          ),
+        ),
+      ],
+    );
+
+    testWidgets(
+      'servicesRoute override: tile 0 navigates to the OVERRIDE target '
+      '(not RouteNames.services); tiles 1/2/3 are unchanged',
+      (tester) async {
+        final router = buildRouterWithServicesOverride();
+        await tester.pumpWidget(_app(router));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(staffServicesMarker), findsOneWidget);
+        expect(
+          _location(router),
+          staffServicesMarkerRoute,
+          reason: 'the override must win over the default RouteNames.services',
+        );
+        expect(_location(router), isNot(RouteNames.services));
+
+        // Tile 2 unaffected by the override — still resolves to its default
+        // literal from the new destination's own (override-bearing) bar
+        // instance.
+        await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(_scheduleMarker), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'activeIndex 0 WITH servicesRoute set: tile 0 is still a no-op — the '
+      'active guard in _routeFor short-circuits before the override is read',
+      (tester) async {
+        final router = buildRouterWithServicesOverride();
+        router.go(staffServicesMarkerRoute);
+        await tester.pumpWidget(_app(router));
+        await tester.pumpAndSettle();
+        expect(find.byKey(staffServicesMarker), findsOneWidget);
+
+        final String before = _location(router);
+        final int depthBefore = _stackDepth(router);
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+        await tester.pumpAndSettle();
+
+        expect(_location(router), before);
+        expect(_stackDepth(router), depthBefore);
+        expect(find.byKey(staffServicesMarker), findsOneWidget);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 321 — all THREE additive params omitted at once. Every test above
+  // already proves each param individually omitted (the pre-existing tests
+  // never pass any override at all, and each override group above supplies
+  // exactly one); this is the explicit three-parameter version of the
+  // "params omitted" default case the phase doc calls for, so the new
+  // default (now that a third param exists) is pinned by name rather than
+  // only by inference from the single-param groups.
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'all three additive params (scheduleRoute/profileRoute/servicesRoute) '
+    'omitted: tiles 0/1/2/3 resolve to services/masterBookings/'
+    'masterSchedule/masterProfile — the three-parameter default',
+    (tester) async {
+      final router = _buildRouter();
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+      await tester.pumpAndSettle();
+      expect(_location(router), RouteNames.services);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await tester.pumpAndSettle();
+      expect(_location(router), RouteNames.masterBookings);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+      await tester.pumpAndSettle();
+      expect(_location(router), RouteNames.masterSchedule);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(_location(router), RouteNames.masterProfile);
+    },
+  );
 }

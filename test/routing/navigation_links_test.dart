@@ -455,6 +455,11 @@ void main() {
       // MasterScheduleScreen at its own /staff/* path (see route_names.dart's
       // doc). Same rationale as the salonMaster* rows immediately above.
       'salonMasterSchedule': RouteNames.salonMasterSchedule,
+      // Phase 321 — SALON_MASTER's read-only «Послуги», reusing
+      // ServicesListScreen(writable: false) at its own /staff/* path (see
+      // route_names.dart's doc). Same rationale as `salonMasterSchedule`
+      // immediately above.
+      'salonMasterServices': RouteNames.salonMasterServices,
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,

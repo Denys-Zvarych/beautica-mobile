@@ -319,6 +319,7 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
 final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
+    this.masterSalonId,
     this.masterMeNotFound = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
@@ -360,6 +361,22 @@ final class FakeBackend {
   /// the flow into a genuine guard for that correctness bug rather than a
   /// fixture-masked false pass.
   final String masterRowId;
+
+  /// Phase 321 — the employing salon's id, echoed in `GET /masters/me`'s
+  /// nested `salon` object (`MasterDetailResponse.salon.id`, which
+  /// `MasterMapper.fromDto` reads as `Master.salonId` — a DIFFERENT wire
+  /// shape than `GET /users/me`'s flat `salonId`, which `_salonMasterUserJson`
+  /// deliberately omits for an unrelated reason, see that constant's doc).
+  ///
+  /// Defaults to `null` so `_masterDetailEnvelope()` omits the `salon` key
+  /// entirely and every existing flow (including the phase-309/310 SALON_
+  /// MASTER schedule flows, which never depend on it) keeps seeing the exact
+  /// same body. Set it before boot for a flow that needs the viewer's OWN
+  /// salon to resolve — e.g. the phase-321 `/staff/services` own-target flow,
+  /// which reuses the `salon-xyz` / `master-removable` fixture pair
+  /// [_wireSalonMasterServices] already wires by pairing this with
+  /// `masterRowId: 'master-removable'`.
+  final String? masterSalonId;
 
   final Dio dio;
   late final DioAdapter _adapter;
@@ -2255,6 +2272,18 @@ final class FakeBackend {
     'avgRating': 4.8,
     'reviewCount': 10,
     'masterType': 'INDEPENDENT_MASTER',
+    // Phase 321 — omitted (not merely null) when [masterSalonId] is unset, so
+    // every pre-existing flow's body is byte-identical. `cityId`/`oblastId`
+    // are non-nullable on the generated `PublicSalonResponse`, so they must
+    // be present for the envelope to deserialize at all — placeholder values,
+    // never read by `MasterMapper.fromDto` (only `.salon.id` is).
+    if (masterSalonId != null)
+      'salon': <String, dynamic>{
+        'id': masterSalonId,
+        'name': 'Салон',
+        'cityId': 'city-kyiv',
+        'oblastId': 'oblast-kyiv',
+      },
   });
 
   /// PUBLIC master-detail envelope for the Phase 13.5 client-facing profile.

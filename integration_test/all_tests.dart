@@ -164,6 +164,8 @@ import 'salon_master_services_target_flow_test.dart'
 import 'salon_owner_unassign_master_service_flow_test.dart'
     as salon_owner_unassign_master_service;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
+import 'salon_master_services_read_only_flow_test.dart'
+    as salon_master_services_read_only;
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
 import 'salon_owner_set_master_services_flow_test.dart'
@@ -552,6 +554,17 @@ void main() {
   // `/staff/schedule`, landing on the SAME `MasterScheduleScreen` an
   // INDEPENDENT_MASTER edits their own hours with.
   group('salon_master_schedule_nav_flow', salon_master_schedule_nav.main);
+  // Phase 321 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Послуги»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting
+  // `/staff/services`, landing on the SAME `ServicesListScreen`
+  // (`writable: false`) an INDEPENDENT_MASTER manages their own menu with.
+  // Registered beside `salon_master_schedule_nav_flow`, the direct sibling
+  // this phase's flow mirrors.
+  group(
+    'salon_master_services_read_only_flow',
+    salon_master_services_read_only.main,
+  );
   // Phase 312 (Step 2.7 Rule 3b) — the SALON_OWNER counterpart of the admin
   // flow above: roster -> a chosen master's schedule -> a real edit and
   // write against the VIEWED master, never "me".

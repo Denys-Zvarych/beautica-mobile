@@ -87,6 +87,7 @@ class VelvetBottomNavBar extends StatelessWidget {
     required this.activeIndex,
     this.scheduleRoute,
     this.profileRoute,
+    this.servicesRoute,
   });
 
   final int activeIndex;
@@ -103,6 +104,13 @@ class VelvetBottomNavBar extends StatelessWidget {
   /// means `RouteNames.masterProfile`, byte-identical to before this param
   /// existed. Same top-level-tab-root precondition as [scheduleRoute].
   final String? profileRoute;
+
+  /// Phase 321 D1 — additive override for tile 0's («Послуги») destination.
+  /// `null` (every current caller except `salon_master_profile_screen.dart`
+  /// and `master_schedule_screen.dart`) means `RouteNames.services`,
+  /// byte-identical to before this param existed. Same top-level-tab-root
+  /// precondition as [scheduleRoute] / [profileRoute].
+  final String? servicesRoute;
 
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
 
@@ -155,6 +163,7 @@ class VelvetBottomNavBar extends StatelessWidget {
                           active: i == activeIndex,
                           scheduleRoute: scheduleRoute,
                           profileRoute: profileRoute,
+                          servicesRoute: servicesRoute,
                         ),
                       ),
                   ],
@@ -176,6 +185,7 @@ class _VelvetNavTile extends StatelessWidget {
     required this.active,
     this.scheduleRoute,
     this.profileRoute,
+    this.servicesRoute,
   });
 
   final _NavItem item;
@@ -183,6 +193,7 @@ class _VelvetNavTile extends StatelessWidget {
   final bool active;
   final String? scheduleRoute;
   final String? profileRoute;
+  final String? servicesRoute;
 
   /// Resolves the go_router path for a nav-bar [index]. Every index maps to
   /// its real destination; tapping the already-active tile resolves to
@@ -195,12 +206,12 @@ class _VelvetNavTile extends StatelessWidget {
   /// `GoRoute` in `app_router.dart`, never nested under another tab) — that
   /// is what makes `context.go` in [build] safe here specifically: see that
   /// call site's comment for why. An override passed via [scheduleRoute] /
-  /// [profileRoute] (Phase 310 D1/D2) MUST also be a top-level tab root for
-  /// the same reason.
+  /// [profileRoute] (Phase 310 D1/D2) / [servicesRoute] (Phase 321 D1) MUST
+  /// also be a top-level tab root for the same reason.
   String? _routeFor(int index) {
     if (active) return null;
     return switch (index) {
-      0 => RouteNames.services, // Послуги
+      0 => servicesRoute ?? RouteNames.services, // Послуги
       1 => RouteNames.masterBookings, // Мої записи → Phase 7.6
       2 => scheduleRoute ?? RouteNames.masterSchedule, // Графік
       _ => profileRoute ?? RouteNames.masterProfile, // Профіль

@@ -834,6 +834,21 @@ abstract final class RouteNames {
   /// there is no producer for this role and nothing to parse.
   static const String salonMasterSchedule = '/staff/schedule';
 
+  /// Phase 321 — «Послуги» read-only view for a SALON_MASTER. Renders the
+  /// SAME [ServicesListScreen] widget [services] does, `writable: false`
+  /// (phase 320's D1 flag) — every write affordance is already hidden by that
+  /// flag, so this route reuses the screen verbatim rather than forking a
+  /// read-only variant. Registered under its own `/staff/*` subtree rather
+  /// than widening [services]'s guard, mirroring [salonMasterSchedule]'s
+  /// reasoning immediately above: `/services/setup` and `/services/:id/edit`
+  /// — full write surfaces — stay fenced to INDEPENDENT_MASTER exactly as
+  /// before; see `auth_redirect.dart`'s `/services` gate comment. The route
+  /// resolves the viewer's own salon + `masters` row id from
+  /// `masterProfileProvider` and overrides `serviceTargetProvider` with a
+  /// `SalonMasterTarget` for the subtree — see `app_router.dart`'s
+  /// `_SalonMasterOwnServicesRoute`.
+  static const String salonMasterServices = '/staff/services';
+
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
   // masterId from the session (authProvider), so the reviews are always the

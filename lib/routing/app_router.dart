@@ -71,6 +71,7 @@ import '../features/booking/presentation/walk_in_service_step_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
+import '../features/master/domain/master.dart';
 import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
@@ -1964,6 +1965,17 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.salonMasterSchedule,
         builder: (context, state) => const MasterScheduleScreen(),
       ),
+      // Phase 321 — «Послуги» read-only view for a SALON_MASTER. Reuses
+      // [ServicesListScreen] VERBATIM behind a `SalonMasterTarget` scope
+      // resolved from the viewer's OWN profile — see
+      // [RouteNames.salonMasterServices]'s doc and
+      // [_SalonMasterOwnServicesRoute] below. Registered as a top-level flat
+      // route (the same `VelvetBottomNavBar` nav-tile precondition
+      // [salonMasterSchedule] immediately above satisfies).
+      GoRoute(
+        path: RouteNames.salonMasterServices,
+        builder: (context, state) => const _SalonMasterOwnServicesRoute(),
+      ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.
       // Pushed from the home-hub burger icon; all three edit pages PATCH
@@ -2139,6 +2151,137 @@ GoRouter appRouter(Ref ref) {
 /// whatever masterId is currently known (`''` while unresolved), and every
 /// downstream provider ([scheduleEditableProvider] included) already fails
 /// closed on that, exactly like an unresolved "me" session does today.
+/// Phase 321 (D3) — the SALON_MASTER's OWN services surface at
+/// `/staff/services`. Resolves the viewer's own `salonId` + `masters` ROW id
+/// off [masterProfileProvider] — the same "me" read `own_schedule_scope.dart`
+/// uses for `/staff/schedule` — and installs a [SalonMasterTarget] over
+/// [serviceTargetProvider] for the [ServicesListScreen] subtree, pointing at
+/// the read backend phase 310 widened
+/// (`GET /salons/{salonId}/masters/{masterId}/services`) to admit a
+/// SALON_MASTER reading their own row.
+///
+/// THE PIN — mirrors `own_schedule_scope.dart`'s header exactly: the role is
+/// checked FIRST, before this ever watches [masterProfileProvider].
+/// `GET /masters/me` is gated
+/// `hasAnyRole('SALON_MASTER','INDEPENDENT_MASTER','SALON_OWNER')`
+/// (`MasterController.java:109`), so a role outside that set would 403 the
+/// instant this watched it. In practice the `/staff/*` prefix gate in
+/// `auth_redirect.dart` (evaluated by `redirect:` before any route builds)
+/// already excludes every role but SALON_MASTER from ever reaching this
+/// widget — this check is defense-in-depth, proven unreachable rather than
+/// load-bearing on its own, and kept for the SAME reason
+/// `own_schedule_scope.dart` keeps its ordering: consistency with the one
+/// other "resolve my own master row" call site in the app.
+///
+/// D3 point 3 — a SALON_MASTER always has a `salonId` by construction (a
+/// `masters` row with no salon is an INDEPENDENT_MASTER or SALON_OWNER type,
+/// never SALON_MASTER). An unresolved profile is a LOADING state; a resolved
+/// profile with a missing/empty salonId or master row id is a broken-session
+/// ERROR state — NEVER a silently empty list, and NEVER a [ServiceTarget]
+/// constructed with an empty id (`HttpServiceRepository._pathSegment` rejects
+/// an empty segment — phase 317 D4's identical reasoning for
+/// [_SalonMasterServicesShell] below).
+/// [_SalonMasterOwnServicesRoute]'s selected slice of
+/// `AsyncValue<Master>` — only what its `build()` actually reads:
+/// `salonId`/`masterId` (via the SAME retained-`.value` rule the un-narrowed
+/// watch used to apply directly) plus enough of the loading/error shape to
+/// reproduce the three render branches exactly. A Dart record has structural
+/// `==`, so `.select` bails out of a rebuild whenever an unrelated `Master`
+/// field (name, avatar, bio, …) changes but these don't — mobile-perf LOW,
+/// phase 321 follow-up.
+typedef _OwnMasterIds = ({
+  String? salonId,
+  String? masterId,
+  bool isLoading,
+  Object? error,
+});
+
+_OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
+  // `.value` (not `when`) so a RELOAD of the profile keeps the last resolved
+  // salon/master ids instead of dropping the scope — the same retained-value
+  // rule `_SalonMasterServicesShell`'s F3 fix documents.
+  final Master? retained = async.value;
+  return (
+    salonId: retained?.salonId,
+    masterId: retained?.id,
+    isLoading: async.isLoading,
+    error: async.hasError ? async.error : null,
+  );
+}
+
+class _SalonMasterOwnServicesRoute extends ConsumerWidget {
+  const _SalonMasterOwnServicesRoute();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    if (role != UserRole.salonMaster) {
+      // Unreachable via `/staff/*` (see this class's header) — returned
+      // WITHOUT ever watching [masterProfileProvider], which is the whole
+      // point of checking the role first.
+      return const Scaffold(
+        backgroundColor: BrandColors.base,
+        body: ErrorState(
+          key: Key('salon_master_own_services_error'),
+          failure: UnauthorizedFailure(),
+        ),
+      );
+    }
+
+    // NARROWED with `.select` (mobile-perf LOW, phase 321 follow-up) — see
+    // [_OwnMasterIds]. The role check above still runs BEFORE this ever
+    // touches [masterProfileProvider]; narrowing what is *read* from it
+    // changes nothing about *when* it is watched.
+    final _OwnMasterIds ids = ref.watch(
+      masterProfileProvider.select(_selectOwnMasterIds),
+    );
+    if (ids.masterId != null) {
+      return _resolved(salonId: ids.salonId, masterId: ids.masterId!);
+    }
+
+    if (ids.isLoading) {
+      return const Scaffold(
+        backgroundColor: BrandColors.base,
+        body: LoadingSkeleton.list(
+          key: Key('salon_master_own_services_loading'),
+        ),
+      );
+    }
+
+    final Object error = ids.error ?? const UnknownFailure();
+    return Scaffold(
+      backgroundColor: BrandColors.base,
+      body: ErrorState(
+        key: const Key('salon_master_own_services_error'),
+        failure: error is Failure ? error : UnknownFailure(cause: error),
+        onRetry: () => ref.invalidate(masterProfileProvider),
+      ),
+    );
+  }
+
+  /// The resolved-profile branch: either the D3-point-3 error gate, or the
+  /// one [ProviderScope] wrapping the read-only screen.
+  Widget _resolved({required String? salonId, required String masterId}) {
+    if (salonId == null || salonId.isEmpty || masterId.isEmpty) {
+      return const Scaffold(
+        backgroundColor: BrandColors.base,
+        body: ErrorState(
+          key: Key('salon_master_own_services_error'),
+          failure: NotFoundFailure(),
+        ),
+      );
+    }
+    return ProviderScope(
+      overrides: <Override>[
+        serviceTargetProvider.overrideWithValue(
+          ServiceTarget.salonMaster(salonId: salonId, masterId: masterId),
+        ),
+      ],
+      child: const ServicesListScreen(writable: false),
+    );
+  }
+}
+
 class _SalonMasterScheduleRoute extends ConsumerWidget {
   const _SalonMasterScheduleRoute({
     required this.salonId,

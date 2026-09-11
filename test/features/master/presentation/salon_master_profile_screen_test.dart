@@ -720,4 +720,56 @@ void main() {
       },
     );
   });
+
+  // Phase 321 — same shape as the Графік group above, for tile 0 instead of
+  // tile 2: the REAL production wiring at this screen's own call site
+  // (`salon_master_profile_screen.dart:232`'s `servicesRoute:` param), as
+  // opposed to `salon_master_bottom_nav_redirect_test.dart`'s synthetic
+  // router (which reconstructs its own `VelvetBottomNavBar` call and would
+  // NOT catch a regression at THIS file's actual call site). Mutation-tested:
+  // deleting this screen's `servicesRoute:` param turned this test red (tile
+  // 0 landed on the INDEPENDENT_MASTER-only `/services` stub instead of
+  // `/staff/services`), and the phase 321 integration flow independently red
+  // on the same mutation.
+  group('bottom nav — Послуги tile (Phase 321)', () {
+    testWidgets(
+      'tapping master-nav-tile-0 lands on RouteNames.salonMasterServices, '
+      'NOT the default RouteNames.services',
+      (tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.salonMasterProfile,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.salonMasterProfile,
+              builder: (_, _) => const SalonMasterProfileScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.salonMasterServices,
+              builder: (_, _) => const Scaffold(
+                body: SizedBox(key: Key('stub-staff-services')),
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.services,
+              builder: (_, _) =>
+                  const Scaffold(body: SizedBox(key: Key('stub-services'))),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides((_master, _services, _salon)),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-staff-services')), findsOneWidget);
+        expect(find.byKey(const Key('stub-services')), findsNothing);
+      },
+    );
+  });
 }

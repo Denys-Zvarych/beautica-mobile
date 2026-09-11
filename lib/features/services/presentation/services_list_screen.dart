@@ -437,7 +437,13 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
           case _HeaderItem(:final label):
             return Padding(
               padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
-              child: Text(label, style: VelvetText.label()),
+              // Keyed so tests can locate/assert the active-count heading
+              // without matching on the localized plural copy itself.
+              child: Text(
+                label,
+                key: const Key('services_count_header'),
+                style: VelvetText.label(),
+              ),
             );
           case _SectionItem(:final group):
             // When a target slug was requested:

@@ -828,4 +828,65 @@ void main() {
       });
     },
   );
+
+  // -------------------------------------------------------------------------
+  // Phase 321 — RouteNames.salonMasterServices (/staff/services) is
+  // registered as a top-level route (a VelvetBottomNavBar nav-tile
+  // precondition — Phase 321 D1) and resolves the SAME wrapper class
+  // `_SalonMasterOwnServicesRoute` app_router.dart's D3 resolution uses —
+  // which, once built and its role/profile watches resolve, wraps the SAME
+  // `ServicesListScreen` `RouteNames.services` does (proven END TO END, not
+  // by this static builder-return check, in
+  // `salon_master_own_services_route_test.dart`, since resolving past the
+  // wrapper requires a live provider container). This static check pins the
+  // WRAPPER class (via `runtimeType.toString()` — safe on a private class,
+  // since runtime reflection isn't gated by library privacy) so a future
+  // refactor that swaps the wrapper for something else is caught here, per
+  // this track's mutation check #1's reasoning: renaming the registered path
+  // away from the RouteNames constant must turn the lookup red.
+  // -------------------------------------------------------------------------
+  group('app_router Phase 321 — /staff/services resolves the SalonMaster '
+      'own-services route wrapper', () {
+    late GoRouter router;
+
+    setUp(() {
+      router = _makeContainer().read(appRouterProvider);
+    });
+
+    test('PT-3: RouteNames.salonMasterServices is registered as a '
+        'TOP-LEVEL route using builder: (MaterialPage)', () {
+      final route = _findRoute(
+        router.configuration.routes,
+        RouteNames.salonMasterServices,
+      );
+      expect(
+        route,
+        isNotNull,
+        reason:
+            'RouteNames.salonMasterServices '
+            '(${RouteNames.salonMasterServices}) must be registered in '
+            'appRouter',
+      );
+      expect(
+        route!.builder,
+        isNotNull,
+        reason: '/staff/services must use builder: (MaterialPage)',
+      );
+      expect(route.pageBuilder, isNull);
+
+      final Widget built = route.builder!(
+        _NeverUsedBuildContext(),
+        _NeverUsedGoRouterState(),
+      );
+      expect(
+        built.runtimeType.toString(),
+        '_SalonMasterOwnServicesRoute',
+        reason:
+            'Phase 321 D3: /staff/services resolves through the '
+            'own-target wrapper, not the bare ServicesListScreen — a '
+            'different wrapper here means the target resolution was '
+            'skipped or forked',
+      );
+    });
+  });
 }
