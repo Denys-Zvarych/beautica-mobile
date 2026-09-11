@@ -53,6 +53,8 @@ import 'salon_master_services_read_only_flow_test.dart'
     as salon_master_services_read_only;
 import 'salon_owner_set_master_services_flow_test.dart'
     as salon_owner_set_master_services;
+import 'salon_admin_set_master_services_flow_test.dart'
+    as salon_admin_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
@@ -252,6 +254,17 @@ void main() {
   group(
     'salon_owner_set_master_services_flow',
     salon_owner_set_master_services.main,
+  );
+  // Phase 322 (Step 2.7 Rule 3b) — the SALON_ADMIN mirror of the flow
+  // immediately above: the identical real roster-tap -> salon-scoped
+  // ServicesListScreen -> FAB bulk-add -> unassign journey against the
+  // admin's OWN salon (`salon-admin-1`/`master-admin-target`), plus the D4
+  // negative arm — an admin of a DIFFERENT salon deep-linking the same
+  // route is bounced. Registered beside `salon_owner_set_master_services_
+  // flow`, the direct sibling this phase's flow mirrors.
+  group(
+    'salon_admin_set_master_services_flow',
+    salon_admin_set_master_services.main,
   );
   group('service_crud_flow', service_crud.main);
   group('service_delete_flow', service_delete.main);

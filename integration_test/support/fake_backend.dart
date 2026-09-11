@@ -717,6 +717,13 @@ final class FakeBackend {
   /// never collide when a single test flow exercises both.
   int _nextSalonServiceSeq = 1;
 
+  /// Phase 322 (mobile-qa) — sequence for rows created through the
+  /// SALON_ADMIN own-salon bulk-create route
+  /// (`_wireSalonAdminMasterServicesBulk`). A SEPARATE counter from
+  /// [_nextSalonServiceSeq] so the two salon/master pairs' id spaces never
+  /// collide when a single test flow somehow exercises both.
+  int _nextSalonAdminServiceSeq = 1;
+
   // ── Schedule ID sequence (deterministic — never wall-clock) ──────────────
   // Starts at 100 to avoid collision with the seeded 'schedule-1'.
   int _scheduleSeq = 100;
@@ -1747,6 +1754,15 @@ final class FakeBackend {
   int getSalonMasterServicesCalls = 0;
   String? lastSalonMasterServicesPath;
 
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon counterpart
+  /// to [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
+  /// /api/v1/salons/salon-admin-1/masters/master-admin-target/services`.
+  /// Kept as SEPARATE counters (not reused across the two salon/master
+  /// pairs) so a phase-322 flow's assertions cannot pass on a call that was
+  /// actually dispatched against `salon-xyz`/`master-removable`.
+  int getSalonAdminMasterServicesCalls = 0;
+  String? lastSalonAdminMasterServicesPath;
+
   /// `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
   /// per-master UNASSIGN. GENUINELY STATEFUL, mirroring [deleteServiceCalls]:
   /// a successful unassign REMOVES the row from [_salonMasterServices], so the
@@ -1755,6 +1771,16 @@ final class FakeBackend {
   int unassignServiceCalls = 0;
   String? lastUnassignedServiceDefId;
   String? lastUnassignPath;
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
+  /// [unassignServiceCalls]/[lastUnassignedServiceDefId]/[lastUnassignPath],
+  /// for `DELETE /api/v1/salons/salon-admin-1/masters/master-admin-target
+  /// /services/{serviceDefId}`. GENUINELY STATEFUL, mirroring
+  /// [unassignServiceCalls]: removes the row from
+  /// [_salonAdminMasterServices].
+  int unassignAdminServiceCalls = 0;
+  String? lastUnassignedAdminServiceDefId;
+  String? lastUnassignAdminPath;
 
   /// Phase 319 — when `true`, every `DELETE /salons/{s}/masters/{m}/services
   /// /{serviceDefId}` answers HTTP **409** with the plain-English body shape
@@ -1787,6 +1813,14 @@ final class FakeBackend {
   int salonBulkCreateCalls = 0;
   List<dynamic>? lastSalonBulkItems;
   String? lastSalonBulkPath;
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
+  /// [salonBulkCreateCalls]/[lastSalonBulkItems]/[lastSalonBulkPath], for
+  /// `POST /api/v1/salons/salon-admin-1/masters/master-admin-target/services
+  /// /bulk`. GENUINELY STATEFUL: appends into [_salonAdminMasterServices].
+  int salonAdminBulkCreateCalls = 0;
+  List<dynamic>? lastSalonAdminBulkItems;
+  String? lastSalonAdminBulkPath;
 
   /// The salon master's OWN catalogue — deliberately DISJOINT from [_services]
   /// (different names, different ids, different prices), so a screen that
@@ -1839,6 +1873,43 @@ final class FakeBackend {
             'priceMin': 300,
             'priceMax': null,
             'priceDisplay': '300 ₴',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon
+  /// counterpart to [_salonMasterServices]: `master-admin-target`'s catalogue
+  /// on `salon-admin-1`, the admin's OWN salon (`_adminUserJson.salonId`).
+  /// GENUINELY STATEFUL, same reasoning as [_salonMasterServices] — a
+  /// successful bulk-create appends, a successful unassign removes. Seeded
+  /// with exactly ONE row so the phase-322 flow can unassign a genuinely
+  /// PRE-EXISTING row (not merely the one it just added in the same test —
+  /// `project_fixture_values_can_defang_assertions`) after also adding a
+  /// second one via the FAB.
+  final List<Map<String, dynamic>> _salonAdminMasterServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-admin-assign-1',
+          'masterId': 'master-admin-target',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 400,
+          'priceMax': null,
+          'priceDisplay': '400 ₴',
+          'effectiveDurationMinutes': 40,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-admin-def-1',
+            'name': 'Манікюр під наглядом адміністратора',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 40,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 400,
+            'priceMax': null,
+            'priceDisplay': '400 ₴',
             'photoUrl': null,
           },
         },
@@ -4515,6 +4586,114 @@ final class FakeBackend {
     );
   }
 
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
+  /// [_wireSalonMasterServices], for the `salon-admin-1` / `master-admin-target`
+  /// pair. Proves the exact SAME salon-target GET/DELETE wire an owner hits
+  /// (`_wireSalonMasterServices`'s own doc) also fires for a SALON_ADMIN of
+  /// that salon — a role-only gate would coincidentally still hit ONE of
+  /// these two salon/master pairs, so the two are kept fully separate
+  /// (different counters, different fixture list) rather than parameterised
+  /// over a shared one.
+  void _wireSalonAdminMasterServices() {
+    const String base =
+        '/api/v1/salons/salon-admin-1/masters/master-admin-target/services';
+
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        getSalonAdminMasterServicesCalls++;
+        lastSalonAdminMasterServicesPath = base;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonAdminMasterServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // One DELETE route per SEEDED definition id — same rule
+    // [_wireSalonMasterServices] follows, for the same reason.
+    for (final Map<String, dynamic> svc in _salonAdminMasterServices) {
+      final String defId =
+          (svc['serviceDefinition'] as Map<String, dynamic>?)?['id']
+              as String? ??
+          '';
+      if (defId.isEmpty) continue;
+      final String path = '$base/$defId';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(204, (_) {
+          unassignAdminServiceCalls++;
+          lastUnassignedAdminServiceDefId = defId;
+          lastUnassignAdminPath = path;
+          _salonAdminMasterServices.removeWhere(
+            (Map<String, dynamic> s) =>
+                (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+    }
+  }
+
+  /// Phase 322 (mobile-qa) — `POST /api/v1/salons/salon-admin-1/masters/
+  /// master-admin-target/services/bulk`, the SALON_ADMIN own-salon
+  /// counterpart to [_wireSalonMasterServicesBulk]. Same mirrored shape,
+  /// APPENDS into [_salonAdminMasterServices] instead.
+  void _wireSalonAdminMasterServicesBulk() {
+    const String path =
+        '/api/v1/salons/salon-admin-1/masters/master-admin-target/services'
+        '/bulk';
+    _adapter.onRoute(
+      path,
+      (server) => server.replyCallback(200, (req) {
+        salonAdminBulkCreateCalls++;
+        lastSalonAdminBulkPath = path;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastSalonAdminBulkItems = items;
+
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'salon-admin-def-bulk-$_nextSalonAdminServiceSeq';
+          final row = <String, dynamic>{
+            'id': 'salon-admin-assign-bulk-$_nextSalonAdminServiceSeq',
+            'masterId': 'master-admin-target',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Salon admin bulk service $_nextSalonAdminServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+              'photoUrl': null,
+            },
+          };
+          _salonAdminMasterServices.add(row);
+          created.add(row);
+          _nextSalonAdminServiceSeq++;
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
   /// (Re-)registers `POST /api/v1/independent-masters/me/services`.
   /// See [createRejectDuplicate].
   void _wireCreateService() {
@@ -6386,6 +6565,10 @@ final class FakeBackend {
     _wireSalonMasterServices();
 
     _wireSalonMasterServicesBulk();
+
+    _wireSalonAdminMasterServices();
+
+    _wireSalonAdminMasterServicesBulk();
 
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).

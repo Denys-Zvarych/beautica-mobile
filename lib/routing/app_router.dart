@@ -105,6 +105,7 @@ import '../features/wishlist/presentation/wishlist_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/salon/application/my_salons_notifier.dart';
 import '../features/salon/application/salon_management_profile_notifier.dart';
+import '../features/salon/application/salon_manage_capability.dart';
 import '../features/salon/application/salon_staff_member_notifier.dart';
 import '../features/salon/domain/salon.dart';
 import '../features/salon/domain/salon_staff_member.dart';
@@ -1280,17 +1281,18 @@ GoRouter appRouter(Ref ref) {
               // D3 — the two additive destinations, so the FAB, the
               // empty-state CTA and every card's «Редагувати» stay INSIDE this
               // subtree (and therefore inside the shell's ProviderScope).
-              return ServicesListScreen(
-                setupRoute: RouteNames.salonManageStaffServiceSetup(
-                  salonId,
-                  memberId,
-                ),
-                editRouteBuilder: (String serviceId) =>
-                    RouteNames.salonManageStaffServiceEdit(
-                      salonId,
-                      memberId,
-                      serviceId,
-                    ),
+              //
+              // Phase 322 (D1/D4) — `writable:` is now the salon-scoped
+              // [canManageSalonProvider] predicate, watched reactively by
+              // [_SalonManageServicesListRoute] rather than left at its
+              // implicit `true` default. `salonManageGuard` above already
+              // admits only an owner/salon-scoped-admin to this route, so
+              // this is defense-in-depth (same shape as
+              // `scheduleEditable`'s owner/admin arm) — never a widget that
+              // trusts route reachability alone for a MUTATION affordance.
+              return _SalonManageServicesListRoute(
+                salonId: salonId,
+                memberId: memberId,
               );
             },
           ),
@@ -1330,11 +1332,17 @@ GoRouter appRouter(Ref ref) {
               }
               return null;
             },
-            // ServiceEditScreen needs NO new parameter: its post-save /
-            // post-delete exit is `_popServiceEditScreen` (GoRouter.pop with a
-            // Navigator.maybePop fallback) and carries no route literal.
-            builder: (context, state) =>
-                ServiceEditScreen(id: state.pathParameters['serviceId'] ?? ''),
+            // ServiceEditScreen's post-save/post-delete exit is
+            // `_popServiceEditScreen` (GoRouter.pop with a Navigator.maybePop
+            // fallback) and carries no route literal — no new parameter
+            // needed for that. `writable:` (Phase 322, D1/D4) IS new: the
+            // salon-scoped [canManageSalonProvider] predicate, watched
+            // reactively by [_SalonManageServiceEditRoute] — same
+            // defense-in-depth reasoning as the list route above.
+            builder: (context, state) => _SalonManageServiceEditRoute(
+              salonId: state.pathParameters['salonId'] ?? '',
+              serviceId: state.pathParameters['serviceId'] ?? '',
+            ),
           ),
         ],
       ),
@@ -2279,6 +2287,62 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
       ],
       child: const ServicesListScreen(writable: false),
     );
+  }
+}
+
+/// Phase 322 (D1/D4) — the owner/admin leaf of `/salons/:salonId/manage/
+/// staff/:memberId/services`. A thin [ConsumerWidget] wrapper (not a bare
+/// `builder:` closure computing `writable` via `ref.read`) so that only THIS
+/// widget rebuilds when [canManageSalonProvider] re-emits, never the whole
+/// [appRouter] provider — mirrors [_SalonMasterOwnServicesRoute]'s own
+/// "resolve via a wrapper widget, not inline in the closure" shape.
+///
+/// `writable:` used to default to `true` unconditionally here (Phase 317)
+/// — correct in effect, since `salonManageGuard` already admits only an
+/// owner or a salon-scoped admin, but implicit: nothing on this screen
+/// itself expressed WHY it was safe to write. [canManageSalonProvider] (the
+/// D1 predicate, PROMOTED from `schedule_capability.dart`'s former private
+/// `_managesSalon`) makes it explicit and gives phase 322's role matrix a
+/// widget-level seam to test directly, the same defense-in-depth shape
+/// `scheduleEditable` already established for the schedule feature.
+class _SalonManageServicesListRoute extends ConsumerWidget {
+  const _SalonManageServicesListRoute({
+    required this.salonId,
+    required this.memberId,
+  });
+
+  final String salonId;
+  final String memberId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bool writable = ref.watch(canManageSalonProvider(salonId));
+    return ServicesListScreen(
+      writable: writable,
+      setupRoute: RouteNames.salonManageStaffServiceSetup(salonId, memberId),
+      editRouteBuilder: (String serviceId) =>
+          RouteNames.salonManageStaffServiceEdit(salonId, memberId, serviceId),
+    );
+  }
+}
+
+/// Phase 322 (D1/D4) — the owner/admin leaf of `/salons/:salonId/manage/
+/// staff/:memberId/services/:serviceId/edit`. Sibling of
+/// [_SalonManageServicesListRoute] — same predicate, same reasoning, applied
+/// to [ServiceEditScreen] instead of [ServicesListScreen].
+class _SalonManageServiceEditRoute extends ConsumerWidget {
+  const _SalonManageServiceEditRoute({
+    required this.salonId,
+    required this.serviceId,
+  });
+
+  final String salonId;
+  final String serviceId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bool writable = ref.watch(canManageSalonProvider(salonId));
+    return ServiceEditScreen(id: serviceId, writable: writable);
   }
 }
 
