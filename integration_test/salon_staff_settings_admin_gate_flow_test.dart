@@ -100,6 +100,24 @@ void _seedAdminSalonIntoMySalons(FakeBackend fb) {
 ///
 /// [role] must be [UserRole.salonAdmin] or [UserRole.salonOwner] — the two
 /// roles `salonManageGuard` admits onto `/manage` at all.
+///
+/// SALON_ADMIN takes a shorter real path: commit `314f6318` ("scope team
+/// tab", 2026-09-07 — landed AFTER this file's own `287c186f`) made the
+/// «Персонал» grid a UX-only scoping decision — a SALON_ADMIN viewer's
+/// `_StaffTab` roster now excludes every `SalonStaffRole.admin` entry
+/// (`salon_management_profile_screen.dart`'s `viewerIsAdmin` filter), so
+/// `admin-peer-1`'s card never renders for that session and the old
+/// card-tap path is unreachable BY DESIGN, not a bug — see
+/// `project_admin_can_invite_but_not_remove_admin` for the sibling
+/// intentional-asymmetry precedent this is not. The target under test is
+/// [StaffSettingsScreen]'s own D3 gate, not the grid listing, and that
+/// route stays equally real and equally reachable for an admin —
+/// `salonManageGuard` (and `RouteNames.salonManageStaffSettings`'s own doc:
+/// "an assigned SALON_ADMIN may manage a fellow admin") admits SALON_ADMIN
+/// onto it VERBATIM — so a genuinely-authenticated admin session driving
+/// `router.go` straight to that route exercises the identical real gate the
+/// SALON_OWNER arm below reaches by tapping through, only skipping the now
+/// intentionally-hidden grid card.
 Future<GoRouter> _openCoAdminSettingsAs(
   WidgetTester tester,
   FakeBackend fb,
@@ -111,30 +129,36 @@ Future<GoRouter> _openCoAdminSettingsAs(
   // fixed-wait-ok: settles the real async login/route-transition step.
   await tester.pumpAndSettle(const Duration(seconds: 1));
 
-  router.go(RouteNames.salonManage(_kSalonId));
-  // fixed-wait-ok: settles the real async route-transition step.
-  await tester.pumpAndSettle(const Duration(seconds: 1));
+  if (role == UserRole.salonAdmin) {
+    router.go(RouteNames.salonManageStaffSettings(_kSalonId, _kCoAdminId));
+    // fixed-wait-ok: settles the real async route-transition step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+  } else {
+    router.go(RouteNames.salonManage(_kSalonId));
+    // fixed-wait-ok: settles the real async route-transition step.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
 
-  final AppLocalizations l10n = await AppLocalizations.delegate.load(
-    const Locale('uk'),
-  );
-  await tester.tap(find.text(l10n.salonManageTabStaff));
-  await tester.pumpAndSettle();
+    final AppLocalizations l10n = await AppLocalizations.delegate.load(
+      const Locale('uk'),
+    );
+    await tester.tap(find.text(l10n.salonManageTabStaff));
+    await tester.pumpAndSettle();
 
-  final Finder coAdminCard = find.byKey(
-    const Key('salon-manage-staff-card-$_kCoAdminId'),
-  );
-  await tester.ensureVisible(coAdminCard);
-  await tester.pumpAndSettle();
-  await tester.tap(coAdminCard);
-  await tester.pumpAndSettle();
-  expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+    final Finder coAdminCard = find.byKey(
+      const Key('salon-manage-staff-card-$_kCoAdminId'),
+    );
+    await tester.ensureVisible(coAdminCard);
+    await tester.pumpAndSettle();
+    await tester.tap(coAdminCard);
+    await tester.pumpAndSettle();
+    expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
 
-  await AppHarness.tapVisible(
-    tester,
-    find.byKey(const Key('btn-admin-settings')),
-  );
-  await AppHarness.settle(tester);
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const Key('btn-admin-settings')),
+    );
+    await AppHarness.settle(tester);
+  }
 
   expect(find.byType(StaffSettingsScreen), findsOneWidget);
   AppHarness.expectLocation(

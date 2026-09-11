@@ -161,6 +161,8 @@ import 'salon_admin_edit_master_schedule_flow_test.dart'
     as salon_admin_edit_master_schedule;
 import 'salon_master_services_target_flow_test.dart'
     as salon_master_services_target;
+import 'salon_owner_unassign_master_service_flow_test.dart'
+    as salon_owner_unassign_master_service;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
@@ -574,6 +576,15 @@ void main() {
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
   group('salon_master_services_target_flow', salon_master_services_target.main);
+  // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
+  // outcomes: the happy-path 204 (anchored on the target flow above), the
+  // reactive 409 refusal re-showing the blocked dialog with no optimistic
+  // removal, and the INDEPENDENT_MASTER control arm proving the blocked
+  // dialog has no route to that persona at all.
+  group(
+    'salon_owner_unassign_master_service_flow',
+    salon_owner_unassign_master_service.main,
+  );
   group('service_crud_flow', service_crud.main);
   group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays

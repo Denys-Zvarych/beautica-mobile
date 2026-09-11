@@ -127,7 +127,14 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
   ///
   /// On success the service catalogues are invalidated and the edit screen is
   /// popped. On failure a snackbar is shown via
-  /// [_showServiceEditFailureSnackbar].
+  /// [_showServiceEditFailureSnackbar] — EXCEPT for a
+  /// [ServiceUnassignBlockedFailure] (a salon-target unassign refused because
+  /// the master still has a future CONFIRMED booking), which instead re-shows
+  /// [DeleteServiceDialog] with `blocked: true` (phase 319 D3). That refusal
+  /// path does no optimistic removal and no catalogue invalidation — nothing
+  /// was written, the list is still correct — and offers no navigation to the
+  /// blocking bookings (backend phase 308 stays deferred; the refusal is
+  /// final).
   Future<void> _onDelete(
     BuildContext context,
     WidgetRef ref,
@@ -173,6 +180,29 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       // Same reasoning `working_hours_notifier.dart` already documents for the
       // weekly-schedule write.
       invalidateMasterServiceCatalogues(ref);
+    } on ServiceUnassignBlockedFailure {
+      // Reactive refusal (phase 319 D3, mirroring backend phase 307 D4 /
+      // mobile phase 316 D4): the master still has a future CONFIRMED
+      // booking for this service. NOTHING was written — do not pop, do not
+      // invalidate servicesListProvider (no optimistic removal), and offer
+      // no shortcut to the blocking bookings (phase 308 stays deferred). The
+      // dialog it re-shows uses the SAME `showDialog` call site as the
+      // confirmation prompt above; its resolved value is discarded — the
+      // blocked variant's sole action is a dismiss, never a retry.
+      if (kDebugMode) {
+        log(
+          'ServiceEditScreen: unassign blocked (future booking) for '
+          'id=${service.id}',
+          name: _tag,
+          level: 900,
+        );
+      }
+      if (context.mounted) {
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => const DeleteServiceDialog(blocked: true),
+        );
+      }
     } catch (e) {
       if (kDebugMode) {
         log(

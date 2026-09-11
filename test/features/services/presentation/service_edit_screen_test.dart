@@ -282,10 +282,20 @@ Future<void> _pumpEditLoading(
 ///
 /// A starter button on the first route pushes the edit screen; we tap it,
 /// settle, and hand control back with the screen mounted.
+///
+/// [watcherStates] — when supplied, the pushed [ServiceEditScreen] is wrapped
+/// in a [_ListWatcher] so `servicesListProvider` has an active subscriber and
+/// an `invalidate()` on it actually manifests as an observable re-emission
+/// (an invalidate with NO subscriber marks the provider dirty but triggers no
+/// refetch until something reads it — a test asserting `verifyNever(() =>
+/// repo.listMyServices())` with no watcher attached would pass regardless of
+/// whether the invalidate call was ever made, which is vacuous). Defaults to
+/// `null` so the five existing callers (L1-L5) are unaffected.
 Future<_PopObserver> _pumpEditInNavigator(
   WidgetTester tester,
   _MockServiceRepository repo, {
   String id = 'svc-edit-1',
+  List<AsyncValue<Object?>>? watcherStates,
 }) async {
   tester.view.physicalSize = const Size(800, 1600);
   tester.view.devicePixelRatio = 1.0;
@@ -310,7 +320,16 @@ Future<_PopObserver> _pumpEditInNavigator(
                 key: const Key('open-edit'),
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => ServiceEditScreen(id: id),
+                    builder: (_) {
+                      Widget screen = ServiceEditScreen(id: id);
+                      if (watcherStates != null) {
+                        screen = _ListWatcher(
+                          states: watcherStates,
+                          child: screen,
+                        );
+                      }
+                      return screen;
+                    },
                   ),
                 ),
                 child: const Text('open'),
@@ -1415,6 +1434,110 @@ void main() {
 
       // The delete success path shows NO snack (distinct from the save path).
       expect(find.byType(VelvetSnack), findsNothing);
+    },
+  );
+
+  // ── L6. Delete-flow: 409 ServiceUnassignBlockedFailure re-shows the ───────
+  // ──     dialog blocked, does not pop, and does not invalidate the list ────
+  //
+  // Phase 319 D3: a salon-target unassign refused because the master still
+  // has a future CONFIRMED booking must NOT be treated like an ordinary
+  // failure (L4) — it re-shows [DeleteServiceDialog] with `blocked: true`
+  // instead of a snackbar, and it must do NO optimistic removal (no pop) and
+  // NO catalogue invalidation (nothing was written). The "generic failure →
+  // today's error handling, unchanged" case this complements is ALREADY
+  // covered by L4 (`ServerFailure` — the null-target / independent-master
+  // path must not acquire a blocked dialog it can never legitimately show).
+
+  testWidgets(
+    'L6. a 409 ServiceUnassignBlockedFailure re-shows the dialog blocked, '
+    'does not pop, and does not invalidate servicesListProvider',
+    (tester) async {
+      when(
+        () => repo.deactivate(_stubService.serviceDefId),
+      ).thenThrow(const ServiceUnassignBlockedFailure());
+
+      // A watcher gives servicesListProvider an active subscriber, so a
+      // (wrong) invalidate on the 409 arm would manifest as an observable
+      // re-emission — without it, `verifyNever(() => repo.listMyServices())`
+      // below would pass regardless of whether invalidate was ever called
+      // (nothing would be listening to trigger the refetch either way).
+      final listStates = <AsyncValue<Object?>>[];
+      final observer = await _pumpEditInNavigator(
+        tester,
+        repo,
+        watcherStates: listStates,
+      );
+      final l10n = _l10n(tester);
+
+      // Drain the mount-time list fetch so the verification below counts
+      // ONLY what the failed delete caused
+      // (project_riverpod_seamless_invalidate_gotcha: assert the refetch
+      // COUNT, never `.value != null`).
+      verify(() => repo.listMyServices()).called(greaterThanOrEqualTo(1));
+      final popsBeforeDelete = observer.popCount;
+      final listStatesBeforeDelete = listStates.length;
+
+      // Open the dialog and confirm.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+
+      // The blocked dialog re-appears with its title and NO destructive
+      // button — the absence assertion, not just the title.
+      expect(find.byKey(const Key('delete-service-dialog')), findsOneWidget);
+      expect(find.text(l10n.deleteServiceBlockedTitle), findsOneWidget);
+      expect(find.text(l10n.deleteServiceBlockedBodyNoCount), findsOneWidget);
+      expect(
+        find.byKey(const Key('btn-confirm-delete-service')),
+        findsNothing,
+        reason: 'the blocked variant offers nothing to confirm',
+      );
+
+      // No optimistic removal: the repository was never asked to re-list,
+      // AND the watched provider produced no new state — the non-vacuous
+      // form, since `ref.invalidate` retains `.value`
+      // (project_riverpod_seamless_invalidate_gotcha), so a null-gate
+      // assertion alone would not catch a wrongly-added invalidate.
+      verifyNever(() => repo.listMyServices());
+      expect(
+        listStates.length,
+        listStatesBeforeDelete,
+        reason:
+            'servicesListProvider must NOT re-emit after a 409 refusal — '
+            'nothing was written, so there is nothing to refresh',
+      );
+
+      // No navigation-to-bookings shortcut anywhere in the refusal path
+      // (backend phase 308 stays deferred): the dialog's only action is the
+      // shared cancel key (D1) — no third action, no tappable route beyond
+      // it. Verified statically too:
+      // `grep -a -rn "bookings" lib/features/services/presentation/` shows
+      // nothing new added by this phase.
+      final dialogFinder = find.byKey(const Key('delete-service-dialog'));
+      expect(
+        find.descendant(of: dialogFinder, matching: find.byType(TextButton)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: dialogFinder, matching: find.byType(FilledButton)),
+        findsNothing,
+      );
+
+      // The screen itself stays mounted — a refusal must not pop the route.
+      // Only the dialog's own dismiss-and-reopen pops registered above (the
+      // confirm tap that triggered the 409 pops the confirmation dialog
+      // route, then showDialog pushes the blocked one back) — the edit
+      // screen route itself is never popped.
+      expect(find.byType(ServiceEditScreen), findsOneWidget);
+      expect(
+        observer.popCount,
+        greaterThan(popsBeforeDelete),
+        reason: 'the confirmation dialog route itself still pops on confirm',
+      );
     },
   );
 

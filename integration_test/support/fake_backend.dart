@@ -1739,6 +1739,29 @@ final class FakeBackend {
   String? lastUnassignedServiceDefId;
   String? lastUnassignPath;
 
+  /// Phase 319 — when `true`, every `DELETE /salons/{s}/masters/{m}/services
+  /// /{serviceDefId}` answers HTTP **409** with the plain-English body shape
+  /// the real backend sends (`ServiceCatalogService.java:289-297` — no
+  /// `data` envelope, no structured count; `HttpServiceRepository
+  /// ._mapUnassignException` maps ANY 409 on this path to
+  /// [ServiceUnassignBlockedFailure] regardless of body) instead of the
+  /// default `204` unassign-success. [_salonMasterServices] is left
+  /// UNTOUCHED — nothing was written, so a flow asserting the row survives
+  /// after a refusal is asserting something this fake actually enforces, not
+  /// merely something it never bothered to remove.
+  ///
+  /// RE-WIRES ON WRITE — see [rescheduleClientOverlapConflict]'s doc for why
+  /// a status change requires re-registering the routes rather than a field
+  /// `replyCallback` would read too late (status is captured at registration
+  /// time, never per-request).
+  bool get unassignServiceBlocked => _unassignServiceBlocked;
+  set unassignServiceBlocked(bool value) {
+    _unassignServiceBlocked = value;
+    _wireSalonMasterServices();
+  }
+
+  bool _unassignServiceBlocked = false;
+
   /// Phase 318 (mobile-qa) — `POST /api/v1/salons/{s}/masters/{m}/services
   /// /bulk`, the SALON-scoped counterpart to [bulkCreateCalls]. GENUINELY
   /// STATEFUL: a successful call APPENDS to [_salonMasterServices], so the
@@ -4374,17 +4397,29 @@ final class FakeBackend {
       final String path = '$base/$defId';
       _adapter.onRoute(
         path,
-        (server) => server.replyCallback(204, (_) {
-          unassignServiceCalls++;
-          lastUnassignedServiceDefId = defId;
-          lastUnassignPath = path;
-          _salonMasterServices.removeWhere(
-            (Map<String, dynamic> s) =>
-                (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
-                defId,
-          );
-          return null;
-        }),
+        (server) =>
+            server.replyCallback(_unassignServiceBlocked ? 409 : 204, (_) {
+              unassignServiceCalls++;
+              lastUnassignedServiceDefId = defId;
+              lastUnassignPath = path;
+              if (_unassignServiceBlocked) {
+                // Plain-English body, no `data` envelope — the real backend's
+                // exact shape (see [unassignServiceBlocked]'s doc). The row is
+                // deliberately NOT removed: nothing was written.
+                return <String, dynamic>{
+                  'success': false,
+                  'message':
+                      'Master has 2 future confirmed booking(s) for this '
+                      'service.',
+                };
+              }
+              _salonMasterServices.removeWhere(
+                (Map<String, dynamic> s) =>
+                    (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                    defId,
+              );
+              return null;
+            }),
         request: const Request(method: RequestMethods.delete),
       );
     }

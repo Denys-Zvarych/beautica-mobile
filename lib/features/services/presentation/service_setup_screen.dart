@@ -681,6 +681,36 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       return;
     }
 
+    // 400 SERVICE_PRICE_SHAPE_MISMATCH: this salon-target row's price shape
+    // does not match the salon's ALREADY-GOVERNING definition for the same
+    // service type (phase 315 D3 discriminates this from an ordinary
+    // validation 400 on `data.code`). Name the salon's existing shape so the
+    // master knows what to match — never the generic validation copy, which
+    // says nothing about WHY. No row is flagged and no invalidation happens:
+    // nothing else in the batch is implicated, and the master's typed values
+    // are left untouched so they can just fix the mismatched row and resubmit.
+    if (error is ServicePriceShapeMismatchFailure) {
+      final double? min = error.salonPriceMin;
+      if (min != null) {
+        final bool isRange =
+            error.salonPriceType == ServicePriceType.range &&
+            error.salonPriceMax != null;
+        _showErrorSnack(
+          l10n.servicePriceShapeMismatchBody(
+            isRange ? 'true' : 'false',
+            min.toStringAsFixed(0),
+            (error.salonPriceMax ?? min).toStringAsFixed(0),
+          ),
+        );
+      } else {
+        // Defensive fallback — every response carrying this code is expected
+        // to name a floor price, but a malformed response must not crash the
+        // screen or fall through to a misleading message.
+        _showErrorSnack(error.userMessage(context));
+      }
+      return;
+    }
+
     // Backend per-field validation (HTTP 400): surface each error inline on the
     // matching service row instead of the generic snackbar. Only fall through
     // to the snackbar when NO field key maps to a submitted row.
