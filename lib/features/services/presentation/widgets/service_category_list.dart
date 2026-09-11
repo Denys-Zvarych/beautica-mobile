@@ -372,7 +372,7 @@ class ServiceCard extends StatefulWidget {
   const ServiceCard({
     super.key,
     required this.service,
-    required this.onEdit,
+    this.onEdit,
     this.appearDelay = Duration.zero,
     this.selectable = false,
     this.selected = false,
@@ -388,7 +388,13 @@ class ServiceCard extends StatefulWidget {
   /// step passes a "select this service" callback here instead of an "open
   /// edit form" one. The name stays [onEdit] rather than gaining a second,
   /// parallel `onTap` — both are "the one thing a tap on this card does".
-  final VoidCallback onEdit;
+  ///
+  /// Phase 320 (D3) — nullable: `null` (a read-only viewer) makes the card
+  /// genuinely non-tappable rather than "tappable, does nothing" — there is
+  /// no [GestureDetector] wrapping the card's content in that case, so a tap
+  /// simply falls through. Every pre-existing caller passes a non-null
+  /// callback and renders exactly as before.
+  final VoidCallback? onEdit;
 
   final Duration appearDelay;
 
@@ -483,6 +489,77 @@ class _ServiceCardState extends State<ServiceCard>
     final String customName = s.name.trim();
     final String primaryLabel = customName.isNotEmpty ? customName : typeName;
 
+    // Phase 320 (D3) — a null onEdit means this card is not tappable.
+    final bool tappable = widget.onEdit != null;
+
+    // The card's inner content, built once regardless of [tappable]. When
+    // not tappable there is no GestureDetector wrapping it (below), so
+    // [_pressed] never flips and this renders at rest permanently.
+    final Widget content = AnimatedScale(
+      scale: _pressed ? 0.99 : 1.0,
+      duration: const Duration(milliseconds: 110),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(VelvetRadii.card),
+          // FIX B (mobile-debugger, this session) — DIM, never
+          // fully remove, the shadow on press: see
+          // `VelvetShadows.extrudedCardPressed`'s doc for why a
+          // `null` target here produced a visible background
+          // flicker on a normal (sub-150ms) tap.
+          boxShadow: _pressed
+              ? VelvetShadows.extrudedCardPressed
+              : VelvetShadows.extrudedCard,
+          // Additive (Phase 247 part 2): a picker-mode selected card
+          // gets an accent hairline, mirroring the selected-card
+          // treatment used elsewhere in the app. `null` (every
+          // pre-existing caller) renders no border at all.
+          border: (widget.selectable && widget.selected)
+              ? Border.all(color: BrandColors.accent, width: 1.5)
+              : null,
+        ),
+        // Compact dense row: tighter vertical padding (~halved height)
+        // versus the original VelvetSpacing.sm + 2 with a stacked pill
+        // Wrap below the title.
+        padding: const EdgeInsets.fromLTRB(
+          VelvetSpacing.sm + 2,
+          VelvetSpacing.sm,
+          VelvetSpacing.sm + 2,
+          VelvetSpacing.sm,
+        ),
+        child: Row(
+          children: <Widget>[
+            PhotoThumbnail(key: Key('thumb_${s.id}')),
+            const SizedBox(width: VelvetSpacing.sm + 2),
+            Expanded(
+              child: ServiceInfo(
+                name: primaryLabel,
+                durationLabel: durationLabel,
+                priceLabel: priceLabel,
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+            // Phase 320 (D3) — the edit-pencil pillow is itself a write
+            // affordance: leaving it visible on a non-tappable card would
+            // "invite a tap that goes nowhere" exactly like a disabled FAB.
+            // A same-size blank slot keeps the row's width identical to the
+            // writable card (D5's "same tree, fewer affordances" — pure
+            // subtraction, nothing new drawn) instead of reflowing it.
+            if (widget.selectable)
+              _SelectIndicator(
+                key: Key('service_card_check_${s.id}'),
+                selected: widget.selected,
+              )
+            else if (tappable)
+              const _EditButton()
+            else
+              const SizedBox(width: 30, height: 30),
+          ],
+        ),
+      ),
+    );
+
     // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
     // Transform.translate. Both transitions are compositing-friendly and
     // do not force an extra GPU raster layer per card.
@@ -495,76 +572,34 @@ class _ServiceCardState extends State<ServiceCard>
         child: SlideTransition(
           position: _slide,
           child: Semantics(
-            button: true,
+            // Phase 320 (D3): a non-tappable card is not a button, and its
+            // label drops the "Редагувати" action verb — mirroring the
+            // selectable branch, which already omits it for the same reason
+            // (there is nothing for a screen-reader user to activate).
+            button: tappable,
             selected: widget.selectable ? widget.selected : null,
-            label: widget.selectable
+            label: (widget.selectable || !tappable)
                 ? '$primaryLabel. $durationLabel, $priceLabel.'
                 : '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
             // priceLabel renders from priceDisplay (server-formatted) so the
             // accessibility label always matches what the user sees in the card.
-            child: GestureDetector(
-              onTapDown: (_) => setState(() => _pressed = true),
-              onTapCancel: () => setState(() => _pressed = false),
-              onTapUp: (_) {
-                setState(() => _pressed = false);
-                widget.onEdit();
-              },
-              child: AnimatedScale(
-                scale: _pressed ? 0.99 : 1.0,
-                duration: const Duration(milliseconds: 110),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  decoration: BoxDecoration(
-                    color: BrandColors.base,
-                    borderRadius: BorderRadius.circular(VelvetRadii.card),
-                    // FIX B (mobile-debugger, this session) — DIM, never
-                    // fully remove, the shadow on press: see
-                    // `VelvetShadows.extrudedCardPressed`'s doc for why a
-                    // `null` target here produced a visible background
-                    // flicker on a normal (sub-150ms) tap.
-                    boxShadow: _pressed
-                        ? VelvetShadows.extrudedCardPressed
-                        : VelvetShadows.extrudedCard,
-                    // Additive (Phase 247 part 2): a picker-mode selected card
-                    // gets an accent hairline, mirroring the selected-card
-                    // treatment used elsewhere in the app. `null` (every
-                    // pre-existing caller) renders no border at all.
-                    border: (widget.selectable && widget.selected)
-                        ? Border.all(color: BrandColors.accent, width: 1.5)
-                        : null,
-                  ),
-                  // Compact dense row: tighter vertical padding (~halved height)
-                  // versus the original VelvetSpacing.sm + 2 with a stacked pill
-                  // Wrap below the title.
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.sm + 2,
-                    VelvetSpacing.sm,
-                    VelvetSpacing.sm + 2,
-                    VelvetSpacing.sm,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      PhotoThumbnail(key: Key('thumb_${s.id}')),
-                      const SizedBox(width: VelvetSpacing.sm + 2),
-                      Expanded(
-                        child: ServiceInfo(
-                          name: primaryLabel,
-                          durationLabel: durationLabel,
-                          priceLabel: priceLabel,
-                        ),
-                      ),
-                      const SizedBox(width: VelvetSpacing.sm),
-                      widget.selectable
-                          ? _SelectIndicator(
-                              key: Key('service_card_check_${s.id}'),
-                              selected: widget.selected,
-                            )
-                          : const _EditButton(),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            //
+            // Phase 320 (D3): when not tappable, [content] renders with NO
+            // GestureDetector wrapping it — not one whose handlers no-op.
+            // "Tappable, does nothing" still absorbs the gesture and can
+            // still play the press-scale animation; "not tappable" means the
+            // tap has nothing to hit at all.
+            child: tappable
+                ? GestureDetector(
+                    onTapDown: (_) => setState(() => _pressed = true),
+                    onTapCancel: () => setState(() => _pressed = false),
+                    onTapUp: (_) {
+                      setState(() => _pressed = false);
+                      widget.onEdit!();
+                    },
+                    child: content,
+                  )
+                : content,
           ),
         ),
       ),

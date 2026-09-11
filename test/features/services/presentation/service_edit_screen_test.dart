@@ -194,6 +194,9 @@ Future<void> _pumpEdit(
   List<AsyncValue<Object?>>? watcherStates,
   List<AsyncValue<Object?>>? masterProfileStates,
   List<ServiceCategoryOption> categories = _defaultCategories,
+  // Phase 320 (D1) — additive, defaults to `true` so every existing caller
+  // (below) renders exactly as before.
+  bool writable = true,
 }) async {
   // The seeded service has a category, so the form mounts the second-level
   // _ServiceTypeChips section and grows taller. Use a roomy viewport so the
@@ -204,7 +207,7 @@ Future<void> _pumpEdit(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  Widget screen = ServiceEditScreen(id: id);
+  Widget screen = ServiceEditScreen(id: id, writable: writable);
 
   if (watcherStates != null) {
     screen = _ListWatcher(states: watcherStates, child: screen);
@@ -1540,6 +1543,149 @@ void main() {
       );
     },
   );
+
+  // ── Phase 320 — writable: false ────────────────────────────────────────────
+  //
+  // D1: additive, defaults to `true`. IMPORTANT: `_pumpEdit`'s own `writable`
+  // PARAMETER defaults to `true` and is threaded into the widget on every
+  // call — `ServiceEditScreen(id: id, writable: writable)` — so every OTHER
+  // test in this file (including test 7, which asserts `btn-delete-service`
+  // is present) always passes `writable` EXPLICITLY, never omits it. Those
+  // tests do NOT prove the widget's own default; mutation check 1 confirmed
+  // this the hard way (flipping `ServiceEditScreen`'s class default to
+  // `false` left every `_pumpEdit`-driven test green). The first test below
+  // constructs the widget directly, omitting `writable`, to close that gap.
+
+  testWidgets(
+    'the widget default renders writable — constructed directly, omitting '
+    '`writable`, bypassing `_pumpEdit`\'s always-explicit pass-through',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides(repo).cast(),
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            // `writable` OMITTED — this is the actual default-parameter
+            // proof mutation check 1 needs.
+            home: ServiceEditScreen(id: 'svc-edit-1'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+      expect(find.byKey(const Key('btn-submit-service')), findsOneWidget);
+    },
+  );
+
+  group('Phase 320 — writable: false removes write affordances only', () {
+    testWidgets('delete icon and save action are both absent — not disabled', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo, writable: false);
+
+      expect(find.byKey(const Key('btn-delete-service')), findsNothing);
+      expect(find.byKey(const Key('btn-submit-service')), findsNothing);
+      // The cancel icon is unaffected — leaving is not a write.
+      expect(find.byKey(const Key('btn-cancel-service-edit')), findsOneWidget);
+    });
+
+    testWidgets('the service name, duration and price still render', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo, writable: false);
+
+      // Name — Phase 320 (D3) renders the VALUE, not a TextField, so this
+      // is a plain-text lookup scoped under the field's key.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.text(_stubService.name),
+        ),
+        findsOneWidget,
+      );
+
+      // Duration + price stay inside PricingField (disabled, not hidden —
+      // D3 applies only to the four ACTION affordances, not to data
+      // fields); their controllers still carry the loaded values, matching
+      // the same read convention tests 1-3 already use for this screen.
+      final durationField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(
+        durationField.controller!.text,
+        equals(_stubService.durationMinutes.toString()),
+      );
+      final priceField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('pricing-fixed-amount')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(priceField.controller!.text, equals('750'));
+    });
+
+    testWidgets('entering text into the name field is impossible — there is no '
+        'EditableText to target, not a disabled one', (tester) async {
+      await _pumpEdit(tester, repo, writable: false);
+
+      // Structural proof first: no TextField at all under the field's key.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+
+      // Attempt the interaction anyway — the doc requires trying it, not
+      // reading a `readOnly`/`enabled` field off a widget. There being no
+      // TextField under the key means the attempt itself fails to find a
+      // target; catch that and assert the value never moved.
+      Object? caught;
+      try {
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-service-name')),
+            matching: find.byType(TextField),
+          ),
+          'hacked name',
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(
+        caught,
+        isNotNull,
+        reason:
+            'there is nothing an input method could attach to under '
+            'field-service-name in read-only mode',
+      );
+
+      // The original value is exactly what still renders — unmoved.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.text(_stubService.name),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('hacked name'), findsNothing);
+    });
+  });
 
   tearDownAll(() {});
 }

@@ -75,6 +75,7 @@ class ServicesListScreen extends ConsumerStatefulWidget {
     this.initialExpandCategory,
     this.setupRoute,
     this.editRouteBuilder,
+    this.writable = true,
   });
 
   /// Optional upper-cased wire slug. When set, the matching category section
@@ -100,6 +101,12 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   /// service id. `null` means [RouteNames.serviceEdit]. Same additive/nullable
   /// contract as [setupRoute].
   final String Function(String serviceId)? editRouteBuilder;
+
+  /// Phase 320 (D1) — additive, defaults to `true` so every existing caller
+  /// renders exactly as today. `false` removes the FAB, the empty-state CTA
+  /// and the card's edit tap (D3) — hidden, not disabled. No route passes
+  /// `false` yet — that lands in phase 321.
+  final bool writable;
 
   /// Resolved setup destination — the parameter, or today's literal.
   String get resolvedSetupRoute => setupRoute ?? RouteNames.serviceSetup;
@@ -183,7 +190,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
       // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
       bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 0),
       floatingActionButton: asyncServices.maybeWhen(
-        data: (list) => list.isEmpty
+        data: (list) => (list.isEmpty || !widget.writable)
             ? null
             : _NeumorphicExtendedFab(
                 key: const Key('btn-create-service'),
@@ -252,7 +259,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
               // close, which is what lets [_openAndRefresh]'s awaited push
               // resolve and re-fire the category invalidation.
               return _EmptyState(
-                onCreate: () => _openAndRefresh(widget.resolvedSetupRoute),
+                // Phase 320 (D3): null hides the CTA entirely rather than
+                // disabling it — a greyed "Додати послугу" would promise a
+                // write the backend refuses.
+                onCreate: widget.writable
+                    ? () => _openAndRefresh(widget.resolvedSetupRoute)
+                    : null,
               );
             }
             return _LoadedBody(
@@ -260,6 +272,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
               editRouteBuilder: widget.resolvedEditRouteBuilder,
               services: list,
               initialExpandCategory: widget.initialExpandCategory,
+              writable: widget.writable,
             );
           },
         ),
@@ -312,6 +325,7 @@ class _LoadedBody extends ConsumerStatefulWidget {
     required this.editRouteBuilder,
     required this.services,
     this.initialExpandCategory,
+    this.writable = true,
   });
 
   /// Pushes a route and invalidates [approvedCategoriesProvider] on return.
@@ -329,6 +343,11 @@ class _LoadedBody extends ConsumerStatefulWidget {
   /// Upper-cased wire slug of the category to pre-expand on first build.
   /// When null or empty all sections start collapsed (the default).
   final String? initialExpandCategory;
+
+  /// Phase 320 (D3) — already resolved by [ServicesListScreen.writable].
+  /// `false` passes a null `onEdit` to every [ServiceCard], which
+  /// [ServiceCard] itself treats as "not tappable" (D3).
+  final bool writable;
 
   @override
   ConsumerState<_LoadedBody> createState() => _LoadedBodyState();
@@ -447,9 +466,11 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                       child: ServiceCard(
                         key: Key('service_card_${entry.service.id}'),
                         service: entry.service,
-                        onEdit: () => widget.onOpen(
-                          widget.editRouteBuilder(entry.service.id),
-                        ),
+                        onEdit: widget.writable
+                            ? () => widget.onOpen(
+                                widget.editRouteBuilder(entry.service.id),
+                              )
+                            : null,
                         // P-M3 fix: cap the effective stagger index at 5 so
                         // the maximum outstanding delay is 90*5 = 450 ms,
                         // regardless of list length. Visual behaviour is
@@ -723,7 +744,11 @@ class _EmptyState extends StatelessWidget {
 
   /// Opens the create form and invalidates the category cache on return.
   /// Provided by [_ServicesListScreenState._openAndRefresh].
-  final VoidCallback onCreate;
+  ///
+  /// Phase 320 (D3) — nullable: `null` (read-only viewer) hides the CTA
+  /// entirely rather than rendering it disabled. Every pre-existing caller
+  /// passes a non-null callback and renders exactly as before.
+  final VoidCallback? onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -763,16 +788,18 @@ class _EmptyState extends StatelessWidget {
               style: VelvetText.body(),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: VelvetSpacing.xl),
-            SizedBox(
-              width: 240,
-              child: NeumorphicButton(
-                key: const Key('btn-create-service-empty'),
-                label: l10n.servicesAdd,
-                icon: Icons.add_rounded,
-                onPressed: onCreate,
+            if (onCreate != null) ...<Widget>[
+              const SizedBox(height: VelvetSpacing.xl),
+              SizedBox(
+                width: 240,
+                child: NeumorphicButton(
+                  key: const Key('btn-create-service-empty'),
+                  label: l10n.servicesAdd,
+                  icon: Icons.add_rounded,
+                  onPressed: onCreate!,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

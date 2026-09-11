@@ -39,6 +39,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../integration_test/support/app_harness.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -707,6 +708,132 @@ void main() {
       expect(find.text('Dummy salon-edit'), findsOneWidget);
       expect(find.text('Dummy own-edit'), findsNothing);
     });
+  });
+
+  // ── 6c. Phase 320 — writable flag ───────────────────────────────────────────
+  //
+  // D1: additive, defaults to `true`. The "omitted" proof already exists —
+  // every OTHER test in this file mounts `ServicesListScreen()` without ever
+  // passing `writable` and still sees the FAB (test 5), the empty-state CTA
+  // (test 3) and a navigating card (test 6). Flipping the default to `false`
+  // (mutation check 1) breaks all three, which is exactly the regression this
+  // phase's own default must never reintroduce. This group covers ONLY the
+  // `writable: false` half: affordances 1-3 absent, the services themselves
+  // still rendered.
+
+  group('Phase 320 — writable: false removes write affordances only', () {
+    testWidgets(
+      'non-empty list — FAB absent, the card and its section still render, '
+      'but tapping the card navigates nowhere',
+      (tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.services,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.services,
+              builder: (context, state) =>
+                  const ServicesListScreen(writable: false),
+            ),
+            GoRoute(
+              path: '/services/create',
+              builder: (context, state) => const _DummyPage(label: 'create'),
+            ),
+            GoRoute(
+              path: '/services/:id/edit',
+              builder: (context, state) => const _DummyPage(label: 'edit'),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: [
+            _servicesOverride(const AsyncData(_stubServiceList)),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+
+        // Affordance 1 — hidden, not disabled.
+        expect(find.byKey(const Key('btn-create-service')), findsNothing);
+
+        // The services themselves still render — a read-only viewer sees
+        // their catalogue. _stubService has no category, so it lands in the
+        // uncategorized bucket (starts collapsed); expand it before
+        // asserting on card content.
+        expect(find.byKey(const Key('category_section__none')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+        expect(find.text('Стрижка'), findsOneWidget);
+        expect(find.text('750 ₴'), findsOneWidget);
+        expect(find.text('45 хв'), findsOneWidget);
+
+        // Affordance 3, structural half: the card carries NO GestureDetector
+        // at all — "not tappable", never "tappable, does nothing" (D3). A
+        // behavioural-only "no navigation" check below cannot distinguish a
+        // genuinely non-tappable card from one wired to a no-op callback
+        // (mutation check 3 proved this: swapping the screen's `null` for
+        // `() {}` left the navigation assertion green).
+        final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+        expect(
+          find.descendant(
+            of: cardFinder,
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'writable: false must pass a null onEdit, not a no-op '
+              'callback — a GestureDetector here means the card is still '
+              '"tappable, does nothing"',
+        );
+
+        // Affordance 3, behavioural half — tapping the card performs NO
+        // navigation. Pin the resolved location before and after via the
+        // push-safe helper
+        // (`forbid_naive_router_location.sh` — a direct `.uri`/`.fullPath`
+        // read keeps reporting the PRE-push location forever for an
+        // ImperativeRouteMatch, so it would vacuously "pass" even if a push
+        // DID happen), not merely the absence of an exception
+        // (project_gorouter_imperative_match_fullpath).
+        final String before = AppHarness.location(router);
+        await tester.tap(find.byKey(const Key('service_card_svc-001')));
+        await tester.pumpAndSettle();
+        final String after = AppHarness.location(router);
+        expect(after, before, reason: 'a read-only card tap must not push');
+        expect(find.text('Dummy edit'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'empty list — empty-state copy still renders, only the CTA is absent',
+      (tester) async {
+        await tester.pumpApp(
+          const ServicesListScreen(writable: false),
+          overrides: [
+            _servicesOverride(const AsyncData(<MasterService>[])),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ServicesListScreen)),
+        );
+        // Positive half — a `findsNothing`-only test would also pass on a
+        // blank screen; prove the copy is actually there.
+        expect(find.text(l10n.servicesEmpty), findsOneWidget);
+        expect(find.text(l10n.servicesEmptyBody), findsOneWidget);
+        // Negative half — affordances 1 and 2, both absent.
+        expect(find.byKey(const Key('btn-create-service-empty')), findsNothing);
+        expect(find.byKey(const Key('btn-create-service')), findsNothing);
+      },
+    );
   });
 
   // ── 7. Ukrainian plural forms for _serviceWordUk ───────────────────────────

@@ -34,11 +34,22 @@
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
+
+const _stubService = MasterService(
+  id: 'svc-001',
+  serviceDefId: 'def-001',
+  name: 'Стрижка',
+  durationMinutes: 45,
+  priceMin: 750,
+  priceDisplay: '750 ₴',
+);
 
 void main() {
   group('CategorySection — leading icon slot (slug wiring)', () {
@@ -121,6 +132,142 @@ void main() {
               'the leading glyph must actually PAINT at 20×20, not merely be '
               'configured with size: 20',
         );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 320 (D3) — ServiceCard.onEdit becomes nullable.
+  //
+  // The pair is what makes the nullable change honest: `null` must make the
+  // card genuinely NON-tappable (no GestureDetector attached at all — the
+  // structural proof mutation check 3 exercises), not "tappable, does
+  // nothing" (a GestureDetector present whose handlers silently no-op). A
+  // non-null onEdit must render and behave exactly as before this phase.
+  // ---------------------------------------------------------------------------
+
+  group('ServiceCard — nullable onEdit (Phase 320 D3)', () {
+    testWidgets(
+      'onEdit: null — card still renders (values visible), but carries NO '
+      'GestureDetector and reports no button semantics',
+      (tester) async {
+        await tester.pumpApp(
+          const ServiceCard(
+            key: Key('service_card_svc-001'),
+            service: _stubService,
+            onEdit: null,
+          ),
+        );
+        // fixed-wait-ok: draining ServiceCard's own 460ms staggered-entrance
+        // AnimationController (appearDelay: Duration.zero here, so it starts
+        // immediately) — there is no discrete "entrance complete" signal to
+        // pump-until.
+        await tester.pump(const Duration(milliseconds: 500));
+
+        final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+        expect(cardFinder, findsOneWidget);
+        // Positive half — the card's values are still visible. An
+        // absence-only test here would pass on a blank tree.
+        // i18n-finder-ok: _stubService.name is user-entered service data
+        // (not translated UI copy) — the master's own free-text name.
+        expect(find.text('Стрижка'), findsOneWidget);
+        expect(find.text('750 ₴'), findsOneWidget);
+        // i18n-finder-ok: DurationMinutes.format's "хв" suffix is business
+        // formatting (mirrors the grandfathered assertion in
+        // services_list_screen_test.dart), not AppLocalizations UI copy.
+        expect(find.text('45 хв'), findsOneWidget);
+
+        // Structural proof of "not tappable": no GestureDetector wraps the
+        // card's content at all. Flipping `onEdit: null` to `onEdit: () {}`
+        // (mutation check 3) attaches one and turns this RED.
+        expect(
+          find.descendant(
+            of: cardFinder,
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'a null onEdit must mean no gesture recognition at all, not a '
+              'GestureDetector whose handlers no-op — the disabled-not-hidden '
+              'failure D3 forbids',
+        );
+
+        // Rendered semantics (not a widget field) agree: not a button.
+        // `getSemantics` walks UPWARD from the found render object, so it
+        // must be pointed at the card's own `Semantics` widget directly —
+        // not at the `ServiceCard` key several layers above it — or it
+        // silently resolves an ancestor's (unrelated) node instead.
+        final SemanticsNode semantics = tester.getSemantics(
+          find
+              .descendant(of: cardFinder, matching: find.byType(Semantics))
+              .first,
+        );
+        expect(semantics.getSemanticsData().flagsCollection.isButton, isFalse);
+
+        // The edit-pencil pillow is itself a write affordance — leaving it
+        // visible on a non-tappable card would "invite a tap that goes
+        // nowhere" exactly like a disabled FAB. It must be gone too, not
+        // merely non-functional underneath it.
+        expect(
+          find.descendant(
+            of: cardFinder,
+            matching: find.byIcon(Icons.edit_outlined),
+          ),
+          findsNothing,
+          reason: 'a null onEdit must hide the edit-pencil pillow too',
+        );
+
+        // Attempting the tap is harmless and produces no crash; there is
+        // simply nothing there to receive it.
+        await tester.tap(cardFinder, warnIfMissed: false);
+        await tester.pump();
+      },
+    );
+
+    testWidgets(
+      'onEdit: non-null — unchanged: GestureDetector present, tap fires the '
+      'callback, button semantics reported',
+      (tester) async {
+        int taps = 0;
+        await tester.pumpApp(
+          ServiceCard(
+            key: const Key('service_card_svc-001'),
+            service: _stubService,
+            onEdit: () => taps++,
+          ),
+        );
+        // fixed-wait-ok: draining ServiceCard's own 460ms staggered-entrance
+        // AnimationController — see the sibling test above.
+        await tester.pump(const Duration(milliseconds: 500));
+
+        final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+        expect(
+          find.descendant(
+            of: cardFinder,
+            matching: find.byType(GestureDetector),
+          ),
+          findsOneWidget,
+        );
+        // Unchanged — the edit-pencil pillow still renders for a tappable
+        // card, exactly as before this phase.
+        expect(
+          find.descendant(
+            of: cardFinder,
+            matching: find.byIcon(Icons.edit_outlined),
+          ),
+          findsOneWidget,
+        );
+
+        final SemanticsNode semantics = tester.getSemantics(
+          find
+              .descendant(of: cardFinder, matching: find.byType(Semantics))
+              .first,
+        );
+        expect(semantics.getSemanticsData().flagsCollection.isButton, isTrue);
+
+        await tester.tap(cardFinder);
+        await tester.pump();
+        expect(taps, 1, reason: 'a non-null onEdit must still fire on tap');
       },
     );
   });

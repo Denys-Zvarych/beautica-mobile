@@ -77,10 +77,16 @@ void _showServiceEditFailureSnackbar(
 ///
 /// Receives [id] from the `/services/:id/edit` path parameter via [app_router].
 class ServiceEditScreen extends ConsumerStatefulWidget {
-  const ServiceEditScreen({super.key, required this.id});
+  const ServiceEditScreen({super.key, required this.id, this.writable = true});
 
   /// Backend UUID for the master-service assignment record.
   final String id;
+
+  /// Phase 320 (D1) — additive, defaults to `true` so every existing caller
+  /// renders exactly as today. `false` removes the delete icon and the save
+  /// action, and renders the form's fields read-only (D3). No route passes
+  /// `false` yet — that lands in phase 321.
+  final bool writable;
 
   @override
   ConsumerState<ServiceEditScreen> createState() => _ServiceEditScreenState();
@@ -255,6 +261,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       data: (MasterService service) => _EditBody(
         service: service,
         l10n: l10n,
+        writable: widget.writable,
         onSave: (MasterServiceCreate input) async {
           // Build the pricing patch block — all four price fields must be
           // sent together when the price is being updated (backend rule).
@@ -330,6 +337,7 @@ class _EditBody extends StatefulWidget {
     required this.onSave,
     required this.onError,
     required this.onDelete,
+    this.writable = true,
   });
 
   final MasterService service;
@@ -341,6 +349,10 @@ class _EditBody extends StatefulWidget {
   /// bar and the dialog has been shown. Handed off to [_ServiceEditScreenState]
   /// which owns the `ref` needed to call the repository and invalidate providers.
   final Future<void> Function(MasterService service) onDelete;
+
+  /// Phase 320 (D1/D3) — additive, defaults to `true`. `false` hides the
+  /// delete icon (not disabled — D3) and renders [ServiceForm] read-only.
+  final bool writable;
 
   @override
   State<_EditBody> createState() => _EditBodyState();
@@ -450,16 +462,21 @@ class _EditBodyState extends State<_EditBody>
                       style: VelvetText.subheading(),
                       textAlign: TextAlign.center,
                     ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: IconButton(
-                        key: const Key('btn-delete-service'),
-                        icon: const Icon(Icons.delete_outline),
-                        color: Theme.of(context).colorScheme.error,
-                        tooltip: l10n.deleteServiceTitle,
-                        onPressed: () => widget.onDelete(widget.service),
+                    // Phase 320 (D3): hidden, not disabled, when read-only —
+                    // the backend 403s every write path for this viewer, so a
+                    // greyed delete icon would promise an action it cannot
+                    // perform.
+                    if (widget.writable)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: IconButton(
+                          key: const Key('btn-delete-service'),
+                          icon: const Icon(Icons.delete_outline),
+                          color: Theme.of(context).colorScheme.error,
+                          tooltip: l10n.deleteServiceTitle,
+                          onPressed: () => widget.onDelete(widget.service),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -499,6 +516,7 @@ class _EditBodyState extends State<_EditBody>
                         key: Key('service-edit-form-${widget.service.id}'),
                         initial: widget.service,
                         submitLabel: l10n.servicesSaveChanges,
+                        readOnly: !widget.writable,
                         onSubmit: (MasterServiceCreate input) async {
                           try {
                             await widget.onSave(input);

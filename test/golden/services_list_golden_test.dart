@@ -137,4 +137,20 @@ void main() {
       );
     }
   }
+
+  // Phase 320 (D3) — ONE read-only baseline, separate from the {320,360,414}
+  // × {1x,1.3x} writable matrix above. Proves the FAB is gone and the cards
+  // still render with no edit-pencil affordance, without touching (and
+  // without ever needing to regenerate) a single writable baseline.
+  goldenTest(
+    'services_list READ-ONLY 414dp text-1x',
+    fileName: 'services_list_readonly_414_1x',
+    constraints: BoxConstraints.tight(const Size(414, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(overrides: _overrides(), width: 414),
+    builder: () => const ServicesListScreen(
+      initialExpandCategory: 'HAIRCUT',
+      writable: false,
+    ),
+  );
 }
