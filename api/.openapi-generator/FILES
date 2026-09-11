@@ -218,6 +218,10 @@ doc/SearchControllerApi.md
 doc/ServiceCatalogControllerApi.md
 doc/ServiceControllerApi.md
 doc/ServiceDefinitionResponse.md
+doc/ServicePriceShapeMismatchErrorResponse.md
+doc/ServicePriceShapeMismatchResponse.md
+doc/ServicePriceShapeMismatchResponseSalonPriceMax.md
+doc/ServicePriceShapeMismatchResponseSalonPriceMin.md
 doc/ServiceSummaryDto.md
 doc/SiblingSalonOption.md
 doc/SortObject.md
@@ -476,6 +480,10 @@ lib/src/model/salon_staff_member_response.dart
 lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/service_definition_response.dart
+lib/src/model/service_price_shape_mismatch_error_response.dart
+lib/src/model/service_price_shape_mismatch_response.dart
+lib/src/model/service_price_shape_mismatch_response_salon_price_max.dart
+lib/src/model/service_price_shape_mismatch_response_salon_price_min.dart
 lib/src/model/service_summary_dto.dart
 lib/src/model/sibling_salon_option.dart
 lib/src/model/sort_object.dart
@@ -503,3 +511,7 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/service_price_shape_mismatch_error_response_test.dart
+test/service_price_shape_mismatch_response_salon_price_max_test.dart
+test/service_price_shape_mismatch_response_salon_price_min_test.dart
+test/service_price_shape_mismatch_response_test.dart

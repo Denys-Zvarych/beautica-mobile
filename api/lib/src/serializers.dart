@@ -209,6 +209,10 @@ import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
+import 'package:beautica_api/src/model/service_price_shape_mismatch_error_response.dart';
+import 'package:beautica_api/src/model/service_price_shape_mismatch_response.dart';
+import 'package:beautica_api/src/model/service_price_shape_mismatch_response_salon_price_max.dart';
+import 'package:beautica_api/src/model/service_price_shape_mismatch_response_salon_price_min.dart';
 import 'package:beautica_api/src/model/service_summary_dto.dart';
 import 'package:beautica_api/src/model/sibling_salon_option.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
@@ -433,6 +437,10 @@ part 'serializers.g.dart';
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,
+  ServicePriceShapeMismatchErrorResponse,
+  ServicePriceShapeMismatchResponse,
+  ServicePriceShapeMismatchResponseSalonPriceMax,
+  ServicePriceShapeMismatchResponseSalonPriceMin,
   ServiceSummaryDto,
   SiblingSalonOption,
   SortObject,
