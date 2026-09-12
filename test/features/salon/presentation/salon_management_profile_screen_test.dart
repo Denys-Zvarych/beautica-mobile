@@ -669,22 +669,55 @@ void main() {
     );
   });
 
-  // mobile-qa gap-closure (feat/salon-master-schedule-read-only) — the
-  // `viewerIsAdmin` filter at `salon_management_profile_screen.dart:287-306`
-  // (an admin's «Команда» tab shows masters only, never themselves; the
-  // owner sees masters AND admins — there is deliberately no owner-side
-  // filter, since the roster is already built from master + SALON_ADMIN
-  // queries that never include the owner) shipped with 149 passing tests in
-  // this file and ZERO of them exercising a mixed roster under an admin
-  // viewer — every existing `_adminOverrides` pump in this file uses an
-  // empty staff list (see the «Про салон» `pumpAs` helper above), which
-  // cannot distinguish "filtered" from "nothing to filter".
+  // mobile-qa gap-closure (feat/salon-master-schedule-read-only), REWRITTEN
+  // 2026-09-12 — the `viewerIsAdmin` filter at
+  // `salon_management_profile_screen.dart:299-311` narrowed from "hide every
+  // admin row" to "hide only the viewer's OWN row", restoring the only
+  // in-app route to a co-admin's settings screen (`rotateAdmin`,
+  // `PATCH /salons/{salonId}/admins/{userId}/salon`, is genuinely
+  // admin-callable with no self-guard — see that file's comment). The three
+  // cases below replace the old masters-only assertions: a co-admin (a
+  // DIFFERENT user id, same admin role as the viewer) must now render, and
+  // only the viewer's own row is ever hidden. The owner case is unchanged —
+  // there is still no owner-side filter, since the roster is already built
+  // from master + SALON_ADMIN queries that never include the owner.
   group('Команда tab admin filter (mobile-qa gap-closure)', () {
     testWidgets(
-      'admin viewer + mixed roster (master + admin) — only the master card '
-      'renders',
+      'admin viewer + mixed roster (master + self-admin + co-admin) — self '
+      'hidden, master and co-admin both render',
       (tester) async {
-        final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[
+            SalonStaffMember(
+              userId: 'master-1',
+              masterId: 'master-1',
+              role: SalonStaffRole.master,
+              firstName: 'Олена',
+              lastName: 'Ковальчук',
+              avgRating: 4.9,
+              reviewCount: 12,
+            ),
+            // The viewer's own row — `_stubAdmin.id == 'admin-1'` — must be
+            // hidden regardless of role.
+            SalonStaffMember(
+              userId: 'admin-1',
+              role: SalonStaffRole.admin,
+              firstName: 'Ірина',
+              lastName: 'Адміністратор',
+            ),
+            // A CO-admin: a different user id, same admin role as the
+            // viewer. This is the row the old masters-only filter
+            // incorrectly hid too, cutting off the only in-app route to
+            // `rotateAdmin`.
+            SalonStaffMember(
+              userId: 'admin-2',
+              role: SalonStaffRole.admin,
+              firstName: 'Наталя',
+              lastName: 'Бондар',
+            ),
+          ],
+        );
         await tester.pumpRoutedApp(
           _router(repo),
           overrides: _adminOverrides(repo),
@@ -702,12 +735,22 @@ void main() {
         expect(
           find.byKey(const Key('salon-manage-staff-card-admin-1')),
           findsNothing,
+          reason:
+              "admin-1 is the viewer's own row — self-exclusion only, "
+              'not a role-based exclusion.',
         );
-        // Exactly one rendered card — proves the GRID itself was rebuilt on
-        // a shrunk list (itemCount == staff.length + 1), not merely that
-        // the admin's specific key was hidden by some other means while the
-        // grid still allocated a slot for it.
-        expect(find.byType(SalonMasterCard), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-admin-2')),
+          findsOneWidget,
+          reason:
+              'a co-admin (a different user id from the viewer) must render '
+              '— this is the capability restored 2026-09-12.',
+        );
+        // Exactly two rendered cards (master + co-admin) — proves the GRID
+        // itself was rebuilt on the shrunk list (itemCount == staff.length +
+        // 1 - 1 self), not merely that one key was hidden by some other
+        // means while the grid still allocated a slot for it.
+        expect(find.byType(SalonMasterCard), findsNWidgets(2));
         expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
         expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
       },
@@ -740,8 +783,8 @@ void main() {
     );
 
     testWidgets(
-      'admin viewer + an admins-ONLY roster lands in the empty state, not a '
-      'roster of invisible cards',
+      'admin viewer + a roster of two OTHER admins (neither is self) — both '
+      'co-admin cards render, none filtered',
       (tester) async {
         final repo = FakeSalonRepository(
           salon: _stubSalon,
@@ -770,17 +813,21 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
-        // Filtered to zero — the empty-state message must show and the
-        // grid must hold zero master cards, not two admin cards rendered
-        // invisibly (that shape would mean the filter was applied inside
-        // `itemBuilder`, e.g. returning an empty SizedBox per admin entry,
-        // instead of at the source list — itemCount would then still be
-        // wrong even though no admin key is findable).
+        // Neither row is the viewer's own (`admin-1`) — the self-only
+        // filter must let both through. This replaces the pre-2026-09-12
+        // assertion that an admin-only roster always lands in the empty
+        // state; that was true only under the masters-only filter this task
+        // removed, and hid every co-admin as collateral damage.
         expect(
-          find.byKey(const Key('salon-manage-staff-empty')),
+          find.byKey(const Key('salon-manage-staff-card-admin-only-1')),
           findsOneWidget,
         );
-        expect(find.byType(SalonMasterCard), findsNothing);
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-admin-only-2')),
+          findsOneWidget,
+        );
+        expect(find.byType(SalonMasterCard), findsNWidgets(2));
+        expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
         expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
       },
     );

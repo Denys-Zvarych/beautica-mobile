@@ -286,24 +286,35 @@ class _SalonManagementProfileScreenState
           data: (SalonManagementProfileData data) {
             final (Salon salon, List<SalonStaffMember> rawStaff) = data;
             // UX scoping, not an authz boundary — the server authorizes
-            // `GET /salons/{id}/staff` and still returns admin entries for a
-            // SALON_ADMIN viewer; the product rule is "an admin's «Команда»
-            // tab shows masters only, and never themselves". Since the
-            // roster already excludes the viewer's own owner row (it's built
-            // from `masterRepository`/`SALON_ADMIN` queries that never match
-            // a `SALON_OWNER`, `SalonService.java:721-732`), dropping admin
-            // entries for an admin viewer satisfies both halves at once —
-            // masters-only, and self-exclusion, since the viewer is
-            // themselves an admin. Owner-as-master is out of scope (not
-            // implemented), so the owner path needs no branch.
+            // `GET /salons/{id}/staff` and still returns every admin entry
+            // (including the viewer's own) for a SALON_ADMIN viewer. The
+            // product rule is narrower than "masters only": an admin's
+            // «Команда» tab must still surface co-admins, because
+            // `rotateAdmin` (`PATCH /salons/{salonId}/admins/{userId}/salon`)
+            // is genuinely admin-callable — `hasAnyRole('SALON_OWNER',
+            // 'SALON_ADMIN')` with no self-guard (`SalonService.java:789`) —
+            // and a co-admin's settings screen is only reachable from a row
+            // in this list. An earlier version of this filter dropped every
+            // `SalonStaffRole.admin` row, which incidentally self-excluded
+            // the viewer but also hid every co-admin, making that capability
+            // unreachable in-app; restored 2026-09-12 — do not re-broaden
+            // this back to "drop all admins". Self-exclusion only: hide the
+            // viewer's own row by `userId`, which is the backend `User` row
+            // id shared by both `SalonStaffMember.userId` and
+            // `session.user.id` (`salon_staff_member.dart`, `user.dart`).
+            // Owner-as-master is out of scope (not implemented), and the
+            // roster never contains an owner row (`SalonService.java:721-
+            // 732`), so the owner path (`viewerIsAdmin == false`) needs no
+            // filter at all — `rawStaff` passes through unchanged.
             final bool viewerIsAdmin =
                 session is Authenticated &&
                 session.user.role == UserRole.salonAdmin;
+            final String? viewerId = session is Authenticated
+                ? session.user.id
+                : null;
             final List<SalonStaffMember> staff = viewerIsAdmin
                 ? rawStaff
-                      .where(
-                        (SalonStaffMember m) => m.role != SalonStaffRole.admin,
-                      )
+                      .where((SalonStaffMember m) => m.userId != viewerId)
                       .toList(growable: false)
                 : rawStaff;
             return _LoadedBody(

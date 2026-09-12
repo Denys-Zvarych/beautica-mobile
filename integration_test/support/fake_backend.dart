@@ -1213,15 +1213,30 @@ final class FakeBackend {
   /// assertions by exactly one element after adding a fixture to the SHARED
   /// list. A second, salon-admin-1-scoped list avoids that ripple entirely.
   ///
-  /// Seeded with exactly ONE admin — `admin-peer-1`, a CO-admin distinct
-  /// from the logged-in `_adminUserJson.id` (`user-admin-1`) — so a genuine
-  /// SALON_ADMIN session viewing this roster is looking at a peer, not their
-  /// own row. That distinction matters: `StaffSettingsScreen`'s `canManageStaff`
+  /// Seeded with `admin-peer-1`, a CO-admin distinct from the logged-in
+  /// `_adminUserJson.id` (`user-admin-1`) — so a genuine SALON_ADMIN session
+  /// viewing this roster is looking at a peer, not their own row. That
+  /// distinction matters: `StaffSettingsScreen`'s `canManageStaff`
   /// gate (`isOwner && member?.userId != currentUserId`) is `false` for an
   /// admin viewer regardless of whose row it is (an admin is never `isOwner`),
   /// but a self-row subject would let a reader conflate "not the owner" with
   /// "cannot remove yourself" — two different reasons the row could be
   /// absent. A peer isolates the ONE gate under test.
+  ///
+  /// mobile-qa gap-closure (2026-09-12) — WIDENED with a THIRD row,
+  /// `user-admin-1` (== `_adminUserJson.id`, the logged-in admin's OWN
+  /// account), so `salon_staff_settings_admin_gate_flow_test.dart` can drive
+  /// the real «Команда» tab end-to-end and prove
+  /// `salon_management_profile_screen.dart`'s self-exclusion filter
+  /// (restored 2026-09-12 from an over-broad masters-only one — see that
+  /// file's own comment) over the real wire: the viewer's own row must be
+  /// absent from the rendered grid while `admin-peer-1`'s co-admin row
+  /// renders. Checked against every other consumer of this list
+  /// (`grep -a -rn salonAdminOneStaff integration_test/`) before widening —
+  /// `salon_admin_set_master_services_flow_test.dart` only reads the master
+  /// row below by key, and `salon_admin_edit_master_schedule_flow_test.dart`
+  /// only asserts that same master row's card is present, neither by exact
+  /// list length — so a third row is safe to append here.
   late final List<Map<String, dynamic>> salonAdminOneStaff =
       <Map<String, dynamic>>[
         <String, dynamic>{
@@ -1259,6 +1274,49 @@ final class FakeBackend {
           'avgRating': null,
           'reviewCount': 0,
           'serviceCount': 0,
+        },
+        // mobile-qa gap-closure (2026-09-12) — the VIEWER'S OWN admin row.
+        // `userId` MUST equal `_adminUserJson['id']` (`user-admin-1`) for
+        // the self-exclusion filter to have anything to exclude; name
+        // matches `_adminUserJson` too so a rendered card (if the filter
+        // regressed and let it through) is recognisable as "self" in a
+        // failure diff.
+        <String, dynamic>{
+          'userId': 'user-admin-1',
+          'masterId': null,
+          'role': 'SALON_ADMIN',
+          'firstName': 'Ірина',
+          'lastName': 'Адміністратор',
+          'professionalTitle': 'Старший адміністратор',
+          'avatarUrl': null,
+          'phoneNumber': '+380663334455',
+          'instagram': null,
+          'bio': null,
+          'avgRating': null,
+          'reviewCount': 0,
+          'serviceCount': 0,
+        },
+      ];
+
+  /// mobile-qa gap-closure (2026-09-12) — the `salon-admin-1`-scoped sibling-
+  /// salons payload served by `GET /salons/salon-admin-1/sibling-salons`.
+  ///
+  /// ISOLATED from [siblingSalons] (the `salon-xyz` payload above) for the
+  /// same reason [salonAdminOneStaff] is its own list rather than a widened
+  /// `salonStaff`: nothing else reads this one, so widening the shared list
+  /// would risk rippling into `salon-xyz`'s own exact-content assertions for
+  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo
+  /// — `SiblingSalonOption`), and non-empty on purpose: an empty destination
+  /// list is indistinguishable from a broken endpoint in
+  /// [MoveAdminSalonScreen]'s rendered output, so a flow asserting the
+  /// LOADED (not merely non-error) state needs at least one real row here.
+  final List<Map<String, dynamic>> salonAdminOneSiblingSalons =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-admin-sibling-1',
+          'name': 'Філія на Оболоні',
+          'street': 'просп. Оболонський',
+          'buildingNo': '12',
         },
       ];
 
@@ -6479,6 +6537,28 @@ final class FakeBackend {
         return _okList(
           List<Map<String, dynamic>>.from(
             salonAdminOneStaff.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-admin-1/sibling-salons — mobile-qa
+    // gap-closure (2026-09-12): `MoveAdminSalonScreen`'s destination picker
+    // is REACHABLE from `salon-admin-1` (`salonManageStaffSettings` admits a
+    // SALON_ADMIN onto a co-admin's settings page and `row-admin-move-salon`
+    // is live there), but until now nothing served this GET for that salon
+    // id, so the screen always rendered its `ErrorState` branch —
+    // reachable, not usable. Mirrors `salon-xyz`'s own handler above
+    // (a COPY read at REQUEST time) but serves the ISOLATED
+    // [salonAdminOneSiblingSalons] list — see that field's own doc for why.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1/sibling-salons',
+      (server) => server.replyCallback(200, (_) {
+        siblingSalonsCalls++;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonAdminOneSiblingSalons.map(Map<String, dynamic>.from),
           ),
         );
       }),
