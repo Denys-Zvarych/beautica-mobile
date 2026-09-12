@@ -426,6 +426,57 @@ abstract final class AppHarness {
     await tester.tap(finder);
   }
 
+  /// Scrolls the OUTER (vertical) [Scrollable] on `search_filters_screen.dart`
+  /// until [key] is inflated AND visible.
+  ///
+  /// `-d flutter-tester`'s window is `Size(800, 600)` — short and wide, unlike
+  /// any phone. The query field plus the three-field `_LocationSection`
+  /// (Region/City/District) alone consume the whole 600px budget, pushing
+  /// `_CategorySection` (the rail + service-chip drawer) and `_PriceSection`
+  /// below the fold. The screen body is a plain `ListView(children: [...])`
+  /// (search_filters_screen.dart, NOT `.builder`) — it still only inflates
+  /// Elements near the viewport (`SliverChildListDelegate` under a
+  /// `SliverList`), so an un-scrolled `find.byKey(...)` on anything below the
+  /// locality block reports 0 matches. Plain `tester.ensureVisible` requires
+  /// the target Element to already exist, so it cannot bring an un-inflated
+  /// widget into view; `scrollUntilVisible` drags the enclosing scrollable in
+  /// bounded steps and re-checks after each drag, which is what actually
+  /// builds the element.
+  ///
+  /// `scrollUntilVisible` only ever drags in ONE fixed direction per call
+  /// (derived once from the `Scrollable`'s current `axisDirection`) — it
+  /// cannot recover a target ABOVE the current scroll offset, only one
+  /// further along. Once a prior call has scrolled down to the category rail
+  /// / price slider, a later call for a locality field back near the top
+  /// would just keep dragging further down and exhaust `maxScrolls` without
+  /// ever finding it (`Bad state: No element`). Jumping to offset 0 first
+  /// makes every call direction-agnostic: fields at/near the top are
+  /// immediately visible with nothing left to drag, and fields further down
+  /// are then reached by the forward drag. `.first` on the `Scrollable`
+  /// finder always resolves to the outer vertical list (a depth-first
+  /// ancestor of the category rail's own nested horizontal
+  /// `ListView.separated`), so this stays unambiguous once the rail mounts.
+  ///
+  /// Shared by every E2E that drives the search filters screen — the same
+  /// below-the-fold problem hits `client_search_flow_test.dart`'s locality
+  /// fields/category rail/price slider AND `service_preselection_flow_test.dart`'s
+  /// `search_service_type_NAILS` tile. Duplicating this per-file drifts (see
+  /// REUSE-FIRST); this is the single copy.
+  static Future<void> scrollFilterFieldIntoView(
+    WidgetTester tester,
+    Key key,
+  ) async {
+    final Finder outerScrollable = find.byType(Scrollable).first;
+    tester.state<ScrollableState>(outerScrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(key),
+      200,
+      scrollable: outerScrollable,
+    );
+    await tester.pumpAndSettle();
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.
