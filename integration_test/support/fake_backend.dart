@@ -1754,6 +1754,21 @@ final class FakeBackend {
   int getSalonMasterServicesCalls = 0;
   String? lastSalonMasterServicesPath;
 
+  /// Phase 324 (mobile-qa D3) — the cross-role-bleed control counterpart to
+  /// [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
+  /// /api/v1/salons/salon-xyz/masters/master-aaa/services`. SAME salon
+  /// (`salon-xyz`), a DIFFERENT master row already on that salon's roster
+  /// (`_salonStaff`'s `master-aaa` entry) — the two masters a single owner
+  /// session can navigate between in sequence: roster -> master A's
+  /// «Послуги» -> back -> master B's «Послуги». Kept as a SEPARATE counter/
+  /// path (never reused across the two master ids) so a bleed bug — master
+  /// B's list rendering from a STALE `keepAlive` read of master A's request,
+  /// or a `ServiceTarget` that outlives the pop — is visible as "the wrong
+  /// counter moved" / "the path still says master-removable", not merely as
+  /// "a counter moved".
+  int getSalonMasterAaaServicesCalls = 0;
+  String? lastSalonMasterAaaServicesPath;
+
   /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon counterpart
   /// to [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
   /// /api/v1/salons/salon-admin-1/masters/master-admin-target/services`.
@@ -1873,6 +1888,42 @@ final class FakeBackend {
             'priceMin': 300,
             'priceMax': null,
             'priceDisplay': '300 ₴',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Phase 324 (mobile-qa D3) — master A's (`master-aaa`) catalogue on the
+  /// SAME salon (`salon-xyz`) as [_salonMasterServices] (master B,
+  /// `master-removable`) — deliberately DISJOINT names/ids/prices from BOTH
+  /// [_salonMasterServices] and [_services] so a bleed in either direction
+  /// (cross-master or cross-role) renders visibly, assertably wrong rather
+  /// than a coincidentally-matching list. Read-only fixture (no bulk/
+  /// unassign route registered against it) — D3 only needs a second
+  /// distinct, real list to navigate to and read back.
+  final List<Map<String, dynamic>> _salonMasterAaaServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-aaa-assign-1',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 550,
+          'priceMax': null,
+          'priceDisplay': '550 ₴',
+          'effectiveDurationMinutes': 45,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-aaa-def-1',
+            'name': 'Педикюр класичний',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 45,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 550,
+            'priceMax': null,
+            'priceDisplay': '550 ₴',
             'photoUrl': null,
           },
         },
@@ -4525,6 +4576,27 @@ final class FakeBackend {
     }
   }
 
+  /// Phase 324 (mobile-qa D3) — the cross-role-bleed control route: `GET
+  /// /api/v1/salons/salon-xyz/masters/master-aaa/services`. Read-only (no
+  /// bulk/unassign registered) — see [getSalonMasterAaaServicesCalls]'s doc.
+  void _wireSalonMasterAaaServices() {
+    const String base = '/api/v1/salons/salon-xyz/masters/master-aaa/services';
+
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        getSalonMasterAaaServicesCalls++;
+        lastSalonMasterAaaServicesPath = base;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonMasterAaaServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// Phase 318 (mobile-qa) — `POST /api/v1/salons/salon-xyz/masters/
   /// master-removable/services/bulk`, the SALON-scoped counterpart to
   /// [_wireBulkCreateServices]. Mirrors that method's success shape (echo one
@@ -6573,6 +6645,8 @@ final class FakeBackend {
     _wireBulkCreateServices();
 
     _wireSalonMasterServices();
+
+    _wireSalonMasterAaaServices();
 
     _wireSalonMasterServicesBulk();
 

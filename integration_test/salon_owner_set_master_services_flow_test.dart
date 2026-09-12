@@ -110,6 +110,17 @@ const String _kSalonBulkUri = '$_kSalonServicesUri/bulk';
 /// renders selectable with no ownership exclusion in play.
 const String _kFreeTypeId = 'type-nails-gel';
 
+// ---------------------------------------------------------------------------
+// Phase 324 (mobile-qa D3) — cross-role bleed. A SECOND roster member of the
+// SAME salon (`salon-xyz`): `master-aaa`, whose `userId` and `masterId` are
+// the SAME string (unlike `master-removable`'s pair above) — deliberately
+// the OTHER shape, so this scenario is not merely re-running case 1's
+// id-swap check under a new name.
+// ---------------------------------------------------------------------------
+const String _kMasterAaaId = 'master-aaa';
+const String _kSalonMasterAaaServicesUri =
+    '/api/v1/salons/$_kSalonId/masters/$_kMasterAaaId/services';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -638,6 +649,204 @@ void main() {
         0,
         reason: 'the salon-scoped read must never fire for this persona',
       );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ── Phase 324 (mobile-qa D3) — cross-role bleed, NEW work (not a re-run of
+  // the two journeys above). ──────────────────────────────────────────────
+  //
+  // Only a test driving TWO masters in ONE app session can see a `keepAlive`
+  // `servicesListProvider` (or a `ServiceTarget` that outlives its scope)
+  // silently serving master A's list to master B — every other test in this
+  // track opens exactly one master and never returns to the roster.
+  testWidgets(
+    'SALON_OWNER: opens master A\'s services, pops to the roster, opens '
+    'master B\'s services — B\'s list is genuinely B\'s, by content AND by '
+    'the request URI carrying B\'s master row id (phase 324 D3)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        fb.mySalons.add(<String, dynamic>{
+          'id': _kSalonId,
+          'ownerId': 'user-owner-1',
+          'name': 'Студія Краси «Камелія»',
+          'city': 'Київ',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Хрещатик',
+          'buildingNo': '12',
+          'isActive': true,
+          'isPrimary': false,
+        });
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        Future<void> openRosterTab() async {
+          router.go(RouteNames.salonShell(_kSalonId));
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byKey(const Key('salon-nav-tile-2')),
+            timeout: const Duration(seconds: 20),
+          );
+          await tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-2')));
+        }
+
+        Future<void> openServicesFor(
+          String rosterUserId,
+          String firstCardKey,
+        ) async {
+          final Finder card = find.byKey(
+            Key('salon-manage-staff-card-$rosterUserId'),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            card,
+            timeout: const Duration(seconds: 20),
+          );
+          await tapWhenReady(tester, card);
+
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(SalonStaffProfileScreen),
+            timeout: const Duration(seconds: 20),
+          );
+          final Finder servicesRow = find.byKey(
+            const Key('salon-staff-profile-services-row'),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            servicesRow,
+            timeout: const Duration(seconds: 20),
+          );
+          await lockstepPump(tester);
+          await tapWhenReady(tester, servicesRow);
+
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(ServicesListScreen),
+            timeout: const Duration(seconds: 20),
+          );
+
+          // Every re-entry into the salon-target subtree pushes a FRESH
+          // `ShellRoute` match (phase 317 D2 — "scope unwinds on pop"), so
+          // the NAILS section starts COLLAPSED — expand it before looking
+          // for either master's cards (mirrors the file's other cases'
+          // identical "tap only if not already showing" recipe).
+          final Finder nails = find.byKey(const Key('category_section_NAILS'));
+          await AppHarness.pumpUntilFound(
+            tester,
+            nails,
+            timeout: const Duration(seconds: 20),
+          );
+          final Finder firstCard = find.byKey(Key(firstCardKey));
+          if (firstCard.evaluate().isEmpty) {
+            await tapWhenReady(tester, nails);
+          }
+          await AppHarness.pumpUntilFound(
+            tester,
+            firstCard,
+            timeout: const Duration(seconds: 20),
+          );
+        }
+
+        // ── 1. Open master B (`master-removable`) first. ─────────────────
+        await openRosterTab();
+        await openServicesFor(_kMemberUserId, 'service_card_salon-assign-1');
+
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.getSalonMasterServicesCalls >= 1,
+          description: "master B's scoped read reaches the wire",
+          timeout: const Duration(seconds: 20),
+        );
+        expect(fb.lastSalonMasterServicesPath, _kSalonServicesUri);
+        expect(
+          fb.getSalonMasterAaaServicesCalls,
+          0,
+          reason: "master A's endpoint must not have fired yet",
+        );
+        // B's own two seeded rows render.
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('service_card_salon-assign-1')),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          find.byKey(const Key('service_card_salon-assign-2')),
+          findsOneWidget,
+        );
+        // A's row must NOT be on screen — it was never fetched, but this
+        // also guards against a hand-rolled union of both lists.
+        expect(
+          find.byKey(const Key('service_card_salon-aaa-assign-1')),
+          findsNothing,
+        );
+
+        final int bCallsAfterFirstOpen = fb.getSalonMasterServicesCalls;
+
+        // ── 2. Pop the subtree, pop the profile, back to the roster. ─────
+        router.pop(); // ServicesListScreen -> SalonStaffProfileScreen
+        await tester.pump();
+        router.pop(); // SalonStaffProfileScreen -> roster grid
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-manage-staff-card-$_kMemberUserId')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── 3. Open master A (`master-aaa`) in the SAME session. ─────────
+        await openServicesFor(_kMasterAaaId, 'service_card_salon-aaa-assign-1');
+
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.getSalonMasterAaaServicesCalls >= 1,
+          description: "master A's scoped read reaches the wire",
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          fb.lastSalonMasterAaaServicesPath,
+          _kSalonMasterAaaServicesUri,
+          reason:
+              "master A's request URI must carry master A's row id — a "
+              'stale target from step 1 would either re-hit master B\'s '
+              'path or carry no id at all',
+        );
+        // THE BLEED ASSERTION — master B's counter must not have moved: a
+        // `keepAlive` provider or a `ServiceTarget` that outlived the pop
+        // would either skip this fetch (serving B's cached list under A's
+        // screen) or double-count B's endpoint instead of hitting A's.
+        expect(
+          fb.getSalonMasterServicesCalls,
+          bCallsAfterFirstOpen,
+          reason:
+              "opening master A must not re-fetch (or re-serve) master B's "
+              'list — this is the exact bleed a keepAlive provider or a '
+              'stale ServiceTarget would produce',
+        );
+
+        // A's own single seeded row renders; B's rows are GONE from screen.
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('service_card_salon-aaa-assign-1')),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          find.byKey(const Key('service_card_salon-assign-1')),
+          findsNothing,
+          reason: "master B's card must not still be on screen under A",
+        );
+        expect(
+          find.byKey(const Key('service_card_salon-assign-2')),
+          findsNothing,
+        );
+      });
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );

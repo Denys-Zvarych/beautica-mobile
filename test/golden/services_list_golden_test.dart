@@ -117,6 +117,18 @@ List<Object> _overrides() => <Object>[
   approvedCategoriesProvider.overrideWith((ref) async => _seedCategories),
 ];
 
+/// Phase 324 (mobile-qa D1) — an empty catalogue, otherwise identical wiring
+/// to [_overrides].
+List<Object> _emptyOverrides() => <Object>[
+  serviceRepositoryProvider.overrideWithValue(
+    FakeServiceRepository(
+      services: const <MasterService>[],
+      categories: _seedCategories,
+    ),
+  ),
+  approvedCategoriesProvider.overrideWith((ref) async => _seedCategories),
+];
+
 // ---------------------------------------------------------------------------
 // Goldens
 // ---------------------------------------------------------------------------
@@ -152,5 +164,37 @@ void main() {
       initialExpandCategory: 'HAIRCUT',
       writable: false,
     ),
+  );
+
+  // Phase 324 (mobile-qa D1) — the EMPTY-catalogue state, writable and
+  // read-only. Neither existed before this file: the DATA matrix above and
+  // the phase-320 read-only baseline both seed a NON-empty catalogue, so
+  // `_EmptyState` (the medallion + headline + body + conditional CTA) had
+  // never been golden-pinned. ONE cell each (414dp / text-1x), mirroring the
+  // phase-320 read-only precedent above rather than the full DATA matrix —
+  // this state has no category disclosure/count-badge layout to exercise
+  // across widths.
+  //
+  //   • WRITABLE empty  → `onCreate` non-null → the "Додати послугу" CTA
+  //     button renders below the headline/body text.
+  //   • READ-ONLY empty → `onCreate` null (Phase 320 D3) → the CTA is
+  //     OMITTED entirely (not disabled) — a greyed-out button would promise
+  //     a write the backend refuses.
+  goldenTest(
+    'services_list EMPTY WRITABLE 414dp text-1x',
+    fileName: 'services_list_empty_writable_414_1x',
+    constraints: BoxConstraints.tight(const Size(414, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(overrides: _emptyOverrides(), width: 414),
+    builder: () => const ServicesListScreen(writable: true),
+  );
+
+  goldenTest(
+    'services_list EMPTY READ-ONLY 414dp text-1x',
+    fileName: 'services_list_empty_readonly_414_1x',
+    constraints: BoxConstraints.tight(const Size(414, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(overrides: _emptyOverrides(), width: 414),
+    builder: () => const ServicesListScreen(writable: false),
   );
 }
