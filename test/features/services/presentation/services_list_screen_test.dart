@@ -1736,4 +1736,102 @@ void main() {
       },
     );
   });
+
+  // ── Regression — servicesTitle must stay role-neutral ─────────────────────
+  //
+  // ServicesListScreen is reused verbatim across three journeys: an
+  // INDEPENDENT_MASTER managing their own catalogue (writable: true, the
+  // default), a SALON_OWNER/SALON_ADMIN managing a staff master's catalogue
+  // (writable: true, different setup/edit targets), and a SALON_MASTER
+  // reading their own catalogue (writable: false). A possessive or
+  // role-conditional title would be wrong on two of those three journeys.
+  //
+  // This pins the invariant directly on what RENDERS, not on the l10n getter:
+  // `expect(l10n.servicesTitle, 'Послуги')` is self-referential and would
+  // stay green even if the value were restored to "Мої послуги" or made
+  // role-conditional — this file's ARB history did exactly the former.
+  group('Regression — servicesTitle stays role-neutral', () {
+    Future<String> pumpAndReadAppBarTitle(
+      WidgetTester tester, {
+      required bool writable,
+      required Locale locale,
+    }) async {
+      await tester.pumpApp(
+        ServicesListScreen(writable: writable),
+        overrides: [
+          _servicesOverride(const AsyncData(_stubServiceList)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+        locale: locale,
+      );
+      await tester.pump();
+      await tester.pump();
+      final Text titleText = tester.widget<Text>(
+        find.descendant(of: find.byType(AppBar), matching: find.byType(Text)),
+      );
+      return titleText.data ?? '';
+    }
+
+    testWidgets(
+      'uk — the writable (independent-master) and read-only (salon-master) '
+      'journeys render the identical AppBar title',
+      (tester) async {
+        final String writableTitle = await pumpAndReadAppBarTitle(
+          tester,
+          writable: true,
+          locale: const Locale('uk'),
+        );
+        final String readOnlyTitle = await pumpAndReadAppBarTitle(
+          tester,
+          writable: false,
+          locale: const Locale('uk'),
+        );
+
+        expect(
+          readOnlyTitle,
+          writableTitle,
+          reason:
+              'the title must not vary by role/writable — a role-conditional '
+              'title is locked out for this verbatim-reused screen',
+        );
+      },
+    );
+
+    testWidgets('uk — the rendered title carries no possessive marker', (
+      tester,
+    ) async {
+      final String title = await pumpAndReadAppBarTitle(
+        tester,
+        writable: true,
+        locale: const Locale('uk'),
+      );
+
+      expect(
+        title.toLowerCase(),
+        isNot(contains('мої')),
+        reason:
+            'a possessive title ("Мої послуги") asserts ownership that is '
+            'false on the salon-owner/admin and salon-master journeys',
+      );
+    });
+
+    testWidgets('en — the rendered title carries no possessive marker', (
+      tester,
+    ) async {
+      final String title = await pumpAndReadAppBarTitle(
+        tester,
+        writable: true,
+        locale: const Locale('en'),
+      );
+
+      expect(
+        RegExp(r'\bmy\b', caseSensitive: false).hasMatch(title),
+        isFalse,
+        reason:
+            'a possessive title ("My Services") asserts ownership that is '
+            'false on the salon-owner/admin and salon-master journeys',
+      );
+    });
+  });
 }

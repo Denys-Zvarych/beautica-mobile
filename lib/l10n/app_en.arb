@@ -1478,9 +1478,9 @@
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
   },
 
-  "servicesTitle": "My Services",
+  "servicesTitle": "Services",
   "@servicesTitle": {
-    "description": "Title for services list screen (Phase 5.2)."
+    "description": "Title for services list screen (Phase 5.2). Shared verbatim across an independent master managing their own catalogue, an owner/admin managing a staff master's catalogue, and a salon master viewing their own catalogue read-only — keep role-neutral."
   },
   "servicesAdd": "Add service",
   "@servicesAdd": {
@@ -4201,9 +4201,9 @@
   "@masterCreateBookingServiceEmptyTitle": {
     "description": "Empty-state title on the master booking wizard's service step when the master has no services yet."
   },
-  "masterCreateBookingServiceEmptyBody": "Add a service under \"My services\" to create a booking.",
+  "masterCreateBookingServiceEmptyBody": "Add a service under \"Services\" to create a booking.",
   "@masterCreateBookingServiceEmptyBody": {
-    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet."
+    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet. Names the services list screen by its servicesTitle label — keep the two in sync if either changes."
   },
   "masterCreateBookingGuestLabel": "Client",
   "@masterCreateBookingGuestLabel": {

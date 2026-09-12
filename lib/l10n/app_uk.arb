@@ -1478,9 +1478,9 @@
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
   },
 
-  "servicesTitle": "Мої послуги",
+  "servicesTitle": "Послуги",
   "@servicesTitle": {
-    "description": "Title for services list screen (Phase 5.2)."
+    "description": "Title for services list screen (Phase 5.2). Shared verbatim across an independent master managing their own catalogue, an owner/admin managing a staff master's catalogue, and a salon master viewing their own catalogue read-only — keep role-neutral."
   },
   "servicesAdd": "Додати послугу",
   "@servicesAdd": {
@@ -4201,9 +4201,9 @@
   "@masterCreateBookingServiceEmptyTitle": {
     "description": "Empty-state title on the master booking wizard's service step when the master has no services yet."
   },
-  "masterCreateBookingServiceEmptyBody": "Додайте послугу в розділі «Мої послуги», щоб створити запис.",
+  "masterCreateBookingServiceEmptyBody": "Додайте послугу в розділі «Послуги», щоб створити запис.",
   "@masterCreateBookingServiceEmptyBody": {
-    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet."
+    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet. Names the services list screen by its servicesTitle label — keep the two in sync if either changes."
   },
   "masterCreateBookingGuestLabel": "Клієнт",
   "@masterCreateBookingGuestLabel": {
