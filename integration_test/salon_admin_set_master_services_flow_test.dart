@@ -13,8 +13,9 @@
 // route-type tier (`test/routing/salon_manage_staff_services_route_test.dart`,
 // which already drives an admin session through `ServicesListScreen`'s TYPE
 // resolution). Neither proves the REAL journey: a genuine SALON_ADMIN login
-// -> the real «Персонал» tab -> a real roster card -> the real `SettingsRow`
-// phase 318 added -> a real push into the REAL `ServicesListScreen`/
+// -> the real «Персонал» tab -> a real roster card -> the real
+// `ManagementActionCard` («Послуги», Phase 325 restyle of the row phase 318
+// added) -> a real push into the REAL `ServicesListScreen`/
 // `ServiceSetupScreen` pair -> a real bulk POST -> a real unassign DELETE,
 // all against the admin's OWN salon (`salon-admin-1`) — and the negative
 // mirror phase 322's D4 exists for: an admin of a DIFFERENT salon deep-
@@ -42,6 +43,21 @@
 //     `salonManageGuard`'s admin arm before `ServicesListScreen` ever
 //     mounts — a role-only gate would ADMIT this, which is exactly the
 //     catastrophic-wrongness D4 exists to catch.
+//  5. THE EMPTY-CATALOGUE CARD (mobile-qa, 2026-09-12 — closes the Phase
+//     325 QA-pass INFO row). `master-admin-target`'s PUBLIC per-master
+//     services read (`fake_backend.dart`'s
+//     `/api/v1/masters/master-admin-target/services`) is fixture-empty —
+//     the one roster member either salon-services E2E file reaches with a
+//     genuinely empty catalogue (the owner flow's `master-removable` seeds
+//     two rows from the start). Asserted BEFORE this test's own bulk-create
+//     step below runs, so it pins the pristine zero-service render, not a
+//     post-mutation coincidence: the «Послуги» `ManagementActionCard.value`
+//     must equal `l10n.staffProfileServicesEmpty` («Ще немає»), never
+//     `l10n.staffProfileServicesCount(0)` — the exact fork
+//     `salon_staff_profile_screen.dart`'s own D3 comment documents and the
+//     widget tier already mutation-proves in isolation
+//     (`salon_staff_profile_screen_test.dart`), but which no E2E had
+//     exercised end to end until now.
 //
 // FIXTURE — `salon-admin-1` / `master-admin-target`: the SALON_ADMIN
 // persona's OWN salon and its Phase 312-seeded master row
@@ -68,9 +84,11 @@
 // `find.text(cyrillic)` anywhere in this file (`forbid_cyrillic_finder.sh`).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -191,6 +209,33 @@ void main() {
           servicesRow,
           timeout: const Duration(seconds: 20),
         );
+
+        // ── 0. THE EMPTY-CATALOGUE FORK (closes the Phase 325 QA INFO row,
+        // see file header case 5). `master-admin-target` has zero services
+        // on the PUBLIC read at this point in the journey — assert the D3
+        // fork renders «Ще немає», never a "0 послуг" count, BEFORE the
+        // bulk-create step below adds anything.
+        final AppLocalizations emptyL10n = AppLocalizations.of(
+          tester.element(find.byType(SalonStaffProfileScreen)),
+        );
+        final ManagementActionCard emptyServicesCard = tester
+            .widget<ManagementActionCard>(servicesRow);
+        expect(
+          emptyServicesCard.value,
+          emptyL10n.staffProfileServicesEmpty,
+          reason:
+              'a master with zero active services must render '
+              'staffProfileServicesEmpty («Ще немає»), not a count',
+        );
+        expect(
+          emptyServicesCard.value,
+          isNot(emptyL10n.staffProfileServicesCount(0)),
+          reason:
+              'D3 explicitly forbids staffProfileServicesCount(0) for an '
+              'empty catalogue — see salon_staff_profile_screen.dart\'s own '
+              'doc comment',
+        );
+
         // Drain the staggered RevealTransitions off this screen's animation
         // controller — see file header TIMING note.
         await lockstepPump(tester);

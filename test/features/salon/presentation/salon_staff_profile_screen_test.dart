@@ -36,8 +36,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
-import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
@@ -964,7 +964,7 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
 
         expect(
-          find.byKey(const ValueKey<String>('settings_row_loading')),
+          find.byKey(const ValueKey<String>('management_action_card_loading')),
           findsOneWidget,
         );
         final AppLocalizations l10n = AppLocalizations.of(
@@ -1102,7 +1102,9 @@ void main() {
           const Key('salon-staff-profile-services-row'),
         );
         expect(row, findsOneWidget);
-        final SettingsRow widget = tester.widget<SettingsRow>(row);
+        final ManagementActionCard widget = tester.widget<ManagementActionCard>(
+          row,
+        );
         expect(widget.enabled, isTrue);
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
@@ -1118,10 +1120,58 @@ void main() {
               'deliberately mismatched on the fixture)',
         );
         // Rendered, not merely the field — a field-only read would pass even
-        // if SettingsRow silently dropped `value` from its own layout.
+        // if ManagementActionCard silently dropped `value` from its own
+        // layout.
         expect(
           find.descendant(of: row, matching: find.text(expectedValue)),
           findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'Phase 325, D3 — a genuinely-resolved EMPTY catalogue renders «Ще '
+      'немає», never «0 послуг»',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: _overrides(
+            _kMasterId,
+            // `_masterMemberNoExtras` carries a `masterId` (row stays
+            // ENABLED) but zero services — a resolved AsyncData, NOT a
+            // failed load (see the production screen's own D3 comment: a
+            // failed load of this data never reaches this card at all).
+            (ref) async => (_masterMemberNoExtras, const <MasterService>[]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        final Finder row = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        expect(
+          tester.widget<ManagementActionCard>(row).value,
+          l10n.staffProfileServicesEmpty,
+        );
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.text(l10n.staffProfileServicesCount(0)),
+          ),
+          findsNothing,
+          reason:
+              'D3 — «0 послуг» would assert an empty catalogue using the '
+              'SAME copy a failed load could otherwise be mistaken for; '
+              '«Ще немає» is the distinct, unambiguous empty-state copy',
         );
       },
     );
@@ -1181,7 +1231,7 @@ void main() {
       // hasMasterId`) — the row's own `onTap` ternary is ALSO a no-op in
       // that mutated state, so a nav-only assertion below would stay green
       // even with the guard deleted. Only reading `.enabled` catches it.
-      expect(tester.widget<SettingsRow>(row).enabled, isFalse);
+      expect(tester.widget<ManagementActionCard>(row).enabled, isFalse);
 
       // No push ever happens on this branch (the row is disabled — `onTap`
       // is a no-op), so the ImperativeRouteMatch exclusion the raw-read gate

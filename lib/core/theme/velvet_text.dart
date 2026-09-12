@@ -1910,4 +1910,22 @@ abstract final class VelvetText {
   /// via [TextStyle.copyWith].
   static TextStyle snackAction(Color color) =>
       _snackActionBase.copyWith(color: color);
+
+  // ---------------------------------------------------------------------------
+  // Phase 325 — `ManagementActionCard` (`lib/features/master/presentation/
+  // widgets/management_action_card.dart`). Design source pins both the label
+  // and value lines at a literal 15 sp regardless of `subheading`/`statValue`'s
+  // own default sizes — cached here (forbid_inline_fontsize.sh) rather than an
+  // inline `.copyWith(fontSize: 15)` at the call site.
+  // ---------------------------------------------------------------------------
+
+  /// The card's label line — [subheading] (Comfortaa 14/600) resized to 15.
+  static final TextStyle managementCardLabel = _subheadingStyle.copyWith(
+    fontSize: 15,
+  );
+
+  /// The card's value line — [statValue] (Comfortaa 17/700) resized to 15.
+  static final TextStyle managementCardValue = _statValueStyle.copyWith(
+    fontSize: 15,
+  );
 }

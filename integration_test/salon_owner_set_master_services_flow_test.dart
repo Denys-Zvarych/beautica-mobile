@@ -14,8 +14,9 @@
 // real roster, NOT a real bulk-create write.
 //
 // This file is the one place that drives the REAL journey: login → the real
-// «Персонал» tab → a real roster card → the real `SettingsRow` this phase
-// adds → a real push into the REAL `ServicesListScreen`/`ServiceSetupScreen`
+// «Персонал» tab → a real roster card → the real `ManagementActionCard`
+// («Послуги», Phase 325 restyle of the row this phase added) → a real push
+// into the REAL `ServicesListScreen`/`ServiceSetupScreen`
 // pair phase 317 wired → a real bulk POST → a real pop → the REAL D4
 // invalidate → the REAL stat tile reading the refetched count.
 //

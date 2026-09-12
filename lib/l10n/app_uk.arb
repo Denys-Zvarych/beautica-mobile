@@ -5363,13 +5363,17 @@
   },
   "staffProfileServicesCount": "{count, plural, one{{count} послуга} few{{count} послуги} many{{count} послуг} other{{count} послуг}}",
   "@staffProfileServicesCount": {
-    "description": "Phase 318, D3 — trailing value of the «Послуги» SettingsRow on SalonStaffProfileScreen (master branch): the active-service count already backing the services stat tile at the top of the same screen (no second fetch — see `salonStaffMemberProfileProvider`).",
+    "description": "Phase 318, D3 — trailing value of the «Послуги» SettingsRow on SalonStaffProfileScreen (master branch): the active-service count already backing the services stat tile at the top of the same screen (no second fetch — see `salonStaffMemberProfileProvider`). Phase 325 carries this onto the `ManagementActionCard` value line for a NON-EMPTY catalogue only — an empty one uses `staffProfileServicesEmpty` instead (see D3), never `staffProfileServicesCount(0)`.",
     "placeholders": {
       "count": {
         "type": "int",
         "example": "3"
       }
     }
+  },
+  "staffProfileServicesEmpty": "Ще немає",
+  "@staffProfileServicesEmpty": {
+    "description": "Phase 325, D3 — the services `ManagementActionCard`'s value line when the viewed master has zero active services (a genuinely-resolved empty catalogue, distinct from a failed load — see the screen's own D3 comment). Transcribed verbatim from the approved preview (`docs/signup-designs/SalonServicesEntryPath`)."
   },
   "salonSettingsMySalons": "Мої салони",
   "@salonSettingsMySalons": {

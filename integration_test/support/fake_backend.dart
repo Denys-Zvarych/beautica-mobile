@@ -5082,6 +5082,16 @@ final class FakeBackend {
     // the whole staff-profile screen renders `ErrorState` instead. Empty,
     // same reasoning as `master-removable` above: this fixture's flows never
     // assert on service content.
+    //
+    // Phase 325 (mobile-qa, 2026-09-12) — this emptiness is now ALSO the
+    // deliberate zero-service fixture for
+    // `salon_admin_set_master_services_flow_test.dart`'s E2E assertion that
+    // the «Послуги» `ManagementActionCard` on `SalonStaffProfileScreen`
+    // renders `staffProfileServicesEmpty` («Ще немає»), never
+    // `staffProfileServicesCount(0)`, for a master whose catalogue is
+    // genuinely empty. Never seed a row here — doing so would silently
+    // remove the only E2E-reachable empty catalogue (`master-removable`, the
+    // owner-flow counterpart, always seeds two rows).
     _adapter.onRoute(
       '/api/v1/masters/master-admin-target/services',
       (server) => server.replyCallback(200, (_) {
