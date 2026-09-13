@@ -40,8 +40,11 @@ import 'package:beautica_mobile/features/salon/application/salon_management_prof
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -370,6 +373,41 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
   ],
 );
 
+/// Phase 327 — router variant that mounts the REAL destination screens
+/// ([SalonStaffProfileScreen], [OwnerOwnProfileScreen],
+/// [AdminOwnProfileScreen]) instead of the trivial markers [_router] uses
+/// for everything above. Needed ONLY by the self-row routing tests below,
+/// which pin the resolved page TYPE — never a path string
+/// (`project_gorouter_literal_before_dynamic_shadowing`) — so the marker
+/// Scaffolds [_router] uses everywhere else are insufficient. Every other
+/// test in this file keeps using [_router] unchanged.
+GoRouter _routerWithRealDestinations(FakeSalonRepository repo) => GoRouter(
+  initialLocation: RouteNames.salonManage(_kSalonId),
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/salons/:salonId/manage',
+      builder: (context, state) => SalonManagementProfileScreen(
+        salonId: state.pathParameters['salonId']!,
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId',
+      builder: (context, state) => SalonStaffProfileScreen(
+        salonId: state.pathParameters['salonId']!,
+        memberId: state.pathParameters['memberId']!,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.ownerOwnProfile,
+      builder: (context, state) => const OwnerOwnProfileScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.adminOwnProfile,
+      builder: (context, state) => const AdminOwnProfileScreen(),
+    ),
+  ],
+);
+
 const _stubAdmin = User(
   id: 'admin-1',
   email: 'admin@beautica.ua',
@@ -669,22 +707,27 @@ void main() {
     );
   });
 
-  // mobile-qa gap-closure (feat/salon-master-schedule-read-only), REWRITTEN
-  // 2026-09-12 — the `viewerIsAdmin` filter at
-  // `salon_management_profile_screen.dart:299-311` narrowed from "hide every
-  // admin row" to "hide only the viewer's OWN row", restoring the only
-  // in-app route to a co-admin's settings screen (`rotateAdmin`,
-  // `PATCH /salons/{salonId}/admins/{userId}/salon`, is genuinely
-  // admin-callable with no self-guard — see that file's comment). The three
-  // cases below replace the old masters-only assertions: a co-admin (a
-  // DIFFERENT user id, same admin role as the viewer) must now render, and
-  // only the viewer's own row is ever hidden. The owner case is unchanged —
-  // there is still no owner-side filter, since the roster is already built
-  // from master + SALON_ADMIN queries that never include the owner.
-  group('Команда tab admin filter (mobile-qa gap-closure)', () {
+  // Phase 327, REWRITTEN 2026-09-13 — the `viewerIsAdmin` self-exclusion
+  // filter that used to live at `salon_management_profile_screen.dart`'s
+  // roster-build site is DELETED, not narrowed again (user decision,
+  // 2026-09-13: "each salon member can see hisself"). Every row
+  // `GET /salons/{id}/staff` returns renders, the viewer's own row included.
+  // What used to be a hidden-row problem is now a routing problem: tapping
+  // your OWN row opens your PERSONAL profile (`/profile/owner`,
+  // `/profile/admin`) instead of the staff-management view of yourself —
+  // see [_openStaffMember] and the tap-routing cases below. The earlier
+  // masters-only filter (`314f6318`) is still gone too — a co-admin (a
+  // DIFFERENT user id, same admin role as the viewer) still renders, which
+  // is the capability that filter had broken (`rotateAdmin`,
+  // `PATCH /salons/{salonId}/admins/{userId}/salon`, admin-callable with no
+  // self-guard). The owner case is unchanged — there was never an
+  // owner-side filter, since the roster is already built from master +
+  // SALON_ADMIN queries that never include the owner as an owner.
+  group('Команда tab — the roster is unfiltered, and the self row routes to '
+      'the personal profile', () {
     testWidgets(
-      'admin viewer + mixed roster (master + self-admin + co-admin) — self '
-      'hidden, master and co-admin both render',
+      'admin viewer + mixed roster (master + self-admin + co-admin) — ALL '
+      'THREE render',
       (tester) async {
         final repo = FakeSalonRepository(
           salon: _stubSalon,
@@ -698,8 +741,9 @@ void main() {
               avgRating: 4.9,
               reviewCount: 12,
             ),
-            // The viewer's own row — `_stubAdmin.id == 'admin-1'` — must be
-            // hidden regardless of role.
+            // The viewer's own row — `_stubAdmin.id == 'admin-1'` — renders
+            // like any other row. It is only routed differently on tap (see
+            // the routing cases below), never hidden.
             SalonStaffMember(
               userId: 'admin-1',
               role: SalonStaffRole.admin,
@@ -734,23 +778,22 @@ void main() {
         );
         expect(
           find.byKey(const Key('salon-manage-staff-card-admin-1')),
-          findsNothing,
+          findsOneWidget,
           reason:
-              "admin-1 is the viewer's own row — self-exclusion only, "
-              'not a role-based exclusion.',
+              "admin-1 is the viewer's own row and is listed like any "
+              'other — the roster applies no filter.',
         );
         expect(
           find.byKey(const Key('salon-manage-staff-card-admin-2')),
           findsOneWidget,
           reason:
               'a co-admin (a different user id from the viewer) must render '
-              '— this is the capability restored 2026-09-12.',
+              '— this is the capability restored 2026-09-12 and kept here.',
         );
-        // Exactly two rendered cards (master + co-admin) — proves the GRID
-        // itself was rebuilt on the shrunk list (itemCount == staff.length +
-        // 1 - 1 self), not merely that one key was hidden by some other
-        // means while the grid still allocated a slot for it.
-        expect(find.byType(SalonMasterCard), findsNWidgets(2));
+        // All three rendered cards — proves the GRID itself was built from
+        // the WHOLE list (itemCount == staff.length + 1), now against three
+        // rows rather than the pre-Phase-327 shrunk two.
+        expect(find.byType(SalonMasterCard), findsNWidgets(3));
         expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
         expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
       },
@@ -813,11 +856,11 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
-        // Neither row is the viewer's own (`admin-1`) — the self-only
-        // filter must let both through. This replaces the pre-2026-09-12
-        // assertion that an admin-only roster always lands in the empty
-        // state; that was true only under the masters-only filter this task
-        // removed, and hid every co-admin as collateral damage.
+        // Neither row is the viewer's own (`admin-1`) — the roster applies
+        // no filter at all, so both render regardless. This replaces the
+        // pre-2026-09-12 assertion that an admin-only roster always lands in
+        // the empty state; that was true only under the masters-only filter
+        // this task removed, and hid every co-admin as collateral damage.
         expect(
           find.byKey(const Key('salon-manage-staff-card-admin-only-1')),
           findsOneWidget,
@@ -829,6 +872,160 @@ void main() {
         expect(find.byType(SalonMasterCard), findsNWidgets(2));
         expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
         expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
+      },
+    );
+
+    testWidgets('admin viewer + a roster whose ONLY row is the viewer', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[
+          SalonStaffMember(
+            userId: 'admin-1',
+            role: SalonStaffRole.admin,
+            firstName: 'Ірина',
+            lastName: 'Адміністратор',
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _adminOverrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      // The old self-only filter rendered the EMPTY state for exactly
+      // this roster — a non-empty roster it emptied by hiding its only
+      // row. The rule this pins is the opposite: a self-only roster still
+      // renders one card, never the empty state.
+      expect(
+        find.byKey(const Key('salon-manage-staff-card-admin-1')),
+        findsOneWidget,
+      );
+      expect(find.byType(SalonMasterCard), findsNWidgets(1));
+      expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
+    });
+
+    testWidgets('should_pushAdminPersonalProfile_when_adminTapsOwnRow', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+      await tester.pumpRoutedApp(
+        _routerWithRealDestinations(repo),
+        overrides: _adminOverrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-manage-staff-card-admin-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(AdminOwnProfileScreen),
+        findsOneWidget,
+        reason:
+            "the admin's OWN row opens their PERSONAL profile, not the "
+            'staff-management view of themselves.',
+      );
+      expect(find.byType(SalonStaffProfileScreen), findsNothing);
+    });
+
+    testWidgets('should_pushOwnerPersonalProfile_when_ownerTapsOwnRow', (
+      tester,
+    ) async {
+      // DORMANT IN PRODUCTION (Phase 327 Background) — the roster endpoint
+      // (`SalonService.java:721-735`) never emits an owner row unless
+      // owner-as-master is active, which is separately BLOCKED
+      // (`project_owner_as_master_multisalon_blocked`). This fixture
+      // fabricates that shape anyway — legitimate in a widget test, and the
+      // same shape Phase 283's
+      // `should_showOwnerInBothRosters_when_ownerMasterRowIsActive` already
+      // pins — purely to prove [_openStaffMember]'s owner ARM of the
+      // exhaustive switch, which D4 requires even though no live roster
+      // reaches it in production today.
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[
+          SalonStaffMember(
+            userId: 'owner-1',
+            masterId: 'owner-master-1',
+            role: SalonStaffRole.master,
+            firstName: 'Оксана',
+            lastName: 'Швець',
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        _routerWithRealDestinations(repo),
+        overrides: _overrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-manage-staff-card-owner-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+    });
+
+    testWidgets(
+      'should_pushStaffManagementProfile_when_adminTapsAnotherMembersRow',
+      (tester) async {
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[
+            SalonStaffMember(
+              userId: 'admin-1',
+              role: SalonStaffRole.admin,
+              firstName: 'Ірина',
+              lastName: 'Адміністратор',
+            ),
+            SalonStaffMember(
+              userId: 'admin-2',
+              role: SalonStaffRole.admin,
+              firstName: 'Наталя',
+              lastName: 'Бондар',
+            ),
+          ],
+        );
+        await tester.pumpRoutedApp(
+          _routerWithRealDestinations(repo),
+          overrides: _adminOverrides(repo),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('salon-manage-staff-card-admin-2')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(SalonStaffProfileScreen),
+          findsOneWidget,
+          reason:
+              'without this, routing EVERY row to the personal profile '
+              'stays green.',
+        );
+        expect(find.byType(AdminOwnProfileScreen), findsNothing);
       },
     );
   });

@@ -22,8 +22,10 @@
 //
 // SCOPE — ONE real chain, both directions:
 //   1. NEGATIVE — a real SALON_ADMIN login -> the real SHELL «Команда» nav
-//      tile -> the real roster grid (own row ABSENT, co-admin card PRESENT)
-//      -> a real tap on the co-admin's card -> the real settings page:
+//      tile -> the real roster grid (own row PRESENT too, like every other
+//      row — Phase 327 deleted the self-exclusion filter; co-admin card
+//      PRESENT) -> a real tap on the CO-ADMIN's card -> the real settings
+//      page:
 //      `row-admin-remove` and its hairline must be ABSENT, while the
 //      sibling rows (move-to-salon, convert-to-master) remain PRESENT AND
 //      GENUINELY LIVE (not merely rendered) — the sibling-row assertion is
@@ -39,28 +41,36 @@
 //      round trip here would duplicate that file's own headline assertion,
 //      so this positive control stops at "the dialog opens".
 //
-// mobile-qa gap-closure (2026-09-12) — EXTENDED (not a new file, REUSE-
-// FIRST) for the «Команда» tab self-exclusion restore
-// (`salon_management_profile_screen.dart`'s `viewerIsAdmin` filter narrowed
-// from "hide every admin row" to "hide only the viewer's own row" — see
-// that file's own comment). This file already drove the SALON_ADMIN branch
-// through `router.go` straight at the settings route because, at the time,
-// the masters-only filter made the co-admin's card genuinely unreachable
-// through the grid — that premise is now FALSE, so the admin branch below
-// walks the real shell -> nav tile -> card tap path instead, matching the
-// owner branch and proving the grid itself, not just the destination route.
+// mobile-qa gap-closure (2026-09-12), REWRITTEN Phase 327 (2026-09-13) —
+// EXTENDED (not a new file, REUSE-FIRST) for the «Команда» tab. The
+// self-exclusion filter this comment used to describe
+// (`salon_management_profile_screen.dart`'s `viewerIsAdmin` filter,
+// narrowed from "hide every admin row" to "hide only the viewer's own row")
+// is DELETED, not narrowed again — user decision, 2026-09-13: "each salon
+// member can see hisself". The roster now renders EVERY row, the viewer's
+// own included; only the TAP DESTINATION differs for the self row (it opens
+// the personal profile — see `_openStaffMember`), never the roster's
+// contents. This file already drove the SALON_ADMIN branch through
+// `router.go` straight at the settings route because, at the time, an
+// earlier masters-only filter made the co-admin's card genuinely
+// unreachable through the grid — that premise is FALSE either way, so the
+// admin branch below walks the real shell -> nav tile -> card tap path
+// instead, matching the owner branch and proving the grid itself, not just
+// the destination route. The gate walk stays on the CO-ADMIN card
+// throughout (never the self row, which now goes somewhere else entirely) —
+// see [_kCoAdminId].
 //
 // FIXTURE — `salon-admin-1`, the SALON_ADMIN persona's OWN salon
 // (`FakeBackend._adminUserJson.salonId`), and its ISOLATED
 // `salonAdminOneStaff` roster: a co-admin (`admin-peer-1`), a master
-// (`user-master-under-admin`, unrelated to this file), and — widened
-// 2026-09-12 — the logged-in admin's OWN row (`user-admin-1`, ==
-// `FakeBackend._adminUserJson.id`), added so this file can prove
-// self-exclusion over the real wire, not merely the co-admin's
-// reachability. Never `salon-xyz`'s own `salonStaff` roster — widening that
-// would ripple into the pre-existing exact-roster assertions three sibling
-// integration files already carry (Phase 307's own precedent for exactly
-// this ripple).
+// (`user-master-under-admin`, unrelated to this file), and — added
+// 2026-09-12, now asserted PRESENT rather than absent — the logged-in
+// admin's OWN row (`user-admin-1`, == `FakeBackend._adminUserJson.id`),
+// which lets this file prove the roster is genuinely unfiltered over the
+// real wire, not merely the co-admin's reachability. Never `salon-xyz`'s own
+// `salonStaff` roster — widening that would ripple into the pre-existing
+// exact-roster assertions three sibling integration files already carry
+// (Phase 307's own precedent for exactly this ripple).
 //
 // NO PATROL FLOW: pure screen / route / provider / GET surface, same as
 // `salon_staff_settings_flow_test.dart`'s own header states for its reason.
@@ -87,8 +97,10 @@ import 'support/app_harness.dart';
 const String _kSalonId = 'salon-admin-1';
 
 /// The logged-in SALON_ADMIN persona's OWN id
-/// (`FakeBackend._adminUserJson['id']`) — the row that must NEVER render on
-/// its own «Команда» tab (self-exclusion, not a role-based exclusion).
+/// (`FakeBackend._adminUserJson['id']`) — the row that renders on its own
+/// «Команда» tab like any other (Phase 327: no client-side filter), but
+/// whose tap destination is the PERSONAL profile, never this file's gate
+/// walk (which stays on [_kCoAdminId] throughout).
 const String _kSelfAdminId = 'user-admin-1';
 
 /// [FakeBackend.salonAdminOneStaff]'s CO-admin row — the settings page both
@@ -121,13 +133,13 @@ void _seedAdminSalonIntoMySalons(FakeBackend fb) {
 ///   * SALON_OWNER — `/manage` -> «Персонал» tab -> the co-admin's card ->
 ///     the `tune_rounded` action;
 ///   * SALON_ADMIN — real shell landing -> the «Команда» nav tile -> the
-///     REAL roster grid -> the co-admin's card. Asserts en route that the
-///     viewer's OWN row (`_kSelfAdminId`) is absent from that grid — the
-///     self-exclusion restored 2026-09-12
-///     (`salon_management_profile_screen.dart`'s `viewerIsAdmin` filter; see
-///     that file's own comment) is what makes this card-tap path reachable
-///     at all again, after an earlier over-broad masters-only filter had
-///     hidden every admin row including this one.
+///     REAL roster grid -> the CO-ADMIN's card. Asserts en route that the
+///     viewer's OWN row (`_kSelfAdminId`) is PRESENT in that grid — Phase
+///     327 deleted the client-side filter entirely (no self-exclusion, no
+///     masters-only narrowing), so every row renders and only the self
+///     row's TAP DESTINATION differs (the personal profile, wired in
+///     `_openStaffMember`) — this walk never taps that row, only the
+///     co-admin's.
 ///
 /// [role] must be [UserRole.salonAdmin] or [UserRole.salonOwner] — the two
 /// roles `salonManageGuard` admits onto `/manage`/the shell at all.
@@ -159,15 +171,18 @@ Future<GoRouter> _openCoAdminSettingsAs(
     await tester.tap(teamTile);
     await AppHarness.settle(tester);
 
-    // SELF-EXCLUSION — the viewer's OWN admin row must never render on
-    // their own «Команда» grid, over the REAL wire (`salonAdminOneStaff`
-    // now seeds it — see that fixture's own 2026-09-12 doc).
+    // NO CLIENT-SIDE FILTER (Phase 327) — every salon member the roster
+    // returns renders, the viewer's own row included, over the REAL wire
+    // (`salonAdminOneStaff` seeds it — see that fixture's own 2026-09-12
+    // doc). This walk still taps the CO-ADMIN's card below, never this one —
+    // the self row's destination is the personal profile, proven in
+    // `salon_management_profile_flow_test.dart`, not this file's gate walk.
     expect(
       find.byKey(const Key('salon-manage-staff-card-$_kSelfAdminId')),
-      findsNothing,
+      findsOneWidget,
       reason:
-          'self-exclusion only — the logged-in admin\'s OWN row must be '
-          'hidden from their own «Команда» tab',
+          'every salon member is listed, the viewer included — the roster '
+          'applies no client-side filter',
     );
 
     final Finder coAdminCard = find.byKey(

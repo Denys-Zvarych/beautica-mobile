@@ -185,12 +185,36 @@ class _SalonManagementProfileScreenState
     widget.onTabSelected?.call(index);
   }
 
-  /// Opens the staff management profile for [member] (Phase 21.5) — works for
-  /// both a master and an admin entry; the destination screen branches on
-  /// [member.role] internally.
-  void _openStaffMember(SalonStaffMember member) => context.push(
-    RouteNames.salonManageStaffMember(widget.salonId, member.userId),
-  );
+  /// Opens the destination for [member]'s roster row.
+  ///
+  /// The viewer's OWN row goes to their PERSONAL profile (`/profile/owner`,
+  /// `/profile/admin`) — a first-person surface, not the management view of
+  /// themselves. Every OTHER row keeps the Phase 21.5 destination, whose
+  /// screen branches on [member.role] internally.
+  void _openStaffMember(SalonStaffMember member) {
+    final AuthSession? session = ref.read(authProvider).value;
+    if (session is Authenticated && member.userId == session.user.id) {
+      // Exhaustive over UserRole with NO wildcard, on `role_home.dart`'s own
+      // precedent: a future sixth role must be a compile error here, not a
+      // silent fall-through. The three null arms are unreachable —
+      // `salonManageGuard` admits owner and admin only (D3, Phase 327) — and
+      // fall through to the management destination rather than inventing one.
+      final String? personal = switch (session.user.role) {
+        UserRole.salonOwner => RouteNames.ownerOwnProfile,
+        UserRole.salonAdmin => RouteNames.adminOwnProfile,
+        UserRole.salonMaster ||
+        UserRole.independentMaster ||
+        UserRole.client => null,
+      };
+      if (personal != null) {
+        context.push(personal);
+        return;
+      }
+    }
+    context.push(
+      RouteNames.salonManageStaffMember(widget.salonId, member.userId),
+    );
+  }
 
   void _openInviteStaff() =>
       context.push(RouteNames.salonInviteStaff(widget.salonId));
@@ -285,42 +309,37 @@ class _SalonManagementProfileScreenState
           ),
           data: (SalonManagementProfileData data) {
             final (Salon salon, List<SalonStaffMember> rawStaff) = data;
-            // UX scoping, not an authz boundary — the server authorizes
-            // `GET /salons/{id}/staff` and still returns every admin entry
-            // (including the viewer's own) for a SALON_ADMIN viewer. The
-            // product rule is narrower than "masters only": an admin's
-            // «Команда» tab must still surface co-admins, because
-            // `rotateAdmin` (`PATCH /salons/{salonId}/admins/{userId}/salon`)
-            // is genuinely admin-callable — `hasAnyRole('SALON_OWNER',
-            // 'SALON_ADMIN')` with no self-guard (`SalonService.java:789`) —
-            // and a co-admin's settings screen is only reachable from a row
-            // in this list. An earlier version of this filter dropped every
-            // `SalonStaffRole.admin` row, which incidentally self-excluded
-            // the viewer but also hid every co-admin, making that capability
-            // unreachable in-app; restored 2026-09-12 — do not re-broaden
-            // this back to "drop all admins". Self-exclusion only: hide the
-            // viewer's own row by `userId`, which is the backend `User` row
-            // id shared by both `SalonStaffMember.userId` and
-            // `session.user.id` (`salon_staff_member.dart`, `user.dart`).
-            // Owner-as-master is out of scope (not implemented), and the
-            // roster never contains an owner row (`SalonService.java:721-
-            // 732`), so the owner path (`viewerIsAdmin == false`) needs no
-            // filter at all — `rawStaff` passes through unchanged.
-            final bool viewerIsAdmin =
-                session is Authenticated &&
-                session.user.role == UserRole.salonAdmin;
-            final String? viewerId = session is Authenticated
-                ? session.user.id
-                : null;
-            final List<SalonStaffMember> staff = viewerIsAdmin
-                ? rawStaff
-                      .where((SalonStaffMember m) => m.userId != viewerId)
-                      .toList(growable: false)
-                : rawStaff;
+            // NO CLIENT-SIDE FILTER — every row `GET /salons/{id}/staff`
+            // returns is rendered, the viewer's OWN row included (user
+            // decision, 2026-09-13: "each salon member can see hisself").
+            // What the roster contains is decided by the server: active
+            // masters plus active SALON_ADMIN users
+            // (`SalonService.java:721-735`) — never the owner as an owner,
+            // never an inactive member, never a pending invitee.
+            //
+            // TWO EARLIER FILTERS LIVED HERE AND BOTH ARE GONE. `314f6318`
+            // scoped an admin viewer to masters only, which hid every
+            // co-admin and made `rotateAdmin`
+            // (`PATCH /salons/{salonId}/admins/{userId}/salon`,
+            // admin-callable with no self-guard, `SalonService.java:789`)
+            // unreachable in-app — a co-admin's settings screen is only
+            // reachable from a row in this list. `41b271e5` narrowed it to
+            // self-exclusion, which the user has since overruled. DO NOT ADD
+            // A THIRD ONE: this is a roster, and a row missing from it
+            // silently removes the only route to whatever that row leads to.
+            //
+            // The audience rule the product does enforce lives on the OTHER
+            // surface — `public_salon_profile_screen.dart`, a different
+            // provider, endpoint and model (`GET /salons/{id}/masters`). That
+            // one stays master-only. Never express a client-audience rule
+            // here.
+            //
+            // The viewer's own row is not filtered but it IS routed
+            // differently — see [_openStaffMember].
             return _LoadedBody(
               salonId: widget.salonId,
               salon: salon,
-              staff: staff,
+              staff: rawStaff,
               embedded: widget.embedded,
               topInset: topInset,
               coverHeight: _coverHeight,

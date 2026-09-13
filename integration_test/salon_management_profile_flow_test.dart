@@ -46,6 +46,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
@@ -1186,6 +1187,56 @@ void main() {
             equals('/salons/$_kAdminSalonId/manage/settings/contacts-edit'),
           ),
         );
+      });
+    },
+  );
+
+  // Phase 327 — the only end-to-end proof of D4 over the REAL wire, and
+  // also the FIRST test to prove `/profile/admin` is reachable in-app at
+  // all (the route's own comment in `app_router.dart` says nothing links
+  // there today). `salon-admin-1`'s `salonAdminOneStaff` fixture already
+  // seeds the logged-in admin's OWN row (`user-admin-1`, ==
+  // `_adminUserJson.id`) — see that fixture's own doc.
+  testWidgets(
+    'a SALON_ADMIN tapping their OWN «Команда» roster row opens their '
+    'PERSONAL profile, not the staff-management view of themselves',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+        await AppHarness.settle(tester);
+
+        router.go(RouteNames.salonManage(_kAdminSalonId));
+        await AppHarness.settle(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        final Finder ownCard = find.byKey(
+          const Key('salon-manage-staff-card-user-admin-1'),
+        );
+        await tester.ensureVisible(ownCard);
+        await tester.pumpAndSettle();
+        await tester.tap(ownCard);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(AdminOwnProfileScreen),
+          findsOneWidget,
+          reason:
+              "the admin's OWN roster row must open their PERSONAL "
+              'profile (D4), never SalonStaffProfileScreen',
+        );
+        expect(find.byType(SalonStaffProfileScreen), findsNothing);
+
+        // A working back chevron returns to the roster (D6) — no
+        // navigation-loop, one back-stack entry.
+        router.pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
       });
     },
   );

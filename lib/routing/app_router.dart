@@ -976,7 +976,7 @@ GoRouter appRouter(Ref ref) {
       // → keeps a back chevron). The SAME screen is hosted as the owner
       // shell's «Профіль» tab with `embedded: true`, but that is an
       // `IndexedStack` slot built directly by `SalonShellScreen`, not a nested
-      // route — so this registration is the stand-alone entry only.
+      // route — so this registration is the stand-alone (non-embedded) entry.
       //
       // `/profile` is a fresh top-level prefix with no dynamic sibling, so
       // unlike the three `/salons/` literals above there is no
@@ -1000,8 +1000,9 @@ GoRouter appRouter(Ref ref) {
       //     `AnimationController` costs nothing;
       //   • both instances watch the SAME keepAlive `ownerOwnProfileProvider`,
       //     so the second subscription issues no extra request.
-      // A future caller must still pass through [mySalonsGuard]; nothing
-      // links here today, so this is the stand-alone entry only.
+      // Gated by [mySalonsGuard]. One in-app linker today: the salon
+      // roster's self-row fork (`salon_management_profile_screen.dart`'s
+      // `_openStaffMember`) pushes here for the viewer's own row.
       GoRoute(
         path: RouteNames.ownerOwnProfile,
         redirect: mySalonsGuard,
@@ -1012,7 +1013,7 @@ GoRouter appRouter(Ref ref) {
       // → keeps a back chevron). The SAME screen is hosted as the admin
       // shell's «Профіль» tab with `embedded: true`, but that is an
       // `IndexedStack` slot built directly by `SalonShellScreen`, not a nested
-      // route — so this registration is the stand-alone entry only.
+      // route — so this registration is the stand-alone (non-embedded) entry.
       //
       // A sibling literal of `/profile/owner` directly above: two literals at
       // the same segment, so neither shadows the other and their relative
@@ -1024,8 +1025,9 @@ GoRouter appRouter(Ref ref) {
       // the card renders inert — which is also exactly what the approved
       // preview draws (see `AdminOwnProfileScreen.onSalonTap`).
       //
-      // Gated by [salonAdminOnlyGuard]. Nothing links here today, so this is
-      // the stand-alone entry only.
+      // Gated by [salonAdminOnlyGuard]. One in-app linker today: the salon
+      // roster's self-row fork (`salon_management_profile_screen.dart`'s
+      // `_openStaffMember`) pushes here for the viewer's own row.
       GoRoute(
         path: RouteNames.adminOwnProfile,
         redirect: salonAdminOnlyGuard,
