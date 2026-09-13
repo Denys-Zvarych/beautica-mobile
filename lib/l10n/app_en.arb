@@ -1858,24 +1858,6 @@
   "@deleteServiceBlockedBodyNoCount": {
     "description": "Body text of the delete-service blocked dialog (Phase 319 D2), shown when a salon-target unassign is refused with a 409 ServiceUnassignBlockedFailure. The backend's refusal carries no structured booking count (a plain-English Java string), so this body deliberately states NO count — rendering deleteServiceBlockedBody(0) here would be a false claim of zero future bookings."
   },
-  "servicePriceShapeMismatchBody": "{isRange, select, true{In this salon, this service already costs from {min} to {max} ₴. Choose the same price format.} other{In this salon, this service already costs {min} ₴. Choose the same price format.}}",
-  "@servicePriceShapeMismatchBody": {
-    "description": "Error message shown on the service setup screen (Phase 319 D4) for a 400 SERVICE_PRICE_SHAPE_MISMATCH — the salon already has this service definition under a different price shape than the one just submitted. Names the salon's EXISTING price shape so the master knows what to match. Currency is always ₴, never «грн» (project_currency_symbol_hryvnia). isRange selects between the RANGE phrasing (min+max) and the FIXED phrasing (min only) — pass 'true'/'false' as a String, since ICU select requires a String argument.",
-    "placeholders": {
-      "isRange": {
-        "type": "String",
-        "example": "true"
-      },
-      "min": {
-        "type": "String",
-        "example": "400"
-      },
-      "max": {
-        "type": "String",
-        "example": "900"
-      }
-    }
-  },
   "actionCancel": "Cancel",
   "@actionCancel": {
     "description": "Generic cancel action label used in confirmation dialogs (Phase 5.5)."

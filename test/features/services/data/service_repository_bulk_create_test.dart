@@ -137,11 +137,21 @@ DioException _dioWithStatus(int status, {String path = _bulkPath}) =>
 /// [_fixedItem] / [_rangeItem] so a defaulting bug in the mapper cannot pass
 /// (`project_fixture_values_can_defang_assertions`) — the salon already
 /// charges RANGE 900–1500 for a service the batch submitted as FIXED 500.
+///
+/// No `error:` field is set — matching the sibling "WITHOUT the code"
+/// fixture below. Phase 326 removed the discriminator that used to intercept
+/// this body BEFORE `_mapDioException` ran, so this DioException now reaches
+/// `_mapDioException` for real; that method returns `e.error` verbatim when
+/// it is already a [Failure] (`_mapDioException`'s first line), so setting a
+/// pre-attached [ServerFailure] here would short-circuit the statusCode
+/// switch and assert a failure type the real `ErrorMapperInterceptor` would
+/// never actually attach to a bare 400 (it maps 400/422 to
+/// [ValidationFailure], never [ServerFailure] — `error_mapper_interceptor.dart`
+/// line ~197).
 DioException _priceShapeMismatch400({String path = _salonBulkPath}) =>
     DioException(
       requestOptions: RequestOptions(path: path),
       type: DioExceptionType.badResponse,
-      error: const ServerFailure(statusCode: 400),
       response: Response<dynamic>(
         requestOptions: RequestOptions(path: path),
         statusCode: 400,
@@ -635,8 +645,9 @@ void main() {
     });
 
     test(
-      '400 SERVICE_PRICE_SHAPE_MISMATCH → ServicePriceShapeMismatchFailure '
-      'with the salon shape POPULATED from the response, not defaulted',
+      '400 WITH the SERVICE_PRICE_SHAPE_MISMATCH code now maps to '
+      'ValidationFailure like any other 400 (phase 326 — the backend can no '
+      'longer send this code; the client no longer special-cases it)',
       () async {
         when(
           () => dio.post<Object?>(_salonBulkPath, data: any(named: 'data')),
@@ -646,15 +657,7 @@ void main() {
             .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
             .then<Object?>((_) => null, onError: (Object e) => e);
 
-        expect(failure, isA<ServicePriceShapeMismatchFailure>());
-        final mismatch = failure! as ServicePriceShapeMismatchFailure;
-        // Every field differs from the FIXED-500 item submitted above —
-        // a defaulting bug in the mapper cannot pass this fixture.
-        expect(mismatch.serviceName, 'Манікюр класичний');
-        expect(mismatch.existingServiceDefId, 'def-salon-existing');
-        expect(mismatch.salonPriceType, ServicePriceType.range);
-        expect(mismatch.salonPriceMin, 900.0);
-        expect(mismatch.salonPriceMax, 1500.0);
+        expect(failure, isA<ValidationFailure>());
       },
     );
 
@@ -682,7 +685,6 @@ void main() {
           .bulkCreate(<MasterServiceBulkItem>[_fixedItem])
           .then<Object?>((_) => null, onError: (Object e) => e);
 
-      expect(failure, isNot(isA<ServicePriceShapeMismatchFailure>()));
       expect(failure, isA<ValidationFailure>());
     });
 

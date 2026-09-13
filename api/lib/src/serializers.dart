@@ -209,10 +209,6 @@ import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
-import 'package:beautica_api/src/model/service_price_shape_mismatch_error_response.dart';
-import 'package:beautica_api/src/model/service_price_shape_mismatch_response.dart';
-import 'package:beautica_api/src/model/service_price_shape_mismatch_response_salon_price_max.dart';
-import 'package:beautica_api/src/model/service_price_shape_mismatch_response_salon_price_min.dart';
 import 'package:beautica_api/src/model/service_summary_dto.dart';
 import 'package:beautica_api/src/model/sibling_salon_option.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
@@ -221,6 +217,7 @@ import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 import 'package:beautica_api/src/model/timeline_item_response.dart';
 import 'package:beautica_api/src/model/unclosed_count_response.dart';
 import 'package:beautica_api/src/model/unregister_device_token_request.dart';
+import 'package:beautica_api/src/model/update_master_service_band_request.dart';
 import 'package:beautica_api/src/model/update_profile_request.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
 import 'package:beautica_api/src/model/update_service_definition_request.dart';
@@ -437,10 +434,6 @@ part 'serializers.g.dart';
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,
-  ServicePriceShapeMismatchErrorResponse,
-  ServicePriceShapeMismatchResponse,
-  ServicePriceShapeMismatchResponseSalonPriceMax,
-  ServicePriceShapeMismatchResponseSalonPriceMin,
   ServiceSummaryDto,
   SiblingSalonOption,
   SortObject,
@@ -449,6 +442,7 @@ part 'serializers.g.dart';
   TimelineItemResponse,
   UnclosedCountResponse,
   UnregisterDeviceTokenRequest,
+  UpdateMasterServiceBandRequest,
   UpdateProfileRequest,
   UpdateSalonRequest,
   UpdateServiceDefinitionRequest,

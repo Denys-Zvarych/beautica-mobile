@@ -192,6 +192,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonMasterServices**](doc/ServiceControllerApi.md#getsalonmasterservices) | **GET** /api/v1/salons/{salonId}/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonServiceCatalog**](doc/ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | Salon&#39;s public bookable service catalog
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**unassignServiceFromMaster**](doc/ServiceControllerApi.md#unassignservicefrommaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateMasterServiceBand**](doc/ServiceControllerApi.md#updatemasterserviceband) | **PATCH** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
@@ -400,10 +401,6 @@ Class | Method | HTTP request | Description
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)
- - [ServicePriceShapeMismatchErrorResponse](doc/ServicePriceShapeMismatchErrorResponse.md)
- - [ServicePriceShapeMismatchResponse](doc/ServicePriceShapeMismatchResponse.md)
- - [ServicePriceShapeMismatchResponseSalonPriceMax](doc/ServicePriceShapeMismatchResponseSalonPriceMax.md)
- - [ServicePriceShapeMismatchResponseSalonPriceMin](doc/ServicePriceShapeMismatchResponseSalonPriceMin.md)
  - [ServiceSummaryDto](doc/ServiceSummaryDto.md)
  - [SiblingSalonOption](doc/SiblingSalonOption.md)
  - [SortObject](doc/SortObject.md)
@@ -412,6 +409,7 @@ Class | Method | HTTP request | Description
  - [TimelineItemResponse](doc/TimelineItemResponse.md)
  - [UnclosedCountResponse](doc/UnclosedCountResponse.md)
  - [UnregisterDeviceTokenRequest](doc/UnregisterDeviceTokenRequest.md)
+ - [UpdateMasterServiceBandRequest](doc/UpdateMasterServiceBandRequest.md)
  - [UpdateProfileRequest](doc/UpdateProfileRequest.md)
  - [UpdateSalonRequest](doc/UpdateSalonRequest.md)
  - [UpdateServiceDefinitionRequest](doc/UpdateServiceDefinitionRequest.md)

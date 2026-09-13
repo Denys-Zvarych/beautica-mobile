@@ -41,8 +41,6 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/features/services/domain/master_service.dart'
-    show ServicePriceType;
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -99,10 +97,6 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'AccountDeleteBookingLimitFailure': false,
   'DuplicateServiceFailure': false,
   'ServiceDuplicateFailure': false,
-  // 400 SERVICE_PRICE_SHAPE_MISMATCH (phase 315 D3, salon-target bulkCreate).
-  // An identical retry meets the identical salon-governed price shape and
-  // 400s again; recovery is a deliberate user action.
-  'ServicePriceShapeMismatchFailure': false,
   // 409 on salon-target unassign (phase 316 D2/D4) — backend refuses before
   // any write when future CONFIRMED bookings exist; deterministic.
   'ServiceUnassignBlockedFailure': false,
@@ -183,11 +177,6 @@ Map<String, Failure> _instances() {
     ),
     'DuplicateServiceFailure': const DuplicateServiceFailure(),
     'ServiceDuplicateFailure': const ServiceDuplicateFailure(),
-    'ServicePriceShapeMismatchFailure': const ServicePriceShapeMismatchFailure(
-      salonPriceType: ServicePriceType.range,
-      salonPriceMin: 400,
-      salonPriceMax: 900,
-    ),
     'ServiceUnassignBlockedFailure': const ServiceUnassignBlockedFailure(),
     'ClientBookingConflictFailure': ClientBookingConflictFailure(
       conflictingBookingId: 'booking-1',

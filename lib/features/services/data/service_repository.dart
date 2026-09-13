@@ -141,15 +141,10 @@ abstract interface class ServiceRepository {
   ///     means "this master already performs it" — the SAME failure type, the
   ///     same "already in your menu" copy (phase 315 D4 — the existing handler
   ///     is inherited unchanged).
-  ///   - [ServicePriceShapeMismatchFailure] on **400** (`data.code ==
-  ///     "SERVICE_PRICE_SHAPE_MISMATCH"`, salon target only) — an item's price
-  ///     shape cannot be represented on the salon's already-reused service
-  ///     definition. Carries the salon's actual governing shape (phase 315 D3).
   ///   - [BulkSetupBusyFailure] on **503** (per-master lock held past the
   ///     backend's 3 s ceiling). Transient; safe to retry, nothing was written.
-  ///   - [ValidationFailure] on **400/422** WITHOUT the price-shape-mismatch
-  ///     code (malformed items, or a service-type id repeated within the
-  ///     batch).
+  ///   - [ValidationFailure] on **400/422** (malformed items, or a
+  ///     service-type id repeated within the batch).
   ///   - [NetworkFailure] / [ServerFailure] on other transport errors.
   Future<List<MasterService>> bulkCreate(List<MasterServiceBulkItem> items);
 
@@ -811,13 +806,7 @@ final class HttpServiceRepository implements ServiceRepository {
   ///   - **429** → [ServiceRateLimitedFailure] (the per-master bulk bucket,
   ///     10/min, is exhausted). Reachable in ordinary use because the 503 branch
   ///     hands the master an explicit retry action.
-  ///   - **400** with `data.code == "SERVICE_PRICE_SHAPE_MISMATCH"` (salon
-  ///     target only) → [ServicePriceShapeMismatchFailure], carrying the
-  ///     salon's governing shape (phase 315 D3). Discriminated on the typed
-  ///     code, NEVER on the bare 400 — any other 400 on this path is an
-  ///     ordinary validation failure and must keep mapping to
-  ///     [ValidationFailure] below.
-  ///   - **400/422** (any other body) → [ValidationFailure] (includes the
+  ///   - **400/422** (any body) → [ValidationFailure] (includes the
   ///     in-batch duplicate service-type-id case and the per-item
   ///     `items[i].field` errors).
   /// All other statuses defer to the shared [_mapDioException].
@@ -843,13 +832,6 @@ final class HttpServiceRepository implements ServiceRepository {
       // `serviceName` is null on the bulk envelope, so [ServiceDuplicateFailure]
       // renders its plain "already in your menu" message.
       return _extractDuplicateService(e);
-    }
-    // Phase 315 D3 — checked BEFORE the generic 400/422 → ValidationFailure
-    // fallthrough in `_mapDioException`, and gated on the TYPED code, never on
-    // the bare 400: any other 400 on this path must keep mapping to
-    // ValidationFailure (pinned by a dedicated negative test).
-    if (statusCode == 400 && _isPriceShapeMismatch(e)) {
-      return _extractPriceShapeMismatch(e);
     }
     // Decoded by STATUS CODE alone — the 503 body is deliberately generic
     // (`data: null`, non-machine-readable `message`), and there is no
@@ -926,52 +908,6 @@ final class HttpServiceRepository implements ServiceRepository {
     return ServiceDuplicateFailure(
       serviceName: readString(map['serviceName']),
       existingServiceDefId: readString(map['existingServiceDefId']),
-      cause: e,
-    );
-  }
-
-  /// `true` when [e] is a 400 whose body is the
-  /// `{ "data": { "code": "SERVICE_PRICE_SHAPE_MISMATCH" } }` envelope
-  /// (phase 315 D3) — a batch item's price shape cannot be represented on the
-  /// salon's already-reused service definition. Hand-decoded from the raw
-  /// JSON body, mirroring [_isDuplicateService].
-  bool _isPriceShapeMismatch(DioException e) {
-    final body = e.response?.data;
-    if (body is! Map<String, dynamic>) return false;
-    final data = body['data'];
-    if (data is! Map<String, dynamic>) return false;
-    return data['code'] == 'SERVICE_PRICE_SHAPE_MISMATCH';
-  }
-
-  /// Builds a [ServicePriceShapeMismatchFailure] from a 400
-  /// `SERVICE_PRICE_SHAPE_MISMATCH` body, threading through the salon's
-  /// governing shape. `salonPriceType` defaults to [ServicePriceType.fixed]
-  /// only when the wire value is neither `"FIXED"` nor `"RANGE"` (a malformed
-  /// body must still resolve to a value — the field is non-nullable on the
-  /// failure). `salonPriceMin` / `salonPriceMax` are read defensively — a
-  /// non-numeric value degrades to `null` rather than throwing.
-  /// Precondition: [_isPriceShapeMismatch] returned `true` for [e].
-  ServicePriceShapeMismatchFailure _extractPriceShapeMismatch(DioException e) {
-    String? readString(Object? value) => value is String ? value : null;
-    double? readDouble(Object? value) => switch (value) {
-      num n => n.toDouble(),
-      _ => null,
-    };
-    final body = e.response?.data;
-    final data = (body is Map<String, dynamic>) ? body['data'] : null;
-    final map = (data is Map<String, dynamic>)
-        ? data
-        : const <String, dynamic>{};
-    final salonPriceType = switch (map['salonPriceType']) {
-      'RANGE' => ServicePriceType.range,
-      _ => ServicePriceType.fixed,
-    };
-    return ServicePriceShapeMismatchFailure(
-      serviceName: readString(map['serviceName']),
-      existingServiceDefId: readString(map['existingServiceDefId']),
-      salonPriceType: salonPriceType,
-      salonPriceMin: readDouble(map['salonPriceMin']),
-      salonPriceMax: readDouble(map['salonPriceMax']),
       cause: e,
     );
   }
@@ -1167,7 +1103,7 @@ final class HttpServiceRepository implements ServiceRepository {
   ///     bookings block the unassign; nothing was written. No count is parsed
   ///     out of the body (D3 — it is a plain English `String`, not a
   ///     structured payload), so this check is on STATUS CODE ALONE, unlike
-  ///     [_isDuplicateService] / [_isPriceShapeMismatch].
+  ///     [_isDuplicateService].
   ///   - **429** → [ServiceRateLimitedFailure] — shares the per-master
   ///     single-write bucket [_mapServiceWriteException] uses.
   ///   - **404** → falls through to [_mapDioException], which already maps it

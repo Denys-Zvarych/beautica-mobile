@@ -13,8 +13,6 @@
 // `context` through only when constructing the SnackBar/dialog — not stored
 // inside the notifier itself (see flutter skill § Forbidden Patterns).
 
-import 'package:beautica_mobile/features/services/domain/master_service.dart'
-    show ServicePriceType;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
@@ -740,82 +738,6 @@ final class ServiceDuplicateFailure extends Failure {
       AppLocalizations.of(ctx).serviceErrDuplicate;
 }
 
-/// Emitted when a service-catalog bulk-create WRITE against a **salon**
-/// target (`POST /salons/{s}/masters/{m}/services/bulk`) returns HTTP **400**
-/// with the typed `data.code == "SERVICE_PRICE_SHAPE_MISMATCH"` envelope
-/// (backend phase 302 D3): a batch item's price shape cannot be represented on
-/// the salon's already-reused service definition — e.g. a `FIXED 600` item
-/// against a definition the salon already offers as `RANGE 400–900`.
-///
-/// Distinct from the generic [ValidationFailure] this path otherwise falls
-/// through to: that failure carries no field-error map for this condition (it
-/// is not a per-item schema violation), so without this type the master would
-/// see an unexplained validation error on a row that LOOKS correct to them.
-/// This failure exists to carry the salon's actual governing shape so the copy
-/// can name it — «У салоні ця послуга вже коштує від 400 до 900 ₴» instead of
-/// "Invalid price". The copy itself is phase 319's job (no ARB key is added by
-/// this failure); this type only makes the copy *possible*.
-///
-/// Expected backend envelope:
-/// ```json
-/// {
-///   "success": false,
-///   "data": {
-///     "code": "SERVICE_PRICE_SHAPE_MISMATCH",
-///     "serviceName": "Манікюр класичний" | null,
-///     "existingServiceDefId": "3f2a1c1e-…" | null,
-///     "salonPriceType": "RANGE",
-///     "salonPriceMin": 400,
-///     "salonPriceMax": 900
-///   },
-///   "message": "Price shape does not match the salon's existing definition"
-/// }
-/// ```
-/// The server-supplied top-level `message` is intentionally NEVER shown (it is
-/// untranslated internal English copy), mirroring [ServiceDuplicateFailure].
-///
-/// Decoded by `HttpServiceRepository._mapBulkCreateException` — checked
-/// BEFORE deferring to any [Failure] the [ErrorMapperInterceptor] may already
-/// have attached, and discriminated on `data.code ==
-/// "SERVICE_PRICE_SHAPE_MISMATCH"` specifically, **never** on the bare `400`:
-/// any OTHER 400 on this path is an ordinary validation failure and must keep
-/// mapping to [ValidationFailure].
-final class ServicePriceShapeMismatchFailure extends Failure {
-  const ServicePriceShapeMismatchFailure({
-    this.serviceName,
-    this.existingServiceDefId,
-    required this.salonPriceType,
-    this.salonPriceMin,
-    this.salonPriceMax,
-    super.cause,
-  });
-
-  /// The clashing service's display name, exactly as returned by the backend
-  /// (an untranslated catalogue value). May be null.
-  final String? serviceName;
-
-  /// The id of the salon's existing service definition whose shape the batch
-  /// item conflicts with. May be null.
-  final String? existingServiceDefId;
-
-  /// The salon's ALREADY-GOVERNING price mode for this service — the shape the
-  /// batch item failed to match. Required: every response carrying this code
-  /// names a mode.
-  final ServicePriceType salonPriceType;
-
-  /// The salon's existing floor price. For [ServicePriceType.fixed] this is
-  /// the price; for [ServicePriceType.range] this is the minimum.
-  final double? salonPriceMin;
-
-  /// The salon's existing ceiling price. Only meaningful for
-  /// [ServicePriceType.range]; null for [ServicePriceType.fixed].
-  final double? salonPriceMax;
-
-  @override
-  String userMessage(BuildContext ctx) =>
-      AppLocalizations.of(ctx).errValidation;
-}
-
 /// Emitted when a salon-target service UNASSIGN
 /// (`DELETE /salons/{s}/masters/{m}/services/{serviceDefId}`, backend phase
 /// 307) returns HTTP **409**: the master still has future **CONFIRMED**
@@ -844,8 +766,7 @@ final class ServicePriceShapeMismatchFailure extends Failure {
 ///
 /// The dedicated blocked-delete dialog that renders this failure's copy is
 /// mobile phase 319 — no ARB key is added by this failure; [userMessage]
-/// reuses the existing generic validation copy as a placeholder, mirroring
-/// [ServicePriceShapeMismatchFailure].
+/// reuses the existing generic validation copy as a placeholder.
 final class ServiceUnassignBlockedFailure extends Failure {
   const ServiceUnassignBlockedFailure({super.cause});
 
