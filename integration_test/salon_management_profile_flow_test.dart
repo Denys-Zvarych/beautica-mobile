@@ -583,11 +583,21 @@ void main() {
         // tapping, mirroring `TapCalendarDay`'s own reasoning
         // (`test/helpers/pump_app.dart`): a blind tap at an off-screen offset
         // does not fail loudly, it silently mis-hits.
+        //
+        // mobile-perf LOW fix (2026-09-13) — the roster grid is now a
+        // genuinely lazy `SliverGrid.builder`, so the tile is not just
+        // scrolled-past but genuinely un-inflated at boot; a plain
+        // `ensureVisible` (which needs the target Element to already exist)
+        // now throws `Bad state: No element` instead of scrolling it in.
+        // Reuses [AppHarness.scrollFilterFieldIntoView] — the shared
+        // jump-to-0 + `scrollUntilVisible` recipe for exactly this shape.
         final Finder addStaffTile = find.byKey(
           const Key('salon-manage-add-staff'),
         );
-        await tester.ensureVisible(addStaffTile);
-        await tester.pumpAndSettle();
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-manage-add-staff'),
+        );
         await tester.tap(addStaffTile);
         await tester.pumpAndSettle();
 
@@ -1215,11 +1225,20 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
+        // mobile-perf LOW fix (2026-09-13) — the roster grid is now a
+        // genuinely lazy `SliverGrid.builder` (`_StaffTab`), and the self
+        // row is row 2 of this fixture's 2-column grid — not yet inflated
+        // at boot, so a plain `ensureVisible` (which needs the target
+        // Element to already exist) throws. Reuses
+        // [AppHarness.scrollFilterFieldIntoView] — the shared jump-to-0 +
+        // `scrollUntilVisible` recipe for exactly this shape.
         final Finder ownCard = find.byKey(
           const Key('salon-manage-staff-card-user-admin-1'),
         );
-        await tester.ensureVisible(ownCard);
-        await tester.pumpAndSettle();
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-manage-staff-card-user-admin-1'),
+        );
         await tester.tap(ownCard);
         await tester.pumpAndSettle();
 

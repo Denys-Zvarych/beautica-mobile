@@ -596,20 +596,28 @@ void main() {
         tester.widget<SalonMasterCard>(adminCard).role,
         l10n.salonStaffRoleAdmin,
       );
-      expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
       expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
 
       // Phase 21.4 — the add-staff tile navigates to InviteStaffScreen
-      // (`RouteNames.salonInviteStaff`). mobile-qa gap-closure (Phase 21.5) —
-      // with the admin fixture added above, the grid now spans 2 rows at the
-      // default test surface, pushing the add-staff tile below the fold;
-      // scroll it into view before tapping (mirrors the integration flow's
-      // own `ensureVisible` precedent for this exact tile).
+      // (`RouteNames.salonInviteStaff`). mobile-perf LOW fix (2026-09-13) —
+      // the roster grid is now a genuinely lazy `SliverGrid.builder` (was a
+      // `shrinkWrap: true` `GridView.builder`, which built every cell up
+      // front regardless of the fold). With the admin fixture above, the
+      // grid spans 2 rows at the default test surface, and the add-staff
+      // tile in row 2 is no longer BUILT at all until scrolled near — a
+      // blind `find.byKey` for it before scrolling now finds nothing rather
+      // than an off-screen-but-built widget. `scrollUntilVisible` drags the
+      // one scrollable (the screen's own `CustomScrollView`) until the tile
+      // actually inflates.
       final Finder addStaffTile = find.byKey(
         const Key('salon-manage-add-staff'),
       );
-      await tester.ensureVisible(addStaffTile);
-      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        addStaffTile,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(addStaffTile, findsOneWidget);
       await tester.tap(addStaffTile);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('invite-staff-marker')), findsOneWidget);
@@ -783,8 +791,21 @@ void main() {
               "admin-1 is the viewer's own row and is listed like any "
               'other — the roster applies no filter.',
         );
+        // mobile-perf LOW fix (2026-09-13) — the grid is now a genuinely
+        // lazy `SliverGrid.builder` (see `salon_management_profile_screen
+        // .dart`'s `_StaffTab`): admin-2 is row 2 of 2 at the default test
+        // surface and is not BUILT until scrolled near, unlike the old
+        // `shrinkWrap: true` grid that built every cell up front.
+        final Finder admin2Card = find.byKey(
+          const Key('salon-manage-staff-card-admin-2'),
+        );
+        await tester.scrollUntilVisible(
+          admin2Card,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(
-          find.byKey(const Key('salon-manage-staff-card-admin-2')),
+          admin2Card,
           findsOneWidget,
           reason:
               'a co-admin (a different user id from the viewer) must render '
@@ -871,7 +892,18 @@ void main() {
         );
         expect(find.byType(SalonMasterCard), findsNWidgets(2));
         expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
-        expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
+        // mobile-perf LOW fix (2026-09-13) — genuinely lazy grid (see the
+        // admin-2 scroll comment above): the add-tile is row 2 and is not
+        // built until scrolled near.
+        final Finder addStaffTile = find.byKey(
+          const Key('salon-manage-add-staff'),
+        );
+        await tester.scrollUntilVisible(
+          addStaffTile,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(addStaffTile, findsOneWidget);
       },
     );
 
@@ -2063,6 +2095,19 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
+        // mobile-perf LOW fix (2026-09-13) — genuinely lazy grid: 4 members
+        // span 2 rows at the default test surface, and the last (row 2) is
+        // not built until scrolled near. Scroll to the LAST roster member
+        // first — a small enough drag that row 1 stays within the sliver's
+        // cache extent, so every card ends up simultaneously built for the
+        // exact-count assertion below.
+        await tester.scrollUntilVisible(
+          find.byKey(
+            Key('salon-manage-staff-card-${_matrixFullRoster.last.userId}'),
+          ),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.byType(SalonMasterCard), findsNWidgets(4));
         for (final SalonStaffMember member in _matrixFullRoster) {
           expect(

@@ -177,6 +177,19 @@ Future<GoRouter> _openCoAdminSettingsAs(
     // doc). This walk still taps the CO-ADMIN's card below, never this one —
     // the self row's destination is the personal profile, proven in
     // `salon_management_profile_flow_test.dart`, not this file's gate walk.
+    //
+    // mobile-perf LOW fix (2026-09-13) — the roster grid is now a genuinely
+    // lazy `SliverGrid.builder` (`_StaffTab`), and the self row is the third
+    // of three fixture members (co-admin, master-under-admin, self) — row 2
+    // of the 2-column grid, below the fold at boot. Reuses
+    // [AppHarness.scrollFilterFieldIntoView] (the shared jump-to-0 +
+    // `scrollUntilVisible` recipe for exactly this "target not yet inflated"
+    // shape) rather than a second hand-rolled copy — see that helper's own
+    // REUSE-FIRST doc.
+    await AppHarness.scrollFilterFieldIntoView(
+      tester,
+      const Key('salon-manage-staff-card-$_kSelfAdminId'),
+    );
     expect(
       find.byKey(const Key('salon-manage-staff-card-$_kSelfAdminId')),
       findsOneWidget,
