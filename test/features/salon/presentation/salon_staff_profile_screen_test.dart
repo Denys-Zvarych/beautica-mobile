@@ -54,6 +54,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_revision.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1341,8 +1342,8 @@ void main() {
     );
 
     testWidgets(
-      'D4 — popping the services subtree invalidates the profile and the '
-      'refetched (not retained) count renders',
+      'D4 — popping the services subtree after a MUTATION invalidates the '
+      'profile and the refetched (not retained) count renders',
       (tester) async {
         tester.view.physicalSize = const Size(800, 2600);
         tester.view.devicePixelRatio = 1.0;
@@ -1416,6 +1417,16 @@ void main() {
         // Simulate the subtree adding a service BEFORE the operator returns —
         // the fixture the invalidated re-fetch must actually pick up.
         currentServices = _masterServicesPlusOne;
+        // 2026-09-13 audit (M7) — and the SIGNAL that a mutation happened.
+        // The real subtree bumps this through the one fan-out point
+        // `invalidateMasterServiceCatalogues(ref)`, which every create / edit
+        // / delete in `ServiceSetupScreen` / `ServiceEditScreen` calls. The
+        // return-side invalidate is gated on that counter changing, so a
+        // fixture that swaps the data without bumping it is a LOOK, not a
+        // mutation — see the companion test below.
+        ProviderScope.containerOf(
+          tester.element(find.byType(_ServicesRouteMarker)),
+        ).read(serviceCatalogueRevisionProvider.notifier).bump();
 
         router.pop();
         await tester.pumpAndSettle();
@@ -1450,6 +1461,98 @@ void main() {
           find.text(l10n.staffProfileServicesCount(2)),
           findsNothing,
           reason: 'the stale pre-return count must be gone, not merely joined',
+        );
+      },
+    );
+
+    // 2026-09-13 audit (M7, mobile-perf LOW) — the OTHER half of the gate.
+    //
+    // Without it, deleting the `if (after == before) return;` guard in
+    // `salon_staff_profile_screen.dart` leaves the test above green, because
+    // "invalidate always" satisfies "invalidate after a mutation" too. This
+    // is the case that goes red on that deletion: a pure LOOK — push into the
+    // services subtree, mutate nothing, come straight back — must cost NO
+    // second `getMasterServices(masterId)` round trip.
+    testWidgets(
+      'a LOOK (push and return with no mutation) does NOT refetch the profile',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        int builds = 0;
+
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.salonManageStaffMember(
+            _kSalonId,
+            _kMasterId,
+          ),
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId',
+              builder: (context, state) => SalonStaffProfileScreen(
+                salonId: state.pathParameters['salonId']!,
+                memberId: state.pathParameters['memberId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId/services',
+              builder: (context, state) =>
+                  const _ServicesRouteMarker(salonId: '', memberId: ''),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith(
+              (ref) async {
+                builds++;
+                return (_masterMember, _masterServices);
+              },
+            ),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[],
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(builds, 1, reason: 'precondition — one initial fetch');
+
+        await tester.tap(
+          find.byKey(const Key('salon-staff-profile-services-row')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+
+        // NOTHING is bumped here — that is the whole point.
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          builds,
+          1,
+          reason:
+              'M7 — `salonStaffMemberProfileProvider.build` re-runs '
+              '`getMasterServices(masterId)`; an operator who only LOOKED '
+              'must not pay for that round trip. Goes red the moment the '
+              'revision gate is removed and the invalidate becomes '
+              'unconditional again.',
+        );
+        // And the rendered count is the ORIGINAL one — the screen is showing
+        // live state, not a stale-but-correct coincidence.
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-staff-profile-services-value')),
+              )
+              .data,
+          '2',
         );
       },
     );

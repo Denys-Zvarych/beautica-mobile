@@ -1268,7 +1268,7 @@ GoRouter appRouter(Ref ref) {
       // `fullPath`. So the scope reads its two ids straight off `state`; no
       // `GoRouterState.of(context)` lookup inside the shell child is needed.
       ShellRoute(
-        builder: (context, state, child) => _SalonMasterServicesShell(
+        builder: (context, state, child) => _SalonManageStaffServicesShell(
           salonId: state.pathParameters['salonId'] ?? '',
           memberId: state.pathParameters['memberId'] ?? '',
           child: child,
@@ -1307,13 +1307,19 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: '/salons/:salonId/manage/staff/:memberId/services/setup',
             redirect: salonManageGuard,
-            builder: (context, state) => ServiceSetupScreen(
-              // D3 — the no-stack fallback. Without it a cold start on this
-              // path would `go` to the OPERATOR's own `/services`.
-              exitRoute: RouteNames.salonManageStaffServices(
-                state.pathParameters['salonId'] ?? '',
-                state.pathParameters['memberId'] ?? '',
-              ),
+            // 2026-09-13 audit (M1, mobile-security MEDIUM) — this leaf used
+            // to build [ServiceSetupScreen] BARE while both its siblings (the
+            // list above and the edit below) carry the Phase 322
+            // [canManageSalonProvider] predicate. `salonManageGuard`'s
+            // SALON_OWNER arm ADMITS on an unresolved `mySalonsProvider` (the
+            // documented cold-deep-link fallback at `:372-380`), so a cold
+            // deep link by the owner of a DIFFERENT salon rendered a fully
+            // writable bulk-create form. The backend rejects the POST, so
+            // there was no escalation — but this is the one leaf of three
+            // that trusted route reachability alone for a MUTATION surface.
+            builder: (context, state) => _SalonManageServiceSetupRoute(
+              salonId: state.pathParameters['salonId'] ?? '',
+              memberId: state.pathParameters['memberId'] ?? '',
             ),
           ),
           GoRoute(
@@ -1923,9 +1929,66 @@ GoRouter appRouter(Ref ref) {
       // type); kept for the same theme-driven page-transition builder every
       // other tab-root screen gets, mirroring `RouteNames.masterProfile`
       // immediately above.
-      GoRoute(
-        path: RouteNames.salonMasterProfile,
-        builder: (context, state) => const SalonMasterProfileScreen(),
+      // 2026-09-13 audit (M2, mobile-perf MEDIUM) — the SALON_MASTER's three
+      // bottom-nav tab roots live INSIDE one [ShellRoute] so the
+      // `serviceTargetProvider` override (and therefore the `keepAlive`
+      // catalogue cached under it) survives a tab switch.
+      //
+      // `VelvetBottomNavBar` navigates with `context.go`
+      // (`velvet_bottom_nav_bar.dart`), which REPLACES the stack. With
+      // `/staff/services` a flat `GoRoute`, its `ProviderScope` — created
+      // inside `_SalonMasterOwnServicesRoute._resolved` — unmounted on every
+      // tab tap, disposing the scoped `masterServiceCatalogProvider`
+      // (`keepAlive` is per-container, not global) and re-firing
+      // `GET /salons/{s}/masters/{m}/services` on every return to tile 0. The
+      // INDEPENDENT_MASTER paid nothing for the same journey because its
+      // catalogue lives in the ROOT container.
+      //
+      // `ShellRoute` is the only construct whose builder genuinely wraps the
+      // child Navigator — the identical reasoning (and wording) the
+      // `/salons/:salonId/manage/staff/:memberId/services` shell at `:1270`
+      // already documents: go_router contributes each matched route as a
+      // SIBLING `Page`, so a parent `GoRoute` builder is never an ancestor of
+      // its children.
+      //
+      // The flat-guard convention is preserved: the `ShellRoute` declares no
+      // `path` and no `redirect`, so it contributes no ancestor guard, and the
+      // global `authRedirect` still resolves each leaf's own `/staff/*` path
+      // exactly as before. The three leaves keep their own full paths, so
+      // every `RouteNames.salonMaster*` literal, every `context.go` target and
+      // every deep link are unchanged.
+      //
+      // `/staff/settings` and `/staff/edit/*` stay OUTSIDE: they are pushed
+      // drill-ins, not tabs, and the shell's page simply stays below them in
+      // the stack.
+      ShellRoute(
+        builder: (context, state, child) => _SalonMasterTabsShell(child: child),
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.salonMasterProfile,
+            builder: (context, state) => const SalonMasterProfileScreen(),
+          ),
+          // Phase 309 — «Графік роботи» read-only view for a SALON_MASTER.
+          // Reuses [MasterScheduleScreen] VERBATIM (see `route_names.dart`'s
+          // [RouteNames.salonMasterSchedule] doc). Still a top-level tab root
+          // path (a `VelvetBottomNavBar` nav-tile precondition — see that
+          // widget's `_routeFor` doc): the shell above adds no path segment.
+          // `builder:` (MaterialPage), matching [RouteNames.masterSchedule].
+          // No `?date=` handling (D2 — no producer for this role exists).
+          GoRoute(
+            path: RouteNames.salonMasterSchedule,
+            builder: (context, state) => const MasterScheduleScreen(),
+          ),
+          // Phase 321 — «Послуги» read-only view for a SALON_MASTER. Reuses
+          // [ServicesListScreen] VERBATIM behind the `SalonMasterTarget`
+          // scope the shell installs — see
+          // [RouteNames.salonMasterServices]'s doc and
+          // [_SalonMasterOwnServicesRoute] below.
+          GoRoute(
+            path: RouteNames.salonMasterServices,
+            builder: (context, state) => const _SalonMasterOwnServicesRoute(),
+          ),
+        ],
       ),
       // Settings hub reached from the profile's trailing `tune_rounded`
       // action. REUSE-FIRST: the SAME [SettingsHubScreen] widget
@@ -1962,29 +2025,6 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.salonMasterEditContacts,
         builder: (context, state) =>
             const ContactsEditScreen(showInstagram: false),
-      ),
-      // Phase 309 — «Графік роботи» read-only view for a SALON_MASTER. Reuses
-      // [MasterScheduleScreen] VERBATIM (see `route_names.dart`'s
-      // [RouteNames.salonMasterSchedule] doc). Registered as a top-level flat
-      // route (a `VelvetBottomNavBar` nav-tile precondition — see that
-      // widget's `_routeFor` doc), same as every other `/staff/*` and
-      // `/master/*` tab root. `builder:` (MaterialPage), matching
-      // [RouteNames.masterSchedule] immediately below. No `?date=` handling
-      // (D2 — no producer for this role exists).
-      GoRoute(
-        path: RouteNames.salonMasterSchedule,
-        builder: (context, state) => const MasterScheduleScreen(),
-      ),
-      // Phase 321 — «Послуги» read-only view for a SALON_MASTER. Reuses
-      // [ServicesListScreen] VERBATIM behind a `SalonMasterTarget` scope
-      // resolved from the viewer's OWN profile — see
-      // [RouteNames.salonMasterServices]'s doc and
-      // [_SalonMasterOwnServicesRoute] below. Registered as a top-level flat
-      // route (the same `VelvetBottomNavBar` nav-tile precondition
-      // [salonMasterSchedule] immediately above satisfies).
-      GoRoute(
-        path: RouteNames.salonMasterServices,
-        builder: (context, state) => const _SalonMasterOwnServicesRoute(),
       ),
       // CLIENT settings hub + per-section edit pages. Mirror the master
       // /master/menu + /master/edit/* block above but for the CLIENT role.
@@ -2190,7 +2230,7 @@ GoRouter appRouter(Ref ref) {
 /// ERROR state — NEVER a silently empty list, and NEVER a [ServiceTarget]
 /// constructed with an empty id (`HttpServiceRepository._pathSegment` rejects
 /// an empty segment — phase 317 D4's identical reasoning for
-/// [_SalonMasterServicesShell] below).
+/// [_SalonManageStaffServicesShell] below).
 /// [_SalonMasterOwnServicesRoute]'s selected slice of
 /// `AsyncValue<Master>` — only what its `build()` actually reads:
 /// `salonId`/`masterId` (via the SAME retained-`.value` rule the un-narrowed
@@ -2209,7 +2249,7 @@ typedef _OwnMasterIds = ({
 _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
   // `.value` (not `when`) so a RELOAD of the profile keeps the last resolved
   // salon/master ids instead of dropping the scope — the same retained-value
-  // rule `_SalonMasterServicesShell`'s F3 fix documents.
+  // rule `_SalonManageStaffServicesShell`'s F3 fix documents.
   final Master? retained = async.value;
   return (
     salonId: retained?.salonId,
@@ -2219,12 +2259,102 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
   );
 }
 
+/// Resolves the SALON_MASTER's OWN [ServiceTarget] from [ids], or `null` when
+/// the profile has not yet produced a usable `(salonId, masterId)` pair.
+///
+/// ONE definition, read by BOTH [_SalonMasterTabsShell] (which installs the
+/// `serviceTargetProvider` override) and [_SalonMasterOwnServicesRoute] (which
+/// decides whether to mount [ServicesListScreen] at all). They must agree
+/// exactly: if the leaf mounted the screen while the shell had installed no
+/// override, the screen would read the ROOT target and fire the
+/// INDEPENDENT_MASTER endpoint for a salon master.
+///
+/// D4 (phase 317, unchanged) — an empty id is a LOADING/ERROR state, never a
+/// call: since phase 316 `HttpServiceRepository._pathSegment` REJECTS an empty
+/// segment, so `''` would surface as an `UnknownFailure` rather than a silent
+/// 404.
+ServiceTarget? _ownMasterServiceTarget(_OwnMasterIds ids) {
+  final String? salonId = ids.salonId;
+  final String? masterId = ids.masterId;
+  if (salonId == null || salonId.isEmpty) return null;
+  if (masterId == null || masterId.isEmpty) return null;
+  return ServiceTarget.salonMaster(salonId: salonId, masterId: masterId);
+}
+
+/// 2026-09-13 audit (M2) — the ONE [ProviderScope] shared by the
+/// SALON_MASTER's three bottom-nav tab roots (`/staff/profile`,
+/// `/staff/schedule`, `/staff/services`).
+///
+/// It exists for exactly one reason: `VelvetBottomNavBar` switches tabs with
+/// `context.go`, which REPLACES the stack. While `/staff/services` created its
+/// own scope, every tab tap disposed the scoped
+/// `masterServiceCatalogProvider` and the next return to tile 0 re-fetched
+/// `GET /salons/{s}/masters/{m}/services`. Hoisting the scope into the shell —
+/// whose builder genuinely wraps the child Navigator — keeps the container
+/// alive across the whole tab set, which is what makes `keepAlive` mean
+/// anything here. (`keepAlive` is a per-CONTAINER guarantee; the
+/// INDEPENDENT_MASTER never paid this cost because its catalogue lives in the
+/// root container.)
+///
+/// ROLE FIRST, exactly as [_SalonMasterOwnServicesRoute] does: a non-
+/// SALON_MASTER returns [child] WITHOUT ever watching [masterProfileProvider].
+/// Watched through [authUserRoleSettledOrNull] (the STRICT selector) — see the
+/// leaf below for why.
+///
+/// UNRESOLVED PROFILE renders [child] BARE, with no override. That is not a
+/// hole: the only leaf that reads [serviceTargetProvider] is
+/// `/staff/services`, and its own gate ([_ownMasterServiceTarget], the same
+/// function this shell calls) renders a loading skeleton or an error state
+/// rather than mounting [ServicesListScreen]. The other two tabs never touch
+/// the provider.
+///
+/// Rebuilding `ProviderScope(overrides: [serviceTargetProvider
+/// .overrideWithValue(...)])` does NOT churn the graph: riverpod gates on
+/// `newValue != previousState.value` and [ServiceTarget] is `freezed`, so an
+/// identical target re-supplied on a rebuild is a no-op.
+class _SalonMasterTabsShell extends ConsumerWidget {
+  const _SalonMasterTabsShell({required this.child});
+
+  /// The matched leaf's Navigator, supplied by [ShellRoute].
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final UserRole? role = ref.watch(
+      authProvider.select(authUserRoleSettledOrNull),
+    );
+    if (role != UserRole.salonMaster) return child;
+
+    final ServiceTarget? target = _ownMasterServiceTarget(
+      ref.watch(masterProfileProvider.select(_selectOwnMasterIds)),
+    );
+    if (target == null) return child;
+
+    return ProviderScope(
+      overrides: <Override>[serviceTargetProvider.overrideWithValue(target)],
+      child: child,
+    );
+  }
+}
+
 class _SalonMasterOwnServicesRoute extends ConsumerWidget {
   const _SalonMasterOwnServicesRoute();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    // 2026-09-13 audit (M5, mobile-security LOW) — the STRICT selector, not
+    // the lenient [authUserRoleOrNull]. A `copyWithPrevious`-retained
+    // `Authenticated(salonMaster)` riding a later `AsyncLoading`/`AsyncError`
+    // used to admit this widget, which then read [masterProfileProvider] via
+    // its own retained `.value` and could scope a read at the PREVIOUS
+    // session's salonId/masterId for a frame. Read-only surface plus a server
+    // 403 meant no write path, but every other capability gate on this branch
+    // (`canManageSalonProvider`, `scheduleEditable`) uses the strict selector.
+    // The loading branch below already renders the right skeleton for an
+    // unsettled session.
+    final UserRole? role = ref.watch(
+      authProvider.select(authUserRoleSettledOrNull),
+    );
     if (role != UserRole.salonMaster) {
       // Unreachable via `/staff/*` (see this class's header) — returned
       // WITHOUT ever watching [masterProfileProvider], which is the whole
@@ -2246,7 +2376,7 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
       masterProfileProvider.select(_selectOwnMasterIds),
     );
     if (ids.masterId != null) {
-      return _resolved(salonId: ids.salonId, masterId: ids.masterId!);
+      return _resolved(ids);
     }
 
     if (ids.isLoading) {
@@ -2270,9 +2400,16 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
   }
 
   /// The resolved-profile branch: either the D3-point-3 error gate, or the
-  /// one [ProviderScope] wrapping the read-only screen.
-  Widget _resolved({required String? salonId, required String masterId}) {
-    if (salonId == null || salonId.isEmpty || masterId.isEmpty) {
+  /// read-only screen.
+  ///
+  /// 2026-09-13 audit (M2) — the [ProviderScope] that used to live here has
+  /// moved UP into [_SalonMasterTabsShell], so it is no longer torn down by a
+  /// `context.go` tab switch. The gate itself is unchanged in effect: it now
+  /// asks [_ownMasterServiceTarget] — the very function the shell uses to
+  /// decide whether to install the override — so the two can never disagree
+  /// about whether a usable target exists.
+  Widget _resolved(_OwnMasterIds ids) {
+    if (_ownMasterServiceTarget(ids) == null) {
       return const Scaffold(
         backgroundColor: BrandColors.base,
         body: ErrorState(
@@ -2281,13 +2418,16 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
         ),
       );
     }
-    return ProviderScope(
-      overrides: <Override>[
-        serviceTargetProvider.overrideWithValue(
-          ServiceTarget.salonMaster(salonId: salonId, masterId: masterId),
-        ),
-      ],
-      child: const ServicesListScreen(writable: false),
+    // 2026-09-13 audit (M6) — the nav bar's «Графік»/«Профіль» tiles are
+    // pointed at this role's OWN `/staff/*` roots. Left at their defaults
+    // they targeted `/master/schedule` and `/master/profile`, which
+    // `auth_redirect.dart:300` bounces back to `roleHomePath` — a tap that
+    // visibly does nothing. Tile 1 («Мої записи») has no `/staff/*`
+    // counterpart and keeps its documented bounce.
+    return const ServicesListScreen(
+      writable: false,
+      navScheduleRoute: RouteNames.salonMasterSchedule,
+      navProfileRoute: RouteNames.salonMasterProfile,
     );
   }
 }
@@ -2321,9 +2461,54 @@ class _SalonManageServicesListRoute extends ConsumerWidget {
     final bool writable = ref.watch(canManageSalonProvider(salonId));
     return ServicesListScreen(
       writable: writable,
+      // 2026-09-13 audit (M6) — a SALON_OWNER / SALON_ADMIN gets NO master
+      // bottom nav bar. This screen hardcoded the INDEPENDENT_MASTER's 4-tile
+      // bar («Послуги»/«Мої записи»/«Графік»/«Профіль»), which is chrome this
+      // role does not have at all: every tile targets a `/master/*` route
+      // `auth_redirect.dart` bounces for an operator. They arrive here by
+      // pushing from the staff profile and leave by the AppBar back button.
+      showBottomNav: false,
       setupRoute: RouteNames.salonManageStaffServiceSetup(salonId, memberId),
       editRouteBuilder: (String serviceId) =>
           RouteNames.salonManageStaffServiceEdit(salonId, memberId, serviceId),
+    );
+  }
+}
+
+/// 2026-09-13 audit (M1) — the owner/admin leaf of `/salons/:salonId/manage/
+/// staff/:memberId/services/setup`. Third sibling of
+/// [_SalonManageServicesListRoute] / [_SalonManageServiceEditRoute]: SAME
+/// predicate, SAME shape, applied to [ServiceSetupScreen].
+///
+/// [ServiceSetupScreen] takes no `writable` flag — it IS the bulk-create
+/// form, there is no read-only rendering of it — so the predicate gates the
+/// whole screen rather than an affordance inside it: `false` renders the
+/// shared [ErrorState] with an [UnauthorizedFailure], the same copy any other
+/// denied surface in this app shows.
+class _SalonManageServiceSetupRoute extends ConsumerWidget {
+  const _SalonManageServiceSetupRoute({
+    required this.salonId,
+    required this.memberId,
+  });
+
+  final String salonId;
+  final String memberId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(canManageSalonProvider(salonId))) {
+      return const Scaffold(
+        backgroundColor: BrandColors.base,
+        body: ErrorState(
+          key: Key('salon_manage_service_setup_error'),
+          failure: UnauthorizedFailure(),
+        ),
+      );
+    }
+    return ServiceSetupScreen(
+      // D3 — the no-stack fallback. Without it a cold start on this
+      // path would `go` to the OPERATOR's own `/services`.
+      exitRoute: RouteNames.salonManageStaffServices(salonId, memberId),
     );
   }
 }
@@ -2371,7 +2556,8 @@ class _SalonMasterScheduleRoute extends ConsumerWidget {
     // NEVER reads. Worse, it SERIALISES the resolve: the masterId is known the
     // instant the roster lands, yet the old watch waited on the extra request
     // before this widget could hand a non-empty scope to the screen. Same scan,
-    // one round trip fewer; `_SalonMasterServicesShell` below does the same.
+    // one round trip fewer; `_SalonManageStaffServicesShell` below does the
+    // same.
     //
     // `.value` (not `maybeWhen`) so a RELOAD of the roster keeps the last
     // resolved masterId instead of dropping the scope back to `''` — the same
@@ -2431,8 +2617,8 @@ class _SalonMasterScheduleRoute extends ConsumerWidget {
 /// row, no services, nothing to render. That is an error state, not an empty
 /// list. Reuses the shared [ErrorState] with a [NotFoundFailure] rather than
 /// introducing copy — no new ARB key is in this phase's scope.
-class _SalonMasterServicesShell extends ConsumerWidget {
-  const _SalonMasterServicesShell({
+class _SalonManageStaffServicesShell extends ConsumerWidget {
+  const _SalonManageStaffServicesShell({
     required this.salonId,
     required this.memberId,
     required this.child,

@@ -477,6 +477,67 @@ abstract final class AppHarness {
     await tester.pumpAndSettle();
   }
 
+  /// Reveals a `salon-manage-staff-card-<userId>` roster card so it is BUILT
+  /// and findable, then returns. The single way to locate a roster card.
+  ///
+  /// `_StaffTab`'s roster is a genuine `SliverGrid.builder`
+  /// (`lib/features/salon/presentation/salon_management_profile_screen.dart`,
+  /// the `SliverGrid.builder` inside `_StaffTab.build`) spliced into the salon
+  /// shell's ONE `CustomScrollView`, so it inflates only the cells the current
+  /// viewport needs. `-d flutter-tester`'s window is `Size(800, 600)`;
+  /// measured on that surface a 2-column roster lays row 0 out at
+  /// y = 435…625 and row 1 at y = 641…831 — row 1 is entirely past the fold
+  /// and NOT within the built cache either (a probe found exactly two cards
+  /// built, the trailing "add staff" tile unbuilt as well). A widget that was
+  /// never BUILT cannot be found by key, so a bare [pumpUntilFound] polls
+  /// until it times out and `tester.ensureVisible` throws "Found 0 widgets" —
+  /// `project_integration_scroll_filter_into_view`, the same lazily-inflated-
+  /// tile trap [scrollFilterFieldIntoView] exists for on the discovery rail.
+  ///
+  /// Whether a given flow's target lands in row 0 is pure FIXTURE ACCIDENT —
+  /// e.g. `FakeBackend.salonAdminOneStaff` self-excludes the viewer's own row,
+  /// which leaves the SALON_ADMIN twin's target at cell 1 and inside row 0,
+  /// while the SALON_OWNER roster's third member sits at cell 2 and is never
+  /// built. That is exactly why this is ONE helper rather than a per-file
+  /// judgement call: a fixture gaining one member silently moves a target
+  /// below the fold, and every call site is already correct.
+  ///
+  /// Two behaviours, and both matter:
+  ///
+  /// 1. It GATES on the grid having loaded (any roster card rendered) before
+  ///    dragging anything. Dragging the loading state's scrollable fails
+  ///    opaquely from inside `scrollUntilVisible` (`Bad state: No element`)
+  ///    instead of reporting a clean, attributed timeout naming the roster.
+  /// 2. It NO-OPS — no drag at all — when [card] is already built, so a
+  ///    row-0 target behaves exactly as an unrevealed `find.byKey` did.
+  ///
+  /// Hand-copying this per file is precisely the REUSE-FIRST failure the
+  /// project bans: the first two copies had already diverged within one
+  /// cycle, one of them missing the loaded-gate. This is the single copy.
+  static Future<void> revealRosterCard(
+    WidgetTester tester,
+    Finder card, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    await pumpUntilFound(
+      tester,
+      find.byWidgetPredicate(
+        (Widget w) =>
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith(
+              'salon-manage-staff-card-',
+            ),
+        description: 'any rendered roster staff card',
+      ),
+      timeout: timeout,
+    );
+    if (card.evaluate().isNotEmpty) {
+      return;
+    }
+    await tester.scrollUntilVisible(card, 200, maxScrolls: 20);
+    await tester.pump();
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.

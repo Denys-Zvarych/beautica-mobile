@@ -79,6 +79,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/route_pump.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — the auth session's userId, the masters ROW id, and the salon id
@@ -323,18 +324,6 @@ void main() {
     return router;
   }
 
-  Future<void> pumpWhile(WidgetTester tester, bool Function() condition) async {
-    for (var i = 0; i < 60; i++) {
-      if (condition()) return;
-      // fixed-wait-ok: pump-until — the loop exits the instant the condition
-      // holds; 50 ms is only the polling step, not a guessed total.
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-  }
-
-  Future<void> pumpUntil(WidgetTester tester, Finder finder) =>
-      pumpWhile(tester, () => finder.evaluate().isNotEmpty);
-
   String salonServicesUri(String masterId) =>
       '/api/v1/salons/$_kSalonId/masters/$masterId/services';
 
@@ -360,7 +349,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonMasterServices);
-      await pumpUntil(tester, countHeader());
+      await pumpUntilFound(tester, countHeader());
 
       expect(
         recordedUris,
@@ -390,7 +379,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonMasterServices);
-      await pumpUntil(tester, find.byType(ServicesListScreen));
+      await pumpUntilFound(tester, find.byType(ServicesListScreen));
 
       expect(find.byType(ServicesListScreen), findsOneWidget);
       expect(
@@ -418,7 +407,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonMasterServices);
-      await pumpUntil(
+      await pumpUntilFound(
         tester,
         find.byKey(const Key('salon_master_own_services_loading')),
       );
@@ -433,7 +422,7 @@ void main() {
       expect(recordedUris, isEmpty);
 
       gate.complete();
-      await pumpUntil(tester, countHeader());
+      await pumpUntilFound(tester, countHeader());
 
       expect(
         recordedUris.where((u) => u.contains('//services')),
@@ -454,7 +443,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonMasterServices);
-      await pumpUntil(
+      await pumpUntilFound(
         tester,
         find.byKey(const Key('salon_master_own_services_error')),
       );
@@ -482,7 +471,7 @@ void main() {
     final router = await pumpRouter(tester, container);
 
     router.go(RouteNames.salonMasterServices);
-    await pumpUntil(
+    await pumpUntilFound(
       tester,
       find.byKey(const Key('salon_master_own_services_error')),
     );
@@ -507,7 +496,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonMasterServices);
-      await pumpUntil(tester, countHeader());
+      await pumpUntilFound(tester, countHeader());
 
       expect(
         countHeader(),
@@ -574,7 +563,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonMasterServices);
-      await pumpUntil(tester, countHeader());
+      await pumpUntilFound(tester, countHeader());
 
       expect(
         _ControlledMasterProfile.builds,
@@ -600,8 +589,41 @@ void main() {
     final router = await pumpRouter(tester, container);
 
     router.go(RouteNames.services);
-    await pumpUntil(tester, find.byType(ServicesListScreen));
-    await pumpWhile(tester, () => countHeader().evaluate().isEmpty);
+    await pumpUntilFound(tester, find.byType(ServicesListScreen));
+    // AUDIT 2026-09-13 (D1) — this row used to read
+    //   await pumpUntil(tester, () => countHeader().evaluate().isEmpty);
+    // under the old `pumpWhile` spelling, i.e. "wait while the header is
+    // absent". That helper returns THE INSTANT ITS CONDITION HOLDS, so as a
+    // wait it was dead either way, and mutation proved it: deleting the line
+    // left this row green.
+    //
+    // Measured rather than assumed (probe, 2026-09-13): the count header is
+    // ALREADY in the tree on the frame `ServicesListScreen` is first found —
+    // the mocked `getMyServices` resolves before the leaf mounts. So the old
+    // line's condition was FALSE on entry and it burned its entire
+    // 60-iteration budget as a pure timeout; it was not the "zero frames"
+    // shape its sibling at `salon_manage_staff_services_route_test.dart:1664`
+    // has. Same dead line, different mechanism.
+    //
+    // Inverted to the wait that is actually meant — until the header APPEARS
+    // — and anchored on the RENDERED COUNT rather than the header's mere
+    // existence, so the row pins that the ROOT catalogue's DATA arrived (the
+    // IM fixture holds exactly one service) instead of only that some chrome
+    // is on screen. Note this wait cannot be made load-bearing by mutation at
+    // this fixture's timing: the data is there before the screen is, so
+    // deleting the line still passes. What the assertion buys is that the
+    // negative claim below is now measured against a tree whose root load
+    // has DEMONSTRABLY landed.
+    await pumpUntilFound(tester, countHeader());
+    expect(
+      countHeaderText(tester),
+      '1 послуга',
+      reason:
+          'the rendered count is the proof the ROOT catalogue resolved WITH '
+          'its data. The negative assertion below only means something once '
+          'a load has actually happened — on an unsettled tree "no salon URI '
+          'was recorded" is true because NO URI was recorded at all.',
+    );
 
     final ServicesListScreen screen = tester.widget<ServicesListScreen>(
       find.byType(ServicesListScreen),
@@ -619,4 +641,98 @@ void main() {
     );
     verify(() => mockServiceApi.getMyServices()).called(greaterThan(0));
   });
+
+  // -------------------------------------------------------------------------
+  // 6. AUDIT cycle-2 (N2) — the ShellRoute scope SURVIVES a tab round trip.
+  //
+  // `VelvetBottomNavBar` switches the SALON_MASTER's three tab roots with
+  // `context.go`, which REPLACES the stack. While the `serviceTargetProvider`
+  // override lived inside `_SalonMasterOwnServicesRoute._resolved`, every tab
+  // tap disposed the scoped container — and with it the `keepAlive`
+  // `masterServiceCatalogProvider` inside it — so every return to tile 0
+  // re-fired `GET /salons/{s}/masters/{m}/services`. (`keepAlive` is a
+  // per-CONTAINER guarantee, which is why the INDEPENDENT_MASTER, whose
+  // catalogue lives in the ROOT container, never paid this.) The cycle-1 fix
+  // hoisted the scope into a `ShellRoute` (`app_router.dart:1964`) whose
+  // builder genuinely wraps the child Navigator.
+  //
+  // Nothing pinned that: deleting the `ShellRoute` and putting the scope back
+  // on the leaf left the entire suite green. This row is the guard.
+  //
+  // TWO independent observables, because either alone is weak:
+  //   • the REQUEST COUNT for the salon catalogue endpoint across the round
+  //     trip (`invalidate` retains `.value`, so a null/loading check would
+  //     prove nothing — only a genuine wire call is evidence);
+  //   • `ProviderScope.containerOf` on the mounted `ServicesListScreen`
+  //     element, identical before and after — the container is the thing the
+  //     fix is actually about, and it stays pinned even if a future fixture
+  //     made the catalogue cheap enough to hide the extra fetch.
+  //
+  // `router.go` (i.e. `context.go` — the same `GoRouter.go` call) is used
+  // DELIBERATELY here, against this repo's usual "nav-detection tests must
+  // push" rule: stack REPLACEMENT is the precise navigation mode the finding
+  // is about, and a `push` would keep the leaf mounted and prove nothing.
+  // -------------------------------------------------------------------------
+
+  testWidgets(
+    'the tab ShellRoute keeps ONE ProviderScope across services → profile → '
+    'services: the salon catalogue endpoint fires exactly once',
+    (tester) async {
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      final String catalogueUri = salonServicesUri(_kViewerMasterRowId);
+      int catalogueCalls() =>
+          recordedUris.where((String u) => u == catalogueUri).length;
+
+      router.go(RouteNames.salonMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      expect(
+        catalogueCalls(),
+        1,
+        reason:
+            'baseline — one fetch for the first mount, so the post-round-trip '
+            'assertion below measures the round trip and nothing else',
+      );
+      final ProviderContainer before = ProviderScope.containerOf(
+        tester.element(find.byType(ServicesListScreen)),
+      );
+
+      // Tile 3 → «Профіль». `go` REPLACES the stack: the services leaf is
+      // unmounted, and only the shell's scope can outlive it.
+      router.go(RouteNames.salonMasterProfile);
+      await pumpUntilGone(tester, find.byType(ServicesListScreen));
+      expect(
+        find.byType(ServicesListScreen),
+        findsNothing,
+        reason:
+            'the round trip must genuinely unmount the leaf — otherwise the '
+            'count assertion below passes because nothing ever happened',
+      );
+
+      // Tile 0 → «Послуги», back again.
+      router.go(RouteNames.salonMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      expect(
+        catalogueCalls(),
+        1,
+        reason:
+            'the scoped keepAlive catalogue must survive the go-based tab '
+            'round trip — a second GET here is the exact regression the '
+            'ShellRoute exists to prevent',
+      );
+      final ProviderContainer after = ProviderScope.containerOf(
+        tester.element(find.byType(ServicesListScreen)),
+      );
+      expect(
+        identical(after, before),
+        isTrue,
+        reason:
+            'the SAME scoped container, not merely an equal one — a leaf-level '
+            'ProviderScope would build a fresh container on every remount',
+      );
+    },
+  );
 }

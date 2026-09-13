@@ -107,6 +107,17 @@ Future<ServicesListScreen> _pumpAndGetScreen(
       overrides: [
         servicesListProvider.overrideWith(() => _LoadingServicesList()),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        // AUDIT cycle-2 (N1) — `ServicesListScreen`'s entry refresh now READS
+        // `approvedCategoriesProvider.future` (that is how it learns whether
+        // the refresh SUCCEEDED, so a failure does not stamp the freshness
+        // marker). Overridden DIRECTLY, not through `mockRepo`: this provider
+        // sources `categoryRequestApiProvider` itself
+        // (`project_approved_categories_provider_override_footgun`), so
+        // without this the real generated client would leave a pending Dio
+        // timer at the end of every row here.
+        approvedCategoriesProvider.overrideWith(
+          (_) async => const <ServiceCategoryOption>[],
+        ),
       ],
       child: MaterialApp.router(
         routerConfig: router,

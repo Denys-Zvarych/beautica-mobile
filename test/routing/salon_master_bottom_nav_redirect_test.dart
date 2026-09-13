@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,7 +166,14 @@ GoRouter _buildRouter({List<String>? redirectLog}) => GoRouter(
   ],
 );
 
-MaterialApp _app(GoRouter router) => MaterialApp.router(routerConfig: router);
+// `localizationsDelegates` is REQUIRED since the 2026-09-13 audit (M18):
+// `VelvetBottomNavBar`'s four tile labels moved out of hardcoded literals
+// into ARB, so the bar now reads `AppLocalizations.of(context)`.
+MaterialApp _app(GoRouter router) => MaterialApp.router(
+  routerConfig: router,
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
+);
 
 // Every navigation in this file is `context.go` (the nav-bar tile's own
 // onTap) or a redirect — never `context.push` — so the `ImperativeRouteMatch`

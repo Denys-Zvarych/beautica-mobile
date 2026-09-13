@@ -6214,5 +6214,21 @@
         "example": "Вельвет"
       }
     }
+  },
+  "masterNavTabServices": "Послуги",
+  "@masterNavTabServices": {
+    "description": "VelvetBottomNavBar tile 0 label on the master surface (INDEPENDENT_MASTER and SALON_MASTER). Deliberately its OWN key rather than a reuse of `servicesTitle`: the app-bar title and the nav-tab label happen to read the same today, but they are two independent copy decisions on two different surfaces and must be free to diverge. Was a hardcoded literal inside `velvet_bottom_nav_bar.dart` until the 2026-09-13 audit (the `no_raw_ui_strings` gate cannot see a string held in a `const _NavItem` record)."
+  },
+  "masterNavTabBookings": "Мої записи",
+  "@masterNavTabBookings": {
+    "description": "VelvetBottomNavBar tile 1 label on the master surface. Own key for the same reason as masterNavTabServices — `masterBookingsTitle` is the SCREEN title and must stay free to diverge from the tab label."
+  },
+  "masterNavTabSchedule": "Графік",
+  "@masterNavTabSchedule": {
+    "description": "VelvetBottomNavBar tile 2 label on the master surface. Short form («Графік»), not the schedule screen's own longer title."
+  },
+  "masterNavTabProfile": "Профіль",
+  "@masterNavTabProfile": {
+    "description": "VelvetBottomNavBar tile 3 label on the master surface."
   }
 }

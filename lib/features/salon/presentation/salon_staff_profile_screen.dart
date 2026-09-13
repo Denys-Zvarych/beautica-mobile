@@ -59,6 +59,7 @@ import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_revision.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/weekly_schedule_summary.dart';
@@ -707,20 +708,41 @@ class _StaffProfileBody extends StatelessWidget {
                                   // added/removed in the subtree. Pattern:
                                   // `services_list_screen.dart`'s
                                   // `_openAndRefresh`.
+                                  //
+                                  // 2026-09-13 audit (M7) — the invalidate is
+                                  // now GATED on an actual mutation.
+                                  // `salonStaffMemberProfileProvider.build`
+                                  // re-runs `getMasterServices(masterId)`
+                                  // (`salon_staff_member_notifier.dart:75-79`),
+                                  // so doing it unconditionally charged a full
+                                  // round trip to an operator who only LOOKED.
+                                  // [serviceCatalogueRevisionProvider] is
+                                  // bumped by the one fan-out point every
+                                  // create / edit / delete in that subtree
+                                  // calls; an unchanged counter means nothing
+                                  // could have changed. See
+                                  // `service_catalogue_revision.dart` for why
+                                  // this is a counter and not a pop result.
+                                  final int before = ref.read(
+                                    serviceCatalogueRevisionProvider,
+                                  );
                                   await context.push<void>(
                                     RouteNames.salonManageStaffServices(
                                       salonId,
                                       memberId,
                                     ),
                                   );
-                                  if (context.mounted) {
-                                    ref.invalidate(
-                                      salonStaffMemberProfileProvider(
-                                        salonId,
-                                        memberId,
-                                      ),
-                                    );
-                                  }
+                                  if (!context.mounted) return;
+                                  final int after = ref.read(
+                                    serviceCatalogueRevisionProvider,
+                                  );
+                                  if (after == before) return;
+                                  ref.invalidate(
+                                    salonStaffMemberProfileProvider(
+                                      salonId,
+                                      memberId,
+                                    ),
+                                  );
                                 },
                         ),
                       ),

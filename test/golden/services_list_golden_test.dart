@@ -150,6 +150,36 @@ void main() {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // MATRIX ASYMMETRY — DELIBERATE, and here is the argument (2026-09-13
+  // audit, M16).
+  //
+  // The WRITABLE data matrix above is {320, 360, 414} dp × {1.0, 1.3} text
+  // scale = 6 cells. Every variant BELOW this line is ONE cell: 414 dp at
+  // text-1x. That asymmetry was previously incidental — nothing in this file
+  // said whether it was a judgement or an oversight, so the next author had
+  // no way to tell. It is a judgement, for two independent reasons:
+  //
+  //   1. PURE SUBTRACTION, NO REFLOW. `writable: false` removes widgets
+  //      (the FAB, the empty-state CTA, each card's tap target) and adds
+  //      none. Nothing below it changes width, wraps differently, or takes a
+  //      different number of lines: the cards keep the exact geometry the
+  //      writable baselines already pin at all three widths and both text
+  //      scales. A width- or text-scale-dependent bug therefore shows up in
+  //      the 6 writable cells FIRST — duplicating them read-only would pin
+  //      the same layout twice and fail twice for one cause.
+  //   2. THE EMPTY STATE HAS NO WIDTH-SENSITIVE LAYOUT AT ALL — no category
+  //      disclosure rows, no count badges, no card grid. It is a centred
+  //      medallion + two centred text blocks + an optional button.
+  //
+  // WHAT WOULD INVALIDATE THIS and require extending to the full matrix:
+  // any change that makes a read-only or empty render differ STRUCTURALLY
+  // from its writable counterpart rather than by subtraction — e.g. a
+  // read-only banner, a reflowed header, different padding when the FAB is
+  // absent, or copy long enough to wrap at 320 dp / text-1.3 but not at
+  // 414 dp / text-1x. If you are about to add any of those, add the cells.
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Phase 320 (D3) — ONE read-only baseline, separate from the {320,360,414}
   // × {1x,1.3x} writable matrix above. Proves the FAB is gone and the cards
   // still render with no edit-pencil affordance, without touching (and

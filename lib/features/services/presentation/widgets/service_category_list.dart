@@ -184,14 +184,46 @@ class CategorySection extends StatefulWidget {
     super.key,
     required this.title,
     required this.count,
-    required this.children,
+    this.children,
+    this.childCount,
+    this.childBuilder,
     this.initiallyExpanded = false,
     this.slug,
-  });
+  }) : assert(
+         (children == null) != (childBuilder == null),
+         'Supply exactly one of children or childBuilder.',
+       ),
+       assert(
+         childBuilder == null || childCount != null,
+         'childBuilder requires childCount.',
+       );
 
   final String title;
   final int count;
-  final List<Widget> children;
+
+  /// The eager form: a materialised child list. `null` when [childBuilder] is
+  /// used instead. Still the shape every pre-existing caller passes.
+  final List<Widget>? children;
+
+  /// 2026-09-13 audit (M10, mobile-perf LOW) — the LAZY form.
+  ///
+  /// A materialised [children] list is built by the CALLER, i.e. before this
+  /// widget is even constructed, so a COLLAPSED section still paid for every
+  /// [ServiceCard] in its bucket — and each of those is a `StatefulWidget`
+  /// that allocates an [AnimationController], a [CurvedAnimation] and a
+  /// `Future.delayed` entrance timer in `initState`. The laziness the
+  /// services list gained in PERF A1 stopped at the SECTION boundary.
+  ///
+  /// Supplying [childBuilder] + [childCount] instead defers construction to
+  /// the `_expanded` branch of [build], so a collapsed section allocates
+  /// nothing at all and an expand/collapse cycle costs exactly one build of
+  /// each card.
+  ///
+  /// ADDITIVE: exactly one of [children] / [childBuilder] must be supplied,
+  /// and every caller that predates this parameter keeps passing [children]
+  /// and renders identically.
+  final int? childCount;
+  final IndexedWidgetBuilder? childBuilder;
 
   /// Whether this section starts expanded. Applied once in [initState];
   /// the user can toggle freely afterward. Defaults to `false` (collapsed).
@@ -235,6 +267,16 @@ class _CategorySectionState extends State<CategorySection> {
   }
 
   void _toggle() => setState(() => _expanded = !_expanded);
+
+  /// Resolves the section body from whichever of the two additive forms the
+  /// caller supplied. Only ever called from the `_expanded` branch.
+  List<Widget> _buildChildren(BuildContext context) {
+    final List<Widget>? eager = widget.children;
+    if (eager != null) return eager;
+    final IndexedWidgetBuilder builder = widget.childBuilder!;
+    final int count = widget.childCount ?? 0;
+    return <Widget>[for (int i = 0; i < count; i++) builder(context, i)];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -321,11 +363,15 @@ class _CategorySectionState extends State<CategorySection> {
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
+          // The collapsed branch builds NOTHING: with [CategorySection.
+          // childBuilder] the children are constructed here, inside the
+          // `_expanded` arm, rather than by the caller before this widget
+          // exists (2026-09-13 audit, M10).
           child: _expanded
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: widget.children,
+                  children: _buildChildren(context),
                 )
               : const SizedBox(width: double.infinity, height: 0),
         ),

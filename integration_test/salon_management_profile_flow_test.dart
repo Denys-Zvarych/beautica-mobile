@@ -807,6 +807,8 @@ void main() {
         final Finder masterCard = find.byKey(
           const Key('salon-manage-staff-card-master-aaa'),
         );
+        // Single shared roster-card reveal — no-ops for this row-0 target.
+        await AppHarness.revealRosterCard(tester, masterCard);
         await tester.ensureVisible(masterCard);
         await tester.pumpAndSettle();
         await tester.tap(masterCard);
@@ -864,6 +866,8 @@ void main() {
         final Finder adminCard = find.byKey(
           const Key('salon-manage-staff-card-admin-zzz'),
         );
+        // Single shared roster-card reveal — no-ops for this row-0 target.
+        await AppHarness.revealRosterCard(tester, adminCard);
         await tester.ensureVisible(adminCard);
         await tester.pumpAndSettle();
         await tester.tap(adminCard);
@@ -1225,20 +1229,18 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
-        // mobile-perf LOW fix (2026-09-13) — the roster grid is now a
-        // genuinely lazy `SliverGrid.builder` (`_StaffTab`), and the self
-        // row is row 2 of this fixture's 2-column grid — not yet inflated
-        // at boot, so a plain `ensureVisible` (which needs the target
-        // Element to already exist) throws. Reuses
-        // [AppHarness.scrollFilterFieldIntoView] — the shared jump-to-0 +
-        // `scrollUntilVisible` recipe for exactly this shape.
+        // mobile-perf LOW fix (2026-09-13) — the roster grid is a genuinely
+        // lazy `SliverGrid.builder` (`_StaffTab`), and the self row is row 2
+        // of this fixture's 2-column grid — not yet inflated at boot, so a
+        // plain `ensureVisible` (which needs the target Element to already
+        // exist) throws. [AppHarness.revealRosterCard] is the single shared
+        // reveal for exactly this shape; it additionally gates on the grid
+        // having LOADED, so a genuinely missing roster reports a clean,
+        // attributed timeout instead of failing opaquely inside the scroll.
         final Finder ownCard = find.byKey(
           const Key('salon-manage-staff-card-user-admin-1'),
         );
-        await AppHarness.scrollFilterFieldIntoView(
-          tester,
-          const Key('salon-manage-staff-card-user-admin-1'),
-        );
+        await AppHarness.revealRosterCard(tester, ownCard);
         await tester.tap(ownCard);
         await tester.pumpAndSettle();
 

@@ -47,12 +47,13 @@ typedef SalonStaffMemberProfileData = (
 ///
 /// PROMOTED out of [salonStaffMemberProfile]'s body (phase 317 audit F2) so
 /// the two ROUTE BUILDERS that need only the member — `app_router.dart`'s
-/// `_SalonMasterServicesShell` and `_SalonMasterScheduleRoute`, both of which
-/// want nothing but [SalonStaffMember.masterId] — can resolve it straight off
-/// the already-cached [salonManagementProfileProvider] roster instead of
-/// awaiting this provider, whose extra `getMasterServices` round trip they
-/// fetch, retain for the subtree's lifetime and never read. REUSE-FIRST: one
-/// scan, three call sites, no forked copy of the `userId ==` predicate.
+/// `_SalonManageStaffServicesShell` and `_SalonMasterScheduleRoute`, both of
+/// which want nothing but [SalonStaffMember.masterId] — can resolve it
+/// straight off the already-cached [salonManagementProfileProvider] roster
+/// instead of awaiting this provider, whose extra `getMasterServices` round
+/// trip they fetch, retain for the subtree's lifetime and never read.
+/// REUSE-FIRST: one scan, three call sites, no forked copy of the
+/// `userId ==` predicate.
 ///
 /// Pure and synchronous — it is NOT a provider, so it adds no element to the
 /// graph and nothing to phase 317's `dependencies:` cascade.

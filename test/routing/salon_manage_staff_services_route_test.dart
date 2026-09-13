@@ -71,9 +71,11 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -99,6 +101,7 @@ import 'package:mocktail/mocktail.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/route_pump.dart';
 import '../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
@@ -139,6 +142,18 @@ const User _kOtherAdmin = User(
   firstName: 'Інший',
   lastName: 'Адмін',
   salonId: _kSalonId,
+);
+
+/// AUDIT cycle-2 (N3) — a SALON_OWNER. `User.salonId` is deliberately left
+/// null: the owner arm of both `salonManageGuard` and `canManageSalon` binds
+/// against `mySalonsProvider`, never against this field, so a non-null value
+/// here could only mask which of the two is actually under test.
+const User _kOwnerOfOtherSalon = User(
+  id: 'owner-9',
+  email: 'owner9@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Чужий',
+  lastName: 'Власник',
 );
 
 const SalonStaffMember _kMasterEntry = SalonStaffMember(
@@ -239,6 +254,30 @@ class _ControlledRoster extends SalonManagementProfile {
   }
 }
 
+/// AUDIT cycle-2 (N3) — a controllable [MySalons] so the SALON_OWNER arm of
+/// `salonManageGuard` / `canManageSalonProvider` can be driven in both
+/// directions.
+///
+/// `owned == null` reproduces the COLD DEEP LINK window the guard documents at
+/// `app_router.dart:339-372`: with the list UNRESOLVED, `salonManageGuard`
+/// deliberately ADMITS (it is synchronous and must never await), so the
+/// request reaches the route BUILDER. That window is the whole reason
+/// `_SalonManageServiceSetupRoute`'s widget-level gate exists, and it is the
+/// only state in which that gate is observable — a RESOLVED list that excludes
+/// the salon is bounced by the redirect one layer earlier (pinned by the third
+/// row below).
+class _ControlledMySalons extends MySalons {
+  /// `null` → never completes (unresolved). Otherwise the owner's salons.
+  static List<Salon>? owned;
+
+  @override
+  Future<List<Salon>> build() {
+    final List<Salon>? o = owned;
+    if (o == null) return Completer<List<Salon>>().future;
+    return Future<List<Salon>>.value(o);
+  }
+}
+
 class _StubMasterProfile extends MasterProfile {
   /// How many times `GET /masters/me` would have been issued. Counted rather
   /// than mocked on Dio because `masterProfileProvider` is overridden here —
@@ -301,6 +340,7 @@ void main() {
     _MutableAuthNotifier.seed = _kAdmin;
     _ControlledRoster.gate = null;
     _ControlledRoster.failNext = false;
+    _ControlledMySalons.owned = null;
     _StubMasterProfile.builds = 0;
     recordedUris = <String>[];
     salonRows = <Map<String, Object?>>[
@@ -369,6 +409,11 @@ void main() {
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         salonManagementProfileProvider.overrideWith(_ControlledRoster.new),
+        // AUDIT cycle-2 (N3). Inert for every pre-existing row in this file:
+        // they all run as SALON_ADMIN, whose arm of `salonManageGuard` and
+        // `canManageSalon` reads `User.salonId` and never touches this
+        // provider.
+        mySalonsProvider.overrideWith(_ControlledMySalons.new),
         masterProfileProvider.overrideWith(_StubMasterProfile.new),
         // The roster entry's own services read (`salonStaffMemberProfile`)
         // goes through the PUBLIC repository, which is a different seam from
@@ -411,20 +456,6 @@ void main() {
     return router;
   }
 
-  /// Pumps until [condition] holds or the budget runs out.
-  Future<void> pumpWhile(WidgetTester tester, bool Function() condition) async {
-    for (var i = 0; i < 60; i++) {
-      if (condition()) return;
-      // fixed-wait-ok: this IS pump-until — the loop exits the instant the
-      // condition holds; 50 ms is only the polling step, not a guessed total.
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-  }
-
-  /// Pumps until [finder] has a match or the budget runs out.
-  Future<void> pumpUntil(WidgetTester tester, Finder finder) =>
-      pumpWhile(tester, () => finder.evaluate().isNotEmpty);
-
   /// Pumps until [key] names an ENABLED [IconButton] that is actually
   /// hit-testable. Both halves matter: the delete control is disabled while
   /// `serviceByIdProvider` resolves, and the page-transition slide leaves it
@@ -433,7 +464,7 @@ void main() {
   /// (`project_animatedscale_root_breaks_tap_by_key`).
   Future<void> pumpUntilTappableIconButton(WidgetTester tester, Key key) async {
     final Finder finder = find.byKey(key);
-    await pumpWhile(tester, () {
+    await pumpUntil(tester, () {
       final Finder hittable = finder.hitTestable();
       if (hittable.evaluate().isEmpty) return false;
       return tester.widget<IconButton>(finder).onPressed != null;
@@ -450,7 +481,29 @@ void main() {
   /// `find.text('Манікюр')` assertion would be permanently false — passing
   /// only where it is used as a pump-until budget, which is exactly the
   /// vacuity this file is written against.
-  Finder countHeader(String text) => find.text(text);
+  ///
+  /// 2026-09-13 audit (M13) — KEYED, not a raw-Cyrillic `find.text`. This
+  /// used to be `countHeader(String text) => find.text(text)`, used as BOTH
+  /// the pump-until condition AND the assertion: a copy change to the
+  /// localized plural would have silently turned every wait into a timeout
+  /// and every assertion into "not found yet", with no signal about which.
+  /// `salon_master_own_services_route_test.dart:346` already fixed the
+  /// identical pattern with this exact key; this brings the sibling in line.
+  /// [countHeaderText] reads the rendered copy back out for the assertions
+  /// that genuinely verify it.
+  Finder countHeader() => find.byKey(const Key('services_count_header'));
+
+  String countHeaderText(WidgetTester tester) {
+    final Iterable<Element> found = countHeader().evaluate();
+    if (found.isEmpty) return '';
+    return (found.single.widget as Text).data ?? '';
+  }
+
+  /// Pumps until the count header reads exactly [expected]. Separate from
+  /// [pumpUntilFound] because the interesting waits here are "until the count
+  /// CHANGES", not "until the header exists".
+  Future<void> pumpUntilCount(WidgetTester tester, String expected) =>
+      pumpUntil(tester, () => countHeaderText(tester) == expected);
 
   // -------------------------------------------------------------------------
   // 8. PAGE TYPE — never a location string.
@@ -462,7 +515,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, find.byType(ServicesListScreen));
+      await pumpUntilFound(tester, find.byType(ServicesListScreen));
 
       expect(find.byType(ServicesListScreen), findsOneWidget);
       expect(find.byType(ServiceSetupScreen), findsNothing);
@@ -479,7 +532,7 @@ void main() {
         router.go(
           RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
         );
-        await pumpUntil(tester, find.byType(ServiceSetupScreen));
+        await pumpUntilFound(tester, find.byType(ServiceSetupScreen));
 
         expect(
           find.byType(ServiceSetupScreen),
@@ -506,7 +559,7 @@ void main() {
           'svc-1',
         ),
       );
-      await pumpUntil(tester, find.byType(ServiceEditScreen));
+      await pumpUntilFound(tester, find.byType(ServiceEditScreen));
 
       expect(find.byType(ServiceEditScreen), findsOneWidget);
       expect(
@@ -531,19 +584,58 @@ void main() {
         final router = await pumpRouter(tester, container);
 
         router.go(RouteNames.services);
-        await pumpUntil(tester, find.byType(ServicesListScreen));
+        await pumpUntilFound(tester, find.byType(ServicesListScreen));
 
         final ServicesListScreen screen = tester.widget<ServicesListScreen>(
           find.byType(ServicesListScreen),
         );
-        expect(
-          screen.setupRoute,
-          isNull,
-          reason:
-              "D3's defaults must be untouched on the root route — null means "
-              "today's literal",
+
+        // 2026-09-13 audit (M17) — this used to assert
+        // `screen.setupRoute, isNull` / `screen.editRouteBuilder, isNull`:
+        // pure widget-field reads that prove nothing about what the screen
+        // does with them (`project_widget_field_assertion_is_vacuous`).
+        // Replaced by the RENDERED consequence.
+        //
+        // Why the observation DISCRIMINATES: the salon setup leaf is
+        // `/salons/:salonId/manage/staff/:memberId/services/setup`, guarded by
+        // `salonManageGuard`, which BOUNCES an INDEPENDENT_MASTER away — so
+        // had the root route leaked a salon `setupRoute`, no
+        // `ServiceSetupScreen` would mount at all. Mounting one is only
+        // possible via the root `/services/setup` literal.
+        // Either "add services" CTA reaches the SAME destination
+        // (`resolvedSetupRoute`): the FAB when the catalogue is non-empty, the
+        // empty-state button when it is not. Which one this fixture renders
+        // depends on the generated-client stub, not on anything this test is
+        // about, so it takes whichever is on screen.
+        final Finder createCta = find.byWidgetPredicate(
+          (Widget w) =>
+              w.key == const Key('btn-create-service') ||
+              w.key == const Key('btn-create-service-empty'),
         );
-        expect(screen.editRouteBuilder, isNull);
+        await pumpUntilFound(tester, createCta);
+        await tester.tap(createCta.first);
+        await tester.pump();
+        await pumpUntilFound(tester, find.byType(ServiceSetupScreen));
+        expect(
+          find.byType(ServiceSetupScreen),
+          findsOneWidget,
+          reason:
+              "D3's defaults must be untouched on the root route — the FAB "
+              'must reach the ROOT /services/setup screen, which the '
+              'salonManageGuard-protected salon leaf could never render for '
+              'an INDEPENDENT_MASTER',
+        );
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_error')),
+          findsNothing,
+          reason:
+              'and it must be the root screen, not the salon leaf rendering '
+              'its unauthorized state',
+        );
+
+        // The resolution RULES themselves — pure functions over the two
+        // nullable params, asserted on their output rather than on the
+        // params' storage.
         expect(screen.resolvedSetupRoute, RouteNames.serviceSetup);
         expect(screen.resolvedEditRouteBuilder('abc'), '/services/abc/edit');
       },
@@ -562,7 +654,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       expect(
         recordedUris,
@@ -598,7 +690,7 @@ void main() {
     final router = await pumpRouter(tester, container);
 
     router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-    await pumpUntil(tester, countHeader('2 послуги'));
+    await pumpUntilCount(tester, '2 послуги');
 
     // The scoped repository is BUILT (precondition — otherwise the two
     // assertions below are satisfied by a subtree that never rendered).
@@ -648,8 +740,8 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.services);
-      await pumpUntil(tester, find.byType(ServicesListScreen));
-      await pumpWhile(tester, () => _StubMasterProfile.builds > 0);
+      await pumpUntilFound(tester, find.byType(ServicesListScreen));
+      await pumpUntil(tester, () => _StubMasterProfile.builds > 0);
 
       expect(
         _StubMasterProfile.builds,
@@ -676,7 +768,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       final ProviderContainer scoped = ProviderScope.containerOf(
         tester.element(find.byType(ServicesListScreen)),
@@ -754,8 +846,8 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
-      expect(countHeader('2 послуги'), findsOneWidget);
+      await pumpUntilCount(tester, '2 послуги');
+      expect(countHeaderText(tester), '2 послуги');
       // Let the entry navigation fully settle BEFORE pushing. The salon
       // role-home resolver reaches its own `/shell` destination through a
       // post-frame `go`, and a push issued while that is still in flight ends
@@ -786,13 +878,19 @@ void main() {
 
       await tester.tap(find.byKey(const Key('btn-delete-service')));
       await tester.pump();
-      await pumpUntil(tester, find.byKey(const Key('delete-service-dialog')));
+      await pumpUntilFound(
+        tester,
+        find.byKey(const Key('delete-service-dialog')),
+      );
       await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
       await tester.pump();
 
-      await pumpUntil(tester, find.byType(ServicesListScreen).hitTestable());
+      await pumpUntilFound(
+        tester,
+        find.byType(ServicesListScreen).hitTestable(),
+      );
       // Give the post-delete invalidation + re-fetch a chance to land.
-      await pumpUntil(tester, countHeader('1 послуга'));
+      await pumpUntilCount(tester, '1 послуга');
 
       expect(
         recordedUris,
@@ -802,8 +900,8 @@ void main() {
             'DELETE /services/{id}, which would destroy a shared definition',
       );
       expect(
-        countHeader('1 послуга'),
-        findsOneWidget,
+        countHeaderText(tester),
+        '1 послуга',
         reason:
             'D2 — the invalidation fired from the EDIT leaf must reach the '
             "LIST leaf's keepAlive provider, so the list RE-RENDERS with the "
@@ -811,8 +909,8 @@ void main() {
             'different chain and the list still reads «2 послуги».',
       );
       expect(
-        countHeader('2 послуги'),
-        findsNothing,
+        countHeaderText(tester),
+        isNot('2 послуги'),
         reason: 'the stale count must be gone, not merely joined',
       );
       expect(
@@ -837,14 +935,14 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
       expect(recordedUris, contains(salonServicesUri(_kMasterRowId)));
       // fixed-wait-ok: draining the entry transition — see the delete case.
       await tester.pump(const Duration(seconds: 1));
 
       // Back to the roster, then into the OTHER master.
       router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMember2UserId));
-      await pumpUntil(tester, find.byType(SalonStaffProfileScreen));
+      await pumpUntilFound(tester, find.byType(SalonStaffProfileScreen));
       // Drain the route transition before navigating again: a second `go`
       // issued mid-transition reparents the shell Navigator's pages and
       // flutter_test fails the frame with "Duplicate GlobalKey".
@@ -858,7 +956,7 @@ void main() {
       // header reads «2 послуги» for BOTH masters in this fixture, so a
       // finder-based wait would return on master 1's stale frame and make the
       // assertion below race (`project_fixture_values_can_defang_assertions`).
-      await pumpWhile(
+      await pumpUntil(
         tester,
         () => recordedUris.contains(salonServicesUri(_kMaster2RowId)),
       );
@@ -892,7 +990,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(
+      await pumpUntilFound(
         tester,
         find.byKey(const Key('salon_master_services_loading')),
       );
@@ -906,7 +1004,7 @@ void main() {
       expect(find.byType(ServicesListScreen), findsNothing);
 
       gate.complete();
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       expect(
         recordedUris.where((u) => u.contains('//services')),
@@ -935,7 +1033,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       final ProviderContainer scopedBefore = ProviderScope.containerOf(
         tester.element(find.byType(ServicesListScreen)),
@@ -1016,7 +1114,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       final ProviderContainer scopedBefore = ProviderScope.containerOf(
         tester.element(find.byType(ServicesListScreen)),
@@ -1037,7 +1135,7 @@ void main() {
       (container.read(authProvider.notifier) as _MutableAuthNotifier).signInAs(
         _kOtherAdmin,
       );
-      await pumpUntil(tester, find.byType(VelvetSnack));
+      await pumpUntilFound(tester, find.byType(VelvetSnack));
       await pumpVelvetSnackIn(tester);
 
       // Scoped to the snack ON PURPOSE, unlike `expectVelvetSnack`'s unscoped
@@ -1117,7 +1215,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(
+      await pumpUntilFound(
         tester,
         find.byKey(const Key('salon_master_services_error')),
       );
@@ -1157,7 +1255,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(
+      await pumpUntilFound(
         tester,
         find.byKey(const Key('salon_master_services_error')),
       );
@@ -1182,7 +1280,7 @@ void main() {
       // still render a button and still swallow the tap.
       _ControlledRoster.failNext = false;
       await tester.tap(retry);
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       expect(find.byType(ServicesListScreen), findsOneWidget);
       expect(
@@ -1209,7 +1307,7 @@ void main() {
       router.go(
         RouteNames.salonManageStaffServices(_kSalonId, _kAdminMemberUserId),
       );
-      await pumpUntil(
+      await pumpUntilFound(
         tester,
         find.byKey(const Key('salon_master_services_no_master')),
       );
@@ -1241,7 +1339,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader('2 послуги'));
+      await pumpUntilCount(tester, '2 послуги');
 
       final ProviderContainer scoped = ProviderScope.containerOf(
         tester.element(find.byType(ServicesListScreen)),
@@ -1451,5 +1549,184 @@ void main() {
             'salon; it fails to match at all',
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // AUDIT cycle-2 (N3) — the /services/setup leaf's OWN authorization gate.
+  //
+  // `_SalonManageServiceSetupRoute` (`app_router.dart:2489`) gates
+  // `/salons/:salonId/manage/staff/:memberId/services/setup` on
+  // `canManageSalonProvider(salonId)` and renders the shared [ErrorState]
+  // keyed `salon_manage_service_setup_error` when it is false. Nothing pinned
+  // that: pointing the builder back at a bare [ServiceSetupScreen] left the
+  // whole suite green.
+  //
+  // WHY THE DENY ARM USES AN UNRESOLVED `mySalonsProvider`, not a resolved
+  // list that excludes the salon: `salonManageGuard` is synchronous, so for a
+  // SALON_OWNER it can only bind against an ALREADY-RESOLVED list and
+  // deliberately ADMITS while the list is unresolved (`app_router.dart:
+  // 339-372`). That admit window — a cold deep link from an owner whose
+  // ownership of THIS salon has not been established — is the only state in
+  // which the builder runs for an unauthorized viewer, and it is exactly what
+  // the widget-level gate is defence-in-depth for. The third row pins the
+  // outer layer for the resolved-and-excluded case, so both halves of the
+  // brief's "owner of a different salon" are covered, each at its own layer.
+  // -------------------------------------------------------------------------
+
+  group('the /services/setup leaf gates on canManageSalon', () {
+    testWidgets(
+      'DENY: a cold deep link whose ownership is unresolved renders the '
+      'unauthorized state, NOT ServiceSetupScreen',
+      (tester) async {
+        _MutableAuthNotifier.seed = _kOwnerOfOtherSalon;
+        _ControlledMySalons.owned = null; // cold — never resolves
+
+        final container = makeContainer();
+        final router = await pumpRouter(tester, container);
+
+        router.go(
+          RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+        );
+        await pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon_manage_service_setup_error')),
+        );
+
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_error')),
+          findsOneWidget,
+        );
+        expect(
+          find.byType(ServiceSetupScreen),
+          findsNothing,
+          reason:
+              'the bulk-create FORM must never mount for a viewer whose '
+              'management of this salon is not established — the screen takes '
+              'no read-only flag, so gating the whole screen is the only '
+              'gate there is',
+        );
+      },
+    );
+
+    testWidgets(
+      'POSITIVE CONTROL: the genuine owner of this salon reaches the form',
+      (tester) async {
+        _MutableAuthNotifier.seed = _kOwnerOfOtherSalon;
+        _ControlledMySalons.owned = const <Salon>[
+          Salon(id: _kSalonId, name: 'Салон'),
+        ];
+
+        final container = makeContainer();
+        final router = await pumpRouter(tester, container);
+
+        router.go(
+          RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+        );
+        await pumpUntilFound(tester, find.byType(ServiceSetupScreen));
+
+        expect(
+          find.byType(ServiceSetupScreen),
+          findsOneWidget,
+          reason:
+              'without this arm the DENY row above would pass just as well '
+              'against a gate that refuses EVERYONE',
+        );
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_error')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'the OUTER layer: once the owner list RESOLVES and excludes this salon, '
+      'salonManageGuard bounces before the leaf ever builds',
+      (tester) async {
+        _MutableAuthNotifier.seed = _kOwnerOfOtherSalon;
+        _ControlledMySalons.owned = const <Salon>[
+          Salon(id: 'salon-OTHER', name: 'Інший салон'),
+        ];
+
+        final container = makeContainer();
+        final router = await pumpRouter(tester, container);
+        // Resolve the list BEFORE navigating: the guard reads it synchronously.
+        await container.read(mySalonsProvider.future);
+        // AUDIT cycle-3 (C5) — and SETTLE before navigating, not a single
+        // `pump`. `roleHomePath(SALON_OWNER)` is `/salons/home`, whose
+        // `SalonHomeResolverScreen` forwards to the one salon this owner
+        // actually holds from a POST-FRAME callback. Resolving the list arms
+        // that forward; issuing the `go` one frame later means the forward
+        // fires AFTERWARDS and clobbers it, so the row ends up observing the
+        // RESOLVER rather than the guard. Measured: with `salonManageGuard`'s
+        // owner-exclusion branch (`app_router.dart:374-377`) deleted outright,
+        // every assertion below still passed. Settling first makes the `go`
+        // start from a quiet router, so the guard is the only thing that can
+        // move it.
+        await tester.pumpAndSettle();
+
+        router.go(
+          RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+        );
+        // AUDIT cycle-3 (C5) — this row used to read
+        //   await pumpWhile(tester, () => find.byType(ServiceSetupScreen)
+        //       .evaluate().isEmpty);
+        // and then assert only `findsNothing` on that same screen.
+        //
+        // That helper RETURNS THE INSTANT ITS CONDITION HOLDS — it was a
+        // pump-UNTIL wearing a pump-WHILE name. Handed "the setup screen is
+        // absent", the condition is already true on entry, so the loop pumped
+        // ZERO frames and the sole assertion ran against the tree as it stood
+        // BEFORE the `router.go(...)` had rendered anything. It could not
+        // have failed. (The misnaming itself was fixed in the 2026-09-13
+        // audit: the helper is now `pumpUntil` in
+        // `test/helpers/route_pump.dart`, shared by all three suites.)
+        //
+        // `pumpAndSettle` instead, so the redirect is actually resolved and
+        // painted before anything is asserted.
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ServiceSetupScreen), findsNothing);
+
+        // The row's own claim is "bounces BEFORE THE LEAF EVER BUILDS", and
+        // that is what distinguishes it from its two siblings: the DENY row
+        // above lets the leaf build and pins its widget-level refusal, this
+        // one must show the leaf never ran at all. Absence of the leaf's
+        // unauthorized state is what says so — `findsNothing` on
+        // `ServiceSetupScreen` alone is satisfied by BOTH layers.
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_error')),
+          findsNothing,
+          reason:
+              'the OUTER guard must bounce first — reaching the leaf and '
+              'rendering its widget-level refusal means the route-level check '
+              'stopped firing and only defence-in-depth is left',
+        );
+
+        // And WHERE the bounce landed, by PAGE TYPE — item 8 of this file's
+        // own header, and the half the row was missing. No
+        // `currentConfiguration.uri` read (`forbid_naive_router_location.sh`
+        // enforces that repo-wide, and this file's header forbids location
+        // strings outright).
+        //
+        // `roleHomePath(SALON_OWNER)` is `RouteNames.salonHome`, whose
+        // `SalonHomeResolverScreen` forwards to the one salon this owner
+        // actually holds — so the settled destination is that salon's
+        // `SalonShellScreen`. Matched by PREDICATE on `salonId`, not by bare
+        // type: `_kSalonId` and `'salon-OTHER'` both mount the same class, so
+        // a bare `findsOneWidget` would stay green on a bounce that parked
+        // the excluded owner inside the very salon the guard just refused —
+        // the exact inversion this row exists to catch. Mirrors
+        // `salon_manage_route_guard_test.dart`'s own shell predicate.
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) => w is SalonShellScreen && w.salonId == 'salon-OTHER',
+          ),
+          findsOneWidget,
+          reason:
+              'the bounce must RESOLVE to the salon this owner DOES hold, not '
+              'merely change the URL and not park them in salon $_kSalonId',
+        );
+      },
+    );
   });
 }

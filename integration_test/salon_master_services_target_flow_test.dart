@@ -31,7 +31,7 @@
 //     SALON_OWNER must emit
 //     `GET /api/v1/salons/salon-xyz/masters/master-removable/services` —
 //     the master ROW id, resolved from the roster entry's USER id by
-//     `_SalonMasterServicesShell` — and must NOT emit
+//     `_SalonManageStaffServicesShell` — and must NOT emit
 //     `GET /api/v1/independent-masters/me/services`, which is what a
 //     root-resolved repository would have called.
 //  2. THE DELETE UNASSIGNS, NEVER DEACTIVATES. Opening a card's edit screen
@@ -63,7 +63,7 @@
 //   • MUTATION-PROVED, OBSERVED (2026-09-10, mobile-qa). Two mutations of
 //     `lib/routing/app_router.dart`, each restored from a `cp` backup (never
 //     `git checkout` — the chain's work is uncommitted):
-//       A. `_SalonMasterServicesShell._resolved` returns `child` with NO
+//       A. `_SalonManageStaffServicesShell._resolved` returns `child` with NO
 //          `ProviderScope` — the release-mode silent failure, which trips no
 //          riverpod assert. Result: BOTH tests RED (`+0 -2`).
 //       B. the override carries `masterId: memberId` (the roster USER id)

@@ -23,6 +23,7 @@
 // wizard (Phase 247 part 2) can reuse the exact same widgets rather than
 // forking a lookalike. Pure move — no behaviour change.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -32,6 +33,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -40,6 +42,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
@@ -76,6 +79,10 @@ class ServicesListScreen extends ConsumerStatefulWidget {
     this.setupRoute,
     this.editRouteBuilder,
     this.writable = true,
+    this.showBottomNav = true,
+    this.navScheduleRoute,
+    this.navProfileRoute,
+    this.navBookingsRoute,
   });
 
   /// Optional upper-cased wire slug. When set, the matching category section
@@ -108,6 +115,37 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   /// `false` yet — that lands in phase 321.
   final bool writable;
 
+  /// 2026-09-13 audit (M6, mobile-security LOW) — additive, defaults to `true`
+  /// so every existing caller renders exactly as today.
+  ///
+  /// This screen was authored as the INDEPENDENT_MASTER's tab-0 surface and
+  /// hardcoded `VelvetBottomNavBar(activeIndex: 0)`. Phase 317/321/322 mounted
+  /// it for two more roles, and for a SALON_OWNER / SALON_ADMIN viewing a
+  /// staff member's catalogue at `/salons/:id/manage/staff/:member/services`
+  /// the master 4-tile bar is simply the wrong chrome — that operator has no
+  /// «Мої записи» / «Графік» / «Профіль» of the master shape at all. `false`
+  /// removes the bar entirely (the screen keeps its own `AppBar` back
+  /// affordance, which is how the operator got here and how they leave).
+  final bool showBottomNav;
+
+  /// 2026-09-13 audit (M6) — additive nav-bar destination overrides, threaded
+  /// straight through to [VelvetBottomNavBar]'s own additive params. `null`
+  /// (every pre-existing caller) means that widget's own literals, so the
+  /// INDEPENDENT_MASTER surface is byte-identical to before.
+  ///
+  /// The SALON_MASTER's `/staff/services` route passes
+  /// [RouteNames.salonMasterSchedule] / [RouteNames.salonMasterProfile]:
+  /// without them tiles 2 and 3 targeted `/master/*`, which
+  /// `auth_redirect.dart` bounces straight back to `roleHomePath` — a tap
+  /// that visibly does nothing.
+  final String? navScheduleRoute;
+  final String? navProfileRoute;
+
+  /// Tile 1 («Мої записи»). No `/staff/*` counterpart exists for a
+  /// SALON_MASTER yet, so this stays `null` at every call site and that tile
+  /// keeps its documented bounce — see [VelvetBottomNavBar.bookingsRoute].
+  final String? navBookingsRoute;
+
   /// Resolved setup destination — the parameter, or today's literal.
   String get resolvedSetupRoute => setupRoute ?? RouteNames.serviceSetup;
 
@@ -132,18 +170,114 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
     // The approved-category list ([approvedCategoriesProvider], keepAlive) is
     // cached in the root container for the whole session, so the picker can go
-    // stale after an admin approves a category server-side. Invalidating on
-    // first entry guarantees a fresh fetch every time this screen mounts.
-    // (Returns to this kept-alive route are handled by [_openAndRefresh],
-    // since initState does NOT re-fire on pop-back.)
+    // stale after an admin approves a category server-side. Refreshing on
+    // first entry guarantees a fresh fetch. (Returns to this kept-alive route
+    // are handled by [_openAndRefresh], since initState does NOT re-fire on
+    // pop-back.)
+    //
+    // 2026-09-13 audit (M8) — entry and pop-back now share ONE path,
+    // [_refreshCategoryCataloguesIfStale], which is rate-limited by
+    // [kCategoryCatalogueFreshFor]. Unconditional busting cost a salon
+    // operator three app-wide category fetches for a single
+    // `services → edit → back → edit → back` sitting.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        ref.invalidate(approvedCategoriesProvider);
-        // Also drop the whole service-types family (no arg = all categories):
-        // a type newly approved under an EXISTING category must appear on entry.
-        ref.invalidate(serviceTypesProvider);
-      }
+      if (mounted) _refreshCategoryCataloguesIfStale();
     });
+  }
+
+  /// Drops the two APP-WIDE category caches — but at most once per
+  /// [kCategoryCatalogueFreshFor].
+  ///
+  /// Both caches are root-scoped `keepAlive` providers shared with the service
+  /// form, the client discovery filters and every other salon-scoped mount of
+  /// this screen, so an unconditional bust here is an app-wide cost paid for a
+  /// list that only changes when an admin approves a category server-side.
+  ///
+  /// Returns `true` when it actually refreshed — used by the tests that pin
+  /// the guard, and deliberately NOT used to drive any UI.
+  bool _refreshCategoryCataloguesIfStale() {
+    final DateTime now = ref.read(clockProvider)();
+    if (!ref.read(categoryCatalogueFreshnessProvider.notifier).isStaleAt(now)) {
+      return false;
+    }
+    _refreshCategoryCatalogues(now);
+    return true;
+  }
+
+  /// The unconditional bust. Pull-to-refresh calls this directly: an explicit
+  /// user request for fresh data is never rate-limited.
+  ///
+  /// AUDIT cycle-2 (N1, mobile-perf LOW) — the freshness marker is stamped on
+  /// SUCCESS ONLY, never eagerly.
+  ///
+  /// Stamping before the refetch settled meant a FAILED category read still
+  /// marked the caches fresh for [kCategoryCatalogueFreshFor]: the screen kept
+  /// rendering humanized-slug fallback labels (`SERVICE_TYPE` instead of «Тип
+  /// послуги») with NO automatic retry for five minutes, and pull-to-refresh
+  /// was the only escape — which nobody discovers as the remedy for wrong
+  /// labels. Before the rate limit shipped, every entry retried; the guard
+  /// must not turn a transient failure into a five-minute stale window.
+  ///
+  /// So the stamp hangs off the refreshed read settling successfully. The
+  /// `.future` read is what FORCES that refetch to happen (an `invalidate`
+  /// alone is lazy, and a refresh nobody awaits has no observable outcome to
+  /// key the stamp on).
+  ///
+  /// AUDIT cycle-3 (C2) — what that forced read actually costs, per arm.
+  /// The earlier wording ("merely PRE-fetches what that body is about to
+  /// ask for") was TRUE of two arms and FALSE of the third:
+  ///
+  ///   • LOADED (non-empty list) — no extra round trip. `_LoadedBody` watches
+  ///     [approvedCategoriesProvider] on every build, so the refetch happens
+  ///     regardless; the `.future` read only joins the one already in flight.
+  ///   • EMPTY — a genuine PRE-fetch. `_EmptyState`'s only affordance is the
+  ///     «Додати послугу» CTA into the setup screen, whose category picker
+  ///     reads this same provider, so the fetch is MOVED EARLIER, not added.
+  ///   • ERROR — a NET-NEW request. Nothing on the error scaffold watches
+  ///     [approvedCategoriesProvider], so before the stamp existed this arm
+  ///     issued ZERO category reads and now issues exactly one.
+  ///
+  /// That net-new read in the error arm is ACCEPTED DELIBERATELY, not an
+  /// oversight:
+  ///
+  ///   • Skipping it here is the cycle-2 N1 bug through a side door. With no
+  ///     settled read to key on, the stamp either goes back to being written
+  ///     EAGERLY — a failed refresh marks the caches fresh for five minutes,
+  ///     which is exactly what N1 removed — or never lands at all in this
+  ///     arm, which makes the rate limit a no-op and undoes M8.
+  ///   • It is capped at ONE per [kCategoryCatalogueFreshFor] per container,
+  ///     on a screen the user is already blocked on.
+  ///   • It is not wasted on the recovery path, which is the likely one:
+  ///     «Повторити» re-fetches the services list, `_LoadedBody` mounts, and
+  ///     it reads this now-warm cache instead of issuing its own fetch.
+  ///
+  /// Pinned by "the ERROR state issues EXACTLY ONE category read" in
+  /// `services_list_screen_refresh_test.dart`, so neither dropping it (0) nor
+  /// doubling it (2) can land unnoticed.
+  ///
+  /// `mounted` is re-checked in the continuation: the screen can be popped
+  /// while the refetch is in flight, and touching `ref` after dispose throws
+  /// under Riverpod 3.x.
+  void _refreshCategoryCatalogues(DateTime now) {
+    ref.invalidate(approvedCategoriesProvider);
+    // Also drop the whole service-types family (no arg = all categories):
+    // a type newly approved under an EXISTING category must appear on entry.
+    ref.invalidate(serviceTypesProvider);
+    unawaited(_stampWhenRefreshSucceeds(now));
+  }
+
+  /// Settles on the refreshed [approvedCategoriesProvider] read and records
+  /// the freshness stamp only when it actually resolved. A failure returns
+  /// silently — leaving the caches STALE is the whole point, so the very next
+  /// entry retries instead of waiting out the window.
+  Future<void> _stampWhenRefreshSucceeds(DateTime now) async {
+    try {
+      await ref.read(approvedCategoriesProvider.future);
+    } on Object {
+      return;
+    }
+    if (!mounted) return;
+    ref.read(categoryCatalogueFreshnessProvider.notifier).stamp(now);
   }
 
   @override
@@ -170,10 +304,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   /// sound for both the FAB and the empty-state CTA.
   Future<void> _openAndRefresh(String location) async {
     await context.push<void>(location);
-    if (mounted) {
-      ref.invalidate(approvedCategoriesProvider);
-      ref.invalidate(serviceTypesProvider);
-    }
+    if (mounted) _refreshCategoryCataloguesIfStale();
   }
 
   @override
@@ -188,7 +319,14 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
       // Scaffold's own slot (not nested inside a body SafeArea) so it mounts
       // identically to the other three master tab screens — see
       // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
-      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 0),
+      bottomNavigationBar: widget.showBottomNav
+          ? VelvetBottomNavBar(
+              activeIndex: 0,
+              scheduleRoute: widget.navScheduleRoute,
+              profileRoute: widget.navProfileRoute,
+              bookingsRoute: widget.navBookingsRoute,
+            )
+          : null,
       floatingActionButton: asyncServices.maybeWhen(
         data: (list) => (list.isEmpty || !widget.writable)
             ? null
@@ -211,8 +349,10 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         // services reload; the category provider is invalidated (re-fetches
         // lazily on the next watch) — both are kicked off here.
         onRefresh: () async {
-          ref.invalidate(approvedCategoriesProvider);
-          ref.invalidate(serviceTypesProvider);
+          // UNCONDITIONAL (unlike entry / pop-back): a pull is an explicit
+          // request for fresh data. Stamping through the same helper keeps a
+          // re-entry moments later from busting the caches all over again.
+          _refreshCategoryCatalogues(ref.read(clockProvider)());
           // approvedCategoriesProvider and serviceTypesProvider are intentionally
           // NOT awaited: their stale humanized-label fallback degrades gracefully,
           // and the spinner dismissal is gated only on the services re-fetch below.
@@ -465,28 +605,36 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                 count: group.cards.length,
                 slug: group.key.isEmpty ? null : group.key,
                 initiallyExpanded: initiallyExpanded,
-                children: <Widget>[
-                  for (final CategoryGroupEntry entry in group.cards)
-                    Padding(
-                      padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                      child: ServiceCard(
-                        key: Key('service_card_${entry.service.id}'),
-                        service: entry.service,
-                        onEdit: widget.writable
-                            ? () => widget.onOpen(
-                                widget.editRouteBuilder(entry.service.id),
-                              )
-                            : null,
-                        // P-M3 fix: cap the effective stagger index at 5 so
-                        // the maximum outstanding delay is 90*5 = 450 ms,
-                        // regardless of list length. Visual behaviour is
-                        // identical for the first 6 cards.
-                        appearDelay: Duration(
-                          milliseconds: 90 * entry.staggerIndex.clamp(0, 5),
-                        ),
+                // LAZY form (2026-09-13 audit, M10): the cards are built
+                // inside [CategorySection]'s own `_expanded` branch, so a
+                // COLLAPSED section — which is every section by default on
+                // this screen — allocates no [ServiceCard], and therefore no
+                // AnimationController / CurvedAnimation / entrance timer.
+                // Passing a materialised `children:` list here built them all
+                // before CategorySection was even constructed.
+                childCount: group.cards.length,
+                childBuilder: (BuildContext context, int i) {
+                  final CategoryGroupEntry entry = group.cards[i];
+                  return Padding(
+                    padding: const EdgeInsets.only(top: VelvetSpacing.md),
+                    child: ServiceCard(
+                      key: Key('service_card_${entry.service.id}'),
+                      service: entry.service,
+                      onEdit: widget.writable
+                          ? () => widget.onOpen(
+                              widget.editRouteBuilder(entry.service.id),
+                            )
+                          : null,
+                      // P-M3 fix: cap the effective stagger index at 5 so
+                      // the maximum outstanding delay is 90*5 = 450 ms,
+                      // regardless of list length. Visual behaviour is
+                      // identical for the first 6 cards.
+                      appearDelay: Duration(
+                        milliseconds: 90 * entry.staggerIndex.clamp(0, 5),
                       ),
                     ),
-                ],
+                  );
+                },
               ),
             );
         }

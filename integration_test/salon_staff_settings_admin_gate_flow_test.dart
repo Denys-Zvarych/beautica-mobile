@@ -178,17 +178,16 @@ Future<GoRouter> _openCoAdminSettingsAs(
     // the self row's destination is the personal profile, proven in
     // `salon_management_profile_flow_test.dart`, not this file's gate walk.
     //
-    // mobile-perf LOW fix (2026-09-13) — the roster grid is now a genuinely
-    // lazy `SliverGrid.builder` (`_StaffTab`), and the self row is the third
-    // of three fixture members (co-admin, master-under-admin, self) — row 2
-    // of the 2-column grid, below the fold at boot. Reuses
-    // [AppHarness.scrollFilterFieldIntoView] (the shared jump-to-0 +
-    // `scrollUntilVisible` recipe for exactly this "target not yet inflated"
-    // shape) rather than a second hand-rolled copy — see that helper's own
-    // REUSE-FIRST doc.
-    await AppHarness.scrollFilterFieldIntoView(
+    // mobile-perf LOW fix (2026-09-13) — the roster grid is a genuinely lazy
+    // `SliverGrid.builder` (`_StaffTab`), and the self row is the third of
+    // three fixture members (co-admin, master-under-admin, self) — row 2 of
+    // the 2-column grid, below the fold at boot. Reuses
+    // [AppHarness.revealRosterCard] — the single shared way to locate a
+    // roster card — rather than a second hand-rolled copy; see that helper's
+    // own REUSE-FIRST doc.
+    await AppHarness.revealRosterCard(
       tester,
-      const Key('salon-manage-staff-card-$_kSelfAdminId'),
+      find.byKey(const Key('salon-manage-staff-card-$_kSelfAdminId')),
     );
     expect(
       find.byKey(const Key('salon-manage-staff-card-$_kSelfAdminId')),
@@ -201,11 +200,7 @@ Future<GoRouter> _openCoAdminSettingsAs(
     final Finder coAdminCard = find.byKey(
       const Key('salon-manage-staff-card-$_kCoAdminId'),
     );
-    await AppHarness.pumpUntilFound(
-      tester,
-      coAdminCard,
-      timeout: const Duration(seconds: 20),
-    );
+    await AppHarness.revealRosterCard(tester, coAdminCard);
     try {
       await tester.ensureVisible(coAdminCard);
     } catch (_) {}
@@ -237,6 +232,8 @@ Future<GoRouter> _openCoAdminSettingsAs(
     final Finder coAdminCard = find.byKey(
       const Key('salon-manage-staff-card-$_kCoAdminId'),
     );
+    // Single shared roster-card reveal — no-ops for this row-0 target.
+    await AppHarness.revealRosterCard(tester, coAdminCard);
     await tester.ensureVisible(coAdminCard);
     await tester.pumpAndSettle();
     await tester.tap(coAdminCard);

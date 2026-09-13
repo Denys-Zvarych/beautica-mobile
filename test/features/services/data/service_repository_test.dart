@@ -1089,6 +1089,109 @@ void main() {
     });
   });
 
+  // ── _mapServiceWriteException — the 429 branch, on ALL THREE writes ────────
+  //
+  // 2026-09-13 audit (M4). `_mapServiceWriteException`'s
+  // `if (statusCode == 429) return _rateLimited(e);` line
+  // (`service_repository.dart:929`) was covered by exactly ZERO tests for the
+  // three writes that actually route through it. Both pre-existing 429 tests
+  // — this file's "429 → ServiceRateLimitedFailure (shares the single-write
+  // bucket)" row in the salon-deactivate group, and
+  // `service_repository_contract_test.dart:894` — drive the salon UNASSIGN
+  // path, which is mapped by a DIFFERENT function. Deleting that one line left
+  // both of them green.
+  //
+  // MUTATION-VERIFIED: with `if (statusCode == 429) return _rateLimited(e);`
+  // deleted from `_mapServiceWriteException`, all three rows below go RED
+  // (each falls through to `_mapDioException` and yields a generic
+  // ServerFailure) while every other test in the repository suites stays
+  // green.
+  //
+  // The 429 bucket is per-master and shared by every single-service write, so
+  // an operator who trips it on `create` must see the same friendly
+  // "slow down" copy as one who trips it on `update` or `deactivate` — a
+  // generic ServerFailure reads as "the server is broken", which is wrong and
+  // unactionable.
+  group('_mapServiceWriteException — 429 on every write path', () {
+    DioException rateLimited(String path) => DioException(
+      requestOptions: RequestOptions(path: path),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: path),
+        statusCode: 429,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test(
+      'create → ServiceRateLimitedFailure, never a generic ServerFailure',
+      () async {
+        when(
+          () => serviceApi.addIndependentMasterService(
+            createServiceDefinitionRequest: any(
+              named: 'createServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(rateLimited('/api/v1/independent-masters/me/services'));
+
+        await expectLater(
+          repository.create(
+            const MasterServiceCreate(
+              name: 'Манікюр',
+              durationMinutes: 60,
+              priceType: ServicePriceType.fixed,
+              price: 500,
+              category: 'MANICURE',
+              serviceTypeId: _serviceTypeId,
+            ),
+          ),
+          throwsA(isA<ServiceRateLimitedFailure>()),
+        );
+      },
+    );
+
+    test(
+      'update → ServiceRateLimitedFailure, never a generic ServerFailure',
+      () async {
+        when(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: _serviceDefId,
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(rateLimited('/api/v1/services/$_serviceDefId'));
+
+        await expectLater(
+          repository.update(
+            _serviceDefId,
+            const MasterServiceUpdate(
+              name: 'Манікюр Оновлений',
+              durationMinutes: 75,
+              priceType: ServicePriceType.fixed,
+              price: 600,
+            ),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<ServiceRateLimitedFailure>()),
+        );
+      },
+    );
+
+    test('deactivate with a NULL target (the INDEPENDENT_MASTER branch, which '
+        'goes through the generated client and this mapper — not the salon '
+        'raw-Dio unassign) → ServiceRateLimitedFailure', () async {
+      when(
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
+      ).thenThrow(rateLimited('/api/v1/services/$_serviceDefId'));
+
+      await expectLater(
+        repository.deactivate(_serviceDefId),
+        throwsA(isA<ServiceRateLimitedFailure>()),
+      );
+    });
+  });
+
   // ── 5b. deactivate — salon-target dispatch (phase 316 D1) ───────────────────
   //
   // Mirrors the "listMyServices — salon-target dispatch (phase 315 D1)" group

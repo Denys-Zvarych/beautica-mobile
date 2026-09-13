@@ -535,9 +535,15 @@ class _LoadedBody extends StatelessWidget {
                 onInvite: onInviteStaff,
               ),
             ),
+            // 2026-09-13 audit (M9) — `_ServicesTab` contributes SLIVERS now
+            // (its own `SliverToBoxAdapter` for the loading / error / empty
+            // branches, a `SliverList.builder` for the accordion), so the
+            // category groups beneath it are genuinely lazy. The outer
+            // horizontal padding stays exactly where it was, so the rendered
+            // geometry is unchanged.
             2 => SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-              sliver: SliverToBoxAdapter(child: _ServicesTab(salonId: salonId)),
+              sliver: _ServicesTab(salonId: salonId),
             ),
             _ => SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
@@ -1279,6 +1285,11 @@ class _ServicesTab extends ConsumerWidget {
 
   final String salonId;
 
+  /// Contributes SLIVERS, not a box (2026-09-13 audit, M9) — the accordion
+  /// below is the tab's only unbounded content, and wrapping it in a
+  /// `SliverToBoxAdapter` forced every category group to build eagerly. The
+  /// three non-list branches keep their box widgets inside a
+  /// `SliverToBoxAdapter`; the list branch is a real `SliverList.builder`.
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -1287,22 +1298,28 @@ class _ServicesTab extends ConsumerWidget {
     );
 
     return async.when(
-      loading: () => const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
-          child: CircularProgressIndicator(),
+      loading: () => const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+            child: CircularProgressIndicator(),
+          ),
         ),
       ),
-      error: (Object e, _) => ErrorState(
-        failure: e is Failure ? e : UnknownFailure(cause: e),
-        onRetry: () => ref.invalidate(salonServiceCatalogProvider(salonId)),
+      error: (Object e, _) => SliverToBoxAdapter(
+        child: ErrorState(
+          failure: e is Failure ? e : UnknownFailure(cause: e),
+          onRetry: () => ref.invalidate(salonServiceCatalogProvider(salonId)),
+        ),
       ),
       data: (List<SalonServiceCategoryEntry> categories) => categories.isEmpty
-          ? Text(
-              l10n.salonServicesEmpty,
-              style: VelvetText.feedback(BrandColors.muted),
+          ? SliverToBoxAdapter(
+              child: Text(
+                l10n.salonServicesEmpty,
+                style: VelvetText.feedback(BrandColors.muted),
+              ),
             )
-          : SalonServicesAccordion(categories: categories),
+          : SalonServicesAccordion.sliver(categories: categories),
     );
   }
 }

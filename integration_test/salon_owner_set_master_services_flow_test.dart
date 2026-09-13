@@ -197,11 +197,7 @@ void main() {
         final Finder masterCard = find.byKey(
           const Key('salon-manage-staff-card-$_kMemberUserId'),
         );
-        await AppHarness.pumpUntilFound(
-          tester,
-          masterCard,
-          timeout: const Duration(seconds: 20),
-        );
+        await AppHarness.revealRosterCard(tester, masterCard);
         await tapWhenReady(tester, masterCard);
 
         await AppHarness.pumpUntilFound(
@@ -705,11 +701,7 @@ void main() {
           final Finder card = find.byKey(
             Key('salon-manage-staff-card-$rosterUserId'),
           );
-          await AppHarness.pumpUntilFound(
-            tester,
-            card,
-            timeout: const Duration(seconds: 20),
-          );
+          await AppHarness.revealRosterCard(tester, card);
           await tapWhenReady(tester, card);
 
           await AppHarness.pumpUntilFound(
@@ -795,10 +787,11 @@ void main() {
         router.pop(); // ServicesListScreen -> SalonStaffProfileScreen
         await tester.pump();
         router.pop(); // SalonStaffProfileScreen -> roster grid
-        await AppHarness.pumpUntilFound(
+        // The pop rebuilds the roster at scroll offset 0, so cell 2 is once
+        // again un-inflated — same reveal as on the way in.
+        await AppHarness.revealRosterCard(
           tester,
           find.byKey(const Key('salon-manage-staff-card-$_kMemberUserId')),
-          timeout: const Duration(seconds: 20),
         );
 
         // ── 3. Open master A (`master-aaa`) in the SAME session. ─────────

@@ -92,6 +92,10 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/auth/presentation/login_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -490,6 +494,59 @@ void main() {
       return router.routerDelegate.currentConfiguration.uri.toString();
     }
 
+    /// 2026-09-13 audit (M12) — location PLUS the resolved page TYPE, which is
+    /// what this file's own header promises ("asserting on the resolved page
+    /// TYPE (not just the URL), per this codebase's documented go_router
+    /// trap") and what the salon-scoped rows already do.
+    ///
+    /// The bounced-role rows used to assert only `locationOf(router)` plus
+    /// `findsNothing` on the guarded screen. "The guarded screen is absent"
+    /// and "the URL string is right" together still do not say WHICH screen
+    /// mounted: `project_gorouter_literal_before_dynamic_shadowing` is exactly
+    /// the failure where declaration order alone makes a different route win
+    /// while the location assertion stays green. Shadowing risk on these
+    /// literal top-level destinations is low — but a file that contradicts its
+    /// own header is worse than one that is merely conservative.
+    ///
+    /// Each `findsNothing` on the guarded screen is KEPT at the call site:
+    /// this adds the positive half, it does not replace the negative one.
+    void expectBouncedTo(GoRouter router, String expected) {
+      expect(locationOf(router), equals(expected));
+      final Finder page = switch (expected) {
+        RouteNames.clientHome => find.byType(HomeHubScreen),
+        RouteNames.login => find.byType(LoginScreen),
+        RouteNames.salonMasterProfile => find.byType(SalonMasterProfileScreen),
+        RouteNames.masterProfile => find.byType(MasterProfileScreen),
+        // AUDIT cycle-3 (C4) — the salon-shell destinations are BUILT
+        // (`RouteNames.salonShell(id)` → `/salons/<id>/shell`), so they cannot
+        // be written as constant patterns; matched by SHAPE instead. The
+        // encoded-id segment is deliberately not re-derived here — the row's
+        // own `expected` already carries it and `locationOf` has compared it.
+        final String location
+            when location.startsWith('/salons/') &&
+                location.endsWith('/shell') =>
+          find.byType(SalonShellScreen),
+        // AUDIT cycle-3 (C4) — was `_ => find.byType(SalonShellScreen)`, which
+        // silently absorbed anything unlisted: a typo'd or newly-added
+        // `expected` still resolved to a page-type assertion, and one that
+        // could even PASS (every salon-role bounce parks on the shell), so the
+        // row would look pinned while asserting nothing about its own
+        // destination. An unhandled value is now a loud authoring error.
+        _ => fail(
+          'expectBouncedTo has no page type for "$expected" — add its arm to '
+          'this switch rather than letting the default absorb it, or this '
+          'row asserts nothing about WHERE the bounce landed',
+        ),
+      };
+      expect(
+        page,
+        findsOneWidget,
+        reason:
+            'the bounce must RESOLVE to the destination screen for '
+            '$expected, not merely report its URL',
+      );
+    }
+
     Future<GoRouter> pumpRouterAs(
       WidgetTester tester,
       AsyncValue<AuthSession> session, {
@@ -572,10 +629,7 @@ void main() {
           // Salon Shell landing, which forwards the admin to THEIR OWN salon
           // (`salon-guard-2`, [_otherSalonAdminUser]'s `User.salonId`) — never
           // the requested `_kSalonId`.
-          expect(
-            locationOf(router),
-            equals(RouteNames.salonShell('salon-guard-2')),
-          );
+          expectBouncedTo(router, RouteNames.salonShell('salon-guard-2'));
           expect(
             find.byWidgetPredicate(
               (Widget w) =>
@@ -596,7 +650,7 @@ void main() {
           router.go(RouteNames.salonManage(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonManagementProfileScreen), findsNothing);
         },
       );
@@ -608,7 +662,7 @@ void main() {
         router.go(RouteNames.salonManage(_kSalonId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonManagementProfileScreen), findsNothing);
       });
 
@@ -621,7 +675,7 @@ void main() {
           router.go(RouteNames.salonManage(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonManagementProfileScreen), findsNothing);
         },
       );
@@ -695,10 +749,7 @@ void main() {
           await tester.pumpAndSettle();
 
           // Phase 21.8 — see the identical `/manage` case above.
-          expect(
-            locationOf(router),
-            equals(RouteNames.salonShell('salon-guard-2')),
-          );
+          expectBouncedTo(router, RouteNames.salonShell('salon-guard-2'));
           expect(
             find.byWidgetPredicate(
               (Widget w) =>
@@ -719,7 +770,7 @@ void main() {
           router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonStaffProfileScreen), findsNothing);
         },
       );
@@ -731,7 +782,7 @@ void main() {
         router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonStaffProfileScreen), findsNothing);
       });
 
@@ -744,7 +795,7 @@ void main() {
           router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonStaffProfileScreen), findsNothing);
         },
       );
@@ -839,7 +890,7 @@ void main() {
           router.go(path());
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+          expectBouncedTo(router, RouteNames.salonMasterProfile);
           expectNoServicesScreen();
         });
 
@@ -852,7 +903,7 @@ void main() {
             router.go(path());
             await tester.pumpAndSettle();
 
-            expect(locationOf(router), equals(RouteNames.masterProfile));
+            expectBouncedTo(router, RouteNames.masterProfile);
             expectNoServicesScreen();
           },
         );
@@ -864,7 +915,7 @@ void main() {
           router.go(path());
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expectNoServicesScreen();
         });
 
@@ -877,7 +928,7 @@ void main() {
             router.go(path());
             await tester.pumpAndSettle();
 
-            expect(locationOf(router), equals(RouteNames.login));
+            expectBouncedTo(router, RouteNames.login);
             expectNoServicesScreen();
           },
         );
@@ -923,10 +974,7 @@ void main() {
           await tester.pumpAndSettle();
 
           // Phase 21.8 — see the identical `/manage` case above.
-          expect(
-            locationOf(router),
-            equals(RouteNames.salonShell('salon-guard-2')),
-          );
+          expectBouncedTo(router, RouteNames.salonShell('salon-guard-2'));
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -1001,7 +1049,7 @@ void main() {
           router.go(RouteNames.salonManageSettings(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -1013,7 +1061,7 @@ void main() {
         router.go(RouteNames.salonManageSettings(_kSalonId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonSettingsScreen), findsNothing);
       });
 
@@ -1026,7 +1074,7 @@ void main() {
           router.go(RouteNames.salonManageSettings(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -1214,7 +1262,7 @@ void main() {
           router.go(RouteNames.salonProfileEdit(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonProfileEditScreen), findsNothing);
         },
       );
@@ -1228,7 +1276,7 @@ void main() {
           router.go(RouteNames.salonProfileEdit(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonProfileEditScreen), findsNothing);
         },
       );
@@ -1505,7 +1553,7 @@ void main() {
           router.go(RouteNames.salonPendingInvites(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonPendingInvitesScreen), findsNothing);
         },
       );
@@ -1517,7 +1565,7 @@ void main() {
         router.go(RouteNames.salonPendingInvites(_kSalonId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonPendingInvitesScreen), findsNothing);
       });
 
@@ -1530,7 +1578,7 @@ void main() {
           router.go(RouteNames.salonPendingInvites(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonPendingInvitesScreen), findsNothing);
         },
       );

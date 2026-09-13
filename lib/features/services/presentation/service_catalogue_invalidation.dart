@@ -18,6 +18,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_revision.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 
 /// Invalidates EVERY cached view of the master's own service catalogue.
@@ -82,4 +83,10 @@ void invalidateMasterServiceCatalogues(WidgetRef ref) {
   ref.invalidate(masterServiceCatalogProvider);
   // The wrapper — this is the line that makes an UNLISTENED reader see it.
   ref.invalidate(servicesListProvider);
+  // 2026-09-13 audit (M7) — the "something happened to the catalogue" signal a
+  // CALLER outside this subtree can observe across a push. See
+  // `service_catalogue_revision.dart` for why a counter and not a pop result.
+  // Bumped here, at the ONE fan-out point, rather than at the five mutation
+  // sites, so it cannot drift away from the invalidation it describes.
+  ref.read(serviceCatalogueRevisionProvider.notifier).bump();
 }

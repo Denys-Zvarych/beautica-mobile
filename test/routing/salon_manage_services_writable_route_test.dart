@@ -79,6 +79,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/route_pump.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures.
@@ -274,18 +275,6 @@ void main() {
     return router;
   }
 
-  Future<void> pumpWhile(WidgetTester tester, bool Function() condition) async {
-    for (var i = 0; i < 60; i++) {
-      if (condition()) return;
-      // fixed-wait-ok: pump-until — the loop exits the instant the condition
-      // holds; 50 ms is only the polling step, not a guessed total.
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-  }
-
-  Future<void> pumpUntil(WidgetTester tester, Finder finder) =>
-      pumpWhile(tester, () => finder.evaluate().isNotEmpty);
-
   Finder countHeader() => find.byKey(const Key('services_count_header'));
 
   // -------------------------------------------------------------------------
@@ -300,7 +289,7 @@ void main() {
       final router = await pumpRouter(tester, container);
 
       router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-      await pumpUntil(tester, countHeader());
+      await pumpUntilFound(tester, countHeader());
 
       expect(
         countHeader(),
@@ -331,7 +320,7 @@ void main() {
     final router = await pumpRouter(tester, container);
 
     router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-    await pumpUntil(tester, countHeader());
+    await pumpUntilFound(tester, countHeader());
 
     expect(
       countHeader(),
@@ -374,8 +363,11 @@ void main() {
           'svc-1',
         ),
       );
-      await pumpUntil(tester, find.byType(ServiceEditScreen));
-      await pumpUntil(tester, find.byKey(const Key('service-edit-form-svc-1')));
+      await pumpUntilFound(tester, find.byType(ServiceEditScreen));
+      await pumpUntilFound(
+        tester,
+        find.byKey(const Key('service-edit-form-svc-1')),
+      );
 
       expect(
         find.byKey(const Key('service-edit-form-svc-1')),
@@ -414,8 +406,11 @@ void main() {
         'svc-1',
       ),
     );
-    await pumpUntil(tester, find.byType(ServiceEditScreen));
-    await pumpUntil(tester, find.byKey(const Key('service-edit-form-svc-1')));
+    await pumpUntilFound(tester, find.byType(ServiceEditScreen));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('service-edit-form-svc-1')),
+    );
 
     expect(
       find.byKey(const Key('service-edit-form-svc-1')),

@@ -107,11 +107,12 @@ void main() {
         final Finder masterCard = find.byKey(
           const Key('salon-manage-staff-card-master-aaa'),
         );
-        await AppHarness.pumpUntilFound(
-          tester,
-          masterCard,
-          timeout: const Duration(seconds: 20),
-        );
+        // `AppHarness.revealRosterCard` is the single shared way to locate a
+        // roster card in the lazily-inflated `SliverGrid.builder`: it gates on
+        // the grid having LOADED, then drags only when the target cell was
+        // never built. This target sits in row 0 by fixture shape, so it
+        // no-ops and this path behaves exactly as before.
+        await AppHarness.revealRosterCard(tester, masterCard);
         try {
           await tester.ensureVisible(masterCard);
         } catch (_) {}

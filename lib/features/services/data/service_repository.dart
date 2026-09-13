@@ -1463,8 +1463,8 @@ ServiceTarget? serviceTarget(Ref ref) => null;
 /// function body watching the ROOT `authProvider` — so scoping does not defeat
 /// any of them.
 ///
-/// The seam is no longer inert: `app_router.dart`\'s `_SalonMasterServicesShell`
-/// constructs a [SalonMasterTarget] for the
+/// The seam is no longer inert: `app_router.dart`\'s
+/// `_SalonManageStaffServicesShell` constructs a [SalonMasterTarget] for the
 /// `/salons/:salonId/manage/staff/:memberId/services**` subtree. Every OTHER
 /// call site still resolves the root `null` target and is byte-identical to
 /// its pre-phase-314 behaviour.
