@@ -39,6 +39,15 @@
 //     that update endpoint back to [MasterService] (carrying the assignment id
 //     through, since the response omits it).
 //
+//   - [toBandRequest] converts [MasterServiceUpdate] → the generated
+//     [UpdateMasterServiceBandRequest] for
+//     `PATCH /salons/{salonId}/masters/{masterId}/services/{serviceDefId}` — the
+//     PER-MASTER price band + duration override. Its wire contract INVERTS
+//     [toUpdateRequest]'s: `price` is the floor in BOTH modes (there is no
+//     `priceMin` key), and the duration goes to `durationOverrideMinutes`, not
+//     the shared definition's `baseDurationMinutes`. Returns `null` when the
+//     patch carries no band/duration field (the backend 400s an empty body).
+//
 // Error contract: a null [MasterServiceResponse.id] throws [ServerFailure]
 // (broken backend contract). All other nulls are substituted with safe
 // defaults or passed through as null.
@@ -104,6 +113,24 @@ UpdateServiceDefinitionRequestPriceTypeEnum _updatePriceTypeEnum(
       return UpdateServiceDefinitionRequestPriceTypeEnum.RANGE;
     case ServicePriceType.fixed:
       return UpdateServiceDefinitionRequestPriceTypeEnum.FIXED;
+  }
+}
+
+/// Domain [ServicePriceType] → the PER-MASTER BAND request's price-type enum
+/// (`PATCH /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`).
+///
+/// Deliberately separate from [_updatePriceTypeEnum]: the two endpoints carry
+/// DIFFERENT generated enum classes, and the band endpoint's wire contract for
+/// the amounts is the opposite of the definition endpoint's (see
+/// [MasterServiceMapper.toBandRequest]).
+UpdateMasterServiceBandRequestPriceTypeEnum _bandPriceTypeEnum(
+  ServicePriceType t,
+) {
+  switch (t) {
+    case ServicePriceType.range:
+      return UpdateMasterServiceBandRequestPriceTypeEnum.RANGE;
+    case ServicePriceType.fixed:
+      return UpdateMasterServiceBandRequestPriceTypeEnum.FIXED;
   }
 }
 
@@ -528,6 +555,101 @@ abstract final class MasterServiceMapper {
             b.price = patch.price;
           case ServicePriceType.range:
             b.priceMin = patch.priceMin;
+            b.priceMax = patch.priceMax;
+        }
+      }
+    });
+  }
+
+  /// Converts [MasterServiceUpdate] to the generated
+  /// [UpdateMasterServiceBandRequest] for
+  /// `PATCH /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// — the PER-MASTER price band + duration override (backend phase 311 D4).
+  ///
+  /// **The wire contract is NOT [toUpdateRequest]'s.** Two inversions, both of
+  /// which silently corrupt data if transcribed from the definition mapper:
+  ///
+  ///   1. `price` is the FLOOR in **both** modes. There is no `priceMin` key on
+  ///      this DTO at all — a RANGE band sends `price` (floor) + `priceMax`
+  ///      (ceiling), where the definition endpoint sends `priceMin` + `priceMax`.
+  ///   2. Duration goes to `durationOverrideMinutes` — the per-assignment
+  ///      override — NOT `baseDurationMinutes`, which is the SHARED definition's
+  ///      duration and would re-price/re-time every other master in the salon.
+  ///
+  /// Returns `null` when [patch] carries nothing this endpoint owns (no
+  /// [MasterServiceUpdate.priceType] and no [MasterServiceUpdate.durationMinutes]).
+  /// The backend REJECTS an empty `{}` body with a 400 (`notEmpty`), so the
+  /// caller must skip the request entirely rather than send an empty one.
+  ///
+  /// `clearBand` / `clearDurationOverride` are never emitted: [MasterServiceUpdate]
+  /// has no "revert to inherited" affordance today, and passing either alongside
+  /// a band field is a 400 (`clearBandCoherent`).
+  ///
+  /// Throws [ArgumentError] for invalid field values before the request reaches
+  /// the network layer — the same defensive contract [toUpdateRequest] carries:
+  ///   - [MasterServiceUpdate.durationMinutes] present and < 1
+  ///   - FIXED band: [MasterServiceUpdate.price] null or <= 0
+  ///   - RANGE band: [MasterServiceUpdate.priceMin] null or <= 0;
+  ///     [MasterServiceUpdate.priceMax] null or <= [MasterServiceUpdate.priceMin]
+  ///     (the backend rejects `priceMax == price`, so `<=` is correct here, not `<`)
+  static UpdateMasterServiceBandRequest? toBandRequest(
+    MasterServiceUpdate patch,
+  ) {
+    final duration = patch.durationMinutes;
+    if (duration != null && duration < 1) {
+      throw ArgumentError.value(
+        duration,
+        'durationMinutes',
+        'durationMinutes must be >= 1',
+      );
+    }
+
+    final patchPriceType = patch.priceType;
+    if (patchPriceType != null) {
+      switch (patchPriceType) {
+        case ServicePriceType.fixed:
+          final price = patch.price;
+          if (price == null || price <= 0) {
+            throw ArgumentError.value(
+              price,
+              'price',
+              'FIXED mode requires price > 0',
+            );
+          }
+        case ServicePriceType.range:
+          final min = patch.priceMin;
+          final max = patch.priceMax;
+          if (min == null || min <= 0) {
+            throw ArgumentError.value(
+              min,
+              'priceMin',
+              'RANGE mode requires priceMin > 0',
+            );
+          }
+          if (max == null || max <= min) {
+            throw ArgumentError.value(
+              max,
+              'priceMax',
+              'RANGE mode requires priceMax > priceMin',
+            );
+          }
+      }
+    }
+
+    // Nothing this endpoint owns → no request. Sending `{}` would 400.
+    if (patchPriceType == null && duration == null) return null;
+
+    return UpdateMasterServiceBandRequest((b) {
+      if (duration != null) b.durationOverrideMinutes = duration;
+      if (patchPriceType != null) {
+        b.priceType = _bandPriceTypeEnum(patchPriceType);
+        switch (patchPriceType) {
+          case ServicePriceType.fixed:
+            // FIXED: `price` is the amount; `priceMax` stays absent.
+            b.price = patch.price;
+          case ServicePriceType.range:
+            // RANGE: `price` is the FLOOR (never `priceMin` — no such key).
+            b.price = patch.priceMin;
             b.priceMax = patch.priceMax;
         }
       }

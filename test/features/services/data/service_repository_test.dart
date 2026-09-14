@@ -1855,6 +1855,461 @@ void main() {
     );
   });
 
+  // ── 6a. update — salon-target dispatch (phase 317) ─────────────────────────
+  //
+  // The defect these pin: with a SalonMasterTarget in scope, `update` used to
+  // PATCH the SHARED service definition with the price AND the duration,
+  // silently re-pricing every other master in the salon. The write now splits —
+  // price/duration to the per-master band endpoint, identity to the definition
+  // — so each test asserts BOTH halves: what the band request carries, AND that
+  // the definition request carries no price and no duration. Asserting only the
+  // band call would pass while the definition PATCH still leaked the price.
+
+  group('update — salon-target dispatch (phase 317)', () {
+    const salonId = 'salon-row-uuid';
+    const masterId = 'master-row-uuid';
+
+    late HttpServiceRepository salonRepo;
+
+    setUp(() {
+      salonRepo = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: Dio(),
+        masterId: '',
+        target: const SalonMasterTarget(salonId: salonId, masterId: masterId),
+        sessionUserId: 'user-row-uuid',
+      );
+      registerFallbackValue(
+        UpdateMasterServiceBandRequest(
+          (b) => b
+            ..priceType = UpdateMasterServiceBandRequestPriceTypeEnum.FIXED
+            ..price = 100,
+        ),
+      );
+    });
+
+    /// Stubs the band PATCH to succeed, returning [dto] in the envelope.
+    void stubBand(MasterServiceResponse dto) {
+      when(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      ).thenAnswer((_) async => _singleResponse(dto));
+    }
+
+    /// Stubs the shared-definition PATCH to succeed.
+    void stubIdentity() {
+      when(
+        () => serviceApi.updateServiceDefinition(
+          serviceDefId: any(named: 'serviceDefId'),
+          updateServiceDefinitionRequest: any(
+            named: 'updateServiceDefinitionRequest',
+          ),
+        ),
+      ).thenAnswer((_) async => _updateResponse(_buildDef()));
+    }
+
+    UpdateMasterServiceBandRequest capturedBand() =>
+        verify(
+              () => serviceApi.updateMasterServiceBand(
+                salonId: salonId,
+                masterId: masterId,
+                serviceDefId: _serviceDefId,
+                updateMasterServiceBandRequest: captureAny(
+                  named: 'updateMasterServiceBandRequest',
+                ),
+              ),
+            ).captured.single
+            as UpdateMasterServiceBandRequest;
+
+    UpdateServiceDefinitionRequest capturedIdentity() =>
+        verify(
+              () => serviceApi.updateServiceDefinition(
+                serviceDefId: _serviceDefId,
+                updateServiceDefinitionRequest: captureAny(
+                  named: 'updateServiceDefinitionRequest',
+                ),
+              ),
+            ).captured.single
+            as UpdateServiceDefinitionRequest;
+
+    test('FIXED — price and duration go to the per-master band; the SHARED '
+        'definition PATCH carries NEITHER', () async {
+      stubIdentity();
+      stubBand(
+        _buildMasterServiceDto(
+          serviceDefinition: _buildDef(id: _serviceDefId, name: 'Манікюр+'),
+          effectivePrice: 750,
+          effectiveDurationMinutes: 75,
+        ),
+      );
+
+      await salonRepo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр+',
+          category: 'NAILS',
+          serviceTypeId: _serviceTypeId,
+          durationMinutes: 75,
+          priceType: ServicePriceType.fixed,
+          price: 750,
+        ),
+        assignmentId: _serviceId,
+      );
+
+      final band = capturedBand();
+      expect(band.priceType, UpdateMasterServiceBandRequestPriceTypeEnum.FIXED);
+      expect(band.price, 750);
+      expect(band.priceMax, isNull);
+      expect(
+        band.durationOverrideMinutes,
+        75,
+        reason:
+            'duration must be the PER-MASTER override, never the shared '
+            'definition baseDurationMinutes',
+      );
+      expect(band.clearBand, isNull);
+      expect(band.clearDurationOverride, isNull);
+
+      // This is the assertion that fails if the bug comes back.
+      final identity = capturedIdentity();
+      expect(identity.name, 'Манікюр+');
+      expect(identity.category, 'NAILS');
+      expect(identity.serviceTypeId, _serviceTypeId);
+      expect(
+        identity.price,
+        isNull,
+        reason: 'a price on the shared definition re-prices every master',
+      );
+      expect(identity.priceMin, isNull);
+      expect(identity.priceMax, isNull);
+      expect(identity.priceType, isNull);
+      expect(
+        identity.baseDurationMinutes,
+        isNull,
+        reason: 'a duration on the shared definition re-times every master',
+      );
+    });
+
+    test(
+      'RANGE — the FLOOR is sent as `price`, and no `priceMin` key reaches the '
+      'wire',
+      () async {
+        stubIdentity();
+        stubBand(_buildMasterServiceDto());
+
+        await salonRepo.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            name: 'Фарбування',
+            durationMinutes: 120,
+            priceType: ServicePriceType.range,
+            priceMin: 800,
+            priceMax: 1500,
+          ),
+          assignmentId: _serviceId,
+        );
+
+        final band = capturedBand();
+        expect(
+          band.priceType,
+          UpdateMasterServiceBandRequestPriceTypeEnum.RANGE,
+        );
+        expect(
+          band.price,
+          800,
+          reason:
+              'the band endpoint names the RANGE floor `price`, NOT `priceMin` '
+              '— the opposite of the definition endpoint',
+        );
+        expect(band.priceMax, 1500);
+
+        // Serialize to the actual wire map: a `priceMin` key here would mean
+        // the floor was dropped server-side (the field does not exist on the
+        // band DTO) and the master silently kept their old price.
+        final wire =
+            standardSerializers.serializeWith(
+                  UpdateMasterServiceBandRequest.serializer,
+                  band,
+                )!
+                as Map<Object?, Object?>;
+        expect(wire.containsKey('priceMin'), isFalse);
+        expect(wire['price'], 800);
+        expect(wire['priceMax'], 1500);
+        expect(wire['durationOverrideMinutes'], 120);
+        expect(wire.containsKey('baseDurationMinutes'), isFalse);
+      },
+    );
+
+    test('the result is mapped from the BAND response, not the definition '
+        'response', () async {
+      stubIdentity();
+      // The nested definition still carries the SHARED band (500) — the
+      // top-level per-master values (900) are the ones that must win.
+      stubBand(
+        (MasterServiceResponseBuilder()
+              ..id = 'assignment-from-band'
+              ..masterId = masterId
+              ..serviceDefinition.replace(_buildDef(id: _serviceDefId))
+              ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+              ..priceMin = 900
+              ..priceDisplay = '900 ₴'
+              ..effectiveDurationMinutes = 90
+              ..isActive = true)
+            .build(),
+      );
+
+      final result = await salonRepo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          durationMinutes: 90,
+          priceType: ServicePriceType.fixed,
+          price: 900,
+        ),
+        assignmentId: _serviceId,
+      );
+
+      expect(result.priceMin, 900.0);
+      expect(result.durationMinutes, 90);
+      expect(
+        result.id,
+        'assignment-from-band',
+        reason:
+            'the band response carries the real assignment id; the caller '
+            'assignmentId is not threaded through on this branch',
+      );
+    });
+
+    test('a patch with no identity field skips the shared-definition PATCH '
+        'entirely', () async {
+      stubBand(_buildMasterServiceDto());
+
+      await salonRepo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          durationMinutes: 45,
+          priceType: ServicePriceType.fixed,
+          price: 400,
+        ),
+        assignmentId: _serviceId,
+      );
+
+      verifyNever(
+        () => serviceApi.updateServiceDefinition(
+          serviceDefId: any(named: 'serviceDefId'),
+          updateServiceDefinitionRequest: any(
+            named: 'updateServiceDefinitionRequest',
+          ),
+        ),
+      );
+    });
+
+    test(
+      'an identity-only patch is rejected before ANY network call',
+      () async {
+        await expectLater(
+          salonRepo.update(
+            _serviceDefId,
+            const MasterServiceUpdate(name: 'Тільки назва'),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+
+        verifyNever(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        );
+        verifyNever(
+          () => serviceApi.updateMasterServiceBand(
+            salonId: any(named: 'salonId'),
+            masterId: any(named: 'masterId'),
+            serviceDefId: any(named: 'serviceDefId'),
+            updateMasterServiceBandRequest: any(
+              named: 'updateMasterServiceBandRequest',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('an injected salonId is REJECTED before either PATCH', () async {
+      final injected = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: Dio(),
+        masterId: '',
+        target: const SalonMasterTarget(salonId: '..', masterId: masterId),
+        sessionUserId: 'user-row-uuid',
+      );
+
+      await expectLater(
+        injected.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.fixed,
+            price: 100,
+          ),
+          assignmentId: _serviceId,
+        ),
+        throwsA(isA<UnknownFailure>()),
+      );
+
+      verifyNever(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      );
+    });
+
+    test('a RANGE 400 keyed `price` is re-keyed onto `priceMin` so the form '
+        'can render it under the range floor', () async {
+      when(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/x'),
+          error: const ValidationFailure(
+            fieldErrors: <String, String>{
+              'price': 'Price must be positive',
+              'durationOverrideMinutes': 'Duration override must be at least 1',
+            },
+          ),
+        ),
+      );
+
+      await expectLater(
+        salonRepo.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.range,
+            priceMin: 800,
+            priceMax: 1500,
+          ),
+          assignmentId: _serviceId,
+        ),
+        throwsA(
+          isA<ValidationFailure>()
+              .having(
+                (ValidationFailure f) => f.fieldErrors['priceMin'],
+                'priceMin',
+                'Price must be positive',
+              )
+              .having(
+                (ValidationFailure f) => f.fieldErrors.containsKey('price'),
+                'price key dropped',
+                isFalse,
+              )
+              .having(
+                (ValidationFailure f) => f.fieldErrors['baseDurationMinutes'],
+                'baseDurationMinutes',
+                'Duration override must be at least 1',
+              ),
+        ),
+      );
+    });
+
+    test('a FIXED 400 keyed `price` is left alone — the form already renders '
+        'that key', () async {
+      when(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/x'),
+          error: const ValidationFailure(
+            fieldErrors: <String, String>{'price': 'Price must be positive'},
+          ),
+        ),
+      );
+
+      await expectLater(
+        salonRepo.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.fixed,
+            price: 750,
+          ),
+          assignmentId: _serviceId,
+        ),
+        throwsA(
+          isA<ValidationFailure>().having(
+            (ValidationFailure f) => f.fieldErrors['price'],
+            'price',
+            'Price must be positive',
+          ),
+        ),
+      );
+    });
+
+    test(
+      'an invalid RANGE band throws ArgumentError before any network call',
+      () async {
+        await expectLater(
+          salonRepo.update(
+            _serviceDefId,
+            const MasterServiceUpdate(
+              priceType: ServicePriceType.range,
+              priceMin: 800,
+              priceMax: 800,
+            ),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+
+        verifyNever(
+          () => serviceApi.updateMasterServiceBand(
+            salonId: any(named: 'salonId'),
+            masterId: any(named: 'masterId'),
+            serviceDefId: any(named: 'serviceDefId'),
+            updateMasterServiceBandRequest: any(
+              named: 'updateMasterServiceBandRequest',
+            ),
+          ),
+        );
+        verifyNever(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        );
+      },
+    );
+  });
+
   // ── 6b. create/update — 409 DUPLICATE_SERVICE → ServiceDuplicateFailure ─────
   //
   // The typed `{ data: { code: DUPLICATE_SERVICE, serviceName, existingServiceDefId } }`

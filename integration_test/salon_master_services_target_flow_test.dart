@@ -115,6 +115,11 @@ const String _kMasterRowId = 'master-removable';
 const String _kSalonServicesUri =
     '/api/v1/salons/$_kSalonId/masters/$_kMasterRowId/services';
 
+/// The SECOND master on the same salon (`master-aaa`) — the phase-317 VICTIM.
+/// Their roster `userId` and `masters` row id are identical, so one constant
+/// serves both the `:memberId` path segment and the fake's row lookups.
+const String _kMasterAaaMemberId = 'master-aaa';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -413,5 +418,255 @@ void main() {
         );
       });
     },
+  );
+
+  // ── 3. A SAVE writes the PER-MASTER band, never the shared definition ────
+  //
+  // THE DEFECT (phase 317). `update` used to PATCH the SHARED definition with
+  // the price AND the duration under a salon target, silently re-pricing and
+  // re-timing every OTHER master in the salon who performs that service. Both
+  // endpoints answer 200, so nothing on screen said anything was wrong — the
+  // harm was on someone else's screen.
+  //
+  // THIS IS THE TIER WHOSE ABSENCE LET IT SHIP. The salon edit-screen cases
+  // above OPEN the screen; none of them SAVED. The unit and contract tiers pin
+  // the request shape, but only a flow can pin the CONSEQUENCE, and only
+  // because `FakeBackend` models the shared semantics: a definition PATCH
+  // carrying money or time cascades onto every master row resolving against
+  // that definition with no per-master override. So the "master A is
+  // untouched" assertion below is a state that genuinely MOVES when the bug is
+  // present — not a fixture that could never have changed.
+
+  /// Types [text] into the field inside the keyed wrapper.
+  ///
+  /// `pricing-fixed-amount` / `field-service-duration` sit on the neumorphic
+  /// INSET wrapper, not on the field, so the [TextField] is one level down.
+  Future<void> enterFieldText(
+    WidgetTester tester,
+    Key wrapper,
+    String text,
+  ) async {
+    final Finder field = find.descendant(
+      of: find.byKey(wrapper),
+      matching: find.byType(TextField),
+    );
+    await AppHarness.pumpUntilFound(
+      tester,
+      field,
+      timeout: const Duration(seconds: 20),
+    );
+    // `ensureVisible` jumps (Duration.zero) rather than animating, so ONE
+    // plain frame is enough to lay the well out at its final offset before
+    // typing — no fixed sleep to guess at (see the TIMING note at the top).
+    await tester.ensureVisible(field);
+    await tester.pump();
+    await tester.enterText(field, text);
+    // Deterministic settle: pump until [text] is genuinely readable INSIDE
+    // this wrapper. Stronger than a sleep — it also proves the entry landed
+    // on the intended well and not on a sibling field.
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.descendant(of: find.byKey(wrapper), matching: find.text(text)),
+      timeout: const Duration(seconds: 20),
+    );
+  }
+
+  testWidgets(
+    'saving a salon master\'s new price + duration PATCHes the PER-MASTER '
+    'band only — the shared definition receives no money or time, and a '
+    'SECOND master performing the same service keeps their own 750 ₴ / 90 хв',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        final GoRouter router = await bootAsOwnerOfSalonXyz(tester, fb);
+
+        // PRECONDITION, read off the fake: BOTH masters resolve against the
+        // same shared definition `salon-def-1` at the same 750 ₴ / 90 min, and
+        // neither carries a per-master override. A fixture that drifted apart
+        // fails HERE rather than silently defanging the harm assertion below.
+        expect(fb.salonResolvedPrice('master-removable', 'salon-def-1'), 750);
+        expect(fb.salonResolvedPrice('master-aaa', 'salon-def-1'), 750);
+        expect(fb.salonResolvedDuration('master-aaa', 'salon-def-1'), 90);
+        expect(fb.updateMasterBandCalls, 0);
+        expect(fb.patchSharedDefinitionPricedCalls, 0);
+
+        final Finder salonCard = find.byKey(
+          const Key('service_card_salon-assign-1'),
+        );
+        await deepLinkToSalonMasterServices(tester, router, card: salonCard);
+
+        // Through the CARD (`context.push`), the shipped path — same reasoning
+        // as the delete flow above.
+        await AppHarness.tapVisible(tester, salonCard);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('service-edit-form-salon-assign-1')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // 750 → 990 ₴ and 90 → 120 хв. BOTH halves are changed on purpose:
+        // the duration had the identical defect (it landed on the shared
+        // definition's `baseDurationMinutes`), so a flow that moved only the
+        // price would leave that half unpinned.
+        await enterFieldText(tester, const Key('pricing-fixed-amount'), '990');
+        await enterFieldText(
+          tester,
+          const Key('field-service-duration'),
+          '120',
+        );
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('btn-submit-service')),
+        );
+        // Waits for the SAVE to complete (the edit screen pops), NOT for the
+        // band counter: a regression that saves through the wrong endpoint
+        // then fails on an assertion that NAMES the endpoint instead of on an
+        // opaque 20-second timeout.
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => find
+              .byKey(const Key('service-edit-form-salon-assign-1'))
+              .evaluate()
+              .isEmpty,
+          description: 'the edit screen to pop after a successful save',
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── The write went to the PER-MASTER band ──────────────────────────
+        expect(
+          fb.updateMasterBandCalls,
+          1,
+          reason:
+              'a salon master\'s price/duration is per-master state and must '
+              'be written through PATCH /salons/{s}/masters/{m}/services/{d}',
+        );
+        expect(
+          fb.lastBandPatchPath,
+          '$_kSalonServicesUri/salon-def-1',
+          reason: 'keyed on the DEFINITION id, never the assignment id',
+        );
+        expect(fb.lastBandPatchedServiceDefId, isNot('salon-assign-1'));
+
+        final Map<String, dynamic> band = fb.lastBandPatchBody!;
+        expect(band['price'], 990);
+        expect(
+          band['durationOverrideMinutes'],
+          120,
+          reason:
+              'THE DURATION HALF — it must be the per-master OVERRIDE; '
+              '`baseDurationMinutes` is the SHARED definition\'s duration and '
+              'carried the identical cross-master defect',
+        );
+        expect(
+          band.containsKey('baseDurationMinutes'),
+          isFalse,
+          reason: 'the shared duration key must not appear on the band body',
+        );
+        expect(
+          band.containsKey('priceMin'),
+          isFalse,
+          reason:
+              'the band endpoint has no `priceMin` field; a floor sent under '
+              'that name is dropped and the master keeps their old price',
+        );
+
+        // ── The SHARED definition received identity ONLY ───────────────────
+        expect(
+          fb.patchSharedDefinitionPricedCalls,
+          0,
+          reason:
+              'THE DATA-INTEGRITY ASSERTION — any money or time key on '
+              'PATCH /api/v1/services/{defId} re-prices every other master '
+              'in the salon',
+        );
+        expect(
+          fb.patchSharedDefinitionCalls,
+          greaterThanOrEqualTo(1),
+          reason:
+              'anti-vacuity — the identity half DID fire, so the zero above '
+              'is "carried no price", not "never ran"',
+        );
+        final Map<String, dynamic> identity = fb.lastSharedDefinitionPatchBody!;
+        expect(identity['name'], 'Нарощення нігтів');
+
+        // ── The edit actually took effect for THIS master ──────────────────
+        expect(
+          fb.salonResolvedPrice('master-removable', 'salon-def-1'),
+          990,
+          reason:
+              'anti-vacuity — a save that wrote nothing at all would satisfy '
+              'every "untouched" assertion below',
+        );
+        expect(
+          fb.salonResolvedDuration('master-removable', 'salon-def-1'),
+          120,
+        );
+
+        // ── THE HARM: the other master is untouched ────────────────────────
+        expect(
+          fb.salonResolvedPrice('master-aaa', 'salon-def-1'),
+          750,
+          reason:
+              'master A performs the SAME salon-owned service. Editing master '
+              'B\'s band must not move A\'s price — the user-visible harm the '
+              'phase-317 split exists to prevent',
+        );
+        expect(
+          fb.salonResolvedDuration('master-aaa', 'salon-def-1'),
+          90,
+          reason: 'the same harm, through the duration half',
+        );
+        expect(
+          fb.salonSharedDefinitionPrice('salon-def-1'),
+          750,
+          reason:
+              'and the SHARED definition row itself is unchanged — the band '
+              'write is per-master state, so the salon-wide band a future '
+              'master would inherit must not have moved either',
+        );
+
+        // …and on A's own SCREEN, which is where a salon owner would see it.
+        router.go(
+          RouteNames.salonManageStaffServices(_kSalonId, _kMasterAaaMemberId),
+        );
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.getSalonMasterAaaServicesCalls >= 1,
+          description: 'master A\'s scoped list read to reach the wire',
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder nails = find.byKey(const Key('category_section_NAILS'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          nails,
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder sharedCard = find.byKey(
+          const Key('service_card_salon-aaa-assign-shared'),
+        );
+        if (sharedCard.evaluate().isEmpty) {
+          await AppHarness.tapVisible(tester, nails);
+        }
+        await AppHarness.pumpUntilFound(
+          tester,
+          sharedCard,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          find.descendant(of: sharedCard, matching: find.text('750 ₴')),
+          findsOneWidget,
+          reason:
+              'master A\'s card still renders A\'s own price — the server-'
+              'formatted priceDisplay, not a localised string',
+        );
+        expect(
+          find.descendant(of: sharedCard, matching: find.text('990 ₴')),
+          findsNothing,
+          reason: 'master B\'s new price must never appear on A\'s card',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
   );
 }

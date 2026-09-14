@@ -278,9 +278,17 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             // editable in the UI but silently lost on save (M4 API-contract).
             serviceTypeId: input.serviceTypeId,
           );
-          // Backend keys PATCH /api/v1/services/{serviceDefId} on the
-          // service-definition id; the assignment id (service.id) is threaded
+          // Every update endpoint keys on the service-DEFINITION id, so that
+          // is what is passed; the assignment id (service.id) is threaded
           // through so the returned domain object keeps a stable id.
+          //
+          // The repository — not this screen — decides WHERE each field lands.
+          // Under a [SalonMasterTarget] it splits the patch: price + duration
+          // go to the per-master band endpoint and only name / category /
+          // serviceTypeId reach the SHARED salon definition. Do not "simplify"
+          // that back into one call here; sending the price to the definition
+          // endpoint re-prices every other master in the salon. The editable
+          // field set above is deliberately identical for both targets.
           await ref
               .read(serviceRepositoryProvider)
               .update(service.serviceDefId, patch, assignmentId: service.id);

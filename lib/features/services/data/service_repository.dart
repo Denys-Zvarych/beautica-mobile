@@ -13,7 +13,14 @@
 //   - create(input)     → POST  /api/v1/independent-masters/me/services
 //   - update(defId, …)  → PATCH /api/v1/services/{serviceDefId}
 //                          (generated updateServiceDefinition; keyed on the
-//                           service-definition id, NOT the assignment id)
+//                           service-definition id, NOT the assignment id).
+//                          With a [SalonMasterTarget] in scope this SPLITS:
+//                          the price/duration half goes to
+//                          PATCH /api/v1/salons/{salonId}/masters/{masterId}
+//                               /services/{serviceDefId}
+//                          (the per-master band), and only the identity half
+//                          (name/category/serviceTypeId) touches the SHARED
+//                          definition — see [_updateSalonMasterBand].
 //   - deactivate(defId) → DELETE /api/v1/services/{serviceDefId}
 //                          (keyed on the service-definition id)
 //
@@ -151,14 +158,32 @@ abstract interface class ServiceRepository {
   /// Partially updates an existing service identified by its
   /// service-definition id ([serviceDefId]).
   ///
-  /// Wraps `PATCH /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
-  /// [MasterService.serviceDefId] (the underlying service-definition UUID), NOT
-  /// [MasterService.id] (the assignment UUID) — the backend keys this endpoint
-  /// on the definition and a wrong id yields a 404 ("Запис не знайдено").
+  /// [serviceDefId] MUST be [MasterService.serviceDefId] (the underlying
+  /// service-definition UUID), NOT [MasterService.id] (the assignment UUID) —
+  /// every endpoint below keys on the definition and a wrong id yields a 404
+  /// ("Запис не знайдено"). Only fields present in [patch] (non-null) are sent;
+  /// absent fields are left unchanged on the backend.
   ///
-  /// Only fields present in [patch] (non-null) are sent; absent fields are left
-  /// unchanged on the backend. [assignmentId] is carried through onto the
-  /// returned [MasterService.id] (the PATCH response omits the assignment id).
+  /// `null` target (the independent master): wraps
+  /// `PATCH /api/v1/services/{serviceDefId}` — one call, carrying identity AND
+  /// price AND duration. Correct there because the definition is that master's
+  /// own and nobody else resolves against it. [assignmentId] is carried through
+  /// onto the returned [MasterService.id] (this response omits the assignment
+  /// id).
+  ///
+  /// [SalonMasterTarget]: the write SPLITS across two endpoints, because after
+  /// backend phase 302 a salon master's definitions are SALON-OWNED and SHARED.
+  /// Price and duration are per-master state and go to
+  /// `PATCH /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// (the per-master band, backend phase 311); only name / category /
+  /// serviceTypeId — which have no per-master equivalent — reach the shared
+  /// definition. Sending the price or duration to the definition endpoint under
+  /// a salon target silently re-prices EVERY OTHER master who performs that
+  /// service; that is the defect this split exists to prevent. The returned
+  /// [MasterService] is mapped from the BAND response (the per-master resolved
+  /// values), so [assignmentId] is unused on this branch — the band response
+  /// carries the real assignment id.
+  ///
   /// Returns the updated [MasterService].
   Future<MasterService> update(
     String serviceDefId,
@@ -943,6 +968,15 @@ final class HttpServiceRepository implements ServiceRepository {
     required String assignmentId,
   }) async {
     _assertAuthenticated();
+    // Phase 317 — dispatch INSIDE this method, the same seam listMyServices()
+    // / bulkCreate() / deactivate() already use: one fork in the REPOSITORY, so
+    // `service_edit_screen.dart`'s save button retargets for free with nothing
+    // to repeat at the call site. Placed BEFORE toUpdateRequest() so the
+    // definition-shaped request is never even built on the salon branch.
+    final t = target;
+    if (t is SalonMasterTarget) {
+      return _updateSalonMasterBand(t, serviceDefId, patch);
+    }
     final request = MasterServiceMapper.toUpdateRequest(patch);
     try {
       // PATCH /api/v1/services/{serviceDefId} — the backend's update endpoint
@@ -1021,6 +1055,240 @@ final class HttpServiceRepository implements ServiceRepository {
       // it changes nothing else.
       throw _mapServiceWriteException(e);
     }
+  }
+
+  /// Applies [patch] to ONE salon master's assignment — the [SalonMasterTarget]
+  /// arm of [update] (phase 317).
+  ///
+  /// ## Why this exists
+  /// After backend phase 302 a salon master's service DEFINITIONS are
+  /// salon-owned and SHARED: several masters resolve against the same row.
+  /// The null-target branch of [update] PATCHes that shared row wholesale, so
+  /// under a salon target it rewrote every other master's price and duration
+  /// too — silently, with a 200. This method splits the write so each field
+  /// lands on the row that actually owns it:
+  ///
+  /// | Field(s) | Endpoint | Scope |
+  /// |---|---|---|
+  /// | `priceType` / `price` / `priceMin` / `priceMax` / `durationMinutes` | `PATCH /salons/{s}/masters/{m}/services/{d}` | THIS master only |
+  /// | `name` / `category` / `serviceTypeId` | `PATCH /services/{d}` | the shared definition |
+  ///
+  /// The identity fields stay editable by product decision — they have no
+  /// per-master equivalent, so a salon owner renaming or recategorising a
+  /// service is renaming it for the salon, which is the intended meaning. The
+  /// editable FIELD SET is therefore identical to the independent-master
+  /// screen's; only the ROUTING of the save differs.
+  ///
+  /// ## Order, and the partial-failure window
+  /// Identity first, band second, and the BAND response is what gets mapped
+  /// back. Two reasons: the band response nests the `serviceDefinition`, so
+  /// running identity first makes the returned object carry the NEW name; and
+  /// the band response is the only one that carries the per-master resolved
+  /// price/duration (`MasterServiceResponse`), which is what the caller must
+  /// render.
+  ///
+  /// This leaves a partial-failure window: the identity PATCH can succeed and
+  /// the band PATCH then fail (validation, 403, 404, transport), leaving the
+  /// definition renamed while the price is unchanged. There is deliberately NO
+  /// rollback — the backend exposes no transaction across the two endpoints,
+  /// and a compensating PATCH could itself fail and would need the pre-edit
+  /// name, which this method does not hold. The failure surfaces to the user as
+  /// a normal save error and the screen re-reads the catalogue, so the
+  /// half-applied state is visible rather than hidden.
+  ///
+  /// The identity PATCH is skipped entirely when [patch] carries none of the
+  /// three identity fields (`null` = "no change", per [MasterServiceUpdate]) —
+  /// an identity-only body IS accepted by the definition endpoint
+  /// (`UpdateServiceDefinitionRequest` has no class-level "not empty" rule and
+  /// its `@ServicePriceValid` is vacuous when the whole price block is absent),
+  /// so the skip is an optimisation, not a workaround.
+  ///
+  /// [MasterServiceUpdate.description], [MasterServiceUpdate.bufferMinutesAfter]
+  /// and [MasterServiceUpdate.isActive] are NOT forwarded on this branch: the
+  /// edit form never sets them (`service_edit_screen.dart`), `isActive` has its
+  /// own endpoint ([deactivate]), and routing the other two to the shared
+  /// definition would re-open the same class of cross-master leak this method
+  /// closes. They are left for a phase that decides where they belong.
+  Future<MasterService> _updateSalonMasterBand(
+    SalonMasterTarget t,
+    String serviceDefId,
+    MasterServiceUpdate patch,
+  ) async {
+    // Built BEFORE any request so an ArgumentError (a programming error, never
+    // a transport fault) propagates untouched by the DioException handlers —
+    // same ordering [update]'s null-target branch gives toUpdateRequest().
+    final bandRequest = MasterServiceMapper.toBandRequest(patch);
+
+    // Identity half. Feeding a STRIPPED MasterServiceUpdate through the
+    // existing toUpdateRequest() rather than adding a second definition-request
+    // builder is what guarantees the bug cannot come back: price and duration
+    // are not merely "not set" here, they are structurally absent from the
+    // input, so no future edit to toUpdateRequest() can reintroduce them on
+    // this path.
+    final identity = MasterServiceUpdate(
+      name: patch.name,
+      category: patch.category,
+      serviceTypeId: patch.serviceTypeId,
+    );
+    final hasIdentity =
+        identity.name != null ||
+        identity.category != null ||
+        identity.serviceTypeId != null;
+
+    if (bandRequest == null) {
+      // No price block and no duration. Rejected BEFORE any network call and
+      // never silently downgraded to an identity-only write, because this
+      // method must return the master's RESOLVED pricing and only the band
+      // response carries it — mapping the definition response instead would
+      // report the SHARED band as this master's, reintroducing the exact
+      // cross-master confusion this method exists to remove.
+      //
+      // Unreachable from today's UI: the edit form always submits a duration
+      // and a full price block (`service_edit_screen.dart`'s `onSave`). An
+      // ArgumentError, not a [Failure] — a caller bug, not a transport fault,
+      // and it is thrown before the identity PATCH so nothing is half-written.
+      throw ArgumentError.value(
+        patch,
+        'patch',
+        'a salon-master update must carry a price block or a duration',
+      );
+    }
+
+    // Same encode-AND-REJECT treatment the other salon paths apply. The
+    // generated client interpolates these straight into the path template, so
+    // a dot-segment would be collapsed by Dio's normalizePath() and retarget
+    // the PATCH on the authenticated [_dio] instance. Encoding a well-formed
+    // UUID is a no-op; [_pathSegment] REJECTS rather than sanitises.
+    final salonId = _pathSegment(t.salonId, 'salonId');
+    final masterId = _pathSegment(t.masterId, 'masterId');
+    final defId = _pathSegment(serviceDefId, 'serviceDefId');
+
+    if (hasIdentity) {
+      final identityRequest = MasterServiceMapper.toUpdateRequest(identity);
+      try {
+        await _serviceApi.updateServiceDefinition(
+          // [defId], not the raw argument: the generated client interpolates
+          // this into its path template too, so both halves of this split
+          // write get the same encode-and-reject treatment.
+          serviceDefId: defId,
+          updateServiceDefinitionRequest: identityRequest,
+        );
+      } on Failure {
+        rethrow;
+      } on DioException catch (e, st) {
+        if (kDebugMode) {
+          log(
+            '_updateSalonMasterBand identity PATCH failed: ${e.type} '
+            '${e.response?.statusCode} serviceDefId=$serviceDefId',
+            name: _tag,
+            level: 900,
+            stackTrace: st,
+          );
+        }
+        // Identity errors are keyed on the definition endpoint's own field
+        // names (name/category/serviceTypeId), which the form already renders
+        // — no remap needed, and deliberately NOT routed through
+        // [_remapBandFieldErrors], which would mislabel a definition `price`
+        // error (unreachable here, since no price is sent) as a range floor.
+        throw _mapServiceWriteException(e);
+      }
+      // Reaching here means the shared definition is already committed. See the
+      // partial-failure note above: a throw from the band call below leaves it
+      // applied, and that is the accepted contract.
+    }
+
+    try {
+      final res = await _serviceApi.updateMasterServiceBand(
+        salonId: salonId,
+        masterId: masterId,
+        serviceDefId: defId,
+        updateMasterServiceBandRequest: bandRequest,
+      );
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            '_updateSalonMasterBand: response data is null for '
+            'serviceDefId=$serviceDefId',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      // Mapped with the PER-MASTER-aware fromDto, never
+      // fromServiceDefinitionDto: the band response's TOP-LEVEL
+      // priceType/priceMin/priceMax/priceDisplay are the resolved per-master
+      // values, and its nested `serviceDefinition` still carries the SHARED
+      // band — the two legitimately disagree, and fromDto already prefers the
+      // top level. fromDto also reads the real assignment id off the response,
+      // so the caller's `assignmentId` is not needed on this branch.
+      return MasterServiceMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_updateSalonMasterBand band PATCH failed: ${e.type} '
+          '${e.response?.statusCode} serviceDefId=$serviceDefId',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _remapBandFieldErrors(_mapServiceWriteException(e), patch);
+    }
+  }
+
+  /// Re-keys the band endpoint's field errors onto the names the edit form
+  /// renders inline (`service_form.dart`'s `_mapServerFieldErrors`).
+  ///
+  /// Two wire names differ from the definition endpoint the form was built
+  /// against, so without this a real 400 would silently degrade to the generic
+  /// snackbar instead of landing under the offending field:
+  ///
+  ///   - `price` → `priceMin` **when the patch is RANGE**. The band endpoint
+  ///     reports the range FLOOR as `price`; the form renders the floor's error
+  ///     from `priceMin` (`service_form.dart`, the `pricing-range-min` field).
+  ///     Guarded on the mode because in FIXED mode `price` is already the key
+  ///     the form wants — remapping unconditionally would push a FIXED-price
+  ///     error onto a field that is not even on screen.
+  ///   - `durationOverrideMinutes` → `baseDurationMinutes`, the duration field
+  ///     the form renders (it already normalises the `durationMinutes` alias
+  ///     the same way).
+  ///
+  /// Any other failure type, and any other key, passes through untouched —
+  /// including the endpoint's cross-field keys (`bandLegal`, `notEmpty`,
+  /// `clearBandCoherent`, `clearDurationOverrideCoherent`), which name no form
+  /// field and correctly fall through to the generic snackbar.
+  Failure _remapBandFieldErrors(Failure failure, MasterServiceUpdate patch) {
+    if (failure is! ValidationFailure) return failure;
+    final errors = failure.fieldErrors;
+    if (errors.isEmpty) return failure;
+
+    final isRange = patch.priceType == ServicePriceType.range;
+    final remapped = <String, String>{};
+    var changed = false;
+    errors.forEach((String key, String message) {
+      // `dest`, not `target` — [target] is this repository's ServiceTarget
+      // field and shadowing it here would read as a dispatch decision.
+      var dest = key;
+      if (isRange && key == 'price') {
+        dest = 'priceMin';
+      } else if (key == 'durationOverrideMinutes') {
+        dest = 'baseDurationMinutes';
+      }
+      if (dest != key) changed = true;
+      // A pre-existing key of the same name wins — never clobber an error the
+      // backend already reported under the destination name.
+      remapped.putIfAbsent(dest, () => message);
+    });
+    if (!changed) return failure;
+    return ValidationFailure(
+      fieldErrors: remapped,
+      serverMessage: failure.serverMessage,
+      cause: failure.cause,
+    );
   }
 
   /// Unassigns [t.masterId] from the service identified by [serviceDefId] —

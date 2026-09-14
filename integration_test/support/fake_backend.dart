@@ -1885,6 +1885,93 @@ final class FakeBackend {
   String? lastUnassignedServiceDefId;
   String? lastUnassignPath;
 
+  // ── Phase 317 — the SPLIT service update (band vs shared definition) ──────
+  //
+  // THE DEFECT THESE MODEL. Editing one salon master's price/duration used to
+  // PATCH the SHARED definition (`PATCH /api/v1/services/{defId}`), silently
+  // re-pricing every OTHER master who performs that service. Modelling only
+  // the call ROUTING would be too weak a fake to catch it: both endpoints
+  // answer 200, so a flow that merely counted calls could pass while the
+  // other master's price moved. So this fake models the SHARED SEMANTICS —
+  // a definition PATCH carrying money/time CASCADES onto every salon master
+  // row that resolves against that definition and has no per-master override
+  // — which is what makes "master A's price is untouched" a real assertion
+  // rather than a reading of a fixture that could never have changed.
+
+  /// `PATCH /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
+  /// PER-MASTER band write. GENUINELY STATEFUL: a successful call rewrites
+  /// THAT master's row only and records a per-master override, so the next
+  /// `GET .../services` reflects it and the cascade below skips the row.
+  int updateMasterBandCalls = 0;
+  String? lastBandPatchPath;
+  String? lastBandPatchedServiceDefId;
+  Map<String, dynamic>? lastBandPatchBody;
+
+  /// `PATCH /api/v1/services/{serviceDefId}` for a SALON-OWNED definition —
+  /// the shared row. [patchSharedDefinitionCalls] counts every such PATCH;
+  /// [patchSharedDefinitionPricedCalls] counts only those carrying a money or
+  /// time key under EITHER endpoint's spelling.
+  ///
+  /// The split write sends an IDENTITY-ONLY PATCH here, so the total is
+  /// expected to be ≥ 1 on a rename — it is the PRICED counter that must stay
+  /// at zero. Counting only the total would make a "no definition PATCH"
+  /// assertion fail on correct code and tempt a weaker assertion.
+  int patchSharedDefinitionCalls = 0;
+  int patchSharedDefinitionPricedCalls = 0;
+  Map<String, dynamic>? lastSharedDefinitionPatchBody;
+
+  /// `masterId|serviceDefId` pairs that carry a PER-MASTER band override.
+  /// A definition-level price/duration change does not reach these rows —
+  /// exactly as on the backend, where an override wins over the shared band.
+  final Set<String> _salonBandOverrides = <String>{};
+
+  /// Every salon-scoped master-service row this fake holds, across all three
+  /// per-master catalogues. The cascade and the read helpers walk this so a
+  /// new fixture list is picked up by adding it HERE, once.
+  List<Map<String, dynamic>> get _allSalonRows => <Map<String, dynamic>>[
+    ..._salonMasterServices,
+    ..._salonMasterAaaServices,
+    ..._salonAdminMasterServices,
+  ];
+
+  /// The RESOLVED price floor one salon master currently shows for
+  /// [serviceDefId] — the per-master value a client would render, not the
+  /// shared definition's. `null` when that master has no row for it.
+  num? salonResolvedPrice(String masterId, String serviceDefId) {
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      if (row['masterId'] == masterId &&
+          (row['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              serviceDefId) {
+        return row['priceMin'] as num?;
+      }
+    }
+    return null;
+  }
+
+  /// The RESOLVED duration one salon master currently shows for
+  /// [serviceDefId]. Same contract as [salonResolvedPrice].
+  int? salonResolvedDuration(String masterId, String serviceDefId) {
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      if (row['masterId'] == masterId &&
+          (row['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              serviceDefId) {
+        return row['effectiveDurationMinutes'] as int?;
+      }
+    }
+    return null;
+  }
+
+  /// The SHARED definition's own band floor for [serviceDefId] — what a
+  /// definition-level PATCH rewrites.
+  num? salonSharedDefinitionPrice(String serviceDefId) {
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      final Map<String, dynamic>? def =
+          row['serviceDefinition'] as Map<String, dynamic>?;
+      if (def?['id'] == serviceDefId) return def?['priceMin'] as num?;
+    }
+    return null;
+  }
+
   /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
   /// [unassignServiceCalls]/[lastUnassignedServiceDefId]/[lastUnassignPath],
   /// for `DELETE /api/v1/salons/salon-admin-1/masters/master-admin-target
@@ -2022,6 +2109,43 @@ final class FakeBackend {
             'priceMin': 550,
             'priceMax': null,
             'priceDisplay': '550 ₴',
+            'photoUrl': null,
+          },
+        },
+        // Phase 317 (mobile-qa) — the CROSS-MASTER VICTIM ROW. This is the one
+        // fixture in the file that deliberately BREAKS the disjointness rule
+        // above, and it has to: the phase-317 defect is only observable when
+        // two masters SHARE a definition. `salon-def-1` is master B's
+        // (`master-removable`) first row, so master A resolves against the
+        // very same salon-owned definition — at the same 750 ₴ / 90 min, with
+        // NO per-master override, which is what makes A susceptible to a
+        // definition-level price write.
+        //
+        // The row's ASSIGNMENT id stays A-specific (`salon-aaa-assign-shared`,
+        // never `salon-assign-1`), so the existing cross-bleed assertions in
+        // `salon_owner_set_master_services_flow_test.dart` — which are keyed
+        // on assignment ids — keep their meaning untouched.
+        <String, dynamic>{
+          'id': 'salon-aaa-assign-shared',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 750,
+          'priceMax': null,
+          'priceDisplay': '750 ₴',
+          'effectiveDurationMinutes': 90,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-def-1',
+            'name': 'Нарощення нігтів',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 90,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 750,
+            'priceMax': null,
+            'priceDisplay': '750 ₴',
             'photoUrl': null,
           },
         },
@@ -4742,7 +4866,223 @@ final class FakeBackend {
             }),
         request: const Request(method: RequestMethods.delete),
       );
+
+      // Phase 317 — PATCH on the SAME path: the PER-MASTER BAND write, the
+      // endpoint a salon-master price/duration edit must land on. Registered
+      // per SEEDED definition id for the same reason the DELETE above is: a
+      // band PATCH for an id that was never seeded fails loudly as an
+      // unmatched route instead of silently counting.
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) {
+          updateMasterBandCalls++;
+          lastBandPatchPath = path;
+          lastBandPatchedServiceDefId = defId;
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          lastBandPatchBody = body;
+          return _ok(_applySalonBand('master-removable', defId, body));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
     }
+  }
+
+  /// Phase 317 — applies a PER-MASTER band PATCH body to ONE master's row and
+  /// records the override.
+  ///
+  /// READS ONLY THE BAND ENDPOINT'S OWN WIRE NAMES, deliberately: `price` is
+  /// the FLOOR in BOTH modes here (there is no `priceMin` key) and the
+  /// duration is `durationOverrideMinutes` (never `baseDurationMinutes`).
+  /// Also accepting the definition endpoint's spellings would DEFANG every
+  /// phase-317 assertion at once — a repository that transcribed the wrong
+  /// mapper would still appear to work against this fake.
+  ///
+  /// Returns the updated row (a MasterServiceResponse-shaped map), which is
+  /// what the real endpoint answers with.
+  Map<String, dynamic> _applySalonBand(
+    String masterId,
+    String serviceDefId,
+    Map<String, dynamic> body,
+  ) {
+    _salonBandOverrides.add('$masterId|$serviceDefId');
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      if (row['masterId'] != masterId) continue;
+      if ((row['serviceDefinition'] as Map<String, dynamic>?)?['id'] !=
+          serviceDefId) {
+        continue;
+      }
+      final Object? priceType = body['priceType'];
+      if (priceType != null) {
+        row['priceType'] = priceType;
+        row['priceMin'] = body['price'];
+        // Absent for FIXED — write the null through so a FIXED band genuinely
+        // CLEARS a previous ceiling instead of leaving a stale one.
+        row['priceMax'] = body['priceMax'];
+        row['priceDisplay'] = _priceDisplay(
+          body['price'] as num?,
+          body['priceMax'] as num?,
+        );
+      }
+      final Object? duration = body['durationOverrideMinutes'];
+      if (duration != null) row['effectiveDurationMinutes'] = duration;
+      return Map<String, dynamic>.from(row);
+    }
+    // No such row: answer the shape anyway so the failure surfaces as a test
+    // assertion rather than a deserialization crash.
+    return <String, dynamic>{
+      'id': 'unknown-assignment',
+      'masterId': masterId,
+      'isActive': true,
+      'priceType': body['priceType'] ?? 'FIXED',
+      'priceMin': body['price'] ?? 0,
+      'priceMax': body['priceMax'],
+      'priceDisplay': _priceDisplay(
+        body['price'] as num?,
+        body['priceMax'] as num?,
+      ),
+      'effectiveDurationMinutes': body['durationOverrideMinutes'] ?? 60,
+      'serviceDefinition': <String, dynamic>{
+        'id': serviceDefId,
+        'name': 'Unknown',
+        'category': 'NAILS',
+        'baseDurationMinutes': 60,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 0,
+        'priceMax': null,
+        'priceDisplay': '0 ₴',
+      },
+    };
+  }
+
+  /// Phase 317 — `PATCH /api/v1/services/{serviceDefId}` for the SALON-OWNED
+  /// definitions, the SHARED row several masters resolve against.
+  ///
+  /// The split write sends an IDENTITY-ONLY body here, so the route existing
+  /// is not itself the assertion — [patchSharedDefinitionPricedCalls] is. The
+  /// cascade in [_applySharedDefinitionPatch] is what turns a price on this
+  /// body into a VISIBLE change on another master's screen, which is the harm
+  /// the phase-317 flow asserts against.
+  void _wireSalonSharedDefinitions() {
+    final Set<String> defIds = <String>{
+      for (final Map<String, dynamic> row in _allSalonRows)
+        (row['serviceDefinition'] as Map<String, dynamic>?)?['id'] as String? ??
+            '',
+    }..removeWhere((String id) => id.isEmpty);
+
+    for (final String defId in defIds) {
+      _adapter.onRoute(
+        '/api/v1/services/$defId',
+        (server) => server.replyCallback(200, (req) {
+          patchSharedDefinitionCalls++;
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          lastSharedDefinitionPatchBody = body;
+          // EVERY spelling either endpoint uses for money or time. A
+          // regression that picked the other name must still be counted, or
+          // the "priced writes stayed at zero" assertion would be satisfied
+          // by the very bug it exists to catch.
+          const List<String> moneyOrTime = <String>[
+            'price',
+            'priceMin',
+            'priceMax',
+            'priceType',
+            'baseDurationMinutes',
+            'durationMinutes',
+            'durationOverrideMinutes',
+          ];
+          final bool priced = moneyOrTime.any(body.containsKey);
+          if (priced) patchSharedDefinitionPricedCalls++;
+          return _ok(_applySharedDefinitionPatch(defId, body, priced: priced));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+    }
+  }
+
+  /// Applies a SHARED-definition PATCH and cascades it, modelling the backend:
+  /// a definition-level price/duration change re-prices and re-times every
+  /// master resolving against that definition who has NO per-master override.
+  ///
+  /// This cascade is the point of the whole fixture. Without it a flow could
+  /// only assert which endpoint was called; with it, the other master's
+  /// rendered price actually moves when the bug is present.
+  Map<String, dynamic> _applySharedDefinitionPatch(
+    String serviceDefId,
+    Map<String, dynamic> body, {
+    required bool priced,
+  }) {
+    Map<String, dynamic>? touched;
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      final Map<String, dynamic>? def =
+          row['serviceDefinition'] as Map<String, dynamic>?;
+      if (def == null || def['id'] != serviceDefId) continue;
+
+      if (body['name'] != null) def['name'] = body['name'];
+      if (body['category'] != null) def['category'] = body['category'];
+      if (body['serviceTypeId'] != null) {
+        def['serviceTypeId'] = body['serviceTypeId'];
+      }
+      // The definition endpoint's own spellings: floor `priceMin` (RANGE) or
+      // `price` (FIXED), duration `baseDurationMinutes`.
+      final num? floor = (body['priceMin'] ?? body['price']) as num?;
+      final num? ceiling = body['priceMax'] as num?;
+      final Object? baseDuration = body['baseDurationMinutes'];
+      if (body['priceType'] != null) {
+        def['priceType'] = body['priceType'];
+        def['priceMin'] = floor;
+        def['priceMax'] = ceiling;
+        def['priceDisplay'] = _priceDisplay(floor, ceiling);
+      }
+      if (baseDuration != null) def['baseDurationMinutes'] = baseDuration;
+
+      // THE CASCADE. A master with a per-master override keeps their own
+      // band; everyone else inherits the shared one — which is precisely how
+      // one master's edit used to re-price the whole salon.
+      final bool overridden = _salonBandOverrides.contains(
+        '${row['masterId']}|$serviceDefId',
+      );
+      if (priced && !overridden) {
+        if (body['priceType'] != null) {
+          row['priceType'] = body['priceType'];
+          row['priceMin'] = floor;
+          row['priceMax'] = ceiling;
+          row['priceDisplay'] = _priceDisplay(floor, ceiling);
+        }
+        if (baseDuration != null) {
+          row['effectiveDurationMinutes'] = baseDuration;
+        }
+      }
+      touched ??= def;
+    }
+    return touched ??
+        <String, dynamic>{
+          'id': serviceDefId,
+          'name': body['name'] ?? 'Unknown',
+          'category': body['category'] ?? 'NAILS',
+          'baseDurationMinutes': body['baseDurationMinutes'] ?? 60,
+          'isActive': true,
+          'priceType': body['priceType'] ?? 'FIXED',
+          'priceMin': (body['priceMin'] ?? body['price']) ?? 0,
+          'priceMax': body['priceMax'],
+          'priceDisplay': '0 ₴',
+        };
+  }
+
+  /// The server-formatted price label the real backend returns. Whole amounts
+  /// render without a decimal tail, matching the seeded fixtures ('750 ₴').
+  static String _priceDisplay(num? floor, num? ceiling) {
+    if (floor == null) return '';
+    String fmt(num v) =>
+        v == v.roundToDouble() ? v.round().toString() : v.toString();
+    return ceiling == null
+        ? '${fmt(floor)} ₴'
+        : '${fmt(floor)}–${fmt(ceiling)} ₴';
   }
 
   /// Phase 324 (mobile-qa D3) — the cross-role-bleed control route: `GET
@@ -6865,6 +7205,13 @@ final class FakeBackend {
     _wireSalonAdminMasterServices();
 
     _wireSalonAdminMasterServicesBulk();
+
+    // Phase 317 — the SHARED salon definitions (`PATCH /api/v1/services/
+    // {defId}`) and the cascade that makes one master's definition write
+    // visible on ANOTHER master's screen. Must run AFTER the three
+    // per-master catalogues are wired: it enumerates their seeded
+    // definition ids.
+    _wireSalonSharedDefinitions();
 
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).

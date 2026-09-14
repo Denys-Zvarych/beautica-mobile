@@ -938,6 +938,329 @@ void main() {
   });
 
   // =========================================================================
+  // update — salon-target full transport contract (phase 317)
+  // =========================================================================
+  //
+  // THE DEFECT. With a [SalonMasterTarget] in scope, `update` PATCHed the
+  // SHARED service definition with the price AND the duration, silently
+  // re-pricing and re-timing every OTHER master in the salon who performs
+  // that service. The write now SPLITS: price/duration to the per-master
+  // band, identity only to the shared definition.
+  //
+  // WHY THIS GROUP EXISTS ALONGSIDE THE MOCKED-DIO UNIT GROUP.
+  // `service_repository_test.dart`'s `update — salon-target dispatch` group
+  // asserts the request OBJECTS handed to a mocked generated API. This group
+  // asserts what those objects BECOME ON THE WIRE, which is a different claim
+  // and the one that actually protects the other masters:
+  //
+  //   • the band endpoint names the RANGE floor `price`; the definition
+  //     endpoint names it `priceMin`. `UpdateMasterServiceBandRequest` has no
+  //     `priceMin` field AT ALL, so a mapper that transcribed the definition's
+  //     shape would leave `price` null — the floor vanishing from the
+  //     serialized map with no compile error and no unit-level symptom unless
+  //     the assertion reaches the serialized body.
+  //   • the duration is `durationOverrideMinutes` here and
+  //     `baseDurationMinutes` on the definition — the SHARED one. Same trap.
+  //   • the identity PATCH must carry NO price/duration key of EITHER name.
+  //
+  // Real Dio + the REAL generated [ServiceControllerApi] + the REAL
+  // [HttpServiceRepository]; only the socket is faked. Every body asserted is
+  // `RequestOptions.data` exactly as the generated client serialized it — the
+  // map Dio encodes onto the socket, not a hand-built stand-in.
+
+  group('update — salon-target full transport contract (phase 317)', () {
+    /// [_wireSalon]'s counterpart for the SPLIT write. Records EVERY request
+    /// the repository emits — not only the ones matching a single path — so a
+    /// test can assert both halves of the split AND that a half which must not
+    /// fire never did.
+    ({
+      DioAdapter adapter,
+      HttpServiceRepository repo,
+      List<({String method, Uri uri, Object? data})> sent,
+    })
+    wire() {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: _baseUrl,
+          headers: const <String, dynamic>{
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        ),
+      );
+      final sent = <({String method, Uri uri, Object? data})>[];
+      // FIRST interceptor, so it sees the request the generated client built
+      // before anything else can touch it.
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (RequestOptions options, RequestInterceptorHandler h) {
+            sent.add((
+              method: options.method,
+              uri: options.uri,
+              data: options.data,
+            ));
+            h.next(options);
+          },
+        ),
+      );
+      dio.interceptors.add(ErrorMapperInterceptor());
+      final adapter = DioAdapter(dio: dio);
+      final repo = HttpServiceRepository(
+        serviceApi: ServiceControllerApi(dio, standardSerializers),
+        categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+        catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+        dio: dio,
+        masterId: '',
+        target: const SalonMasterTarget(
+          salonId: _salonId,
+          masterId: _salonMasterId,
+        ),
+        sessionUserId: 'user-row-uuid',
+      );
+      return (adapter: adapter, repo: repo, sent: sent);
+    }
+
+    /// The ONE request whose URI path is [path]. Fails loudly when the count
+    /// is not exactly one, so "never fired" and "fired twice" are distinct,
+    /// readable failures rather than a null-dereference.
+    ({String method, Uri uri, Object? data}) only(
+      List<({String method, Uri uri, Object? data})> sent,
+      String path,
+    ) {
+      final List<({String method, Uri uri, Object? data})> matches = sent
+          .where(
+            (({String method, Uri uri, Object? data}) r) => r.uri.path == path,
+          )
+          .toList();
+      expect(
+        matches,
+        hasLength(1),
+        reason:
+            'expected exactly ONE request to $path; the repository sent '
+            '${sent.map((({String method, Uri uri, Object? data}) r) => '${r.method} ${r.uri.path}').toList()}',
+      );
+      return matches.single;
+    }
+
+    /// The serialized body of [r] as a plain string-keyed map.
+    Map<String, Object?> body(({String method, Uri uri, Object? data}) r) {
+      expect(
+        r.data,
+        isA<Map<Object?, Object?>>(),
+        reason:
+            'the generated client serializes its request DTO to a Map before '
+            'Dio encodes it; a non-Map here means the body was hand-built',
+      );
+      return (r.data! as Map<Object?, Object?>).map(
+        (Object? k, Object? v) => MapEntry<String, Object?>(k.toString(), v),
+      );
+    }
+
+    /// Stubs BOTH halves of the split write to succeed.
+    void stubBothOk(DioAdapter adapter) {
+      adapter.onPatch(
+        _mutatePath,
+        (s) => s.reply(200, _serviceDefEnvelope(name: 'Манікюр PRO')),
+        data: Matchers.any,
+      );
+      adapter.onPatch(
+        _salonMutatePath,
+        (s) => s.reply(
+          200,
+          _masterServiceEnvelope(
+            priceType: 'RANGE',
+            priceMin: 800,
+            priceMax: 1500,
+          ),
+        ),
+        data: Matchers.any,
+      );
+    }
+
+    test('RANGE — the band PATCH targets '
+        '/api/v1/salons/{s}/masters/{m}/services/{defId}, carries the FLOOR as '
+        '`price` + the ceiling as `priceMax`, and NEITHER `priceMin` NOR '
+        '`baseDurationMinutes` reaches the wire', () async {
+      final h = wire();
+      stubBothOk(h.adapter);
+
+      await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр PRO',
+          category: 'MANICURE',
+          durationMinutes: 120,
+          priceType: ServicePriceType.range,
+          priceMin: 800,
+          priceMax: 1500,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      final band = only(h.sent, _salonMutatePath);
+      expect(band.method, 'PATCH');
+      expect(
+        band.uri.path,
+        '/api/v1/salons/$_salonId/masters/$_salonMasterId/services/$_serviceDefId',
+        reason: 'the literal per-master band URI, post-normalization',
+      );
+
+      final Map<String, Object?> b = body(band);
+      expect(b['priceType'], 'RANGE');
+      expect(
+        b['price'],
+        800,
+        reason:
+            'the band endpoint names the RANGE FLOOR `price` — the opposite '
+            'of the definition endpoint, whose floor key is `priceMin`',
+      );
+      expect(b['priceMax'], 1500);
+      expect(
+        b.containsKey('priceMin'),
+        isFalse,
+        reason:
+            'there is NO `priceMin` key on UpdateMasterServiceBandRequest; a '
+            'floor sent under that name is dropped and the master silently '
+            'keeps their old price',
+      );
+      expect(
+        b['durationOverrideMinutes'],
+        120,
+        reason: 'the duration is the PER-MASTER override',
+      );
+      expect(
+        b.containsKey('baseDurationMinutes'),
+        isFalse,
+        reason:
+            '`baseDurationMinutes` is the SHARED definition duration — on this '
+            'endpoint it is not a key at all',
+      );
+    });
+
+    test('RANGE — the identity PATCH to /api/v1/services/{defId} carries '
+        'name/category and NO price or duration key of EITHER name', () async {
+      final h = wire();
+      stubBothOk(h.adapter);
+
+      await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр PRO',
+          category: 'MANICURE',
+          durationMinutes: 120,
+          priceType: ServicePriceType.range,
+          priceMin: 800,
+          priceMax: 1500,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      final identity = only(h.sent, _mutatePath);
+      expect(identity.method, 'PATCH');
+
+      final Map<String, Object?> b = body(identity);
+      expect(b['name'], 'Манікюр PRO');
+      expect(b['category'], 'MANICURE');
+      // THE assertion the defect fails. Every wire name either endpoint uses
+      // for money or time is checked, so a regression cannot slip through by
+      // picking the other spelling.
+      for (final String leaked in <String>[
+        'price',
+        'priceMin',
+        'priceMax',
+        'priceType',
+        'baseDurationMinutes',
+        'durationMinutes',
+        'durationOverrideMinutes',
+      ]) {
+        expect(
+          b.containsKey(leaked),
+          isFalse,
+          reason:
+              '`$leaked` on the SHARED definition re-prices/re-times every '
+              'other master in the salon — the exact phase-317 defect',
+        );
+      }
+    });
+
+    test('FIXED — the band PATCH carries the amount as `price` with NO '
+        '`priceMax`, and the definition PATCH still carries no money', () async {
+      final h = wire();
+      h.adapter.onPatch(
+        _mutatePath,
+        (s) => s.reply(200, _serviceDefEnvelope()),
+        data: Matchers.any,
+      );
+      h.adapter.onPatch(
+        _salonMutatePath,
+        (s) => s.reply(200, _masterServiceEnvelope(priceMin: 990)),
+        data: Matchers.any,
+      );
+
+      final MasterService updated = await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр PRO',
+          category: 'MANICURE',
+          durationMinutes: 75,
+          priceType: ServicePriceType.fixed,
+          price: 990,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      final Map<String, Object?> band = body(only(h.sent, _salonMutatePath));
+      expect(band['priceType'], 'FIXED');
+      expect(band['price'], 990);
+      expect(
+        band.containsKey('priceMax'),
+        isFalse,
+        reason: 'a FIXED band has no ceiling; `priceMax` must stay absent',
+      );
+      expect(band['durationOverrideMinutes'], 75);
+
+      final Map<String, Object?> identity = body(only(h.sent, _mutatePath));
+      expect(identity.containsKey('price'), isFalse);
+      expect(identity.containsKey('baseDurationMinutes'), isFalse);
+
+      // The returned object is deserialized from the BAND response by the real
+      // generated client — proving the response half of the contract too.
+      expect(updated.priceMin, 990.0);
+    });
+
+    test('a price/duration-only patch sends the band PATCH and NOTHING to '
+        '/api/v1/services/{defId}', () async {
+      final h = wire();
+      // BOTH halves stubbed, though only one may fire: an unstubbed route
+      // would make a regression fail as an unmatched-route UnknownFailure
+      // instead of on the assertion that names what went wrong.
+      stubBothOk(h.adapter);
+
+      await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          durationMinutes: 45,
+          priceType: ServicePriceType.fixed,
+          price: 990,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      expect(
+        h.sent.where(
+          (({String method, Uri uri, Object? data}) r) =>
+              r.uri.path == _mutatePath,
+        ),
+        isEmpty,
+        reason:
+            'with no identity field to change the shared definition must not '
+            'be touched at all',
+      );
+      expect(body(only(h.sent, _salonMutatePath))['price'], 990);
+    });
+  });
+
+  // =========================================================================
   // raw-path segment safety — POST-NORMALIZATION, on a REAL Dio
   // (mobile-security S1/S2/S3, phase-316 audit-fix cycle 1)
   // =========================================================================
