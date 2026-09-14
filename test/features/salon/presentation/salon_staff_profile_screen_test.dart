@@ -1568,9 +1568,20 @@ void main() {
   // section used to add) and not zero. Asserts actual rendered geometry
   // (`getBottomLeft`/`getTopLeft` on keyed widgets), not merely that both
   // widgets exist — see `project_widget_field_assertion_is_vacuous`.
-  group('gap ownership — null phone + schedule row (regression)', () {
-    testWidgets('exactly one VelvetSpacing.xl separates the stats row from the '
-        'schedule row when contacts are omitted', (tester) async {
+  // 2026-09-14 (defect 5) — the management pair MOVED out from the end of
+  // the screen to directly under the stats row, which is where the approved
+  // design puts it (`docs/signup-designs/SalonServicesEntryPath/lib/screens/
+  // staff_profile_screen.dart:174-176`, a leading `VelvetSpacing.lg`). Before
+  // the move this gap was the stats row's trailing `xl` and was only the
+  // stats-to-schedule gap in the one state this group sets up (no bio, no
+  // services, no contacts); now the pair is the stats row's immediate
+  // sibling in EVERY state, so the measured gap is `lg` and is
+  // position-invariant. The assertion below is therefore stronger than it
+  // was, not weaker: a doubled gap, a missing gap, or the pair drifting back
+  // below bio/services/contacts all still fail it.
+  group('gap ownership — stats row to management pair (regression)', () {
+    testWidgets('exactly one VelvetSpacing.lg separates the stats row from the '
+        'management pair', (tester) async {
       tester.view.physicalSize = const Size(800, 2600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -1612,11 +1623,83 @@ void main() {
 
       expect(
         scheduleRowTop - statsRowBottom,
-        moreOrLessEquals(VelvetSpacing.xl, epsilon: 0.5),
+        moreOrLessEquals(VelvetSpacing.lg, epsilon: 0.5),
         reason:
-            'a doubled gap (stats-row trailing xl stacked with a stray '
-            'leading xl on the schedule section) or a missing gap must '
-            'both fail this assertion',
+            'a doubled gap (the stats row keeping its trailing xl as well as '
+            'the pair`s leading lg) or a missing gap must fail this '
+            'assertion. NOTE: it does NOT by itself catch the pair sliding '
+            'back below bio/services/contacts — with this deliberately bare '
+            'fixture there is nothing between the two positions. The case '
+            'below is the one that pins POSITION.',
+      );
+    });
+
+    // 2026-09-14 (mobile-qa) — POSITION invariance, the half the case above
+    // structurally cannot see.
+    //
+    // The case above runs on `_masterMemberNoExtras`: no bio, no services,
+    // no contacts. In that state the management pair is the stats row's
+    // immediate sibling whether it is declared second in the column or LAST,
+    // because every section that would sit between them is omitted. It
+    // therefore pins the GAP TOKEN and nothing about ORDER — the defect-5
+    // move it was re-pinned for is exactly an order change.
+    //
+    // This case uses the FULL fixture (bio + services/categories + phone all
+    // present) so the pair sliding back below any of them moves it by
+    // hundreds of dp and fails immediately. Mutation-verified: relocating
+    // the `salon-staff-profile-reveal-5` block to after the contacts section
+    // leaves the case above GREEN and turns this one RED.
+    testWidgets('the pair remains the stats row`s IMMEDIATE sibling when bio, '
+        'categories and contacts are ALL present (position, not just gap)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMember, _masterServices),
+          ),
+          weeklyScheduleProvider(
+            _scheduleRowScope,
+          ).overrideWith(_FixedWeekly.new),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // Anti-vacuity: every section that COULD come between the stats row
+      // and the pair really is mounted this time. Without these the case
+      // silently degrades into a duplicate of the one above.
+      expect(find.byKey(const Key('salon-staff-profile-bio')), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-staff-profile-service-categories')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-contact-phone')),
+        findsOneWidget,
+      );
+
+      final double statsRowBottom = tester
+          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-1')))
+          .dy;
+      final double scheduleRowTop = tester
+          .getTopLeft(find.byKey(const Key('salon-staff-profile-schedule-row')))
+          .dy;
+
+      expect(
+        scheduleRowTop - statsRowBottom,
+        moreOrLessEquals(VelvetSpacing.lg, epsilon: 0.5),
+        reason:
+            'the two primary operator actions must sit directly under the '
+            'stats row on first paint, never behind bio + the category grid '
+            '+ contacts (defect 5). Any section rendered between them puts '
+            'this delta in the hundreds of dp.',
       );
     });
   });

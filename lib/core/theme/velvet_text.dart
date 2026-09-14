@@ -681,22 +681,43 @@ abstract final class VelvetText {
   /// service-card duration/price chips and the master-profile stat chip.
   static final TextStyle pillSm = _pillStyle.copyWith(fontSize: 11);
 
-  /// Body at 12 sp — Nunito 12/600, secondary (base body colour retained).
+  // ---------------------------------------------------------------------------
+  // A NOTE ON THE NUMERALS IN THE TOKEN NAMES BELOW (2026-09-14, defect 8)
+  //
+  // `body12` / `body13` / `body14` / `bodyStrong12..15` / `subheading12` /
+  // `subheading14` / `heading18` were named after the sizes they carried
+  // BEFORE the 2026-07-10 consolidation collapsed the scale. The names are
+  // load-bearing (they are referenced from ~60 files) and were deliberately
+  // NOT renamed; the sizes they now resolve to are the shipped truth and are
+  // stated on each doc below. Treat the numeral in any of these names as a
+  // historical label, never as the rendered size — read the `fontSize:` on
+  // the line itself. Several of them are now exact duplicates of each other;
+  // that is a known consequence of the collapse, not a bug to "fix" by
+  // changing a size (the blast radius is app-wide).
+  // ---------------------------------------------------------------------------
+
+  /// Nunito 11/600, secondary (base body colour retained). Numeral in the
+  /// name is HISTORICAL; ships at 11.
   static final TextStyle body12 = _bodyStyle.copyWith(fontSize: 11);
 
-  /// Body at 14 sp — Nunito 14/600, secondary (base body colour retained).
+  /// Nunito 11/600, secondary (base body colour retained). Numeral in the
+  /// name is HISTORICAL; ships at 11. `SettingsRow`'s trailing value style.
   static final TextStyle body14 = _bodyStyle.copyWith(fontSize: 11);
 
-  /// Strong body at 13 sp — Nunito 13/700, primary text.
+  /// Nunito 11/700, primary text. Numeral in the name is HISTORICAL; ships
+  /// at 11 — identical to [bodyStrong14].
   static final TextStyle bodyStrong13 = _bodyStrongStyle.copyWith(fontSize: 11);
 
-  /// Strong body at 14 sp — Nunito 14/700, primary text.
+  /// Nunito 11/700, primary text. Numeral in the name is HISTORICAL; ships
+  /// at 11 — identical to [bodyStrong13].
   static final TextStyle bodyStrong14 = _bodyStrongStyle.copyWith(fontSize: 11);
 
-  /// Body at 13 sp — Nunito 13/600, secondary (base body colour retained).
+  /// Nunito 11/600, secondary (base body colour retained). Numeral in the
+  /// name is HISTORICAL; ships at 11 — identical to [body12] and [body14].
   static final TextStyle body13 = _bodyStyle.copyWith(fontSize: 11);
 
-  /// Strong body at 15 sp — Nunito 15/700, primary text.
+  /// Nunito 12/700, primary text. Numeral in the name is HISTORICAL; ships
+  /// at 12.
   static final TextStyle bodyStrong15 = _bodyStrongStyle.copyWith(fontSize: 12);
 
   /// Strong body at 16 sp — Nunito 16/700, primary text.
@@ -1197,25 +1218,29 @@ abstract final class VelvetText {
   /// Body at 11 sp — Nunito 11/600, secondary.
   static final TextStyle body11 = _bodyStyle.copyWith(fontSize: 11);
 
-  /// Body at 12.5 sp — Nunito 12.5/600, secondary.
+  /// Nunito 11/600, secondary. Numeral in the name is HISTORICAL; ships at 11.
   static final TextStyle body125 = _bodyStyle.copyWith(fontSize: 11);
 
-  /// Body at 14 sp in primary text colour — Nunito 14/600, text.
+  /// Nunito 11/600 in primary text colour. Numeral in the name is
+  /// HISTORICAL; ships at 11.
   static final TextStyle body14Text = _bodyStyle.copyWith(
     fontSize: 11,
     color: BrandColors.text,
   );
 
-  /// Strong body at 12 sp — Nunito 12/700, primary text.
+  /// Nunito 11/700, primary text. Numeral in the name is HISTORICAL; ships
+  /// at 11 — identical to [bodyStrong13] / [bodyStrong14].
   static final TextStyle bodyStrong12 = _bodyStrongStyle.copyWith(fontSize: 11);
 
-  /// Subheading at 12 sp — Comfortaa 12/600. Colour/weight vary at call site.
+  /// Comfortaa 11/600. Colour/weight vary at call site. Numeral in the name
+  /// is HISTORICAL; ships at 11 — identical to [subheading14].
   static final TextStyle subheading12 = _subheadingStyle.copyWith(fontSize: 11);
 
-  /// Subheading at 14 sp — Comfortaa 14/600.
+  /// Comfortaa 11/600. Numeral in the name is HISTORICAL; ships at 11 —
+  /// identical to [subheading12].
   static final TextStyle subheading14 = _subheadingStyle.copyWith(fontSize: 11);
 
-  /// Heading at 18 sp — Comfortaa 18/700.
+  /// Comfortaa 15/700. Numeral in the name is HISTORICAL; ships at 15.
   static final TextStyle heading18 = _headingStyle.copyWith(fontSize: 15);
 
   /// Display name at 20 sp — Comfortaa 20/700.
@@ -1913,19 +1938,52 @@ abstract final class VelvetText {
 
   // ---------------------------------------------------------------------------
   // Phase 325 — `ManagementActionCard` (`lib/features/master/presentation/
-  // widgets/management_action_card.dart`). Design source pins both the label
-  // and value lines at a literal 15 sp regardless of `subheading`/`statValue`'s
-  // own default sizes — cached here (forbid_inline_fontsize.sh) rather than an
-  // inline `.copyWith(fontSize: 15)` at the call site.
+  // widgets/management_action_card.dart`), re-based 2026-09-14 (defects 3+4).
+  //
+  // WHY THESE ARE NOT 15 SP
+  // -----------------------
+  // Both lines were first transcribed from the approved preview
+  // (`docs/signup-designs/SalonServicesEntryPath`) as a literal 15 — but the
+  // preview's own ladder is a whole step taller than the shipped one:
+  // there `subheading()` = 17 and `statValue()` = 20, so 15 was a step DOWN.
+  // In this app `_subheadingStyle` = 14 and `_statValueStyle` = 17, so a
+  // literal 15 was a step UP: the card's LABEL out-ranked its own section
+  // heading, every `SettingsRow` label and every `ContactTile` label, and
+  // the value overflowed the card's 116 dp text column at 360 dp. The
+  // preview's INTENT (a quiet label under a dominant value, one step apart)
+  // is preserved here, re-expressed on the as-built ladder.
+  //
+  // HIERARCHY
+  // ---------
+  // The label is the quiet caption — the glyph in the well already names the
+  // action, so the word is a confirmation, not the headline. The VALUE is
+  // the reason to tap («Пн–Пт · 09:00–18:00» tells the operator the schedule
+  // exists before they open it). They differ on THREE axes — size 13 vs 14,
+  // weight 600 vs 700, colour secondary vs primary — so the pair never reads
+  // as one clump the way two identical Comfortaa 15 lines did. Family stays
+  // Comfortaa on both: this is a card, and the preview's `statValue()`
+  // intent for the value line is a Comfortaa role.
+  //
+  // Both carry `height: 1.25` because BOTH wrap (`maxLines: 2`) — the
+  // schedule value cannot fit one line in a half-width card at any size, and
+  // «Графік роботи» wraps at textScale 1.3. Default leading stacks two
+  // Comfortaa lines too tightly to read as separate lines.
   // ---------------------------------------------------------------------------
 
-  /// The card's label line — [subheading] (Comfortaa 14/600) resized to 15.
+  /// The card's label line — [subheading]'s Comfortaa 14/600 stepped DOWN to
+  /// 13 and recoloured secondary, so it sits below `subheading` in the
+  /// ladder rather than above it.
   static final TextStyle managementCardLabel = _subheadingStyle.copyWith(
-    fontSize: 15,
+    fontSize: 13,
+    height: 1.25,
+    color: BrandColors.textSecondary,
   );
 
-  /// The card's value line — [statValue] (Comfortaa 17/700) resized to 15.
+  /// The card's value line — [statValue]'s Comfortaa 17/700 stepped down to
+  /// 14 in primary text: the dominant line of the pair, at the same size as
+  /// `subheading` and a full weight above the label.
   static final TextStyle managementCardValue = _statValueStyle.copyWith(
-    fontSize: 15,
+    fontSize: 14,
+    height: 1.25,
   );
 }

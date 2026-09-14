@@ -20,13 +20,27 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/pressable_surface.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+
+/// The [ManagementActionCard] label line's key. Not unique in a tree — a pair
+/// of cards mounts two — so scope any lookup to one card's own key with
+/// `find.descendant`.
+const Key kManagementActionCardLabelKey = ValueKey<String>(
+  'management_action_card_label',
+);
+
+/// The [ManagementActionCard] value line's key. Same non-uniqueness caveat as
+/// [kManagementActionCardLabelKey].
+const Key kManagementActionCardValueKey = ValueKey<String>(
+  'management_action_card_value',
+);
 
 /// A tappable raised card: inset glyph well + chevron on top, label + value
 /// below. The vertical sibling of `SettingsRow` used where a pair of
 /// management actions sits side by side (e.g. «Графік роботи» / «Послуги» on
 /// `SalonStaffProfileScreen`).
-class ManagementActionCard extends StatefulWidget {
+class ManagementActionCard extends StatelessWidget {
   const ManagementActionCard({
     super.key,
     required this.icon,
@@ -62,111 +76,104 @@ class ManagementActionCard extends StatefulWidget {
   /// approved design.
   final bool loading;
 
-  // Camel wash — the same `#EDE4D5` "hero" surface tint inlined as a private
-  // per-file constant across the app (`my_salons_screen.dart`,
-  // `master_strip_shell.dart`, this screen's own loading skeleton, etc.) —
-  // never centralised in [BrandColors], by established convention.
-  static const Color _emphasisWash = Color(0xFFEDE4D5);
-
-  @override
-  State<ManagementActionCard> createState() => _ManagementActionCardState();
-}
-
-class _ManagementActionCardState extends State<ManagementActionCard> {
-  bool _pressed = false;
-
   @override
   Widget build(BuildContext context) {
-    final bool inert = widget.loading || !widget.enabled;
-    return Semantics(
-      button: true,
-      enabled: !inert,
-      label: '${widget.label}: ${widget.value}',
-      child: AbsorbPointer(
-        absorbing: inert,
-        child: GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTapUp: (_) {
-            setState(() => _pressed = false);
-            widget.onTap();
-          },
-          child: AnimatedScale(
-            scale: _pressed ? 0.975 : 1,
-            duration: const Duration(milliseconds: 120),
-            child: AnimatedOpacity(
-              opacity: inert ? 0.55 : 1,
-              duration: const Duration(milliseconds: 150),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                decoration: BoxDecoration(
-                  color: widget.emphasis
-                      ? ManagementActionCard._emphasisWash
-                      : BrandColors.base,
-                  borderRadius: BorderRadius.circular(VelvetRadii.card),
-                  boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-                ),
-                padding: const EdgeInsets.all(VelvetSpacing.md),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        SizedBox(
-                          height: 40,
-                          width: 40,
-                          child: NeumorphicInset(
-                            radius: VelvetRadii.field - 4,
-                            child: Center(
-                              child: Icon(
-                                widget.icon,
-                                size: 19,
-                                color: BrandColors.accentDeep,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        if (widget.loading)
-                          const SizedBox(
-                            key: ValueKey<String>(
-                              'management_action_card_loading',
-                            ),
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: BrandColors.accentDeep,
-                            ),
-                          )
-                        else
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: BrandColors.faint,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: VelvetSpacing.sm + 2),
-                    Text(
-                      widget.label,
-                      style: VelvetText.managementCardLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.value,
-                      style: VelvetText.managementCardValue,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+    final bool inert = loading || !enabled;
+
+    // 2026-09-14 (defect 12) — the a11y label used to be an unconditional
+    // '<label>: <value>', which announced «Графік роботи: » with a trailing
+    // colon and nothing after it for the whole time the schedule was in
+    // flight (the call site passes `value: ''` while loading). Announce the
+    // loading state instead, and drop the separator entirely when there is
+    // no value to read.
+    final String semanticsLabel;
+    if (loading) {
+      semanticsLabel = '$label: ${AppLocalizations.of(context).loadingLabel}';
+    } else if (value.isEmpty) {
+      semanticsLabel = label;
+    } else {
+      semanticsLabel = '$label: $value';
+    }
+
+    // 2026-09-14 (defect 6, REUSE-FIRST) — the press / dim / absorb shell is
+    // the shared [PressableSurface], the SAME one `SettingsRow` composes;
+    // this card only overrides the three constants where the approved design
+    // differs from a row (a slightly deeper press on a bigger target).
+    return PressableSurface(
+      semanticsLabel: semanticsLabel,
+      inert: inert,
+      onTap: onTap,
+      color: emphasis ? BrandColors.baseEmphasis : BrandColors.base,
+      borderRadius: BorderRadius.circular(VelvetRadii.card),
+      shadow: VelvetShadows.extrudedCard,
+      padding: const EdgeInsets.all(VelvetSpacing.md),
+      pressedScale: 0.975,
+      pressDuration: const Duration(milliseconds: 120),
+      inertOpacity: 0.55,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              NeumorphicGlyphWell(
+                size: 40,
+                child: Icon(icon, size: 19, color: BrandColors.accentDeep),
               ),
-            ),
+              const Spacer(),
+              if (loading)
+                const ActionSpinner(
+                  key: ValueKey<String>('management_action_card_loading'),
+                )
+              else
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: BrandColors.faint,
+                ),
+            ],
           ),
-        ),
+          const SizedBox(height: VelvetSpacing.sm + 2),
+          // 2026-09-14 (defects 1+2) — BOTH lines may wrap. The card is
+          // half the screen minus its own and the row's padding, so the
+          // text column is only 116 dp at 360 dp and 96 dp at 320 dp (143
+          // dp at 414 dp). At the old literal 15 sp «Графік роботи» (124.2
+          // dp) truncated at <=375 dp and «Пн–Пт · 09:00–18:00» (145.5 dp,
+          // 175.1 dp when the days are non-contiguous) ellipsized on EVERY
+          // shipped width — the value being «the reason to tap» in the
+          // approved design's own words. Wrapping, not a smaller size, is
+          // the fix: a value short enough to always fit one line would be
+          // unreadable. Both cards sit inside an `IntrinsicHeight` row, so
+          // a taller card never desynchronises the pair.
+          Text(
+            label,
+            // 2026-09-14 (mobile-qa) — keyed so a test can reach the real
+            // laid-out `RenderParagraph` and assert `didExceedMaxLines`.
+            // An ellipsized `Text` is NOT a `RenderFlex` overflow, so
+            // `overflow_guard.dart` and the `forbid_*` gates are blind to
+            // this defect class; reading the paragraph is the only assertion
+            // that can see it. Keys are duplicated across the two cards in a
+            // pair on purpose — scope the lookup with `find.descendant` under
+            // the card's own key.
+            key: kManagementActionCardLabelKey,
+            style: VelvetText.managementCardLabel,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            value,
+            key: kManagementActionCardValueKey,
+            style: VelvetText.managementCardValue,
+            // Three, not two: MEASURED (probe, 2026-09-14) — at 320 dp with
+            // textScale 1.3 a non-contiguous summary («Пн, Ср, Пт ·
+            // 10:00–19:00») needs a third line, and truncating the value is
+            // the exact defect this change exists to remove. `Text` only
+            // ever occupies the lines it needs, so at 1.0x every shipped
+            // width still renders one or two.
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }

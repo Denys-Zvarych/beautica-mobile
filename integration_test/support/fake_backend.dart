@@ -774,6 +774,46 @@ final class FakeBackend {
   /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
   void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
 
+  /// 2026-09-14 (mobile-qa) — reseeds the weekly schedule as a NON-CONTIGUOUS
+  /// Mon / Wed / Fri 10:00–19:00 pattern, which `weeklyScheduleSummary`
+  /// renders as the long comma-joined «Пн, Ср, Пт · 10:00–19:00» form instead
+  /// of the short «Пн–Вт» range the default seed produces.
+  ///
+  /// Exists for the `ManagementActionCard` truncation regression: with the
+  /// default seed the schedule card's value is short enough to fit any
+  /// column, which would make a `didExceedMaxLines` assertion pass whether or
+  /// not the 2026-09-14 text-token fix is present
+  /// (`project_fixture_values_can_defang_assertions`).
+  ///
+  /// Still TWO-OR-MORE working days and still Sunday-empty, so it is a
+  /// drop-in for the default seed in every downstream assertion of the flow
+  /// that uses it: toggling Monday off leaves Wed+Fri active (the PUT path,
+  /// never the DELETE path), and `kFixedNow` (2026-06-14, a Sunday) still
+  /// resolves to the per-day NO_SCHEDULE banner. Additive — no existing
+  /// caller's behaviour changes.
+  void seedNonContiguousWeeklySchedule() =>
+      _weeklySchedule = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'schedule-1',
+          'validFrom': '2026-06-14',
+          'validTo': null,
+          'days': <Map<String, dynamic>>[
+            for (int day = 1; day <= 7; day++)
+              <String, dynamic>{
+                'dayOfWeek': day,
+                'intervals': const <int>[1, 3, 5].contains(day)
+                    ? <Map<String, dynamic>>[
+                        <String, dynamic>{
+                          'startTime': '10:00',
+                          'endTime': '19:00',
+                        },
+                      ]
+                    : <dynamic>[],
+              },
+          ],
+        },
+      ];
+
   /// Phase 244 — `GET …/effective-schedule` is registered ONCE below,
   /// unconditionally returning an EMPTY list (every date resolves to
   /// NO_SCHEDULE) unless this is set. `null` (the default, and every

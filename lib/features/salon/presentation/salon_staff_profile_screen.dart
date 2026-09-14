@@ -140,13 +140,17 @@ class _SalonStaffProfileScreenState
       parent: _controller,
       curve: const Interval(0.50, 1.0, curve: Curves.easeOutCubic),
     );
-    // Phase 312 (D3) — schedule row, appended as the LAST section (after
-    // contacts) rather than interleaved: every pre-existing interval above
-    // (_anim0.._anim4) stays byte-identical, so this addition cannot shift
-    // the timing/keys of any section that predates it.
+    // The management pair (schedule + services). Declared last so the
+    // `_anim0.._anim4` names above keep their pre-existing identities, but
+    // its INTERVAL is the third one on the screen — the pair now renders
+    // directly under the stats row (2026-09-14, defect 5), and a reveal
+    // cascade that ran top-to-bottom everywhere else would otherwise leave
+    // this block flashing in last, a full beat after the content BELOW it.
+    // 0.22-0.74 sits between `_anim1` (stats, 0.15) and `_anim2` (bio,
+    // 0.28), matching the design's own `start: 0.2` for this block.
     _anim5 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.60, 1.0, curve: Curves.easeOutCubic),
+      curve: const Interval(0.22, 0.74, curve: Curves.easeOutCubic),
     );
     const Offset slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
@@ -382,7 +386,7 @@ class _StaffProfileBody extends StatelessWidget {
           fade: anim0,
           slide: slide0,
           child: NeumorphicCard(
-            color: const Color(0xFFEDE4D5),
+            color: BrandColors.baseEmphasis,
             padding: const EdgeInsets.all(VelvetSpacing.md),
             clipContent: true,
             child: Row(
@@ -475,129 +479,36 @@ class _StaffProfileBody extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 3 — bio (master only, omitted entirely when empty).
-        if (bio != null) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-staff-profile-reveal-2'),
-            fade: anim2,
-            slide: slide2,
-            child: Column(
-              key: const Key('salon-staff-profile-bio'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.publicMasterBioLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                NeumorphicInset(
-                  radius: VelvetRadii.card,
-                  child: Padding(
-                    padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-                    child: Text(bio, style: VelvetText.bodyStrong()),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 4 — services grouped by category (master only). `interactive:
-        // false` — the owner/admin viewer's own `/services` route has no
-        // meaning for [member]'s catalogue. Omitted when the master has no
-        // active services, matching how bio/contacts are omitted when empty.
-        if (!isAdmin && services.isNotEmpty) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-staff-profile-reveal-3'),
-            fade: anim3,
-            slide: slide3,
-            child: Column(
-              key: const Key('salon-staff-profile-service-categories'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterServicesLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                ServiceCategoryCardList(
-                  services: services,
-                  keyPrefix: 'staff-profile-category',
-                  interactive: false,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 5 — contacts (phone only; Instagram intentionally NOT shown here —
-        // see this file's header doc). Omitted when unset. Owns its own
-        // trailing gap, matching sections 2/3/4 — there are no leading gaps
-        // anywhere on this screen.
-        if (phone != null) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-staff-profile-reveal-4'),
-            fade: anim4,
-            slide: slide4,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterContactsLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                ContactTile(
-                  key: const Key('salon-staff-profile-contact-phone'),
-                  icon: Icons.phone_outlined,
-                  value: phone,
-                  semanticLabel: l10n.phoneLabel,
-                  // Dialing out is not in this phase's scope — mirrors
-                  // `_AboutReadView`'s identical phone tile on the salon's own
-                  // management profile.
-                  onTap: () {},
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 6 — schedule card (Phase 312, D3) + services card (Phase 325,
-        // D1) — MASTER ONLY; an admin has no master row and therefore no
-        // schedule or services block. Appended LAST (after contacts, not
-        // interleaved) — see `_anim5`'s own doc for why. Both share the SAME
-        // reveal animation (no new interval added for the services card — it
-        // is a sibling inside the same block, not a new section).
-        //
-        // Phase 325 replaces the former `SettingsRow` pair with the approved
-        // `ManagementActionCard` pair (design source:
-        // `docs/signup-designs/SalonServicesEntryPath/lib/screens/
-        // staff_profile_screen.dart:174-211`, variant B · «пара дій») — the
-        // SAME `IntrinsicHeight` > `Row(stretch)` > `Expanded` idiom the
-        // stats row above already uses. Destination/gating for BOTH cards
-        // are unchanged; this only restyles the pairing.
-        if (!isAdmin) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.lg),
+          // 3 — the management pair: schedule card (Phase 312, D3) + services
+          // card (Phase 325, D1) — MASTER ONLY; an admin has no master row and
+          // therefore no schedule or services block. Both share the SAME
+          // reveal animation — they are siblings inside one block, not two
+          // sections.
+          //
+          // 2026-09-14 (defects 5 + 11) — MOVED here, directly under the stats
+          // row, from the end of the screen. The approved design places the
+          // pair immediately after the stats with a `VelvetSpacing.lg` gap
+          // (`docs/signup-designs/SalonServicesEntryPath/lib/screens/
+          // staff_profile_screen.dart:174-176`); appending it last put the
+          // operator's TWO PRIMARY ACTIONS below the fold on first paint for
+          // any master who has services, behind bio + the whole category grid
+          // + contacts. The previous position was justified in-code by
+          // animation-interval stability, which is a refactoring convenience,
+          // not a design decision — `_anim5`'s interval is re-mapped to match
+          // the new position instead (see `initState`).
+          //
+          // It shares the stats row's `if (!isAdmin)` spread so the gap
+          // between the two is the design's `lg` while the block still owns
+          // the trailing `xl` every other section on this screen owns.
+          //
+          // Phase 325 replaced the former `SettingsRow` pair with the approved
+          // `ManagementActionCard` pair (design source:
+          // `docs/signup-designs/SalonServicesEntryPath/lib/screens/
+          // staff_profile_screen.dart:174-211`, variant B · «пара дій») — the
+          // SAME `IntrinsicHeight` > `Row(stretch)` > `Expanded` idiom the
+          // stats row above already uses. Destination/gating for BOTH cards
+          // are unchanged.
           RevealTransition(
             key: const Key('salon-staff-profile-reveal-5'),
             fade: anim5,
@@ -752,6 +663,113 @@ class _StaffProfileBody extends StatelessWidget {
               },
             ),
           ),
+          const SizedBox(height: VelvetSpacing.xl),
+        ],
+
+        // 4 — bio (master only, omitted entirely when empty).
+        if (bio != null) ...<Widget>[
+          RevealTransition(
+            key: const Key('salon-staff-profile-reveal-2'),
+            fade: anim2,
+            slide: slide2,
+            child: Column(
+              key: const Key('salon-staff-profile-bio'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 4,
+                    bottom: VelvetSpacing.xs,
+                  ),
+                  child: Text(
+                    l10n.publicMasterBioLabel,
+                    style: VelvetText.sectionLabel(),
+                  ),
+                ),
+                NeumorphicInset(
+                  radius: VelvetRadii.card,
+                  child: Padding(
+                    padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+                    child: Text(bio, style: VelvetText.bodyStrong()),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.xl),
+        ],
+
+        // 5 — services grouped by category (master only). `interactive:
+        // false` — the owner/admin viewer's own `/services` route has no
+        // meaning for [member]'s catalogue. Omitted when the master has no
+        // active services, matching how bio/contacts are omitted when empty.
+        if (!isAdmin && services.isNotEmpty) ...<Widget>[
+          RevealTransition(
+            key: const Key('salon-staff-profile-reveal-3'),
+            fade: anim3,
+            slide: slide3,
+            child: Column(
+              key: const Key('salon-staff-profile-service-categories'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 4,
+                    bottom: VelvetSpacing.xs,
+                  ),
+                  child: Text(
+                    l10n.masterServicesLabel,
+                    style: VelvetText.sectionLabel(),
+                  ),
+                ),
+                ServiceCategoryCardList(
+                  services: services,
+                  keyPrefix: 'staff-profile-category',
+                  interactive: false,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.xl),
+        ],
+
+        // 6 — contacts (phone only; Instagram intentionally NOT shown here —
+        // see this file's header doc). Omitted when unset. Owns its own
+        // trailing gap, matching sections 2/3/4/5 — there are no leading
+        // gaps anywhere on this screen, and the LAST block rendered owns an
+        // `xl` like every other (2026-09-14, defect 11).
+        if (phone != null) ...<Widget>[
+          RevealTransition(
+            key: const Key('salon-staff-profile-reveal-4'),
+            fade: anim4,
+            slide: slide4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 4,
+                    bottom: VelvetSpacing.xs,
+                  ),
+                  child: Text(
+                    l10n.masterContactsLabel,
+                    style: VelvetText.sectionLabel(),
+                  ),
+                ),
+                ContactTile(
+                  key: const Key('salon-staff-profile-contact-phone'),
+                  icon: Icons.phone_outlined,
+                  value: phone,
+                  semanticLabel: l10n.phoneLabel,
+                  // Dialing out is not in this phase's scope — mirrors
+                  // `_AboutReadView`'s identical phone tile on the salon's own
+                  // management profile.
+                  onTap: () {},
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.xl),
         ],
       ],
     );
@@ -773,7 +791,7 @@ class _StaffProfileSkeleton extends StatelessWidget {
         children: <Widget>[
           // Identity card.
           NeumorphicCard(
-            color: Color(0xFFEDE4D5),
+            color: BrandColors.baseEmphasis,
             padding: EdgeInsets.all(VelvetSpacing.md),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
