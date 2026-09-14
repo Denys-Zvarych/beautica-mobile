@@ -164,12 +164,14 @@ class ManagementActionCard extends StatelessWidget {
             value,
             key: kManagementActionCardValueKey,
             style: VelvetText.managementCardValue,
-            // Three, not two: MEASURED (probe, 2026-09-14) — at 320 dp with
-            // textScale 1.3 a non-contiguous summary («Пн, Ср, Пт ·
-            // 10:00–19:00») needs a third line, and truncating the value is
-            // the exact defect this change exists to remove. `Text` only
-            // ever occupies the lines it needs, so at 1.0x every shipped
-            // width still renders one or two.
+            // Three is HEADROOM, not a line the shipped copy uses: MEASURED
+            // (probe, 2026-09-14) at the shipped 12 sp, the longest realistic
+            // summary («Пн, Ср, Пт · 10:00–19:00») advances 182.0 dp into the
+            // 96.0 dp column at 320 dp × textScale 1.3 — two lines. The third
+            // is kept for longer locales and scales past 1.3, where
+            // truncating the value would be the exact defect this change
+            // exists to remove. `Text` only ever occupies the lines it needs,
+            // so at 1.0x every shipped width still renders one or two.
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
           ),

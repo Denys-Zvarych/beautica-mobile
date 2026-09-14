@@ -1964,19 +1964,28 @@ abstract final class VelvetText {
   // label exactly level with `SettingsRow`'s label — but the pair STILL read
   // oversized on device, so a third pass followed (below).
   //
-  // WHY THE VALUE STOPS AT 13 sp — THE SIZE AXIS IS PROVABLY SPENT
-  // --------------------------------------------------------------
+  // WHY THE VALUE IS 12 sp — AND WHY 13 WAS NEVER A FLOOR
+  // -----------------------------------------------------
   // The third pass tried 11 / 12. The LABEL moved (12 -> 11, level with
-  // `sectionLabel`); the VALUE could not. `salon_staff_profile_management_
-  // card_text_fit_test.dart` pins that the non-contiguous «Пн, Ср, Пт ·
-  // 10:00–19:00» summary needs THREE laid-out lines in the 96.0 dp column at
-  // 320 dp x textScale 1.3 — the assertion that proves `maxLines: 3` is
-  // load-bearing rather than decorative. Measured on that file's own
-  // TextPainter: the three-line break survives down to 12.75 sp and
-  // collapses to two at 12.5 and below (12.0 -> 2 lines). So a 12 sp value
-  // silently retires the file's anti-vacuity premise, and 12.75 is a
-  // quarter-point nobody can see. 13 is therefore the floor on the size
-  // axis, not a preference.
+  // `sectionLabel`); the VALUE was held at 13 and this comment previously
+  // called 13 a MEASURED FLOOR. That was wrong, and the fifth pass corrected
+  // it. What blocked 12 was a single anti-vacuity case in
+  // `salon_staff_profile_management_card_text_fit_test.dart` asserting the
+  // non-contiguous «Пн, Ср, Пт · 10:00–19:00» summary occupies THREE laid-out
+  // lines in the 96.0 dp column at 320 dp x textScale 1.3. Measured on that
+  // file's own TextPainter the three-line break survives to 12.75 sp and
+  // collapses to two at 12.5 and below.
+  //
+  // But that case's JOB is anti-vacuity — proving the fixture genuinely
+  // pressures the layout so the surrounding `didExceedMaxLines` assertions
+  // are not trivially satisfied. THREE was only the number the fixture
+  // happened to produce at 13 sp; it was never a correctness requirement. At
+  // 12 sp the same fixture still wraps, to two lines, and the case was
+  // re-pinned to `greaterThanOrEqualTo(2)` with its premise restated. Every
+  // other cell in that matrix — all four widths x both text scales, the
+  // `didExceedMaxLines` assertions, and the 12.0 dp longest-word headroom
+  // floor — is byte-identical and stayed green. `maxLines: 3` stays on the
+  // value as headroom for longer locales and larger accessibility scales.
   //
   // WHAT MOVED INSTEAD: THE WEIGHT AXIS
   // -----------------------------------
@@ -1993,14 +2002,13 @@ abstract final class VelvetText {
   // The label is the quiet caption — the glyph in the well already names the
   // action, so the word is a confirmation, not the headline. The VALUE is
   // the reason to tap («Пн–Пт · 09:00–18:00» tells the operator the schedule
-  // exists before they open it). They differ on THREE axes — size 11 vs 13,
+  // exists before they open it). They differ on THREE axes — size 11 vs 12,
   // weight 500 vs 600, colour secondary vs primary — so the pair never reads
-  // as one clump the way two identical Comfortaa 15 lines did. The size axis
-  // is now TWO rungs wide rather than one, and that is exactly what pays for
-  // the weight step-down: the 100-unit weight gap and the
-  // secondary-vs-primary colour gap are preserved in FULL, only shifted one
-  // notch lighter. Never collapse either gap — with the size axis pinned at
-  // its floor they are the only separation left. Family stays
+  // as one clump the way two identical Comfortaa 15 lines did. With the size
+  // axis now only ONE rung wide, the 100-unit weight gap and the
+  // secondary-vs-primary colour gap carry most of the separation: never
+  // collapse either one, and never take another step off the size axis
+  // without restoring width somewhere else. Family stays
   // Comfortaa on both: this is a card, and the preview's `statValue()`
   // intent for the value line is a Comfortaa role.
   //
@@ -2023,12 +2031,18 @@ abstract final class VelvetText {
   );
 
   /// The card's value line — [statValue]'s Comfortaa 17/700 stepped down to
-  /// 13/600 in primary text: the dominant line of the pair, two rungs above
+  /// 12/600 in primary text: the dominant line of the pair, one rung above
   /// its own label and one BELOW `subheading`, so it never out-ranks the
-  /// section it sits in. 13 is the FLOOR — see the block above; 12 retires
-  /// the three-line wrap the text-fit suite pins.
+  /// section it sits in.
+  ///
+  /// `maxLines: 3` on the call site is DELIBERATE HEADROOM at this size, not
+  /// a line the shipped Ukrainian copy consumes: at 12 sp the longest
+  /// realistic summary («Пн, Ср, Пт · 10:00–19:00») settles on TWO lines in
+  /// the 96.0 dp column at 320 dp × textScale 1.3. The third line is kept for
+  /// longer locales and accessibility scales above 1.3 — it costs nothing at
+  /// the shipped size. Do not "tidy" it down to 2.
   static final TextStyle managementCardValue = _statValueStyle.copyWith(
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: FontWeight.w600,
     height: 1.25,
   );

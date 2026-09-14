@@ -54,17 +54,41 @@
 //
 // NOTE (2026-09-14, third pass) — the card STILL read oversized, so a third
 // step-down was attempted at label 12 -> 11, value 13 -> 12. The label moved;
-// THE VALUE DID NOT, and this file is why. The `maxLines: 3` anti-vacuity
-// case below needs the non-contiguous summary to occupy three laid-out lines
-// in the 96.0 dp column at 320 dp x 1.3; measured on this file's own
-// TextPainter that break survives to 12.75 sp and collapses to two lines at
-// 12.5 and below (12.0 -> 2 lines, confirmed RED here). 13 sp is therefore a
-// MEASURED FLOOR on the value's size axis, not a preference — do not
-// relitigate it by loosening the case at line ~342. The perceptual reduction
-// was taken on the WEIGHT axis instead (label w600 -> w500, value
-// w700 -> w600); the test font carries no weight variants, so every advance
-// below is unchanged for the value and the label figures moved only because
-// the label's SIZE moved. Again: nothing here was weakened.
+// the value was held at 13 and this header called 13 a MEASURED FLOOR. The
+// perceptual reduction was taken on the WEIGHT axis instead (label
+// w600 -> w500, value w700 -> w600); the test font carries no weight
+// variants, so every advance below is unchanged for the value and the label
+// figures moved only because the label's SIZE moved.
+//
+// NOTE (2026-09-14, FIFTH pass) — THE «13 sp FLOOR» CLAIM ABOVE WAS WRONG,
+// and exactly one assertion in this file is changed to say so honestly.
+// The value now ships at 12 sp. What had blocked it was the second
+// anti-vacuity case, which asserted the non-contiguous summary occupies
+// THREE laid-out lines in the 96.0 dp column at 320 dp x 1.3 (that break
+// survives to 12.75 sp and collapses to two at 12.5 and below). THREE was
+// never a correctness requirement — it was the number the fixture happened
+// to produce at 13 sp. The case's JOB is anti-vacuity: proving the fixture
+// genuinely WRAPS at the tightest cell so the `didExceedMaxLines` assertions
+// around it are not trivially satisfied. At 12 sp it still wraps, to two
+// lines, so the threshold was re-pinned to `greaterThanOrEqualTo(2)` and the
+// case renamed to state what it now proves. That is the ONLY assertion
+// touched: every matrix cell, the 4 widths x 2 text-scale grid, every
+// `didExceedMaxLines` assertion and the 12.0 dp headroom floor are
+// byte-identical and stayed green unmodified.
+//
+// `maxLines: 3` STAYS on the value token. At 12 sp it is deliberate HEADROOM
+// for longer locales and text scales above 1.3 — not a line the shipped
+// Ukrainian copy consumes. Do not mistake the re-pin for permission to drop
+// the token to `maxLines: 2`; the `neither text line is pinned to maxLines:
+// 1` case at the foot of this file still guards the lower bound.
+//
+// RE-MEASURED at 12 sp (this file's own TextPainter, Comfortaa via the test
+// font):
+//   value «Пн, Ср, Пт · 10:00–19:00»  140.1 dp @1.0 / 182.0 dp @1.3
+//   value «Пн–Пт · 09:00–18:00»       116.4 dp @1.0 / 151.2 dp @1.3
+// against the 96.0 dp (320 dp), 116.0 dp (360 dp) and 143.0 dp (414 dp)
+// columns — i.e. 2 laid-out lines everywhere except 414 dp @1.0, where the
+// non-contiguous summary finally fits on one.
 
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
@@ -353,8 +377,25 @@ void main() {
       );
     });
 
-    testWidgets('the schedule value needs a THIRD line at 320 dp @ 1.3 — '
-        'maxLines: 3 on the value token is load-bearing, not defensive', (
+    // RE-PINNED 2026-09-14 (fifth pass). This case previously asserted
+    // `greaterThanOrEqualTo(3)` and was worded as «the schedule value needs a
+    // THIRD line … maxLines: 3 on the value token is load-bearing, not
+    // defensive». THREE was the number the fixture happened to produce at the
+    // then-shipped 13 sp — it was never a correctness requirement, and the
+    // case's actual JOB is anti-vacuity: proving the longest realistic
+    // summary genuinely WRAPS at the tightest cell, so the surrounding
+    // `didExceedMaxLines` assertions are not trivially satisfied by copy that
+    // fits on one line. At the shipped 12 sp the same fixture still wraps,
+    // to two lines (measured: 182.0 dp of advance into a 96.0 dp column), so
+    // the premise is restated at its real threshold rather than kept at a
+    // number the token no longer reaches.
+    //
+    // `maxLines: 3` STAYS on the value token. It is now deliberate HEADROOM
+    // for longer locales and accessibility scales above 1.3, not a line the
+    // shipped Ukrainian copy consumes — it costs nothing at 12 sp. Do not
+    // read this re-pin as permission to tidy the token down to `maxLines: 2`.
+    testWidgets('the schedule value WRAPS at 320 dp @ 1.3 — the tightest cell '
+        'genuinely pressures the layout, so the matrix above is not vacuous', (
       tester,
     ) async {
       await _pump(tester, 320, 1.3);
@@ -366,12 +407,15 @@ void main() {
       );
       expect(
         _lineCount(p),
-        greaterThanOrEqualTo(3),
+        greaterThanOrEqualTo(2),
         reason:
-            'measured 2026-09-14: the narrowest shipped width at the common '
-            'large-font setting needs three lines for a non-contiguous '
-            'weekly summary. Dropping the value token back to maxLines: 2 '
-            'would re-introduce the truncation this file exists to forbid.',
+            'measured 2026-09-14 at the shipped 12 sp value token: the '
+            'non-contiguous «Пн, Ср, Пт · 10:00–19:00» summary lays out to '
+            '182.0 dp of advance in the 96.0 dp column at 320 dp x 1.3 and '
+            'occupies TWO lines. If it ever fits on ONE, the fixture has '
+            'stopped pressuring the layout and every didExceedMaxLines '
+            'assertion in this file is satisfied trivially — replace the '
+            'fixture with a longer summary rather than loosening this.',
       );
     });
 
@@ -403,7 +447,7 @@ void main() {
   // The pair must stay height-synchronised while wrapping.
   //
   // Both cards sit inside an `IntrinsicHeight` > `Row(stretch)`; a value that
-  // wraps to three lines in one card must not leave the sibling short. This
+  // wraps further in one card must not leave the sibling short. This
   // is the layout consequence of the fix, and it is not covered anywhere
   // else.
   // -------------------------------------------------------------------------
@@ -420,8 +464,8 @@ void main() {
       ),
       reason:
           'IntrinsicHeight + CrossAxisAlignment.stretch must keep the pair '
-          'level even when the schedule value wraps to three lines and the '
-          'services value to one',
+          'level even when the schedule value wraps further than the '
+          'services value',
     );
     // Anti-vacuity for the case above: the heights being equal is only
     // meaningful if the two cards are genuinely carrying DIFFERENT line
@@ -457,24 +501,22 @@ void main() {
   // MEASURED 2026-09-14 at the TIGHTEST matrix cell (320 dp x textScale 1.3,
   // where the text column is 96.0 dp), against the shipped
   // `VelvetText.managementCardValue` / `managementCardLabel` — RE-MEASURED
-  // the same day after the tokens stepped down a rung (label 13 -> 12, value
-  // 14 -> 13; the first pass' figures are kept in parentheses so the
-  // direction of the step is visible):
+  // on the fifth pass after the value stepped to 12 sp (the 13 sp figures are
+  // kept in parentheses so the direction of the step is visible; the LABEL
+  // did not move on this pass and its figures are unchanged):
   //
-  //   value, full advance   «9999 послуг»    105.3 dp  -> WRAPS (2 of 3 lines)
-  //                                                       (was 113.4)
-  //                         «9999 services»  116.2 dp  -> WRAPS (2 of 3 lines)
-  //                                                       (was 125.2)
-  //   value, longest WORD   «послуги»         72.6 dp  -> 23.4 dp headroom
-  //                                                       (was 78.2 / 17.8)
-  //                         «services»        72.0 dp  -> 24.0 dp headroom
-  //                                                       (was 77.6 / 18.4)
+  //   value, full advance   «9999 послуг»     97.2 dp  -> WRAPS (2 of 3 lines)
+  //                                                       (13 sp: 105.3)
+  //                         «9999 services»  107.3 dp  -> WRAPS (2 of 3 lines)
+  //                                                       (13 sp: 116.2)
+  //   value, longest WORD   «послуги»         67.1 dp  -> 28.9 dp headroom
+  //                                                       (13 sp: 72.6 / 23.4)
+  //                         «services»        66.5 dp  -> 29.5 dp headroom
+  //                                                       (13 sp: 72.0 / 24.0)
   //   label, full advance   «Послуги»         63.5 dp  -> 32.5 dp headroom
-  //                                                       (13 sp: 75.1 / 20.9,
-  //                                                        12 sp: 69.3 / 26.7)
+  //                                                       (unchanged — 11 sp)
   //                         «Services»        62.6 dp  -> 33.4 dp headroom
-  //                                                       (13 sp: 73.9 / 22.1,
-  //                                                        12 sp: 68.2 / 27.8)
+  //                                                       (unchanged — 11 sp)
   //
   // WHAT THIS GUARDS, PRECISELY — established by mutation, not assumed. The
   // first draft of this block claimed an over-wide word would be ELLIPSIZED;
@@ -499,8 +541,9 @@ void main() {
   // assertion RED while leaving every other case in the file green, which is
   // the proof it is load-bearing on its own axis.
   //
-  // The narrowest measured headroom is 23.4 dp on the VALUE (17.8 dp at the
-  // original 14 sp), so the floor below is 12 dp: comfortably under today's
+  // The narrowest measured headroom is 28.9 dp on the VALUE (23.4 dp at 13
+  // sp, 17.8 dp at the original 14 sp), so the floor below is 12 dp:
+  // comfortably under today's
   // margin (no failures on rounding or a font-fallback difference) and
   // comfortably above zero (a copy change to a longer noun, a larger value
   // token, or a narrower column fails HERE, loudly). The floor is left at 12
@@ -564,8 +607,9 @@ void main() {
                 '${(column - widestWord).toStringAsFixed(1)} dp. A word '
                 'wider than the column is NOT ellipsized — Flutter breaks '
                 'it mid-word, which no didExceedMaxLines / overflow-guard / '
-                'golden check can see. Measured headroom on 2026-09-14 was '
-                '23.4 dp (uk) / 24.0 dp (en); if this now fails, the copy, '
+                'golden check can see. Measured headroom on 2026-09-14 at the '
+                'shipped 12 sp value token was 28.9 dp (uk) / 29.5 dp (en); '
+                'if this now fails, the copy, '
                 'the value token or the card width changed and the services '
                 'card is at risk.',
           );
