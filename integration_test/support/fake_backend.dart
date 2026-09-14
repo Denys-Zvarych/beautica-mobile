@@ -3143,6 +3143,77 @@ final class FakeBackend {
         },
       ];
 
+  /// The catalogue id of the salon's SHARED NAILS service — the row every
+  /// salon-wide aggregation assertion is written against.
+  static const String kSalonSharedCatalogServiceId = 'salon-svc-shared';
+
+  /// Prices contributed to a catalogue service by roster masters BEYOND the
+  /// one the baseline [_salonServiceCategories] fixture already prices.
+  ///
+  /// Empty in the seeded state, so every existing consumer of
+  /// `GET /salons/salon-xyz/services` reads the baseline byte-for-byte. The
+  /// salon-scoped bulk-assign handler appends here, which is what models the
+  /// backend's locked rule — a salon's catalogue IS the set of services its
+  /// active masters perform, priced ACROSS them, so a second master at a
+  /// different price turns a single price into a RANGE.
+  final Map<String, List<double>> _salonCatalogExtraAssignmentPrices =
+      <String, List<double>>{};
+
+  /// The salon catalogue as the server would aggregate it RIGHT NOW.
+  ///
+  /// Deep-copies the baseline and folds [_salonCatalogExtraAssignmentPrices]
+  /// into each affected row's price band. The ONLY observable difference a
+  /// re-read can produce is on that band, which is precisely why the «Послуги»
+  /// tab's rendered price is a genuine stale-vs-fresh discriminator: nothing
+  /// else about the row moves.
+  ///
+  /// The backend formats the display string itself (single `"500 ₴"` or an
+  /// en-dash range `"200–600 ₴"`) and mobile renders it verbatim — mirrored
+  /// here, NOT recomputed client-side.
+  List<Map<String, dynamic>> _salonServiceCatalogNow() {
+    if (_salonCatalogExtraAssignmentPrices.isEmpty) {
+      return _salonServiceCategories;
+    }
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> group in _salonServiceCategories)
+        <String, dynamic>{
+          ...group,
+          'services': <Map<String, dynamic>>[
+            for (final Map<String, dynamic> svc
+                in (group['services'] as List<dynamic>)
+                    .cast<Map<String, dynamic>>())
+              _aggregatedCatalogService(svc),
+          ],
+        },
+    ];
+  }
+
+  Map<String, dynamic> _aggregatedCatalogService(Map<String, dynamic> svc) {
+    final List<double> extra =
+        _salonCatalogExtraAssignmentPrices[svc['id'] as String] ??
+        const <double>[];
+    if (extra.isEmpty) return svc;
+
+    double lo = (svc['priceMin'] as num).toDouble();
+    double hi = lo;
+    for (final double p in extra) {
+      if (p < lo) lo = p;
+      if (p > hi) hi = p;
+    }
+    final bool isRange = hi > lo;
+    return <String, dynamic>{
+      ...svc,
+      'priceType': isRange ? 'RANGE' : 'FIXED',
+      'priceMin': lo,
+      'priceMax': isRange ? hi : null,
+      'priceDisplay': isRange ? '${_uah(lo)}–${_uah(hi)} ₴' : '${_uah(lo)} ₴',
+    };
+  }
+
+  /// Whole-hryvnia rendering — the backend never emits a trailing `.0`.
+  static String _uah(double v) =>
+      v == v.roundToDouble() ? v.round().toString() : v.toString();
+
   /// PUBLIC review-summary envelope for `salon-xyz` — matches the FOUR
   /// reviews in [_salonReviews] (one 5★, two 4★, one 3★; avg stays exactly
   /// 4.0 — (5+4+4+3)/4 — so the existing `salon-review-summary-average`
@@ -4749,6 +4820,22 @@ final class FakeBackend {
           _salonMasterServices.add(row);
           created.add(row);
           _nextSalonServiceSeq++;
+
+          // SALON-WIDE AGGREGATION (2026-09-14). A salon-scoped assignment is
+          // a second master taking on one of the SALON's services, so the
+          // salon catalogue's own row for it re-prices across the masters who
+          // now perform it — see [_salonCatalogExtraAssignmentPrices]. Modelled
+          // against the shared NAILS row because that is the one the baseline
+          // fixture already prices (400 ₴) and the one the «Послуги» tab
+          // assertions name. Recorded HERE, at the write, so the catalogue
+          // change is causally tied to the operator's action rather than to a
+          // test-only knob a passing test could set without doing anything.
+          final num? assigned = (map['price'] ?? map['priceMin']) as num?;
+          if (assigned != null) {
+            _salonCatalogExtraAssignmentPrices
+                .putIfAbsent(kSalonSharedCatalogServiceId, () => <double>[])
+                .add(assigned.toDouble());
+          }
         }
         return _okList(created);
       }),
@@ -6464,7 +6551,12 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getSalonServiceCatalogCalls++;
         lastGetSalonServiceCatalogId = 'salon-xyz';
-        return _ok(<String, dynamic>{'categories': _salonServiceCategories});
+        // AGGREGATED AT REQUEST TIME, never captured at registration — see
+        // [_salonServiceCatalogNow]. A catalogue frozen at wiring time cannot
+        // tell a refetch from a served cache, which is exactly the bug the
+        // 2026-09-14 arm of `salon_owner_set_master_services_flow_test.dart`
+        // exists to catch.
+        return _ok(<String, dynamic>{'categories': _salonServiceCatalogNow()});
       }),
       request: const Request(method: RequestMethods.get),
     );

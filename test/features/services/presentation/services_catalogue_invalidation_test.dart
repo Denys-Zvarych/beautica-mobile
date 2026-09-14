@@ -39,9 +39,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 
@@ -54,6 +58,28 @@ class _FakeServiceRepository extends Fake implements ServiceRepository {
   @override
   Future<List<MasterService>> listMyServices() async {
     fetches++;
+    return catalogue;
+  }
+}
+
+/// Counting stand-in for the SALON side of the fan-out.
+///
+/// Counts `GET /salons/{salonId}/services` and records WHICH salon was asked —
+/// the second half matters because `salonServiceCatalogProvider` is a FAMILY,
+/// and invalidating the wrong member is indistinguishable from invalidating
+/// nothing at all when only a total is asserted.
+class _FakeSalonRepository extends Fake implements SalonRepository {
+  int catalogFetches = 0;
+  final List<String> requestedSalonIds = <String>[];
+  List<SalonServiceCategoryEntry> catalogue =
+      const <SalonServiceCategoryEntry>[];
+
+  @override
+  Future<List<SalonServiceCategoryEntry>> getSalonServiceCatalog(
+    String salonId,
+  ) async {
+    catalogFetches++;
+    requestedSalonIds.add(salonId);
     return catalogue;
   }
 }
@@ -117,6 +143,34 @@ class _RefCaptureHarness extends ConsumerWidget {
   }
 }
 
+/// The SALON arm's harness (2026-09-14 regression guard).
+///
+/// Watches the salon's own catalogue alongside the master's, which is the
+/// shape that ships: the salon shell keeps its «Послуги» tab mounted in an
+/// `IndexedStack` while the operator is pushed into a roster master's services,
+/// so `salonServiceCatalogProvider` has a LIVE listener AND a 5-minute
+/// `keepAlive` across the whole write. Neither expires on its own — an explicit
+/// invalidate is the only thing that can refresh the tab.
+class _SalonTabHarness extends ConsumerWidget {
+  const _SalonTabHarness(this.salonId);
+
+  final String salonId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(servicesListProvider);
+    ref.watch(masterServiceCatalogProvider);
+    ref.watch(salonServiceCatalogProvider(salonId));
+    return Scaffold(
+      body: TextButton(
+        key: const Key('invalidate'),
+        onPressed: () => invalidateMasterServiceCatalogues(ref),
+        child: const Text('invalidate'),
+      ),
+    );
+  }
+}
+
 void main() {
   late _FakeServiceRepository repo;
 
@@ -132,10 +186,19 @@ void main() {
     ];
   });
 
-  Future<ProviderContainer> pump(WidgetTester tester, Widget harness) async {
+  Future<ProviderContainer> pump(
+    WidgetTester tester,
+    Widget harness, {
+    // Additive (2026-09-14) — defaults to empty, so every existing call site
+    // pumps byte-identically to before.
+    List<Object> extraOverrides = const <Object>[],
+  }) async {
     await tester.pumpApp(
       harness,
-      overrides: <Object>[serviceRepositoryProvider.overrideWithValue(repo)],
+      overrides: <Object>[
+        serviceRepositoryProvider.overrideWithValue(repo),
+        ...extraOverrides,
+      ],
     );
     await tester.pumpAndSettle();
     return ProviderScope.containerOf(
@@ -307,6 +370,160 @@ void main() {
       );
     },
   );
+
+  // ── The SALON arm (2026-09-14 regression guard) ─────────────────────────
+  //
+  // THE BUG. A salon owner assigned an already-offered service to a SECOND
+  // roster master at a different price. The locked rule is that a salon's
+  // catalogue IS the set of services its active masters perform, priced ACROSS
+  // them, so the salon's «Послуги» row should have turned from a single price
+  // into a RANGE. It kept showing the first master's single price until the app
+  // was restarted: `invalidateMasterServiceCatalogues` dropped only the
+  // MASTER-scoped caches, and `salonServiceCatalogProvider` is both `keepAlive`
+  // for 5 minutes AND held by a live listener (the salon shell parks the tab in
+  // an `IndexedStack`), so nothing ever made it ask again.
+  //
+  // Asserted on the salon repository's FETCH COUNT for the same reason the
+  // three cases above are: an un-invalidated `keepAlive` provider reads back a
+  // perfectly valid `AsyncData` — the stale one — and riverpod's invalidate
+  // deliberately RETAINS `.value` while the refetch is in flight
+  // (`project_riverpod_seamless_invalidate_gotcha`), so NOTHING on the read
+  // side can distinguish the bug from the fix. "Did the salon endpoint get
+  // asked again" can, and it is what the user experiences.
+  //
+  // Each of the three cases below was mutation-probed against the defect it
+  // actually claims to catch — a negative assertion that is never made to go
+  // red is indistinguishable from one that cannot (M14):
+  //
+  // MUTATION (2026-09-14): commented the whole `if (target is
+  // SalonMasterTarget)` block out of the helper — i.e. the shipped bug →
+  // CASE A FAILED (`Expected: <2> Actual: <1>`). B and C green, correctly:
+  // both assert a NON-fetch. Restored.
+  //
+  // MUTATION (2026-09-14): kept the arm but keyed it on a hard-coded salon
+  // (`salonServiceCatalogProvider('salon-other')`) → CASE C FAILED
+  // (`Expected: ['salon-other'] Actual: ['salon-other', 'salon-other']`),
+  // and A failed too. Restored.
+  //
+  // MUTATION (2026-09-14): dropped the `is SalonMasterTarget` GATE, firing the
+  // invalidate for every target → CASE B FAILED (`Expected: <1> Actual: <2>`)
+  // while A and C stayed green. Restored.
+  const String kSalonId = 'salon-xyz';
+  const ServiceTarget kSalonTarget = ServiceTarget.salonMaster(
+    salonId: kSalonId,
+    masterId: 'master-removable',
+  );
+
+  late _FakeSalonRepository salonRepo;
+  setUp(() => salonRepo = _FakeSalonRepository());
+
+  List<Object> salonOverrides(ServiceTarget? target) => <Object>[
+    salonRepositoryProvider.overrideWithValue(salonRepo),
+    serviceTargetProvider.overrideWithValue(target),
+  ];
+
+  // CASE A — in salon mode the salon's own catalogue must be dropped too.
+  testWidgets(
+    'a SalonMasterTarget mutation also re-fetches the salon catalogue the '
+    'master feeds',
+    (WidgetTester tester) async {
+      await pump(
+        tester,
+        const _SalonTabHarness(kSalonId),
+        extraOverrides: salonOverrides(kSalonTarget),
+      );
+
+      expect(
+        salonRepo.catalogFetches,
+        1,
+        reason: 'the mounted «Послуги» tab loads once',
+      );
+
+      await tester.tap(find.byKey(const Key('invalidate')));
+      await tester.pumpAndSettle();
+
+      expect(
+        salonRepo.catalogFetches,
+        2,
+        reason:
+            'assigning a service to a second master changes the SALON-wide '
+            'aggregate (a single price becomes a RANGE) — the tab can only '
+            'show that if the helper drops its cache; keepAlive + a live '
+            'listener mean it never expires on its own',
+      );
+      expect(
+        salonRepo.requestedSalonIds,
+        <String>[kSalonId, kSalonId],
+        reason:
+            'the family member re-asked must be the TARGET salon — '
+            'salonServiceCatalogProvider is a family, and invalidating the '
+            'wrong member is indistinguishable from invalidating none when '
+            'only a total is asserted',
+      );
+    },
+  );
+
+  // CASE B — THE CONTROL. Without it, a helper that invalidated the family
+  // unconditionally (or a hard-coded salon id) would pass case A and silently
+  // bill every INDEPENDENT_MASTER an extra GET forever.
+  testWidgets('an INDEPENDENT_MASTER (null target) pays NO extra salon GET', (
+    WidgetTester tester,
+  ) async {
+    await pump(
+      tester,
+      const _SalonTabHarness(kSalonId),
+      extraOverrides: salonOverrides(null),
+    );
+
+    expect(salonRepo.catalogFetches, 1);
+
+    await tester.tap(find.byKey(const Key('invalidate')));
+    await tester.pumpAndSettle();
+
+    expect(
+      salonRepo.catalogFetches,
+      1,
+      reason:
+          'a solo master has no salon catalogue at all — invalidating a '
+          'family member nobody is watching buys an extra '
+          'GET /salons/{id}/services for nothing',
+    );
+    expect(
+      repo.fetches,
+      2,
+      reason:
+          'ANTI-VACUITY — the helper still ran and still dropped the '
+          'MASTER caches; the salon count stayed at 1 because the arm is '
+          'gated, not because nothing happened',
+    );
+  });
+
+  // CASE C — the same gate, from the other side: the invalidate must be keyed
+  // on the TARGET's salon. A hard-coded or mis-keyed family argument is
+  // invisible to case A (which watches the very salon it targets).
+  testWidgets('a DIFFERENT salon\'s catalogue is left alone', (
+    WidgetTester tester,
+  ) async {
+    const String otherSalonId = 'salon-other';
+    await pump(
+      tester,
+      const _SalonTabHarness(otherSalonId),
+      extraOverrides: salonOverrides(kSalonTarget),
+    );
+
+    expect(salonRepo.requestedSalonIds, <String>[otherSalonId]);
+
+    await tester.tap(find.byKey(const Key('invalidate')));
+    await tester.pumpAndSettle();
+
+    expect(
+      salonRepo.requestedSalonIds,
+      <String>[otherSalonId],
+      reason:
+          'only the target salon\'s aggregate changed — a bystander salon '
+          'tab must not be forced to refetch',
+    );
+  });
 
   // A structural guard, deliberately: the bug was not "the helper is wrong", it
   // was "nobody calls anything". Since N2 it guards BOTH names, and for

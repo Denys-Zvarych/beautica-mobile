@@ -121,6 +121,31 @@ const String _kMasterAaaId = 'master-aaa';
 const String _kSalonMasterAaaServicesUri =
     '/api/v1/salons/$_kSalonId/masters/$_kMasterAaaId/services';
 
+// ---------------------------------------------------------------------------
+// 2026-09-14 regression arm — the salon-level «Послуги» tab's price band.
+// ---------------------------------------------------------------------------
+
+/// The SALON catalogue row the aggregation assertions are written against —
+/// `FakeBackend.kSalonSharedCatalogServiceId`, the shared NAILS service the
+/// baseline fixture already prices at [_kSinglePrice].
+const String _kSharedCatalogServiceId = 'salon-svc-shared';
+
+/// The price the row shows while exactly ONE master performs the service —
+/// and the exact string the shipped bug left on screen after a second master
+/// was assigned it.
+const String _kSinglePrice = '400 ₴';
+
+/// What the FAB journey assigns the service for on the SECOND master.
+/// Deliberately ≠ the seeded 400 ₴: an equal price aggregates back to a single
+/// price and the rendered row could no longer distinguish a refetch from a
+/// served cache.
+const String _kSecondMasterPrice = '900';
+
+/// The server-formatted aggregate once two masters perform it at 400 and 900.
+/// An EN DASH (U+2013), matching the backend's own range formatting — mobile
+/// renders `priceDisplay` verbatim and never recomputes it.
+const String _kRangePrice = '400–900 ₴';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -140,6 +165,36 @@ void main() {
       // precedent for this exact screen family.
       await tester.pump(step);
     }
+  }
+
+  /// Drags the salon profile's one `CustomScrollView` until [target] is BUILT
+  /// and visible, in bounded steps and WITHOUT a settle.
+  ///
+  /// `-d flutter-tester` is 800x600 and the cover + hero + tab row alone eat
+  /// most of it, so the «Послуги» accordion's rows start below the fold and are
+  /// never inflated — `find.byKey` reports 0 matches and `ensureVisible` throws
+  /// "Found 0 widgets" (`project_integration_scroll_filter_into_view`).
+  ///
+  /// NOT `AppHarness.scrollFilterFieldIntoView`, the shared helper for the same
+  /// problem on the discovery filters: that one ends in `pumpAndSettle`, which
+  /// this screen family stalls on reproducibly (file header TIMING note). Every
+  /// wait here is a bounded pump, exactly like [lockstepPump] beside it.
+  Future<void> revealInSalonProfile(WidgetTester tester, Finder target) async {
+    for (var i = 0; i < 15; i++) {
+      if (target.evaluate().isNotEmpty) {
+        try {
+          await tester.ensureVisible(target);
+        } catch (_) {
+          // Laid out but not scrollable into view — the caller's own finder
+          // assertion reports that far better than a swallowed throw here.
+        }
+        await tester.pump();
+        return;
+      }
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -200));
+      await tester.pump();
+    }
+    fail('$target never came into view after 15 bounded drags');
   }
 
   Future<void> tapWhenReady(WidgetTester tester, Finder finder) async {
@@ -872,5 +927,274 @@ void main() {
       });
     },
     timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ── 2026-09-14 REGRESSION ARM — the salon «Послуги» tab must re-price ────
+  //
+  // THE SHIPPED BUG. A salon owner assigned an already-offered service to a
+  // SECOND roster master at a different price. The salon's catalogue IS the set
+  // of services its active masters perform, priced ACROSS them, so the tab's
+  // row should have become a RANGE. It kept showing the first master's single
+  // price: `invalidateMasterServiceCatalogues` dropped only the MASTER-scoped
+  // caches, while `salonServiceCatalogProvider` sits behind a 5-minute
+  // `keepAlive` inside a shell that never disposes the tab's host — so nothing
+  // ever made it ask again.
+  //
+  // WHY THE FIVE CASES ABOVE COULD NOT CATCH IT. Every one of them stops at the
+  // STAFF-PROFILE stat tile: they pop out of the services subtree exactly one
+  // level, assert a count that is served by a DIFFERENT endpoint
+  // (`GET /masters/{id}/services`, refreshed by D4's own invalidate), and never
+  // return to the SALON-level tab at all. The stale surface was one pop further
+  // out than any assertion reached.
+  //
+  // WHY THIS IS NOT THE UNIT TEST AGAIN. The unit tier
+  // (`test/features/services/presentation/services_catalogue_invalidation_test.dart`,
+  // the SALON arm) proves the helper drops the right family member when handed
+  // an overridden target. It cannot prove the target is actually installed on
+  // the real route, that the real shell keeps the tab's host alive across the
+  // push, or that the tab re-reads on return — those are the three things the
+  // bug was made of, and all three only exist in the assembled app.
+  testWidgets(
+    'SALON_OWNER: the salon «Послуги» tab re-prices to a RANGE after a second '
+    'master is assigned the service — a real second GET, not a served cache',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        fb.mySalons.add(<String, dynamic>{
+          'id': _kSalonId,
+          'ownerId': 'user-owner-1',
+          'name': 'Студія Краси «Камелія»',
+          'city': 'Київ',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Хрещатик',
+          'buildingNo': '12',
+          'isActive': true,
+          'isPrimary': false,
+        });
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        router.go(RouteNames.salonShell(_kSalonId));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-nav-tile-2')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── 1. Open the salon-level «Послуги» tab and read the row. ───────
+        //
+        // The sub-tab is reachable only from the in-screen tab row: the bottom
+        // nav's «Салон» destination resets the sub-tab to «Про салон»
+        // (`salon_shell_screen.dart:_onNavSelected`).
+        await tapWhenReady(tester, find.byKey(const Key('salon-tab-2')));
+        await lockstepPump(tester);
+
+        final Finder sharedRow = find.byKey(
+          const Key('salon-service-row-$_kSharedCatalogServiceId'),
+        );
+        await revealInSalonProfile(tester, sharedRow);
+        expect(
+          fb.getSalonServiceCatalogCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'the tab must have actually loaded its catalogue',
+        );
+        expect(
+          find.descendant(of: sharedRow, matching: find.text(_kSinglePrice)),
+          findsOneWidget,
+          reason:
+              'the seeded aggregate is a SINGLE price — this is the exact '
+              'string the bug left on screen forever, so it must be present '
+              'BEFORE the write or the after-assertion proves nothing '
+              '(project_fixture_values_can_defang_assertions)',
+        );
+
+        final int catalogCallsAfterFirstView = fb.getSalonServiceCatalogCalls;
+
+        // ── 2. «Персонал» -> a roster master -> the real services subtree ──
+        await tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-2')));
+
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-$_kMemberUserId'),
+        );
+        await AppHarness.revealRosterCard(tester, masterCard);
+        await tapWhenReady(tester, masterCard);
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder servicesRow = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          servicesRow,
+          timeout: const Duration(seconds: 20),
+        );
+        await lockstepPump(tester);
+        await tapWhenReady(tester, servicesRow);
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(ServicesListScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── 3. Assign the service to THIS master at a DIFFERENT price. ────
+        final Finder fab = find.byKey(const Key('btn-create-service'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          fab,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, fab);
+        await lockstepPump(tester);
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('btn-setup-close')),
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder nailsChip = find.byKey(
+          const ValueKey<String>('cat_NAILS'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          nailsChip,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, nailsChip);
+
+        final Finder freeRow = find.byKey(const Key('setup_row_$_kFreeTypeId'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          freeRow,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(
+          tester,
+          find.byKey(const Key('setup_row_toggle_$_kFreeTypeId')),
+        );
+
+        final Finder durationField = find.descendant(
+          of: freeRow,
+          matching: find.byKey(const Key('service-setup-duration')),
+        );
+        final Finder priceField = find.descendant(
+          of: freeRow,
+          matching: find.byKey(const Key('pricing-fixed-amount')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          durationField,
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          priceField,
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.enterText(durationField, '60');
+        await tester.pump();
+        // DIFFERENT from the salon row's seeded 400 ₴ — an equal price would
+        // aggregate back to a single price and the test could never tell a
+        // refetch from a cache.
+        await tester.enterText(priceField, _kSecondMasterPrice);
+        await tester.pump();
+
+        await tapWhenReady(tester, find.byKey(const Key('btn-setup-save')));
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.salonBulkCreateCalls >= 1,
+          description: 'the salon-scoped bulk assignment to reach the wire',
+          timeout: const Duration(seconds: 20),
+        );
+
+        // The salon tab's host is OFF-SCREEN (its sub-tab is «Персонал») but
+        // never disposed, so nothing has re-read the catalogue yet: an
+        // invalidated keepAlive provider with no listener defers its refetch to
+        // the next read. The count moving here would mean something ELSE is
+        // driving the refresh and the assertion below would be vacuous.
+        expect(
+          fb.getSalonServiceCatalogCalls,
+          catalogCallsAfterFirstView,
+          reason:
+              'the refetch must be driven by the tab re-reading on return, '
+              'not by a stray fetch while it is off screen',
+        );
+
+        // ── 4. Back out to the SALON-level tab — one pop further than any
+        // case above ever went. ───────────────────────────────────────────
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.byKey(const Key('btn-setup-close')),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ServicesListScreen.backKey),
+          timeout: const Duration(seconds: 20),
+        );
+        await lockstepPump(tester);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        router.pop();
+        await lockstepPump(tester);
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-tab-2')),
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, find.byKey(const Key('salon-tab-2')));
+        await lockstepPump(tester);
+
+        // (a) A SECOND GET /salons/{salonId}/services actually went out.
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.getSalonServiceCatalogCalls > catalogCallsAfterFirstView,
+          description:
+              'a SECOND GET /salons/$_kSalonId/services — the tab is behind a '
+              '5-minute keepAlive inside a shell that never disposes its '
+              'host, so only an explicit invalidate can produce this',
+          timeout: const Duration(seconds: 20),
+        );
+
+        // (b) …and the row actually re-priced to the aggregate RANGE.
+        final Finder rowAfter = find.byKey(
+          const Key('salon-service-row-$_kSharedCatalogServiceId'),
+        );
+        await revealInSalonProfile(tester, rowAfter);
+        expect(
+          find.descendant(of: rowAfter, matching: find.text(_kRangePrice)),
+          findsOneWidget,
+          reason:
+              'THE REGRESSION ASSERTION — two masters now perform the service '
+              'at different prices, so the salon row is a RANGE; the shipped '
+              'bug rendered the first master\'s single price here',
+        );
+        expect(
+          find.descendant(of: rowAfter, matching: find.text(_kSinglePrice)),
+          findsNothing,
+          reason:
+              'the stale single price must be GONE, not merely accompanied — '
+              'riverpod retains .value across an invalidate '
+              '(project_riverpod_seamless_invalidate_gotcha), so a row that '
+              'still shows it is a row that never re-read',
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
   );
 }

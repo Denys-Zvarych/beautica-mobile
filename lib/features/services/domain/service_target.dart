@@ -68,10 +68,18 @@ sealed class ServiceTarget with _$ServiceTarget {
   /// User.id != Master.id"). The userId → masterId resolution happens in phase
   /// 317, mirroring `_SalonMasterScheduleRoute`.
   ///
-  /// Deliberately carries no `priceOverride` / `durationOverrideMinutes`: the
-  /// backend's `AssignServiceToMasterRequest` has both, but mobile ignores them
-  /// entirely by locked decision — one salon definition, one price, shared
-  /// across every master who performs it.
+  /// Deliberately carries no per-master price fields: the app's write path
+  /// sends the band inside each BULK item (`priceType` + `price` /
+  /// `priceMin` + `priceMax`), so a band is per-ITEM, never per-target.
+  ///
+  /// Reuse is resolved server-side — the app sends a platform `serviceTypeId`,
+  /// never a definition id — and since phases 311/312 the backend STORES a
+  /// per-master band when an item's price differs from the reused salon
+  /// definition's, leaving that shared definition untouched. Two masters can
+  /// therefore hold different prices for the same service, and the salon
+  /// catalogue aggregates them into a min/max hull (phase 314): salon-level
+  /// read models must render `priceType: RANGE` with `priceMin`/`priceMax`
+  /// and must never assume a single shared price.
   const factory ServiceTarget.salonMaster({
     /// The salon whose roster `masterId` sits on.
     required String salonId,

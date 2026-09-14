@@ -17,7 +17,10 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_revision.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 
@@ -78,11 +81,52 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 /// read, so the sheet would open, trigger the fetch, and read `AsyncLoading` in
 /// the same turn — rendering no «Послуга» section at all. Any future surface
 /// that reads this catalogue needs a live subscription for the same reason.
+///
+/// ## The SALON arm (2026-09-14)
+///
+/// In salon mode — i.e. inside `app_router.dart`'s `_SalonMasterServicesScope`,
+/// where [serviceTargetProvider] is overridden with a [SalonMasterTarget] — a
+/// master's service list is also an INPUT to the salon's own «Послуги» tab.
+/// The locked rule is that a salon's catalogue IS the set of services its
+/// active masters perform, priced ACROSS them, so assigning a service to a
+/// second master turns that row's single price into a RANGE. Without the third
+/// invalidate below the tab kept showing the first master's single price:
+/// [salonServiceCatalogProvider] caches for 5 minutes behind a `keepAlive` +
+/// close `Timer` (`salon_service_catalog_notifier.dart:35-37`, deliberate and
+/// pinned by `test/features/salon/application/salon_tab_providers_keepalive_test.dart`
+/// — do NOT weaken it), and the salon shell keeps the tab mounted in an
+/// `IndexedStack`, so the provider holds a LIVE listener across the push into
+/// the master's services and the TTL is never even reached. An explicit
+/// invalidate is the only thing that can refresh it.
+///
+/// Gated on the target on purpose: an INDEPENDENT_MASTER (target `null`) has no
+/// salon catalogue, and invalidating a family member nobody is watching would
+/// buy an extra `GET /salons/.../services` for nothing.
+///
+/// Resolution note: [serviceTargetProvider] is overridden in a NESTED
+/// `ProviderScope` (`app_router.dart:2806`) while [salonServiceCatalogProvider]
+/// declares no `dependencies:` and therefore lives in the ROOT container. The
+/// `WidgetRef` reads the scoped target and invalidates the root family member —
+/// which is exactly right, because the salon tab that renders it is mounted
+/// OUTSIDE (above) this scope.
+///
+/// It also refreshes the booking-wizard surfaces that read the same family
+/// (`salon_service_selection_screen.dart`, `salon_time_screen.dart`,
+/// `salon_master_selection_screen.dart`). That is the intended blast radius:
+/// they are stale for exactly the same reason.
 void invalidateMasterServiceCatalogues(WidgetRef ref) {
   // The shared fetch — this is the line that re-requests.
   ref.invalidate(masterServiceCatalogProvider);
   // The wrapper — this is the line that makes an UNLISTENED reader see it.
   ref.invalidate(servicesListProvider);
+  // The SALON aggregate the master's list feeds — see "The SALON arm" above.
+  // No `value == null` gate anywhere on the read side: riverpod's invalidate
+  // RETAINS `.value`, so the tab keeps rendering the previous catalogue while
+  // the refetch is in flight instead of flashing a spinner. That is by design.
+  final ServiceTarget? target = ref.read(serviceTargetProvider);
+  if (target is SalonMasterTarget) {
+    ref.invalidate(salonServiceCatalogProvider(target.salonId));
+  }
   // 2026-09-13 audit (M7) — the "something happened to the catalogue" signal a
   // CALLER outside this subtree can observe across a push. See
   // `service_catalogue_revision.dart` for why a counter and not a pop result.
