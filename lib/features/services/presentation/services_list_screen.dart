@@ -757,6 +757,22 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                       // editing long service names. When Phase 9.x lands a
                       // real photo, drop this line.
                       showPhoto: false,
+                      // ALIGNMENT RULE: a service name starts at exactly the
+                      // same x as its category section's TITLE, so the two
+                      // form one vertical spine down the section. Derived
+                      // from the header's own constituents (its `md` padding
+                      // + 20 dp glyph slot + `sm` gap) minus the card's own
+                      // leading inset — never a literal 36, so it tracks any
+                      // future change to the header's padding, icon size or
+                      // gap instead of silently drifting off it.
+                      //
+                      // Dropping the photo well above reclaimed 50 dp but it
+                      // was also the only thing indenting the name; this
+                      // spends 36 of those 50 to put the name back under its
+                      // heading.
+                      leadingIndent:
+                          CategorySection.headerTitleInset -
+                          ServiceCard.contentInset,
                       onEdit: widget.writable
                           ? () => widget.onOpen(
                               widget.editRouteBuilder(entry.service.id),

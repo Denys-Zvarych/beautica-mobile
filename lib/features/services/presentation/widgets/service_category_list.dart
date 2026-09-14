@@ -244,6 +244,26 @@ class CategorySection extends StatefulWidget {
   /// "no icon", never the resolver's cosmetology fallback.
   final String? slug;
 
+  /// Leading category glyph size — matches [ServiceCategoryCard]'s 20dp,
+  /// the sibling list-row surface. Verified by rendering (not reasoning): see
+  /// this file's header comment / the phase report for the PNG check across
+  /// several slugs including the null/uncategorized case.
+  ///
+  /// Lives on the widget rather than its State so [headerTitleInset] can be
+  /// derived from it at compile time.
+  static const double iconSize = 20;
+
+  /// Horizontal distance from this section header CARD's own left edge to the
+  /// left edge of its TITLE text — the header's leading padding, the category
+  /// glyph slot, and the gap that follows it.
+  ///
+  /// Published so a sibling row inside the same section can line its own text
+  /// column up with this title instead of hardcoding the sum (see
+  /// [ServiceCard.leadingIndent]). Any change to the header's padding, glyph
+  /// size or gap moves this number and the aligned rows with it.
+  static const double headerTitleInset =
+      VelvetSpacing.md + iconSize + VelvetSpacing.sm;
+
   @override
   State<CategorySection> createState() => _CategorySectionState();
 }
@@ -255,11 +275,9 @@ class _CategorySectionState extends State<CategorySection> {
   // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
   static final TextStyle _headerStyle = VelvetText.subheading16;
 
-  // Leading category glyph size — matches [ServiceCategoryCard]'s 20dp,
-  // the sibling list-row surface. Verified by rendering (not reasoning): see
-  // this file's header comment / the phase report for the PNG check across
-  // several slugs including the null/uncategorized case.
-  static const double _iconSize = 20;
+  // Moved onto [CategorySection] so [CategorySection.headerTitleInset] can be
+  // derived from it; this alias keeps the build method below unchanged.
+  static const double _iconSize = CategorySection.iconSize;
 
   @override
   void initState() {
@@ -424,7 +442,8 @@ class ServiceCard extends StatefulWidget {
     this.selectable = false,
     this.selected = false,
     this.showPhoto = true,
-  });
+    this.leadingIndent = 0,
+  }) : assert(leadingIndent >= 0, 'leadingIndent cannot be negative.');
 
   final MasterService service;
 
@@ -478,6 +497,29 @@ class ServiceCard extends StatefulWidget {
   /// PICKER, scanned rather than read, and the leading well anchors the
   /// selectable row's left edge against the trailing check indicator.
   final bool showPhoto;
+
+  /// Horizontal distance from this card's own left edge to the start of its
+  /// content Row — the card's leading padding. Published alongside
+  /// [CategorySection.headerTitleInset] so a caller can compute an alignment
+  /// indent without either number being restated as a literal.
+  static const double contentInset = VelvetSpacing.sm;
+
+  /// Additive — blank leading space inserted INSIDE the content row, before
+  /// the photo well (or, with [showPhoto] `false`, before the name column).
+  ///
+  /// Defaults to `0`, which inserts no widget at all, so every caller that
+  /// predates this parameter lays out byte-identically to before it existed.
+  /// Deliberately NOT part of the card's own padding: padding is shared with
+  /// the booking-wizard picker, and the indent belongs to one caller.
+  ///
+  /// The services MANAGEMENT page passes
+  /// `CategorySection.headerTitleInset - ServiceCard.contentInset` to hold the
+  /// alignment rule "a service name starts exactly under its category title",
+  /// so the name column and the section header form one vertical spine.
+  /// Dropping the photo well (Phase 323) reclaimed 50 dp but also removed the
+  /// only thing indenting the name, which left it 36 dp LEFT of its own
+  /// heading — this restores the spine while keeping 30 of those 50 dp.
+  final double leadingIndent;
 
   @override
   State<ServiceCard> createState() => _ServiceCardState();
@@ -599,6 +641,10 @@ class _ServiceCardState extends State<ServiceCard>
         ),
         child: Row(
           children: <Widget>[
+            // Additive alignment indent (see [ServiceCard.leadingIndent]).
+            // `0` — every caller but the services management page — adds NO
+            // widget to this Row, so the default tree is unchanged.
+            if (widget.leadingIndent > 0) SizedBox(width: widget.leadingIndent),
             // Opt-out (see [ServiceCard.showPhoto]): the well AND its trailing
             // gap disappear together, so the name column simply starts at the
             // card's own inset rather than 50 dp inside it.

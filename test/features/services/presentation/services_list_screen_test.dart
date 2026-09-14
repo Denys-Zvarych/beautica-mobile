@@ -26,6 +26,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -76,14 +77,20 @@ const _stubServiceList = <MasterService>[_stubService];
 ///   ----
 ///   312      the card's own laid-out width
 ///   -16      the card's `VelvetSpacing.sm` insets (8 each side)
+///   -36      `ServiceCard.leadingIndent` — the alignment indent that puts the
+///            name under its category title (`CategorySection.headerTitleInset`
+///            16+20+8 = 44, minus the card's own 8 dp leading inset)
 ///    -4      `VelvetSpacing.xs` gap before the trailing affordance
 ///   -22      `_kEditAffordanceSize` edit pillow / blank slot
 ///   ----
-///   270
+///   234
 /// The pre-Phase-323 tree spent a further 50 (photo well + its 10 dp gap),
 /// 4 (10 dp card insets), 4 (8 dp trailing gap) and 8 (30 dp pillow) = 66 dp
-/// of that, leaving a 204 dp name column on the same phone.
-const double _kNameColumnWidthAt360 = 270.0;
+/// of that, leaving a 204 dp name column on the same phone. Re-pinned 270 →
+/// 234 when the indent went back in: dropping the well had also dropped the
+/// only thing indenting the name, leaving it 36 dp LEFT of its own heading.
+/// 30 of the original 50 dp reclaim survives.
+const double _kNameColumnWidthAt360 = 234.0;
 
 /// Geometry fixture for the Phase 323 group — identical to [_stubService]
 /// except that it carries a category, so the screen can be mounted with
@@ -1959,29 +1966,33 @@ void main() {
     }
 
     testWidgets(
-      'the name column consumes the whole card minus EXACTLY 42 dp of chrome '
-      '(8+8 padding, 4 trailing gap, 22 edit affordance) — no photo well',
+      'the name column consumes the whole card minus EXACTLY 78 dp of chrome '
+      '(8+8 padding, 36 alignment indent, 4 trailing gap, 22 edit affordance) '
+      '— no photo well',
       (tester) async {
         final boxes = await pumpAndMeasure(tester);
 
         // The composite pin. Each of Phase 323's four trims moves this number
-        // and nothing else on this screen does:
-        //   showPhoto back to `true`      → 92, not 42
-        //   padding back to `sm + 2` (10) → 46
-        //   trailing gap back to `sm` (8) → 46
-        //   edit affordance back to 30    → 50
+        // and nothing else on this screen does (re-pinned 42 → 78 when the
+        // 36 dp alignment indent went back in):
+        //   showPhoto back to `true`      → 128, not 78
+        //   padding back to `sm + 2` (10) → 82
+        //   trailing gap back to `sm` (8) → 82
+        //   edit affordance back to 30    → 86
+        //   leadingIndent dropped to 0    → 42
         expect(
           boxes.card.size.width - boxes.info.size.width,
-          42.0,
+          78.0,
           reason:
               'Phase 323 chrome budget: 8 dp left inset + 8 dp right inset + '
+              '36 dp (ServiceCard.leadingIndent) alignment indent + '
               '4 dp (VelvetSpacing.xs) trailing gap + 22 dp '
               '(_kEditAffordanceSize) edit pillow, and NO 50 dp photo well — '
               'the screen must pass `showPhoto: false`',
         );
 
         // The absolute half of the claim. Before Phase 323 this screen gave a
-        // 360 dp phone 66 dp LESS room for a service name; pinning the number
+        // 360 dp phone 30 dp LESS room for a service name; pinning the number
         // end-to-end is what catches a regression introduced anywhere ABOVE
         // the card (the ListView's `lg` insets, CategorySection's own inset)
         // rather than inside it.
@@ -1989,7 +2000,8 @@ void main() {
           boxes.info.size.width,
           _kNameColumnWidthAt360,
           reason:
-              'the +66 dp reclaim measured end-to-end on a 360 dp phone: '
+              'the +30 dp net reclaim measured end-to-end on a 360 dp phone '
+              '(66 dp of trims, 36 dp given back as the alignment indent): '
               'anything less means a caller, a list inset or a card trim '
               'regressed',
         );
@@ -2083,5 +2095,109 @@ void main() {
         );
       },
     );
+  });
+
+  // WHY THIS GROUP EXISTS (2026-09-14 regression).
+  //
+  // Phase 323 dropped the card's 50 dp photo well. The well was ALSO the only
+  // thing indenting the service name, so the name fell from 16 dp right of its
+  // own category title to 36 dp LEFT of it — the leftmost content on the
+  // screen, and 16.5 dp left of its own duration/price line inside the same
+  // card. Seven goldens regenerated green straight through it, because NO
+  // test in this repo asserted a cross-widget alignment: every geometry pin
+  // above measures one widget against itself.
+  //
+  // So this group pins the RELATIONSHIP, never the absolute 68 dp. An
+  // absolute pin passes silently if the HEADER moves; a relative one catches
+  // a regression on either side of the rule.
+  group('the service name lines up with its category title', () {
+    /// Pumps the populated screen at [width] with the HAIRCUT bucket open and
+    /// returns the global `dx` of the section header's title text and of the
+    /// service name inside the card below it.
+    Future<({double titleDx, double nameDx})> pumpAndMeasureDx(
+      WidgetTester tester,
+      double width,
+    ) async {
+      await tester.pumpApp(
+        const ServicesListScreen(initialExpandCategory: 'HAIRCUT'),
+        overrides: [
+          _servicesOverride(const AsyncData(<MasterService>[_geomService])),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+        width: width,
+        height: 800,
+      );
+      await tester.pump();
+      await tester.pump();
+      // fixed-wait-ok: draining ServiceCard's 460 ms staggered entrance
+      // before measuring the laid-out boxes.
+      await tester.pump(const Duration(milliseconds: 600));
+
+      // The header title — read from the fixture rather than restated as a
+      // literal, so the finder tracks _defaultCategories and carries no
+      // Cyrillic copy of its own. Scoped under CategorySection so a stray
+      // match elsewhere on the screen cannot stand in for it.
+      final Finder titleFinder = find.descendant(
+        of: find.byType(CategorySection),
+        matching: find.text(_defaultCategories.first.displayName),
+      );
+      final Finder nameFinder = find.descendant(
+        of: find.byKey(const Key('service_card_svc-001')),
+        matching: find.text(_geomService.name),
+      );
+      // Anti-vacuity: nothing below means anything if either text is absent,
+      // and `getTopLeft` on a zero-match finder would fail with a confusing
+      // message instead of this one.
+      expect(
+        titleFinder,
+        findsOneWidget,
+        reason: 'the category header title must be on screen to align to',
+      );
+      expect(
+        nameFinder,
+        findsOneWidget,
+        reason: 'the service name must be on screen to be aligned',
+      );
+      return (
+        titleDx: tester.getTopLeft(titleFinder).dx,
+        nameDx: tester.getTopLeft(nameFinder).dx,
+      );
+    }
+
+    for (final double width in <double>[320, 360, 414]) {
+      testWidgets('at ${width.toInt()} dp', (tester) async {
+        final dx = await pumpAndMeasureDx(tester, width);
+
+        expect(
+          dx.nameDx,
+          dx.titleDx,
+          reason:
+              'ALIGNMENT RULE: a service name starts at exactly the same x as '
+              'the title of the category section it lives under, so the two '
+              'form one vertical spine. The card supplies the difference via '
+              '`ServiceCard.leadingIndent` = '
+              'CategorySection.headerTitleInset - ServiceCard.contentInset. '
+              'Measured name dx ${dx.nameDx}, title dx ${dx.titleDx} at '
+              '$width dp. If these have diverged, either the indent was '
+              'dropped (the 2026-09-14 regression: the name landed 36 dp to '
+              'the LEFT of its heading) or the header padding / glyph size / '
+              'gap moved without the indent following it.',
+        );
+
+        // Anti-vacuity, the other half: an alignment assertion passes
+        // trivially if BOTH edges collapsed to the viewport's left. Pin that
+        // the pair really sits inside the screen gutter + the header's own
+        // leading chrome, without pinning the exact 68 (which would make this
+        // an absolute test again and defeat the point).
+        expect(
+          dx.titleDx,
+          greaterThan(VelvetSpacing.lg),
+          reason:
+              'both edges must be genuinely inset from the viewport, not two '
+              'zeroes compared with each other',
+        );
+      });
+    }
   });
 }
