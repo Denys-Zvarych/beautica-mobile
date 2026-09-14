@@ -1960,24 +1960,47 @@ abstract final class VelvetText {
   // `SettingsRow`'s label is 12 and its value line resolves to 11, and
   // `sectionLabel` is 11. A 14 sp value sat three rungs above every sibling
   // value and the 13 sp label one above every sibling label — the card
-  // shouted where it should only lead. One rung down (12 / 13) puts the
-  // label exactly level with `SettingsRow`'s label and leaves the value a
-  // single step above it: still the dominant line of the pair, no longer
-  // louder than the screen. Smaller type also strictly RELIEVES the wrap
-  // pressure this block exists to document.
+  // shouted where it should only lead. One rung down (12 / 13) put the
+  // label exactly level with `SettingsRow`'s label — but the pair STILL read
+  // oversized on device, so a third pass followed (below).
+  //
+  // WHY THE VALUE STOPS AT 13 sp — THE SIZE AXIS IS PROVABLY SPENT
+  // --------------------------------------------------------------
+  // The third pass tried 11 / 12. The LABEL moved (12 -> 11, level with
+  // `sectionLabel`); the VALUE could not. `salon_staff_profile_management_
+  // card_text_fit_test.dart` pins that the non-contiguous «Пн, Ср, Пт ·
+  // 10:00–19:00» summary needs THREE laid-out lines in the 96.0 dp column at
+  // 320 dp x textScale 1.3 — the assertion that proves `maxLines: 3` is
+  // load-bearing rather than decorative. Measured on that file's own
+  // TextPainter: the three-line break survives down to 12.75 sp and
+  // collapses to two at 12.5 and below (12.0 -> 2 lines). So a 12 sp value
+  // silently retires the file's anti-vacuity premise, and 12.75 is a
+  // quarter-point nobody can see. 13 is therefore the floor on the size
+  // axis, not a preference.
+  //
+  // WHAT MOVED INSTEAD: THE WEIGHT AXIS
+  // -----------------------------------
+  // Heavy Comfortaa is the rounded-geometric worst case at small sizes — at
+  // w700 the counters close up and the stroke thickens, so 13 sp reads
+  // blockier and LARGER than its nominal size beside Nunito siblings of the
+  // same measure. That perceived bulk, not the point size, is what survived
+  // two step-downs. Both lines therefore drop one weight step: label
+  // 600 -> 500, value 700 -> 600. The pair sheds ink without the value
+  // losing a single dp of the wrap headroom the truncation fix bought.
   //
   // HIERARCHY
   // ---------
   // The label is the quiet caption — the glyph in the well already names the
   // action, so the word is a confirmation, not the headline. The VALUE is
   // the reason to tap («Пн–Пт · 09:00–18:00» tells the operator the schedule
-  // exists before they open it). They differ on THREE axes — size 12 vs 13,
-  // weight 600 vs 700, colour secondary vs primary — so the pair never reads
-  // as one clump the way two identical Comfortaa 15 lines did. At one rung
-  // apart the size axis alone is nearly spent, which is exactly why the
-  // weight and colour axes are kept at their full 100-unit /
-  // secondary-vs-primary separation rather than being softened alongside the
-  // step-down. Family stays
+  // exists before they open it). They differ on THREE axes — size 11 vs 13,
+  // weight 500 vs 600, colour secondary vs primary — so the pair never reads
+  // as one clump the way two identical Comfortaa 15 lines did. The size axis
+  // is now TWO rungs wide rather than one, and that is exactly what pays for
+  // the weight step-down: the 100-unit weight gap and the
+  // secondary-vs-primary colour gap are preserved in FULL, only shifted one
+  // notch lighter. Never collapse either gap — with the size axis pinned at
+  // its floor they are the only separation left. Family stays
   // Comfortaa on both: this is a card, and the preview's `statValue()`
   // intent for the value line is a Comfortaa role.
   //
@@ -1989,20 +2012,24 @@ abstract final class VelvetText {
   // ---------------------------------------------------------------------------
 
   /// The card's label line — [subheading]'s Comfortaa 14/600 stepped DOWN to
-  /// 12 and recoloured secondary, so it sits below `subheading` in the ladder
-  /// rather than above it, and level with `SettingsRow`'s own 12 sp label.
+  /// 11/500 and recoloured secondary: the quietest caption on the screen,
+  /// level with `sectionLabel` on size and one weight notch under every
+  /// `SettingsRow` label.
   static final TextStyle managementCardLabel = _subheadingStyle.copyWith(
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
     height: 1.25,
     color: BrandColors.textSecondary,
   );
 
   /// The card's value line — [statValue]'s Comfortaa 17/700 stepped down to
-  /// 13 in primary text: the dominant line of the pair, one rung above its
-  /// own label and one BELOW `subheading`, so it never out-ranks the section
-  /// it sits in.
+  /// 13/600 in primary text: the dominant line of the pair, two rungs above
+  /// its own label and one BELOW `subheading`, so it never out-ranks the
+  /// section it sits in. 13 is the FLOOR — see the block above; 12 retires
+  /// the three-line wrap the text-fit suite pins.
   static final TextStyle managementCardValue = _statValueStyle.copyWith(
     fontSize: 13,
+    fontWeight: FontWeight.w600,
     height: 1.25,
   );
 }

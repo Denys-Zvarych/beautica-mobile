@@ -51,6 +51,20 @@
 // all 19 cases stayed green on the first run. The only edits were the
 // MEASURED figures — in these comments and inside one failure-reason string
 // — which are documentation, not assertions.
+//
+// NOTE (2026-09-14, third pass) — the card STILL read oversized, so a third
+// step-down was attempted at label 12 -> 11, value 13 -> 12. The label moved;
+// THE VALUE DID NOT, and this file is why. The `maxLines: 3` anti-vacuity
+// case below needs the non-contiguous summary to occupy three laid-out lines
+// in the 96.0 dp column at 320 dp x 1.3; measured on this file's own
+// TextPainter that break survives to 12.75 sp and collapses to two lines at
+// 12.5 and below (12.0 -> 2 lines, confirmed RED here). 13 sp is therefore a
+// MEASURED FLOOR on the value's size axis, not a preference — do not
+// relitigate it by loosening the case at line ~342. The perceptual reduction
+// was taken on the WEIGHT axis instead (label w600 -> w500, value
+// w700 -> w600); the test font carries no weight variants, so every advance
+// below is unchanged for the value and the label figures moved only because
+// the label's SIZE moved. Again: nothing here was weakened.
 
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
@@ -455,10 +469,12 @@ void main() {
   //                                                       (was 78.2 / 17.8)
   //                         «services»        72.0 dp  -> 24.0 dp headroom
   //                                                       (was 77.6 / 18.4)
-  //   label, full advance   «Послуги»         69.3 dp  -> 26.7 dp headroom
-  //                                                       (was 75.1 / 20.9)
-  //                         «Services»        68.2 dp  -> 27.8 dp headroom
-  //                                                       (was 73.9 / 22.1)
+  //   label, full advance   «Послуги»         63.5 dp  -> 32.5 dp headroom
+  //                                                       (13 sp: 75.1 / 20.9,
+  //                                                        12 sp: 69.3 / 26.7)
+  //                         «Services»        62.6 dp  -> 33.4 dp headroom
+  //                                                       (13 sp: 73.9 / 22.1,
+  //                                                        12 sp: 68.2 / 27.8)
   //
   // WHAT THIS GUARDS, PRECISELY — established by mutation, not assumed. The
   // first draft of this block claimed an over-wide word would be ELLIPSIZED;
@@ -483,8 +499,8 @@ void main() {
   // assertion RED while leaving every other case in the file green, which is
   // the proof it is load-bearing on its own axis.
   //
-  // The narrowest measured headroom is 23.4 dp (17.8 dp before the tokens
-  // stepped down), so the floor below is 12 dp: comfortably under today's
+  // The narrowest measured headroom is 23.4 dp on the VALUE (17.8 dp at the
+  // original 14 sp), so the floor below is 12 dp: comfortably under today's
   // margin (no failures on rounding or a font-fallback difference) and
   // comfortably above zero (a copy change to a longer noun, a larger value
   // token, or a narrower column fails HERE, loudly). The floor is left at 12
