@@ -365,7 +365,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **getSalonMasterServices**
-> ApiResponseListMasterServiceResponse getSalonMasterServices(salonId, masterId)
+> ApiResponseListMasterServiceResponse getSalonMasterServices(salonId, masterId, page, size)
 
 
 
@@ -376,9 +376,11 @@ import 'package:beautica_api/api.dart';
 final api = BeauticaApi().getServiceControllerApi();
 final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Master row id (NOT a user id)
+final int page = 56; // int | 
+final int size = 56; // int | 
 
 try {
-    final response = api.getSalonMasterServices(salonId, masterId);
+    final response = api.getSalonMasterServices(salonId, masterId, page, size);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling ServiceControllerApi->getSalonMasterServices: $e\n');
@@ -391,6 +393,8 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **salonId** | **String**|  | 
  **masterId** | **String**| Master row id (NOT a user id) | 
+ **page** | **int**|  | [optional] 
+ **size** | **int**|  | [optional] 
 
 ### Return type
 
