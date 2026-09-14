@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -62,6 +63,45 @@ const _stubService = MasterService(
 );
 
 const _stubServiceList = <MasterService>[_stubService];
+
+/// Laid-out width of a [ServiceInfo] name column on [ServicesListScreen] at a
+/// pinned 360 dp phone width — the END-TO-END half of Phase 323's "+66 dp"
+/// claim (see the geometry group at the bottom of this file).
+///
+/// Derivation, so a future reader can tell a legitimate design change from a
+/// regression rather than just re-blessing whatever the tree now draws:
+///   360      viewport
+///   -32      the cards ListView's `VelvetSpacing.lg` insets (16 each side)
+///   -16      [CategorySection]'s own `VelvetSpacing.sm` insets (8 each side)
+///   ----
+///   312      the card's own laid-out width
+///   -16      the card's `VelvetSpacing.sm` insets (8 each side)
+///    -4      `VelvetSpacing.xs` gap before the trailing affordance
+///   -22      `_kEditAffordanceSize` edit pillow / blank slot
+///   ----
+///   270
+/// The pre-Phase-323 tree spent a further 50 (photo well + its 10 dp gap),
+/// 4 (10 dp card insets), 4 (8 dp trailing gap) and 8 (30 dp pillow) = 66 dp
+/// of that, leaving a 204 dp name column on the same phone.
+const double _kNameColumnWidthAt360 = 270.0;
+
+/// Geometry fixture for the Phase 323 group — identical to [_stubService]
+/// except that it carries a category, so the screen can be mounted with
+/// `initialExpandCategory: 'HAIRCUT'` and the card is laid out WITHOUT a tap.
+///
+/// The name is deliberately long enough to fill the column: a short name would
+/// leave the [ServiceInfo] column's own width unconstrained-looking and the
+/// reclaim assertions would read the same number whether the trims landed or
+/// not (`project_fixture_values_can_defang_assertions`).
+const _geomService = MasterService(
+  id: 'svc-001',
+  serviceDefId: 'def-001',
+  name: 'Складне фарбування довгого волосся з доглядом',
+  category: 'HAIRCUT',
+  durationMinutes: 45,
+  priceMin: 750,
+  priceDisplay: '750 ₴',
+);
 
 /// The default approved-category list. approvedCategoriesProvider now fetches
 /// DIRECTLY (not through the repository), so it must be overridden in-scope;
@@ -1833,5 +1873,215 @@ void main() {
             'false on the salon-owner/admin and salon-master journeys',
       );
     });
+  });
+
+  // ── 7. Phase 323 — CARD GEOMETRY ON THE REAL SCREEN ───────────────────────
+  //
+  // WHY THIS GROUP EXISTS (mobile-qa gap closure, 2026-09-14).
+  //
+  // Phase 323's headline claim is "+66 dp of text width on the services
+  // management page". The change reaches that number through FOUR independent
+  // trims, three of which had NO non-golden coverage at any layer:
+  //
+  //   50 dp  the leading PhotoThumbnail well + its 10 dp gap
+  //          (`ServiceCard.showPhoto: false`)                   ← covered, but
+  //          only in `service_category_list_test.dart`, on a BARE ServiceCard
+  //          the test itself constructs. That case proves the PARAMETER works;
+  //          it cannot prove `services_list_screen.dart` actually passes it.
+  //    4 dp  horizontal card padding `sm + 2` (10) → `sm` (8), both sides
+  //    4 dp  trailing gap `sm` (8) → `xs` (4)
+  //    8 dp  the edit affordance 30 → `_kEditAffordanceSize` (22)
+  //   ─────
+  //   66 dp
+  //
+  // The last three were pinned by NOTHING but regenerated golden baselines,
+  // and a regenerated baseline is self-referential
+  // (`feedback_golden_not_acceptance`) — it re-blesses whatever the code now
+  // draws. These goldens are weaker still: the test environment has no font,
+  // so glyphs render as solid filled blocks and the goldens prove geometry
+  // only.
+  //
+  // So this group asserts the trims from the LAID-OUT RENDER TREE on the real
+  // screen, never from widget fields (`project_widget_field_assertion_is_vacuous`
+  // — reading `_EditButton`'s `height: 22` would pass even if the Row never
+  // laid it out).
+
+  group('Phase 323 — card geometry on the real screen', () {
+    /// Pumps the populated screen at a pinned 360 dp phone width, expands the
+    /// uncategorized bucket and returns the laid-out card + name-column boxes.
+    ///
+    /// 360 dp and devicePixelRatio 1.0 make every number below a LOGICAL
+    /// pixel count that is reproducible on any host.
+    Future<({RenderBox card, RenderBox info})> pumpAndMeasure(
+      WidgetTester tester, {
+      bool writable = true,
+    }) async {
+      await tester.pumpApp(
+        // `initialExpandCategory` rather than a tap on the section header:
+        // the parity case below pumps this helper TWICE in one body, and the
+        // outgoing MaterialApp's route transition keeps an `IgnorePointer`
+        // over the second tree long enough that a tap misses. Expanding
+        // declaratively removes the gesture entirely — never
+        // `warnIfMissed: false`
+        // (`project_animatedscale_root_breaks_tap_by_key`).
+        ServicesListScreen(
+          writable: writable,
+          initialExpandCategory: 'HAIRCUT',
+        ),
+        overrides: [
+          _servicesOverride(const AsyncData(<MasterService>[_geomService])),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+        width: 360,
+        height: 800,
+      );
+      await tester.pump();
+      await tester.pump();
+      // fixed-wait-ok: draining ServiceCard's 460 ms staggered entrance
+      // before measuring the laid-out boxes.
+      await tester.pump(const Duration(milliseconds: 600));
+
+      final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+      expect(
+        cardFinder,
+        findsOneWidget,
+        reason:
+            'anti-vacuity — nothing below means anything if the card that '
+            'is supposed to be measured never rendered',
+      );
+      return (
+        card: tester.renderObject<RenderBox>(cardFinder),
+        info: tester.renderObject<RenderBox>(
+          find.descendant(of: cardFinder, matching: find.byType(ServiceInfo)),
+        ),
+      );
+    }
+
+    testWidgets(
+      'the name column consumes the whole card minus EXACTLY 42 dp of chrome '
+      '(8+8 padding, 4 trailing gap, 22 edit affordance) — no photo well',
+      (tester) async {
+        final boxes = await pumpAndMeasure(tester);
+
+        // The composite pin. Each of Phase 323's four trims moves this number
+        // and nothing else on this screen does:
+        //   showPhoto back to `true`      → 92, not 42
+        //   padding back to `sm + 2` (10) → 46
+        //   trailing gap back to `sm` (8) → 46
+        //   edit affordance back to 30    → 50
+        expect(
+          boxes.card.size.width - boxes.info.size.width,
+          42.0,
+          reason:
+              'Phase 323 chrome budget: 8 dp left inset + 8 dp right inset + '
+              '4 dp (VelvetSpacing.xs) trailing gap + 22 dp '
+              '(_kEditAffordanceSize) edit pillow, and NO 50 dp photo well — '
+              'the screen must pass `showPhoto: false`',
+        );
+
+        // The absolute half of the claim. Before Phase 323 this screen gave a
+        // 360 dp phone 66 dp LESS room for a service name; pinning the number
+        // end-to-end is what catches a regression introduced anywhere ABOVE
+        // the card (the ListView's `lg` insets, CategorySection's own inset)
+        // rather than inside it.
+        expect(
+          boxes.info.size.width,
+          _kNameColumnWidthAt360,
+          reason:
+              'the +66 dp reclaim measured end-to-end on a 360 dp phone: '
+              'anything less means a caller, a list inset or a card trim '
+              'regressed',
+        );
+
+        // And the well is genuinely gone from the real screen, not merely
+        // sized to zero.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('service_card_svc-001')),
+            matching: find.byType(PhotoThumbnail),
+          ),
+          findsNothing,
+          reason:
+              'the services MANAGEMENT page opts out of the leading well; the '
+              'booking wizard is the consumer that keeps it',
+        );
+      },
+    );
+
+    testWidgets(
+      'the card is 50 dp tall — still above the 48 dp minimum touch target, '
+      'and its vertical inset is symmetric `sm`',
+      (tester) async {
+        final boxes = await pumpAndMeasure(tester);
+
+        expect(
+          boxes.card.size.height,
+          50.0,
+          reason:
+              'Phase 323 took the row 56 → 50 dp. The number drives scroll '
+              'extent and the tap target, and no other test pins it.',
+        );
+        // Derived, font-independent half: 8 dp above + 8 dp below the tallest
+        // row child. This survives a font-metric change that would move the
+        // absolute 50 while the padding contract held.
+        expect(
+          boxes.card.size.height - boxes.info.size.height,
+          16.0,
+          reason:
+              'vertical inset is symmetric VelvetSpacing.sm; the name column '
+              'is the tallest child, so the card is exactly info + 2×8',
+        );
+        // THE REASON THE SHRINK IS SAFE. The whole row is the edit tap target
+        // (the 22 dp pillow carries no gesture of its own), so the row height
+        // IS the touch target and must not fall under Material's minimum.
+        expect(
+          boxes.card.size.height,
+          greaterThanOrEqualTo(kMinInteractiveDimension),
+          reason:
+              'the card row is the edit tap target — shrinking it below '
+              '48 dp would make the only write affordance on this screen '
+              'un-hittable for a large finger',
+        );
+      },
+    );
+
+    testWidgets(
+      'a READ-ONLY card is exactly as wide as a writable one — the blank slot '
+      'and the edit pillow share `_kEditAffordanceSize`',
+      (tester) async {
+        final double writableInfo = (await pumpAndMeasure(
+          tester,
+        )).info.size.width;
+        final double readOnlyInfo = (await pumpAndMeasure(
+          tester,
+          writable: false,
+        )).info.size.width;
+
+        // Anti-vacuity: the two mounts must genuinely differ in the trailing
+        // slot, otherwise this is one measurement compared with itself.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('service_card_svc-001')),
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'the second pump must really be the read-only branch (null '
+              'onEdit → no GestureDetector, no _EditButton)',
+        );
+        expect(
+          readOnlyInfo,
+          writableInfo,
+          reason:
+              'Phase 320 D3 promised "the row does not reflow" and Phase 323 '
+              'made that structural by sharing `_kEditAffordanceSize` between '
+              '_EditButton and the blank slot. Nothing else guards the '
+              'sharing: hard-coding either side back to 30 (or trimming only '
+              'one) silently makes a SALON_MASTER read-only card wrap a name '
+              'the owner sees whole.',
+        );
+      },
+    );
   });
 }

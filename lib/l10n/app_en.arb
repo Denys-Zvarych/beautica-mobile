@@ -1482,6 +1482,10 @@
   "@servicesTitle": {
     "description": "Title for services list screen (Phase 5.2). Shared verbatim across an independent master managing their own catalogue, an owner/admin managing a staff master's catalogue, and a salon master viewing their own catalogue read-only — keep role-neutral."
   },
+  "servicesListBackSemanticLabel": "Back",
+  "@servicesListBackSemanticLabel": {
+    "description": "Phase 323 — accessible label for the ServicesListScreen AppBar back arrow, supplied only on the SALON_OWNER / SALON_ADMIN route /salons/:salonId/manage/staff/:memberId/services (showBack: true). Its OWN key rather than a reuse of registerBackStep / salonProfileBackLabel, following this file's documented per-screen back-label convention (see salonPendingInvitesBackSemanticLabel): separate surfaces must be free to diverge."
+  },
   "servicesAdd": "Add service",
   "@servicesAdd": {
     "description": "FAB and empty state CTA label (Phase 5.2)."
@@ -1721,6 +1725,10 @@
       "category": { "type": "String" },
       "count": { "type": "int" }
     }
+  },
+  "servicesCardEditSemanticVerb": "Edit",
+  "@servicesCardEditSemanticVerb": {
+    "description": "Action verb appended to a service card's accessibility label when the card is tappable and opens the edit form. Announced by a screen reader only; never rendered as visible text."
   },
   "categoryRequestTitle": "Suggest a category",
   "@categoryRequestTitle": {

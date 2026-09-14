@@ -2466,8 +2466,33 @@ class _SalonManageServicesListRoute extends ConsumerWidget {
       // bar («Послуги»/«Мої записи»/«Графік»/«Профіль»), which is chrome this
       // role does not have at all: every tile targets a `/master/*` route
       // `auth_redirect.dart` bounces for an operator. They arrive here by
-      // pushing from the staff profile and leave by the AppBar back button.
+      // pushing from the staff profile.
       showBottomNav: false,
+      // Phase 323 — the ONE route that opts into the explicit back arrow.
+      //
+      // This leaf is a child of the `ShellRoute` at `:1270`, which declares no
+      // `navigatorKey` and therefore gets a PRIVATE nested `Navigator`; the
+      // list is page #1 inside it, so `ModalRoute.impliesAppBarDismissal`
+      // walks that navigator's own history, reaches itself and returns false
+      // and `AppBar.automaticallyImplyLeading` draws nothing. The operator had
+      // no on-screen way out at all (Android system-back worked — the delegate
+      // falls through the one-page shell navigator to the root — but that is
+      // not an affordance).
+      //
+      // Deliberately NOT applied to the other two mounts: `/services` sits on
+      // the ROOT navigator as a push, where the automatic arrow already works
+      // and this flag would double it, and `/staff/services` is a bottom-nav
+      // tab entered with `context.go`, which must stay bare.
+      showBack: true,
+      // The no-stack fallback, mirroring [_SalonManageServiceSetupRoute]'s own
+      // `exitRoute:` above. `GoRouterDelegate.pop` THROWS
+      // `GoError('There is nothing to pop')` in release, and an empty root
+      // stack is reachable HERE specifically: `ServiceSetupScreen`'s no-stack
+      // branch `go`s to `exitRoute`, which is this very route. Landing that
+      // way plus `showBottomNav: false` would leave the arrow — the only exit
+      // on screen — throwing. Falls back to the staff profile the operator
+      // pushed from.
+      backFallbackRoute: RouteNames.salonManageStaffMember(salonId, memberId),
       setupRoute: RouteNames.salonManageStaffServiceSetup(salonId, memberId),
       editRouteBuilder: (String serviceId) =>
           RouteNames.salonManageStaffServiceEdit(salonId, memberId, serviceId),

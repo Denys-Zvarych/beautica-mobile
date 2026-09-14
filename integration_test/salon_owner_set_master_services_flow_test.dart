@@ -385,10 +385,40 @@ void main() {
         );
         expect(newCard, findsOneWidget);
 
-        // ── 3. Pop back to the staff profile -> D4 refresh (count UP) ────
+        // ── 3. Back to the staff profile -> D4 refresh (count UP) ───────
+        //
+        // Phase 323 — this leaves by TAPPING THE REAL BACK BUTTON, not by
+        // `router.pop()`. That programmatic exit is precisely why a missing
+        // affordance shipped: this leaf is a `ShellRoute` child with no
+        // `navigatorKey`, so `AppBar.automaticallyImplyLeading` was
+        // suppressed and the operator had NO on-screen way out — while this
+        // flow, driving the router directly, stayed green throughout. The
+        // remaining `router.pop()` calls further down this file exit screens
+        // whose own affordances are covered elsewhere; this one is the
+        // end-to-end proof that the control exists and works.
         final int getSalonCallsBeforePop = fb.getSalonMasterServicesCalls;
         final int getPublicCallsBeforePop = fb.getPublicMasterServicesCalls;
-        router.pop();
+        final Finder listBack = find.byKey(ServicesListScreen.backKey);
+        await AppHarness.pumpUntilFound(
+          tester,
+          listBack,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          listBack,
+          findsOneWidget,
+          reason:
+              'the shell-nested leaf suppresses the automatic arrow, so this '
+              'explicit control is the operator\'s ONLY on-screen exit',
+        );
+        // REUSE-FIRST: the shared readiness-gated tap, never
+        // `warnIfMissed: false`
+        // (`project_animatedscale_root_breaks_tap_by_key`).
+        await AppHarness.tapVisible(
+          tester,
+          listBack,
+          timeout: const Duration(seconds: 20),
+        );
         await lockstepPump(tester);
 
         await AppHarness.pumpUntilFound(

@@ -1729,4 +1729,251 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 323 — THE BACK AFFORDANCE.
+  //
+  // This leaf is a `ShellRoute` child declared WITHOUT a `navigatorKey`
+  // (`app_router.dart:1270`), so go_router mints a PRIVATE nested `Navigator`
+  // and the services list is page #1 inside it.
+  // `ModalRoute.impliesAppBarDismissal` walks that navigator's own history,
+  // reaches itself and returns false, so `AppBar.automaticallyImplyLeading`
+  // draws nothing — the operator had NO on-screen way out. The fix is the
+  // additive `ServicesListScreen.showBack`, opted into by exactly this route.
+  //
+  // WHY THIS COULD NOT PASS VACUOUSLY, and why the bug shipped anyway: BOTH
+  // integration flows over this subtree exit PROGRAMMATICALLY
+  // (`salon_owner_set_master_services_flow_test.dart` called `router.pop()`,
+  // `salon_admin_…` uses `router.go(...)`). Those drive the router-level pop,
+  // which genuinely worked, so they stayed green with no control on screen at
+  // all. This case therefore asserts on the RENDERED CONTROL and TAPS IT —
+  // never on `screen.showBack`, a field read that proves nothing about what
+  // the AppBar does with it (`project_widget_field_assertion_is_vacuous`).
+  // -------------------------------------------------------------------------
+
+  testWidgets(
+    'the owner/admin leaf RENDERS a back control, and TAPPING it returns to '
+    'the staff profile',
+    (tester) async {
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      // Enter the way production does: the roster's staff profile PUSHES the
+      // catalogue. `go` would replace the stack and leave nothing to pop back
+      // to, making the tap's destination an artefact of the test setup.
+      router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberUserId));
+      await pumpUntilFound(tester, find.byType(SalonStaffProfileScreen));
+      // fixed-wait-ok: draining the entry transition before pushing again —
+      // the "Duplicate GlobalKey" hazard this file documents at :946.
+      await tester.pump(const Duration(seconds: 1));
+
+      unawaited(
+        router.push<void>(
+          RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId),
+        ),
+      );
+      await pumpUntilCount(tester, '2 послуги');
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(
+        back,
+        findsOneWidget,
+        reason:
+            'the shell-nested leaf suppresses the automatic arrow, so the '
+            'explicit control is the ONLY on-screen exit this role has',
+      );
+
+      // hitTestable(), not a bare finder: the entry transition leaves the
+      // AppBar off-screen for the first frames, and papering that over with
+      // `warnIfMissed: false` is the banned remedy
+      // (`project_animatedscale_root_breaks_tap_by_key`).
+      await pumpUntil(tester, () => back.hitTestable().evaluate().isNotEmpty);
+      await tester.tap(back);
+      // Wait on the LEAF DISAPPEARING, not on the profile appearing: the
+      // profile sits below the pushed leaf and is already in the tree, so
+      // `pumpUntilFound(SalonStaffProfileScreen)` returns on frame 0 and the
+      // assertions below would race the pop transition.
+      await pumpUntil(
+        tester,
+        () => find.byType(ServicesListScreen).evaluate().isEmpty,
+      );
+
+      expect(
+        find.byType(SalonStaffProfileScreen),
+        findsOneWidget,
+        reason: 'the tap must POP, not merely animate something',
+      );
+      expect(
+        find.byType(ServicesListScreen),
+        findsNothing,
+        reason:
+            'anti-vacuity — the staff profile sits BELOW the pushed leaf in '
+            'the stack, so "the profile is on screen" is already true before '
+            'the tap. Only the leaf being GONE proves the pop happened.',
+      );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // 10. THE BACK ARROW ON AN EMPTY STACK — 2026-09-14 audit, security LOW.
+  //
+  // `GoRouterDelegate.pop` does NOT assert — it THROWS
+  // `GoError('There is nothing to pop')` in release as well
+  // (`go_router-17.2.3/lib/src/delegate.dart:100-105`). The empty-stack state
+  // is reachable on THIS route and no other: `service_setup_screen.dart`'s
+  // own no-stack branch calls `context.go(exitRoute)`, and `app_router.dart`'s
+  // `_SalonManageServiceSetupRoute` aims that `exitRoute` at
+  // `RouteNames.salonManageStaffServices(...)` — this very leaf. Because the
+  // same mount passes `showBottomNav: false`, the arrow is the operator's ONLY
+  // on-screen exit, so an unguarded `context.pop()` throws and strands them
+  // inside the privileged salon-manage shell.
+  //
+  // WHY THIS CANNOT PASS VACUOUSLY:
+  //   • it asserts `router.canPop() == false` BEFORE the tap, so a setup that
+  //     accidentally left something poppable fails loudly instead of silently
+  //     degrading into a re-run of the case above;
+  //   • it asserts `tester.takeException()` is null — a `GoError` raised
+  //     inside a gesture callback is swallowed into the pending-exception
+  //     slot, so "the pump finished" alone proves nothing;
+  //   • it asserts the leaf is GONE and the fallback page is on screen, so an
+  //     absorbed no-op tap (the `backFallbackRoute: null` behaviour) fails
+  //     too.
+  // -------------------------------------------------------------------------
+
+  testWidgets(
+    'with an EMPTY root stack the back arrow does not throw and lands on the '
+    'fallback staff profile',
+    (tester) async {
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      // `go`, not `push` — this is the `ServiceSetupScreen` no-stack branch's
+      // own entry verb, and it replaces the stack so nothing is poppable.
+      router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
+      await pumpUntilCount(tester, '2 послуги');
+
+      expect(
+        router.canPop(),
+        isFalse,
+        reason:
+            'anti-vacuity — the whole point of this case is the EMPTY stack. '
+            'If anything is poppable here this is just a duplicate of the '
+            'push-entry case above and proves nothing about the guard.',
+      );
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(back, findsOneWidget);
+      await pumpUntil(tester, () => back.hitTestable().evaluate().isNotEmpty);
+      await tester.tap(back);
+      await pumpUntil(
+        tester,
+        () => find.byType(ServicesListScreen).evaluate().isEmpty,
+      );
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'a bare `context.pop()` raises GoError("There is nothing to pop") '
+            'here; the gesture arena swallows it into the pending-exception '
+            'slot, so this assertion is what makes the crash visible',
+      );
+      expect(
+        find.byType(SalonStaffProfileScreen),
+        findsOneWidget,
+        reason:
+            'the guard must GO to `backFallbackRoute`, not merely absorb the '
+            'tap — an absorbed tap leaves the operator exactly as stranded',
+      );
+      expect(find.byType(ServicesListScreen), findsNothing);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // 11. THE BACK ARROW'S ACCESSIBILITY CONTRACT — mobile-qa gap closure,
+  // 2026-09-14.
+  //
+  // Phase 323 added a NEW ARB key (`servicesListBackSemanticLabel`, mirrored
+  // in `app_uk.arb` + `app_en.arb`) and threaded it into
+  // `NeumorphicIconButton.semanticLabel`. Nothing asserted it arrived.
+  //
+  // That matters more here than on a typical bar: this control is an
+  // ICON-ONLY arrow and — because the shell-nested leaf suppresses the
+  // automatic one — it is the operator's ONLY on-screen exit. Unlabelled, a
+  // TalkBack user is told "button" and nothing else, on the one control that
+  // gets them out of the privileged salon-manage shell.
+  //
+  // Asserted against the RENDERED SEMANTICS TREE (`tester.getSemantics`),
+  // never against `NeumorphicIconButton.semanticLabel`
+  // (`project_widget_field_assertion_is_vacuous` — a field read passes even
+  // if the widget never emits a `Semantics` node), and against
+  // `l10n.servicesListBackSemanticLabel` rather than the literal 'Назад'
+  // (M2/M11 — a literal here re-breaks the moment EN renders).
+  // -------------------------------------------------------------------------
+
+  testWidgets(
+    'the back arrow carries the servicesListBackSemanticLabel ARB copy and '
+    'is announced as a tappable BUTTON',
+    (tester) async {
+      // Disposed INSIDE the body, not via addTearDown: the framework's
+      // end-of-test verification runs BEFORE tearDowns and fails on a live
+      // handle.
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
+      await pumpUntilCount(tester, '2 послуги');
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(back, findsOneWidget);
+
+      final AppLocalizations l10n = AppLocalizations.of(tester.element(back));
+      // Anti-vacuity: an ARB key that resolved to the empty string would make
+      // every assertion below pass while announcing nothing.
+      expect(
+        l10n.servicesListBackSemanticLabel,
+        isNotEmpty,
+        reason: 'the new ARB key must actually carry copy in the uk locale',
+      );
+
+      expect(
+        tester.getSemantics(back),
+        isSemantics(
+          label: l10n.servicesListBackSemanticLabel,
+          isButton: true,
+          hasTapAction: true,
+        ),
+        reason:
+            'icon-only, and the ONLY on-screen exit from the salon-manage '
+            'shell for this role — an unlabelled node announces just '
+            '"button"',
+      );
+
+      // NO TOUCH-TARGET ASSERTION HERE, DELIBERATELY. Two drafts of one were
+      // written and both were MUTATION-PROVED VACUOUS (2026-09-14): with
+      // `NeumorphicIconButton.extent` cut 48 -> 40 they both stayed green.
+      // `AppBar` hands its `leading` slot TIGHT 56 x 56 constraints, and
+      // `NeumorphicIconButton`'s `Container(48, 48)` lowers to a
+      // `ConstrainedBox(tightFor(48, 48))` whose `enforce()` clamps straight
+      // back up — so the gesture box measures 56 x 56 no matter what the
+      // button asks for, on the keyed `Semantics` node AND on the
+      // `GestureDetector` inside it.
+      //
+      // The touch target is therefore a property of `AppBar`, not of this
+      // change, and an assertion on it could only ever go red by editing
+      // Flutter. Shipping one would be a rubber stamp (M16) — worse than the
+      // gap, because the next reader would believe the target was guarded.
+      //
+      // (Two side notes this probe settled: the GEOMETRY NOTE in
+      // `services_list_screen.dart` documents "56 x 48 ... 4 dp above and
+      // below" — the measured box is 56 x 56, so the note is wrong about the
+      // vertical clearance, though its conclusion that the light shadow is
+      // clipped horizontally stands. And the target comfortably clears
+      // `kMinInteractiveDimension` either way.)
+
+      handle.dispose();
+    },
+  );
 }

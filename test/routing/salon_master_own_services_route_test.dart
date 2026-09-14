@@ -735,4 +735,101 @@ void main() {
       );
     },
   );
+
+  // -------------------------------------------------------------------------
+  // Phase 323 — THE TWO NON-OPT-IN MOUNTS STAY EXACTLY AS THEY WERE.
+  //
+  // `ServicesListScreen.showBack` is additive and defaults to `false`; only
+  // `/salons/:salonId/manage/staff/:memberId/services` opts in (that route's
+  // own case lives in `salon_manage_staff_services_route_test.dart`). These
+  // two cases pin the OTHER side of that contract, which no test covered
+  // before: the tab must not grow an arrow silently, and the root push must
+  // not LOSE the automatic one.
+  // -------------------------------------------------------------------------
+
+  testWidgets(
+    'the SALON_MASTER tab /staff/services renders NO back control of either '
+    'kind — it is a nav-bar tab root entered with `go`',
+    (tester) async {
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.salonMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      expect(
+        find.byKey(ServicesListScreen.backKey),
+        findsNothing,
+        reason:
+            'phase 323 opted in exactly ONE route; a tab root has nowhere to '
+            'go back TO, so the explicit arrow must never appear here',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byType(BackButton),
+        ),
+        findsNothing,
+        reason:
+            'and `automaticallyImplyLeading` must stay unable to draw one '
+            'either — this is page #1 of the SalonMasterTabsShell navigator',
+      );
+    },
+  );
+
+  testWidgets(
+    'CONTROL / NON-REGRESSION: an INDEPENDENT_MASTER PUSHING /services onto '
+    'the ROOT navigator still gets Material\'s AUTOMATIC arrow, and not the '
+    'explicit one',
+    (tester) async {
+      _MutableAuthNotifier.seed = _kIndependentMasterUser;
+
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      // A PUSH, from this role's real home — the production entry. `go` would
+      // make `/services` the only page in the root navigator, where
+      // `impliesAppBarDismissal` is false for a reason that has nothing to do
+      // with this change, and the case would assert nothing.
+      router.go(RouteNames.masterProfile);
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.masterProfile,
+      );
+      // fixed-wait-ok: draining the entry transition before pushing again.
+      await tester.pump(const Duration(seconds: 1));
+
+      unawaited(router.push<void>(RouteNames.services));
+      await pumpUntilFound(tester, find.byType(ServicesListScreen));
+      await pumpUntilFound(
+        tester,
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byType(BackButton),
+        ),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byType(BackButton),
+        ),
+        findsOneWidget,
+        reason:
+            'THE REGRESSION GUARD for phase 323: the default branch must NOT '
+            'set `automaticallyImplyLeading: false`. This route is a plain '
+            'ROOT-navigator push, `impliesAppBarDismissal` is true, and '
+            'Material already draws the arrow — suppressing it to make room '
+            'for the flag would strip the only exit an independent master '
+            'has from their own catalogue.',
+      );
+      expect(
+        find.byKey(ServicesListScreen.backKey),
+        findsNothing,
+        reason:
+            'and the explicit control must stay off — two stacked arrows is '
+            'the other failure mode of getting this wrong',
+      );
+    },
+  );
 }

@@ -19,7 +19,8 @@
 //   [CategorySection]     — the collapsible neumorphic disclosure section.
 //   [CategoryCountBadge]  — the small recessed per-category count pill.
 //   [ServiceCard]         — the tappable service row (staggered entrance).
-//   [PhotoThumbnail]      — the 40×40 recessed photo/icon well.
+//   [PhotoThumbnail]      — the 40×40 recessed photo/icon well (opt-out
+//                           via [ServiceCard.showPhoto]).
 //   [ServiceInfo]         — the card's name + inline metadata column.
 //   [MetaLine]            — the compact duration · price metadata strip.
 //   [MetaItem]            — a single icon + value pair inside [MetaLine].
@@ -27,7 +28,7 @@
 // Kept private (implementation details of [ServiceCard] / [MetaLine], no
 // external consumer needs them on their own):
 //   [_MetaDot] — the separator dot between metadata items.
-//   [_EditButton] — the trailing edit-affordance pillow.
+//   [_EditButton] — the trailing edit-affordance pillow (22×22).
 //
 // `services_list_screen.dart` is the only current caller. Part 2 of Phase 247
 // adds the booking-wizard picker as an ADDITIVE consumer of these same public
@@ -422,6 +423,7 @@ class ServiceCard extends StatefulWidget {
     this.appearDelay = Duration.zero,
     this.selectable = false,
     this.selected = false,
+    this.showPhoto = true,
   });
 
   final MasterService service;
@@ -459,6 +461,23 @@ class ServiceCard extends StatefulWidget {
   /// treatment used elsewhere in the app (e.g. the approved booking-wizard
   /// preview's own `_ServiceTile.selected`).
   final bool selected;
+
+  /// Additive — whether the leading [PhotoThumbnail] well is drawn.
+  ///
+  /// Defaults to `true`, the behaviour every caller had before this parameter
+  /// existed, so nothing renders differently unless it opts out explicitly.
+  ///
+  /// `false` drops BOTH the 40 dp well and the gap that follows it, reclaiming
+  /// 50 dp of horizontal room for the service name. The services MANAGEMENT
+  /// page passes `false`: service photo upload is deferred to Phase 9.x, so
+  /// every card there renders the identical [Icons.spa_rounded] placeholder —
+  /// 50 dp per row spent on a glyph that distinguishes nothing, on the one
+  /// screen whose entire job is reading and editing long service names.
+  ///
+  /// The master booking wizard keeps the well (`true`): its cards are a
+  /// PICKER, scanned rather than read, and the leading well anchors the
+  /// selectable row's left edge against the trailing check indicator.
+  final bool showPhoto;
 
   @override
   State<ServiceCard> createState() => _ServiceCardState();
@@ -511,6 +530,7 @@ class _ServiceCardState extends State<ServiceCard>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final MasterService s = widget.service;
     final durationLabel = DurationMinutes.format(s.durationMinutes);
     // Price label: FIXED renders the server-formatted priceDisplay
@@ -568,16 +588,24 @@ class _ServiceCardState extends State<ServiceCard>
         // Compact dense row: tighter vertical padding (~halved height)
         // versus the original VelvetSpacing.sm + 2 with a stacked pill
         // Wrap below the title.
-        padding: const EdgeInsets.fromLTRB(
-          VelvetSpacing.sm + 2,
-          VelvetSpacing.sm,
-          VelvetSpacing.sm + 2,
-          VelvetSpacing.sm,
+        //
+        // Horizontal inset is VelvetSpacing.sm — squared onto the 4/8/16/24
+        // ladder from the off-ladder `sm + 2` (10) it carried before, which
+        // returns 4 dp of content width and costs nothing visually: the card
+        // is read by its extruded rim, not by a 2 dp inset difference.
+        padding: const EdgeInsets.symmetric(
+          horizontal: VelvetSpacing.sm,
+          vertical: VelvetSpacing.sm,
         ),
         child: Row(
           children: <Widget>[
-            PhotoThumbnail(key: Key('thumb_${s.id}')),
-            const SizedBox(width: VelvetSpacing.sm + 2),
+            // Opt-out (see [ServiceCard.showPhoto]): the well AND its trailing
+            // gap disappear together, so the name column simply starts at the
+            // card's own inset rather than 50 dp inside it.
+            if (widget.showPhoto) ...<Widget>[
+              PhotoThumbnail(key: Key('thumb_${s.id}')),
+              const SizedBox(width: VelvetSpacing.sm + 2),
+            ],
             Expanded(
               child: ServiceInfo(
                 name: primaryLabel,
@@ -585,7 +613,10 @@ class _ServiceCardState extends State<ServiceCard>
                 priceLabel: priceLabel,
               ),
             ),
-            const SizedBox(width: VelvetSpacing.sm),
+            // Tightened to `xs` (was `sm`): the trailing glyph slot is the
+            // row's right-hand punctuation, not a second content column, and
+            // the pillow's own extruded rim already reads as a gap.
+            const SizedBox(width: VelvetSpacing.xs),
             // Phase 320 (D3) — the edit-pencil pillow is itself a write
             // affordance: leaving it visible on a non-tappable card would
             // "invite a tap that goes nowhere" exactly like a disabled FAB.
@@ -600,7 +631,10 @@ class _ServiceCardState extends State<ServiceCard>
             else if (tappable)
               const _EditButton()
             else
-              const SizedBox(width: 30, height: 30),
+              const SizedBox(
+                width: _kEditAffordanceSize,
+                height: _kEditAffordanceSize,
+              ),
           ],
         ),
       ),
@@ -619,14 +653,15 @@ class _ServiceCardState extends State<ServiceCard>
           position: _slide,
           child: Semantics(
             // Phase 320 (D3): a non-tappable card is not a button, and its
-            // label drops the "Редагувати" action verb — mirroring the
-            // selectable branch, which already omits it for the same reason
-            // (there is nothing for a screen-reader user to activate).
+            // label drops the edit action verb — mirroring the selectable
+            // branch, which already omits it for the same reason (there is
+            // nothing for a screen-reader user to activate).
             button: tappable,
             selected: widget.selectable ? widget.selected : null,
             label: (widget.selectable || !tappable)
                 ? '$primaryLabel. $durationLabel, $priceLabel.'
-                : '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
+                : '$primaryLabel. $durationLabel, $priceLabel. '
+                      '${l10n.servicesCardEditSemanticVerb}',
             // priceLabel renders from priceDisplay (server-formatted) so the
             // accessibility label always matches what the user sees in the card.
             //
@@ -820,10 +855,17 @@ class _MetaDot extends StatelessWidget {
 // Trailing edit button
 // ---------------------------------------------------------------------------
 
-/// 30×30 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
+/// Edge length of the trailing edit affordance — shared by [_EditButton] and
+/// the same-size blank slot a read-only card draws in its place, so the two
+/// can never drift apart (Phase 320 D3's "the row does not reflow").
+const double _kEditAffordanceSize = 22;
+
+/// 22×22 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
 ///
-/// Compact-row sizing (was 32×32). The whole row remains the tap target for
-/// edit, so this remains a non-interactive affordance glyph.
+/// Compact-row sizing (32×32 → 30×30 → 22×22). The whole row remains the tap
+/// target for edit — this widget contains no [GestureDetector], [InkWell] or
+/// callback of any kind, so shrinking it removes no touch target; the card's
+/// own ≥48 dp row height is what a finger lands on.
 class _EditButton extends StatelessWidget {
   const _EditButton();
 
@@ -835,8 +877,8 @@ class _EditButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 30,
-      width: 30,
+      height: _kEditAffordanceSize,
+      width: _kEditAffordanceSize,
       decoration: const BoxDecoration(
         color: BrandColors.base,
         borderRadius: _radius,
@@ -845,7 +887,7 @@ class _EditButton extends StatelessWidget {
       child: const Icon(
         Icons.edit_outlined,
         color: BrandColors.accent,
-        size: 16,
+        size: 14,
       ),
     );
   }
@@ -854,6 +896,24 @@ class _EditButton extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Picker-mode selection indicator (Phase 247 part 2)
 // ---------------------------------------------------------------------------
+
+/// How much larger the SELECTED check glyph's nominal size is than
+/// [_kEditAffordanceSize].
+///
+/// DELIBERATE optical compensation, not drift (2026-09-14 audit, QA LOW).
+/// Material system icons are drawn on a 24 dp grid with a 20 dp live area, so
+/// a `check_circle_rounded` at nominal size N paints a disc of only
+/// N × 20/24. The hollow ring it replaces is a real [_kEditAffordanceSize]-dp
+/// circle. Matching the two OPTICALLY therefore needs 22 × 24/20 = 26.4, and
+/// 26 is that rounded to the dp grid: painted ink goes 22.0 → 21.7 dp, i.e.
+/// effectively constant.
+///
+/// The BOX still grows 4 dp on selection and the name column gives that back.
+/// Closing that would mean shrinking the painted check to 22 (ink 18.3 dp,
+/// visibly smaller than the ring) — a real visual change to six approved
+/// `walk_in_chain_service_selected_*` baselines, so it is reported rather
+/// than made here.
+const double _kSelectedIndicatorOvershoot = 4;
 
 /// Additive [ServiceCard] trailing glyph for picker mode ([ServiceCard.
 /// selectable]) — a filled accent check when [selected], a hollow ring
@@ -870,12 +930,12 @@ class _SelectIndicator extends StatelessWidget {
       return const Icon(
         Icons.check_circle_rounded,
         color: BrandColors.accentDeep,
-        size: 26,
+        size: _kEditAffordanceSize + _kSelectedIndicatorOvershoot,
       );
     }
     return Container(
-      height: 22,
-      width: 22,
+      height: _kEditAffordanceSize,
+      width: _kEditAffordanceSize,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(

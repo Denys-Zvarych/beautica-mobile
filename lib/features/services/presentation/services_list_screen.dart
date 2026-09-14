@@ -80,6 +80,8 @@ class ServicesListScreen extends ConsumerStatefulWidget {
     this.editRouteBuilder,
     this.writable = true,
     this.showBottomNav = true,
+    this.showBack = false,
+    this.backFallbackRoute,
     this.navScheduleRoute,
     this.navProfileRoute,
     this.navBookingsRoute,
@@ -127,6 +129,64 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   /// removes the bar entirely (the screen keeps its own `AppBar` back
   /// affordance, which is how the operator got here and how they leave).
   final bool showBottomNav;
+
+  /// Phase 323 — additive, defaults to `false` so every existing caller
+  /// renders EXACTLY as today.
+  ///
+  /// `true` supplies an explicit [AppBar.leading] back affordance (the shared
+  /// [NeumorphicIconButton] arrow idiom, identical to the one
+  /// `schedule_editor_stubs.dart` and `booking_detail_screen.dart` already
+  /// place in an `AppBar.leading` slot) that pops the route.
+  ///
+  /// WHY A FLAG AND NOT `automaticallyImplyLeading`: this screen is mounted on
+  /// three routes with three different needs.
+  ///
+  ///  • `/services` (INDEPENDENT_MASTER, pushed onto the ROOT navigator) —
+  ///    `automaticallyImplyLeading` already draws Material's own arrow, so
+  ///    this stays `false` and NOTHING about that screen changes. The default
+  ///    branch deliberately does NOT set `automaticallyImplyLeading: false`,
+  ///    which would regress that working arrow.
+  ///  • `/staff/services` (SALON_MASTER bottom-nav tab, entered with
+  ///    `context.go`) — a tab root has nowhere to go back TO, so it stays
+  ///    `false` and stays bare.
+  ///  • `/salons/:salonId/manage/staff/:memberId/services` (SALON_OWNER /
+  ///    SALON_ADMIN) — this is the case the flag exists for. That leaf is a
+  ///    `ShellRoute` child declared WITHOUT a `navigatorKey`, so go_router
+  ///    mints a private nested `Navigator` and the list is page #1 inside it.
+  ///    `ModalRoute.impliesAppBarDismissal` walks THAT navigator's history,
+  ///    reaches itself and returns false, so `AppBar` suppresses the automatic
+  ///    arrow. Android system-back still exits (the delegate falls through the
+  ///    one-page shell navigator to the root), so this was a missing
+  ///    AFFORDANCE, never a broken exit.
+  final bool showBack;
+
+  /// 2026-09-14 audit (mobile-security LOW) — where [showBack]'s arrow goes
+  /// when there is NOTHING to pop. Additive and nullable; only meaningful when
+  /// [showBack] is `true`, so both `showBack: false` mounts are untouched.
+  ///
+  /// `GoRouterDelegate.pop` THROWS `GoError('There is nothing to pop')` in
+  /// release, not just in debug. An empty root stack is reachable on the
+  /// opted-in route: `ServiceSetupScreen`'s own no-stack branch calls
+  /// `context.go(exitRoute)`, and `app_router.dart` aims that `exitRoute` at
+  /// `RouteNames.salonManageStaffServices(...)` — i.e. back at this screen.
+  /// Since that same mount passes `showBottomNav: false`, the arrow is the
+  /// operator's ONLY on-screen exit, so an unguarded pop would throw and
+  /// strand them inside the privileged salon-manage shell.
+  ///
+  /// Same additive-route-parameter shape as [setupRoute] /
+  /// [ServiceSetupScreen.exitRoute]: the SCREEN stays ignorant of salons, the
+  /// ROUTE supplies the destination. The salon-manage leaf passes
+  /// [RouteNames.salonManageStaffMember] — the staff profile the operator
+  /// pushed from.
+  ///
+  /// `null` + nothing to pop absorbs the tap rather than throwing.
+  final String? backFallbackRoute;
+
+  /// Test contract for the [showBack] affordance. Mirrors
+  /// [VelvetTopBar.backKey] / `booking_detail_screen.dart`'s
+  /// `Key('booking-detail-back')`: a stable handle widget and integration
+  /// tests tap, so the control cannot be renamed out from under them.
+  static const Key backKey = Key('services-list-back');
 
   /// 2026-09-13 audit (M6) — additive nav-bar destination overrides, threaded
   /// straight through to [VelvetBottomNavBar]'s own additive params. `null`
@@ -314,7 +374,11 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
 
     return Scaffold(
       backgroundColor: BrandColors.base,
-      appBar: _ServicesAppBar(title: l10n.servicesTitle),
+      appBar: _ServicesAppBar(
+        title: l10n.servicesTitle,
+        showBack: widget.showBack,
+        backFallbackRoute: widget.backFallbackRoute,
+      ),
       // Tile 0 ("Послуги") — this screen IS that destination. Hosted via
       // Scaffold's own slot (not nested inside a body SafeArea) so it mounts
       // identically to the other three master tab screens — see
@@ -436,20 +500,83 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
 // ---------------------------------------------------------------------------
 
 class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _ServicesAppBar({required this.title});
+  const _ServicesAppBar({
+    required this.title,
+    this.showBack = false,
+    this.backFallbackRoute,
+  });
 
   final String title;
+
+  /// See [ServicesListScreen.showBack]. `false` (the default, and what both
+  /// pre-existing mounts pass) emits the byte-identical `AppBar` this bar
+  /// shipped with — `leading: null` leaves `automaticallyImplyLeading` at its
+  /// `true` default, so the root-navigator `/services` push keeps Material's
+  /// automatic arrow untouched.
+  final bool showBack;
+
+  /// See [ServicesListScreen.backFallbackRoute].
+  final String? backFallbackRoute;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
+  /// 2026-09-14 audit (mobile-security LOW) — the GUARDED pop.
+  ///
+  /// `GoRouterDelegate.pop` does not merely assert on an empty stack: it
+  /// THROWS `GoError('There is nothing to pop')` in release too. That state is
+  /// reachable here — `service_setup_screen.dart`'s no-stack branch falls back
+  /// to `context.go(exitRoute)` and `app_router.dart` points that `exitRoute`
+  /// at THIS route, so the operator can legitimately arrive with an empty root
+  /// stack. Combined with `showBottomNav: false` this arrow is then their only
+  /// on-screen exit, so an unguarded `pop()` would throw and strand them
+  /// inside the privileged salon-manage shell.
+  ///
+  /// REUSE-FIRST: the same `canPop() ? pop() : <fallback>` idiom
+  /// `service_edit_screen.dart`'s `_popServiceEditScreen` already established
+  /// for this feature, with the fallback supplied by the route rather than
+  /// hard-coded, exactly as `ServiceSetupScreen.exitRoute` is.
+  void _handleBack(BuildContext context) {
+    final GoRouter router = GoRouter.of(context);
+    if (router.canPop()) {
+      router.pop();
+      return;
+    }
+    final String? fallback = backFallbackRoute;
+    if (fallback != null) {
+      router.go(fallback);
+    }
+    // No fallback and nothing to pop: absorb the tap. Throwing would be worse
+    // than a no-op, and the two `showBack: false` mounts never reach here.
+  }
+
   @override
   Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
     return AppBar(
       backgroundColor: BrandColors.base,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
       centerTitle: false,
+      // GEOMETRY NOTE (2026-09-14 audit) — MEASURED, not reasoned. A probe on
+      // this leading slot's laid-out `RenderBox` returns Size(56, 56) at
+      // (0,0)-(56,56): `AppBar` constrains `leading` TIGHT ON BOTH AXES
+      // (`_kLeadingWidth == kToolbarHeight == 56`), so `NeumorphicIconButton`'s
+      // own 48x48 `Container` is stretched to 56x56 with zero clearance.
+      //
+      // `extrudedSmall`'s light shadow is `Offset(-5, -5)` at blur 12
+      // (`velvet_geometry.dart:199-210`), reaching ~17 dp left of a pillow
+      // whose left edge already sits at x = 0, so it IS clipped horizontally.
+      // ACCEPTED for parity with `schedule_editor_stubs.dart:51`, which puts
+      // the same button in the same `AppBar.leading` slot.
+      leading: showBack
+          ? NeumorphicIconButton(
+              key: ServicesListScreen.backKey,
+              icon: Icons.arrow_back_ios_new_rounded,
+              semanticLabel: l10n.servicesListBackSemanticLabel,
+              onTap: () => _handleBack(context),
+            )
+          : null,
       title: Text(title, style: VelvetText.pageTitle),
     );
   }
@@ -620,6 +747,16 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                     child: ServiceCard(
                       key: Key('service_card_${entry.service.id}'),
                       service: entry.service,
+                      // Opt out of the leading photo well (default `true`;
+                      // the booking-wizard picker keeps it). Service photo
+                      // upload is deferred to Phase 9.x, so on THIS screen
+                      // every card renders the identical spa placeholder —
+                      // 50 dp of row width (40 well + 10 gap) spent on a
+                      // glyph that distinguishes no card from any other, on
+                      // the one screen whose whole job is reading and
+                      // editing long service names. When Phase 9.x lands a
+                      // real photo, drop this line.
+                      showPhoto: false,
                       onEdit: widget.writable
                           ? () => widget.onOpen(
                               widget.editRouteBuilder(entry.service.id),
