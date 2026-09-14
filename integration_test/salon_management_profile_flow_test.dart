@@ -1261,4 +1261,134 @@ void main() {
       });
     },
   );
+
+  // ── mobile-qa (2026-09-14), Step 2.7 Rule 3b for the tab-gutter fix ─────
+  //
+  // WHAT THIS DOES *NOT* DO: it does not assert the 24 dp gutter. That number
+  // is pinned at the widget tier, twice over, on BOTH consumers of the shared
+  // padding widgets — `salon_management_profile_screen_test.dart` and
+  // `public_salon_profile_screen_test.dart`, group `tab-body horizontal
+  // gutter (360 dp)`. Re-measuring it here would add no signal: a fake HTTP
+  // backend contributes nothing to a padding computation, and this tier runs
+  // on an 800x600 `flutter-tester` surface, so the assertion would have to
+  // force `tester.view.physicalSize` to the SAME synthetic 360 dp viewport
+  // the widget tests already use. Same measurement, same fake viewport,
+  // slower — that is coverage theater, and mobile-qa declines it explicitly.
+  //
+  // WHAT IT DOES DO, and why Rule 3b is genuinely owed here: the fix changed
+  // BOTH the «Послуги» and «Відгуки» tab bodies' sliver shape — tab 2 went
+  // from `SliverPadding(sliver: _ServicesTab(...))` to a bare `_ServicesTab`
+  // contributing its own slivers, tab 3 from `SliverPadding(sliver:
+  // SliverToBoxAdapter(...))` to a bare `SliverToBoxAdapter`. Before today
+  // NEITHER tab had ever been opened in ANY integration flow: this file taps
+  // «Команда» three times and stops there, and the only E2E coverage of the
+  // services catalogue at all is on the CLIENT-facing
+  // `public_salon_profile_flow_test.dart` / `salon_service_filter_flow_test
+  // .dart`, a different screen with a different sliver tree. So the two tab
+  // bodies this change restructured had zero proof that their real
+  // `salonServiceCatalogProvider` / `salonReviewSummaryProvider` ->
+  // `HttpSalonRepository` -> generated-client path renders anything at all
+  // over a real wire. That is the gap, and it is what this leg closes.
+  //
+  // NO PATROL FLOW: no OS dialog, deep link, notification, WebView or
+  // biometric is involved — same rationale as this file's header.
+  testWidgets(
+    'a SALON_OWNER opens «Послуги» and «Відгуки» on their own salon and both '
+    'tab bodies render from a REAL wire fetch',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        // REQUIRED before `router.go(salonManage(...))`: `salonManageGuard`'s
+        // owner arm authorizes against the REAL `mySalonsProvider` list, so
+        // an unseeded `/salons/mine` bounces this navigation and the tab bar
+        // never mounts. (First draft of this test omitted it and failed on
+        // the «Послуги» tap with an empty finder — worth the comment.)
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // ── «Послуги» ──────────────────────────────────────────────────
+        await tester.tap(find.text(l10n.salonTabServices));
+        await tester.pumpAndSettle();
+
+        expect(
+          fb.getSalonServiceCatalogCalls,
+          1,
+          reason:
+              'opening «Послуги» must fetch the catalogue over the real wire '
+              'exactly once — 0 means the tab rendered without ever reaching '
+              'ServiceControllerApi.getSalonServiceCatalog',
+        );
+        expect(fb.lastGetSalonServiceCatalogId, _kSalonId);
+
+        // The accordion is the data branch. `salon-svc-shared` is a
+        // `_salonServiceCategories` fixture row, so finding its ROW key
+        // proves the wire payload was deserialized and rendered, not merely
+        // that some placeholder occupies the tab.
+        //
+        // REVEAL FIRST. `_ServicesTab` contributes a genuinely lazy
+        // `SliverList.builder` (`SalonServicesAccordion.sliver`) to the
+        // screen's ONE `CustomScrollView`, and `-d flutter-tester`'s window
+        // is 800x600 — below the cover + hero card + tab bar, the first
+        // category group is not merely scrolled past but NOT BUILT, so a
+        // bare `find.byKey` reports `findsNothing` for a tab that is in fact
+        // rendering correctly. Reuses the shared jump-to-0 +
+        // `scrollUntilVisible` recipe, same as the roster tile above.
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-service-row-salon-svc-shared'),
+        );
+        expect(
+          find.byKey(const Key('salon-service-row-salon-svc-shared')),
+          findsOneWidget,
+          reason:
+              'the fetched catalogue must reach SalonServicesAccordion. Note '
+              'the sliver shape this asserts: `_ServicesTab` contributes '
+              'SLIVERS directly to the screen\'s CustomScrollView now, with '
+              'no SliverPadding wrapper — a box widget spliced in where a '
+              'sliver is expected throws at layout, which this catches.',
+        );
+        expect(
+          find.byKey(const Key('salon-services-empty')),
+          findsNothing,
+          reason: 'a non-empty catalogue must not render the empty branch',
+        );
+
+        // ── «Відгуки» ──────────────────────────────────────────────────
+        await tester.tap(find.text(l10n.salonTabReviews));
+        await tester.pumpAndSettle();
+
+        expect(
+          fb.getSalonReviewSummaryCalls,
+          1,
+          reason:
+              'opening «Відгуки» must fetch the rating summary over the real '
+              'wire exactly once',
+        );
+        expect(fb.lastGetSalonReviewSummaryId, _kSalonId);
+        // Same reveal, same reason — the tab switch leaves the scroll offset
+        // where «Послуги» left it, so jump back to 0 before looking.
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-review-summary-average'),
+        );
+        expect(
+          find.byKey(const Key('salon-review-summary-average')),
+          findsOneWidget,
+          reason:
+              'the fetched summary must reach SalonReviewsSection\'s '
+              'RatingSummaryCard, now mounted in a bare SliverToBoxAdapter',
+        );
+      });
+    },
+  );
 }

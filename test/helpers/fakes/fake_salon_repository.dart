@@ -86,6 +86,7 @@ class FakeSalonRepository implements SalonRepository {
     List<SalonInvite>? salonInvites,
     this.salonInvitesTruncated = false,
     List<SiblingSalonOption>? siblingSalons,
+    this.serviceCatalog = const <SalonServiceCategoryEntry>[],
   }) : _salon = salon,
        // A GROWABLE copy for the same reason [salonInvites] takes one.
        siblingSalons = <SiblingSalonOption>[...?siblingSalons],
@@ -242,10 +243,17 @@ class FakeSalonRepository implements SalonRepository {
     return List<SalonStaffMember>.unmodifiable(staff);
   }
 
+  /// The `GET /salons/{salonId}/services` catalogue.
+  ///
+  /// Additive (2026-09-14) — defaults to empty, so every pre-existing caller
+  /// renders exactly the «послуг ще немає» branch it rendered before. Only
+  /// the gutter-geometry tests opt in with a non-empty fixture.
+  final List<SalonServiceCategoryEntry> serviceCatalog;
+
   @override
   Future<List<SalonServiceCategoryEntry>> getSalonServiceCatalog(
     String salonId,
-  ) async => const <SalonServiceCategoryEntry>[];
+  ) async => serviceCatalog;
 
   @override
   Future<SalonReviewSummary> getSalonReviewSummary(String salonId) async =>

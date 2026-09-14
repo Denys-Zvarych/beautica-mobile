@@ -538,18 +538,31 @@ class _LoadedBody extends StatelessWidget {
             // 2026-09-13 audit (M9) — `_ServicesTab` contributes SLIVERS now
             // (its own `SliverToBoxAdapter` for the loading / error / empty
             // branches, a `SliverList.builder` for the accordion), so the
-            // category groups beneath it are genuinely lazy. The outer
-            // horizontal padding stays exactly where it was, so the rendered
-            // geometry is unchanged.
-            2 => SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-              sliver: _ServicesTab(salonId: salonId),
-            ),
-            _ => SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-              sliver: SliverToBoxAdapter(
-                child: SalonReviewsSection(salonId: salonId),
-              ),
+            // category groups beneath it are genuinely lazy.
+            //
+            // NO outer horizontal padding here — same shape as tab 0 above.
+            // `SalonServicesAccordion.sliver` and `SalonReviewsSection` each
+            // apply `VelvetSpacing.lg` themselves (the public salon profile
+            // relies on exactly that), so wrapping them again doubled the
+            // gutter to 48 dp per side.
+            //
+            // OWNERSHIP IS PER BRANCH, NOT PER SCREEN (mobile-qa 2026-09-14 —
+            // an earlier draft of this comment claimed "the gutter has ONE
+            // owner: the child", which tab 1 six lines up contradicts and
+            // which is the exact ambiguity that produced the doubling). The
+            // real rule is weaker and checkable: EXACTLY ONE of the caller or
+            // the child pads, per branch. Tabs 0/2/3 -> the child pads
+            // (`_AboutReadView`:914, the accordion, the reviews section, and
+            // `_ServicesTab`'s own empty branch). Tab 1 -> the CALLER pads,
+            // because `_StaffTab` does not. Before changing ANY of the four,
+            // check which side owns that one, and run the
+            // `tab-body horizontal gutter (360 dp)` group in BOTH
+            // `salon_management_profile_screen_test.dart` and
+            // `public_salon_profile_screen_test.dart` — the shared children
+            // have two consumers, and only that second file sees the other.
+            2 => _ServicesTab(salonId: salonId),
+            _ => SliverToBoxAdapter(
+              child: SalonReviewsSection(salonId: salonId),
             ),
           },
         ),
@@ -1290,6 +1303,11 @@ class _ServicesTab extends ConsumerWidget {
   /// `SliverToBoxAdapter` forced every category group to build eagerly. The
   /// three non-list branches keep their box widgets inside a
   /// `SliverToBoxAdapter`; the list branch is a real `SliverList.builder`.
+  ///
+  /// Each branch owns its OWN horizontal gutter — the caller adds none. The
+  /// accordion self-pads, `ErrorState` self-pads, the spinner is centred, and
+  /// the empty label pads here. Same split the public salon profile's
+  /// `_ServicesTab` uses.
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -1314,9 +1332,21 @@ class _ServicesTab extends ConsumerWidget {
       ),
       data: (List<SalonServiceCategoryEntry> categories) => categories.isEmpty
           ? SliverToBoxAdapter(
-              child: Text(
-                l10n.salonServicesEmpty,
-                style: VelvetText.feedback(BrandColors.muted),
+              child: Padding(
+                // Same key the public salon profile's empty branch carries
+                // (`public_salon_profile_screen.dart:1779`) — this branch is
+                // the one that GAINED its own gutter when the outer
+                // `SliverPadding` came off, so it needs a locale-independent
+                // handle for the geometry pin in
+                // `salon_management_profile_screen_test.dart`.
+                key: const Key('salon-services-empty'),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: VelvetSpacing.lg,
+                ),
+                child: Text(
+                  l10n.salonServicesEmpty,
+                  style: VelvetText.feedback(BrandColors.muted),
+                ),
               ),
             )
           : SalonServicesAccordion.sliver(categories: categories),

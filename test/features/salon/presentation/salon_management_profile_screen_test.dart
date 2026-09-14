@@ -27,6 +27,7 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -35,10 +36,12 @@ import 'package:beautica_mobile/features/location/data/location_repository.dart'
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
@@ -2118,5 +2121,269 @@ void main() {
         }
       },
     );
+  });
+
+  // ── Gutter geometry — «Послуги» / «Відгуки» tab bodies ──────────────────
+  //
+  // WHY A NUMBER, NOT A GOLDEN. Both tab bodies shipped inset 48 dp per side
+  // instead of 24 dp: `_LoadedBody`'s switch wrapped each in an outer
+  // `SliverPadding(horizontal: VelvetSpacing.lg)` on top of a child that
+  // ALREADY applies the identical 24 dp (`SalonServicesAccordion.sliver`,
+  // `SalonReviewsSection`). Nothing caught it for a simple reason —
+  // `test/golden/salon_services_accordion_golden_test.dart` mounts the
+  // accordion STANDALONE inside a `SizedBox(width: 360)`, so it never sees
+  // this screen's wrapper and rendered the correct 24 dp the whole time. A
+  // golden of a widget in isolation cannot catch a defect its HOST
+  // introduces, so these two pin the laid-out width on the REAL screen as an
+  // arithmetic identity: content width == viewport − 2 × VelvetSpacing.lg.
+  //
+  // Tabs 0 («Про салон») and 1 («Команда») are the precedent — tab 0 passes
+  // no outer padding because `_AboutReadView` pads itself.
+  group('tab-body horizontal gutter (360 dp)', () {
+    /// The logical viewport width these two tests pin against — the real
+    /// SM-M127F the defect was measured on (720 px @ dpr 2.0 = 360 dp).
+    const double kViewportWidth = 360;
+
+    /// What a correctly-gutted tab body must measure: ONE `VelvetSpacing.lg`
+    /// per side, applied by the child and by nobody else.
+    const double kExpectedContentWidth =
+        kViewportWidth - 2 * VelvetSpacing.lg; // 312
+
+    const List<SalonServiceCategoryEntry> kCatalog =
+        <SalonServiceCategoryEntry>[
+          SalonServiceCategoryEntry(
+            category: 'Манікюр',
+            displayName: 'Манікюр',
+            count: 1,
+            services: <SalonCatalogService>[
+              SalonCatalogService(
+                id: 'svc-1',
+                name: 'Манікюр з покриттям',
+                durationLabel: '1 год 30 хв',
+                priceDisplay: '500 ₴',
+              ),
+            ],
+          ),
+        ];
+
+    Future<AppLocalizations> pumpAtWidth(
+      WidgetTester tester,
+      FakeSalonRepository repo,
+    ) async {
+      tester.view.physicalSize = const Size(kViewportWidth, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+      return AppLocalizations.delegate.load(const Locale('uk'));
+    }
+
+    testWidgets('should_insetServicesTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        serviceCatalog: kCatalog,
+      );
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonTabServices));
+      await tester.pumpAndSettle();
+
+      final Finder categoryCard = find.byKey(
+        const Key('salon-service-category-Манікюр'),
+      );
+      expect(categoryCard, findsOneWidget);
+
+      expect(
+        tester.getSize(categoryCard).width,
+        kExpectedContentWidth,
+        reason:
+            'the «Послуги» card must span the viewport minus ONE '
+            'VelvetSpacing.lg per side. A wider inset means the gutter is '
+            'being applied twice — check that _LoadedBody\'s `2 =>` branch '
+            'passes SalonServicesAccordion.sliver through WITHOUT an outer '
+            'SliverPadding (the accordion self-pads at '
+            'salon_services_accordion.dart:113).',
+      );
+
+      // The gutter is the only inset between the viewport edge and the
+      // card, so the card's left edge IS the gutter — pinned so a future
+      // change that keeps the width but re-centres the card still fails.
+      expect(
+        tester.getTopLeft(categoryCard).dx,
+        VelvetSpacing.lg,
+        reason: 'left gutter must be exactly VelvetSpacing.lg (24 dp)',
+      );
+    });
+
+    testWidgets('should_insetReviewsTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonTabReviews));
+      await tester.pumpAndSettle();
+
+      final Finder summaryCard = find.byType(RatingSummaryCard);
+      expect(summaryCard, findsOneWidget);
+
+      expect(
+        tester.getSize(summaryCard).width,
+        kExpectedContentWidth,
+        reason:
+            'the «Відгуки» summary card must span the viewport minus ONE '
+            'VelvetSpacing.lg per side. A wider inset means the gutter is '
+            'being applied twice — check that _LoadedBody\'s `_ =>` branch '
+            'wraps SalonReviewsSection in a bare SliverToBoxAdapter (the '
+            'section self-pads at salon_reviews_section.dart:70).',
+      );
+
+      expect(
+        tester.getTopLeft(summaryCard).dx,
+        VelvetSpacing.lg,
+        reason: 'left gutter must be exactly VelvetSpacing.lg (24 dp)',
+      );
+    });
+
+    // ── The two tabs that were ALREADY correct ───────────────────────────
+    //
+    // mobile-qa (2026-09-14). Tabs 0 and 1 never shipped the doubled gutter,
+    // but until now nothing pinned their 24 dp either — the identical
+    // regression (an outer `SliverPadding` added on top of a self-padding
+    // child, or a self-padding child hoisting its inset into the caller)
+    // would have landed silently on them too. These two make the gutter an
+    // asserted invariant of EVERY tab body, not just the two that broke.
+    //
+    // Note the two tabs own their gutter DIFFERENTLY — see the LOW finding
+    // in the audit: tab 0's child self-pads (`_AboutReadView`, screen:914),
+    // tab 1's caller pads (`_LoadedBody`'s `1 =>` branch, screen:526). Both
+    // are legal; what these tests pin is the rendered result, which is the
+    // only thing the user sees and the only thing that must not change.
+
+    testWidgets('should_insetAboutTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await pumpAtWidth(tester, repo);
+
+      // Tab 0 is the landing tab — no tap needed.
+      final Finder aboutText = find.byKey(const Key('salon-manage-about-text'));
+      expect(aboutText, findsOneWidget);
+
+      // `_AboutReadView`'s Column is `crossAxisAlignment.start`, so the
+      // description Text shrink-wraps — its WIDTH carries no gutter
+      // information, but its left edge IS the gutter, exactly.
+      expect(
+        tester.getTopLeft(aboutText).dx,
+        VelvetSpacing.lg,
+        reason:
+            'the «Про салон» body must start exactly ONE VelvetSpacing.lg '
+            'from the viewport edge. 48 here means _LoadedBody\'s `0 =>` '
+            'branch regained an outer SliverPadding on top of '
+            '_AboutReadView\'s own (salon_management_profile_screen.dart:914).',
+      );
+    });
+
+    testWidgets('should_insetStaffTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      // A 2-column `SliverGrid` — master-1 is cell 0 (left column), admin-1
+      // is cell 1 (right column). Pinning the OUTER edge of each column
+      // catches a doubled gutter on either side independently, which a
+      // single card's width could not: a symmetric 48/48 and an asymmetric
+      // 24/48 both shrink the cell, but only the edges say which.
+      final Finder leftCard = find.byKey(
+        const Key('salon-manage-staff-card-master-1'),
+      );
+      final Finder rightCard = find.byKey(
+        const Key('salon-manage-staff-card-admin-1'),
+      );
+      expect(leftCard, findsOneWidget);
+      expect(rightCard, findsOneWidget);
+
+      expect(
+        tester.getTopLeft(leftCard).dx,
+        VelvetSpacing.lg,
+        reason:
+            'the «Команда» grid\'s left column must start at exactly ONE '
+            'VelvetSpacing.lg — check _LoadedBody\'s `1 =>` SliverPadding is '
+            'still the grid\'s ONLY horizontal inset',
+      );
+      expect(
+        tester.getTopRight(rightCard).dx,
+        kViewportWidth - VelvetSpacing.lg,
+        reason:
+            'the «Команда» grid\'s right column must end at exactly ONE '
+            'VelvetSpacing.lg from the right edge',
+      );
+    });
+
+    // ── The branch the fix ADDED a gutter to ─────────────────────────────
+    //
+    // `_ServicesTab`'s empty branch had been riding on the outer
+    // `SliverPadding` that the fix removed, so it gained a `Padding` of its
+    // own (screen:1322-1330). That padding is load-bearing and brand new —
+    // it is the single most likely line in this change to be "cleaned up"
+    // by someone who reads the surrounding "the child owns the gutter"
+    // comment and assumes the accordion below already handles it. It does
+    // not: the empty branch renders INSTEAD of the accordion.
+    testWidgets('should_insetEmptyServicesLabelBy24dp_when_catalogueIsEmpty', (
+      tester,
+    ) async {
+      // The fake's catalogue defaults to empty — this IS the empty branch.
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonTabServices));
+      await tester.pumpAndSettle();
+
+      final Finder empty = find.byKey(const Key('salon-services-empty'));
+      expect(
+        empty,
+        findsOneWidget,
+        reason: 'an empty catalogue must render the «послуг ще немає» label',
+      );
+
+      expect(
+        tester.getTopLeft(empty).dx,
+        0,
+        reason:
+            'the empty branch\'s Padding is the OUTERMOST box of the tab '
+            'body, so its own edge sits flush at 0 — the gutter lives '
+            'INSIDE it. Pinned so a future outer SliverPadding (the exact '
+            'defect this group exists for) moves this off 0 and fails.',
+      );
+      expect(
+        tester.getSize(empty).width,
+        kViewportWidth,
+        reason: 'the padded box itself must still span the full viewport',
+      );
+      // Found by descendant-of-key, never by the localised string (M2).
+      final Finder emptyLabel = find.descendant(
+        of: empty,
+        matching: find.byType(Text),
+      );
+      expect(emptyLabel, findsOneWidget);
+      expect(
+        tester.getTopLeft(emptyLabel).dx,
+        VelvetSpacing.lg,
+        reason:
+            'the empty label\'s INK must start at exactly ONE '
+            'VelvetSpacing.lg. This is the assertion that fails if the '
+            'Padding added at salon_management_profile_screen.dart:1322 is '
+            'deleted as redundant — it is not: the empty branch renders '
+            'INSTEAD of the self-padding accordion, never alongside it.',
+      );
+    });
   });
 }

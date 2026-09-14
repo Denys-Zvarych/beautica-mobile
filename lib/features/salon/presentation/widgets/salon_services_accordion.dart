@@ -488,7 +488,20 @@ class _SalonServiceRow extends StatelessWidget {
     // read-only behaviour. Otherwise the whole tile is a selectable filter
     // control with a button/selected semantics node.
     if (onTap == null) {
-      return Semantics(label: '$name, $duration, $price', child: tile);
+      return Semantics(
+        // mobile-qa (2026-09-14) — the READ-ONLY arm carries the SAME key as
+        // the tappable arm below. It had none, and that arm is the whole of
+        // the salon-management «Послуги» tab (`_ServicesTab` there passes no
+        // `onServiceTap`), so an owner's own service rows had no
+        // locale-independent handle in ANY tier: a test could assert the
+        // category HEADER rendered and nothing further, and the only way to
+        // reach a row was `find.text(<fixture name>)`, which M2 bans. The key
+        // is identical in both arms and exactly one arm ever renders per
+        // service, so `find.byKey` still resolves to one widget.
+        key: Key('salon-service-row-${service.id}'),
+        label: '$name, $duration, $price',
+        child: tile,
+      );
     }
     return Semantics(
       button: true,
