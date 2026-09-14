@@ -21,7 +21,7 @@
 //   • A GOLDEN is self-referential (`feedback_golden_not_acceptance`): the
 //     truncated render was baked into a regenerated PNG and re-rendering it
 //     matched perfectly.
-//   • Reading a widget field (`style.fontSize == 13`, `maxLines == 2`) is
+//   • Reading a widget field (`style.fontSize == 12`, `maxLines == 2`) is
 //     vacuous (`project_widget_field_assertion_is_vacuous`) — it reads a
 //     field, never layout, and stays green if the copy grows or the column
 //     narrows.
@@ -42,6 +42,15 @@
 // MUTATION RECORD (mobile-qa, 2026-09-14) — see the QA report; the tokens
 // were reverted to the shipped defect (15 sp / maxLines 1) with a `cp`
 // backup and every case below was confirmed RED, then restored and GREEN.
+//
+// NOTE (2026-09-14, later the same day) — the tokens stepped down one more
+// rung (label 13 -> 12, value 14 -> 13) because the card still read too
+// large beside the `SettingsRow` / `ContactTile` controls it shares the
+// screen with. NOTHING in this file was changed to accommodate that: every
+// assertion, threshold, fixture and width/scale cell is byte-identical and
+// all 19 cases stayed green on the first run. The only edits were the
+// MEASURED figures — in these comments and inside one failure-reason string
+// — which are documentation, not assertions.
 
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
@@ -433,21 +442,31 @@ void main() {
   //
   // MEASURED 2026-09-14 at the TIGHTEST matrix cell (320 dp x textScale 1.3,
   // where the text column is 96.0 dp), against the shipped
-  // `VelvetText.managementCardValue` / `managementCardLabel`:
+  // `VelvetText.managementCardValue` / `managementCardLabel` — RE-MEASURED
+  // the same day after the tokens stepped down a rung (label 13 -> 12, value
+  // 14 -> 13; the first pass' figures are kept in parentheses so the
+  // direction of the step is visible):
   //
-  //   value, full advance   «9999 послуг»    113.4 dp  -> WRAPS (2 of 3 lines)
-  //                         «9999 services»  125.2 dp  -> WRAPS (2 of 3 lines)
-  //   value, longest WORD   «послуги»         78.2 dp  -> 17.8 dp headroom
-  //                         «services»        77.6 dp  -> 18.4 dp headroom
-  //   label, full advance   «Послуги»         75.1 dp  -> 20.9 dp headroom
-  //                         «Services»        73.9 dp  -> 22.1 dp headroom
+  //   value, full advance   «9999 послуг»    105.3 dp  -> WRAPS (2 of 3 lines)
+  //                                                       (was 113.4)
+  //                         «9999 services»  116.2 dp  -> WRAPS (2 of 3 lines)
+  //                                                       (was 125.2)
+  //   value, longest WORD   «послуги»         72.6 dp  -> 23.4 dp headroom
+  //                                                       (was 78.2 / 17.8)
+  //                         «services»        72.0 dp  -> 24.0 dp headroom
+  //                                                       (was 77.6 / 18.4)
+  //   label, full advance   «Послуги»         69.3 dp  -> 26.7 dp headroom
+  //                                                       (was 75.1 / 20.9)
+  //                         «Services»        68.2 dp  -> 27.8 dp headroom
+  //                                                       (was 73.9 / 22.1)
   //
   // WHAT THIS GUARDS, PRECISELY — established by mutation, not assumed. The
   // first draft of this block claimed an over-wide word would be ELLIPSIZED;
   // mutation A falsified that and the claim is corrected here rather than
   // quietly kept.
   //
-  // MUTATION A (value token 14 -> 18 sp, pushing «послуга» to 100.4 dp
+  // MUTATION A (value token 14 -> 18 sp — run against the first pass'
+  // tokens — pushing «послуга» to 100.4 dp
   // against the same 96.0 dp column): the rendered `didExceedMaxLines` cases
   // below stayed GREEN. Flutter does not ellipsize an over-wide word — it
   // breaks it mid-word («посл» / «уга») and carries on. So truncation really
@@ -464,11 +483,13 @@ void main() {
   // assertion RED while leaving every other case in the file green, which is
   // the proof it is load-bearing on its own axis.
   //
-  // The narrowest measured headroom is 17.8 dp, so the floor below is 12 dp:
-  // comfortably under today's margin (no failures on rounding or a
-  // font-fallback difference) and comfortably above zero (a copy change to a
-  // longer noun, a larger value token, or a narrower column fails HERE,
-  // loudly).
+  // The narrowest measured headroom is 23.4 dp (17.8 dp before the tokens
+  // stepped down), so the floor below is 12 dp: comfortably under today's
+  // margin (no failures on rounding or a font-fallback difference) and
+  // comfortably above zero (a copy change to a longer noun, a larger value
+  // token, or a narrower column fails HERE, loudly). The floor is left at 12
+  // deliberately — a smaller token must not be allowed to quietly RAISE the
+  // bar this assertion clears.
   // -------------------------------------------------------------------------
   group('services card — the wrap invariant, measured not assumed', () {
     testWidgets('every producible services value keeps >= 12 dp of headroom '
@@ -528,7 +549,7 @@ void main() {
                 'wider than the column is NOT ellipsized — Flutter breaks '
                 'it mid-word, which no didExceedMaxLines / overflow-guard / '
                 'golden check can see. Measured headroom on 2026-09-14 was '
-                '17.8 dp (uk) / 18.4 dp (en); if this now fails, the copy, '
+                '23.4 dp (uk) / 24.0 dp (en); if this now fails, the copy, '
                 'the value token or the card width changed and the services '
                 'card is at risk.',
           );

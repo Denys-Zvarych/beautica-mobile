@@ -1953,37 +1953,56 @@ abstract final class VelvetText {
   // preview's INTENT (a quiet label under a dominant value, one step apart)
   // is preserved here, re-expressed on the as-built ladder.
   //
+  // WHY THESE ARE NOT 13/14 EITHER (stepped down again, same day)
+  // -------------------------------------------------------------
+  // 13/14 fixed the truncation but still read too large on device, because
+  // the card's neighbours on this very screen are the settled control type:
+  // `SettingsRow`'s label is 12 and its value line resolves to 11, and
+  // `sectionLabel` is 11. A 14 sp value sat three rungs above every sibling
+  // value and the 13 sp label one above every sibling label — the card
+  // shouted where it should only lead. One rung down (12 / 13) puts the
+  // label exactly level with `SettingsRow`'s label and leaves the value a
+  // single step above it: still the dominant line of the pair, no longer
+  // louder than the screen. Smaller type also strictly RELIEVES the wrap
+  // pressure this block exists to document.
+  //
   // HIERARCHY
   // ---------
   // The label is the quiet caption — the glyph in the well already names the
   // action, so the word is a confirmation, not the headline. The VALUE is
   // the reason to tap («Пн–Пт · 09:00–18:00» tells the operator the schedule
-  // exists before they open it). They differ on THREE axes — size 13 vs 14,
+  // exists before they open it). They differ on THREE axes — size 12 vs 13,
   // weight 600 vs 700, colour secondary vs primary — so the pair never reads
-  // as one clump the way two identical Comfortaa 15 lines did. Family stays
+  // as one clump the way two identical Comfortaa 15 lines did. At one rung
+  // apart the size axis alone is nearly spent, which is exactly why the
+  // weight and colour axes are kept at their full 100-unit /
+  // secondary-vs-primary separation rather than being softened alongside the
+  // step-down. Family stays
   // Comfortaa on both: this is a card, and the preview's `statValue()`
   // intent for the value line is a Comfortaa role.
   //
-  // Both carry `height: 1.25` because BOTH wrap (`maxLines: 2`) — the
-  // schedule value cannot fit one line in a half-width card at any size, and
-  // «Графік роботи» wraps at textScale 1.3. Default leading stacks two
-  // Comfortaa lines too tightly to read as separate lines.
+  // Both carry `height: 1.25` because BOTH wrap (label `maxLines: 2`, value
+  // `maxLines: 3`) — the schedule value cannot fit one line in a half-width
+  // card at any size, and «Графік роботи» still wraps at 320–375 dp and at
+  // textScale 1.3. Default leading stacks two Comfortaa lines too tightly to
+  // read as separate lines.
   // ---------------------------------------------------------------------------
 
   /// The card's label line — [subheading]'s Comfortaa 14/600 stepped DOWN to
-  /// 13 and recoloured secondary, so it sits below `subheading` in the
-  /// ladder rather than above it.
+  /// 12 and recoloured secondary, so it sits below `subheading` in the ladder
+  /// rather than above it, and level with `SettingsRow`'s own 12 sp label.
   static final TextStyle managementCardLabel = _subheadingStyle.copyWith(
-    fontSize: 13,
+    fontSize: 12,
     height: 1.25,
     color: BrandColors.textSecondary,
   );
 
   /// The card's value line — [statValue]'s Comfortaa 17/700 stepped down to
-  /// 14 in primary text: the dominant line of the pair, at the same size as
-  /// `subheading` and a full weight above the label.
+  /// 13 in primary text: the dominant line of the pair, one rung above its
+  /// own label and one BELOW `subheading`, so it never out-ranks the section
+  /// it sits in.
   static final TextStyle managementCardValue = _statValueStyle.copyWith(
-    fontSize: 14,
+    fontSize: 13,
     height: 1.25,
   );
 }
