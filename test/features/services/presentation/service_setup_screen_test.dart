@@ -1767,6 +1767,99 @@ void main() {
     );
   });
 
+  // ── Phase 317 D3 — the additive, nullable `exitRoute` ─────────────────────
+  //
+  // The phase doc originally claimed this screen needed no change. It was
+  // wrong: `_leave()`'s no-stack fallback is a route LITERAL, so under a salon
+  // target a cold start on `/salons/S/manage/staff/U/services/setup` would
+  // `go` to the OPERATOR's own `/services` — a different master's catalogue
+  // under the heading the operator just left. Deep link / cold start is
+  // exactly the live case while phase 318's tile is unlanded.
+  //
+  // Two cases, deliberately paired: the OMITTED one is the "every current
+  // caller unchanged" proof (the case above already covers the behaviour, this
+  // one pins that the PARAMETER defaults to it), the SUPPLIED one proves the
+  // parameter is threaded rather than accepted and ignored. Both assert the
+  // PAGE that mounts, never a location string.
+
+  group('Phase 317 D3 — exitRoute (the no-stack `go` fallback)', () {
+    const String kSalonServices =
+        '/salons/salon-S/manage/staff/user-U/services';
+
+    Future<GoRouter> pumpSetup(WidgetTester tester, {String? exitRoute}) async {
+      final router = GoRouter(
+        initialLocation: RouteNames.serviceSetup,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.serviceSetup,
+            builder: (_, _) => ServiceSetupScreen(exitRoute: exitRoute),
+          ),
+          GoRoute(
+            path: RouteNames.services,
+            builder: (_, _) => const Scaffold(body: Text('OWN_SERVICES_STUB')),
+          ),
+          GoRoute(
+            path: '/salons/:salonId/manage/staff/:memberId/services',
+            builder: (_, _) =>
+                const Scaffold(body: Text('SALON_SERVICES_STUB')),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: h
+              .overrides(categories: const AsyncData(<ServiceCategoryOption>[]))
+              .cast(),
+          child: MediaQuery(
+            data: const MediaQueryData(size: Size(800, 1200)),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets(
+      'OMITTED — the fallback still lands on RouteNames.services, unchanged',
+      (tester) async {
+        await pumpSetup(tester);
+
+        await tester.tap(find.byKey(const Key('btn-setup-close')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('OWN_SERVICES_STUB'), findsOneWidget);
+        expect(find.text('SALON_SERVICES_STUB'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'SUPPLIED — the fallback lands on the SALON services leaf, never the '
+      "operator's own list",
+      (tester) async {
+        await pumpSetup(tester, exitRoute: kSalonServices);
+
+        await tester.tap(find.byKey(const Key('btn-setup-close')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('SALON_SERVICES_STUB'), findsOneWidget);
+        expect(
+          find.text('OWN_SERVICES_STUB'),
+          findsNothing,
+          reason:
+              "a cold start on the salon setup leaf must not dump the "
+              "operator on their OWN catalogue",
+        );
+      },
+    );
+  });
+
   // ── HIGH regression — per-field 400 lands inline on the offending SUBMITTED
   //   row instead of the generic «Перевірте дані» snack.
   //

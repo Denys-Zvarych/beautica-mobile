@@ -13,7 +13,14 @@
 //   - create(input)     → POST  /api/v1/independent-masters/me/services
 //   - update(defId, …)  → PATCH /api/v1/services/{serviceDefId}
 //                          (generated updateServiceDefinition; keyed on the
-//                           service-definition id, NOT the assignment id)
+//                           service-definition id, NOT the assignment id).
+//                          With a [SalonMasterTarget] in scope this SPLITS:
+//                          the price/duration half goes to
+//                          PATCH /api/v1/salons/{salonId}/masters/{masterId}
+//                               /services/{serviceDefId}
+//                          (the per-master band), and only the identity half
+//                          (name/category/serviceTypeId) touches the SHARED
+//                          definition — see [_updateSalonMasterBand].
 //   - deactivate(defId) → DELETE /api/v1/services/{serviceDefId}
 //                          (keyed on the service-definition id)
 //
@@ -31,13 +38,16 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'master_service_mapper.dart';
@@ -51,14 +61,25 @@ part 'service_repository.g.dart';
 /// from `core/errors/failures.dart`. Raw [DioException]s are caught inside
 /// the implementation and never escape.
 abstract interface class ServiceRepository {
-  /// Returns the full list of services configured for the authenticated master.
+  /// Returns the services of the current `serviceTarget` — the caller's own
+  /// when the target is `null`.
   ///
-  /// Wraps `GET /api/v1/independent-masters/me/services` — the authenticated
-  /// owner endpoint, master derived from the JWT principal. Returns an empty
-  /// list when the master has no services configured — but ONLY for a
-  /// well-formed empty array. A 200 whose envelope carries a null `data`
-  /// throws [ServerFailure]: a malformed success must never be presentable as
-  /// an empty catalogue.
+  /// `null` target (every shipped call site today): wraps `GET
+  /// /api/v1/independent-masters/me/services` — the authenticated owner
+  /// endpoint, master derived from the JWT principal.
+  ///
+  /// [SalonMasterTarget] (phase 315 D1): wraps `GET
+  /// /api/v1/salons/{salonId}/masters/{masterId}/services` — the same named
+  /// master's services, as driven by that salon's OWNER/ADMIN. The dispatch
+  /// lives INSIDE this method (`HttpServiceRepository._listForSalonMaster`)
+  /// rather than as a parallel public method, so every existing caller
+  /// (`ServicesList.build()`, `getMyService()`, `serviceByIdProvider`, …)
+  /// retargets for free.
+  ///
+  /// Returns an empty list when the master has no services configured — but
+  /// ONLY for a well-formed empty array. A 200 whose envelope carries a null
+  /// `data` throws [ServerFailure]: a malformed success must never be
+  /// presentable as an empty catalogue.
   Future<List<MasterService>> listMyServices();
 
   /// Returns a single service by its assignment [id].
@@ -87,48 +108,82 @@ abstract interface class ServiceRepository {
   /// newly-created [MasterService] as mapped from the backend response.
   Future<MasterService> create(MasterServiceCreate input);
 
-  /// Creates ALL of [items] in one request for the authenticated master.
+  /// Creates ALL of [items] in one request for the current `serviceTarget` —
+  /// the authenticated master's own catalogue when the target is `null`.
   ///
-  /// Wraps `POST /api/v1/independent-masters/me/services/bulk` — the one-pass
-  /// multi-select setup endpoint. **Additive** since `beautica-backend` c5e420f:
-  /// callable whether or not the master already has a catalogue, so it backs
-  /// both first-time setup and "add more services". The backend derives each
-  /// service's name + category from its `serviceTypeId`, then persists the
-  /// per-item duration + pricing block. Returns the list of newly-created
-  /// [MasterService] records as mapped from the response (same envelope shape
-  /// `listMyServices()` parses).
+  /// `null` target (every shipped call site today): wraps `POST
+  /// /api/v1/independent-masters/me/services/bulk` — the one-pass multi-select
+  /// setup endpoint. **Additive** since `beautica-backend` c5e420f: callable
+  /// whether or not the master already has a catalogue, so it backs both
+  /// first-time setup and "add more services".
+  ///
+  /// [SalonMasterTarget] (phase 315 D2): wraps `POST
+  /// /api/v1/salons/{salonId}/masters/{masterId}/services/bulk` — the same
+  /// named master's catalogue, driven by that salon's OWNER/ADMIN. Only the
+  /// path string differs; the request-body builder is shared verbatim between
+  /// both branches (`BulkCreateServicesRequest` is the same DTO on both
+  /// endpoints).
+  ///
+  /// Either way, the backend derives each service's name + category from its
+  /// `serviceTypeId`, then persists the per-item duration + pricing block.
+  /// Returns the list of newly-created [MasterService] records as mapped from
+  /// the response (same envelope shape `listMyServices()` parses).
   ///
   /// All-or-nothing: if any item collides, the whole batch is rolled back and
   /// nothing is written.
   ///
-  /// The generated [ServiceControllerApi] does NOT yet expose this operation
-  /// (the backend endpoint is on an unpushed branch; the mobile OpenAPI spec is
-  /// stale), so the implementation issues the POST via the raw authenticated
-  /// [Dio] instance and deserializes the response with the same
-  /// [standardSerializers] used by the generated client.
+  /// A generated `ServiceControllerApi.bulkCreateMasterServices` binding
+  /// already exists for the salon path in today's committed snapshot, but
+  /// swapping EITHER branch onto the generated client is explicitly deferred
+  /// (phase 315 D2) — mixing "raw Dio on one branch, generated client on the
+  /// other" would make the diff unreviewable and put two independent risks in
+  /// one change. Both branches issue the POST via the raw authenticated [Dio]
+  /// instance and deserialize the response with the same [standardSerializers]
+  /// used by the generated client.
   ///
   /// Throws:
   ///   - [ServiceDuplicateFailure] on **409** (`data.code ==
   ///     "DUPLICATE_SERVICE"` — one item names a service the master already
-  ///     offers; the batch was rolled back).
+  ///     offers; the batch was rolled back). Under a salon target this now
+  ///     means "this master already performs it" — the SAME failure type, the
+  ///     same "already in your menu" copy (phase 315 D4 — the existing handler
+  ///     is inherited unchanged).
   ///   - [BulkSetupBusyFailure] on **503** (per-master lock held past the
   ///     backend's 3 s ceiling). Transient; safe to retry, nothing was written.
-  ///   - [ValidationFailure] on **400/422** (malformed items, or a service-type
-  ///     id repeated within the batch).
+  ///   - [ValidationFailure] on **400/422** (malformed items, or a
+  ///     service-type id repeated within the batch).
   ///   - [NetworkFailure] / [ServerFailure] on other transport errors.
   Future<List<MasterService>> bulkCreate(List<MasterServiceBulkItem> items);
 
   /// Partially updates an existing service identified by its
   /// service-definition id ([serviceDefId]).
   ///
-  /// Wraps `PATCH /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
-  /// [MasterService.serviceDefId] (the underlying service-definition UUID), NOT
-  /// [MasterService.id] (the assignment UUID) — the backend keys this endpoint
-  /// on the definition and a wrong id yields a 404 ("Запис не знайдено").
+  /// [serviceDefId] MUST be [MasterService.serviceDefId] (the underlying
+  /// service-definition UUID), NOT [MasterService.id] (the assignment UUID) —
+  /// every endpoint below keys on the definition and a wrong id yields a 404
+  /// ("Запис не знайдено"). Only fields present in [patch] (non-null) are sent;
+  /// absent fields are left unchanged on the backend.
   ///
-  /// Only fields present in [patch] (non-null) are sent; absent fields are left
-  /// unchanged on the backend. [assignmentId] is carried through onto the
-  /// returned [MasterService.id] (the PATCH response omits the assignment id).
+  /// `null` target (the independent master): wraps
+  /// `PATCH /api/v1/services/{serviceDefId}` — one call, carrying identity AND
+  /// price AND duration. Correct there because the definition is that master's
+  /// own and nobody else resolves against it. [assignmentId] is carried through
+  /// onto the returned [MasterService.id] (this response omits the assignment
+  /// id).
+  ///
+  /// [SalonMasterTarget]: the write SPLITS across two endpoints, because after
+  /// backend phase 302 a salon master's definitions are SALON-OWNED and SHARED.
+  /// Price and duration are per-master state and go to
+  /// `PATCH /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// (the per-master band, backend phase 311); only name / category /
+  /// serviceTypeId — which have no per-master equivalent — reach the shared
+  /// definition. Sending the price or duration to the definition endpoint under
+  /// a salon target silently re-prices EVERY OTHER master who performs that
+  /// service; that is the defect this split exists to prevent. The returned
+  /// [MasterService] is mapped from the BAND response (the per-master resolved
+  /// values), so [assignmentId] is unused on this branch — the band response
+  /// carries the real assignment id.
+  ///
   /// Returns the updated [MasterService].
   Future<MasterService> update(
     String serviceDefId,
@@ -137,14 +192,34 @@ abstract interface class ServiceRepository {
   });
 
   /// Deactivates (soft-deletes) a service identified by its service-definition
-  /// id ([serviceDefId]).
+  /// id ([serviceDefId]) — or, with a [SalonMasterTarget] in scope, unassigns
+  /// ONE master from it (phase 316 D1).
   ///
-  /// Wraps `DELETE /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
+  /// `null` target (every shipped call site today): wraps
+  /// `DELETE /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
   /// [MasterService.serviceDefId] (the underlying service-definition UUID), NOT
   /// [MasterService.id] (the assignment UUID) — the backend keys this endpoint
   /// on the definition and a wrong id fails to resolve/authorise. The backend
-  /// marks the service inactive rather than removing it. Calling this method
-  /// twice is idempotent — a 200 on either call resolves without throwing.
+  /// marks the *definition* inactive rather than removing it — every master in
+  /// the salon (or the sole independent master) loses the service. Calling
+  /// this method twice is idempotent — a 200 on either call resolves without
+  /// throwing.
+  ///
+  /// [SalonMasterTarget] target: wraps
+  /// `DELETE /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// (backend phase 307). Deactivates ONE `master_services` ROW — the shared
+  /// definition and every OTHER master in the salon are untouched. This is the
+  /// surgical operation the salon surface must use: after backend phase 302 a
+  /// salon master's definitions are salon-owned and shared, so the null-target
+  /// branch above would silently remove the service from the whole salon (and
+  /// backend phase 306 admits `SALON_ADMIN` on that endpoint, so it would
+  /// *succeed*). [serviceDefId] carries the same definition-id contract as the
+  /// null-target branch — never the assignment id.
+  ///
+  /// Throws [ServiceUnassignBlockedFailure] on the salon branch's **409**: the
+  /// master still has future CONFIRMED bookings for this service and nothing
+  /// was written. This refusal is the shipping contract (backend phase 307
+  /// D4) — there is no cascade-cancel follow-up.
   Future<void> deactivate(String serviceDefId);
 
   /// Returns the list of approved service categories for the picker.
@@ -236,11 +311,14 @@ final class HttpServiceRepository implements ServiceRepository {
     required ServiceCatalogControllerApi catalogApi,
     required Dio dio,
     required String masterId,
+    this.target,
+    String sessionUserId = '',
   }) : _serviceApi = serviceApi,
        _categoryApi = categoryApi,
        _catalogApi = catalogApi,
        _dio = dio,
-       _masterId = masterId;
+       _masterId = masterId,
+       _sessionUserId = sessionUserId;
 
   final ServiceControllerApi _serviceApi;
   final CategoryRequestControllerApi _categoryApi;
@@ -252,24 +330,174 @@ final class HttpServiceRepository implements ServiceRepository {
   final Dio _dio;
   final String _masterId;
 
+  /// The signed-in principal's User UUID, or `''` when no session has resolved.
+  ///
+  /// This is the SESSION-READINESS evidence the salon arm of
+  /// [_assertAuthenticated] needs, and it is deliberately NOT [_masterId]:
+  /// in salon mode the acting user is a SALON_OWNER/SALON_ADMIN who has no
+  /// master row at all, so [_masterId] is legitimately `''` there (D4 row 3)
+  /// and carries no session information.
+  ///
+  /// Pre-phase-314 a non-empty [_masterId] implied `masterProfileProvider` had
+  /// resolved, i.e. an authenticated session — the guard's stated purpose
+  /// ("fail fast instead of firing a call that would 401 mid-flight"). The
+  /// salon arm broke that implication by passing on two arbitrary non-empty
+  /// strings; this field restores it (security LOW, phase 314 audit).
+  ///
+  /// Defaults to `''` — FAIL CLOSED. A direct construction that says nothing
+  /// about the session is treated as "no session", so a caller must opt IN to
+  /// salon mode by supplying the evidence. `serviceRepositoryProvider` is the
+  /// only production constructor and supplies it from
+  /// `authProvider.select(authUserIdOrNull)`; the narrowed selector is
+  /// mandatory (a bare `ref.watch(authProvider)` renotifies on every silent
+  /// token refresh — `authUserIdOrNull`'s doc, and
+  /// `project_bare_auth_watch_destroys_state`).
+  ///
+  /// The User UUID, NOT the Master-row UUID — the two are different rows
+  /// (User.id != Master.id) and this one is never sent on the wire.
+  final String _sessionUserId;
+
+  /// Whose services this repository operates on.
+  ///
+  /// `null` — the default and the value every shipped call site produces —
+  /// means the authenticated INDEPENDENT_MASTER's own services, i.e. exactly
+  /// today's behaviour. A [SalonMasterTarget] means a SALON_OWNER/SALON_ADMIN
+  /// is driving a named master on their own salon's roster.
+  ///
+  /// Phase 314 stores this and consults it ONLY in [_assertAuthenticated]
+  /// (D4). It drives NO path dispatch: reads and bulk are phase 315, delete is
+  /// phase 316. A repository built with `target: null` is observationally
+  /// identical to one built without the argument at all.
+  ///
+  /// Public (not `_`-prefixed) on purpose: `service_repository_provider_test`
+  /// asserts on the value the provider threaded in, including the
+  /// `ProviderScope` unwind case.
+  final ServiceTarget? target;
+
   static const _tag = 'feature.services.repository';
 
-  /// Throws [UnauthorizedFailure] immediately if [_masterId] is empty.
+  /// Readiness guard. Throws [UnauthorizedFailure] before any network call.
   ///
-  /// An empty masterId means the master profile has not yet resolved (the auth
-  /// session is not [Authenticated]). The owner endpoints derive the master
-  /// from the JWT principal, so this is no longer about a missing path segment;
-  /// it is a readiness guard that surfaces the real cause to callers instead of
-  /// firing a call that would 401 mid-flight.
+  /// Two arms, one per [target] state — [ServiceTarget] is sealed so the
+  /// `switch` below is exhaustive and a third state cannot be added silently:
+  ///
+  ///   • `null` (independent master) — byte-identical to the pre-phase-314
+  ///     check: throw when [_masterId] is empty. An empty masterId means the
+  ///     master profile has not yet resolved (the auth session is not
+  ///     [Authenticated]). The owner endpoints derive the master from the JWT
+  ///     principal, so this is no longer about a missing path segment; it is a
+  ///     readiness guard that surfaces the real cause to callers instead of
+  ///     firing a call that would 401 mid-flight. THIS ARM IS THE ONE A
+  ///     CARELESS "just make salon mode work" REFACTOR DELETES — it is pinned
+  ///     by its own row in the `service_repository_test` D4 matrix.
+  ///
+  ///   • [SalonMasterTarget] — the acting user is an owner or admin who has no
+  ///     master row of their own, so [_masterId] is LEGITIMATELY empty and the
+  ///     arm above would reject every call. The readiness question is asked in
+  ///     two halves instead: is there a SESSION at all ([_sessionUserId]
+  ///     non-empty), and did the TARGET resolve (both `salonId` and `masterId`
+  ///     non-empty)?
+  ///
+  ///     The session half is not decoration. Pre-314 the null arm's non-empty
+  ///     [_masterId] implied `masterProfileProvider` had resolved, i.e. an
+  ///     authenticated session; the salon arm as first written passed on any
+  ///     two non-empty strings and lost that implication, so the guard no
+  ///     longer did the one thing it claims to do. The backend still rejects
+  ///     an unauthenticated call, so this is a READINESS guard, never an
+  ///     authz gate — but it is the readiness guard's whole contract.
+  ///     Pinned by `service_repository_provider_test`'s row 5, which is the
+  ///     only place target and session actually meet.
   void _assertAuthenticated() {
-    if (_masterId.isEmpty) {
-      throw const UnauthorizedFailure();
+    switch (target) {
+      case null:
+        if (_masterId.isEmpty) {
+          throw const UnauthorizedFailure();
+        }
+      case SalonMasterTarget(:final salonId, :final masterId):
+        if (_sessionUserId.isEmpty || salonId.isEmpty || masterId.isEmpty) {
+          throw const UnauthorizedFailure();
+        }
     }
+  }
+
+  /// Percent-encodes [value] so it lands as EXACTLY ONE path segment of a
+  /// hand-built raw-[Dio] path, REJECTING any value that cannot be one.
+  ///
+  /// The single encoder for all three raw paths in this file
+  /// ([_listForSalonMaster], [bulkCreate], [_unassignFromSalonMaster]) — those
+  /// bypass the generated client's automatic encoding (see
+  /// `api/lib/src/api/service_controller_api.dart`), so an id carrying a
+  /// path-significant character would otherwise retarget the request on the
+  /// authenticated [_dio] that holds the bearer token. One helper, three call
+  /// sites: a fix here reaches every raw path at once.
+  ///
+  /// **Encoding alone is NOT sufficient, which is why this also rejects.**
+  /// [Uri.encodeComponent] does not escape `.`, so a bare `..` or `.` survives
+  /// it verbatim. Dio then issues the request as
+  /// `Uri.parse(url).normalizePath()` (`dio-5.9.2/lib/src/options.dart:642`),
+  /// and `normalizePath` REMOVES dot-segments per RFC 3986 §5.2.4. Measured,
+  /// not assumed: with `masterId` and `serviceDefId` both `'..'`,
+  /// `DELETE /api/v1/salons/S/masters/../services/..` collapses to
+  /// `DELETE /api/v1/salons/S/` — one trailing slash away from the
+  /// delete-the-whole-salon endpoint (`SalonController.java:208`). A single
+  /// `'.'` deletes its own segment and shifts every later one left.
+  ///
+  /// REJECT rather than sanitise: these ids are server-issued UUIDs, so a
+  /// dot-segment here is a PROGRAMMING error, not user input to be repaired.
+  /// Silently rewriting a caller's id would send a well-formed request about
+  /// the wrong resource, which is strictly worse than not sending one.
+  ///
+  /// Composite values that merely CONTAIN dot-segments (`a/../../b`) are safe
+  /// and pass: the separators encode to `%2F`, and `normalizePath` splits on
+  /// literal `/` only. Nor can encoding manufacture a dot-segment —
+  /// [Uri.encodeComponent] emits `%2E` for no input (it never escapes `.`, and
+  /// any literal `%` becomes `%25`), so Dart's unreserved-character
+  /// normalization has nothing to decode back into `.`.
+  ///
+  /// Throws [UnknownFailure] wrapping an [ArgumentError]: unreachable in
+  /// production (nothing constructs a [SalonMasterTarget] yet and the ids are
+  /// UUIDs), non-transient in [failureRetryPolicy], and a [Failure] rather
+  /// than a raw [ArgumentError] so the repository never leaks an unmapped
+  /// error type past its boundary.
+  static String _pathSegment(String value, String name) {
+    final encoded = Uri.encodeComponent(value);
+    // `encoded.contains('/')` cannot fire for encodeComponent (it escapes `/`
+    // to `%2F`); it is kept so a future swap onto a laxer encoder — encodeFull
+    // does NOT escape `/` — trips here instead of shipping a path split.
+    if (encoded.isEmpty ||
+        encoded == '.' ||
+        encoded == '..' ||
+        encoded.contains('/')) {
+      if (kDebugMode) {
+        log(
+          '_pathSegment: refusing to build a path with $name="$value" — it is '
+          'empty or a dot-segment that Dio\'s normalizePath() would collapse',
+          name: _tag,
+          level: 1000,
+        );
+      }
+      throw UnknownFailure(
+        cause: ArgumentError.value(
+          value,
+          name,
+          'must be a single non-empty path segment (not "." or "..")',
+        ),
+      );
+    }
+    return encoded;
   }
 
   @override
   Future<List<MasterService>> listMyServices() async {
     _assertAuthenticated();
+    // Phase 315 D1 — dispatch INSIDE this method rather than a parallel
+    // public method: one seam, so every existing caller (ServicesList.build(),
+    // getMyService(), serviceByIdProvider, …) retargets for free with no fork
+    // to repeat at each call site.
+    final t = target;
+    if (t is SalonMasterTarget) {
+      return _listForSalonMaster(t);
+    }
     try {
       // The owner's own services list uses the authenticated endpoint
       // `GET /api/v1/independent-masters/me/services`, which derives the master
@@ -303,6 +531,89 @@ final class HttpServiceRepository implements ServiceRepository {
       if (kDebugMode) {
         log(
           'listMyServices failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  /// Salon-target counterpart of [listMyServices]'s try block above (phase 315
+  /// D1): `GET /api/v1/salons/{salonId}/masters/{masterId}/services` — the
+  /// named master's full services list (including drafts), as driven by that
+  /// salon's OWNER/ADMIN.
+  ///
+  /// ⚠️ UNVERIFIED AGAINST A REAL BACKEND. Phase 315's Background section
+  /// asserts this GET already exists in the committed snapshot alongside the
+  /// bulk POST — that is NOT true: as of this writing, neither
+  /// `beautica-backend@dev` nor `feat/salon-owned-master-services` declares
+  /// any `@GetMapping` at this path (only the bulk-create POST and the
+  /// per-master unassign DELETE exist at `/salons/{s}/masters/{m}/...`), and
+  /// mobile phase 313's own "delta is one endpoint, not twelve" table lists
+  /// only the DELETE as new. This method is implemented literally per the
+  /// phase-315 D1 spec and is exercised only against a mocked Dio in tests;
+  /// nothing in-app calls it yet (no salon UI exists before phase 318). Until
+  /// a real GET lands at this path server-side, this call 404s. Flagged to the
+  /// phase owner — do not remove this comment without confirming the endpoint
+  /// is live.
+  ///
+  /// No generated binding exists for this exact path today — mirrors
+  /// [bulkCreate]'s raw-`_dio.post` precedent (D2's reasoning applies equally
+  /// here: no generated client method, so the raw authenticated [Dio] is used
+  /// directly and the envelope is hand-parsed with the same
+  /// [standardSerializers] deserializer [bulkCreate] uses). [t.masterId] is
+  /// interpolated EXACTLY as given — no re-derivation from the session; this
+  /// layer is a pass-through, and resolving a userId to a `masters` row id is
+  /// phase 317's job, not this one's.
+  Future<List<MasterService>> _listForSalonMaster(SalonMasterTarget t) async {
+    // [t.salonId] / [t.masterId] go through the shared [_pathSegment] encoder,
+    // which BOTH percent-encodes and rejects dot-segments — encoding alone is
+    // not enough, see that method's doc. Deliberately OUTSIDE the `try`: its
+    // [UnknownFailure] must reach the caller as-is, not be reshaped by the
+    // handlers below. Encoding a well-formed UUID is a no-op.
+    final salonId = _pathSegment(t.salonId, 'salonId');
+    final masterId = _pathSegment(t.masterId, 'masterId');
+    try {
+      final res = await _dio.get<Object?>(
+        '/api/v1/salons/$salonId/masters/$masterId/services',
+      );
+      final raw = res.data;
+      final dataList = (raw is Map<String, Object?>) ? raw['data'] : null;
+      if (dataList is! List) {
+        // Same malformed-success guard as the null-target branch above: a 200
+        // whose envelope carries no `data` array must never render as "this
+        // master has zero services".
+        if (kDebugMode) {
+          log(
+            '_listForSalonMaster(${t.salonId}, ${t.masterId}): response '
+            '`data` is not a list (got ${dataList.runtimeType})',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return dataList
+          .map((Object? element) {
+            final dto = standardSerializers.deserializeWith(
+              MasterServiceResponse.serializer,
+              element,
+            );
+            if (dto == null) {
+              throw const ServerFailure(statusCode: null);
+            }
+            return MasterServiceMapper.fromDto(dto);
+          })
+          .toList(growable: false);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_listForSalonMaster(${t.salonId}, ${t.masterId}) failed: '
+          '${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -418,6 +729,22 @@ final class HttpServiceRepository implements ServiceRepository {
       ],
     };
 
+    // Phase 315 D2 — dispatch by PATH STRING ONLY. The body builder above is
+    // shared verbatim between both branches (BulkCreateServicesRequest is the
+    // same DTO on both endpoints), and the raw-_dio.post shape is unchanged —
+    // swapping either branch onto the generated client is explicitly deferred
+    // (see the interface doc comment).
+    final t = target;
+    // Same encode-AND-REJECT requirement as [_listForSalonMaster] — this raw
+    // path also bypasses the generated client's automatic encoding, and
+    // [Uri.encodeComponent] on its own lets a bare `..` through into Dio's
+    // `normalizePath()`. Built before the `try` below, so [_pathSegment]'s
+    // rejection propagates untouched by the DioException handlers.
+    final path = t is SalonMasterTarget
+        ? '/api/v1/salons/${_pathSegment(t.salonId, 'salonId')}/masters/'
+              '${_pathSegment(t.masterId, 'masterId')}/services/bulk'
+        : '/api/v1/independent-masters/me/services/bulk';
+
     try {
       // Path note: the generated client's relative paths all begin with
       // `/api/v1/...` (e.g. `r'/api/v1/independent-masters/me/services'`), and
@@ -425,10 +752,7 @@ final class HttpServiceRepository implements ServiceRepository {
       // So the raw path MUST include `/api/v1` to match the generated calls —
       // omitting it would 404. (This is the inverse of the "double-prefix"
       // trap: here the prefix lives on the path, not the base URL.)
-      final res = await _dio.post<Object?>(
-        '/api/v1/independent-masters/me/services/bulk',
-        data: body,
-      );
+      final res = await _dio.post<Object?>(path, data: body);
 
       // The response envelope is ApiResponse<List<MasterServiceResponse>> — the
       // same shape `getMyServices()` parses. Deserialize each element with the
@@ -507,8 +831,9 @@ final class HttpServiceRepository implements ServiceRepository {
   ///   - **429** → [ServiceRateLimitedFailure] (the per-master bulk bucket,
   ///     10/min, is exhausted). Reachable in ordinary use because the 503 branch
   ///     hands the master an explicit retry action.
-  ///   - **400/422** → [ValidationFailure] (includes the in-batch duplicate
-  ///     service-type-id case and the per-item `items[i].field` errors).
+  ///   - **400/422** (any body) → [ValidationFailure] (includes the
+  ///     in-batch duplicate service-type-id case and the per-item
+  ///     `items[i].field` errors).
   /// All other statuses defer to the shared [_mapDioException].
   ///
   /// Both status checks run BEFORE deferring to any [Failure] the
@@ -643,6 +968,15 @@ final class HttpServiceRepository implements ServiceRepository {
     required String assignmentId,
   }) async {
     _assertAuthenticated();
+    // Phase 317 — dispatch INSIDE this method, the same seam listMyServices()
+    // / bulkCreate() / deactivate() already use: one fork in the REPOSITORY, so
+    // `service_edit_screen.dart`'s save button retargets for free with nothing
+    // to repeat at the call site. Placed BEFORE toUpdateRequest() so the
+    // definition-shaped request is never even built on the salon branch.
+    final t = target;
+    if (t is SalonMasterTarget) {
+      return _updateSalonMasterBand(t, serviceDefId, patch);
+    }
     final request = MasterServiceMapper.toUpdateRequest(patch);
     try {
       // PATCH /api/v1/services/{serviceDefId} — the backend's update endpoint
@@ -690,6 +1024,14 @@ final class HttpServiceRepository implements ServiceRepository {
   @override
   Future<void> deactivate(String serviceDefId) async {
     _assertAuthenticated();
+    // Phase 316 D1 — dispatch INSIDE this method rather than a parallel
+    // public method or an `if (target != null)` at the call site: one seam,
+    // so `service_edit_screen.dart`'s delete button retargets for free with
+    // no fork to repeat there. Mirrors [listMyServices] / [bulkCreate].
+    final t = target;
+    if (t is SalonMasterTarget) {
+      return _unassignFromSalonMaster(t, serviceDefId);
+    }
     try {
       // DELETE /api/v1/services/{serviceDefId} — keyed on the service-definition
       // id, NOT the assignment id.
@@ -713,6 +1055,345 @@ final class HttpServiceRepository implements ServiceRepository {
       // it changes nothing else.
       throw _mapServiceWriteException(e);
     }
+  }
+
+  /// Applies [patch] to ONE salon master's assignment — the [SalonMasterTarget]
+  /// arm of [update] (phase 317).
+  ///
+  /// ## Why this exists
+  /// After backend phase 302 a salon master's service DEFINITIONS are
+  /// salon-owned and SHARED: several masters resolve against the same row.
+  /// The null-target branch of [update] PATCHes that shared row wholesale, so
+  /// under a salon target it rewrote every other master's price and duration
+  /// too — silently, with a 200. This method splits the write so each field
+  /// lands on the row that actually owns it:
+  ///
+  /// | Field(s) | Endpoint | Scope |
+  /// |---|---|---|
+  /// | `priceType` / `price` / `priceMin` / `priceMax` / `durationMinutes` | `PATCH /salons/{s}/masters/{m}/services/{d}` | THIS master only |
+  /// | `name` / `category` / `serviceTypeId` | `PATCH /services/{d}` | the shared definition |
+  ///
+  /// The identity fields stay editable by product decision — they have no
+  /// per-master equivalent, so a salon owner renaming or recategorising a
+  /// service is renaming it for the salon, which is the intended meaning. The
+  /// editable FIELD SET is therefore identical to the independent-master
+  /// screen's; only the ROUTING of the save differs.
+  ///
+  /// ## Order, and the partial-failure window
+  /// Identity first, band second, and the BAND response is what gets mapped
+  /// back. Two reasons: the band response nests the `serviceDefinition`, so
+  /// running identity first makes the returned object carry the NEW name; and
+  /// the band response is the only one that carries the per-master resolved
+  /// price/duration (`MasterServiceResponse`), which is what the caller must
+  /// render.
+  ///
+  /// This leaves a partial-failure window: the identity PATCH can succeed and
+  /// the band PATCH then fail (validation, 403, 404, transport), leaving the
+  /// definition renamed while the price is unchanged. There is deliberately NO
+  /// rollback — the backend exposes no transaction across the two endpoints,
+  /// and a compensating PATCH could itself fail and would need the pre-edit
+  /// name, which this method does not hold. The failure surfaces to the user as
+  /// a normal save error and the screen re-reads the catalogue, so the
+  /// half-applied state is visible rather than hidden.
+  ///
+  /// The identity PATCH is skipped entirely when [patch] carries none of the
+  /// three identity fields (`null` = "no change", per [MasterServiceUpdate]) —
+  /// an identity-only body IS accepted by the definition endpoint
+  /// (`UpdateServiceDefinitionRequest` has no class-level "not empty" rule and
+  /// its `@ServicePriceValid` is vacuous when the whole price block is absent),
+  /// so the skip is an optimisation, not a workaround.
+  ///
+  /// [MasterServiceUpdate.description], [MasterServiceUpdate.bufferMinutesAfter]
+  /// and [MasterServiceUpdate.isActive] are NOT forwarded on this branch: the
+  /// edit form never sets them (`service_edit_screen.dart`), `isActive` has its
+  /// own endpoint ([deactivate]), and routing the other two to the shared
+  /// definition would re-open the same class of cross-master leak this method
+  /// closes. They are left for a phase that decides where they belong.
+  Future<MasterService> _updateSalonMasterBand(
+    SalonMasterTarget t,
+    String serviceDefId,
+    MasterServiceUpdate patch,
+  ) async {
+    // Built BEFORE any request so an ArgumentError (a programming error, never
+    // a transport fault) propagates untouched by the DioException handlers —
+    // same ordering [update]'s null-target branch gives toUpdateRequest().
+    final bandRequest = MasterServiceMapper.toBandRequest(patch);
+
+    // Identity half. Feeding a STRIPPED MasterServiceUpdate through the
+    // existing toUpdateRequest() rather than adding a second definition-request
+    // builder is what guarantees the bug cannot come back: price and duration
+    // are not merely "not set" here, they are structurally absent from the
+    // input, so no future edit to toUpdateRequest() can reintroduce them on
+    // this path.
+    final identity = MasterServiceUpdate(
+      name: patch.name,
+      category: patch.category,
+      serviceTypeId: patch.serviceTypeId,
+    );
+    final hasIdentity =
+        identity.name != null ||
+        identity.category != null ||
+        identity.serviceTypeId != null;
+
+    if (bandRequest == null) {
+      // No price block and no duration. Rejected BEFORE any network call and
+      // never silently downgraded to an identity-only write, because this
+      // method must return the master's RESOLVED pricing and only the band
+      // response carries it — mapping the definition response instead would
+      // report the SHARED band as this master's, reintroducing the exact
+      // cross-master confusion this method exists to remove.
+      //
+      // Unreachable from today's UI: the edit form always submits a duration
+      // and a full price block (`service_edit_screen.dart`'s `onSave`). An
+      // ArgumentError, not a [Failure] — a caller bug, not a transport fault,
+      // and it is thrown before the identity PATCH so nothing is half-written.
+      throw ArgumentError.value(
+        patch,
+        'patch',
+        'a salon-master update must carry a price block or a duration',
+      );
+    }
+
+    // Same encode-AND-REJECT treatment the other salon paths apply. The
+    // generated client interpolates these straight into the path template, so
+    // a dot-segment would be collapsed by Dio's normalizePath() and retarget
+    // the PATCH on the authenticated [_dio] instance. Encoding a well-formed
+    // UUID is a no-op; [_pathSegment] REJECTS rather than sanitises.
+    final salonId = _pathSegment(t.salonId, 'salonId');
+    final masterId = _pathSegment(t.masterId, 'masterId');
+    final defId = _pathSegment(serviceDefId, 'serviceDefId');
+
+    if (hasIdentity) {
+      final identityRequest = MasterServiceMapper.toUpdateRequest(identity);
+      try {
+        await _serviceApi.updateServiceDefinition(
+          // [defId], not the raw argument: the generated client interpolates
+          // this into its path template too, so both halves of this split
+          // write get the same encode-and-reject treatment.
+          serviceDefId: defId,
+          updateServiceDefinitionRequest: identityRequest,
+        );
+      } on Failure {
+        rethrow;
+      } on DioException catch (e, st) {
+        if (kDebugMode) {
+          log(
+            '_updateSalonMasterBand identity PATCH failed: ${e.type} '
+            '${e.response?.statusCode} serviceDefId=$serviceDefId',
+            name: _tag,
+            level: 900,
+            stackTrace: st,
+          );
+        }
+        // Identity errors are keyed on the definition endpoint's own field
+        // names (name/category/serviceTypeId), which the form already renders
+        // — no remap needed, and deliberately NOT routed through
+        // [_remapBandFieldErrors], which would mislabel a definition `price`
+        // error (unreachable here, since no price is sent) as a range floor.
+        throw _mapServiceWriteException(e);
+      }
+      // Reaching here means the shared definition is already committed. See the
+      // partial-failure note above: a throw from the band call below leaves it
+      // applied, and that is the accepted contract.
+    }
+
+    try {
+      final res = await _serviceApi.updateMasterServiceBand(
+        salonId: salonId,
+        masterId: masterId,
+        serviceDefId: defId,
+        updateMasterServiceBandRequest: bandRequest,
+      );
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            '_updateSalonMasterBand: response data is null for '
+            'serviceDefId=$serviceDefId',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      // Mapped with the PER-MASTER-aware fromDto, never
+      // fromServiceDefinitionDto: the band response's TOP-LEVEL
+      // priceType/priceMin/priceMax/priceDisplay are the resolved per-master
+      // values, and its nested `serviceDefinition` still carries the SHARED
+      // band — the two legitimately disagree, and fromDto already prefers the
+      // top level. fromDto also reads the real assignment id off the response,
+      // so the caller's `assignmentId` is not needed on this branch.
+      return MasterServiceMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_updateSalonMasterBand band PATCH failed: ${e.type} '
+          '${e.response?.statusCode} serviceDefId=$serviceDefId',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _remapBandFieldErrors(_mapServiceWriteException(e), patch);
+    }
+  }
+
+  /// Re-keys the band endpoint's field errors onto the names the edit form
+  /// renders inline (`service_form.dart`'s `_mapServerFieldErrors`).
+  ///
+  /// Two wire names differ from the definition endpoint the form was built
+  /// against, so without this a real 400 would silently degrade to the generic
+  /// snackbar instead of landing under the offending field:
+  ///
+  ///   - `price` → `priceMin` **when the patch is RANGE**. The band endpoint
+  ///     reports the range FLOOR as `price`; the form renders the floor's error
+  ///     from `priceMin` (`service_form.dart`, the `pricing-range-min` field).
+  ///     Guarded on the mode because in FIXED mode `price` is already the key
+  ///     the form wants — remapping unconditionally would push a FIXED-price
+  ///     error onto a field that is not even on screen.
+  ///   - `durationOverrideMinutes` → `baseDurationMinutes`, the duration field
+  ///     the form renders (it already normalises the `durationMinutes` alias
+  ///     the same way).
+  ///
+  /// Any other failure type, and any other key, passes through untouched —
+  /// including the endpoint's cross-field keys (`bandLegal`, `notEmpty`,
+  /// `clearBandCoherent`, `clearDurationOverrideCoherent`), which name no form
+  /// field and correctly fall through to the generic snackbar.
+  Failure _remapBandFieldErrors(Failure failure, MasterServiceUpdate patch) {
+    if (failure is! ValidationFailure) return failure;
+    final errors = failure.fieldErrors;
+    if (errors.isEmpty) return failure;
+
+    final isRange = patch.priceType == ServicePriceType.range;
+    final remapped = <String, String>{};
+    var changed = false;
+    errors.forEach((String key, String message) {
+      // `dest`, not `target` — [target] is this repository's ServiceTarget
+      // field and shadowing it here would read as a dispatch decision.
+      var dest = key;
+      if (isRange && key == 'price') {
+        dest = 'priceMin';
+      } else if (key == 'durationOverrideMinutes') {
+        dest = 'baseDurationMinutes';
+      }
+      if (dest != key) changed = true;
+      // A pre-existing key of the same name wins — never clobber an error the
+      // backend already reported under the destination name.
+      remapped.putIfAbsent(dest, () => message);
+    });
+    if (!changed) return failure;
+    return ValidationFailure(
+      fieldErrors: remapped,
+      serverMessage: failure.serverMessage,
+      cause: failure.cause,
+    );
+  }
+
+  /// Unassigns [t.masterId] from the service identified by [serviceDefId] —
+  /// the [SalonMasterTarget] arm of [deactivate] (phase 316 D1).
+  ///
+  /// Wraps
+  /// `DELETE /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}`
+  /// (backend phase 307). Deactivates ONE `master_services` ROW — the shared
+  /// service DEFINITION and every other master in the salon are untouched.
+  /// This is the surgical counterpart to the null-target branch in
+  /// [deactivate], which would instead deactivate the definition for the
+  /// WHOLE salon (see this file's header and phase 316's "Why this is not
+  /// optional").
+  ///
+  /// No generated binding exists for this exact path today — mirrors
+  /// [_listForSalonMaster]'s and [bulkCreate]'s raw-`_dio` precedent: the
+  /// `DELETE /salons/{s}/masters/{m}/services/{serviceDefId}` endpoint
+  /// (backend phase 307) exists only on the unmerged
+  /// `beautica-backend@feat/salon-owned-master-services` branch, so
+  /// `ServiceControllerApi.unassignServiceFromMaster` — the binding phase
+  /// 313's OpenAPI regen would generate — cannot be committed until that
+  /// branch reaches `dev`. This method is implemented literally per phase
+  /// 316's mandatory deviation and is exercised only against a mocked/faked
+  /// Dio in tests; nothing in-app calls it yet (no salon UI exists before
+  /// phase 317, which is BLOCKED on this method landing first).
+  ///
+  /// [serviceDefId] MUST be the service-DEFINITION id
+  /// ([MasterService.serviceDefId]), NOT the assignment id
+  /// ([MasterService.id]) — same contract [deactivate]'s null-target branch
+  /// and [update] already carry. `service_edit_screen.dart:115-156` already
+  /// passes `service.serviceDefId`, unchanged by this phase.
+  Future<void> _unassignFromSalonMaster(
+    SalonMasterTarget t,
+    String serviceDefId,
+  ) async {
+    // [t.salonId] / [t.masterId] / [serviceDefId] ALL go through the shared
+    // [_pathSegment] encoder — this raw path bypasses the generated client's
+    // automatic encoding, so an id containing a path-significant character
+    // (`/`, `?`, `#`) would otherwise silently retarget this DELETE on the
+    // authenticated [_dio] instance, which carries the bearer token.
+    //
+    // Percent-encoding alone does NOT cover `..`/`.`: [Uri.encodeComponent]
+    // leaves them verbatim and Dio's `normalizePath()` then collapses them —
+    // `masters/../services/..` measurably degenerates to `/api/v1/salons/S/`,
+    // adjacent to the delete-the-salon endpoint. [_pathSegment] REJECTS those
+    // rather than sanitising; see its doc. This is why the comment that used
+    // to sit here — claiming the encoding "neutralizes" `..` — was FALSE.
+    //
+    // [serviceDefId] is caller-supplied too (it flows from
+    // `ServiceEditScreen`'s route argument), so it gets the same treatment as
+    // the other two. Deliberately OUTSIDE the `try`: the rejection is a
+    // programming error, not a transport fault, and must not be reshaped by
+    // [_mapUnassignException]. Encoding a well-formed UUID is a no-op.
+    final salonId = _pathSegment(t.salonId, 'salonId');
+    final masterId = _pathSegment(t.masterId, 'masterId');
+    final defId = _pathSegment(serviceDefId, 'serviceDefId');
+    try {
+      await _dio.delete<Object?>(
+        '/api/v1/salons/$salonId/masters/$masterId/services/$defId',
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_unassignFromSalonMaster(${t.salonId}, ${t.masterId}, '
+          '$serviceDefId) failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapUnassignException(e);
+    }
+  }
+
+  /// Maps a [DioException] from [_unassignFromSalonMaster] to a typed
+  /// [Failure] (phase 316 D2):
+  ///   - **409** → [ServiceUnassignBlockedFailure] — future CONFIRMED
+  ///     bookings block the unassign; nothing was written. No count is parsed
+  ///     out of the body (D3 — it is a plain English `String`, not a
+  ///     structured payload), so this check is on STATUS CODE ALONE, unlike
+  ///     [_isDuplicateService].
+  ///   - **429** → [ServiceRateLimitedFailure] — shares the per-master
+  ///     single-write bucket [_mapServiceWriteException] uses.
+  ///   - **404** → falls through to [_mapDioException], which already maps it
+  ///     to [NotFoundFailure] (no active assignment for this pair, backend
+  ///     phase 307 D7 — typically a second tap after a first one raced with a
+  ///     stale list). No special-casing needed here.
+  ///   - **403** → falls through to [_mapDioException] with NO special
+  ///     handling (D2): the route guard makes an unauthorised salon target
+  ///     unreachable, and a repository that pretends otherwise would be lying
+  ///     about its guarantees.
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The 409/429 checks run BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may already have attached (it maps a non-auth
+  /// 409 to a generic [ServerFailure] and has no 429 branch at all), mirroring
+  /// [_mapServiceWriteException] / [_mapBulkCreateException].
+  Failure _mapUnassignException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) return const ServiceUnassignBlockedFailure();
+    if (statusCode == 429) return _rateLimited(e);
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
   }
 
   @override
@@ -938,6 +1619,32 @@ final class HttpServiceRepository implements ServiceRepository {
   }
 }
 
+/// The retarget seam: whose services [serviceRepositoryProvider] operates on.
+///
+/// Returns `null` — the INDEPENDENT_MASTER's own services — everywhere except
+/// inside the `ProviderScope` phase 317 wraps around the salon-target route
+/// subtree, which overrides this with a [SalonMasterTarget].
+///
+/// It is a SEPARATE provider rather than a parameter on
+/// [serviceRepositoryProvider] on purpose. That provider is `keepAlive: true`
+/// and read from a dozen places; making it a `family` keyed by target would
+/// change every one of those call sites, and a `keepAlive` family leaks one
+/// repository instance per master forever. Watching an overridable value here
+/// keeps every existing `ref.read(serviceRepositoryProvider)` byte-identical.
+///
+/// Override ONLY via `ProviderScope(overrides: [...])`. No notifier, no
+/// setter, no `ref.read(...).state = ...`: the scope IS the widget subtree, so
+/// it unwinds on pop. An imperative setter would leave the app pointed at a
+/// master after the owner navigates away — the exact bug a `keepAlive` list
+/// provider hides until someone reopens `/services` and sees a stranger's menu.
+///
+/// Phase 317 — declares `dependencies: []` explicitly. It is not required
+/// (a provider with no watches of its own is scopable without it), but it is
+/// declared as INTENT: this is the root of the scoped chain, and the four
+/// `dependencies:` declarations below all point back here.
+@Riverpod(keepAlive: true, dependencies: [])
+ServiceTarget? serviceTarget(Ref ref) => null;
+
 /// Provides the [ServiceRepository] singleton backed by the authenticated Dio,
 /// the generated [ServiceControllerApi], and the current master's UUID from
 /// [masterProfileProvider].
@@ -956,14 +1663,136 @@ final class HttpServiceRepository implements ServiceRepository {
 ///
 /// Override in tests with a mocktail mock — never construct
 /// [HttpServiceRepository] directly in production or test code.
-@Riverpod(keepAlive: true)
+///
+/// ⚠️ SCOPED-TARGET CONTRACT — READ BEFORE TOUCHING `dependencies:` BELOW.
+/// (Historically the "PHASE 317 BLOCKER" comment. Phase 317 landed the
+/// cascade on 2026-09-10; what follows is the resulting contract, not a
+/// blocker.)
+///
+/// This provider declares `dependencies: [serviceTarget]`, which is what makes
+/// a [serviceTargetProvider] override installed in a NESTED [ProviderScope]
+/// actually reach it. Riverpod 3 only re-creates a provider in a child scope
+/// when that provider — and every provider that watches it, transitively —
+/// declares the scoped dependency, so the declaration CASCADES: every
+/// dependent carries its own (`masterServiceCatalogProvider`,
+/// `servicesListProvider`, `serviceByIdProvider`, `serviceTypesProvider`,
+/// `serviceSetupProvider`). Removing any ONE of them silently re-roots that
+/// branch of the chain in release AOT, because the guard assert
+/// (`riverpod-3.1.0/.../element.dart:922`) is `kDebugMode`-gated and
+/// `riverpod_lint` was removed on 2026-08-18. Do not drop a declaration
+/// "because nothing complains".
+///
+/// ⛔ A ROOT-LEVEL OVERRIDE IS NOT AN OPTION — DO NOT SHIP ONE.
+/// The phase-314 tests use one at ROOT because a unit test's
+/// `ProviderContainer` IS the root and is disposed in `addTearDown`. That is a
+/// test FIXTURE, never a pattern to copy into production code. A root override
+/// is PROCESS-LIFETIME: it unwinds on nothing — not on `pop`, not on a tab
+/// switch, not on logout — so an app that installs one stays pointed at a
+/// named salon master until the process dies. It would therefore retain a
+/// CROSS-TENANT [SalonMasterTarget] across navigation AND across a session
+/// change: log out, log in as somebody else, open /services, and the previous
+/// account's salon master's menu is what loads. Note that the auth-boundary
+/// watches do NOT save you here — this provider rebuilds on an identity change
+/// (`sessionUserId` below) and `servicesListProvider` does too
+/// (`services_list_notifier.dart:127`), but a rebuild simply RE-READS the root
+/// override and gets the same stale target back. Only a widget-subtree
+/// `ProviderScope` unwinds. The one production installation is the
+/// `ShellRoute` scope in `app_router.dart` (`_SalonMasterServicesScope`).
+///
+/// ⛔ OVERRIDING `serviceRepositoryProvider` ITSELF IS ALSO NOT AN OPTION —
+/// MEASURED DEAD (2026-09-10). The escape hatch this comment used to offer as
+/// option (b) does not work: the scope's own widgets get the right repository,
+/// but `masterServiceCatalogProvider` and `servicesListProvider` — which have
+/// no scoped dependency of their own under that scheme — still resolve against
+/// the ROOT and still carry `target: null`. Bit-for-bit the same failure the
+/// cascade exists to fix. It is additionally inert to auth flips
+/// (`overrideWithValue` freezes the value, defeating the `sessionUserId` watch
+/// below) and would mean hand-rebuilding all five [HttpServiceRepository]
+/// constructor arguments in a route builder — a second copy of this function
+/// body, free to drift.
+///
+/// BLAST RADIUS OF THE CASCADE, MEASURED — NOT the "68 existing tests go red"
+/// this comment used to claim. Exactly ONE test flipped:
+/// `service_repository_provider_test.dart`'s nested-scope case, which was
+/// written to flip. Zero incidental reds across `test/routing/`, `test/core/`,
+/// `test/features/services|salon|master|booking/`, `test/golden/` and the two
+/// service integration flows. Root reads, root `overrideWithValue(mock)` in
+/// tests, `autoDispose` families, and unrelated nested `ProviderScope`s in
+/// pump helpers are all unaffected — a nested scope that overrides nothing on
+/// this chain does not fork it.
+///
+/// The auth-boundary half is DONE and independent of scoping:
+/// [serviceRepositoryProvider] rebuilds on an identity change via the
+/// `sessionUserId` watch below, `masterServiceCatalogProvider` via its own
+/// (`master_service_catalog_provider.dart:162`), and `servicesListProvider`
+/// via `services_list_notifier.dart:127`, which it needs independently because
+/// the `.future` edge it reads coalesces. Under the cascade there is no
+/// repository override at all — the scoped element is a genuine build of THIS
+/// function body watching the ROOT `authProvider` — so scoping does not defeat
+/// any of them.
+///
+/// The seam is no longer inert: `app_router.dart`\'s
+/// `_SalonManageStaffServicesShell` constructs a [SalonMasterTarget] for the
+/// `/salons/:salonId/manage/staff/:memberId/services**` subtree. Every OTHER
+/// call site still resolves the root `null` target and is byte-identical to
+/// its pre-phase-314 behaviour.
+@Riverpod(keepAlive: true, dependencies: [serviceTarget])
 ServiceRepository serviceRepository(Ref ref) {
   // masterId is the Master-row UUID (from MasterDetailResponse.masterId),
   // NOT the User UUID from the auth session. User.id != Master.id.
   // AsyncValue.value returns null when loading/error; ?? '' keeps the
   // _assertAuthenticated() guard intact until the profile resolves.
   // masterProfileProvider is also keepAlive: true, so this watch is stable.
-  final masterId = ref.watch(masterProfileProvider).value?.id ?? '';
+  //
+  // NARROWED to the id with `.select`, exactly as the `sessionUserId` line
+  // below is narrowed via [authUserIdOrNull]. A bare
+  // `ref.watch(masterProfileProvider)` renotifies on EVERY AsyncValue
+  // transition — including the retained-value `Loading → Data` an invalidate
+  // or a refresh produces — rebuilding this keepAlive repository and
+  // cascading a refetch through `master_service_catalog_provider.dart:162`
+  // (which since N2 is the app's only `listMyServices()` in a `build`, and
+  // republishes to `servicesListProvider` from there)
+  // (`project_riverpod_seamless_invalidate_gotcha`). The readiness contract
+  // is UNCHANGED and still pinned: the selected String goes '' → masterId the
+  // moment the profile resolves, which is a real value change, so the
+  // repository is still rebuilt exactly once at that boundary
+  // (`service_repository_provider_test`, `service_by_id_readiness_test`).
+  // What is dropped is only the churn where the id did not move.
+  //
+  // ⚠️ CONDITIONAL ON PURPOSE — the watch happens ONLY on the null-target
+  // (independent-master) arm. Under a [SalonMasterTarget] the acting user is
+  // an owner or an admin and `_masterId` is PROVABLY UNUSED: it is read in
+  // exactly one place, [_assertAuthenticated]'s `case null` arm (`:393`), and
+  // the salon arm reads only `_sessionUserId` and `target`. Watching it
+  // anyway costs two things, both measured:
+  //
+  //   • SECURITY/CORRECTNESS — `masterProfileProvider` fires
+  //     `GET /masters/me`, which `MasterController`'s `@PreAuthorize`
+  //     REFUSES for a SALON_ADMIN. Phase 317 admits SALON_ADMIN to the
+  //     salon-target services subtree, so an unconditional watch is a
+  //     GUARANTEED 403 — retried ~4× by `beauticaProviderRetry` — with the
+  //     operator's bearer token, on every entry into the subtree.
+  //   • PERF — for an owner who IS a master, the `'' → masterId` transition
+  //     is a real value change that rebuilds this keepAlive repository, which
+  //     refires `masterServiceCatalogProvider` and costs a SECOND
+  //     `GET /salons/S/masters/M/services` plus an `AsyncLoading` flash.
+  //
+  // This is the exact hazard phase 312 identified and removed from the
+  // SCHEDULE seam — see `schedule_repository_provider.dart:1-16`, which
+  // documents the same 403 and the same remedy. The services seam
+  // re-introduced it in phase 317 and this restores parity.
+  //
+  // A conditional `ref.watch` is legal riverpod: dependencies are recollected
+  // on every build, and a dependency dropped between builds is unsubscribed.
+  // The null-target path is BYTE-IDENTICAL to before (same select, same
+  // `?? ''`), which the untouched `service_repository_provider_test` and
+  // `service_by_id_readiness_test` readiness rows pin.
+  final ServiceTarget? target = ref.watch(serviceTargetProvider);
+  final String masterId = target == null
+      ? ref.watch(
+          masterProfileProvider.select((profile) => profile.value?.id ?? ''),
+        )
+      : '';
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),
@@ -972,6 +1801,31 @@ ServiceRepository serviceRepository(Ref ref) {
     // which the generated ServiceControllerApi does not yet expose.
     dio: ref.watch(dioProvider),
     masterId: masterId,
+    // Phase 314 — the retarget seam. `null` outside phase 317's ProviderScope,
+    // so on every call site but the salon subtree this argument changes
+    // nothing. Hoisted above (it now also gates the `masterProfileProvider`
+    // watch); still a `ref.watch`, still the same single dependency edge.
+    target: target,
+    // Session-readiness evidence for the salon arm of _assertAuthenticated.
+    // NARROWED to the signed-in identity on purpose: a bare
+    // `ref.watch(authProvider)` renotifies on every silent token refresh
+    // (`refresh_interceptor.dart` → `AuthNotifier.setAccessToken`), which
+    // would churn this keepAlive repository — see [authUserIdOrNull]'s doc and
+    // `project_bare_auth_watch_destroys_state`.
+    //
+    // ⚠️ CORRECTED (audit cycle 2, item C). This line used to claim it added
+    // "NO new dependency edge" because `masterProfileProvider` — watched above
+    // — watches `authProvider.select(authUserIdOrNull)` itself
+    // (`master_profile_notifier.dart:56`). That holds ONLY on the null-target
+    // arm. Since F1 made the `masterProfileProvider` watch CONDITIONAL, under
+    // a [SalonMasterTarget] this IS a genuine new edge — and it must be: the
+    // salon arm has no other input to `_assertAuthenticated`, and it is the
+    // one that would otherwise go stale across a session change. The edge is
+    // correctly narrowed (identity only, not the whole session), so it
+    // renotifies on a real sign-in change and on nothing else. The null-target
+    // arm is unaffected either way — there the edge is still a duplicate of
+    // one `masterProfileProvider` already holds.
+    sessionUserId: ref.watch(authProvider.select(authUserIdOrNull)) ?? '',
   );
 }
 

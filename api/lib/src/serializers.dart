@@ -217,6 +217,7 @@ import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 import 'package:beautica_api/src/model/timeline_item_response.dart';
 import 'package:beautica_api/src/model/unclosed_count_response.dart';
 import 'package:beautica_api/src/model/unregister_device_token_request.dart';
+import 'package:beautica_api/src/model/update_master_service_band_request.dart';
 import 'package:beautica_api/src/model/update_profile_request.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
 import 'package:beautica_api/src/model/update_service_definition_request.dart';
@@ -441,6 +442,7 @@ part 'serializers.g.dart';
   TimelineItemResponse,
   UnclosedCountResponse,
   UnregisterDeviceTokenRequest,
+  UpdateMasterServiceBandRequest,
   UpdateProfileRequest,
   UpdateSalonRequest,
   UpdateServiceDefinitionRequest,

@@ -26,7 +26,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -78,10 +77,16 @@ void _showServiceEditFailureSnackbar(
 ///
 /// Receives [id] from the `/services/:id/edit` path parameter via [app_router].
 class ServiceEditScreen extends ConsumerStatefulWidget {
-  const ServiceEditScreen({super.key, required this.id});
+  const ServiceEditScreen({super.key, required this.id, this.writable = true});
 
   /// Backend UUID for the master-service assignment record.
   final String id;
+
+  /// Phase 320 (D1) — additive, defaults to `true` so every existing caller
+  /// renders exactly as today. `false` removes the delete icon and the save
+  /// action, and renders the form's fields read-only (D3). No route passes
+  /// `false` yet — that lands in phase 321.
+  final bool writable;
 
   @override
   ConsumerState<ServiceEditScreen> createState() => _ServiceEditScreenState();
@@ -108,39 +113,102 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     super.dispose();
   }
 
+  /// Re-entrancy guard for [_onDelete] (mobile-perf LOW, phase 316).
+  ///
+  /// Held for the WHOLE flow — confirmation dialog included — not just the
+  /// `deactivate` await. Once the dialog pops, the delete icon behind it is
+  /// hit-testable again while the DELETE is still in flight, so a double tap
+  /// used to open a second dialog and issue a second DELETE. By then the
+  /// backend has already deactivated (independent master) / unassigned (salon
+  /// target) the row, so the second call answers `404` → [NotFoundFailure] →
+  /// an error snackbar for an operation that SUCCEEDED. Phase 316 D2 names
+  /// this exact race: a `404` here means "already gone" and must not alarm.
+  ///
+  /// Mirrors `services_list_notifier.dart`'s `_refreshing` guard rather than
+  /// inventing a second mechanism. Cleared in a `finally` so neither an error
+  /// path nor a cancelled dialog can latch it permanently.
+  bool _deleting = false;
+
   /// Shows the [DeleteServiceDialog] and, if confirmed, deactivates the service.
   ///
-  /// On success the services list is invalidated and the edit screen is popped.
-  /// On failure a snackbar is shown via [_showServiceEditFailureSnackbar].
+  /// On success the service catalogues are invalidated and the edit screen is
+  /// popped. On failure a snackbar is shown via
+  /// [_showServiceEditFailureSnackbar] — EXCEPT for a
+  /// [ServiceUnassignBlockedFailure] (a salon-target unassign refused because
+  /// the master still has a future CONFIRMED booking), which instead re-shows
+  /// [DeleteServiceDialog] with `blocked: true` (phase 319 D3). That refusal
+  /// path does no optimistic removal and no catalogue invalidation — nothing
+  /// was written, the list is still correct — and offers no navigation to the
+  /// blocking bookings (backend phase 308 stays deferred; the refusal is
+  /// final).
   Future<void> _onDelete(
     BuildContext context,
     WidgetRef ref,
     MasterService service,
     AppLocalizations l10n,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => const DeleteServiceDialog(),
-    );
-    if (confirmed != true || !context.mounted) return;
+    if (_deleting) return;
+    _deleting = true;
     try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (_) => const DeleteServiceDialog(),
+      );
+      if (confirmed != true || !context.mounted) return;
       // Capture the repository BEFORE any invalidation so the DELETE runs
-      // against a stable auth/master snapshot. serviceRepositoryProvider watches
-      // masterProfileProvider; invalidating that provider while a DELETE is
-      // composing would rebuild the repo (and momentarily unresolve the auth
-      // provider the interceptor reads), causing the request to be sent
-      // tokenless → false 401 ("Сесія завершилась"). Read once, then invalidate
-      // only AFTER the await completes.
+      // against a stable auth/master snapshot: serviceRepositoryProvider
+      // watches masterProfileProvider (narrowed to the master id) and the auth
+      // provider the interceptor reads, and rebuilding it mid-compose can send
+      // the request tokenless → false 401 ("Сесія завершилась"). Read once,
+      // then invalidate only AFTER the await completes.
       final repository = ref.read(serviceRepositoryProvider);
       // Backend keys DELETE /api/v1/services/{serviceDefId} on the
-      // service-definition id, NOT the assignment id (service.id).
+      // service-definition id, NOT the assignment id (service.id). With a
+      // SalonMasterTarget in scope the repository dispatches to the per-master
+      // unassign endpoint instead (phase 316 D1) — same call, same argument.
       await repository.deactivate(service.serviceDefId);
       if (context.mounted) _popServiceEditScreen(context);
       // Invalidate AFTER the delete await completes (and after pop, so
       // ServicesListScreen is active and listening when the re-fetch arrives).
       // ref outlives the frame.
+      //
+      // This is the COMPLETE fan-out: the two catalogue views are the only
+      // cached state a service delete can falsify. masterProfileProvider is
+      // deliberately NOT invalidated here (mobile-perf MEDIUM, phase 316) —
+      // [Master] carries no service-derived field (see `master.dart`), and the
+      // profile screen's services section and stat tile watch
+      // `servicesListProvider` directly (`master_profile_screen.dart:505,746`),
+      // which the call above already invalidates. A profile invalidation would
+      // therefore buy a redundant `GET /masters/me` plus an AsyncLoading churn
+      // through every keepAlive dependent (repositories, schedule scope, nav
+      // header) — and with a salon target it would refetch the OPERATOR's
+      // profile, never the unassigned master's, so it cannot even be right.
+      // Same reasoning `working_hours_notifier.dart` already documents for the
+      // weekly-schedule write.
       invalidateMasterServiceCatalogues(ref);
-      ref.invalidate(masterProfileProvider);
+    } on ServiceUnassignBlockedFailure {
+      // Reactive refusal (phase 319 D3, mirroring backend phase 307 D4 /
+      // mobile phase 316 D4): the master still has a future CONFIRMED
+      // booking for this service. NOTHING was written — do not pop, do not
+      // invalidate servicesListProvider (no optimistic removal), and offer
+      // no shortcut to the blocking bookings (phase 308 stays deferred). The
+      // dialog it re-shows uses the SAME `showDialog` call site as the
+      // confirmation prompt above; its resolved value is discarded — the
+      // blocked variant's sole action is a dismiss, never a retry.
+      if (kDebugMode) {
+        log(
+          'ServiceEditScreen: unassign blocked (future booking) for '
+          'id=${service.id}',
+          name: _tag,
+          level: 900,
+        );
+      }
+      if (context.mounted) {
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => const DeleteServiceDialog(blocked: true),
+        );
+      }
     } catch (e) {
       if (kDebugMode) {
         log(
@@ -152,6 +220,8 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       if (context.mounted) {
         _showServiceEditFailureSnackbar(context, e, l10n);
       }
+    } finally {
+      _deleting = false;
     }
   }
 
@@ -191,6 +261,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       data: (MasterService service) => _EditBody(
         service: service,
         l10n: l10n,
+        writable: widget.writable,
         onSave: (MasterServiceCreate input) async {
           // Build the pricing patch block — all four price fields must be
           // sent together when the price is being updated (backend rule).
@@ -207,9 +278,17 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             // editable in the UI but silently lost on save (M4 API-contract).
             serviceTypeId: input.serviceTypeId,
           );
-          // Backend keys PATCH /api/v1/services/{serviceDefId} on the
-          // service-definition id; the assignment id (service.id) is threaded
+          // Every update endpoint keys on the service-DEFINITION id, so that
+          // is what is passed; the assignment id (service.id) is threaded
           // through so the returned domain object keeps a stable id.
+          //
+          // The repository — not this screen — decides WHERE each field lands.
+          // Under a [SalonMasterTarget] it splits the patch: price + duration
+          // go to the per-master band endpoint and only name / category /
+          // serviceTypeId reach the SHARED salon definition. Do not "simplify"
+          // that back into one call here; sending the price to the definition
+          // endpoint re-prices every other master in the salon. The editable
+          // field set above is deliberately identical for both targets.
           await ref
               .read(serviceRepositoryProvider)
               .update(service.serviceDefId, patch, assignmentId: service.id);
@@ -219,8 +298,23 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
           }
           // Invalidate AFTER pop so ServicesListScreen is active and
           // listening when the re-fetch arrives. ref outlives the frame.
+          //
+          // This is the COMPLETE fan-out, and it mirrors `_onDelete`'s: the two
+          // catalogue views are the only cached state a service EDIT can
+          // falsify. `masterProfileProvider` is deliberately NOT invalidated
+          // here (mobile-perf LOW, phase 316) — a rename / reprice /
+          // recategorize moves no field on [Master] (`master.dart` carries none
+          // that is service-derived), and the profile screen's services stat
+          // tile and category section both watch `servicesListProvider`
+          // directly (`master_profile_screen.dart:505,746`), which the call
+          // above already invalidates. Invalidating the profile would buy a
+          // redundant `GET /masters/me` and — because `serviceRepositoryProvider`
+          // watches it — an AsyncLoading churn through every keepAlive
+          // dependent, for a value that cannot have changed. Same reasoning
+          // `working_hours_notifier.dart` documents for the weekly-schedule
+          // write, and the same trim `_onDelete` carries, so the two writes on
+          // this screen no longer fan out asymmetrically.
           invalidateMasterServiceCatalogues(ref);
-          ref.invalidate(masterProfileProvider);
         },
         onError: (Object e) {
           if (kDebugMode) {
@@ -251,6 +345,7 @@ class _EditBody extends StatefulWidget {
     required this.onSave,
     required this.onError,
     required this.onDelete,
+    this.writable = true,
   });
 
   final MasterService service;
@@ -262,6 +357,10 @@ class _EditBody extends StatefulWidget {
   /// bar and the dialog has been shown. Handed off to [_ServiceEditScreenState]
   /// which owns the `ref` needed to call the repository and invalidate providers.
   final Future<void> Function(MasterService service) onDelete;
+
+  /// Phase 320 (D1/D3) — additive, defaults to `true`. `false` hides the
+  /// delete icon (not disabled — D3) and renders [ServiceForm] read-only.
+  final bool writable;
 
   @override
   State<_EditBody> createState() => _EditBodyState();
@@ -371,16 +470,21 @@ class _EditBodyState extends State<_EditBody>
                       style: VelvetText.subheading(),
                       textAlign: TextAlign.center,
                     ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: IconButton(
-                        key: const Key('btn-delete-service'),
-                        icon: const Icon(Icons.delete_outline),
-                        color: Theme.of(context).colorScheme.error,
-                        tooltip: l10n.deleteServiceTitle,
-                        onPressed: () => widget.onDelete(widget.service),
+                    // Phase 320 (D3): hidden, not disabled, when read-only —
+                    // the backend 403s every write path for this viewer, so a
+                    // greyed delete icon would promise an action it cannot
+                    // perform.
+                    if (widget.writable)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: IconButton(
+                          key: const Key('btn-delete-service'),
+                          icon: const Icon(Icons.delete_outline),
+                          color: Theme.of(context).colorScheme.error,
+                          tooltip: l10n.deleteServiceTitle,
+                          onPressed: () => widget.onDelete(widget.service),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -420,6 +524,7 @@ class _EditBodyState extends State<_EditBody>
                         key: Key('service-edit-form-${widget.service.id}'),
                         initial: widget.service,
                         submitLabel: l10n.servicesSaveChanges,
+                        readOnly: !widget.writable,
                         onSubmit: (MasterServiceCreate input) async {
                           try {
                             await widget.onSave(input);

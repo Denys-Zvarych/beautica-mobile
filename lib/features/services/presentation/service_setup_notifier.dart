@@ -38,7 +38,11 @@ part 'service_setup_notifier.g.dart';
 /// Auto-disposes: the setup screen is a one-shot flow reached only from the
 /// empty services list; there is no benefit to keeping the notifier alive after
 /// the screen pops.
-@riverpod
+/// Phase 317 — `dependencies: [serviceRepository]` so `bulkCreate` from the
+/// salon subtree POSTs to `/salons/{s}/masters/{m}/services/bulk` rather than
+/// the operator's own bulk endpoint. See [serviceRepositoryProvider]'s
+/// SCOPED-TARGET CONTRACT doc.
+@Riverpod(dependencies: [serviceRepository])
 class ServiceSetup extends _$ServiceSetup {
   @override
   Future<void> build() async {

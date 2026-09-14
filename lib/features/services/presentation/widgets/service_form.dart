@@ -86,6 +86,7 @@ class ServiceForm extends StatefulWidget {
     this.initial,
     this.submitLabel,
     required this.onSubmit,
+    this.readOnly = false,
   });
 
   /// Pre-filled service values (edit mode). Null = blank form (create mode).
@@ -102,6 +103,20 @@ class ServiceForm extends StatefulWidget {
   /// Must return a [Future] so the form can show a loading spinner. Throw a
   /// [Failure] or any exception to surface an error at the screen level.
   final Future<void> Function(MasterServiceCreate input) onSubmit;
+
+  /// Phase 320 (D1/D3) — additive, defaults to `false` so every existing
+  /// caller renders exactly as before.
+  ///
+  /// `true` removes the submit CTA entirely (hidden, not disabled — D3) and
+  /// makes every field non-interactive. The name field renders its VALUE as
+  /// plain text rather than a [TextField] — there is no [EditableText] in
+  /// that subtree for any input method to target, so it is genuinely
+  /// non-editable rather than an editor that merely looks greyed out. The
+  /// category / service-type pickers and the duration+price wells
+  /// ([PricingField]) reuse their existing `disabled`/`enabled` flags: the
+  /// values stay visible, opening their menus or focusing their fields is
+  /// suppressed.
+  final bool readOnly;
 
   /// Pre-fill rule for the service name when a service type is selected
   /// (Phase 16.3). Pure helper — given the current name text and the value this
@@ -413,7 +428,21 @@ class _ServiceFormState extends State<ServiceForm> {
     // the instant the field becomes valid. In edit mode, also repaint the dirty
     // badge on each keystroke. Editing a field also clears any stale
     // server-side error keyed to that field's backend wire name.
-    _nameCtrl.addListener(_onNameChanged);
+    //
+    // Perf (mobile-perf LOW, Phase 320 audit): the name field never renders a
+    // TextField in read-only mode (see the `widget.readOnly ? _ReadOnlyValueField
+    // : ...` branch in build()) and nothing else can write to `_nameCtrl` while
+    // read-only — `onServiceTypeSelected` / `_onCategoryChanged` are the only
+    // other writers, and both are only reachable via dropdown `onSelect`
+    // callbacks that never fire when their `SearchableSelectField` is
+    // `enabled: !disabled` with `disabled: widget.readOnly` (tap is a no-op).
+    // So this listener could never usefully fire while read-only; skip wiring
+    // it. `_readOnlyNameValue` below sources its value from `_baselineName`
+    // directly rather than the controller, so this is a pure no-op removal —
+    // the writable path attaches the listener exactly as before.
+    if (!widget.readOnly) {
+      _nameCtrl.addListener(_onNameChanged);
+    }
     _durationCtrl.addListener(() => _onChanged('baseDurationMinutes'));
     _priceFixedCtrl.addListener(() => _onChanged('price'));
     _priceMinCtrl.addListener(() => _onChanged('priceMin'));
@@ -970,7 +999,7 @@ class _ServiceFormState extends State<ServiceForm> {
         //      previously-selected service type below.
         _CategoryDropdown(
           selected: _selectedCategory,
-          disabled: _submitting,
+          disabled: _submitting || widget.readOnly,
           label: l10n.serviceCategoryLabel,
           errorText: _categoryError(l10n),
           // Phase 16.5 edit-flow hardening: route the category change through
@@ -1007,7 +1036,7 @@ class _ServiceFormState extends State<ServiceForm> {
             // the closed field is never blank while the type list is still
             // fetching. Once options resolve, the matched option's label wins.
             selectedFallbackLabel: _selectedServiceTypeNameUk,
-            disabled: _submitting,
+            disabled: _submitting || widget.readOnly,
             label: l10n.serviceTypeLabel,
             onSelect: onServiceTypeSelected,
           ),
@@ -1027,23 +1056,34 @@ class _ServiceFormState extends State<ServiceForm> {
         //      name. The label carries an "(optional)" hint so the field reads as
         //      non-mandatory. Wrapped in a ValueListenableBuilder so a keystroke
         //      re-validates only this field's inline error.
-        ValueListenableBuilder<int>(
-          valueListenable: _revalidateTick,
-          builder: (BuildContext context, _, _) => _buildField(
-            fieldKey: const Key('field-service-name'),
-            label: l10n.serviceNameOptionalLabel,
-            controller: _nameCtrl,
-            errorText: _nameError(l10n),
-            hintText: l10n.serviceNameHint,
-            // Cap input at the backend `@Size(max = 100)` name limit so an
-            // over-long value can never reach the wire; mirrors the duration
-            // field's LengthLimitingTextInputFormatter.
-            inputFormatters: <TextInputFormatter>[
-              LengthLimitingTextInputFormatter(kNameMaxLength),
-            ],
-            enabled: !_submitting,
-          ),
-        ),
+        // Phase 320 (D3): readOnly renders the VALUE, never the editor — no
+        // TextField, no controller wiring, nothing to focus or type into.
+        // Falls back to the platform service-type name (mirrors
+        // ServiceCard's `primaryLabel` rule), then the shared unavailable
+        // dash, so the row is never blank.
+        widget.readOnly
+            ? _ReadOnlyValueField(
+                fieldKey: const Key('field-service-name'),
+                label: l10n.serviceNameOptionalLabel,
+                value: _readOnlyNameValue,
+              )
+            : ValueListenableBuilder<int>(
+                valueListenable: _revalidateTick,
+                builder: (BuildContext context, _, _) => _buildField(
+                  fieldKey: const Key('field-service-name'),
+                  label: l10n.serviceNameOptionalLabel,
+                  controller: _nameCtrl,
+                  errorText: _nameError(l10n),
+                  hintText: l10n.serviceNameHint,
+                  // Cap input at the backend `@Size(max = 100)` name limit so
+                  // an over-long value can never reach the wire; mirrors the
+                  // duration field's LengthLimitingTextInputFormatter.
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(kNameMaxLength),
+                  ],
+                  enabled: !_submitting,
+                ),
+              ),
         const SizedBox(height: VelvetSpacing.lg),
 
         // 2+3 — Duration + Pricing on ONE line:
@@ -1061,7 +1101,7 @@ class _ServiceFormState extends State<ServiceForm> {
           builder: (BuildContext context, _, _) => PricingField(
             key: const Key('pricing-field'),
             mode: _pricingMode,
-            enabled: !_submitting,
+            enabled: !_submitting && !widget.readOnly,
             onModeChanged: (ServicePriceType m) {
               setState(() {
                 _pricingMode = m;
@@ -1085,16 +1125,39 @@ class _ServiceFormState extends State<ServiceForm> {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // CTA — Save / Save changes button.
-        NeumorphicButton(
-          key: const Key('btn-submit-service'),
-          label: widget.submitLabel ?? l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _submitting,
-          onPressed: _submitting ? null : () => _handleSubmit(context, l10n),
-        ),
+        // CTA — Save / Save changes button. Phase 320 (D3): hidden, not
+        // disabled, when read-only — a greyed Save would promise a write the
+        // caller cannot make.
+        if (!widget.readOnly)
+          NeumorphicButton(
+            key: const Key('btn-submit-service'),
+            label: widget.submitLabel ?? l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _submitting,
+            onPressed: _submitting ? null : () => _handleSubmit(context, l10n),
+          ),
       ],
     );
+  }
+
+  /// Phase 320 (D3) — the value [_ReadOnlyValueField] renders for the name
+  /// row. Mirrors `ServiceCard`'s `primaryLabel` rule (custom name wins,
+  /// falling back to the platform service-type name) so the read-only view
+  /// shows exactly what the card already shows, then the shared unavailable
+  /// dash if both are empty.
+  ///
+  /// Reads [_baselineName] (the widget's own loaded data, captured once in
+  /// `initState` from `widget.initial`) rather than `_nameCtrl.text` —
+  /// nothing can mutate the name controller while read-only (see the skipped
+  /// `addListener` above), so the two are always equal; going straight to the
+  /// baseline string means this accessor never depends on controller state at
+  /// all (mobile-perf LOW, Phase 320 audit).
+  String get _readOnlyNameValue {
+    final String customName = _baselineName.trim();
+    if (customName.isNotEmpty) return customName;
+    final String typeName = (_selectedServiceTypeNameUk ?? '').trim();
+    if (typeName.isNotEmpty) return typeName;
+    return priceUnavailableLabel;
   }
 }
 
@@ -1671,6 +1734,68 @@ class _VelvetFieldRowState extends State<_VelvetFieldRow> {
               ),
             ),
           ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read-only value field (Phase 320 / D3)
+//
+// Renders a labelled row exactly like [_VelvetFieldRow]'s well, but the value
+// is a plain [Text] — never a [TextField]. There is no [EditableText] in this
+// subtree for any input method (including a test's `WidgetTester.enterText`)
+// to target, so the field is genuinely non-editable rather than an editor
+// that merely looks disabled.
+// ---------------------------------------------------------------------------
+
+class _ReadOnlyValueField extends StatelessWidget {
+  const _ReadOnlyValueField({
+    required this.fieldKey,
+    required this.label,
+    required this.value,
+  });
+
+  final Key fieldKey;
+  final String label;
+  final String value;
+
+  // Hoisted — mirrors _VelvetFieldRowState's own cached styles.
+  static final TextStyle _labelStyle = VelvetText.label();
+  static final TextStyle _valueStyle = VelvetText.input();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(
+            left: VelvetSpacing.xs,
+            bottom: VelvetSpacing.sm,
+          ),
+          child: Text(label.toUpperCase(), style: _labelStyle),
+        ),
+        NeumorphicInset(
+          key: fieldKey,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: VelvetSpacing.md,
+              vertical: VelvetSpacing.sm + 2,
+            ),
+            child: SizedBox(
+              height: VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  style: _valueStyle,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }

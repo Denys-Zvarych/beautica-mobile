@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -53,6 +54,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/features/services/presentation/service_catalogue_revision.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,6 +99,21 @@ const _masterMemberNoExtras = SalonStaffMember(
   lastName: 'Іванова',
   avgRating: 4.2,
   reviewCount: 5,
+);
+
+/// Phase 318 (mobile-qa) — a MASTER-role entry with NO `masterId` (the
+/// data-anomaly case `salon_staff_profile_screen.dart`'s D2-mirror comment on
+/// both the schedule AND services rows guards against). `masterId` is
+/// omitted, defaulting to null — deliberately DISTINCT from
+/// [_masterMemberNoExtras] above, whose `masterId` IS set (that fixture pins
+/// the omitted-bio/omitted-categories contract, an unrelated case).
+const _masterMemberNoMasterId = SalonStaffMember(
+  userId: _kMasterId,
+  role: SalonStaffRole.master,
+  firstName: 'Ганна',
+  lastName: 'Петренко',
+  avgRating: 4.0,
+  reviewCount: 2,
 );
 
 const _adminMember = SalonStaffMember(
@@ -163,6 +180,23 @@ const List<MasterService> _masterServices = <MasterService>[
     priceMin: 250,
     priceDisplay: '250 ₴',
     category: 'BROWS',
+  ),
+];
+
+/// Phase 318 (mobile-qa) — [_masterServices] plus a THIRD row, standing in for
+/// "the master added a service in the salon-target services subtree". Used
+/// ONLY by the D4 refresh test below to prove a genuine REFETCH renders a
+/// CHANGED count, never a fixture that never moves.
+const List<MasterService> _masterServicesPlusOne = <MasterService>[
+  ..._masterServices,
+  MasterService(
+    id: 'svc-3',
+    serviceDefId: 'def-3',
+    name: 'Педикюр класичний',
+    durationMinutes: 60,
+    priceMin: 400,
+    priceDisplay: '400 ₴',
+    category: 'NAILS',
   ),
 ];
 
@@ -931,7 +965,7 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
 
         expect(
-          find.byKey(const ValueKey<String>('settings_row_loading')),
+          find.byKey(const ValueKey<String>('management_action_card_loading')),
           findsOneWidget,
         );
         final AppLocalizations l10n = AppLocalizations.of(
@@ -1009,6 +1043,521 @@ void main() {
     );
   });
 
+  // ── Phase 318 (D1/D2/D3/D4) — the «Послуги» services row. ─────────────────
+  group('services row (Phase 318, D1/D2/D3/D4)', () {
+    testWidgets(
+      'does not render on the ADMIN branch (isNotAdmin guard — the SECOND '
+      'thing this phase adds behind it)',
+      (tester) async {
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kAdminId,
+          ),
+          overrides: _overrides(
+            _kAdminId,
+            (ref) async => (_adminMember, const <MasterService>[]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-staff-profile-services-row')),
+          findsNothing,
+        );
+        // Anti-vacuity: the sibling schedule row (already proven absent for
+        // ADMIN above) is ALSO absent here — confirms the whole `if
+        // (!isAdmin)` block was suppressed, not that this row happens to be
+        // omitted through some OTHER path (mutation 4 moves it outside the
+        // guard, which this pairing catches even if the schedule row's own
+        // gate stayed intact).
+        expect(
+          find.byKey(const Key('salon-staff-profile-schedule-row')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'renders ENABLED with the active-service count for a master entry with '
+      'a masterId',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: _overrides(
+            _kMasterId,
+            (ref) async => (_masterMember, _masterServices),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder row = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        expect(row, findsOneWidget);
+        final ManagementActionCard widget = tester.widget<ManagementActionCard>(
+          row,
+        );
+        expect(widget.enabled, isTrue);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        final String expectedValue = l10n.staffProfileServicesCount(
+          _masterServices.length,
+        );
+        expect(
+          widget.value,
+          expectedValue,
+          reason:
+              'D3 — the SAME count already backing the services stat tile '
+              '(services.length == 2), not member.serviceCount (99, '
+              'deliberately mismatched on the fixture)',
+        );
+        // Rendered, not merely the field — a field-only read would pass even
+        // if ManagementActionCard silently dropped `value` from its own
+        // layout.
+        expect(
+          find.descendant(of: row, matching: find.text(expectedValue)),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'Phase 325, D3 — a genuinely-resolved EMPTY catalogue renders «Ще '
+      'немає», never «0 послуг»',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: _overrides(
+            _kMasterId,
+            // `_masterMemberNoExtras` carries a `masterId` (row stays
+            // ENABLED) but zero services — a resolved AsyncData, NOT a
+            // failed load (see the production screen's own D3 comment: a
+            // failed load of this data never reaches this card at all).
+            (ref) async => (_masterMemberNoExtras, const <MasterService>[]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        final Finder row = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        expect(
+          tester.widget<ManagementActionCard>(row).value,
+          l10n.staffProfileServicesEmpty,
+        );
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.text(l10n.staffProfileServicesCount(0)),
+          ),
+          findsNothing,
+          reason:
+              'D3 — «0 послуг» would assert an empty catalogue using the '
+              'SAME copy a failed load could otherwise be mistaken for; '
+              '«Ще немає» is the distinct, unambiguous empty-state copy',
+        );
+      },
+    );
+
+    testWidgets('renders DISABLED (never omitted) when the master entry has no '
+        'masterId, and tapping performs no navigation', (tester) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.salonManageStaffMember(
+          _kSalonId,
+          _kMasterId,
+        ),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/manage/staff/:memberId',
+            builder: (context, state) => SalonStaffProfileScreen(
+              salonId: state.pathParameters['salonId']!,
+              memberId: state.pathParameters['memberId']!,
+            ),
+          ),
+          GoRoute(
+            path: '/salons/:salonId/manage/staff/:memberId/services',
+            builder: (context, state) =>
+                const _ServicesRouteMarker(salonId: '', memberId: ''),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      // `_masterMemberNoMasterId` is role MASTER with NO `masterId` set — the
+      // data-anomaly case `salon_staff_profile_screen.dart`'s own D2-mirror
+      // comment guards against.
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides(
+          _kMasterId,
+          (ref) async => (_masterMemberNoMasterId, _masterServices),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder row = find.byKey(
+        const Key('salon-staff-profile-services-row'),
+      );
+      expect(
+        row,
+        findsOneWidget,
+        reason:
+            'the row RENDERS, disabled — never omitted (mirrors the '
+            'schedule row\'s own contract)',
+      );
+      // THE mutation-critical assertion (mutation 2: delete `enabled:
+      // hasMasterId`) — the row's own `onTap` ternary is ALSO a no-op in
+      // that mutated state, so a nav-only assertion below would stay green
+      // even with the guard deleted. Only reading `.enabled` catches it.
+      expect(tester.widget<ManagementActionCard>(row).enabled, isFalse);
+
+      // No push ever happens on this branch (the row is disabled — `onTap`
+      // is a no-op), so the ImperativeRouteMatch exclusion the raw-read gate
+      // guards against never bites: this raw read IS the proof nothing was
+      // pushed on top of it.
+      // router-location-ok: no push occurs on this disabled-row branch.
+      final String before = router.routerDelegate.currentConfiguration.uri
+          .toString();
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      // router-location-ok: no push occurs on this disabled-row branch.
+      final String after = router.routerDelegate.currentConfiguration.uri
+          .toString();
+
+      expect(
+        after,
+        before,
+        reason: 'no navigation must occur when masterId is null',
+      );
+      expect(find.byType(_ServicesRouteMarker), findsNothing);
+    });
+
+    testWidgets(
+      'tapping pushes salonManageStaffServices with the memberId (userId) in '
+      'the path, resolved on the PAGE TYPE — never a location string',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.salonManageStaffMember(
+            _kSalonId,
+            _kMasterId,
+          ),
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId',
+              builder: (context, state) => SalonStaffProfileScreen(
+                salonId: state.pathParameters['salonId']!,
+                memberId: state.pathParameters['memberId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId/services',
+              builder: (context, state) => _ServicesRouteMarker(
+                salonId: state.pathParameters['salonId']!,
+                memberId: state.pathParameters['memberId']!,
+              ),
+            ),
+            // Registered so MUTATION 1 (onTap retargeted at the schedule
+            // route) resolves to a DIFFERENT page TYPE instead of an
+            // unmatched-route crash — the assertion below must go red on the
+            // TYPE, not on an exception.
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId/schedule',
+              builder: (context, state) => const _ScheduleRouteMarkerStub(),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          // `_masterMember` fixture: masterId ('master-row-1') DIFFERS from
+          // userId (_kMasterId, 'staff-master-1') — reused deliberately so
+          // this test does not need a fresh fixture to satisfy the
+          // differing-ids requirement (`project_fixture_values_can_defang_
+          // assertions`).
+          overrides: _overrides(
+            _kMasterId,
+            (ref) async => (_masterMember, _masterServices),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('salon-staff-profile-services-row')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(_ServicesRouteMarker),
+          findsOneWidget,
+          reason:
+              'pinned on the RESOLVED PAGE TYPE — push (unlike go) is '
+              'excluded from currentConfiguration.fullPath, so a location-'
+              'string assertion here would not actually prove navigation',
+        );
+        expect(find.byType(_ScheduleRouteMarkerStub), findsNothing);
+
+        final _ServicesRouteMarker marker = tester.widget<_ServicesRouteMarker>(
+          find.byType(_ServicesRouteMarker),
+        );
+        expect(marker.salonId, _kSalonId);
+        expect(
+          marker.memberId,
+          _kMasterId,
+          reason:
+              'the path must carry the userId (_kMasterId == '
+              '"staff-master-1"), NEVER the masterId ("master-row-1") — '
+              'the master ROW id is resolved inside the route by phase '
+              "317's shell, not here",
+        );
+      },
+    );
+
+    testWidgets(
+      'D4 — popping the services subtree after a MUTATION invalidates the '
+      'profile and the refetched (not retained) count renders',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        int builds = 0;
+        List<MasterService> currentServices = _masterServices;
+
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.salonManageStaffMember(
+            _kSalonId,
+            _kMasterId,
+          ),
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId',
+              builder: (context, state) => SalonStaffProfileScreen(
+                salonId: state.pathParameters['salonId']!,
+                memberId: state.pathParameters['memberId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId/services',
+              builder: (context, state) =>
+                  const _ServicesRouteMarker(salonId: '', memberId: ''),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith(
+              (ref) async {
+                builds++;
+                return (_masterMember, currentServices);
+              },
+            ),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[],
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        expect(builds, 1, reason: 'precondition — one initial fetch');
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-staff-profile-services-value')),
+              )
+              .data,
+          '2',
+        );
+
+        await tester.tap(
+          find.byKey(const Key('salon-staff-profile-services-row')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+        expect(
+          builds,
+          1,
+          reason: 'PUSHING must not itself refetch — only the RETURN does',
+        );
+
+        // Simulate the subtree adding a service BEFORE the operator returns —
+        // the fixture the invalidated re-fetch must actually pick up.
+        currentServices = _masterServicesPlusOne;
+        // 2026-09-13 audit (M7) — and the SIGNAL that a mutation happened.
+        // The real subtree bumps this through the one fan-out point
+        // `invalidateMasterServiceCatalogues(ref)`, which every create / edit
+        // / delete in `ServiceSetupScreen` / `ServiceEditScreen` calls. The
+        // return-side invalidate is gated on that counter changing, so a
+        // fixture that swaps the data without bumping it is a LOOK, not a
+        // mutation — see the companion test below.
+        ProviderScope.containerOf(
+          tester.element(find.byType(_ServicesRouteMarker)),
+        ).read(serviceCatalogueRevisionProvider.notifier).bump();
+
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(_ServicesRouteMarker), findsNothing);
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          builds,
+          2,
+          reason:
+              'D4 — the invalidation on return must trigger a genuine '
+              'REFETCH (a second `create` call), never merely retain the '
+              'stale `.value` (project_riverpod_seamless_invalidate_gotcha)',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-staff-profile-services-value')),
+              )
+              .data,
+          '3',
+          reason:
+              'the stat tile must show the NEW count after the invalidated '
+              'refetch resolves',
+        );
+        expect(
+          find.text(l10n.staffProfileServicesCount(3)),
+          findsOneWidget,
+          reason: 'the row\'s own value must also reflect the refetch',
+        );
+        expect(
+          find.text(l10n.staffProfileServicesCount(2)),
+          findsNothing,
+          reason: 'the stale pre-return count must be gone, not merely joined',
+        );
+      },
+    );
+
+    // 2026-09-13 audit (M7, mobile-perf LOW) — the OTHER half of the gate.
+    //
+    // Without it, deleting the `if (after == before) return;` guard in
+    // `salon_staff_profile_screen.dart` leaves the test above green, because
+    // "invalidate always" satisfies "invalidate after a mutation" too. This
+    // is the case that goes red on that deletion: a pure LOOK — push into the
+    // services subtree, mutate nothing, come straight back — must cost NO
+    // second `getMasterServices(masterId)` round trip.
+    testWidgets(
+      'a LOOK (push and return with no mutation) does NOT refetch the profile',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        int builds = 0;
+
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.salonManageStaffMember(
+            _kSalonId,
+            _kMasterId,
+          ),
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId',
+              builder: (context, state) => SalonStaffProfileScreen(
+                salonId: state.pathParameters['salonId']!,
+                memberId: state.pathParameters['memberId']!,
+              ),
+            ),
+            GoRoute(
+              path: '/salons/:salonId/manage/staff/:memberId/services',
+              builder: (context, state) =>
+                  const _ServicesRouteMarker(salonId: '', memberId: ''),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith(
+              (ref) async {
+                builds++;
+                return (_masterMember, _masterServices);
+              },
+            ),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[],
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(builds, 1, reason: 'precondition — one initial fetch');
+
+        await tester.tap(
+          find.byKey(const Key('salon-staff-profile-services-row')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+
+        // NOTHING is bumped here — that is the whole point.
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          builds,
+          1,
+          reason:
+              'M7 — `salonStaffMemberProfileProvider.build` re-runs '
+              '`getMasterServices(masterId)`; an operator who only LOOKED '
+              'must not pay for that round trip. Goes red the moment the '
+              'revision gate is removed and the invalidate becomes '
+              'unconditional again.',
+        );
+        // And the rendered count is the ORIGINAL one — the screen is showing
+        // live state, not a stale-but-correct coincidence.
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-staff-profile-services-value')),
+              )
+              .data,
+          '2',
+        );
+      },
+    );
+  });
+
   // ── Gap ownership regression (follows Phase 312's schedule row) ────────
   //
   // Reproduces the doubled-gap bug: when phone is null (contacts section
@@ -1019,9 +1568,20 @@ void main() {
   // section used to add) and not zero. Asserts actual rendered geometry
   // (`getBottomLeft`/`getTopLeft` on keyed widgets), not merely that both
   // widgets exist — see `project_widget_field_assertion_is_vacuous`.
-  group('gap ownership — null phone + schedule row (regression)', () {
-    testWidgets('exactly one VelvetSpacing.xl separates the stats row from the '
-        'schedule row when contacts are omitted', (tester) async {
+  // 2026-09-14 (defect 5) — the management pair MOVED out from the end of
+  // the screen to directly under the stats row, which is where the approved
+  // design puts it (`docs/signup-designs/SalonServicesEntryPath/lib/screens/
+  // staff_profile_screen.dart:174-176`, a leading `VelvetSpacing.lg`). Before
+  // the move this gap was the stats row's trailing `xl` and was only the
+  // stats-to-schedule gap in the one state this group sets up (no bio, no
+  // services, no contacts); now the pair is the stats row's immediate
+  // sibling in EVERY state, so the measured gap is `lg` and is
+  // position-invariant. The assertion below is therefore stronger than it
+  // was, not weaker: a doubled gap, a missing gap, or the pair drifting back
+  // below bio/services/contacts all still fail it.
+  group('gap ownership — stats row to management pair (regression)', () {
+    testWidgets('exactly one VelvetSpacing.lg separates the stats row from the '
+        'management pair', (tester) async {
       tester.view.physicalSize = const Size(800, 2600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -1063,14 +1623,121 @@ void main() {
 
       expect(
         scheduleRowTop - statsRowBottom,
-        moreOrLessEquals(VelvetSpacing.xl, epsilon: 0.5),
+        moreOrLessEquals(VelvetSpacing.lg, epsilon: 0.5),
         reason:
-            'a doubled gap (stats-row trailing xl stacked with a stray '
-            'leading xl on the schedule section) or a missing gap must '
-            'both fail this assertion',
+            'a doubled gap (the stats row keeping its trailing xl as well as '
+            'the pair`s leading lg) or a missing gap must fail this '
+            'assertion. NOTE: it does NOT by itself catch the pair sliding '
+            'back below bio/services/contacts — with this deliberately bare '
+            'fixture there is nothing between the two positions. The case '
+            'below is the one that pins POSITION.',
+      );
+    });
+
+    // 2026-09-14 (mobile-qa) — POSITION invariance, the half the case above
+    // structurally cannot see.
+    //
+    // The case above runs on `_masterMemberNoExtras`: no bio, no services,
+    // no contacts. In that state the management pair is the stats row's
+    // immediate sibling whether it is declared second in the column or LAST,
+    // because every section that would sit between them is omitted. It
+    // therefore pins the GAP TOKEN and nothing about ORDER — the defect-5
+    // move it was re-pinned for is exactly an order change.
+    //
+    // This case uses the FULL fixture (bio + services/categories + phone all
+    // present) so the pair sliding back below any of them moves it by
+    // hundreds of dp and fails immediately. Mutation-verified: relocating
+    // the `salon-staff-profile-reveal-5` block to after the contacts section
+    // leaves the case above GREEN and turns this one RED.
+    testWidgets('the pair remains the stats row`s IMMEDIATE sibling when bio, '
+        'categories and contacts are ALL present (position, not just gap)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMember, _masterServices),
+          ),
+          weeklyScheduleProvider(
+            _scheduleRowScope,
+          ).overrideWith(_FixedWeekly.new),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // Anti-vacuity: every section that COULD come between the stats row
+      // and the pair really is mounted this time. Without these the case
+      // silently degrades into a duplicate of the one above.
+      expect(find.byKey(const Key('salon-staff-profile-bio')), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-staff-profile-service-categories')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-contact-phone')),
+        findsOneWidget,
+      );
+
+      final double statsRowBottom = tester
+          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-1')))
+          .dy;
+      final double scheduleRowTop = tester
+          .getTopLeft(find.byKey(const Key('salon-staff-profile-schedule-row')))
+          .dy;
+
+      expect(
+        scheduleRowTop - statsRowBottom,
+        moreOrLessEquals(VelvetSpacing.lg, epsilon: 0.5),
+        reason:
+            'the two primary operator actions must sit directly under the '
+            'stats row on first paint, never behind bio + the category grid '
+            '+ contacts (defect 5). Any section rendered between them puts '
+            'this delta in the hundreds of dp.',
       );
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 318 — lightweight route-destination markers for the services row's
+// nav tests. Deliberately NOT the real `ServicesListScreen`: that widget
+// requires the full phase-317 `ShellRoute` (a dedicated `ProviderScope`
+// overriding `serviceTargetProvider`, seven `dependencies:`-scoped
+// providers) to render without throwing — heavy machinery already exhaustively
+// covered at the ROUTER tier (`test/routing/salon_manage_staff_services_route_
+// test.dart`) and at the E2E tier (`integration_test/salon_owner_set_master_
+// services_flow_test.dart`). This screen's OWN job is narrower: prove the row
+// pushes the right ROUTE with the right PATH PARAMS, which a distinctly-typed
+// marker widget pins exactly as well as the real screen would, at a fraction
+// of the setup cost.
+// ---------------------------------------------------------------------------
+
+class _ServicesRouteMarker extends StatelessWidget {
+  const _ServicesRouteMarker({required this.salonId, required this.memberId});
+
+  final String salonId;
+  final String memberId;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+/// A second, DISTINCTLY-TYPED marker for the schedule leaf — only reachable
+/// when mutation 1 (the row's `onTap` retargeted at the schedule route) is
+/// live, so the nav test's failure reads as "wrong PAGE TYPE", not an
+/// unmatched-route crash.
+class _ScheduleRouteMarkerStub extends StatelessWidget {
+  const _ScheduleRouteMarkerStub();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 // ---------------------------------------------------------------------------

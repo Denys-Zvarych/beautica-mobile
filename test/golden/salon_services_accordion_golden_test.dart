@@ -85,6 +85,19 @@ const List<SalonServiceCategoryEntry> _fixtureCategories =
       ),
     ];
 
+/// LIMITATION, READ BEFORE TRUSTING THIS FILE AS A LAYOUT GATE (mobile-qa
+/// 2026-09-14). [_host] mounts the accordion STANDALONE in a bare
+/// `SizedBox(width: width)`, so these goldens see the widget's OWN geometry
+/// and nothing above it. They do catch the accordion dropping its own
+/// `VelvetSpacing.lg` self-padding (mutation-verified: stripping it turns
+/// every scenario here red). They CANNOT catch a HOST that adds a second
+/// inset on top — which is precisely how the salon management profile shipped
+/// its «Послуги» tab at 48 dp per side while every golden in this file stayed
+/// green. The in-host gutter is pinned numerically instead, in the
+/// `tab-body horizontal gutter (360 dp)` group of BOTH
+/// `test/features/salon/presentation/salon_management_profile_screen_test.dart`
+/// and `.../public_salon_profile_screen_test.dart`. Do not "upgrade" a
+/// geometry claim about a host screen into a golden here.
 Widget _host(double width) => ColoredBox(
   color: BrandColors.base,
   child: SizedBox(

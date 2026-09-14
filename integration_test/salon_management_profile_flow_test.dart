@@ -46,6 +46,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
@@ -582,11 +583,21 @@ void main() {
         // tapping, mirroring `TapCalendarDay`'s own reasoning
         // (`test/helpers/pump_app.dart`): a blind tap at an off-screen offset
         // does not fail loudly, it silently mis-hits.
+        //
+        // mobile-perf LOW fix (2026-09-13) — the roster grid is now a
+        // genuinely lazy `SliverGrid.builder`, so the tile is not just
+        // scrolled-past but genuinely un-inflated at boot; a plain
+        // `ensureVisible` (which needs the target Element to already exist)
+        // now throws `Bad state: No element` instead of scrolling it in.
+        // Reuses [AppHarness.scrollFilterFieldIntoView] — the shared
+        // jump-to-0 + `scrollUntilVisible` recipe for exactly this shape.
         final Finder addStaffTile = find.byKey(
           const Key('salon-manage-add-staff'),
         );
-        await tester.ensureVisible(addStaffTile);
-        await tester.pumpAndSettle();
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-manage-add-staff'),
+        );
         await tester.tap(addStaffTile);
         await tester.pumpAndSettle();
 
@@ -796,6 +807,8 @@ void main() {
         final Finder masterCard = find.byKey(
           const Key('salon-manage-staff-card-master-aaa'),
         );
+        // Single shared roster-card reveal — no-ops for this row-0 target.
+        await AppHarness.revealRosterCard(tester, masterCard);
         await tester.ensureVisible(masterCard);
         await tester.pumpAndSettle();
         await tester.tap(masterCard);
@@ -853,6 +866,8 @@ void main() {
         final Finder adminCard = find.byKey(
           const Key('salon-manage-staff-card-admin-zzz'),
         );
+        // Single shared roster-card reveal — no-ops for this row-0 target.
+        await AppHarness.revealRosterCard(tester, adminCard);
         await tester.ensureVisible(adminCard);
         await tester.pumpAndSettle();
         await tester.tap(adminCard);
@@ -1185,6 +1200,193 @@ void main() {
           isNot(
             equals('/salons/$_kAdminSalonId/manage/settings/contacts-edit'),
           ),
+        );
+      });
+    },
+  );
+
+  // Phase 327 — the only end-to-end proof of D4 over the REAL wire, and
+  // also the FIRST test to prove `/profile/admin` is reachable in-app at
+  // all (the route's own comment in `app_router.dart` says nothing links
+  // there today). `salon-admin-1`'s `salonAdminOneStaff` fixture already
+  // seeds the logged-in admin's OWN row (`user-admin-1`, ==
+  // `_adminUserJson.id`) — see that fixture's own doc.
+  testWidgets(
+    'a SALON_ADMIN tapping their OWN «Команда» roster row opens their '
+    'PERSONAL profile, not the staff-management view of themselves',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+        await AppHarness.settle(tester);
+
+        router.go(RouteNames.salonManage(_kAdminSalonId));
+        await AppHarness.settle(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        // mobile-perf LOW fix (2026-09-13) — the roster grid is a genuinely
+        // lazy `SliverGrid.builder` (`_StaffTab`), and the self row is row 2
+        // of this fixture's 2-column grid — not yet inflated at boot, so a
+        // plain `ensureVisible` (which needs the target Element to already
+        // exist) throws. [AppHarness.revealRosterCard] is the single shared
+        // reveal for exactly this shape; it additionally gates on the grid
+        // having LOADED, so a genuinely missing roster reports a clean,
+        // attributed timeout instead of failing opaquely inside the scroll.
+        final Finder ownCard = find.byKey(
+          const Key('salon-manage-staff-card-user-admin-1'),
+        );
+        await AppHarness.revealRosterCard(tester, ownCard);
+        await tester.tap(ownCard);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(AdminOwnProfileScreen),
+          findsOneWidget,
+          reason:
+              "the admin's OWN roster row must open their PERSONAL "
+              'profile (D4), never SalonStaffProfileScreen',
+        );
+        expect(find.byType(SalonStaffProfileScreen), findsNothing);
+
+        // A working back chevron returns to the roster (D6) — no
+        // navigation-loop, one back-stack entry.
+        router.pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+      });
+    },
+  );
+
+  // ── mobile-qa (2026-09-14), Step 2.7 Rule 3b for the tab-gutter fix ─────
+  //
+  // WHAT THIS DOES *NOT* DO: it does not assert the 24 dp gutter. That number
+  // is pinned at the widget tier, twice over, on BOTH consumers of the shared
+  // padding widgets — `salon_management_profile_screen_test.dart` and
+  // `public_salon_profile_screen_test.dart`, group `tab-body horizontal
+  // gutter (360 dp)`. Re-measuring it here would add no signal: a fake HTTP
+  // backend contributes nothing to a padding computation, and this tier runs
+  // on an 800x600 `flutter-tester` surface, so the assertion would have to
+  // force `tester.view.physicalSize` to the SAME synthetic 360 dp viewport
+  // the widget tests already use. Same measurement, same fake viewport,
+  // slower — that is coverage theater, and mobile-qa declines it explicitly.
+  //
+  // WHAT IT DOES DO, and why Rule 3b is genuinely owed here: the fix changed
+  // BOTH the «Послуги» and «Відгуки» tab bodies' sliver shape — tab 2 went
+  // from `SliverPadding(sliver: _ServicesTab(...))` to a bare `_ServicesTab`
+  // contributing its own slivers, tab 3 from `SliverPadding(sliver:
+  // SliverToBoxAdapter(...))` to a bare `SliverToBoxAdapter`. Before today
+  // NEITHER tab had ever been opened in ANY integration flow: this file taps
+  // «Команда» three times and stops there, and the only E2E coverage of the
+  // services catalogue at all is on the CLIENT-facing
+  // `public_salon_profile_flow_test.dart` / `salon_service_filter_flow_test
+  // .dart`, a different screen with a different sliver tree. So the two tab
+  // bodies this change restructured had zero proof that their real
+  // `salonServiceCatalogProvider` / `salonReviewSummaryProvider` ->
+  // `HttpSalonRepository` -> generated-client path renders anything at all
+  // over a real wire. That is the gap, and it is what this leg closes.
+  //
+  // NO PATROL FLOW: no OS dialog, deep link, notification, WebView or
+  // biometric is involved — same rationale as this file's header.
+  testWidgets(
+    'a SALON_OWNER opens «Послуги» and «Відгуки» on their own salon and both '
+    'tab bodies render from a REAL wire fetch',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        // REQUIRED before `router.go(salonManage(...))`: `salonManageGuard`'s
+        // owner arm authorizes against the REAL `mySalonsProvider` list, so
+        // an unseeded `/salons/mine` bounces this navigation and the tab bar
+        // never mounts. (First draft of this test omitted it and failed on
+        // the «Послуги» tap with an empty finder — worth the comment.)
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // ── «Послуги» ──────────────────────────────────────────────────
+        await tester.tap(find.text(l10n.salonTabServices));
+        await tester.pumpAndSettle();
+
+        expect(
+          fb.getSalonServiceCatalogCalls,
+          1,
+          reason:
+              'opening «Послуги» must fetch the catalogue over the real wire '
+              'exactly once — 0 means the tab rendered without ever reaching '
+              'ServiceControllerApi.getSalonServiceCatalog',
+        );
+        expect(fb.lastGetSalonServiceCatalogId, _kSalonId);
+
+        // The accordion is the data branch. `salon-svc-shared` is a
+        // `_salonServiceCategories` fixture row, so finding its ROW key
+        // proves the wire payload was deserialized and rendered, not merely
+        // that some placeholder occupies the tab.
+        //
+        // REVEAL FIRST. `_ServicesTab` contributes a genuinely lazy
+        // `SliverList.builder` (`SalonServicesAccordion.sliver`) to the
+        // screen's ONE `CustomScrollView`, and `-d flutter-tester`'s window
+        // is 800x600 — below the cover + hero card + tab bar, the first
+        // category group is not merely scrolled past but NOT BUILT, so a
+        // bare `find.byKey` reports `findsNothing` for a tab that is in fact
+        // rendering correctly. Reuses the shared jump-to-0 +
+        // `scrollUntilVisible` recipe, same as the roster tile above.
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-service-row-salon-svc-shared'),
+        );
+        expect(
+          find.byKey(const Key('salon-service-row-salon-svc-shared')),
+          findsOneWidget,
+          reason:
+              'the fetched catalogue must reach SalonServicesAccordion. Note '
+              'the sliver shape this asserts: `_ServicesTab` contributes '
+              'SLIVERS directly to the screen\'s CustomScrollView now, with '
+              'no SliverPadding wrapper — a box widget spliced in where a '
+              'sliver is expected throws at layout, which this catches.',
+        );
+        expect(
+          find.byKey(const Key('salon-services-empty')),
+          findsNothing,
+          reason: 'a non-empty catalogue must not render the empty branch',
+        );
+
+        // ── «Відгуки» ──────────────────────────────────────────────────
+        await tester.tap(find.text(l10n.salonTabReviews));
+        await tester.pumpAndSettle();
+
+        expect(
+          fb.getSalonReviewSummaryCalls,
+          1,
+          reason:
+              'opening «Відгуки» must fetch the rating summary over the real '
+              'wire exactly once',
+        );
+        expect(fb.lastGetSalonReviewSummaryId, _kSalonId);
+        // Same reveal, same reason — the tab switch leaves the scroll offset
+        // where «Послуги» left it, so jump back to 0 before looking.
+        await AppHarness.scrollFilterFieldIntoView(
+          tester,
+          const Key('salon-review-summary-average'),
+        );
+        expect(
+          find.byKey(const Key('salon-review-summary-average')),
+          findsOneWidget,
+          reason:
+              'the fetched summary must reach SalonReviewsSection\'s '
+              'RatingSummaryCard, now mounted in a bare SliverToBoxAdapter',
         );
       });
     },

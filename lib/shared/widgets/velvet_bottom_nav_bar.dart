@@ -21,7 +21,19 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+
+/// Resolves one tile's localised label. A top-level function reference is a
+/// compile-time constant in Dart, so [_navItems] stays `const` — the labels
+/// move to ARB without the list losing its const-ness or any tile gaining a
+/// per-frame allocation.
+typedef _NavLabel = String Function(AppLocalizations l10n);
+
+String _servicesLabel(AppLocalizations l10n) => l10n.masterNavTabServices;
+String _bookingsLabel(AppLocalizations l10n) => l10n.masterNavTabBookings;
+String _scheduleLabel(AppLocalizations l10n) => l10n.masterNavTabSchedule;
+String _profileLabel(AppLocalizations l10n) => l10n.masterNavTabProfile;
 
 class _NavItem {
   const _NavItem({
@@ -32,7 +44,12 @@ class _NavItem {
 
   final IconData icon;
   final IconData activeIcon;
-  final String label;
+
+  /// Localised label resolver — see [_NavLabel]. Was a raw `String` holding a
+  /// hardcoded Ukrainian literal until the 2026-09-13 audit: a literal inside
+  /// a `const _NavItem(...)` record is exactly the helper-indirection shape
+  /// the `no_raw_ui_strings` CI gate cannot see statically.
+  final _NavLabel label;
 }
 
 /// Full left→right layout: [Послуги(0)] [Мої записи(1)] [Графік(2)] [Профіль(3)].
@@ -40,22 +57,22 @@ const List<_NavItem> _navItems = <_NavItem>[
   _NavItem(
     icon: Icons.design_services_outlined,
     activeIcon: Icons.design_services_rounded,
-    label: 'Послуги',
+    label: _servicesLabel,
   ),
   _NavItem(
     icon: Icons.event_note_outlined,
     activeIcon: Icons.event_note_rounded,
-    label: 'Мої записи',
+    label: _bookingsLabel,
   ),
   _NavItem(
     icon: Icons.calendar_month_outlined,
     activeIcon: Icons.calendar_month_rounded,
-    label: 'Графік',
+    label: _scheduleLabel,
   ),
   _NavItem(
     icon: Icons.person_outline,
     activeIcon: Icons.person_rounded,
-    label: 'Профіль',
+    label: _profileLabel,
   ),
 ];
 
@@ -87,6 +104,8 @@ class VelvetBottomNavBar extends StatelessWidget {
     required this.activeIndex,
     this.scheduleRoute,
     this.profileRoute,
+    this.servicesRoute,
+    this.bookingsRoute,
   });
 
   final int activeIndex;
@@ -103,6 +122,26 @@ class VelvetBottomNavBar extends StatelessWidget {
   /// means `RouteNames.masterProfile`, byte-identical to before this param
   /// existed. Same top-level-tab-root precondition as [scheduleRoute].
   final String? profileRoute;
+
+  /// Phase 321 D1 — additive override for tile 0's («Послуги») destination.
+  /// `null` (every current caller except `salon_master_profile_screen.dart`
+  /// and `master_schedule_screen.dart`) means `RouteNames.services`,
+  /// byte-identical to before this param existed. Same top-level-tab-root
+  /// precondition as [scheduleRoute] / [profileRoute].
+  final String? servicesRoute;
+
+  /// 2026-09-13 audit (M6) — additive override for tile 1's («Мої записи»)
+  /// destination, completing the four-tile override set. `null` (every
+  /// current caller) means [RouteNames.masterBookings], byte-identical to
+  /// before this param existed. Same top-level-tab-root precondition as
+  /// [scheduleRoute] / [profileRoute] / [servicesRoute].
+  ///
+  /// No caller passes it yet: a SALON_MASTER has no `/staff/*` bookings
+  /// counterpart, so tile 1 still bounces for that role by design (see
+  /// `salon_master_profile_screen.dart`'s header). The parameter exists so
+  /// the tile that DOES bounce is the one with a visible, documented seam
+  /// rather than the one silently missing one.
+  final String? bookingsRoute;
 
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
 
@@ -155,6 +194,8 @@ class VelvetBottomNavBar extends StatelessWidget {
                           active: i == activeIndex,
                           scheduleRoute: scheduleRoute,
                           profileRoute: profileRoute,
+                          servicesRoute: servicesRoute,
+                          bookingsRoute: bookingsRoute,
                         ),
                       ),
                   ],
@@ -176,6 +217,8 @@ class _VelvetNavTile extends StatelessWidget {
     required this.active,
     this.scheduleRoute,
     this.profileRoute,
+    this.servicesRoute,
+    this.bookingsRoute,
   });
 
   final _NavItem item;
@@ -183,6 +226,8 @@ class _VelvetNavTile extends StatelessWidget {
   final bool active;
   final String? scheduleRoute;
   final String? profileRoute;
+  final String? servicesRoute;
+  final String? bookingsRoute;
 
   /// Resolves the go_router path for a nav-bar [index]. Every index maps to
   /// its real destination; tapping the already-active tile resolves to
@@ -195,13 +240,13 @@ class _VelvetNavTile extends StatelessWidget {
   /// `GoRoute` in `app_router.dart`, never nested under another tab) — that
   /// is what makes `context.go` in [build] safe here specifically: see that
   /// call site's comment for why. An override passed via [scheduleRoute] /
-  /// [profileRoute] (Phase 310 D1/D2) MUST also be a top-level tab root for
-  /// the same reason.
+  /// [profileRoute] (Phase 310 D1/D2) / [servicesRoute] (Phase 321 D1) MUST
+  /// also be a top-level tab root for the same reason.
   String? _routeFor(int index) {
     if (active) return null;
     return switch (index) {
-      0 => RouteNames.services, // Послуги
-      1 => RouteNames.masterBookings, // Мої записи → Phase 7.6
+      0 => servicesRoute ?? RouteNames.services, // Послуги
+      1 => bookingsRoute ?? RouteNames.masterBookings, // Мої записи → Phase 7.6
       2 => scheduleRoute ?? RouteNames.masterSchedule, // Графік
       _ => profileRoute ?? RouteNames.masterProfile, // Профіль
     };
@@ -211,9 +256,10 @@ class _VelvetNavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color color = active ? BrandColors.accentDeep : BrandColors.muted;
     final String? route = _routeFor(index);
+    final String label = item.label(AppLocalizations.of(context));
 
     return Semantics(
-      label: item.label,
+      label: label,
       selected: active,
       button: true,
       child: GestureDetector(
@@ -277,7 +323,7 @@ class _VelvetNavTile extends StatelessWidget {
             Icon(active ? item.activeIcon : item.icon, size: 22, color: color),
             const SizedBox(height: 2),
             Text(
-              item.label,
+              label,
               // M-1 fix: pre-composed base; one copyWith for the dynamic color
               // instead of two allocations (feedback() + copyWith) per frame.
               style: VelvetText.navTabLabel.copyWith(color: color),

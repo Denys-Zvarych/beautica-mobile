@@ -14,6 +14,10 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
@@ -205,9 +209,22 @@ void main() {
 
   // ── build() error path ──────────────────────────────────────────────────────
   //
-  // build() delegates straight to repository.listMyServices() with no guard.
-  // When that future throws a Failure, the AsyncNotifier must surface the error
-  // as AsyncError carrying the original Failure — NOT crash and NOT swallow it.
+  // Since N2 (2026-09-10) build() no longer calls the repository itself — it
+  // watches `masterServiceCatalogProvider.future`, the app's single
+  // `GET /independent-masters/me/services`. A Failure thrown by the repository
+  // must still arrive HERE as AsyncError carrying the ORIGINAL Failure: the
+  // wrapper reads `.future` (never `.value`) precisely so an errored upstream
+  // surfaces as an error rather than as retained previous-account data.
+  //
+  // These tests hold a LIVE SUBSCRIPTION, which the pre-N2 versions did not
+  // need. That is not scaffolding — it is the contract. `_makeContainer`
+  // installs `beauticaProviderRetry`, and an unlistened wrapper never observes
+  // its upstream settling: the state stays AsyncLoading and `.future` stays
+  // PENDING FOREVER. (Verified 2026-09-10 to be equally true of the direct-fetch
+  // `masterServiceCatalogProvider` read the same way, so this is a Riverpod
+  // retry-policy property and not something the wrap introduced. Every
+  // production reader either watches the provider or reads it right after an
+  // invalidation that marks it dirty.)
 
   group('ServicesList.build (error path)', () {
     late _MockServiceRepository repo;
@@ -216,19 +233,70 @@ void main() {
       repo = _MockServiceRepository();
     });
 
-    test('build surfaces AsyncError when listMyServices throws', () async {
-      const failure = ServerFailure(statusCode: 500);
+    // MUTATION (2026-09-10): changed `ServicesList.build` to
+    // `ref.watch(masterServiceCatalogProvider).value` (the `.value` read the
+    // catalogue provider's header forbids) → this test FAILED: the wrapper
+    // reported AsyncData(null-ish) instead of the failure, which is exactly the
+    // retained-previous-account shape. Restored to `.future`.
+    test('build surfaces the upstream Failure as AsyncError', () async {
+      const failure = ServerFailure(statusCode: 400);
       when(() => repo.listMyServices()).thenThrow(failure);
 
       final container = _makeContainer(repo);
+      container.listen<Object?>(
+        servicesListProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
 
-      // Trigger the build and let the (rejected) future settle.
-      container.read(servicesListProvider);
-      await Future<void>.delayed(Duration.zero);
+      // A 400 is NOT transient (`isTransientFailure` only accepts 5xx), so the
+      // retry policy declines and the error settles in one hop — no sleeping on
+      // a backoff timer to make this deterministic.
+      await pumpEventQueue();
 
       final state = container.read(servicesListProvider);
       expect(state.hasError, isTrue);
       expect(state.error, same(failure));
+    });
+
+    // The N2 behaviour change worth pinning on its own: a TRANSIENT failure is
+    // retried by the UPSTREAM now, so the wrapper reports AsyncLoading while
+    // that is in flight instead of flashing an error state that the retry is
+    // about to replace. `services_list_screen.dart` renders `.when(error:)` for
+    // any AsyncError, so pre-N2 a retried 500 painted the full error body for
+    // one backoff window. The error must still arrive once retries are spent.
+    test('a TRANSIENT upstream failure shows loading while it retries, then '
+        'the error', () async {
+      const failure = ServerFailure(statusCode: 500);
+      when(() => repo.listMyServices()).thenThrow(failure);
+
+      final container = _makeContainer(repo);
+      container.listen<Object?>(
+        servicesListProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+
+      await pumpEventQueue();
+      final mid = container.read(servicesListProvider);
+      expect(
+        mid.hasError,
+        isFalse,
+        reason:
+            'the upstream is retrying — the list must not paint an error body '
+            'that is about to be replaced',
+      );
+      expect(mid.isLoading, isTrue);
+
+      // Retries exhaust (`_kMaxTransientRetries == 1`); the future then rejects
+      // with the ORIGINAL failure. Awaiting the rejection is what makes this
+      // deterministic — no fixed sleep on the backoff.
+      await expectLater(
+        container.read(servicesListProvider.future),
+        throwsA(same(failure)),
+      );
+      expect(container.read(servicesListProvider).error, same(failure));
+      verify(() => repo.listMyServices()).called(2);
     });
   });
 
@@ -310,6 +378,246 @@ void main() {
 
         // One failed + one successful refresh = two post-build calls.
         verify(() => repo.listMyServices()).called(2);
+      },
+    );
+  });
+
+  _identityWatchTests();
+}
+
+// ── build() session-identity watch ──────────────────────────────────────────
+//
+// mobile-security MEDIUM (2026-09-10), regression guard for the weakening the
+// N2 wrap introduced.
+//
+// Post-N2 `build()` reaches the repository only through
+// `masterServiceCatalogProvider.future`. That channel COALESCES: riverpod
+// publishes a new future only `if (_futureCompleter == null)`
+// (riverpod-3.1.0 `element.dart:81`). So while an upstream fetch is IN FLIGHT
+// an identity change rebuilds the upstream and publishes NO new future — and
+// without an explicit auth watch in `build()` the wrapper would never re-run,
+// leaving a `refresh()`-written `AsyncData` of the PREVIOUS account's list
+// live and renderable into the NEW session. Pre-N2 this was unreachable
+// because `build()` watched `serviceRepositoryProvider`, which IS rebuilt on
+// the auth boundary.
+//
+// The test is deliberately built so the upstream future is still PENDING at
+// the moment the identity changes (`upstream` is a Completer this test never
+// completes before asserting) — otherwise the settle would repair the state on
+// its own and the assertion would prove nothing.
+
+class _MutableAuthNotifier extends AuthNotifier {
+  _MutableAuthNotifier(this._initial);
+
+  final AuthSession _initial;
+
+  @override
+  Future<AuthSession> build() async => _initial;
+
+  void setSession(AuthSession session) =>
+      state = AsyncData<AuthSession>(session);
+}
+
+const User _master1 = User(
+  id: 'master-1',
+  email: 'master1@beautica.ua',
+  role: UserRole.independentMaster,
+  firstName: 'Оля',
+  lastName: 'Коваль',
+);
+
+const User _master2 = User(
+  id: 'master-2',
+  email: 'master2@beautica.ua',
+  role: UserRole.independentMaster,
+  firstName: 'Ірина',
+  lastName: 'Бондар',
+);
+
+const _master1Service = MasterService(
+  id: 'svc-m1',
+  serviceDefId: 'def-m1',
+  name: 'Манікюр майстра 1',
+  durationMinutes: 60,
+  priceMin: 500,
+);
+
+void _identityWatchTests() {
+  group('ServicesList.build (session identity)', () {
+    late _MockServiceRepository repo;
+
+    setUp(() {
+      repo = _MockServiceRepository();
+    });
+
+    test('an identity change during an IN-FLIGHT upstream fetch discards the '
+        'previous account\'s refresh()-written list', () async {
+      // 1. The upstream's very first fetch never settles during this test.
+      //    This is what keeps `masterServiceCatalogProvider`'s completer
+      //    outstanding, so a later rebuild publishes NO new `.future`.
+      final upstream = Completer<List<MasterService>>();
+      when(repo.listMyServices).thenAnswer((_) => upstream.future);
+
+      final auth = _MutableAuthNotifier(
+        const AuthSession.authenticated(user: _master1, accessToken: 'token-1'),
+      );
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: <Object>[
+          // cycle-stub-ok: servicesListProvider is the unit under test and the repository is its LEAF data dep; authProvider is overridden with a real AuthNotifier subclass, so the auth -> repository -> catalogue -> list edge this test exercises is the REAL graph, not a stubbed-out cycle.
+          serviceRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(() => auth),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      // A live subscription is the contract for this wrapper — an unlistened
+      // wrapper never observes its upstream at all (see the build() error-path
+      // group's header).
+      container.listen<Object?>(servicesListProvider, (_, _) {});
+      await pumpEventQueue();
+      expect(
+        container.read(servicesListProvider).isLoading,
+        isTrue,
+        reason: 'the upstream fetch is in flight, so the wrapper is loading',
+      );
+
+      // 2. Pull-to-refresh lands master-1's list by hand while that upstream
+      //    fetch is STILL pending. This is the state the hazard hides in.
+      when(
+        repo.listMyServices,
+      ).thenAnswer((_) async => const <MasterService>[_master1Service]);
+      await container.read(servicesListProvider.notifier).refresh();
+      expect(
+        container.read(servicesListProvider).asData?.value,
+        const <MasterService>[_master1Service],
+        reason: 'precondition: master-1\'s list is renderable',
+      );
+
+      // 3. NON-VACUITY: the upstream future the wrapper's build() is awaiting
+      //    must still be pending, or the identity change would be repaired by
+      //    the settle rather than by the watch under test.
+      expect(
+        upstream.isCompleted,
+        isFalse,
+        reason:
+            'the coalescing window only exists while the upstream completer '
+            'is outstanding — if this future has settled the test proves '
+            'nothing',
+      );
+
+      // 4. Log out, log in as master-2. Keep every subsequent fetch pending
+      //    too, so nothing can settle master-2 data into place and mask a
+      //    surviving master-1 list.
+      final afterIdentity = Completer<List<MasterService>>();
+      when(repo.listMyServices).thenAnswer((_) => afterIdentity.future);
+      auth.setSession(const AuthSession.unauthenticated());
+      auth.setSession(
+        const AuthSession.authenticated(user: _master2, accessToken: 'token-2'),
+      );
+      await pumpEventQueue();
+
+      // Still pending — the window never closed on its own.
+      expect(upstream.isCompleted, isFalse);
+      expect(afterIdentity.isCompleted, isFalse);
+
+      // 5. Master-1's catalogue must no longer be renderable. `asData` is the
+      //    right probe: `.value` deliberately still carries the retained list
+      //    in AsyncLoading/AsyncError (riverpod re-attaches it in
+      //    `copyWithPrevious`), which is exactly why every consumer reads
+      //    `asData?.value` / `.when`.
+      final state = container.read(servicesListProvider);
+      expect(
+        state.asData,
+        isNull,
+        reason:
+            'the auth boundary must re-run build(); a hand-set AsyncData from '
+            'master-1 surviving into master-2\'s session is the leak',
+      );
+      expect(
+        state.asData?.value.any(
+          (MasterService s) => s.name == _master1Service.name,
+        ),
+        isNot(isTrue),
+        reason: 'master-1 service names must not be renderable for master-2',
+      );
+
+      // Drain for a clean teardown.
+      upstream.complete(const <MasterService>[]);
+      afterIdentity.complete(const <MasterService>[]);
+      await pumpEventQueue();
+    });
+
+    // Counterpart to the test above: the identity watch must be NARROWED.
+    // `Authenticated`'s freezed equality includes `accessToken`, so a bare
+    // `ref.watch(authProvider)` re-runs `build()` on every silent token
+    // refresh — and re-running `build()` re-enters `handleFuture`, which
+    // publishes a transient `AsyncLoading` before the (already-complete)
+    // future resolves. On «Мої послуги» that is a spinner flash over a
+    // populated list, for the screen's whole session lifetime. Asserting only
+    // `verifyNever(listMyServices)` would NOT catch it (the refetch is deduped
+    // by the untouched upstream cache), so this test asserts on the EMISSIONS.
+    test(
+      'a silent token refresh for the SAME account emits nothing at all '
+      '— the identity watch is narrowed to the user id, not the session',
+      () async {
+        when(
+          repo.listMyServices,
+        ).thenAnswer((_) async => const <MasterService>[_master1Service]);
+
+        final auth = _MutableAuthNotifier(
+          const AuthSession.authenticated(
+            user: _master1,
+            accessToken: 'token-1',
+          ),
+        );
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            // cycle-stub-ok: servicesListProvider is the unit under test and the repository is its LEAF data dep; authProvider is overridden with a real AuthNotifier subclass, so the auth -> repository -> catalogue -> list edge this test exercises is the REAL graph, not a stubbed-out cycle.
+            serviceRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(() => auth),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+        await container.read(authProvider.future);
+
+        final emissions = <AsyncValue<List<MasterService>>>[];
+        container.listen<AsyncValue<List<MasterService>>>(
+          servicesListProvider,
+          (_, AsyncValue<List<MasterService>> next) => emissions.add(next),
+        );
+        await pumpEventQueue();
+        expect(container.read(servicesListProvider).hasValue, isTrue);
+        verify(repo.listMyServices).called(1);
+
+        // Everything up to here is setup; only what follows the token refresh
+        // is under test.
+        emissions.clear();
+
+        // Same user, new access token — `AuthNotifier.setAccessToken`'s shape.
+        auth.setSession(
+          const AuthSession.authenticated(
+            user: _master1,
+            accessToken: 'token-2',
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(
+          emissions,
+          isEmpty,
+          reason:
+              'a same-id session change must not re-run build(); an un-narrowed '
+              'watch republishes AsyncLoading and flashes the spinner over a '
+              'populated list on every silent token refresh',
+        );
+        verifyNever(repo.listMyServices);
+        expect(
+          container.read(servicesListProvider).asData?.value,
+          const <MasterService>[_master1Service],
+        );
       },
     );
   });

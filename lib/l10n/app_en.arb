@@ -1478,9 +1478,13 @@
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
   },
 
-  "servicesTitle": "My Services",
+  "servicesTitle": "Services",
   "@servicesTitle": {
-    "description": "Title for services list screen (Phase 5.2)."
+    "description": "Title for services list screen (Phase 5.2). Shared verbatim across an independent master managing their own catalogue, an owner/admin managing a staff master's catalogue, and a salon master viewing their own catalogue read-only — keep role-neutral."
+  },
+  "servicesListBackSemanticLabel": "Back",
+  "@servicesListBackSemanticLabel": {
+    "description": "Phase 323 — accessible label for the ServicesListScreen AppBar back arrow, supplied only on the SALON_OWNER / SALON_ADMIN route /salons/:salonId/manage/staff/:memberId/services (showBack: true). Its OWN key rather than a reuse of registerBackStep / salonProfileBackLabel, following this file's documented per-screen back-label convention (see salonPendingInvitesBackSemanticLabel): separate surfaces must be free to diverge."
   },
   "servicesAdd": "Add service",
   "@servicesAdd": {
@@ -1722,6 +1726,10 @@
       "count": { "type": "int" }
     }
   },
+  "servicesCardEditSemanticVerb": "Edit",
+  "@servicesCardEditSemanticVerb": {
+    "description": "Action verb appended to a service card's accessibility label when the card is tappable and opens the edit form. Announced by a screen reader only; never rendered as visible text."
+  },
   "categoryRequestTitle": "Suggest a category",
   "@categoryRequestTitle": {
     "description": "Title of the suggest-a-category dialog."
@@ -1846,13 +1854,17 @@
   },
   "deleteServiceBlockedBody": "{count, plural, one{{count} future booking exists. Cancel it first.} other{{count} future bookings exist. Cancel them first.}}",
   "@deleteServiceBlockedBody": {
-    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5).",
+    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5). RETAINED but rendered nowhere as of Phase 319 — the backend's 409 carries no structured count (phase 316 D3); this plural waits for a future structured-count response. See deleteServiceBlockedBodyNoCount for the string actually rendered today.",
     "placeholders": {
       "count": {
         "type": "int",
         "example": "3"
       }
     }
+  },
+  "deleteServiceBlockedBodyNoCount": "This service has future bookings. Cancel them first.",
+  "@deleteServiceBlockedBodyNoCount": {
+    "description": "Body text of the delete-service blocked dialog (Phase 319 D2), shown when a salon-target unassign is refused with a 409 ServiceUnassignBlockedFailure. The backend's refusal carries no structured booking count (a plain-English Java string), so this body deliberately states NO count — rendering deleteServiceBlockedBody(0) here would be a false claim of zero future bookings."
   },
   "actionCancel": "Cancel",
   "@actionCancel": {
@@ -4179,9 +4191,9 @@
   "@masterCreateBookingServiceEmptyTitle": {
     "description": "Empty-state title on the master booking wizard's service step when the master has no services yet."
   },
-  "masterCreateBookingServiceEmptyBody": "Add a service under \"My services\" to create a booking.",
+  "masterCreateBookingServiceEmptyBody": "Add a service under \"Services\" to create a booking.",
   "@masterCreateBookingServiceEmptyBody": {
-    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet."
+    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet. Names the services list screen by its servicesTitle label — keep the two in sync if either changes."
   },
   "masterCreateBookingGuestLabel": "Client",
   "@masterCreateBookingGuestLabel": {
@@ -5339,6 +5351,20 @@
   "@staffProfileScheduleNotSet": {
     "description": "Phase 312, D3/D11 — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen (master branch) when the viewed master has no weekly template (an AsyncData with an empty/no-working-day schedule list). Do NOT reuse this for an AsyncError on the same row — that renders '—' instead, since «Не задано» would assert a fact (no schedule set) the app does not actually have."
   },
+  "staffProfileServicesCount": "{count, plural, one{{count} service} other{{count} services}}",
+  "@staffProfileServicesCount": {
+    "description": "Phase 318, D3 — trailing value of the «Послуги» SettingsRow on SalonStaffProfileScreen (master branch): the active-service count already backing the services stat tile at the top of the same screen (no second fetch — see `salonStaffMemberProfileProvider`). Phase 325 carries this onto the `ManagementActionCard` value line for a NON-EMPTY catalogue only — an empty one uses `staffProfileServicesEmpty` instead (see D3), never `staffProfileServicesCount(0)`.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "staffProfileServicesEmpty": "None yet",
+  "@staffProfileServicesEmpty": {
+    "description": "Phase 325, D3 — the services `ManagementActionCard`'s value line when the viewed master has zero active services (a genuinely-resolved empty catalogue, distinct from a failed load — see the screen's own D3 comment). Transcribed verbatim from the approved preview (`docs/signup-designs/SalonServicesEntryPath`)."
+  },
   "salonSettingsMySalons": "My salons",
   "@salonSettingsMySalons": {
     "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."
@@ -6196,5 +6222,21 @@
         "example": "Velvet"
       }
     }
+  },
+  "masterNavTabServices": "Services",
+  "@masterNavTabServices": {
+    "description": "VelvetBottomNavBar tile 0 label on the master surface (INDEPENDENT_MASTER and SALON_MASTER). Deliberately its OWN key rather than a reuse of `servicesTitle`: the app-bar title and the nav-tab label happen to read the same today, but they are two independent copy decisions on two different surfaces and must be free to diverge. Was a hardcoded literal inside `velvet_bottom_nav_bar.dart` until the 2026-09-13 audit (the `no_raw_ui_strings` gate cannot see a string held in a `const _NavItem` record)."
+  },
+  "masterNavTabBookings": "My bookings",
+  "@masterNavTabBookings": {
+    "description": "VelvetBottomNavBar tile 1 label on the master surface. Own key for the same reason as masterNavTabServices — `masterBookingsTitle` is the SCREEN title and must stay free to diverge from the tab label."
+  },
+  "masterNavTabSchedule": "Schedule",
+  "@masterNavTabSchedule": {
+    "description": "VelvetBottomNavBar tile 2 label on the master surface. Short form, not the schedule screen's own longer title."
+  },
+  "masterNavTabProfile": "Profile",
+  "@masterNavTabProfile": {
+    "description": "VelvetBottomNavBar tile 3 label on the master surface."
   }
 }

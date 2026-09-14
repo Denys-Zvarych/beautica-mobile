@@ -97,6 +97,9 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'AccountDeleteBookingLimitFailure': false,
   'DuplicateServiceFailure': false,
   'ServiceDuplicateFailure': false,
+  // 409 on salon-target unassign (phase 316 D2/D4) — backend refuses before
+  // any write when future CONFIRMED bookings exist; deterministic.
+  'ServiceUnassignBlockedFailure': false,
   'ClientBookingConflictFailure': false,
   'BookingAlreadyElapsedFailure': false,
   'ProviderDeclineWindowClosedFailure': false,
@@ -174,6 +177,7 @@ Map<String, Failure> _instances() {
     ),
     'DuplicateServiceFailure': const DuplicateServiceFailure(),
     'ServiceDuplicateFailure': const ServiceDuplicateFailure(),
+    'ServiceUnassignBlockedFailure': const ServiceUnassignBlockedFailure(),
     'ClientBookingConflictFailure': ClientBookingConflictFailure(
       conflictingBookingId: 'booking-1',
       serviceName: 'Манікюр',

@@ -255,6 +255,14 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   MasterBookingDuplicateFailure() => false,
   DuplicateServiceFailure() => false,
   ServiceDuplicateFailure() => false,
+  // 409 on salon-target unassign (phase 316 D2/D4) — the backend refuses
+  // BEFORE any write when the master still has future CONFIRMED bookings for
+  // the service; an identical retry meets the identical booking set and 409s
+  // again. Recovery is a deliberate user action (cancel the blocking bookings
+  // first, or wait), never an automatic re-issue. Also effectively advisory
+  // in practice — deactivate() runs through a notifier mutation, never a
+  // provider build.
+  ServiceUnassignBlockedFailure() => false,
   ClientBookingConflictFailure() => false,
   BookingAlreadyElapsedFailure() => false,
   ProviderDeclineWindowClosedFailure() => false,

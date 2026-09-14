@@ -26,12 +26,14 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +41,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../integration_test/support/app_harness.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +64,51 @@ const _stubService = MasterService(
 );
 
 const _stubServiceList = <MasterService>[_stubService];
+
+/// Laid-out width of a [ServiceInfo] name column on [ServicesListScreen] at a
+/// pinned 360 dp phone width — the END-TO-END half of Phase 323's "+66 dp"
+/// claim (see the geometry group at the bottom of this file).
+///
+/// Derivation, so a future reader can tell a legitimate design change from a
+/// regression rather than just re-blessing whatever the tree now draws:
+///   360      viewport
+///   -32      the cards ListView's `VelvetSpacing.lg` insets (16 each side)
+///   -16      [CategorySection]'s own `VelvetSpacing.sm` insets (8 each side)
+///   ----
+///   312      the card's own laid-out width
+///   -16      the card's `VelvetSpacing.sm` insets (8 each side)
+///   -36      `ServiceCard.leadingIndent` — the alignment indent that puts the
+///            name under its category title (`CategorySection.headerTitleInset`
+///            16+20+8 = 44, minus the card's own 8 dp leading inset)
+///    -4      `VelvetSpacing.xs` gap before the trailing affordance
+///   -22      `_kEditAffordanceSize` edit pillow / blank slot
+///   ----
+///   234
+/// The pre-Phase-323 tree spent a further 50 (photo well + its 10 dp gap),
+/// 4 (10 dp card insets), 4 (8 dp trailing gap) and 8 (30 dp pillow) = 66 dp
+/// of that, leaving a 204 dp name column on the same phone. Re-pinned 270 →
+/// 234 when the indent went back in: dropping the well had also dropped the
+/// only thing indenting the name, leaving it 36 dp LEFT of its own heading.
+/// 30 of the original 50 dp reclaim survives.
+const double _kNameColumnWidthAt360 = 234.0;
+
+/// Geometry fixture for the Phase 323 group — identical to [_stubService]
+/// except that it carries a category, so the screen can be mounted with
+/// `initialExpandCategory: 'HAIRCUT'` and the card is laid out WITHOUT a tap.
+///
+/// The name is deliberately long enough to fill the column: a short name would
+/// leave the [ServiceInfo] column's own width unconstrained-looking and the
+/// reclaim assertions would read the same number whether the trims landed or
+/// not (`project_fixture_values_can_defang_assertions`).
+const _geomService = MasterService(
+  id: 'svc-001',
+  serviceDefId: 'def-001',
+  name: 'Складне фарбування довгого волосся з доглядом',
+  category: 'HAIRCUT',
+  durationMinutes: 45,
+  priceMin: 750,
+  priceDisplay: '750 ₴',
+);
 
 /// The default approved-category list. approvedCategoriesProvider now fetches
 /// DIRECTLY (not through the repository), so it must be overridden in-scope;
@@ -512,6 +560,327 @@ void main() {
     // Verify the correct path was resolved.
     final expectedPath = RouteNames.serviceEdit(_stubService.id);
     expect(expectedPath, '/services/svc-001/edit');
+  });
+
+  // ── 6b. Phase 317 D3 — the two additive, nullable destination parameters ───
+  //
+  // `null` must mean exactly what the screen did before phase 317, so every
+  // caller shipped today renders and navigates identically. Both halves are
+  // here on purpose: the OMITTED case is the "nothing changed" proof (and the
+  // one most likely to be vacuous if skipped), the SUPPLIED case is the proof
+  // the parameters are actually threaded rather than accepted and ignored.
+  //
+  // Destinations are asserted by the PAGE that builds, never by a location
+  // string — go_router's literal-before-dynamic shadowing makes a string
+  // assertion pass while a different page mounts
+  // (`project_gorouter_literal_before_dynamic_shadowing`).
+
+  group('Phase 317 D3 — setupRoute / editRouteBuilder', () {
+    const String kSalonId = 'salon-S';
+    const String kMemberId = 'user-U';
+
+    String salonSetup() =>
+        RouteNames.salonManageStaffServiceSetup(kSalonId, kMemberId);
+    String salonEdit(String id) =>
+        RouteNames.salonManageStaffServiceEdit(kSalonId, kMemberId, id);
+
+    /// A router carrying BOTH destination families, each landing on a
+    /// DISTINCTLY LABELLED dummy page, so "which page mounted" answers "which
+    /// destination was pushed".
+    GoRouter routerFor(ServicesListScreen screen) => GoRouter(
+      initialLocation: RouteNames.services,
+      routes: <RouteBase>[
+        GoRoute(path: RouteNames.services, builder: (_, _) => screen),
+        GoRoute(
+          path: RouteNames.serviceSetup,
+          builder: (_, _) => const _DummyPage(label: 'own-setup'),
+        ),
+        GoRoute(
+          path: '/services/:id/edit',
+          builder: (_, _) => const _DummyPage(label: 'own-edit'),
+        ),
+        GoRoute(
+          path: '/salons/:salonId/manage/staff/:memberId/services/setup',
+          builder: (_, _) => const _DummyPage(label: 'salon-setup'),
+        ),
+        GoRoute(
+          path:
+              '/salons/:salonId/manage/staff/:memberId/services'
+              '/:serviceId/edit',
+          builder: (_, _) => const _DummyPage(label: 'salon-edit'),
+        ),
+      ],
+    );
+
+    Future<void> pumpWith(
+      WidgetTester tester,
+      ServicesListScreen screen, {
+      required AsyncValue<List<MasterService>> services,
+    }) async {
+      await tester.pumpRoutedApp(
+        routerFor(screen),
+        overrides: [
+          _servicesOverride(services),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    /// Taps the extended FAB. `_NeumorphicExtendedFab` wraps an
+    /// `AnimatedScale` (0.97 on press), so a tap addressed at the keyed root
+    /// can miss its hit box mid-animation. The remedy is a better finder — the
+    /// `GestureDetector` that actually receives the pointer — never
+    /// `warnIfMissed: false` (`project_animatedscale_root_breaks_tap_by_key`).
+    Future<void> tapFab(WidgetTester tester) async {
+      final Finder fab = find.byKey(const Key('btn-create-service'));
+      expect(fab, findsOneWidget);
+      await tester.tap(
+        find.descendant(of: fab, matching: find.byType(GestureDetector)).first,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'OMITTED — the FAB pushes RouteNames.serviceSetup (own), unchanged',
+      (tester) async {
+        await pumpWith(
+          tester,
+          const ServicesListScreen(),
+          services: const AsyncData(_stubServiceList),
+        );
+
+        await tapFab(tester);
+
+        expect(find.text('Dummy own-setup'), findsOneWidget);
+        expect(find.text('Dummy salon-setup'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'OMITTED — the EMPTY-STATE CTA pushes RouteNames.serviceSetup (own), '
+      'unchanged',
+      (tester) async {
+        await pumpWith(
+          tester,
+          const ServicesListScreen(),
+          services: const AsyncData(<MasterService>[]),
+        );
+
+        await tester.tap(find.byKey(const Key('btn-create-service-empty')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Dummy own-setup'), findsOneWidget);
+        expect(find.text('Dummy salon-setup'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      "OMITTED — a card's onEdit pushes RouteNames.serviceEdit (own), "
+      'unchanged',
+      (tester) async {
+        await pumpWith(
+          tester,
+          const ServicesListScreen(),
+          services: const AsyncData(_stubServiceList),
+        );
+
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('service_card_svc-001')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Dummy own-edit'), findsOneWidget);
+        expect(find.text('Dummy salon-edit'), findsNothing);
+      },
+    );
+
+    testWidgets('SUPPLIED — the FAB pushes the SALON setup leaf', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        ServicesListScreen(
+          setupRoute: salonSetup(),
+          editRouteBuilder: salonEdit,
+        ),
+        services: const AsyncData(_stubServiceList),
+      );
+
+      await tapFab(tester);
+
+      expect(find.text('Dummy salon-setup'), findsOneWidget);
+      expect(find.text('Dummy own-setup'), findsNothing);
+    });
+
+    testWidgets('SUPPLIED — the EMPTY-STATE CTA pushes the SALON setup leaf', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        ServicesListScreen(
+          setupRoute: salonSetup(),
+          editRouteBuilder: salonEdit,
+        ),
+        services: const AsyncData(<MasterService>[]),
+      );
+
+      await tester.tap(find.byKey(const Key('btn-create-service-empty')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Dummy salon-setup'), findsOneWidget);
+      expect(find.text('Dummy own-setup'), findsNothing);
+    });
+
+    testWidgets("SUPPLIED — a card's onEdit pushes the SALON edit leaf", (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        ServicesListScreen(
+          setupRoute: salonSetup(),
+          editRouteBuilder: salonEdit,
+        ),
+        services: const AsyncData(_stubServiceList),
+      );
+
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('service_card_svc-001')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Dummy salon-edit'), findsOneWidget);
+      expect(find.text('Dummy own-edit'), findsNothing);
+    });
+  });
+
+  // ── 6c. Phase 320 — writable flag ───────────────────────────────────────────
+  //
+  // D1: additive, defaults to `true`. The "omitted" proof already exists —
+  // every OTHER test in this file mounts `ServicesListScreen()` without ever
+  // passing `writable` and still sees the FAB (test 5), the empty-state CTA
+  // (test 3) and a navigating card (test 6). Flipping the default to `false`
+  // (mutation check 1) breaks all three, which is exactly the regression this
+  // phase's own default must never reintroduce. This group covers ONLY the
+  // `writable: false` half: affordances 1-3 absent, the services themselves
+  // still rendered.
+
+  group('Phase 320 — writable: false removes write affordances only', () {
+    testWidgets(
+      'non-empty list — FAB absent, the card and its section still render, '
+      'but tapping the card navigates nowhere',
+      (tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.services,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.services,
+              builder: (context, state) =>
+                  const ServicesListScreen(writable: false),
+            ),
+            GoRoute(
+              path: '/services/create',
+              builder: (context, state) => const _DummyPage(label: 'create'),
+            ),
+            GoRoute(
+              path: '/services/:id/edit',
+              builder: (context, state) => const _DummyPage(label: 'edit'),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: [
+            _servicesOverride(const AsyncData(_stubServiceList)),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+
+        // Affordance 1 — hidden, not disabled.
+        expect(find.byKey(const Key('btn-create-service')), findsNothing);
+
+        // The services themselves still render — a read-only viewer sees
+        // their catalogue. _stubService has no category, so it lands in the
+        // uncategorized bucket (starts collapsed); expand it before
+        // asserting on card content.
+        expect(find.byKey(const Key('category_section__none')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+        expect(find.text('Стрижка'), findsOneWidget);
+        expect(find.text('750 ₴'), findsOneWidget);
+        expect(find.text('45 хв'), findsOneWidget);
+
+        // Affordance 3, structural half: the card carries NO GestureDetector
+        // at all — "not tappable", never "tappable, does nothing" (D3). A
+        // behavioural-only "no navigation" check below cannot distinguish a
+        // genuinely non-tappable card from one wired to a no-op callback
+        // (mutation check 3 proved this: swapping the screen's `null` for
+        // `() {}` left the navigation assertion green).
+        final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+        expect(
+          find.descendant(
+            of: cardFinder,
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'writable: false must pass a null onEdit, not a no-op '
+              'callback — a GestureDetector here means the card is still '
+              '"tappable, does nothing"',
+        );
+
+        // Affordance 3, behavioural half — tapping the card performs NO
+        // navigation. Pin the resolved location before and after via the
+        // push-safe helper
+        // (`forbid_naive_router_location.sh` — a direct `.uri`/`.fullPath`
+        // read keeps reporting the PRE-push location forever for an
+        // ImperativeRouteMatch, so it would vacuously "pass" even if a push
+        // DID happen), not merely the absence of an exception
+        // (project_gorouter_imperative_match_fullpath).
+        final String before = AppHarness.location(router);
+        await tester.tap(find.byKey(const Key('service_card_svc-001')));
+        await tester.pumpAndSettle();
+        final String after = AppHarness.location(router);
+        expect(after, before, reason: 'a read-only card tap must not push');
+        expect(find.text('Dummy edit'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'empty list — empty-state copy still renders, only the CTA is absent',
+      (tester) async {
+        await tester.pumpApp(
+          const ServicesListScreen(writable: false),
+          overrides: [
+            _servicesOverride(const AsyncData(<MasterService>[])),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ServicesListScreen)),
+        );
+        // Positive half — a `findsNothing`-only test would also pass on a
+        // blank screen; prove the copy is actually there.
+        expect(find.text(l10n.servicesEmpty), findsOneWidget);
+        expect(find.text(l10n.servicesEmptyBody), findsOneWidget);
+        // Negative half — affordances 1 and 2, both absent.
+        expect(find.byKey(const Key('btn-create-service-empty')), findsNothing);
+        expect(find.byKey(const Key('btn-create-service')), findsNothing);
+      },
+    );
   });
 
   // ── 7. Ukrainian plural forms for _serviceWordUk ───────────────────────────
@@ -1292,6 +1661,74 @@ void main() {
       expect(find.text('Манікюр'), findsOneWidget);
     });
 
+    // N2 (2026-09-10) — the error state's RETRY BUTTON. The group above covers
+    // a retry that STILL FAILS (error state stays put), which a retry button
+    // that never fetched at all would also satisfy; nothing covered the
+    // recovery path, so nothing could tell a working button from a no-op one.
+    //
+    // `servicesListProvider` is now a view over `masterServiceCatalogProvider`,
+    // the app's single GET, so what the button must ultimately do is drop THAT
+    // cache. It calls `invalidateMasterServiceCatalogues` for that reason.
+    //
+    // MUTATION (2026-09-10): reverted `onRetry` to
+    // `ref.invalidate(servicesListProvider)` → this test stayed GREEN. Reported
+    // rather than hidden: the screen holds a live subscription, so the rebuilt
+    // wrapper re-watches the errored upstream and Riverpod re-runs it. The old
+    // form was therefore not broken; the helper is used for guard uniformity
+    // (see this screen's `onRetry` comment), not to fix a bug. What this test
+    // DOES pin is that the button re-fetches and recovers at all — break the
+    // fetch and it goes red.
+    //
+    // `retry: (_, _) => null` disables Riverpod's own failed-build retry, so
+    // `calls` counts the button and nothing else — see pump_app.dart's knob.
+    testWidgets(
+      'the error-state RETRY BUTTON re-fetches and recovers to the list',
+      (tester) async {
+        var calls = 0;
+        when(() => mockRepo.listMyServices()).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkFailure();
+          return _stubServiceList;
+        });
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          retry: (_, _) => null,
+          overrides: [
+            _repoBackedOverride(),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byKey(const Key('services_error_state')), findsOneWidget);
+        expect(calls, 1);
+
+        await tester.tap(find.byKey(const Key('error_state_retry_button')));
+        await tester.pumpAndSettle();
+
+        expect(
+          calls,
+          2,
+          reason:
+              'the retry button must drop the SHARED catalogue cache — '
+              'invalidating the wrapper alone re-reads the errored upstream '
+              'and never asks the server again',
+        );
+        expect(
+          find.byKey(const Key('services_error_state')),
+          findsNothing,
+          reason: 'a successful retry must clear the error state',
+        );
+
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+      },
+    );
+
     testWidgets(
       'pull-to-refresh on the error state re-fetches and recovers to the list',
       (tester) async {
@@ -1345,5 +1782,422 @@ void main() {
         expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
       },
     );
+  });
+
+  // ── Regression — servicesTitle must stay role-neutral ─────────────────────
+  //
+  // ServicesListScreen is reused verbatim across three journeys: an
+  // INDEPENDENT_MASTER managing their own catalogue (writable: true, the
+  // default), a SALON_OWNER/SALON_ADMIN managing a staff master's catalogue
+  // (writable: true, different setup/edit targets), and a SALON_MASTER
+  // reading their own catalogue (writable: false). A possessive or
+  // role-conditional title would be wrong on two of those three journeys.
+  //
+  // This pins the invariant directly on what RENDERS, not on the l10n getter:
+  // `expect(l10n.servicesTitle, 'Послуги')` is self-referential and would
+  // stay green even if the value were restored to "Мої послуги" or made
+  // role-conditional — this file's ARB history did exactly the former.
+  group('Regression — servicesTitle stays role-neutral', () {
+    Future<String> pumpAndReadAppBarTitle(
+      WidgetTester tester, {
+      required bool writable,
+      required Locale locale,
+    }) async {
+      await tester.pumpApp(
+        ServicesListScreen(writable: writable),
+        overrides: [
+          _servicesOverride(const AsyncData(_stubServiceList)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+        locale: locale,
+      );
+      await tester.pump();
+      await tester.pump();
+      final Text titleText = tester.widget<Text>(
+        find.descendant(of: find.byType(AppBar), matching: find.byType(Text)),
+      );
+      return titleText.data ?? '';
+    }
+
+    testWidgets(
+      'uk — the writable (independent-master) and read-only (salon-master) '
+      'journeys render the identical AppBar title',
+      (tester) async {
+        final String writableTitle = await pumpAndReadAppBarTitle(
+          tester,
+          writable: true,
+          locale: const Locale('uk'),
+        );
+        final String readOnlyTitle = await pumpAndReadAppBarTitle(
+          tester,
+          writable: false,
+          locale: const Locale('uk'),
+        );
+
+        expect(
+          readOnlyTitle,
+          writableTitle,
+          reason:
+              'the title must not vary by role/writable — a role-conditional '
+              'title is locked out for this verbatim-reused screen',
+        );
+      },
+    );
+
+    testWidgets('uk — the rendered title carries no possessive marker', (
+      tester,
+    ) async {
+      final String title = await pumpAndReadAppBarTitle(
+        tester,
+        writable: true,
+        locale: const Locale('uk'),
+      );
+
+      expect(
+        title.toLowerCase(),
+        isNot(contains('мої')),
+        reason:
+            'a possessive title ("Мої послуги") asserts ownership that is '
+            'false on the salon-owner/admin and salon-master journeys',
+      );
+    });
+
+    testWidgets('en — the rendered title carries no possessive marker', (
+      tester,
+    ) async {
+      final String title = await pumpAndReadAppBarTitle(
+        tester,
+        writable: true,
+        locale: const Locale('en'),
+      );
+
+      expect(
+        RegExp(r'\bmy\b', caseSensitive: false).hasMatch(title),
+        isFalse,
+        reason:
+            'a possessive title ("My Services") asserts ownership that is '
+            'false on the salon-owner/admin and salon-master journeys',
+      );
+    });
+  });
+
+  // ── 7. Phase 323 — CARD GEOMETRY ON THE REAL SCREEN ───────────────────────
+  //
+  // WHY THIS GROUP EXISTS (mobile-qa gap closure, 2026-09-14).
+  //
+  // Phase 323's headline claim is "+66 dp of text width on the services
+  // management page". The change reaches that number through FOUR independent
+  // trims, three of which had NO non-golden coverage at any layer:
+  //
+  //   50 dp  the leading PhotoThumbnail well + its 10 dp gap
+  //          (`ServiceCard.showPhoto: false`)                   ← covered, but
+  //          only in `service_category_list_test.dart`, on a BARE ServiceCard
+  //          the test itself constructs. That case proves the PARAMETER works;
+  //          it cannot prove `services_list_screen.dart` actually passes it.
+  //    4 dp  horizontal card padding `sm + 2` (10) → `sm` (8), both sides
+  //    4 dp  trailing gap `sm` (8) → `xs` (4)
+  //    8 dp  the edit affordance 30 → `_kEditAffordanceSize` (22)
+  //   ─────
+  //   66 dp
+  //
+  // The last three were pinned by NOTHING but regenerated golden baselines,
+  // and a regenerated baseline is self-referential
+  // (`feedback_golden_not_acceptance`) — it re-blesses whatever the code now
+  // draws. These goldens are weaker still: the test environment has no font,
+  // so glyphs render as solid filled blocks and the goldens prove geometry
+  // only.
+  //
+  // So this group asserts the trims from the LAID-OUT RENDER TREE on the real
+  // screen, never from widget fields (`project_widget_field_assertion_is_vacuous`
+  // — reading `_EditButton`'s `height: 22` would pass even if the Row never
+  // laid it out).
+
+  group('Phase 323 — card geometry on the real screen', () {
+    /// Pumps the populated screen at a pinned 360 dp phone width, expands the
+    /// uncategorized bucket and returns the laid-out card + name-column boxes.
+    ///
+    /// 360 dp and devicePixelRatio 1.0 make every number below a LOGICAL
+    /// pixel count that is reproducible on any host.
+    Future<({RenderBox card, RenderBox info})> pumpAndMeasure(
+      WidgetTester tester, {
+      bool writable = true,
+    }) async {
+      await tester.pumpApp(
+        // `initialExpandCategory` rather than a tap on the section header:
+        // the parity case below pumps this helper TWICE in one body, and the
+        // outgoing MaterialApp's route transition keeps an `IgnorePointer`
+        // over the second tree long enough that a tap misses. Expanding
+        // declaratively removes the gesture entirely — never
+        // `warnIfMissed: false`
+        // (`project_animatedscale_root_breaks_tap_by_key`).
+        ServicesListScreen(
+          writable: writable,
+          initialExpandCategory: 'HAIRCUT',
+        ),
+        overrides: [
+          _servicesOverride(const AsyncData(<MasterService>[_geomService])),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+        width: 360,
+        height: 800,
+      );
+      await tester.pump();
+      await tester.pump();
+      // fixed-wait-ok: draining ServiceCard's 460 ms staggered entrance
+      // before measuring the laid-out boxes.
+      await tester.pump(const Duration(milliseconds: 600));
+
+      final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+      expect(
+        cardFinder,
+        findsOneWidget,
+        reason:
+            'anti-vacuity — nothing below means anything if the card that '
+            'is supposed to be measured never rendered',
+      );
+      return (
+        card: tester.renderObject<RenderBox>(cardFinder),
+        info: tester.renderObject<RenderBox>(
+          find.descendant(of: cardFinder, matching: find.byType(ServiceInfo)),
+        ),
+      );
+    }
+
+    testWidgets(
+      'the name column consumes the whole card minus EXACTLY 78 dp of chrome '
+      '(8+8 padding, 36 alignment indent, 4 trailing gap, 22 edit affordance) '
+      '— no photo well',
+      (tester) async {
+        final boxes = await pumpAndMeasure(tester);
+
+        // The composite pin. Each of Phase 323's four trims moves this number
+        // and nothing else on this screen does (re-pinned 42 → 78 when the
+        // 36 dp alignment indent went back in):
+        //   showPhoto back to `true`      → 128, not 78
+        //   padding back to `sm + 2` (10) → 82
+        //   trailing gap back to `sm` (8) → 82
+        //   edit affordance back to 30    → 86
+        //   leadingIndent dropped to 0    → 42
+        expect(
+          boxes.card.size.width - boxes.info.size.width,
+          78.0,
+          reason:
+              'Phase 323 chrome budget: 8 dp left inset + 8 dp right inset + '
+              '36 dp (ServiceCard.leadingIndent) alignment indent + '
+              '4 dp (VelvetSpacing.xs) trailing gap + 22 dp '
+              '(_kEditAffordanceSize) edit pillow, and NO 50 dp photo well — '
+              'the screen must pass `showPhoto: false`',
+        );
+
+        // The absolute half of the claim. Before Phase 323 this screen gave a
+        // 360 dp phone 30 dp LESS room for a service name; pinning the number
+        // end-to-end is what catches a regression introduced anywhere ABOVE
+        // the card (the ListView's `lg` insets, CategorySection's own inset)
+        // rather than inside it.
+        expect(
+          boxes.info.size.width,
+          _kNameColumnWidthAt360,
+          reason:
+              'the +30 dp net reclaim measured end-to-end on a 360 dp phone '
+              '(66 dp of trims, 36 dp given back as the alignment indent): '
+              'anything less means a caller, a list inset or a card trim '
+              'regressed',
+        );
+
+        // And the well is genuinely gone from the real screen, not merely
+        // sized to zero.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('service_card_svc-001')),
+            matching: find.byType(PhotoThumbnail),
+          ),
+          findsNothing,
+          reason:
+              'the services MANAGEMENT page opts out of the leading well; the '
+              'booking wizard is the consumer that keeps it',
+        );
+      },
+    );
+
+    testWidgets(
+      'the card is 50 dp tall — still above the 48 dp minimum touch target, '
+      'and its vertical inset is symmetric `sm`',
+      (tester) async {
+        final boxes = await pumpAndMeasure(tester);
+
+        expect(
+          boxes.card.size.height,
+          50.0,
+          reason:
+              'Phase 323 took the row 56 → 50 dp. The number drives scroll '
+              'extent and the tap target, and no other test pins it.',
+        );
+        // Derived, font-independent half: 8 dp above + 8 dp below the tallest
+        // row child. This survives a font-metric change that would move the
+        // absolute 50 while the padding contract held.
+        expect(
+          boxes.card.size.height - boxes.info.size.height,
+          16.0,
+          reason:
+              'vertical inset is symmetric VelvetSpacing.sm; the name column '
+              'is the tallest child, so the card is exactly info + 2×8',
+        );
+        // THE REASON THE SHRINK IS SAFE. The whole row is the edit tap target
+        // (the 22 dp pillow carries no gesture of its own), so the row height
+        // IS the touch target and must not fall under Material's minimum.
+        expect(
+          boxes.card.size.height,
+          greaterThanOrEqualTo(kMinInteractiveDimension),
+          reason:
+              'the card row is the edit tap target — shrinking it below '
+              '48 dp would make the only write affordance on this screen '
+              'un-hittable for a large finger',
+        );
+      },
+    );
+
+    testWidgets(
+      'a READ-ONLY card is exactly as wide as a writable one — the blank slot '
+      'and the edit pillow share `_kEditAffordanceSize`',
+      (tester) async {
+        final double writableInfo = (await pumpAndMeasure(
+          tester,
+        )).info.size.width;
+        final double readOnlyInfo = (await pumpAndMeasure(
+          tester,
+          writable: false,
+        )).info.size.width;
+
+        // Anti-vacuity: the two mounts must genuinely differ in the trailing
+        // slot, otherwise this is one measurement compared with itself.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('service_card_svc-001')),
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+          reason:
+              'the second pump must really be the read-only branch (null '
+              'onEdit → no GestureDetector, no _EditButton)',
+        );
+        expect(
+          readOnlyInfo,
+          writableInfo,
+          reason:
+              'Phase 320 D3 promised "the row does not reflow" and Phase 323 '
+              'made that structural by sharing `_kEditAffordanceSize` between '
+              '_EditButton and the blank slot. Nothing else guards the '
+              'sharing: hard-coding either side back to 30 (or trimming only '
+              'one) silently makes a SALON_MASTER read-only card wrap a name '
+              'the owner sees whole.',
+        );
+      },
+    );
+  });
+
+  // WHY THIS GROUP EXISTS (2026-09-14 regression).
+  //
+  // Phase 323 dropped the card's 50 dp photo well. The well was ALSO the only
+  // thing indenting the service name, so the name fell from 16 dp right of its
+  // own category title to 36 dp LEFT of it — the leftmost content on the
+  // screen, and 16.5 dp left of its own duration/price line inside the same
+  // card. Seven goldens regenerated green straight through it, because NO
+  // test in this repo asserted a cross-widget alignment: every geometry pin
+  // above measures one widget against itself.
+  //
+  // So this group pins the RELATIONSHIP, never the absolute 68 dp. An
+  // absolute pin passes silently if the HEADER moves; a relative one catches
+  // a regression on either side of the rule.
+  group('the service name lines up with its category title', () {
+    /// Pumps the populated screen at [width] with the HAIRCUT bucket open and
+    /// returns the global `dx` of the section header's title text and of the
+    /// service name inside the card below it.
+    Future<({double titleDx, double nameDx})> pumpAndMeasureDx(
+      WidgetTester tester,
+      double width,
+    ) async {
+      await tester.pumpApp(
+        const ServicesListScreen(initialExpandCategory: 'HAIRCUT'),
+        overrides: [
+          _servicesOverride(const AsyncData(<MasterService>[_geomService])),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+        width: width,
+        height: 800,
+      );
+      await tester.pump();
+      await tester.pump();
+      // fixed-wait-ok: draining ServiceCard's 460 ms staggered entrance
+      // before measuring the laid-out boxes.
+      await tester.pump(const Duration(milliseconds: 600));
+
+      // The header title — read from the fixture rather than restated as a
+      // literal, so the finder tracks _defaultCategories and carries no
+      // Cyrillic copy of its own. Scoped under CategorySection so a stray
+      // match elsewhere on the screen cannot stand in for it.
+      final Finder titleFinder = find.descendant(
+        of: find.byType(CategorySection),
+        matching: find.text(_defaultCategories.first.displayName),
+      );
+      final Finder nameFinder = find.descendant(
+        of: find.byKey(const Key('service_card_svc-001')),
+        matching: find.text(_geomService.name),
+      );
+      // Anti-vacuity: nothing below means anything if either text is absent,
+      // and `getTopLeft` on a zero-match finder would fail with a confusing
+      // message instead of this one.
+      expect(
+        titleFinder,
+        findsOneWidget,
+        reason: 'the category header title must be on screen to align to',
+      );
+      expect(
+        nameFinder,
+        findsOneWidget,
+        reason: 'the service name must be on screen to be aligned',
+      );
+      return (
+        titleDx: tester.getTopLeft(titleFinder).dx,
+        nameDx: tester.getTopLeft(nameFinder).dx,
+      );
+    }
+
+    for (final double width in <double>[320, 360, 414]) {
+      testWidgets('at ${width.toInt()} dp', (tester) async {
+        final dx = await pumpAndMeasureDx(tester, width);
+
+        expect(
+          dx.nameDx,
+          dx.titleDx,
+          reason:
+              'ALIGNMENT RULE: a service name starts at exactly the same x as '
+              'the title of the category section it lives under, so the two '
+              'form one vertical spine. The card supplies the difference via '
+              '`ServiceCard.leadingIndent` = '
+              'CategorySection.headerTitleInset - ServiceCard.contentInset. '
+              'Measured name dx ${dx.nameDx}, title dx ${dx.titleDx} at '
+              '$width dp. If these have diverged, either the indent was '
+              'dropped (the 2026-09-14 regression: the name landed 36 dp to '
+              'the LEFT of its heading) or the header padding / glyph size / '
+              'gap moved without the indent following it.',
+        );
+
+        // Anti-vacuity, the other half: an alignment assertion passes
+        // trivially if BOTH edges collapsed to the viewport's left. Pin that
+        // the pair really sits inside the screen gutter + the header's own
+        // leading chrome, without pinning the exact 68 (which would make this
+        // an absolute test again and defeat the point).
+        expect(
+          dx.titleDx,
+          greaterThan(VelvetSpacing.lg),
+          reason:
+              'both edges must be genuinely inset from the viewport, not two '
+              'zeroes compared with each other',
+        );
+      });
+    }
   });
 }

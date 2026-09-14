@@ -159,12 +159,23 @@ import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
 import 'salon_admin_edit_master_schedule_flow_test.dart'
     as salon_admin_edit_master_schedule;
+import 'salon_master_services_target_flow_test.dart'
+    as salon_master_services_target;
+import 'salon_owner_unassign_master_service_flow_test.dart'
+    as salon_owner_unassign_master_service;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
+import 'salon_master_services_read_only_flow_test.dart'
+    as salon_master_services_read_only;
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
+import 'salon_owner_set_master_services_flow_test.dart'
+    as salon_owner_set_master_services;
+import 'salon_admin_set_master_services_flow_test.dart'
+    as salon_admin_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
+import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
@@ -545,12 +556,42 @@ void main() {
   // `/staff/schedule`, landing on the SAME `MasterScheduleScreen` an
   // INDEPENDENT_MASTER edits their own hours with.
   group('salon_master_schedule_nav_flow', salon_master_schedule_nav.main);
+  // Phase 321 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Послуги»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting
+  // `/staff/services`, landing on the SAME `ServicesListScreen`
+  // (`writable: false`) an INDEPENDENT_MASTER manages their own menu with.
+  // Registered beside `salon_master_schedule_nav_flow`, the direct sibling
+  // this phase's flow mirrors.
+  group(
+    'salon_master_services_read_only_flow',
+    salon_master_services_read_only.main,
+  );
   // Phase 312 (Step 2.7 Rule 3b) — the SALON_OWNER counterpart of the admin
   // flow above: roster -> a chosen master's schedule -> a real edit and
   // write against the VIEWED master, never "me".
   group(
     'salon_owner_edit_master_schedule_flow',
     salon_owner_edit_master_schedule.main,
+  );
+  // Phase 318 (Step 2.7 Rule 3b) — the «Послуги» roster tile end to end: real
+  // roster tap -> real salon-scoped ServicesListScreen -> real FAB bulk-add
+  // -> D4 refetch -> real unassign -> D4 refetch again (closes the inherited
+  // backlog row 802 MEDIUM), plus the INDEPENDENT_MASTER control arm.
+  group(
+    'salon_owner_set_master_services_flow',
+    salon_owner_set_master_services.main,
+  );
+  // Phase 322 (Step 2.7 Rule 3b) — the SALON_ADMIN mirror of the flow
+  // immediately above: the identical real roster-tap -> salon-scoped
+  // ServicesListScreen -> FAB bulk-add -> unassign journey against the
+  // admin's OWN salon (`salon-admin-1`/`master-admin-target`), plus the D4
+  // negative arm — an admin of a DIFFERENT salon deep-linking the same
+  // route is bounced. Registered beside `salon_owner_set_master_services_
+  // flow`, the direct sibling this phase's flow mirrors.
+  group(
+    'salon_admin_set_master_services_flow',
+    salon_admin_set_master_services.main,
   );
   // Phase 240 (mobile-qa) — hearting a SERVICE on the booking service-
   // selection sheet is a REAL POST /favorites; the wish list read-back is the
@@ -560,7 +601,18 @@ void main() {
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
+  group('salon_master_services_target_flow', salon_master_services_target.main);
+  // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
+  // outcomes: the happy-path 204 (anchored on the target flow above), the
+  // reactive 409 refusal re-showing the blocked dialog with no optimistic
+  // removal, and the INDEPENDENT_MASTER control arm proving the blocked
+  // dialog has no route to that persona at all.
+  group(
+    'salon_owner_unassign_master_service_flow',
+    salon_owner_unassign_master_service.main,
+  );
   group('service_crud_flow', service_crud.main);
+  group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
   // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).
   group('service_duplicate_flow', service_duplicate.main);

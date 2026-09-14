@@ -32,9 +32,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
-import '../../salon/application/my_salons_notifier.dart';
 import '../../salon/application/salon_management_profile_notifier.dart';
-import '../../salon/domain/salon.dart';
+import '../../salon/application/salon_manage_capability.dart';
 import '../../salon/domain/salon_staff_member.dart';
 import '../domain/schedule_scope.dart';
 
@@ -106,12 +105,12 @@ bool scheduleEditable(Ref ref, ScheduleScope scope) {
 /// `copyWithPrevious`-attached STALE value exactly like
 /// [authUserRoleSettledOrNull]'s own doc warns against):
 ///
-///   1. The caller manages [SalonMasterScheduleScope.salonId] — admin via
-///      [authUserSalonIdSettledOrNull] (a strict, non-churning selector —
-///      see that function's own doc for why a bare `ref.watch(authProvider)`
-///      is not used here), owner via [mySalonsProvider] containing the id,
-///      reusing `app_router.dart`'s `salonManageGuard` owner arm's EXACT
-///      gate (`AsyncData<List<Salon>>` subtype check, then `.any(id ==)`).
+///   1. The caller manages [SalonMasterScheduleScope.salonId] —
+///      [canManageSalonProvider] (Phase 322, PROMOTED from this file's own
+///      former private `_managesSalon` — see that provider's header for the
+///      full admin/owner shape, which mirrors `app_router.dart`'s
+///      `salonManageGuard` owner arm's EXACT gate,
+///      `AsyncData<List<Salon>>` subtype check then `.any(id ==)`).
 ///   2. The viewed master is actually ON that salon's roster —
 ///      [salonManagementProfileProvider]'s resolved roster contains an entry
 ///      whose [SalonStaffMember.masterId] equals [SalonMasterScheduleScope
@@ -131,7 +130,12 @@ bool scheduleEditable(Ref ref, ScheduleScope scope) {
 bool _ownerOrAdminCanEdit(Ref ref, ScheduleScope scope) {
   if (scope is! SalonMasterScheduleScope) return false;
 
-  final bool managesSalon = _managesSalon(ref, scope.salonId);
+  // Fact 1 — PROMOTED (Phase 322, REUSE-FIRST) to [canManageSalonProvider]
+  // (`../../salon/application/salon_manage_capability.dart`), which this
+  // file's own former private `_managesSalon` used to compute inline. Same
+  // provider phase 322's service-management gates now share — one salon-
+  // scoped predicate, not two.
+  final bool managesSalon = ref.watch(canManageSalonProvider(scope.salonId));
   if (!managesSalon) return false;
 
   final AsyncValue<SalonManagementProfileData> rosterAsync = ref.watch(
@@ -144,34 +148,4 @@ bool _ownerOrAdminCanEdit(Ref ref, ScheduleScope scope) {
         member.masterId == scope.masterId &&
         member.role == SalonStaffRole.master,
   );
-}
-
-/// Fact 1 of [_ownerOrAdminCanEdit] — "does the caller manage [salonId]" —
-/// factored out so its two role arms (admin / owner) each read exactly one
-/// already-resolved provider, mirroring `salonManageGuard`'s own shape
-/// (`app_router.dart:305-368`) as closely as a `Ref`-based provider can (that
-/// guard runs as a synchronous `GoRouterState` redirect and cannot itself be
-/// called from here).
-bool _managesSalon(Ref ref, String salonId) {
-  final UserRole? role = ref.watch(
-    authProvider.select(authUserRoleSettledOrNull),
-  );
-  if (role == UserRole.salonAdmin) {
-    final String? myAdminSalonId = ref.watch(
-      authProvider.select(authUserSalonIdSettledOrNull),
-    );
-    return myAdminSalonId != null && myAdminSalonId == salonId;
-  }
-  if (role == UserRole.salonOwner) {
-    final AsyncValue<List<Salon>> mySalons = ref.watch(mySalonsProvider);
-    if (mySalons is! AsyncData<List<Salon>>) return false;
-    return mySalons.value.any((Salon salon) => salon.id == salonId);
-  }
-  // Fail CLOSED. `_managesSalon` is only ever reached from the
-  // salonOwner/salonAdmin arm of [scheduleEditable], so this is unreachable
-  // today — but a future role added to that arm without a branch here must
-  // be DENIED, never admitted by default. (Reverted 2026-09-07: a mutation
-  // artifact `return true` was left live in the tree by an interrupted
-  // mutation-testing pass, which admitted any unrecognized role.)
-  return false;
 }

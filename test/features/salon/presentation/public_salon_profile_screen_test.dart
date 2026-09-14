@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/favorites/data/favorite_repository_prov
 import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
@@ -3801,6 +3802,116 @@ void main() {
             reason: '${m.masterId} must render — no role filter exists',
           );
         }
+      },
+    );
+  });
+
+  // ── Tab-body horizontal gutter (360 dp) — the CLIENT-facing side ────────
+  //
+  // mobile-qa (2026-09-14), authored with the management-screen gutter fix.
+  //
+  // WHY THIS FILE, WHEN THE DEFECT WAS ON THE OTHER SCREEN. The salon
+  // MANAGEMENT profile shipped its «Послуги»/«Відгуки» bodies inset 48 dp
+  // per side because `_LoadedBody` wrapped children that already self-pad in
+  // a second `SliverPadding(horizontal: VelvetSpacing.lg)`. The fix removed
+  // that wrapper, which leaves the 24 dp owned SOLELY by the shared children
+  // — `SalonServicesAccordion` (salon_services_accordion.dart:113,121) and
+  // `SalonReviewsSection` (salon_reviews_section.dart:70).
+  //
+  // This screen is the OTHER consumer of both, and it has never passed an
+  // outer padding of its own (public_salon_profile_screen.dart:454-461). So
+  // the obvious "cleanup" after reading the fix — hoist the gutter out of
+  // the shared widgets and back into the one caller that visibly needs it —
+  // keeps the management screen green and silently drops the public
+  // catalogue to a ZERO gutter, edge-to-edge cards on every client's phone.
+  // The management-side tests cannot see that; only these can.
+  //
+  // A number, not a golden, deliberately:
+  // `test/golden/salon_services_accordion_golden_test.dart` mounts the
+  // accordion STANDALONE in a `SizedBox(width: 360)` (:88-94), so it renders
+  // the correct 24 dp no matter what any host does — that isolation is
+  // exactly why the original defect reached a real device.
+  group('tab-body horizontal gutter (360 dp)', () {
+    /// The logical viewport these pin against — the real SM-M127F the
+    /// management-side defect was measured on (720 px @ dpr 2.0).
+    const double kViewportWidth = 360;
+
+    /// Viewport minus ONE `VelvetSpacing.lg` per side, applied by the shared
+    /// child widget and by nobody else.
+    const double kExpectedContentWidth =
+        kViewportWidth - 2 * VelvetSpacing.lg; // 312
+
+    Future<void> pumpAtWidth(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(kViewportWidth, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'should_insetPublicServicesTabBy24dpPerSide_when_renderedAt360dp',
+      (tester) async {
+        await pumpAtWidth(tester);
+
+        await tester.tap(find.byKey(const Key('salon-tab-2')));
+        await tester.pumpAndSettle();
+
+        final Finder categoryCard = find.byKey(
+          const Key('salon-service-category-Манікюр'),
+        );
+        expect(categoryCard, findsOneWidget);
+
+        expect(
+          tester.getSize(categoryCard).width,
+          kExpectedContentWidth,
+          reason:
+              'the public «Послуги» card must span the viewport minus ONE '
+              'VelvetSpacing.lg per side. 360 here means SalonServicesAccordion '
+              'stopped self-padding (salon_services_accordion.dart:113,121) and '
+              'the client catalogue now bleeds edge-to-edge; 264 means a '
+              'second gutter was added on top of it.',
+        );
+        expect(
+          tester.getTopLeft(categoryCard).dx,
+          VelvetSpacing.lg,
+          reason: 'left gutter must be exactly VelvetSpacing.lg (24 dp)',
+        );
+      },
+    );
+
+    testWidgets(
+      'should_insetPublicReviewsTabBy24dpPerSide_when_renderedAt360dp',
+      (tester) async {
+        await pumpAtWidth(tester);
+
+        await tester.tap(find.byKey(const Key('salon-tab-3')));
+        await tester.pumpAndSettle();
+
+        final Finder summaryCard = find.byType(RatingSummaryCard);
+        expect(summaryCard, findsOneWidget);
+
+        expect(
+          tester.getSize(summaryCard).width,
+          kExpectedContentWidth,
+          reason:
+              'the public «Відгуки» summary card must span the viewport minus '
+              'ONE VelvetSpacing.lg per side. 360 here means '
+              'SalonReviewsSection stopped self-padding '
+              '(salon_reviews_section.dart:70) — this screen passes no outer '
+              'padding of its own (public_salon_profile_screen.dart:461), so '
+              'nothing else would put the gutter back.',
+        );
+        expect(
+          tester.getTopLeft(summaryCard).dx,
+          VelvetSpacing.lg,
+          reason: 'left gutter must be exactly VelvetSpacing.lg (24 dp)',
+        );
       },
     );
   });

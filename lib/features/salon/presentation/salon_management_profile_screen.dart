@@ -185,12 +185,36 @@ class _SalonManagementProfileScreenState
     widget.onTabSelected?.call(index);
   }
 
-  /// Opens the staff management profile for [member] (Phase 21.5) — works for
-  /// both a master and an admin entry; the destination screen branches on
-  /// [member.role] internally.
-  void _openStaffMember(SalonStaffMember member) => context.push(
-    RouteNames.salonManageStaffMember(widget.salonId, member.userId),
-  );
+  /// Opens the destination for [member]'s roster row.
+  ///
+  /// The viewer's OWN row goes to their PERSONAL profile (`/profile/owner`,
+  /// `/profile/admin`) — a first-person surface, not the management view of
+  /// themselves. Every OTHER row keeps the Phase 21.5 destination, whose
+  /// screen branches on [member.role] internally.
+  void _openStaffMember(SalonStaffMember member) {
+    final AuthSession? session = ref.read(authProvider).value;
+    if (session is Authenticated && member.userId == session.user.id) {
+      // Exhaustive over UserRole with NO wildcard, on `role_home.dart`'s own
+      // precedent: a future sixth role must be a compile error here, not a
+      // silent fall-through. The three null arms are unreachable —
+      // `salonManageGuard` admits owner and admin only (D3, Phase 327) — and
+      // fall through to the management destination rather than inventing one.
+      final String? personal = switch (session.user.role) {
+        UserRole.salonOwner => RouteNames.ownerOwnProfile,
+        UserRole.salonAdmin => RouteNames.adminOwnProfile,
+        UserRole.salonMaster ||
+        UserRole.independentMaster ||
+        UserRole.client => null,
+      };
+      if (personal != null) {
+        context.push(personal);
+        return;
+      }
+    }
+    context.push(
+      RouteNames.salonManageStaffMember(widget.salonId, member.userId),
+    );
+  }
 
   void _openInviteStaff() =>
       context.push(RouteNames.salonInviteStaff(widget.salonId));
@@ -266,65 +290,89 @@ class _SalonManagementProfileScreenState
 
     return Scaffold(
       backgroundColor: BrandColors.base,
-      body: SingleChildScrollView(
+      // mobile-perf LOW fix (2026-09-13) — was `SingleChildScrollView` wrapping
+      // a plain `Column`, which forced `_StaffTab`'s `GridView.builder` into
+      // `shrinkWrap: true` + `NeverScrollableScrollPhysics` to get an
+      // intrinsic extent, defeating `.builder`'s laziness (every roster row
+      // built eagerly, off-screen or not). `CustomScrollView` + slivers keeps
+      // the SAME single top-level scrollable (same physics/overscroll feel,
+      // no new scrollbar) while letting `_StaffTab` contribute a genuinely
+      // lazy `SliverGrid.builder`. Only one sub-tab is ever mounted at a time
+      // (`_LoadedBody`'s `switch (tab)`, not a `TabBarView`/`IndexedStack`),
+      // so there is no nested-scrollable or off-screen-tab hazard here.
+      body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
-        child: async.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.only(top: 120),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          error: (Object e, _) => Padding(
-            padding: EdgeInsets.only(top: topInset + VelvetSpacing.xxl),
-            child: ErrorState(
-              failure: e is Failure ? e : UnknownFailure(cause: e),
-              onRetry: () => ref.invalidate(
-                salonManagementProfileProvider(widget.salonId),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
+            sliver: async.when(
+              loading: () => const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 120),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
               ),
+              error: (Object e, _) => SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.only(top: topInset + VelvetSpacing.xxl),
+                  child: ErrorState(
+                    failure: e is Failure ? e : UnknownFailure(cause: e),
+                    onRetry: () => ref.invalidate(
+                      salonManagementProfileProvider(widget.salonId),
+                    ),
+                  ),
+                ),
+              ),
+              data: (SalonManagementProfileData data) {
+                final (Salon salon, List<SalonStaffMember> rawStaff) = data;
+                // NO CLIENT-SIDE FILTER — every row `GET /salons/{id}/staff`
+                // returns is rendered, the viewer's OWN row included (user
+                // decision, 2026-09-13: "each salon member can see hisself").
+                // What the roster contains is decided by the server: active
+                // masters plus active SALON_ADMIN users
+                // (`SalonService.java:721-735`) — never the owner as an owner,
+                // never an inactive member, never a pending invitee.
+                //
+                // TWO EARLIER FILTERS LIVED HERE AND BOTH ARE GONE. `314f6318`
+                // scoped an admin viewer to masters only, which hid every
+                // co-admin and made `rotateAdmin`
+                // (`PATCH /salons/{salonId}/admins/{userId}/salon`,
+                // admin-callable with no self-guard, `SalonService.java:789`)
+                // unreachable in-app — a co-admin's settings screen is only
+                // reachable from a row in this list. `41b271e5` narrowed it to
+                // self-exclusion, which the user has since overruled. DO NOT ADD
+                // A THIRD ONE: this is a roster, and a row missing from it
+                // silently removes the only route to whatever that row leads to.
+                //
+                // The audience rule the product does enforce lives on the OTHER
+                // surface — `public_salon_profile_screen.dart`, a different
+                // provider, endpoint and model (`GET /salons/{id}/masters`). That
+                // one stays master-only. Never express a client-audience rule
+                // here.
+                //
+                // The viewer's own row is not filtered but it IS routed
+                // differently — see [_openStaffMember].
+                return _LoadedBody(
+                  salonId: widget.salonId,
+                  salon: salon,
+                  staff: rawStaff,
+                  embedded: widget.embedded,
+                  topInset: topInset,
+                  coverHeight: _coverHeight,
+                  heroProtrusion: _heroProtrusion,
+                  tab: widget.tab ?? _tab,
+                  onTabSelected: _onTabSelected,
+                  canEdit: isOwner,
+                  onOpenSettings: _openSettings,
+                  onOpenStaffMember: _openStaffMember,
+                  onInviteStaff: _openInviteStaff,
+                  onAddDescription: _openProfileEdit,
+                  onAddInstagram: _openContactsEdit,
+                );
+              },
             ),
           ),
-          data: (SalonManagementProfileData data) {
-            final (Salon salon, List<SalonStaffMember> rawStaff) = data;
-            // UX scoping, not an authz boundary — the server authorizes
-            // `GET /salons/{id}/staff` and still returns admin entries for a
-            // SALON_ADMIN viewer; the product rule is "an admin's «Команда»
-            // tab shows masters only, and never themselves". Since the
-            // roster already excludes the viewer's own owner row (it's built
-            // from `masterRepository`/`SALON_ADMIN` queries that never match
-            // a `SALON_OWNER`, `SalonService.java:721-732`), dropping admin
-            // entries for an admin viewer satisfies both halves at once —
-            // masters-only, and self-exclusion, since the viewer is
-            // themselves an admin. Owner-as-master is out of scope (not
-            // implemented), so the owner path needs no branch.
-            final bool viewerIsAdmin =
-                session is Authenticated &&
-                session.user.role == UserRole.salonAdmin;
-            final List<SalonStaffMember> staff = viewerIsAdmin
-                ? rawStaff
-                      .where(
-                        (SalonStaffMember m) => m.role != SalonStaffRole.admin,
-                      )
-                      .toList(growable: false)
-                : rawStaff;
-            return _LoadedBody(
-              salonId: widget.salonId,
-              salon: salon,
-              staff: staff,
-              embedded: widget.embedded,
-              topInset: topInset,
-              coverHeight: _coverHeight,
-              heroProtrusion: _heroProtrusion,
-              tab: widget.tab ?? _tab,
-              onTabSelected: _onTabSelected,
-              canEdit: isOwner,
-              onOpenSettings: _openSettings,
-              onOpenStaffMember: _openStaffMember,
-              onInviteStaff: _openInviteStaff,
-              onAddDescription: _openProfileEdit,
-              onAddInstagram: _openContactsEdit,
-            );
-          },
-        ),
+        ],
       ),
     );
   }
@@ -429,53 +477,91 @@ class _LoadedBody extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final List<String> tabs = salonManageTabLabels(l10n);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _CoverAndHero(
-          coverHeight: coverHeight,
-          heroProtrusion: heroProtrusion,
-          topInset: topInset,
-          salon: salon,
-          embedded: embedded,
-          onOpenSettings: onOpenSettings,
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-          child: SalonTabBar(
-            tabs: tabs,
-            selected: tab,
-            onSelect: onTabSelected,
+    // mobile-perf LOW fix (2026-09-13) — this is a SLIVER now (was a
+    // `Column`), since it is spliced straight into the screen's
+    // `CustomScrollView.slivers` list (see that build method's own comment).
+    // `SliverMainAxisGroup` composes the fixed cover/hero/tab-bar header with
+    // the per-tab body sliver below into ONE sliver, exactly mirroring what
+    // the old `Column`'s two children did as box widgets.
+    return SliverMainAxisGroup(
+      slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _CoverAndHero(
+                coverHeight: coverHeight,
+                heroProtrusion: heroProtrusion,
+                topInset: topInset,
+                salon: salon,
+                embedded: embedded,
+                onOpenSettings: onOpenSettings,
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: VelvetSpacing.lg,
+                ),
+                child: SalonTabBar(
+                  tabs: tabs,
+                  selected: tab,
+                  onSelect: onTabSelected,
+                ),
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+            ],
           ),
         ),
-        const SizedBox(height: VelvetSpacing.lg),
         KeyedSubtree(
           key: ValueKey<String>(
             'salon-manage-tab-body-${kSalonManageTabKeys[tab]}',
           ),
           child: switch (tab) {
-            0 => _AboutReadView(
-              salon: salon,
-              canEdit: canEdit,
-              onAddDescription: onAddDescription,
-              onAddInstagram: onAddInstagram,
+            0 => SliverToBoxAdapter(
+              child: _AboutReadView(
+                salon: salon,
+                canEdit: canEdit,
+                onAddDescription: onAddDescription,
+                onAddInstagram: onAddInstagram,
+              ),
             ),
-            1 => Padding(
+            1 => SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-              child: _StaffTab(
+              // Genuinely lazy — see `_StaffTab`'s own header comment.
+              sliver: _StaffTab(
                 salonId: salonId,
                 staff: staff,
                 onOpenMember: onOpenStaffMember,
                 onInvite: onInviteStaff,
               ),
             ),
-            2 => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-              child: _ServicesTab(salonId: salonId),
-            ),
-            _ => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+            // 2026-09-13 audit (M9) — `_ServicesTab` contributes SLIVERS now
+            // (its own `SliverToBoxAdapter` for the loading / error / empty
+            // branches, a `SliverList.builder` for the accordion), so the
+            // category groups beneath it are genuinely lazy.
+            //
+            // NO outer horizontal padding here — same shape as tab 0 above.
+            // `SalonServicesAccordion.sliver` and `SalonReviewsSection` each
+            // apply `VelvetSpacing.lg` themselves (the public salon profile
+            // relies on exactly that), so wrapping them again doubled the
+            // gutter to 48 dp per side.
+            //
+            // OWNERSHIP IS PER BRANCH, NOT PER SCREEN (mobile-qa 2026-09-14 —
+            // an earlier draft of this comment claimed "the gutter has ONE
+            // owner: the child", which tab 1 six lines up contradicts and
+            // which is the exact ambiguity that produced the doubling). The
+            // real rule is weaker and checkable: EXACTLY ONE of the caller or
+            // the child pads, per branch. Tabs 0/2/3 -> the child pads
+            // (`_AboutReadView`:914, the accordion, the reviews section, and
+            // `_ServicesTab`'s own empty branch). Tab 1 -> the CALLER pads,
+            // because `_StaffTab` does not. Before changing ANY of the four,
+            // check which side owns that one, and run the
+            // `tab-body horizontal gutter (360 dp)` group in BOTH
+            // `salon_management_profile_screen_test.dart` and
+            // `public_salon_profile_screen_test.dart` — the shared children
+            // have two consumers, and only that second file sees the other.
+            2 => _ServicesTab(salonId: salonId),
+            _ => SliverToBoxAdapter(
               child: SalonReviewsSection(salonId: salonId),
             ),
           },
@@ -1038,26 +1124,40 @@ class _StaffTab extends StatelessWidget {
   final ValueChanged<SalonStaffMember> onOpenMember;
   final VoidCallback onInvite;
 
+  // mobile-perf LOW fix (2026-09-13) — this widget is a SLIVER now (was a
+  // `Column` wrapping a `GridView.builder(shrinkWrap: true, physics:
+  // NeverScrollableScrollPhysics())`). `shrinkWrap: true` forces a
+  // `GridView` to lay out — and therefore BUILD — every child up front to
+  // compute its own intrinsic extent, which defeats `.builder`'s laziness
+  // entirely: every roster row was being built eagerly regardless of
+  // whether it was ever scrolled into view. `SliverGrid.builder` (a genuine
+  // `SliverChildBuilderDelegate` sliver, spliced into the screen's own
+  // `CustomScrollView` — see `_LoadedBody` and the screen's `build()`) has no
+  // such requirement: it only builds the cells the current viewport (plus
+  // `cacheExtent`) actually needs.
+  //
+  // Rendered content, spacing, cross-axis count, card height and the
+  // trailing "invite" tile are all UNCHANGED — this is a rendering-mechanism
+  // change only, verified byte-identical against
+  // `test/golden/salon_management_staff_grid_golden_test.dart`'s
+  // pre-refactor baseline.
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
+    return SliverMainAxisGroup(
+      slivers: <Widget>[
         if (staff.isEmpty)
-          Padding(
-            key: const Key('salon-manage-staff-empty'),
-            padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-            child: Text(
-              l10n.salonManageStaffEmpty,
-              style: VelvetText.feedback(BrandColors.muted),
+          SliverToBoxAdapter(
+            child: Padding(
+              key: const Key('salon-manage-staff-empty'),
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+              child: Text(
+                l10n.salonManageStaffEmpty,
+                style: VelvetText.feedback(BrandColors.muted),
+              ),
             ),
           ),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
+        SliverGrid.builder(
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: VelvetSpacing.md,
@@ -1198,6 +1298,16 @@ class _ServicesTab extends ConsumerWidget {
 
   final String salonId;
 
+  /// Contributes SLIVERS, not a box (2026-09-13 audit, M9) — the accordion
+  /// below is the tab's only unbounded content, and wrapping it in a
+  /// `SliverToBoxAdapter` forced every category group to build eagerly. The
+  /// three non-list branches keep their box widgets inside a
+  /// `SliverToBoxAdapter`; the list branch is a real `SliverList.builder`.
+  ///
+  /// Each branch owns its OWN horizontal gutter — the caller adds none. The
+  /// accordion self-pads, `ErrorState` self-pads, the spinner is centred, and
+  /// the empty label pads here. Same split the public salon profile's
+  /// `_ServicesTab` uses.
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -1206,22 +1316,40 @@ class _ServicesTab extends ConsumerWidget {
     );
 
     return async.when(
-      loading: () => const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
-          child: CircularProgressIndicator(),
+      loading: () => const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+            child: CircularProgressIndicator(),
+          ),
         ),
       ),
-      error: (Object e, _) => ErrorState(
-        failure: e is Failure ? e : UnknownFailure(cause: e),
-        onRetry: () => ref.invalidate(salonServiceCatalogProvider(salonId)),
+      error: (Object e, _) => SliverToBoxAdapter(
+        child: ErrorState(
+          failure: e is Failure ? e : UnknownFailure(cause: e),
+          onRetry: () => ref.invalidate(salonServiceCatalogProvider(salonId)),
+        ),
       ),
       data: (List<SalonServiceCategoryEntry> categories) => categories.isEmpty
-          ? Text(
-              l10n.salonServicesEmpty,
-              style: VelvetText.feedback(BrandColors.muted),
+          ? SliverToBoxAdapter(
+              child: Padding(
+                // Same key the public salon profile's empty branch carries
+                // (`public_salon_profile_screen.dart:1779`) — this branch is
+                // the one that GAINED its own gutter when the outer
+                // `SliverPadding` came off, so it needs a locale-independent
+                // handle for the geometry pin in
+                // `salon_management_profile_screen_test.dart`.
+                key: const Key('salon-services-empty'),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: VelvetSpacing.lg,
+                ),
+                child: Text(
+                  l10n.salonServicesEmpty,
+                  style: VelvetText.feedback(BrandColors.muted),
+                ),
+              ),
             )
-          : SalonServicesAccordion(categories: categories),
+          : SalonServicesAccordion.sliver(categories: categories),
     );
   }
 }

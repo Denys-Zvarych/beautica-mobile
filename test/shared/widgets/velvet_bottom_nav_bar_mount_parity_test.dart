@@ -72,7 +72,9 @@ import 'package:beautica_mobile/features/schedule/presentation/effective_schedul
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -198,6 +200,15 @@ void main() {
     const ServicesListScreen(),
     overrides: <Object>[
       servicesListProvider.overrideWith(_LoadingServicesList.new),
+      // AUDIT cycle-2 (N1) — the screen's entry refresh now READS
+      // `approvedCategoriesProvider.future` (that is how it learns whether the
+      // refresh SUCCEEDED, so a failed one does not stamp the freshness
+      // marker). Overridden DIRECTLY: this provider sources
+      // `categoryRequestApiProvider` itself, not `serviceRepositoryProvider`
+      // (`project_approved_categories_provider_override_footgun`).
+      approvedCategoriesProvider.overrideWith(
+        (_) async => const <ServiceCategoryOption>[],
+      ),
     ],
   );
 

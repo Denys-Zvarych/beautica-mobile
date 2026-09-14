@@ -194,6 +194,9 @@ Future<void> _pumpEdit(
   List<AsyncValue<Object?>>? watcherStates,
   List<AsyncValue<Object?>>? masterProfileStates,
   List<ServiceCategoryOption> categories = _defaultCategories,
+  // Phase 320 (D1) — additive, defaults to `true` so every existing caller
+  // (below) renders exactly as before.
+  bool writable = true,
 }) async {
   // The seeded service has a category, so the form mounts the second-level
   // _ServiceTypeChips section and grows taller. Use a roomy viewport so the
@@ -204,7 +207,7 @@ Future<void> _pumpEdit(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  Widget screen = ServiceEditScreen(id: id);
+  Widget screen = ServiceEditScreen(id: id, writable: writable);
 
   if (watcherStates != null) {
     screen = _ListWatcher(states: watcherStates, child: screen);
@@ -282,10 +285,20 @@ Future<void> _pumpEditLoading(
 ///
 /// A starter button on the first route pushes the edit screen; we tap it,
 /// settle, and hand control back with the screen mounted.
+///
+/// [watcherStates] — when supplied, the pushed [ServiceEditScreen] is wrapped
+/// in a [_ListWatcher] so `servicesListProvider` has an active subscriber and
+/// an `invalidate()` on it actually manifests as an observable re-emission
+/// (an invalidate with NO subscriber marks the provider dirty but triggers no
+/// refetch until something reads it — a test asserting `verifyNever(() =>
+/// repo.listMyServices())` with no watcher attached would pass regardless of
+/// whether the invalidate call was ever made, which is vacuous). Defaults to
+/// `null` so the five existing callers (L1-L5) are unaffected.
 Future<_PopObserver> _pumpEditInNavigator(
   WidgetTester tester,
   _MockServiceRepository repo, {
   String id = 'svc-edit-1',
+  List<AsyncValue<Object?>>? watcherStates,
 }) async {
   tester.view.physicalSize = const Size(800, 1600);
   tester.view.devicePixelRatio = 1.0;
@@ -310,7 +323,16 @@ Future<_PopObserver> _pumpEditInNavigator(
                 key: const Key('open-edit'),
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => ServiceEditScreen(id: id),
+                    builder: (_) {
+                      Widget screen = ServiceEditScreen(id: id);
+                      if (watcherStates != null) {
+                        screen = _ListWatcher(
+                          states: watcherStates,
+                          child: screen,
+                        );
+                      }
+                      return screen;
+                    },
                   ),
                 ),
                 child: const Text('open'),
@@ -662,38 +684,29 @@ void main() {
     },
   );
 
-  // ── Gap 9. masterProfileProvider invalidated after save ──────────────────
-
-  testWidgets('gap 9. masterProfileProvider is invalidated after valid save', (
-    tester,
-  ) async {
-    final masterProfileStates = <AsyncValue<Object?>>[];
-    await _pumpEdit(tester, repo, masterProfileStates: masterProfileStates);
-
-    await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
-    await tester.pump();
-
-    // All fields pre-filled; tap save.
-    await tester.tap(find.byKey(const Key('btn-submit-service')));
-    await tester.pump();
-    await tester.pumpAndSettle();
-
-    // masterProfileProvider must have emitted additional states (AsyncLoading
-    // or a rebuild) after ref.invalidate(masterProfileProvider) is called on
-    // the successful save path.
-    expect(
-      masterProfileStates.length,
-      greaterThan(1),
-      reason:
-          'masterProfileProvider must be invalidated after a successful '
-          'service save',
-    );
-  });
-
-  // ── Gap 10. masterProfileProvider invalidated after confirmed delete ──────
+  // ── Gap 9. Save fan-out is TRIMMED to the service catalogues ─────────────
+  //
+  // Rewritten (phase 316, mobile-perf LOW). The save path used to also
+  // `ref.invalidate(masterProfileProvider)`, buying a redundant
+  // `GET /masters/me` on every rename / reprice / recategorize — none of which
+  // moves a field on [Master] (`master.dart` carries nothing service-derived)
+  // — and leaving the two writes on this screen fanning out asymmetrically
+  // after `_onDelete` was trimmed. The profile screen's services stat tile and
+  // category section watch `servicesListProvider` directly
+  // (`master_profile_screen.dart:505,746`), which the catalogue invalidation
+  // already covers.
+  //
+  // The PREVIOUS assertion here was VACUOUS, in exactly the way gap 10's was:
+  // it read `masterProfileStates.length > 1`, and the stub notifier's `async
+  // build()` emits `AsyncLoading` → `AsyncData` at MOUNT, so the expectation
+  // was already satisfied before the save happened. Verified empirically —
+  // with `ref.invalidate(masterProfileProvider)` deleted from the save path,
+  // the old test still passed. This version counts from a post-mount baseline
+  // and pins BOTH halves: the catalogues are invalidated, the profile is not.
 
   testWidgets(
-    'gap 10. masterProfileProvider is invalidated after confirmed delete',
+    'gap 9. a valid save invalidates the service catalogues and does NOT '
+    'invalidate masterProfileProvider',
     (tester) async {
       final listStates = <AsyncValue<Object?>>[];
       final masterProfileStates = <AsyncValue<Object?>>[];
@@ -704,6 +717,108 @@ void main() {
         masterProfileStates: masterProfileStates,
       );
 
+      // Baseline: whatever each watcher saw while the screen mounted
+      // (AsyncLoading → AsyncData). Counting from HERE rather than asserting an
+      // absolute length is what stops the mount transitions from satisfying the
+      // assertion on their own — the defect this rewrite removes.
+      final int profileStatesBeforeSave = masterProfileStates.length;
+      final int listStatesBeforeSave = listStates.length;
+
+      // Drain the mount-time list fetches so the verification after the save
+      // counts ONLY what the save caused. mocktail excludes already-verified
+      // invocations from later `verify` calls, which is what makes the
+      // post-save `called(1)` an exact figure rather than a running total.
+      verify(() => repo.listMyServices()).called(greaterThanOrEqualTo(1));
+
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+
+      // All fields pre-filled; tap save.
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // The PATCH fired — without this the assertions below would pass on a
+      // save that never happened.
+      verify(
+        () => repo.update(
+          _stubService.serviceDefId,
+          any(),
+          assignmentId: _stubService.id,
+        ),
+      ).called(1);
+
+      // servicesListProvider must have been invalidated — proven by the REFETCH
+      // it causes, exactly once. `any((s) => s is AsyncLoading)` would not work
+      // here: a seamless invalidate emits `AsyncData(previous, isLoading: true)`
+      // rather than `AsyncLoading` (project_riverpod_seamless_invalidate_gotcha)
+      // and that flag is already back to false by the frame the watcher
+      // rebuilds on.
+      verify(() => repo.listMyServices()).called(1);
+      expect(
+        listStates.length,
+        greaterThan(listStatesBeforeSave),
+        reason:
+            'servicesListProvider should re-emit to its watchers after a '
+            'successful save invalidates it',
+      );
+
+      // masterProfileProvider must NOT be invalidated: an edit cannot change
+      // anything [Master] carries. Asserting the watcher saw no NEW state is
+      // the non-vacuous form — `ref.invalidate` retains `.value`
+      // (project_riverpod_seamless_invalidate_gotcha), so asserting
+      // "still has data" would pass even after an invalidation.
+      expect(
+        masterProfileStates.length,
+        profileStatesBeforeSave,
+        reason:
+            'masterProfileProvider must NOT be invalidated by a service save '
+            '— Master carries no service-derived field, and the profile '
+            'surfaces read services through servicesListProvider',
+      );
+    },
+  );
+
+  // ── Gap 10. Delete fan-out is TRIMMED to the service catalogues ───────────
+  //
+  // Rewritten (phase 316, mobile-perf MEDIUM): the delete path used to also
+  // `ref.invalidate(masterProfileProvider)`, buying a redundant `GET
+  // /masters/me` — and, with a salon target in scope, refetching the
+  // OPERATOR's profile rather than the unassigned master's. [Master] carries
+  // no service-derived field and the profile screen's services section watches
+  // `servicesListProvider` directly, so the catalogue invalidation below is
+  // the complete fan-out. This test now pins BOTH halves: the catalogues are
+  // invalidated, the profile is not.
+  //
+  // The SAVE path carries the identical trim (gap 9), so the two writes on this
+  // screen no longer fan out asymmetrically.
+
+  testWidgets(
+    'gap 10. confirmed delete invalidates the service catalogues and does '
+    'NOT invalidate masterProfileProvider',
+    (tester) async {
+      final listStates = <AsyncValue<Object?>>[];
+      final masterProfileStates = <AsyncValue<Object?>>[];
+      await _pumpEdit(
+        tester,
+        repo,
+        watcherStates: listStates,
+        masterProfileStates: masterProfileStates,
+      );
+
+      // Baseline: whatever the profile watcher saw while the screen mounted
+      // (AsyncLoading → AsyncData). Counting from HERE rather than asserting an
+      // absolute length keeps the test honest about the mount transitions
+      // without letting a post-delete invalidation hide inside them.
+      final int profileStatesBeforeDelete = masterProfileStates.length;
+      final int listStatesBeforeDelete = listStates.length;
+
+      // Drain the mount-time list fetches so the verification after the delete
+      // counts ONLY what the delete caused. mocktail excludes already-verified
+      // invocations from later `verify` calls, which is what makes the
+      // post-delete `called(1)` an exact figure rather than a running total.
+      verify(() => repo.listMyServices()).called(greaterThanOrEqualTo(1));
+
       // Open the delete dialog.
       await tester.tap(find.byKey(const Key('btn-delete-service')));
       await tester.pumpAndSettle();
@@ -712,21 +827,121 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
       await tester.pumpAndSettle();
 
-      // servicesListProvider must have been invalidated (emitted AsyncLoading).
-      final listHasLoading = listStates.any((s) => s is AsyncLoading);
+      // servicesListProvider must have been invalidated — proven by the REFETCH
+      // it causes, exactly once.
+      //
+      // Two traps this replaces. The previous shape was
+      // `listStates.any((s) => s is AsyncLoading)` over the WHOLE list, which
+      // the mount-time AsyncLoading satisfied for free: it passed whether or
+      // not the delete invalidated anything. And narrowing it to the states
+      // observed after the delete does not rescue it, because a seamless
+      // invalidate emits `AsyncData(previous, isLoading: true)` rather than
+      // `AsyncLoading` (project_riverpod_seamless_invalidate_gotcha) AND that
+      // flag is already back to false by the frame the watcher rebuilds on —
+      // the widget never observes it at all.
+      //
+      // `called(1)` is also what pins the TRIMMED fan-out: before this phase,
+      // `ref.invalidate(masterProfileProvider)` on this path rebuilt
+      // `serviceRepositoryProvider` (watched by `services_list_notifier.dart`)
+      // and cascaded a SECOND `listMyServices()`.
+      verify(() => repo.listMyServices()).called(1);
       expect(
-        listHasLoading,
-        isTrue,
+        listStates.length,
+        greaterThan(listStatesBeforeDelete),
         reason:
-            'servicesListProvider should be invalidated after confirmed delete',
+            'servicesListProvider should re-emit to its watchers after a '
+            'confirmed delete invalidates it',
       );
 
-      // masterProfileProvider must also have been invalidated.
+      // masterProfileProvider must NOT be invalidated: the delete cannot change
+      // anything the profile carries. Asserting the watcher saw no NEW state is
+      // the non-vacuous form — `ref.invalidate` retains `.value`
+      // (project_riverpod_seamless_invalidate_gotcha), so asserting
+      // "still has data" would pass even after an invalidation.
       expect(
         masterProfileStates.length,
-        greaterThan(1),
+        profileStatesBeforeDelete,
         reason:
-            'masterProfileProvider must be invalidated after confirmed delete',
+            'masterProfileProvider must NOT be invalidated by a service '
+            'delete — Master carries no service-derived field, and in salon '
+            'mode GET /masters/me reads the operator, not the target master',
+      );
+    },
+  );
+
+  // ── Gap 10b. Double tap issues exactly ONE delete ─────────────────────────
+
+  testWidgets(
+    'gap 10b. a second delete tap while the first DELETE is in flight is '
+    'dropped — deactivate fires once and no error snack is shown',
+    (tester) async {
+      // The DELETE is held open on a Completer so the second tap provably
+      // overlaps the FIRST call's pending future. A test that taps twice after
+      // the first call already resolved proves nothing.
+      final deleteGate = Completer<void>();
+      var deactivateCalls = 0;
+      when(() => repo.deactivate(_stubService.serviceDefId)).thenAnswer((_) {
+        deactivateCalls++;
+        return deleteGate.future;
+      });
+
+      await _pumpEdit(tester, repo);
+
+      // Tap 1 → dialog → confirm. The dialog dismissal settles; the DELETE
+      // stays pending (a pending Future is not an animation, so pumpAndSettle
+      // returns without draining it).
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      // NON-VACUITY PIN: the first DELETE has been issued and has NOT resolved.
+      // If either of these fails the overlap the test claims to exercise did
+      // not happen and every assertion below is worthless.
+      expect(
+        deactivateCalls,
+        1,
+        reason: 'the first DELETE must already be in flight',
+      );
+      expect(
+        deleteGate.isCompleted,
+        isFalse,
+        reason: 'the first DELETE must still be pending at the second tap',
+      );
+      // The screen is still mounted and the delete icon is hit-testable again —
+      // the dialog barrier is gone, which is exactly why a user can double tap.
+      expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+
+      // Tap 2, mid-flight. The in-flight guard drops it before showDialog, so
+      // no second confirmation dialog opens and no second DELETE is issued.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('delete-service-dialog')),
+        findsNothing,
+        reason:
+            'the re-entrancy guard must drop the second tap before the '
+            'confirmation dialog is shown',
+      );
+
+      // Release the first DELETE.
+      deleteGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        deactivateCalls,
+        1,
+        reason: 'a double tap must issue exactly one DELETE',
+      );
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+
+      // And no error snackbar: the pre-guard behaviour was a second DELETE
+      // answering 404 → NotFoundFailure → an error snack for a delete that
+      // SUCCEEDED (phase 316 D2).
+      expect(
+        find.byType(VelvetSnack),
+        findsNothing,
+        reason: 'a successful delete must not surface an error snack',
       );
     },
   );
@@ -1224,6 +1439,253 @@ void main() {
       expect(find.byType(VelvetSnack), findsNothing);
     },
   );
+
+  // ── L6. Delete-flow: 409 ServiceUnassignBlockedFailure re-shows the ───────
+  // ──     dialog blocked, does not pop, and does not invalidate the list ────
+  //
+  // Phase 319 D3: a salon-target unassign refused because the master still
+  // has a future CONFIRMED booking must NOT be treated like an ordinary
+  // failure (L4) — it re-shows [DeleteServiceDialog] with `blocked: true`
+  // instead of a snackbar, and it must do NO optimistic removal (no pop) and
+  // NO catalogue invalidation (nothing was written). The "generic failure →
+  // today's error handling, unchanged" case this complements is ALREADY
+  // covered by L4 (`ServerFailure` — the null-target / independent-master
+  // path must not acquire a blocked dialog it can never legitimately show).
+
+  testWidgets(
+    'L6. a 409 ServiceUnassignBlockedFailure re-shows the dialog blocked, '
+    'does not pop, and does not invalidate servicesListProvider',
+    (tester) async {
+      when(
+        () => repo.deactivate(_stubService.serviceDefId),
+      ).thenThrow(const ServiceUnassignBlockedFailure());
+
+      // A watcher gives servicesListProvider an active subscriber, so a
+      // (wrong) invalidate on the 409 arm would manifest as an observable
+      // re-emission — without it, `verifyNever(() => repo.listMyServices())`
+      // below would pass regardless of whether invalidate was ever called
+      // (nothing would be listening to trigger the refetch either way).
+      final listStates = <AsyncValue<Object?>>[];
+      final observer = await _pumpEditInNavigator(
+        tester,
+        repo,
+        watcherStates: listStates,
+      );
+      final l10n = _l10n(tester);
+
+      // Drain the mount-time list fetch so the verification below counts
+      // ONLY what the failed delete caused
+      // (project_riverpod_seamless_invalidate_gotcha: assert the refetch
+      // COUNT, never `.value != null`).
+      verify(() => repo.listMyServices()).called(greaterThanOrEqualTo(1));
+      final popsBeforeDelete = observer.popCount;
+      final listStatesBeforeDelete = listStates.length;
+
+      // Open the dialog and confirm.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+
+      // The blocked dialog re-appears with its title and NO destructive
+      // button — the absence assertion, not just the title.
+      expect(find.byKey(const Key('delete-service-dialog')), findsOneWidget);
+      expect(find.text(l10n.deleteServiceBlockedTitle), findsOneWidget);
+      expect(find.text(l10n.deleteServiceBlockedBodyNoCount), findsOneWidget);
+      expect(
+        find.byKey(const Key('btn-confirm-delete-service')),
+        findsNothing,
+        reason: 'the blocked variant offers nothing to confirm',
+      );
+
+      // No optimistic removal: the repository was never asked to re-list,
+      // AND the watched provider produced no new state — the non-vacuous
+      // form, since `ref.invalidate` retains `.value`
+      // (project_riverpod_seamless_invalidate_gotcha), so a null-gate
+      // assertion alone would not catch a wrongly-added invalidate.
+      verifyNever(() => repo.listMyServices());
+      expect(
+        listStates.length,
+        listStatesBeforeDelete,
+        reason:
+            'servicesListProvider must NOT re-emit after a 409 refusal — '
+            'nothing was written, so there is nothing to refresh',
+      );
+
+      // No navigation-to-bookings shortcut anywhere in the refusal path
+      // (backend phase 308 stays deferred): the dialog's only action is the
+      // shared cancel key (D1) — no third action, no tappable route beyond
+      // it. Verified statically too:
+      // `grep -a -rn "bookings" lib/features/services/presentation/` shows
+      // nothing new added by this phase.
+      final dialogFinder = find.byKey(const Key('delete-service-dialog'));
+      expect(
+        find.descendant(of: dialogFinder, matching: find.byType(TextButton)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: dialogFinder, matching: find.byType(FilledButton)),
+        findsNothing,
+      );
+
+      // The screen itself stays mounted — a refusal must not pop the route.
+      // Only the dialog's own dismiss-and-reopen pops registered above (the
+      // confirm tap that triggered the 409 pops the confirmation dialog
+      // route, then showDialog pushes the blocked one back) — the edit
+      // screen route itself is never popped.
+      expect(find.byType(ServiceEditScreen), findsOneWidget);
+      expect(
+        observer.popCount,
+        greaterThan(popsBeforeDelete),
+        reason: 'the confirmation dialog route itself still pops on confirm',
+      );
+    },
+  );
+
+  // ── Phase 320 — writable: false ────────────────────────────────────────────
+  //
+  // D1: additive, defaults to `true`. IMPORTANT: `_pumpEdit`'s own `writable`
+  // PARAMETER defaults to `true` and is threaded into the widget on every
+  // call — `ServiceEditScreen(id: id, writable: writable)` — so every OTHER
+  // test in this file (including test 7, which asserts `btn-delete-service`
+  // is present) always passes `writable` EXPLICITLY, never omits it. Those
+  // tests do NOT prove the widget's own default; mutation check 1 confirmed
+  // this the hard way (flipping `ServiceEditScreen`'s class default to
+  // `false` left every `_pumpEdit`-driven test green). The first test below
+  // constructs the widget directly, omitting `writable`, to close that gap.
+
+  testWidgets(
+    'the widget default renders writable — constructed directly, omitting '
+    '`writable`, bypassing `_pumpEdit`\'s always-explicit pass-through',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides(repo).cast(),
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            // `writable` OMITTED — this is the actual default-parameter
+            // proof mutation check 1 needs.
+            home: ServiceEditScreen(id: 'svc-edit-1'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+      expect(find.byKey(const Key('btn-submit-service')), findsOneWidget);
+    },
+  );
+
+  group('Phase 320 — writable: false removes write affordances only', () {
+    testWidgets('delete icon and save action are both absent — not disabled', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo, writable: false);
+
+      expect(find.byKey(const Key('btn-delete-service')), findsNothing);
+      expect(find.byKey(const Key('btn-submit-service')), findsNothing);
+      // The cancel icon is unaffected — leaving is not a write.
+      expect(find.byKey(const Key('btn-cancel-service-edit')), findsOneWidget);
+    });
+
+    testWidgets('the service name, duration and price still render', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo, writable: false);
+
+      // Name — Phase 320 (D3) renders the VALUE, not a TextField, so this
+      // is a plain-text lookup scoped under the field's key.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.text(_stubService.name),
+        ),
+        findsOneWidget,
+      );
+
+      // Duration + price stay inside PricingField (disabled, not hidden —
+      // D3 applies only to the four ACTION affordances, not to data
+      // fields); their controllers still carry the loaded values, matching
+      // the same read convention tests 1-3 already use for this screen.
+      final durationField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(
+        durationField.controller!.text,
+        equals(_stubService.durationMinutes.toString()),
+      );
+      final priceField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('pricing-fixed-amount')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(priceField.controller!.text, equals('750'));
+    });
+
+    testWidgets('entering text into the name field is impossible — there is no '
+        'EditableText to target, not a disabled one', (tester) async {
+      await _pumpEdit(tester, repo, writable: false);
+
+      // Structural proof first: no TextField at all under the field's key.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+
+      // Attempt the interaction anyway — the doc requires trying it, not
+      // reading a `readOnly`/`enabled` field off a widget. There being no
+      // TextField under the key means the attempt itself fails to find a
+      // target; catch that and assert the value never moved.
+      Object? caught;
+      try {
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-service-name')),
+            matching: find.byType(TextField),
+          ),
+          'hacked name',
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(
+        caught,
+        isNotNull,
+        reason:
+            'there is nothing an input method could attach to under '
+            'field-service-name in read-only mode',
+      );
+
+      // The original value is exactly what still renders — unmoved.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.text(_stubService.name),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('hacked name'), findsNothing);
+    });
+  });
 
   tearDownAll(() {});
 }

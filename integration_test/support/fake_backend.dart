@@ -319,10 +319,12 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
 final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
+    this.masterSalonId,
     this.masterMeNotFound = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
+    this.deleteServiceDelay,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -359,6 +361,22 @@ final class FakeBackend {
   /// the flow into a genuine guard for that correctness bug rather than a
   /// fixture-masked false pass.
   final String masterRowId;
+
+  /// Phase 321 — the employing salon's id, echoed in `GET /masters/me`'s
+  /// nested `salon` object (`MasterDetailResponse.salon.id`, which
+  /// `MasterMapper.fromDto` reads as `Master.salonId` — a DIFFERENT wire
+  /// shape than `GET /users/me`'s flat `salonId`, which `_salonMasterUserJson`
+  /// deliberately omits for an unrelated reason, see that constant's doc).
+  ///
+  /// Defaults to `null` so `_masterDetailEnvelope()` omits the `salon` key
+  /// entirely and every existing flow (including the phase-309/310 SALON_
+  /// MASTER schedule flows, which never depend on it) keeps seeing the exact
+  /// same body. Set it before boot for a flow that needs the viewer's OWN
+  /// salon to resolve — e.g. the phase-321 `/staff/services` own-target flow,
+  /// which reuses the `salon-xyz` / `master-removable` fixture pair
+  /// [_wireSalonMasterServices] already wires by pairing this with
+  /// `masterRowId: 'master-removable'`.
+  final String? masterSalonId;
 
   final Dio dio;
   late final DioAdapter _adapter;
@@ -693,6 +711,19 @@ final class FakeBackend {
 
   int _nextServiceSeq = 3;
 
+  /// Phase 318 (mobile-qa) — sequence for rows created through the
+  /// SALON-scoped bulk-create route. A SEPARATE counter from
+  /// [_nextServiceSeq] (the independent-master one) so the two id spaces
+  /// never collide when a single test flow exercises both.
+  int _nextSalonServiceSeq = 1;
+
+  /// Phase 322 (mobile-qa) — sequence for rows created through the
+  /// SALON_ADMIN own-salon bulk-create route
+  /// (`_wireSalonAdminMasterServicesBulk`). A SEPARATE counter from
+  /// [_nextSalonServiceSeq] so the two salon/master pairs' id spaces never
+  /// collide when a single test flow somehow exercises both.
+  int _nextSalonAdminServiceSeq = 1;
+
   // ── Schedule ID sequence (deterministic — never wall-clock) ──────────────
   // Starts at 100 to avoid collision with the seeded 'schedule-1'.
   int _scheduleSeq = 100;
@@ -742,6 +773,46 @@ final class FakeBackend {
   /// (`postScheduleCalls` / `putScheduleCalls`) keep recording, so a test can
   /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
   void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
+
+  /// 2026-09-14 (mobile-qa) — reseeds the weekly schedule as a NON-CONTIGUOUS
+  /// Mon / Wed / Fri 10:00–19:00 pattern, which `weeklyScheduleSummary`
+  /// renders as the long comma-joined «Пн, Ср, Пт · 10:00–19:00» form instead
+  /// of the short «Пн–Вт» range the default seed produces.
+  ///
+  /// Exists for the `ManagementActionCard` truncation regression: with the
+  /// default seed the schedule card's value is short enough to fit any
+  /// column, which would make a `didExceedMaxLines` assertion pass whether or
+  /// not the 2026-09-14 text-token fix is present
+  /// (`project_fixture_values_can_defang_assertions`).
+  ///
+  /// Still TWO-OR-MORE working days and still Sunday-empty, so it is a
+  /// drop-in for the default seed in every downstream assertion of the flow
+  /// that uses it: toggling Monday off leaves Wed+Fri active (the PUT path,
+  /// never the DELETE path), and `kFixedNow` (2026-06-14, a Sunday) still
+  /// resolves to the per-day NO_SCHEDULE banner. Additive — no existing
+  /// caller's behaviour changes.
+  void seedNonContiguousWeeklySchedule() =>
+      _weeklySchedule = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'schedule-1',
+          'validFrom': '2026-06-14',
+          'validTo': null,
+          'days': <Map<String, dynamic>>[
+            for (int day = 1; day <= 7; day++)
+              <String, dynamic>{
+                'dayOfWeek': day,
+                'intervals': const <int>[1, 3, 5].contains(day)
+                    ? <Map<String, dynamic>>[
+                        <String, dynamic>{
+                          'startTime': '10:00',
+                          'endTime': '19:00',
+                        },
+                      ]
+                    : <dynamic>[],
+              },
+          ],
+        },
+      ];
 
   /// Phase 244 — `GET …/effective-schedule` is registered ONCE below,
   /// unconditionally returning an EMPTY list (every date resolves to
@@ -1182,15 +1253,30 @@ final class FakeBackend {
   /// assertions by exactly one element after adding a fixture to the SHARED
   /// list. A second, salon-admin-1-scoped list avoids that ripple entirely.
   ///
-  /// Seeded with exactly ONE admin — `admin-peer-1`, a CO-admin distinct
-  /// from the logged-in `_adminUserJson.id` (`user-admin-1`) — so a genuine
-  /// SALON_ADMIN session viewing this roster is looking at a peer, not their
-  /// own row. That distinction matters: `StaffSettingsScreen`'s `canManageStaff`
+  /// Seeded with `admin-peer-1`, a CO-admin distinct from the logged-in
+  /// `_adminUserJson.id` (`user-admin-1`) — so a genuine SALON_ADMIN session
+  /// viewing this roster is looking at a peer, not their own row. That
+  /// distinction matters: `StaffSettingsScreen`'s `canManageStaff`
   /// gate (`isOwner && member?.userId != currentUserId`) is `false` for an
   /// admin viewer regardless of whose row it is (an admin is never `isOwner`),
   /// but a self-row subject would let a reader conflate "not the owner" with
   /// "cannot remove yourself" — two different reasons the row could be
   /// absent. A peer isolates the ONE gate under test.
+  ///
+  /// mobile-qa gap-closure (2026-09-12) — WIDENED with a THIRD row,
+  /// `user-admin-1` (== `_adminUserJson.id`, the logged-in admin's OWN
+  /// account), so `salon_staff_settings_admin_gate_flow_test.dart` can drive
+  /// the real «Команда» tab end-to-end and prove
+  /// `salon_management_profile_screen.dart`'s self-exclusion filter
+  /// (restored 2026-09-12 from an over-broad masters-only one — see that
+  /// file's own comment) over the real wire: the viewer's own row must be
+  /// absent from the rendered grid while `admin-peer-1`'s co-admin row
+  /// renders. Checked against every other consumer of this list
+  /// (`grep -a -rn salonAdminOneStaff integration_test/`) before widening —
+  /// `salon_admin_set_master_services_flow_test.dart` only reads the master
+  /// row below by key, and `salon_admin_edit_master_schedule_flow_test.dart`
+  /// only asserts that same master row's card is present, neither by exact
+  /// list length — so a third row is safe to append here.
   late final List<Map<String, dynamic>> salonAdminOneStaff =
       <Map<String, dynamic>>[
         <String, dynamic>{
@@ -1228,6 +1314,49 @@ final class FakeBackend {
           'avgRating': null,
           'reviewCount': 0,
           'serviceCount': 0,
+        },
+        // mobile-qa gap-closure (2026-09-12) — the VIEWER'S OWN admin row.
+        // `userId` MUST equal `_adminUserJson['id']` (`user-admin-1`) for
+        // the self-exclusion filter to have anything to exclude; name
+        // matches `_adminUserJson` too so a rendered card (if the filter
+        // regressed and let it through) is recognisable as "self" in a
+        // failure diff.
+        <String, dynamic>{
+          'userId': 'user-admin-1',
+          'masterId': null,
+          'role': 'SALON_ADMIN',
+          'firstName': 'Ірина',
+          'lastName': 'Адміністратор',
+          'professionalTitle': 'Старший адміністратор',
+          'avatarUrl': null,
+          'phoneNumber': '+380663334455',
+          'instagram': null,
+          'bio': null,
+          'avgRating': null,
+          'reviewCount': 0,
+          'serviceCount': 0,
+        },
+      ];
+
+  /// mobile-qa gap-closure (2026-09-12) — the `salon-admin-1`-scoped sibling-
+  /// salons payload served by `GET /salons/salon-admin-1/sibling-salons`.
+  ///
+  /// ISOLATED from [siblingSalons] (the `salon-xyz` payload above) for the
+  /// same reason [salonAdminOneStaff] is its own list rather than a widened
+  /// `salonStaff`: nothing else reads this one, so widening the shared list
+  /// would risk rippling into `salon-xyz`'s own exact-content assertions for
+  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo
+  /// — `SiblingSalonOption`), and non-empty on purpose: an empty destination
+  /// list is indistinguishable from a broken endpoint in
+  /// [MoveAdminSalonScreen]'s rendered output, so a flow asserting the
+  /// LOADED (not merely non-error) state needs at least one real row here.
+  final List<Map<String, dynamic>> salonAdminOneSiblingSalons =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-admin-sibling-1',
+          'name': 'Філія на Оболоні',
+          'street': 'просп. Оболонський',
+          'buildingNo': '12',
         },
       ];
 
@@ -1676,6 +1805,406 @@ final class FakeBackend {
   int getServicesCalls = 0;
   int createServiceCalls = 0;
 
+  /// `DELETE /api/v1/services/{serviceDefId}` call count — the NULL-TARGET
+  /// (independent-master) delete, mobile phase 316's central claim: the
+  /// dispatch added to `HttpServiceRepository.deactivate` must leave this path
+  /// firing byte-identically when no [SalonMasterTarget] is in scope.
+  ///
+  /// GENUINELY STATEFUL, mirroring `deleteSalonCalls` / `deleteMyAccountCalls`:
+  /// a successful DELETE also REMOVES the row from [_services], so the very
+  /// next `GET /independent-masters/me/services` reflects it. Without that a
+  /// flow could only prove the DELETE was SENT — the list would keep serving
+  /// the "deleted" card forever and a post-delete "the card is gone" assertion
+  /// could not distinguish a correct refresh from a broken one.
+  int deleteServiceCalls = 0;
+
+  /// The service-DEFINITION id carried in the path of the last
+  /// `DELETE /api/v1/services/{serviceDefId}`.
+  ///
+  /// The seeded fixtures deliberately give every service an assignment id that
+  /// DIFFERS from its definition id (`assign-1` vs `svc-1`), so a flow
+  /// asserting this value pins the definition-id contract
+  /// (`service_edit_screen.dart` passes `service.serviceDefId`, never
+  /// `service.id`) rather than passing on either
+  /// (`project_fixture_values_can_defang_assertions`).
+  String? lastDeletedServiceDefId;
+
+  // ── Phase 317 — the SALON-TARGET services seam ──────────────────────────
+  //
+  // `GET  /api/v1/salons/{salonId}/masters/{masterId}/services`      (BE 309)
+  // `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}`  (BE 307)
+  //
+  // These are the two endpoints `HttpServiceRepository` dispatches to when a
+  // `SalonMasterTarget` is in scope (`_listForSalonMaster` /
+  // `_unassignFromSalonMaster`). Wired for the roster row whose `userId`
+  // (`user-master-removable`) DIFFERS from its `masterId`
+  // (`master-removable`), so a flow that asserts the emitted path proves the
+  // route builder resolved the `masters` ROW id — with `master-aaa`, whose two
+  // ids are identical, the assertion would pass on either
+  // (`project_fixture_values_can_defang_assertions`).
+  //
+  // Registered per EXACT path (the same shape every other salon-xyz route in
+  // this file uses) so a request for any other salon/master fails loudly as an
+  // unmatched route rather than silently counting.
+
+  /// `GET /api/v1/salons/salon-xyz/masters/master-removable/services` call
+  /// count, and the exact path the last one carried.
+  int getSalonMasterServicesCalls = 0;
+  String? lastSalonMasterServicesPath;
+
+  /// Phase 324 (mobile-qa D3) — the cross-role-bleed control counterpart to
+  /// [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
+  /// /api/v1/salons/salon-xyz/masters/master-aaa/services`. SAME salon
+  /// (`salon-xyz`), a DIFFERENT master row already on that salon's roster
+  /// (`_salonStaff`'s `master-aaa` entry) — the two masters a single owner
+  /// session can navigate between in sequence: roster -> master A's
+  /// «Послуги» -> back -> master B's «Послуги». Kept as a SEPARATE counter/
+  /// path (never reused across the two master ids) so a bleed bug — master
+  /// B's list rendering from a STALE `keepAlive` read of master A's request,
+  /// or a `ServiceTarget` that outlives the pop — is visible as "the wrong
+  /// counter moved" / "the path still says master-removable", not merely as
+  /// "a counter moved".
+  int getSalonMasterAaaServicesCalls = 0;
+  String? lastSalonMasterAaaServicesPath;
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon counterpart
+  /// to [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
+  /// /api/v1/salons/salon-admin-1/masters/master-admin-target/services`.
+  /// Kept as SEPARATE counters (not reused across the two salon/master
+  /// pairs) so a phase-322 flow's assertions cannot pass on a call that was
+  /// actually dispatched against `salon-xyz`/`master-removable`.
+  int getSalonAdminMasterServicesCalls = 0;
+  String? lastSalonAdminMasterServicesPath;
+
+  /// `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
+  /// per-master UNASSIGN. GENUINELY STATEFUL, mirroring [deleteServiceCalls]:
+  /// a successful unassign REMOVES the row from [_salonMasterServices], so the
+  /// next `GET .../services` reflects it and a "the card is gone" assertion
+  /// can tell a correct refresh from a broken one.
+  int unassignServiceCalls = 0;
+  String? lastUnassignedServiceDefId;
+  String? lastUnassignPath;
+
+  // ── Phase 317 — the SPLIT service update (band vs shared definition) ──────
+  //
+  // THE DEFECT THESE MODEL. Editing one salon master's price/duration used to
+  // PATCH the SHARED definition (`PATCH /api/v1/services/{defId}`), silently
+  // re-pricing every OTHER master who performs that service. Modelling only
+  // the call ROUTING would be too weak a fake to catch it: both endpoints
+  // answer 200, so a flow that merely counted calls could pass while the
+  // other master's price moved. So this fake models the SHARED SEMANTICS —
+  // a definition PATCH carrying money/time CASCADES onto every salon master
+  // row that resolves against that definition and has no per-master override
+  // — which is what makes "master A's price is untouched" a real assertion
+  // rather than a reading of a fixture that could never have changed.
+
+  /// `PATCH /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
+  /// PER-MASTER band write. GENUINELY STATEFUL: a successful call rewrites
+  /// THAT master's row only and records a per-master override, so the next
+  /// `GET .../services` reflects it and the cascade below skips the row.
+  int updateMasterBandCalls = 0;
+  String? lastBandPatchPath;
+  String? lastBandPatchedServiceDefId;
+  Map<String, dynamic>? lastBandPatchBody;
+
+  /// `PATCH /api/v1/services/{serviceDefId}` for a SALON-OWNED definition —
+  /// the shared row. [patchSharedDefinitionCalls] counts every such PATCH;
+  /// [patchSharedDefinitionPricedCalls] counts only those carrying a money or
+  /// time key under EITHER endpoint's spelling.
+  ///
+  /// The split write sends an IDENTITY-ONLY PATCH here, so the total is
+  /// expected to be ≥ 1 on a rename — it is the PRICED counter that must stay
+  /// at zero. Counting only the total would make a "no definition PATCH"
+  /// assertion fail on correct code and tempt a weaker assertion.
+  int patchSharedDefinitionCalls = 0;
+  int patchSharedDefinitionPricedCalls = 0;
+  Map<String, dynamic>? lastSharedDefinitionPatchBody;
+
+  /// `masterId|serviceDefId` pairs that carry a PER-MASTER band override.
+  /// A definition-level price/duration change does not reach these rows —
+  /// exactly as on the backend, where an override wins over the shared band.
+  final Set<String> _salonBandOverrides = <String>{};
+
+  /// Every salon-scoped master-service row this fake holds, across all three
+  /// per-master catalogues. The cascade and the read helpers walk this so a
+  /// new fixture list is picked up by adding it HERE, once.
+  List<Map<String, dynamic>> get _allSalonRows => <Map<String, dynamic>>[
+    ..._salonMasterServices,
+    ..._salonMasterAaaServices,
+    ..._salonAdminMasterServices,
+  ];
+
+  /// The RESOLVED price floor one salon master currently shows for
+  /// [serviceDefId] — the per-master value a client would render, not the
+  /// shared definition's. `null` when that master has no row for it.
+  num? salonResolvedPrice(String masterId, String serviceDefId) {
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      if (row['masterId'] == masterId &&
+          (row['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              serviceDefId) {
+        return row['priceMin'] as num?;
+      }
+    }
+    return null;
+  }
+
+  /// The RESOLVED duration one salon master currently shows for
+  /// [serviceDefId]. Same contract as [salonResolvedPrice].
+  int? salonResolvedDuration(String masterId, String serviceDefId) {
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      if (row['masterId'] == masterId &&
+          (row['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              serviceDefId) {
+        return row['effectiveDurationMinutes'] as int?;
+      }
+    }
+    return null;
+  }
+
+  /// The SHARED definition's own band floor for [serviceDefId] — what a
+  /// definition-level PATCH rewrites.
+  num? salonSharedDefinitionPrice(String serviceDefId) {
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      final Map<String, dynamic>? def =
+          row['serviceDefinition'] as Map<String, dynamic>?;
+      if (def?['id'] == serviceDefId) return def?['priceMin'] as num?;
+    }
+    return null;
+  }
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
+  /// [unassignServiceCalls]/[lastUnassignedServiceDefId]/[lastUnassignPath],
+  /// for `DELETE /api/v1/salons/salon-admin-1/masters/master-admin-target
+  /// /services/{serviceDefId}`. GENUINELY STATEFUL, mirroring
+  /// [unassignServiceCalls]: removes the row from
+  /// [_salonAdminMasterServices].
+  int unassignAdminServiceCalls = 0;
+  String? lastUnassignedAdminServiceDefId;
+  String? lastUnassignAdminPath;
+
+  /// Phase 319 — when `true`, every `DELETE /salons/{s}/masters/{m}/services
+  /// /{serviceDefId}` answers HTTP **409** with the plain-English body shape
+  /// the real backend sends (`ServiceCatalogService.java:289-297` — no
+  /// `data` envelope, no structured count; `HttpServiceRepository
+  /// ._mapUnassignException` maps ANY 409 on this path to
+  /// [ServiceUnassignBlockedFailure] regardless of body) instead of the
+  /// default `204` unassign-success. [_salonMasterServices] is left
+  /// UNTOUCHED — nothing was written, so a flow asserting the row survives
+  /// after a refusal is asserting something this fake actually enforces, not
+  /// merely something it never bothered to remove.
+  ///
+  /// RE-WIRES ON WRITE — see [rescheduleClientOverlapConflict]'s doc for why
+  /// a status change requires re-registering the routes rather than a field
+  /// `replyCallback` would read too late (status is captured at registration
+  /// time, never per-request).
+  bool get unassignServiceBlocked => _unassignServiceBlocked;
+  set unassignServiceBlocked(bool value) {
+    _unassignServiceBlocked = value;
+    _wireSalonMasterServices();
+  }
+
+  bool _unassignServiceBlocked = false;
+
+  /// Phase 318 (mobile-qa) — `POST /api/v1/salons/{s}/masters/{m}/services
+  /// /bulk`, the SALON-scoped counterpart to [bulkCreateCalls]. GENUINELY
+  /// STATEFUL: a successful call APPENDS to [_salonMasterServices], so the
+  /// next `GET .../services` (both the salon-scoped list AND the public
+  /// `/masters/{id}/services` read the staff profile uses) reflects it.
+  int salonBulkCreateCalls = 0;
+  List<dynamic>? lastSalonBulkItems;
+  String? lastSalonBulkPath;
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
+  /// [salonBulkCreateCalls]/[lastSalonBulkItems]/[lastSalonBulkPath], for
+  /// `POST /api/v1/salons/salon-admin-1/masters/master-admin-target/services
+  /// /bulk`. GENUINELY STATEFUL: appends into [_salonAdminMasterServices].
+  int salonAdminBulkCreateCalls = 0;
+  List<dynamic>? lastSalonAdminBulkItems;
+  String? lastSalonAdminBulkPath;
+
+  /// The salon master's OWN catalogue — deliberately DISJOINT from [_services]
+  /// (different names, different ids, different prices), so a screen that
+  /// resolved to the ROOT repository and rendered the OPERATOR's own menu is
+  /// visibly, assertably wrong rather than indistinguishable.
+  final List<Map<String, dynamic>> _salonMasterServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-assign-1',
+          'masterId': 'master-removable',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 750,
+          'priceMax': null,
+          'priceDisplay': '750 ₴',
+          'effectiveDurationMinutes': 90,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-def-1',
+            'name': 'Нарощення нігтів',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 90,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 750,
+            'priceMax': null,
+            'priceDisplay': '750 ₴',
+            'photoUrl': null,
+          },
+        },
+        <String, dynamic>{
+          'id': 'salon-assign-2',
+          'masterId': 'master-removable',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 300,
+          'priceMax': null,
+          'priceDisplay': '300 ₴',
+          'effectiveDurationMinutes': 30,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-def-2',
+            'name': 'Зняття покриття',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 30,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 300,
+            'priceMax': null,
+            'priceDisplay': '300 ₴',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Phase 324 (mobile-qa D3) — master A's (`master-aaa`) catalogue on the
+  /// SAME salon (`salon-xyz`) as [_salonMasterServices] (master B,
+  /// `master-removable`) — deliberately DISJOINT names/ids/prices from BOTH
+  /// [_salonMasterServices] and [_services] so a bleed in either direction
+  /// (cross-master or cross-role) renders visibly, assertably wrong rather
+  /// than a coincidentally-matching list. Read-only fixture (no bulk/
+  /// unassign route registered against it) — D3 only needs a second
+  /// distinct, real list to navigate to and read back.
+  final List<Map<String, dynamic>> _salonMasterAaaServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-aaa-assign-1',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 550,
+          'priceMax': null,
+          'priceDisplay': '550 ₴',
+          'effectiveDurationMinutes': 45,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-aaa-def-1',
+            'name': 'Педикюр класичний',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 45,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 550,
+            'priceMax': null,
+            'priceDisplay': '550 ₴',
+            'photoUrl': null,
+          },
+        },
+        // Phase 317 (mobile-qa) — the CROSS-MASTER VICTIM ROW. This is the one
+        // fixture in the file that deliberately BREAKS the disjointness rule
+        // above, and it has to: the phase-317 defect is only observable when
+        // two masters SHARE a definition. `salon-def-1` is master B's
+        // (`master-removable`) first row, so master A resolves against the
+        // very same salon-owned definition — at the same 750 ₴ / 90 min, with
+        // NO per-master override, which is what makes A susceptible to a
+        // definition-level price write.
+        //
+        // The row's ASSIGNMENT id stays A-specific (`salon-aaa-assign-shared`,
+        // never `salon-assign-1`), so the existing cross-bleed assertions in
+        // `salon_owner_set_master_services_flow_test.dart` — which are keyed
+        // on assignment ids — keep their meaning untouched.
+        <String, dynamic>{
+          'id': 'salon-aaa-assign-shared',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 750,
+          'priceMax': null,
+          'priceDisplay': '750 ₴',
+          'effectiveDurationMinutes': 90,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-def-1',
+            'name': 'Нарощення нігтів',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 90,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 750,
+            'priceMax': null,
+            'priceDisplay': '750 ₴',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon
+  /// counterpart to [_salonMasterServices]: `master-admin-target`'s catalogue
+  /// on `salon-admin-1`, the admin's OWN salon (`_adminUserJson.salonId`).
+  /// GENUINELY STATEFUL, same reasoning as [_salonMasterServices] — a
+  /// successful bulk-create appends, a successful unassign removes. Seeded
+  /// with exactly ONE row so the phase-322 flow can unassign a genuinely
+  /// PRE-EXISTING row (not merely the one it just added in the same test —
+  /// `project_fixture_values_can_defang_assertions`) after also adding a
+  /// second one via the FAB.
+  final List<Map<String, dynamic>> _salonAdminMasterServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-admin-assign-1',
+          'masterId': 'master-admin-target',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 400,
+          'priceMax': null,
+          'priceDisplay': '400 ₴',
+          'effectiveDurationMinutes': 40,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'salon-admin-def-1',
+            'name': 'Манікюр під наглядом адміністратора',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 40,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 400,
+            'priceMax': null,
+            'priceDisplay': '400 ₴',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Artificial latency for `DELETE /api/v1/services/{serviceDefId}`.
+  ///
+  /// Constructor-time (`onRoute` freezes the reply at registration, same
+  /// reason [deleteMyAccountFailureStatusCode] is final). `null` (default)
+  /// answers immediately, so every existing flow is unchanged.
+  ///
+  /// Exists for ONE flow: the double-tap re-entrancy guard
+  /// (`_ServiceEditScreenState._deleting`, mobile phase 316). That race only
+  /// exists WHILE the DELETE is in flight — once the confirmation dialog pops,
+  /// the delete icon behind it is hit-testable again but the screen has not
+  /// popped yet. With an immediate reply that window is sub-frame and cannot
+  /// be driven from a test; the counter increments at DISPATCH time (the
+  /// `replyCallback` body runs BEFORE the adapter awaits `delay` —
+  /// `dio_adapter.dart:59`), so the delay widens the window without hiding a
+  /// second call that did happen.
+  final Duration? deleteServiceDelay;
+
   /// Count of `POST /independent-masters/me/services/bulk` (first-time setup)
   /// calls, and the exact `items` list of the last one — lets a flow prove the
   /// bulk-save actually reached the network (vs. being blocked client-side).
@@ -2087,6 +2616,18 @@ final class FakeBackend {
     'avgRating': 4.8,
     'reviewCount': 10,
     'masterType': 'INDEPENDENT_MASTER',
+    // Phase 321 — omitted (not merely null) when [masterSalonId] is unset, so
+    // every pre-existing flow's body is byte-identical. `cityId`/`oblastId`
+    // are non-nullable on the generated `PublicSalonResponse`, so they must
+    // be present for the envelope to deserialize at all — placeholder values,
+    // never read by `MasterMapper.fromDto` (only `.salon.id` is).
+    if (masterSalonId != null)
+      'salon': <String, dynamic>{
+        'id': masterSalonId,
+        'name': 'Салон',
+        'cityId': 'city-kyiv',
+        'oblastId': 'oblast-kyiv',
+      },
   });
 
   /// PUBLIC master-detail envelope for the Phase 13.5 client-facing profile.
@@ -2725,6 +3266,77 @@ final class FakeBackend {
           ],
         },
       ];
+
+  /// The catalogue id of the salon's SHARED NAILS service — the row every
+  /// salon-wide aggregation assertion is written against.
+  static const String kSalonSharedCatalogServiceId = 'salon-svc-shared';
+
+  /// Prices contributed to a catalogue service by roster masters BEYOND the
+  /// one the baseline [_salonServiceCategories] fixture already prices.
+  ///
+  /// Empty in the seeded state, so every existing consumer of
+  /// `GET /salons/salon-xyz/services` reads the baseline byte-for-byte. The
+  /// salon-scoped bulk-assign handler appends here, which is what models the
+  /// backend's locked rule — a salon's catalogue IS the set of services its
+  /// active masters perform, priced ACROSS them, so a second master at a
+  /// different price turns a single price into a RANGE.
+  final Map<String, List<double>> _salonCatalogExtraAssignmentPrices =
+      <String, List<double>>{};
+
+  /// The salon catalogue as the server would aggregate it RIGHT NOW.
+  ///
+  /// Deep-copies the baseline and folds [_salonCatalogExtraAssignmentPrices]
+  /// into each affected row's price band. The ONLY observable difference a
+  /// re-read can produce is on that band, which is precisely why the «Послуги»
+  /// tab's rendered price is a genuine stale-vs-fresh discriminator: nothing
+  /// else about the row moves.
+  ///
+  /// The backend formats the display string itself (single `"500 ₴"` or an
+  /// en-dash range `"200–600 ₴"`) and mobile renders it verbatim — mirrored
+  /// here, NOT recomputed client-side.
+  List<Map<String, dynamic>> _salonServiceCatalogNow() {
+    if (_salonCatalogExtraAssignmentPrices.isEmpty) {
+      return _salonServiceCategories;
+    }
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> group in _salonServiceCategories)
+        <String, dynamic>{
+          ...group,
+          'services': <Map<String, dynamic>>[
+            for (final Map<String, dynamic> svc
+                in (group['services'] as List<dynamic>)
+                    .cast<Map<String, dynamic>>())
+              _aggregatedCatalogService(svc),
+          ],
+        },
+    ];
+  }
+
+  Map<String, dynamic> _aggregatedCatalogService(Map<String, dynamic> svc) {
+    final List<double> extra =
+        _salonCatalogExtraAssignmentPrices[svc['id'] as String] ??
+        const <double>[];
+    if (extra.isEmpty) return svc;
+
+    double lo = (svc['priceMin'] as num).toDouble();
+    double hi = lo;
+    for (final double p in extra) {
+      if (p < lo) lo = p;
+      if (p > hi) hi = p;
+    }
+    final bool isRange = hi > lo;
+    return <String, dynamic>{
+      ...svc,
+      'priceType': isRange ? 'RANGE' : 'FIXED',
+      'priceMin': lo,
+      'priceMax': isRange ? hi : null,
+      'priceDisplay': isRange ? '${_uah(lo)}–${_uah(hi)} ₴' : '${_uah(lo)} ₴',
+    };
+  }
+
+  /// Whole-hryvnia rendering — the backend never emits a trailing `.0`.
+  static String _uah(double v) =>
+      v == v.roundToDouble() ? v.round().toString() : v.toString();
 
   /// PUBLIC review-summary envelope for `salon-xyz` — matches the FOUR
   /// reviews in [_salonReviews] (one 5★, two 4★, one 3★; avg stays exactly
@@ -4194,6 +4806,491 @@ final class FakeBackend {
   // `server.reply*(<flag> ? … : …, …)` directly in [_wire] — give it a
   // `_wireX()` + re-wiring setter like these two.
 
+  /// Wires the two Phase 317 SALON-TARGET service endpoints for the
+  /// `salon-xyz` / `master-removable` pair. See [getSalonMasterServicesCalls].
+  void _wireSalonMasterServices() {
+    const String base =
+        '/api/v1/salons/salon-xyz/masters/master-removable/services';
+
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        getSalonMasterServicesCalls++;
+        lastSalonMasterServicesPath = base;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonMasterServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // One DELETE route per SEEDED definition id — an unassign for an id that
+    // was never seeded fails loudly as an unmatched route instead of silently
+    // counting (the same rule the `DELETE /api/v1/services/{defId}` loop
+    // follows). Note the path is keyed on the DEFINITION id, never the
+    // assignment id: `service_edit_screen.dart` passes `service.serviceDefId`,
+    // and the fixture gives the two rows DIFFERENT values for those.
+    for (final Map<String, dynamic> svc in _salonMasterServices) {
+      final String defId =
+          (svc['serviceDefinition'] as Map<String, dynamic>?)?['id']
+              as String? ??
+          '';
+      if (defId.isEmpty) continue;
+      final String path = '$base/$defId';
+      _adapter.onRoute(
+        path,
+        (server) =>
+            server.replyCallback(_unassignServiceBlocked ? 409 : 204, (_) {
+              unassignServiceCalls++;
+              lastUnassignedServiceDefId = defId;
+              lastUnassignPath = path;
+              if (_unassignServiceBlocked) {
+                // Plain-English body, no `data` envelope — the real backend's
+                // exact shape (see [unassignServiceBlocked]'s doc). The row is
+                // deliberately NOT removed: nothing was written.
+                return <String, dynamic>{
+                  'success': false,
+                  'message':
+                      'Master has 2 future confirmed booking(s) for this '
+                      'service.',
+                };
+              }
+              _salonMasterServices.removeWhere(
+                (Map<String, dynamic> s) =>
+                    (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                    defId,
+              );
+              return null;
+            }),
+        request: const Request(method: RequestMethods.delete),
+      );
+
+      // Phase 317 — PATCH on the SAME path: the PER-MASTER BAND write, the
+      // endpoint a salon-master price/duration edit must land on. Registered
+      // per SEEDED definition id for the same reason the DELETE above is: a
+      // band PATCH for an id that was never seeded fails loudly as an
+      // unmatched route instead of silently counting.
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) {
+          updateMasterBandCalls++;
+          lastBandPatchPath = path;
+          lastBandPatchedServiceDefId = defId;
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          lastBandPatchBody = body;
+          return _ok(_applySalonBand('master-removable', defId, body));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+    }
+  }
+
+  /// Phase 317 — applies a PER-MASTER band PATCH body to ONE master's row and
+  /// records the override.
+  ///
+  /// READS ONLY THE BAND ENDPOINT'S OWN WIRE NAMES, deliberately: `price` is
+  /// the FLOOR in BOTH modes here (there is no `priceMin` key) and the
+  /// duration is `durationOverrideMinutes` (never `baseDurationMinutes`).
+  /// Also accepting the definition endpoint's spellings would DEFANG every
+  /// phase-317 assertion at once — a repository that transcribed the wrong
+  /// mapper would still appear to work against this fake.
+  ///
+  /// Returns the updated row (a MasterServiceResponse-shaped map), which is
+  /// what the real endpoint answers with.
+  Map<String, dynamic> _applySalonBand(
+    String masterId,
+    String serviceDefId,
+    Map<String, dynamic> body,
+  ) {
+    _salonBandOverrides.add('$masterId|$serviceDefId');
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      if (row['masterId'] != masterId) continue;
+      if ((row['serviceDefinition'] as Map<String, dynamic>?)?['id'] !=
+          serviceDefId) {
+        continue;
+      }
+      final Object? priceType = body['priceType'];
+      if (priceType != null) {
+        row['priceType'] = priceType;
+        row['priceMin'] = body['price'];
+        // Absent for FIXED — write the null through so a FIXED band genuinely
+        // CLEARS a previous ceiling instead of leaving a stale one.
+        row['priceMax'] = body['priceMax'];
+        row['priceDisplay'] = _priceDisplay(
+          body['price'] as num?,
+          body['priceMax'] as num?,
+        );
+      }
+      final Object? duration = body['durationOverrideMinutes'];
+      if (duration != null) row['effectiveDurationMinutes'] = duration;
+      return Map<String, dynamic>.from(row);
+    }
+    // No such row: answer the shape anyway so the failure surfaces as a test
+    // assertion rather than a deserialization crash.
+    return <String, dynamic>{
+      'id': 'unknown-assignment',
+      'masterId': masterId,
+      'isActive': true,
+      'priceType': body['priceType'] ?? 'FIXED',
+      'priceMin': body['price'] ?? 0,
+      'priceMax': body['priceMax'],
+      'priceDisplay': _priceDisplay(
+        body['price'] as num?,
+        body['priceMax'] as num?,
+      ),
+      'effectiveDurationMinutes': body['durationOverrideMinutes'] ?? 60,
+      'serviceDefinition': <String, dynamic>{
+        'id': serviceDefId,
+        'name': 'Unknown',
+        'category': 'NAILS',
+        'baseDurationMinutes': 60,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 0,
+        'priceMax': null,
+        'priceDisplay': '0 ₴',
+      },
+    };
+  }
+
+  /// Phase 317 — `PATCH /api/v1/services/{serviceDefId}` for the SALON-OWNED
+  /// definitions, the SHARED row several masters resolve against.
+  ///
+  /// The split write sends an IDENTITY-ONLY body here, so the route existing
+  /// is not itself the assertion — [patchSharedDefinitionPricedCalls] is. The
+  /// cascade in [_applySharedDefinitionPatch] is what turns a price on this
+  /// body into a VISIBLE change on another master's screen, which is the harm
+  /// the phase-317 flow asserts against.
+  void _wireSalonSharedDefinitions() {
+    final Set<String> defIds = <String>{
+      for (final Map<String, dynamic> row in _allSalonRows)
+        (row['serviceDefinition'] as Map<String, dynamic>?)?['id'] as String? ??
+            '',
+    }..removeWhere((String id) => id.isEmpty);
+
+    for (final String defId in defIds) {
+      _adapter.onRoute(
+        '/api/v1/services/$defId',
+        (server) => server.replyCallback(200, (req) {
+          patchSharedDefinitionCalls++;
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          lastSharedDefinitionPatchBody = body;
+          // EVERY spelling either endpoint uses for money or time. A
+          // regression that picked the other name must still be counted, or
+          // the "priced writes stayed at zero" assertion would be satisfied
+          // by the very bug it exists to catch.
+          const List<String> moneyOrTime = <String>[
+            'price',
+            'priceMin',
+            'priceMax',
+            'priceType',
+            'baseDurationMinutes',
+            'durationMinutes',
+            'durationOverrideMinutes',
+          ];
+          final bool priced = moneyOrTime.any(body.containsKey);
+          if (priced) patchSharedDefinitionPricedCalls++;
+          return _ok(_applySharedDefinitionPatch(defId, body, priced: priced));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+    }
+  }
+
+  /// Applies a SHARED-definition PATCH and cascades it, modelling the backend:
+  /// a definition-level price/duration change re-prices and re-times every
+  /// master resolving against that definition who has NO per-master override.
+  ///
+  /// This cascade is the point of the whole fixture. Without it a flow could
+  /// only assert which endpoint was called; with it, the other master's
+  /// rendered price actually moves when the bug is present.
+  Map<String, dynamic> _applySharedDefinitionPatch(
+    String serviceDefId,
+    Map<String, dynamic> body, {
+    required bool priced,
+  }) {
+    Map<String, dynamic>? touched;
+    for (final Map<String, dynamic> row in _allSalonRows) {
+      final Map<String, dynamic>? def =
+          row['serviceDefinition'] as Map<String, dynamic>?;
+      if (def == null || def['id'] != serviceDefId) continue;
+
+      if (body['name'] != null) def['name'] = body['name'];
+      if (body['category'] != null) def['category'] = body['category'];
+      if (body['serviceTypeId'] != null) {
+        def['serviceTypeId'] = body['serviceTypeId'];
+      }
+      // The definition endpoint's own spellings: floor `priceMin` (RANGE) or
+      // `price` (FIXED), duration `baseDurationMinutes`.
+      final num? floor = (body['priceMin'] ?? body['price']) as num?;
+      final num? ceiling = body['priceMax'] as num?;
+      final Object? baseDuration = body['baseDurationMinutes'];
+      if (body['priceType'] != null) {
+        def['priceType'] = body['priceType'];
+        def['priceMin'] = floor;
+        def['priceMax'] = ceiling;
+        def['priceDisplay'] = _priceDisplay(floor, ceiling);
+      }
+      if (baseDuration != null) def['baseDurationMinutes'] = baseDuration;
+
+      // THE CASCADE. A master with a per-master override keeps their own
+      // band; everyone else inherits the shared one — which is precisely how
+      // one master's edit used to re-price the whole salon.
+      final bool overridden = _salonBandOverrides.contains(
+        '${row['masterId']}|$serviceDefId',
+      );
+      if (priced && !overridden) {
+        if (body['priceType'] != null) {
+          row['priceType'] = body['priceType'];
+          row['priceMin'] = floor;
+          row['priceMax'] = ceiling;
+          row['priceDisplay'] = _priceDisplay(floor, ceiling);
+        }
+        if (baseDuration != null) {
+          row['effectiveDurationMinutes'] = baseDuration;
+        }
+      }
+      touched ??= def;
+    }
+    return touched ??
+        <String, dynamic>{
+          'id': serviceDefId,
+          'name': body['name'] ?? 'Unknown',
+          'category': body['category'] ?? 'NAILS',
+          'baseDurationMinutes': body['baseDurationMinutes'] ?? 60,
+          'isActive': true,
+          'priceType': body['priceType'] ?? 'FIXED',
+          'priceMin': (body['priceMin'] ?? body['price']) ?? 0,
+          'priceMax': body['priceMax'],
+          'priceDisplay': '0 ₴',
+        };
+  }
+
+  /// The server-formatted price label the real backend returns. Whole amounts
+  /// render without a decimal tail, matching the seeded fixtures ('750 ₴').
+  static String _priceDisplay(num? floor, num? ceiling) {
+    if (floor == null) return '';
+    String fmt(num v) =>
+        v == v.roundToDouble() ? v.round().toString() : v.toString();
+    return ceiling == null
+        ? '${fmt(floor)} ₴'
+        : '${fmt(floor)}–${fmt(ceiling)} ₴';
+  }
+
+  /// Phase 324 (mobile-qa D3) — the cross-role-bleed control route: `GET
+  /// /api/v1/salons/salon-xyz/masters/master-aaa/services`. Read-only (no
+  /// bulk/unassign registered) — see [getSalonMasterAaaServicesCalls]'s doc.
+  void _wireSalonMasterAaaServices() {
+    const String base = '/api/v1/salons/salon-xyz/masters/master-aaa/services';
+
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        getSalonMasterAaaServicesCalls++;
+        lastSalonMasterAaaServicesPath = base;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonMasterAaaServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// Phase 318 (mobile-qa) — `POST /api/v1/salons/salon-xyz/masters/
+  /// master-removable/services/bulk`, the SALON-scoped counterpart to
+  /// [_wireBulkCreateServices]. Mirrors that method's success shape (echo one
+  /// created service per submitted item) but APPENDS into
+  /// [_salonMasterServices] instead of the independent master's [_services] —
+  /// this is the ONE thing that makes the phase-318 FAB→setup→submit flow's
+  /// "new service appears in the list" and "the stat tile count increased on
+  /// return" assertions genuine rather than reading a fixture that never
+  /// changed. No rejection outcomes are wired (unlike
+  /// [_wireBulkCreateServices]) — nothing in this repo's test suite yet drives
+  /// a validation/duplicate failure through the salon-scoped path.
+  void _wireSalonMasterServicesBulk() {
+    const String path =
+        '/api/v1/salons/salon-xyz/masters/master-removable/services/bulk';
+    _adapter.onRoute(
+      path,
+      (server) => server.replyCallback(200, (req) {
+        salonBulkCreateCalls++;
+        lastSalonBulkPath = path;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastSalonBulkItems = items;
+
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'salon-def-bulk-$_nextSalonServiceSeq';
+          final row = <String, dynamic>{
+            'id': 'salon-assign-bulk-$_nextSalonServiceSeq',
+            'masterId': 'master-removable',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Salon bulk service $_nextSalonServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+              'photoUrl': null,
+            },
+          };
+          _salonMasterServices.add(row);
+          created.add(row);
+          _nextSalonServiceSeq++;
+
+          // SALON-WIDE AGGREGATION (2026-09-14). A salon-scoped assignment is
+          // a second master taking on one of the SALON's services, so the
+          // salon catalogue's own row for it re-prices across the masters who
+          // now perform it — see [_salonCatalogExtraAssignmentPrices]. Modelled
+          // against the shared NAILS row because that is the one the baseline
+          // fixture already prices (400 ₴) and the one the «Послуги» tab
+          // assertions name. Recorded HERE, at the write, so the catalogue
+          // change is causally tied to the operator's action rather than to a
+          // test-only knob a passing test could set without doing anything.
+          final num? assigned = (map['price'] ?? map['priceMin']) as num?;
+          if (assigned != null) {
+            _salonCatalogExtraAssignmentPrices
+                .putIfAbsent(kSalonSharedCatalogServiceId, () => <double>[])
+                .add(assigned.toDouble());
+          }
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  /// Phase 322 (mobile-qa) — the SALON_ADMIN own-salon counterpart to
+  /// [_wireSalonMasterServices], for the `salon-admin-1` / `master-admin-target`
+  /// pair. Proves the exact SAME salon-target GET/DELETE wire an owner hits
+  /// (`_wireSalonMasterServices`'s own doc) also fires for a SALON_ADMIN of
+  /// that salon — a role-only gate would coincidentally still hit ONE of
+  /// these two salon/master pairs, so the two are kept fully separate
+  /// (different counters, different fixture list) rather than parameterised
+  /// over a shared one.
+  void _wireSalonAdminMasterServices() {
+    const String base =
+        '/api/v1/salons/salon-admin-1/masters/master-admin-target/services';
+
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        getSalonAdminMasterServicesCalls++;
+        lastSalonAdminMasterServicesPath = base;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonAdminMasterServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // One DELETE route per SEEDED definition id — same rule
+    // [_wireSalonMasterServices] follows, for the same reason.
+    for (final Map<String, dynamic> svc in _salonAdminMasterServices) {
+      final String defId =
+          (svc['serviceDefinition'] as Map<String, dynamic>?)?['id']
+              as String? ??
+          '';
+      if (defId.isEmpty) continue;
+      final String path = '$base/$defId';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(204, (_) {
+          unassignAdminServiceCalls++;
+          lastUnassignedAdminServiceDefId = defId;
+          lastUnassignAdminPath = path;
+          _salonAdminMasterServices.removeWhere(
+            (Map<String, dynamic> s) =>
+                (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+    }
+  }
+
+  /// Phase 322 (mobile-qa) — `POST /api/v1/salons/salon-admin-1/masters/
+  /// master-admin-target/services/bulk`, the SALON_ADMIN own-salon
+  /// counterpart to [_wireSalonMasterServicesBulk]. Same mirrored shape,
+  /// APPENDS into [_salonAdminMasterServices] instead.
+  void _wireSalonAdminMasterServicesBulk() {
+    const String path =
+        '/api/v1/salons/salon-admin-1/masters/master-admin-target/services'
+        '/bulk';
+    _adapter.onRoute(
+      path,
+      (server) => server.replyCallback(200, (req) {
+        salonAdminBulkCreateCalls++;
+        lastSalonAdminBulkPath = path;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        lastSalonAdminBulkItems = items;
+
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final defId = 'salon-admin-def-bulk-$_nextSalonAdminServiceSeq';
+          final row = <String, dynamic>{
+            'id': 'salon-admin-assign-bulk-$_nextSalonAdminServiceSeq',
+            'masterId': 'master-admin-target',
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': defId,
+              'name': 'Salon admin bulk service $_nextSalonAdminServiceSeq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': map['price'] ?? map['priceMin'] ?? 0,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '${map['price'] ?? map['priceMin'] ?? 0} ₴',
+              'photoUrl': null,
+            },
+          };
+          _salonAdminMasterServices.add(row);
+          created.add(row);
+          _nextSalonAdminServiceSeq++;
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
   /// (Re-)registers `POST /api/v1/independent-masters/me/services`.
   /// See [createRejectDuplicate].
   void _wireCreateService() {
@@ -4549,14 +5646,27 @@ final class FakeBackend {
 
     // GET /api/v1/masters/master-removable/services — the removable
     // master's active services, fetched by `salonStaffMemberProfileProvider`
-    // whenever its staff/settings profile is opened. Empty: this flow never
-    // asserts on service content, only on the roster mutation above.
+    // whenever its staff/settings profile is opened.
+    //
+    // Phase 318 (mobile-qa) — WIDENED from a static empty reply to mirror the
+    // LIVE [_salonMasterServices] state. Both endpoints describe the SAME
+    // underlying master catalogue (this one via the PUBLIC per-master read,
+    // `/salons/{s}/masters/{m}/services` via the salon-scoped one) — a real
+    // backend's two reads would agree, and a static empty reply here made the
+    // phase-318 D4 refetch assertion and the inherited backlog-802 stale-count
+    // regression (unassign in the subtree must move THIS screen's count)
+    // structurally untestable, since the read this screen renders from never
+    // moved no matter what the subtree wrote.
     _adapter.onRoute(
       '/api/v1/masters/master-removable/services',
       (server) => server.replyCallback(200, (_) {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-removable';
-        return _okList(const <Map<String, dynamic>>[]);
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            _salonMasterServices.map(Map<String, dynamic>.from),
+          ),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -4569,6 +5679,16 @@ final class FakeBackend {
     // the whole staff-profile screen renders `ErrorState` instead. Empty,
     // same reasoning as `master-removable` above: this fixture's flows never
     // assert on service content.
+    //
+    // Phase 325 (mobile-qa, 2026-09-12) — this emptiness is now ALSO the
+    // deliberate zero-service fixture for
+    // `salon_admin_set_master_services_flow_test.dart`'s E2E assertion that
+    // the «Послуги» `ManagementActionCard` on `SalonStaffProfileScreen`
+    // renders `staffProfileServicesEmpty` («Ще немає»), never
+    // `staffProfileServicesCount(0)`, for a master whose catalogue is
+    // genuinely empty. Never seed a row here — doing so would silently
+    // remove the only E2E-reachable empty catalogue (`master-removable`, the
+    // owner-flow counterpart, always seeds two rows).
     _adapter.onRoute(
       '/api/v1/masters/master-admin-target/services',
       (server) => server.replyCallback(200, (_) {
@@ -5771,7 +6891,12 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getSalonServiceCatalogCalls++;
         lastGetSalonServiceCatalogId = 'salon-xyz';
-        return _ok(<String, dynamic>{'categories': _salonServiceCategories});
+        // AGGREGATED AT REQUEST TIME, never captured at registration — see
+        // [_salonServiceCatalogNow]. A catalogue frozen at wiring time cannot
+        // tell a refetch from a served cache, which is exactly the bug the
+        // 2026-09-14 arm of `salon_owner_set_master_services_flow_test.dart`
+        // exists to catch.
+        return _ok(<String, dynamic>{'categories': _salonServiceCatalogNow()});
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -5884,6 +7009,28 @@ final class FakeBackend {
         return _okList(
           List<Map<String, dynamic>>.from(
             salonAdminOneStaff.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-admin-1/sibling-salons — mobile-qa
+    // gap-closure (2026-09-12): `MoveAdminSalonScreen`'s destination picker
+    // is REACHABLE from `salon-admin-1` (`salonManageStaffSettings` admits a
+    // SALON_ADMIN onto a co-admin's settings page and `row-admin-move-salon`
+    // is live there), but until now nothing served this GET for that salon
+    // id, so the screen always rendered its `ErrorState` branch —
+    // reachable, not usable. Mirrors `salon-xyz`'s own handler above
+    // (a COPY read at REQUEST time) but serves the ISOLATED
+    // [salonAdminOneSiblingSalons] list — see that field's own doc for why.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1/sibling-salons',
+      (server) => server.replyCallback(200, (_) {
+        siblingSalonsCalls++;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonAdminOneSiblingSalons.map(Map<String, dynamic>.from),
           ),
         );
       }),
@@ -6049,6 +7196,23 @@ final class FakeBackend {
 
     _wireBulkCreateServices();
 
+    _wireSalonMasterServices();
+
+    _wireSalonMasterAaaServices();
+
+    _wireSalonMasterServicesBulk();
+
+    _wireSalonAdminMasterServices();
+
+    _wireSalonAdminMasterServicesBulk();
+
+    // Phase 317 — the SHARED salon definitions (`PATCH /api/v1/services/
+    // {defId}`) and the cascade that makes one master's definition write
+    // visible on ANOTHER master's screen. Must run AFTER the three
+    // per-master catalogues are wired: it enumerates their seeded
+    // definition ids.
+    _wireSalonSharedDefinitions();
+
     // GET /api/v1/independent-masters/me/services/:id
     // Wired for the two pre-seeded services (keyed by serviceDefId in the path).
     for (final svc in _services) {
@@ -6105,6 +7269,46 @@ final class FakeBackend {
           method: RequestMethods.patch,
           data: Matchers.any,
         ),
+      );
+    }
+
+    // DELETE /api/v1/services/{serviceDefId} — the REAL deactivate endpoint
+    // (`deactivateServiceDefinition`, keyed on the service-DEFINITION id, NOT
+    // the assignment id). Mobile phase 316 (mobile-qa, 2026-09-10): before
+    // this, NO integration flow exercised service delete at all, so the
+    // phase's central claim — "`DELETE /services/{id}` still fires unchanged
+    // for a null target" — rested on unit tests alone.
+    //
+    // Registered per SEEDED definition id (the same per-service loop shape the
+    // PATCH handlers above use) rather than as one catch-all, so a DELETE for
+    // an id that was never seeded fails loudly as an unmatched route instead
+    // of silently counting.
+    //
+    // Follows the `DELETE /salons/salon-xyz` precedent: count the call, record
+    // the id, and MUTATE [_services] so the follow-up GET reflects the
+    // deletion. Note the counter/removal run at DISPATCH time — the adapter
+    // awaits [deleteServiceDelay] only AFTER this callback returns
+    // (`dio_adapter.dart:59`) — which is what lets the double-tap flow assert
+    // "exactly one DELETE" against a still-in-flight first one.
+    for (final defId in <String>[
+      for (final svc in _services)
+        (svc['serviceDefinition'] as Map<String, dynamic>?)?['id'] as String? ??
+            '',
+    ]) {
+      if (defId.isEmpty) continue;
+      _adapter.onRoute(
+        '/api/v1/services/$defId',
+        (server) => server.replyCallback(204, (_) {
+          deleteServiceCalls++;
+          lastDeletedServiceDefId = defId;
+          _services.removeWhere(
+            (Map<String, dynamic> s) =>
+                (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }, delay: deleteServiceDelay),
+        request: const Request(method: RequestMethods.delete),
       );
     }
 

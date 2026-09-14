@@ -27,6 +27,7 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -35,13 +36,18 @@ import 'package:beautica_mobile/features/location/data/location_repository.dart'
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -370,6 +376,41 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
   ],
 );
 
+/// Phase 327 — router variant that mounts the REAL destination screens
+/// ([SalonStaffProfileScreen], [OwnerOwnProfileScreen],
+/// [AdminOwnProfileScreen]) instead of the trivial markers [_router] uses
+/// for everything above. Needed ONLY by the self-row routing tests below,
+/// which pin the resolved page TYPE — never a path string
+/// (`project_gorouter_literal_before_dynamic_shadowing`) — so the marker
+/// Scaffolds [_router] uses everywhere else are insufficient. Every other
+/// test in this file keeps using [_router] unchanged.
+GoRouter _routerWithRealDestinations(FakeSalonRepository repo) => GoRouter(
+  initialLocation: RouteNames.salonManage(_kSalonId),
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/salons/:salonId/manage',
+      builder: (context, state) => SalonManagementProfileScreen(
+        salonId: state.pathParameters['salonId']!,
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId',
+      builder: (context, state) => SalonStaffProfileScreen(
+        salonId: state.pathParameters['salonId']!,
+        memberId: state.pathParameters['memberId']!,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.ownerOwnProfile,
+      builder: (context, state) => const OwnerOwnProfileScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.adminOwnProfile,
+      builder: (context, state) => const AdminOwnProfileScreen(),
+    ),
+  ],
+);
+
 const _stubAdmin = User(
   id: 'admin-1',
   email: 'admin@beautica.ua',
@@ -558,20 +599,28 @@ void main() {
         tester.widget<SalonMasterCard>(adminCard).role,
         l10n.salonStaffRoleAdmin,
       );
-      expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
       expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
 
       // Phase 21.4 — the add-staff tile navigates to InviteStaffScreen
-      // (`RouteNames.salonInviteStaff`). mobile-qa gap-closure (Phase 21.5) —
-      // with the admin fixture added above, the grid now spans 2 rows at the
-      // default test surface, pushing the add-staff tile below the fold;
-      // scroll it into view before tapping (mirrors the integration flow's
-      // own `ensureVisible` precedent for this exact tile).
+      // (`RouteNames.salonInviteStaff`). mobile-perf LOW fix (2026-09-13) —
+      // the roster grid is now a genuinely lazy `SliverGrid.builder` (was a
+      // `shrinkWrap: true` `GridView.builder`, which built every cell up
+      // front regardless of the fold). With the admin fixture above, the
+      // grid spans 2 rows at the default test surface, and the add-staff
+      // tile in row 2 is no longer BUILT at all until scrolled near — a
+      // blind `find.byKey` for it before scrolling now finds nothing rather
+      // than an off-screen-but-built widget. `scrollUntilVisible` drags the
+      // one scrollable (the screen's own `CustomScrollView`) until the tile
+      // actually inflates.
       final Finder addStaffTile = find.byKey(
         const Key('salon-manage-add-staff'),
       );
-      await tester.ensureVisible(addStaffTile);
-      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        addStaffTile,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(addStaffTile, findsOneWidget);
       await tester.tap(addStaffTile);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('invite-staff-marker')), findsOneWidget);
@@ -669,22 +718,61 @@ void main() {
     );
   });
 
-  // mobile-qa gap-closure (feat/salon-master-schedule-read-only) — the
-  // `viewerIsAdmin` filter at `salon_management_profile_screen.dart:287-306`
-  // (an admin's «Команда» tab shows masters only, never themselves; the
-  // owner sees masters AND admins — there is deliberately no owner-side
-  // filter, since the roster is already built from master + SALON_ADMIN
-  // queries that never include the owner) shipped with 149 passing tests in
-  // this file and ZERO of them exercising a mixed roster under an admin
-  // viewer — every existing `_adminOverrides` pump in this file uses an
-  // empty staff list (see the «Про салон» `pumpAs` helper above), which
-  // cannot distinguish "filtered" from "nothing to filter".
-  group('Команда tab admin filter (mobile-qa gap-closure)', () {
+  // Phase 327, REWRITTEN 2026-09-13 — the `viewerIsAdmin` self-exclusion
+  // filter that used to live at `salon_management_profile_screen.dart`'s
+  // roster-build site is DELETED, not narrowed again (user decision,
+  // 2026-09-13: "each salon member can see hisself"). Every row
+  // `GET /salons/{id}/staff` returns renders, the viewer's own row included.
+  // What used to be a hidden-row problem is now a routing problem: tapping
+  // your OWN row opens your PERSONAL profile (`/profile/owner`,
+  // `/profile/admin`) instead of the staff-management view of yourself —
+  // see [_openStaffMember] and the tap-routing cases below. The earlier
+  // masters-only filter (`314f6318`) is still gone too — a co-admin (a
+  // DIFFERENT user id, same admin role as the viewer) still renders, which
+  // is the capability that filter had broken (`rotateAdmin`,
+  // `PATCH /salons/{salonId}/admins/{userId}/salon`, admin-callable with no
+  // self-guard). The owner case is unchanged — there was never an
+  // owner-side filter, since the roster is already built from master +
+  // SALON_ADMIN queries that never include the owner as an owner.
+  group('Команда tab — the roster is unfiltered, and the self row routes to '
+      'the personal profile', () {
     testWidgets(
-      'admin viewer + mixed roster (master + admin) — only the master card '
-      'renders',
+      'admin viewer + mixed roster (master + self-admin + co-admin) — ALL '
+      'THREE render',
       (tester) async {
-        final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[
+            SalonStaffMember(
+              userId: 'master-1',
+              masterId: 'master-1',
+              role: SalonStaffRole.master,
+              firstName: 'Олена',
+              lastName: 'Ковальчук',
+              avgRating: 4.9,
+              reviewCount: 12,
+            ),
+            // The viewer's own row — `_stubAdmin.id == 'admin-1'` — renders
+            // like any other row. It is only routed differently on tap (see
+            // the routing cases below), never hidden.
+            SalonStaffMember(
+              userId: 'admin-1',
+              role: SalonStaffRole.admin,
+              firstName: 'Ірина',
+              lastName: 'Адміністратор',
+            ),
+            // A CO-admin: a different user id, same admin role as the
+            // viewer. This is the row the old masters-only filter
+            // incorrectly hid too, cutting off the only in-app route to
+            // `rotateAdmin`.
+            SalonStaffMember(
+              userId: 'admin-2',
+              role: SalonStaffRole.admin,
+              firstName: 'Наталя',
+              lastName: 'Бондар',
+            ),
+          ],
+        );
         await tester.pumpRoutedApp(
           _router(repo),
           overrides: _adminOverrides(repo),
@@ -701,13 +789,35 @@ void main() {
         );
         expect(
           find.byKey(const Key('salon-manage-staff-card-admin-1')),
-          findsNothing,
+          findsOneWidget,
+          reason:
+              "admin-1 is the viewer's own row and is listed like any "
+              'other — the roster applies no filter.',
         );
-        // Exactly one rendered card — proves the GRID itself was rebuilt on
-        // a shrunk list (itemCount == staff.length + 1), not merely that
-        // the admin's specific key was hidden by some other means while the
-        // grid still allocated a slot for it.
-        expect(find.byType(SalonMasterCard), findsOneWidget);
+        // mobile-perf LOW fix (2026-09-13) — the grid is now a genuinely
+        // lazy `SliverGrid.builder` (see `salon_management_profile_screen
+        // .dart`'s `_StaffTab`): admin-2 is row 2 of 2 at the default test
+        // surface and is not BUILT until scrolled near, unlike the old
+        // `shrinkWrap: true` grid that built every cell up front.
+        final Finder admin2Card = find.byKey(
+          const Key('salon-manage-staff-card-admin-2'),
+        );
+        await tester.scrollUntilVisible(
+          admin2Card,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(
+          admin2Card,
+          findsOneWidget,
+          reason:
+              'a co-admin (a different user id from the viewer) must render '
+              '— this is the capability restored 2026-09-12 and kept here.',
+        );
+        // All three rendered cards — proves the GRID itself was built from
+        // the WHOLE list (itemCount == staff.length + 1), now against three
+        // rows rather than the pre-Phase-327 shrunk two.
+        expect(find.byType(SalonMasterCard), findsNWidgets(3));
         expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
         expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
       },
@@ -740,8 +850,8 @@ void main() {
     );
 
     testWidgets(
-      'admin viewer + an admins-ONLY roster lands in the empty state, not a '
-      'roster of invisible cards',
+      'admin viewer + a roster of two OTHER admins (neither is self) — both '
+      'co-admin cards render, none filtered',
       (tester) async {
         final repo = FakeSalonRepository(
           salon: _stubSalon,
@@ -770,18 +880,187 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
-        // Filtered to zero — the empty-state message must show and the
-        // grid must hold zero master cards, not two admin cards rendered
-        // invisibly (that shape would mean the filter was applied inside
-        // `itemBuilder`, e.g. returning an empty SizedBox per admin entry,
-        // instead of at the source list — itemCount would then still be
-        // wrong even though no admin key is findable).
+        // Neither row is the viewer's own (`admin-1`) — the roster applies
+        // no filter at all, so both render regardless. This replaces the
+        // pre-2026-09-12 assertion that an admin-only roster always lands in
+        // the empty state; that was true only under the masters-only filter
+        // this task removed, and hid every co-admin as collateral damage.
         expect(
-          find.byKey(const Key('salon-manage-staff-empty')),
+          find.byKey(const Key('salon-manage-staff-card-admin-only-1')),
           findsOneWidget,
         );
-        expect(find.byType(SalonMasterCard), findsNothing);
-        expect(find.byKey(const Key('salon-manage-add-staff')), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-manage-staff-card-admin-only-2')),
+          findsOneWidget,
+        );
+        expect(find.byType(SalonMasterCard), findsNWidgets(2));
+        expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
+        // mobile-perf LOW fix (2026-09-13) — genuinely lazy grid (see the
+        // admin-2 scroll comment above): the add-tile is row 2 and is not
+        // built until scrolled near.
+        final Finder addStaffTile = find.byKey(
+          const Key('salon-manage-add-staff'),
+        );
+        await tester.scrollUntilVisible(
+          addStaffTile,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(addStaffTile, findsOneWidget);
+      },
+    );
+
+    testWidgets('admin viewer + a roster whose ONLY row is the viewer', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[
+          SalonStaffMember(
+            userId: 'admin-1',
+            role: SalonStaffRole.admin,
+            firstName: 'Ірина',
+            lastName: 'Адміністратор',
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _adminOverrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      // The old self-only filter rendered the EMPTY state for exactly
+      // this roster — a non-empty roster it emptied by hiding its only
+      // row. The rule this pins is the opposite: a self-only roster still
+      // renders one card, never the empty state.
+      expect(
+        find.byKey(const Key('salon-manage-staff-card-admin-1')),
+        findsOneWidget,
+      );
+      expect(find.byType(SalonMasterCard), findsNWidgets(1));
+      expect(find.byKey(const Key('salon-manage-staff-empty')), findsNothing);
+    });
+
+    testWidgets('should_pushAdminPersonalProfile_when_adminTapsOwnRow', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+      await tester.pumpRoutedApp(
+        _routerWithRealDestinations(repo),
+        overrides: _adminOverrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-manage-staff-card-admin-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(AdminOwnProfileScreen),
+        findsOneWidget,
+        reason:
+            "the admin's OWN row opens their PERSONAL profile, not the "
+            'staff-management view of themselves.',
+      );
+      expect(find.byType(SalonStaffProfileScreen), findsNothing);
+    });
+
+    testWidgets('should_pushOwnerPersonalProfile_when_ownerTapsOwnRow', (
+      tester,
+    ) async {
+      // DORMANT IN PRODUCTION (Phase 327 Background) — the roster endpoint
+      // (`SalonService.java:721-735`) never emits an owner row unless
+      // owner-as-master is active, which is separately BLOCKED
+      // (`project_owner_as_master_multisalon_blocked`). This fixture
+      // fabricates that shape anyway — legitimate in a widget test, and the
+      // same shape Phase 283's
+      // `should_showOwnerInBothRosters_when_ownerMasterRowIsActive` already
+      // pins — purely to prove [_openStaffMember]'s owner ARM of the
+      // exhaustive switch, which D4 requires even though no live roster
+      // reaches it in production today.
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[
+          SalonStaffMember(
+            userId: 'owner-1',
+            masterId: 'owner-master-1',
+            role: SalonStaffRole.master,
+            firstName: 'Оксана',
+            lastName: 'Швець',
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        _routerWithRealDestinations(repo),
+        overrides: _overrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-manage-staff-card-owner-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+    });
+
+    testWidgets(
+      'should_pushStaffManagementProfile_when_adminTapsAnotherMembersRow',
+      (tester) async {
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[
+            SalonStaffMember(
+              userId: 'admin-1',
+              role: SalonStaffRole.admin,
+              firstName: 'Ірина',
+              lastName: 'Адміністратор',
+            ),
+            SalonStaffMember(
+              userId: 'admin-2',
+              role: SalonStaffRole.admin,
+              firstName: 'Наталя',
+              lastName: 'Бондар',
+            ),
+          ],
+        );
+        await tester.pumpRoutedApp(
+          _routerWithRealDestinations(repo),
+          overrides: _adminOverrides(repo),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('salon-manage-staff-card-admin-2')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(SalonStaffProfileScreen),
+          findsOneWidget,
+          reason:
+              'without this, routing EVERY row to the personal profile '
+              'stays green.',
+        );
+        expect(find.byType(AdminOwnProfileScreen), findsNothing);
       },
     );
   });
@@ -1819,6 +2098,19 @@ void main() {
         await tester.tap(find.text(l10n.salonManageTabStaff));
         await tester.pumpAndSettle();
 
+        // mobile-perf LOW fix (2026-09-13) — genuinely lazy grid: 4 members
+        // span 2 rows at the default test surface, and the last (row 2) is
+        // not built until scrolled near. Scroll to the LAST roster member
+        // first — a small enough drag that row 1 stays within the sliver's
+        // cache extent, so every card ends up simultaneously built for the
+        // exact-count assertion below.
+        await tester.scrollUntilVisible(
+          find.byKey(
+            Key('salon-manage-staff-card-${_matrixFullRoster.last.userId}'),
+          ),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.byType(SalonMasterCard), findsNWidgets(4));
         for (final SalonStaffMember member in _matrixFullRoster) {
           expect(
@@ -1829,5 +2121,269 @@ void main() {
         }
       },
     );
+  });
+
+  // ── Gutter geometry — «Послуги» / «Відгуки» tab bodies ──────────────────
+  //
+  // WHY A NUMBER, NOT A GOLDEN. Both tab bodies shipped inset 48 dp per side
+  // instead of 24 dp: `_LoadedBody`'s switch wrapped each in an outer
+  // `SliverPadding(horizontal: VelvetSpacing.lg)` on top of a child that
+  // ALREADY applies the identical 24 dp (`SalonServicesAccordion.sliver`,
+  // `SalonReviewsSection`). Nothing caught it for a simple reason —
+  // `test/golden/salon_services_accordion_golden_test.dart` mounts the
+  // accordion STANDALONE inside a `SizedBox(width: 360)`, so it never sees
+  // this screen's wrapper and rendered the correct 24 dp the whole time. A
+  // golden of a widget in isolation cannot catch a defect its HOST
+  // introduces, so these two pin the laid-out width on the REAL screen as an
+  // arithmetic identity: content width == viewport − 2 × VelvetSpacing.lg.
+  //
+  // Tabs 0 («Про салон») and 1 («Команда») are the precedent — tab 0 passes
+  // no outer padding because `_AboutReadView` pads itself.
+  group('tab-body horizontal gutter (360 dp)', () {
+    /// The logical viewport width these two tests pin against — the real
+    /// SM-M127F the defect was measured on (720 px @ dpr 2.0 = 360 dp).
+    const double kViewportWidth = 360;
+
+    /// What a correctly-gutted tab body must measure: ONE `VelvetSpacing.lg`
+    /// per side, applied by the child and by nobody else.
+    const double kExpectedContentWidth =
+        kViewportWidth - 2 * VelvetSpacing.lg; // 312
+
+    const List<SalonServiceCategoryEntry> kCatalog =
+        <SalonServiceCategoryEntry>[
+          SalonServiceCategoryEntry(
+            category: 'Манікюр',
+            displayName: 'Манікюр',
+            count: 1,
+            services: <SalonCatalogService>[
+              SalonCatalogService(
+                id: 'svc-1',
+                name: 'Манікюр з покриттям',
+                durationLabel: '1 год 30 хв',
+                priceDisplay: '500 ₴',
+              ),
+            ],
+          ),
+        ];
+
+    Future<AppLocalizations> pumpAtWidth(
+      WidgetTester tester,
+      FakeSalonRepository repo,
+    ) async {
+      tester.view.physicalSize = const Size(kViewportWidth, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+      return AppLocalizations.delegate.load(const Locale('uk'));
+    }
+
+    testWidgets('should_insetServicesTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        serviceCatalog: kCatalog,
+      );
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonTabServices));
+      await tester.pumpAndSettle();
+
+      final Finder categoryCard = find.byKey(
+        const Key('salon-service-category-Манікюр'),
+      );
+      expect(categoryCard, findsOneWidget);
+
+      expect(
+        tester.getSize(categoryCard).width,
+        kExpectedContentWidth,
+        reason:
+            'the «Послуги» card must span the viewport minus ONE '
+            'VelvetSpacing.lg per side. A wider inset means the gutter is '
+            'being applied twice — check that _LoadedBody\'s `2 =>` branch '
+            'passes SalonServicesAccordion.sliver through WITHOUT an outer '
+            'SliverPadding (the accordion self-pads at '
+            'salon_services_accordion.dart:113).',
+      );
+
+      // The gutter is the only inset between the viewport edge and the
+      // card, so the card's left edge IS the gutter — pinned so a future
+      // change that keeps the width but re-centres the card still fails.
+      expect(
+        tester.getTopLeft(categoryCard).dx,
+        VelvetSpacing.lg,
+        reason: 'left gutter must be exactly VelvetSpacing.lg (24 dp)',
+      );
+    });
+
+    testWidgets('should_insetReviewsTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonTabReviews));
+      await tester.pumpAndSettle();
+
+      final Finder summaryCard = find.byType(RatingSummaryCard);
+      expect(summaryCard, findsOneWidget);
+
+      expect(
+        tester.getSize(summaryCard).width,
+        kExpectedContentWidth,
+        reason:
+            'the «Відгуки» summary card must span the viewport minus ONE '
+            'VelvetSpacing.lg per side. A wider inset means the gutter is '
+            'being applied twice — check that _LoadedBody\'s `_ =>` branch '
+            'wraps SalonReviewsSection in a bare SliverToBoxAdapter (the '
+            'section self-pads at salon_reviews_section.dart:70).',
+      );
+
+      expect(
+        tester.getTopLeft(summaryCard).dx,
+        VelvetSpacing.lg,
+        reason: 'left gutter must be exactly VelvetSpacing.lg (24 dp)',
+      );
+    });
+
+    // ── The two tabs that were ALREADY correct ───────────────────────────
+    //
+    // mobile-qa (2026-09-14). Tabs 0 and 1 never shipped the doubled gutter,
+    // but until now nothing pinned their 24 dp either — the identical
+    // regression (an outer `SliverPadding` added on top of a self-padding
+    // child, or a self-padding child hoisting its inset into the caller)
+    // would have landed silently on them too. These two make the gutter an
+    // asserted invariant of EVERY tab body, not just the two that broke.
+    //
+    // Note the two tabs own their gutter DIFFERENTLY — see the LOW finding
+    // in the audit: tab 0's child self-pads (`_AboutReadView`, screen:914),
+    // tab 1's caller pads (`_LoadedBody`'s `1 =>` branch, screen:526). Both
+    // are legal; what these tests pin is the rendered result, which is the
+    // only thing the user sees and the only thing that must not change.
+
+    testWidgets('should_insetAboutTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await pumpAtWidth(tester, repo);
+
+      // Tab 0 is the landing tab — no tap needed.
+      final Finder aboutText = find.byKey(const Key('salon-manage-about-text'));
+      expect(aboutText, findsOneWidget);
+
+      // `_AboutReadView`'s Column is `crossAxisAlignment.start`, so the
+      // description Text shrink-wraps — its WIDTH carries no gutter
+      // information, but its left edge IS the gutter, exactly.
+      expect(
+        tester.getTopLeft(aboutText).dx,
+        VelvetSpacing.lg,
+        reason:
+            'the «Про салон» body must start exactly ONE VelvetSpacing.lg '
+            'from the viewport edge. 48 here means _LoadedBody\'s `0 =>` '
+            'branch regained an outer SliverPadding on top of '
+            '_AboutReadView\'s own (salon_management_profile_screen.dart:914).',
+      );
+    });
+
+    testWidgets('should_insetStaffTabBy24dpPerSide_when_renderedAt360dp', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      // A 2-column `SliverGrid` — master-1 is cell 0 (left column), admin-1
+      // is cell 1 (right column). Pinning the OUTER edge of each column
+      // catches a doubled gutter on either side independently, which a
+      // single card's width could not: a symmetric 48/48 and an asymmetric
+      // 24/48 both shrink the cell, but only the edges say which.
+      final Finder leftCard = find.byKey(
+        const Key('salon-manage-staff-card-master-1'),
+      );
+      final Finder rightCard = find.byKey(
+        const Key('salon-manage-staff-card-admin-1'),
+      );
+      expect(leftCard, findsOneWidget);
+      expect(rightCard, findsOneWidget);
+
+      expect(
+        tester.getTopLeft(leftCard).dx,
+        VelvetSpacing.lg,
+        reason:
+            'the «Команда» grid\'s left column must start at exactly ONE '
+            'VelvetSpacing.lg — check _LoadedBody\'s `1 =>` SliverPadding is '
+            'still the grid\'s ONLY horizontal inset',
+      );
+      expect(
+        tester.getTopRight(rightCard).dx,
+        kViewportWidth - VelvetSpacing.lg,
+        reason:
+            'the «Команда» grid\'s right column must end at exactly ONE '
+            'VelvetSpacing.lg from the right edge',
+      );
+    });
+
+    // ── The branch the fix ADDED a gutter to ─────────────────────────────
+    //
+    // `_ServicesTab`'s empty branch had been riding on the outer
+    // `SliverPadding` that the fix removed, so it gained a `Padding` of its
+    // own (screen:1322-1330). That padding is load-bearing and brand new —
+    // it is the single most likely line in this change to be "cleaned up"
+    // by someone who reads the surrounding "the child owns the gutter"
+    // comment and assumes the accordion below already handles it. It does
+    // not: the empty branch renders INSTEAD of the accordion.
+    testWidgets('should_insetEmptyServicesLabelBy24dp_when_catalogueIsEmpty', (
+      tester,
+    ) async {
+      // The fake's catalogue defaults to empty — this IS the empty branch.
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final AppLocalizations l10n = await pumpAtWidth(tester, repo);
+
+      await tester.tap(find.text(l10n.salonTabServices));
+      await tester.pumpAndSettle();
+
+      final Finder empty = find.byKey(const Key('salon-services-empty'));
+      expect(
+        empty,
+        findsOneWidget,
+        reason: 'an empty catalogue must render the «послуг ще немає» label',
+      );
+
+      expect(
+        tester.getTopLeft(empty).dx,
+        0,
+        reason:
+            'the empty branch\'s Padding is the OUTERMOST box of the tab '
+            'body, so its own edge sits flush at 0 — the gutter lives '
+            'INSIDE it. Pinned so a future outer SliverPadding (the exact '
+            'defect this group exists for) moves this off 0 and fails.',
+      );
+      expect(
+        tester.getSize(empty).width,
+        kViewportWidth,
+        reason: 'the padded box itself must still span the full viewport',
+      );
+      // Found by descendant-of-key, never by the localised string (M2).
+      final Finder emptyLabel = find.descendant(
+        of: empty,
+        matching: find.byType(Text),
+      );
+      expect(emptyLabel, findsOneWidget);
+      expect(
+        tester.getTopLeft(emptyLabel).dx,
+        VelvetSpacing.lg,
+        reason:
+            'the empty label\'s INK must start at exactly ONE '
+            'VelvetSpacing.lg. This is the assertion that fails if the '
+            'Padding added at salon_management_profile_screen.dart:1322 is '
+            'deleted as redundant — it is not: the empty branch renders '
+            'INSTEAD of the self-padding accordion, never alongside it.',
+      );
+    });
   });
 }

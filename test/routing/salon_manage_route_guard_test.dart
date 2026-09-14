@@ -84,10 +84,18 @@ import 'package:beautica_mobile/features/salon/presentation/salon_settings_scree
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/auth/presentation/login_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -304,6 +312,21 @@ const _salonMasterSession = AsyncData<AuthSession>(
   AuthSession.authenticated(user: _salonMasterUser, accessToken: 'token'),
 );
 
+/// Phase 317 — the INDEPENDENT_MASTER row of the new guard matrix. The role
+/// this phase's own `/services*` routes belong to, and therefore the one most
+/// likely to be admitted by accident if the salon leaves were bolted onto the
+/// existing `/services` guard instead of getting their own subtree (D1).
+const _independentMasterUser = User(
+  id: 'independent-master-1',
+  email: 'solo@example.com',
+  role: UserRole.independentMaster,
+  firstName: 'Соло',
+  lastName: 'Майстер',
+);
+const _independentSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _independentMasterUser, accessToken: 'token'),
+);
+
 const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
@@ -440,6 +463,21 @@ void main() {
           publicServiceRepositoryProvider.overrideWith(
             (_) => FakeServiceRepository(),
           ),
+          // Phase 317 — the three salon-target services leaves mount
+          // `ServicesListScreen` / `ServiceSetupScreen` / `ServiceEditScreen`
+          // on the ADMITTED rows, and those screens read the OWNER-side
+          // service seam. Settled here for the same leaked-Dio-request reason
+          // every override above exists; a fake repository also keeps the
+          // guard group honest about what it measures (the REDIRECT, not the
+          // catalogue). Overridden at the ROOT: the shell's `ProviderScope`
+          // builds its own element from this same (overridden) function body,
+          // so the fake reaches the scoped element too.
+          serviceRepositoryProvider.overrideWith(
+            (_) => FakeServiceRepository(),
+          ),
+          approvedCategoriesProvider.overrideWith(
+            (_) async => const <ServiceCategoryOption>[],
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -454,6 +492,59 @@ void main() {
     String locationOf(GoRouter router) {
       // router-location-ok: only router.go(...) is used in this file.
       return router.routerDelegate.currentConfiguration.uri.toString();
+    }
+
+    /// 2026-09-13 audit (M12) — location PLUS the resolved page TYPE, which is
+    /// what this file's own header promises ("asserting on the resolved page
+    /// TYPE (not just the URL), per this codebase's documented go_router
+    /// trap") and what the salon-scoped rows already do.
+    ///
+    /// The bounced-role rows used to assert only `locationOf(router)` plus
+    /// `findsNothing` on the guarded screen. "The guarded screen is absent"
+    /// and "the URL string is right" together still do not say WHICH screen
+    /// mounted: `project_gorouter_literal_before_dynamic_shadowing` is exactly
+    /// the failure where declaration order alone makes a different route win
+    /// while the location assertion stays green. Shadowing risk on these
+    /// literal top-level destinations is low — but a file that contradicts its
+    /// own header is worse than one that is merely conservative.
+    ///
+    /// Each `findsNothing` on the guarded screen is KEPT at the call site:
+    /// this adds the positive half, it does not replace the negative one.
+    void expectBouncedTo(GoRouter router, String expected) {
+      expect(locationOf(router), equals(expected));
+      final Finder page = switch (expected) {
+        RouteNames.clientHome => find.byType(HomeHubScreen),
+        RouteNames.login => find.byType(LoginScreen),
+        RouteNames.salonMasterProfile => find.byType(SalonMasterProfileScreen),
+        RouteNames.masterProfile => find.byType(MasterProfileScreen),
+        // AUDIT cycle-3 (C4) — the salon-shell destinations are BUILT
+        // (`RouteNames.salonShell(id)` → `/salons/<id>/shell`), so they cannot
+        // be written as constant patterns; matched by SHAPE instead. The
+        // encoded-id segment is deliberately not re-derived here — the row's
+        // own `expected` already carries it and `locationOf` has compared it.
+        final String location
+            when location.startsWith('/salons/') &&
+                location.endsWith('/shell') =>
+          find.byType(SalonShellScreen),
+        // AUDIT cycle-3 (C4) — was `_ => find.byType(SalonShellScreen)`, which
+        // silently absorbed anything unlisted: a typo'd or newly-added
+        // `expected` still resolved to a page-type assertion, and one that
+        // could even PASS (every salon-role bounce parks on the shell), so the
+        // row would look pinned while asserting nothing about its own
+        // destination. An unhandled value is now a loud authoring error.
+        _ => fail(
+          'expectBouncedTo has no page type for "$expected" — add its arm to '
+          'this switch rather than letting the default absorb it, or this '
+          'row asserts nothing about WHERE the bounce landed',
+        ),
+      };
+      expect(
+        page,
+        findsOneWidget,
+        reason:
+            'the bounce must RESOLVE to the destination screen for '
+            '$expected, not merely report its URL',
+      );
     }
 
     Future<GoRouter> pumpRouterAs(
@@ -538,10 +629,7 @@ void main() {
           // Salon Shell landing, which forwards the admin to THEIR OWN salon
           // (`salon-guard-2`, [_otherSalonAdminUser]'s `User.salonId`) — never
           // the requested `_kSalonId`.
-          expect(
-            locationOf(router),
-            equals(RouteNames.salonShell('salon-guard-2')),
-          );
+          expectBouncedTo(router, RouteNames.salonShell('salon-guard-2'));
           expect(
             find.byWidgetPredicate(
               (Widget w) =>
@@ -562,7 +650,7 @@ void main() {
           router.go(RouteNames.salonManage(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonManagementProfileScreen), findsNothing);
         },
       );
@@ -574,7 +662,7 @@ void main() {
         router.go(RouteNames.salonManage(_kSalonId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonManagementProfileScreen), findsNothing);
       });
 
@@ -587,7 +675,7 @@ void main() {
           router.go(RouteNames.salonManage(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonManagementProfileScreen), findsNothing);
         },
       );
@@ -661,10 +749,7 @@ void main() {
           await tester.pumpAndSettle();
 
           // Phase 21.8 — see the identical `/manage` case above.
-          expect(
-            locationOf(router),
-            equals(RouteNames.salonShell('salon-guard-2')),
-          );
+          expectBouncedTo(router, RouteNames.salonShell('salon-guard-2'));
           expect(
             find.byWidgetPredicate(
               (Widget w) =>
@@ -685,7 +770,7 @@ void main() {
           router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonStaffProfileScreen), findsNothing);
         },
       );
@@ -697,7 +782,7 @@ void main() {
         router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonStaffProfileScreen), findsNothing);
       });
 
@@ -710,10 +795,144 @@ void main() {
           router.go(RouteNames.salonManageStaffMember(_kSalonId, _kMemberId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonStaffProfileScreen), findsNothing);
         },
       );
+    });
+
+    // Phase 317 — the three salon-target services leaves. Six NAMED rows per
+    // path family: a single "some other role bounces" test hides the role that
+    // is admitted by accident. NOTE the division of labour with
+    // `salon_manage_staff_services_route_test.dart`: THIS file measures the
+    // REDIRECT (which role reaches which location); that file pins which PAGE
+    // TYPE each path builds and which URI the repository emits. A location
+    // assertion alone cannot see go_router's literal-vs-dynamic shadowing.
+    //
+    // The ADMITTED rows assert the resolved LOCATION only — which page type
+    // each admitted path builds is the sibling file's job, per the division of
+    // labour above. The BOUNCED rows assert the roleHomePath AND that NO
+    // services screen is anywhere in the tree, because "bounced" is precisely
+    // the claim that the screen must not be reachable.
+    group('/salons/:salonId/manage/staff/:memberId/services* (Phase 317)', () {
+      const String kServiceId = 'svc-guard-1';
+
+      final Map<String, String Function()> paths = <String, String Function()>{
+        '/services': () =>
+            RouteNames.salonManageStaffServices(_kSalonId, _kMemberId),
+        '/services/setup': () =>
+            RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberId),
+        '/services/:serviceId/edit': () =>
+            RouteNames.salonManageStaffServiceEdit(
+              _kSalonId,
+              _kMemberId,
+              kServiceId,
+            ),
+      };
+
+      void expectNoServicesScreen() {
+        expect(find.byType(ServicesListScreen), findsNothing);
+        expect(find.byType(ServiceSetupScreen), findsNothing);
+        expect(find.byType(ServiceEditScreen), findsNothing);
+      }
+
+      for (final MapEntry<String, String Function()> entry in paths.entries) {
+        final String label = entry.key;
+        final String Function() path = entry.value;
+
+        testWidgets('$label — SALON_OWNER is ADMITTED', (tester) async {
+          final router = await pumpRouterAs(tester, _ownerSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(path()));
+        });
+
+        testWidgets('$label — SALON_ADMIN is ADMITTED on their OWN salonId', (
+          tester,
+        ) async {
+          final router = await pumpRouterAs(tester, _adminSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expect(
+            locationOf(router),
+            equals(path()),
+            reason:
+                'backend phase 306 parity — an assigned SALON_ADMIN manages '
+                "a fellow master's services",
+          );
+        });
+
+        testWidgets(
+          '$label — SALON_ADMIN on a DIFFERENT salonId is redirected to '
+          'roleHomePath, never admitted',
+          (tester) async {
+            final router = await pumpRouterAs(tester, _otherSalonAdminSession);
+
+            router.go(path());
+            await tester.pumpAndSettle();
+
+            expect(
+              locationOf(router),
+              equals(RouteNames.salonShell('salon-guard-2')),
+            );
+            expectNoServicesScreen();
+          },
+        );
+
+        testWidgets('$label — SALON_MASTER is redirected to roleHomePath '
+            '(RouteNames.salonMasterProfile), never admitted', (tester) async {
+          final router = await pumpRouterAs(tester, _salonMasterSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expectBouncedTo(router, RouteNames.salonMasterProfile);
+          expectNoServicesScreen();
+        });
+
+        testWidgets(
+          '$label — INDEPENDENT_MASTER is redirected to roleHomePath, never '
+          'admitted',
+          (tester) async {
+            final router = await pumpRouterAs(tester, _independentSession);
+
+            router.go(path());
+            await tester.pumpAndSettle();
+
+            expectBouncedTo(router, RouteNames.masterProfile);
+            expectNoServicesScreen();
+          },
+        );
+
+        testWidgets('$label — CLIENT is redirected to roleHomePath '
+            '(RouteNames.clientHome), never admitted', (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(path());
+          await tester.pumpAndSettle();
+
+          expectBouncedTo(router, RouteNames.clientHome);
+          expectNoServicesScreen();
+        });
+
+        testWidgets(
+          '$label — unauthenticated is redirected to /login by the global '
+          'authRedirect gate',
+          (tester) async {
+            final router = await pumpRouterAs(tester, _unauthenticatedSession);
+
+            router.go(path());
+            await tester.pumpAndSettle();
+
+            expectBouncedTo(router, RouteNames.login);
+            expectNoServicesScreen();
+          },
+        );
+      }
     });
 
     group('/salons/:salonId/manage/settings', () {
@@ -755,10 +974,7 @@ void main() {
           await tester.pumpAndSettle();
 
           // Phase 21.8 — see the identical `/manage` case above.
-          expect(
-            locationOf(router),
-            equals(RouteNames.salonShell('salon-guard-2')),
-          );
+          expectBouncedTo(router, RouteNames.salonShell('salon-guard-2'));
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -833,7 +1049,7 @@ void main() {
           router.go(RouteNames.salonManageSettings(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -845,7 +1061,7 @@ void main() {
         router.go(RouteNames.salonManageSettings(_kSalonId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonSettingsScreen), findsNothing);
       });
 
@@ -858,7 +1074,7 @@ void main() {
           router.go(RouteNames.salonManageSettings(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonSettingsScreen), findsNothing);
         },
       );
@@ -1046,7 +1262,7 @@ void main() {
           router.go(RouteNames.salonProfileEdit(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonProfileEditScreen), findsNothing);
         },
       );
@@ -1060,7 +1276,7 @@ void main() {
           router.go(RouteNames.salonProfileEdit(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonProfileEditScreen), findsNothing);
         },
       );
@@ -1337,7 +1553,7 @@ void main() {
           router.go(RouteNames.salonPendingInvites(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.clientHome));
+          expectBouncedTo(router, RouteNames.clientHome);
           expect(find.byType(SalonPendingInvitesScreen), findsNothing);
         },
       );
@@ -1349,7 +1565,7 @@ void main() {
         router.go(RouteNames.salonPendingInvites(_kSalonId));
         await tester.pumpAndSettle();
 
-        expect(locationOf(router), equals(RouteNames.salonMasterProfile));
+        expectBouncedTo(router, RouteNames.salonMasterProfile);
         expect(find.byType(SalonPendingInvitesScreen), findsNothing);
       });
 
@@ -1362,7 +1578,7 @@ void main() {
           router.go(RouteNames.salonPendingInvites(_kSalonId));
           await tester.pumpAndSettle();
 
-          expect(locationOf(router), equals(RouteNames.login));
+          expectBouncedTo(router, RouteNames.login);
           expect(find.byType(SalonPendingInvitesScreen), findsNothing);
         },
       );

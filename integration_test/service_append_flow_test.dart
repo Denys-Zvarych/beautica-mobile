@@ -60,6 +60,20 @@
 // All navigation/interaction finders are key-based (app_harness.dart policy).
 // Content assertions read localized copy off a live context, never a hardcoded
 // Cyrillic literal (`scripts/forbid_cyrillic_finder.sh`).
+//
+// SECOND ARM — THE EMPTY-STATE CTA (Phase 320 mobile-qa audit)
+// --------------------------------------------------------------
+// `_ServicesListScreen`'s FAB (`btn-create-service`, covered above) and its
+// empty-state CTA (`btn-create-service-empty`, `_EmptyState.onCreate`) both
+// call the exact same `_openAndRefresh(widget.resolvedSetupRoute)` — one "add
+// services" entry point for a populated catalogue and a zero-service one. The
+// FAB arm above proved the destination for a NON-empty catalogue; this arm is
+// its mirror for a genuinely empty one (`fb.clearServices()` — the same
+// mechanism `master_home_add_services_flow_test.dart` uses for the master-home
+// CTA), so the OTHER caller of `_openAndRefresh` on THIS screen also has E2E
+// coverage of the setup screen it reaches. It lives in this file rather than a
+// new one because it shares this flow's fixtures, harness boot, and the
+// "prove the destination via the setup screen's own chrome key" convention.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -295,5 +309,60 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'INDEPENDENT_MASTER with zero services opens the setup screen from the '
+    'services-list empty-state CTA',
+    (tester) async {
+      final fb = FakeBackend();
+      // Empty the seeded catalogue BEFORE boot so the services-list screen
+      // resolves to its zero-services empty branch (`_EmptyState`) instead of
+      // the populated list + FAB the first arm exercises.
+      fb.clearServices();
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
+
+      // ── 1. The empty services list ───────────────────────────────────────
+      router.go(RouteNames.services);
+
+      final Finder emptyCta = find.byKey(const Key('btn-create-service-empty'));
+      await tester.pumpUntilFound(emptyCta.hitTestable());
+      expect(
+        emptyCta,
+        findsOneWidget,
+        reason:
+            'a master with ZERO services sees the empty-state CTA, not the '
+            'FAB — if this is absent the catalogue did not resolve empty and '
+            'the precondition for this arm does not hold',
+      );
+      expect(
+        find.byKey(const Key('btn-create-service')),
+        findsNothing,
+        reason: 'the FAB and the empty-state CTA are mutually exclusive',
+      );
+
+      // ── 2. Empty-state CTA → setup screen ────────────────────────────────
+      // Same `_openAndRefresh` call the FAB uses (see header note) — the
+      // destination MUST exit by popping, exactly like the FAB arm above.
+      await tester.tap(emptyCta);
+      await tester.pumpUntilFound(find.byKey(const Key('btn-setup-close')));
+
+      // go_router's currentConfiguration.uri does not update after an
+      // imperative push, so the destination is proven by the setup screen's
+      // own chrome key — the same convention used throughout this file.
+      expect(
+        find.byKey(const Key('btn-setup-close')),
+        findsOneWidget,
+        reason:
+            'tapping the empty-state CTA must open the ServiceSetupScreen '
+            '(${RouteNames.serviceSetup}) — the same destination the FAB '
+            'reaches from a populated catalogue',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 30)),
   );
 }

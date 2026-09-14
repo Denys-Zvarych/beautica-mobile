@@ -43,7 +43,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart'
-    show ServiceCard;
+    show PhotoThumbnail, ServiceInfo;
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_cta_footer.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -52,6 +52,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -444,6 +445,93 @@ Future<void> _driveToMasters(WidgetTester tester) async {
   await _pickDateAndAdvance(tester);
 }
 
+// ---------------------------------------------------------------------------
+// Rendered-selection helpers (2026-09-14 audit, QA LOW)
+// ---------------------------------------------------------------------------
+//
+// These replace four `tester.widget<ServiceCard>(...).selected` reads. That
+// read is a CONSTRUCTOR ARGUMENT: it proves the notifier handed a bool to a
+// widget, never that anything on screen changed
+// (`project_widget_field_assertion_is_vacuous`). Both helpers below read the
+// LAID-OUT result instead:
+//
+//   • the painted affordance — `_SelectIndicator` swaps a hollow ring for a
+//     filled `check_circle_rounded`, so the glyph's presence inside the card's
+//     subtree is what the operator actually sees;
+//   • the semantics tree — `ServiceCard` publishes `Semantics(selected: ...)`,
+//     so a screen-reader user is told the same thing.
+//
+// Deliberately NOT a size assertion: the selected glyph's 26 dp box vs the
+// ring's 22 is set by `_SelectIndicator` itself and would be a fair target,
+// but the sibling trap this file already hit — an `AppBar.leading` tap-target
+// assertion that survived mutating `NeumorphicIconButton.extent` 48 -> 40
+// because the PARENT hands the slot a tight box — is the reason dimensions are
+// avoided here in favour of two independent, widget-owned signals.
+
+Finder _cardFinder(String id) => find.byKey(Key('mcb_service_card_$id'));
+
+/// Asserts what the card RENDERS for [id], on both the paint and the
+/// accessibility surface. Requires semantics to be enabled by the caller
+/// (`tester.ensureSemantics()`).
+void _expectRenderedSelection(
+  WidgetTester tester,
+  String id, {
+  required bool selected,
+}) {
+  final Finder card = _cardFinder(id);
+  expect(card, findsOneWidget, reason: 'card $id must be mounted');
+
+  expect(
+    find.descendant(
+      of: card,
+      matching: find.byIcon(Icons.check_circle_rounded),
+    ),
+    selected ? findsOneWidget : findsNothing,
+    reason: selected
+        ? 'card $id must PAINT the filled check glyph when selected — a '
+              'hollow ring here means nothing visible changed on the tap'
+        : 'card $id must paint NO check glyph when unselected',
+  );
+
+  // `ServiceCard`'s own `Semantics(selected: ...)` is `container: false`, so
+  // it annotates the nearest enclosing node rather than minting one on the
+  // card's key. Addressing the card key directly resolves to the ROUTE node
+  // (flags: [scopesRoute]), which never carries the flag — hence the
+  // descendant hop.
+  //
+  // `isSelected` is a `Tristate`, and `toBoolOrNull()` keeps the three states
+  // apart: dropping `Semantics(selected:)` altogether yields `null`, which
+  // fails against BOTH `true` and `false` instead of masquerading as
+  // "unselected".
+  final SemanticsNode node = tester.getSemantics(
+    find.descendant(of: card, matching: find.byType(Semantics)).first,
+  );
+  expect(
+    node.getSemanticsData().flagsCollection.isSelected.toBoolOrNull(),
+    selected,
+    reason:
+        'card $id must publish selected=$selected into the SEMANTICS tree so '
+        'a screen-reader user hears the same state the glyph shows',
+  );
+}
+
+/// Counts the cards among [ids] that actually PAINT the selected check glyph.
+int _renderedSelectedCount(WidgetTester tester, Iterable<String> ids) {
+  int n = 0;
+  for (final String id in ids) {
+    if (find
+        .descendant(
+          of: _cardFinder(id),
+          matching: find.byIcon(Icons.check_circle_rounded),
+        )
+        .evaluate()
+        .isNotEmpty) {
+      n++;
+    }
+  }
+  return n;
+}
+
 void main() {
   group('SalonCreateBookingScreen — client/service wiring', () {
     testWidgets('client step advances to the salon-catalogue service picker', (
@@ -519,6 +607,12 @@ void main() {
       'tapping three services marks three cards; tapping one again unmarks '
       'it; the CTA is disabled at zero selections',
       (tester) async {
+        // _expectRenderedSelection reads the semantics tree, which is only
+        // compiled while a handle is held. Disposed INSIDE the body, not via
+        // addTearDown: `_endOfTestVerifications` runs before tearDowns and
+        // fails the test on a still-live handle.
+        final SemanticsHandle sem = tester.ensureSemantics();
+
         await _pump(tester, catalog: _kMultiCatalog);
         await _fillClientStepAndAdvance(tester);
 
@@ -538,31 +632,21 @@ void main() {
           'salon-svc-2',
           'salon-svc-3',
         ]) {
-          expect(
-            tester
-                .widget<ServiceCard>(find.byKey(Key('mcb_service_card_$id')))
-                .selected,
-            isTrue,
-          );
+          _expectRenderedSelection(tester, id, selected: true);
         }
         expect(tester.widget<NeumorphicButton>(next).onPressed, isNotNull);
 
         await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-2')));
         await tester.pump();
-        expect(
-          tester
-              .widget<ServiceCard>(
-                find.byKey(const Key('mcb_service_card_salon-svc-2')),
-              )
-              .selected,
-          isFalse,
-        );
+        _expectRenderedSelection(tester, 'salon-svc-2', selected: false);
 
         await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-1')));
         await tester.pump();
         await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-3')));
         await tester.pump();
         expect(tester.widget<NeumorphicButton>(next).onPressed, isNull);
+
+        sem.dispose();
       },
     );
 
@@ -594,17 +678,15 @@ void main() {
         );
         await pumpPastVelvetSnack(tester);
 
-        int selectedCount = 0;
-        for (int i = 0; i < 11; i++) {
-          if (tester
-              .widget<ServiceCard>(
-                find.byKey(Key('mcb_service_card_salon-svc-cap-$i')),
-              )
-              .selected) {
-            selectedCount++;
-          }
-        }
-        expect(selectedCount, maxServicesPerVisit);
+        expect(
+          _renderedSelectedCount(tester, <String>[
+            for (int i = 0; i < 11; i++) 'salon-svc-cap-$i',
+          ]),
+          maxServicesPerVisit,
+          reason:
+              'exactly maxServicesPerVisit cards may PAINT the check glyph — '
+              'the 11th add is refused, so the screen must still show ten',
+        );
       },
     );
 
@@ -612,6 +694,8 @@ void main() {
       'de-selecting still works while at the cap (the guard only fires on '
       'an ADD)',
       (tester) async {
+        final SemanticsHandle sem = tester.ensureSemantics();
+
         tester.view.physicalSize = const Size(800, 8000);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(tester.view.resetPhysicalSize);
@@ -631,15 +715,10 @@ void main() {
         );
         await tester.pump();
 
-        expect(
-          tester
-              .widget<ServiceCard>(
-                find.byKey(const Key('mcb_service_card_salon-svc-cap-0')),
-              )
-              .selected,
-          isFalse,
-        );
+        _expectRenderedSelection(tester, 'salon-svc-cap-0', selected: false);
         expect(find.byType(VelvetSnack), findsNothing);
+
+        sem.dispose();
       },
     );
 
@@ -1640,5 +1719,85 @@ void main() {
         '/root',
       );
     });
+  });
+
+  // ── Phase 323 — THE OTHER ServiceCard CONSUMER KEEPS ITS PHOTO WELL ───────
+  //
+  // `ServiceCard.showPhoto` is additive and defaults to `true`, and
+  // `services_list_screen.dart` is the ONE caller that opts out. This wizard's
+  // picker (`booking_wizard_steps.dart:629`) is the only other real consumer
+  // in `lib/`, and nothing pinned its side of that contract.
+  //
+  // Why the default-value test in
+  // `test/features/services/presentation/widgets/service_category_list_test.dart`
+  // is NOT enough: that case constructs a bare [ServiceCard] itself, so it
+  // catches a flipped DEFAULT and nothing else. Adding `showPhoto: false` at
+  // the wizard's own call site — a one-token edit, and the obvious one for
+  // anyone copying the services page's reclaim across — leaves it green.
+  //
+  // Asserted from the LAID-OUT render tree, never from
+  // `.widget<ServiceCard>(...).showPhoto`
+  // (`project_widget_field_assertion_is_vacuous`): a field read passes even if
+  // the Row drops the well.
+  group('Phase 323 — the wizard picker keeps the leading photo well', () {
+    testWidgets(
+      'a salon-catalogue service card renders a 40 dp PhotoThumbnail and its '
+      'name column starts 58 dp inside the card (8 inset + 40 well + 10 gap)',
+      (tester) async {
+        await _pump(tester);
+        await _fillClientStepAndAdvance(tester);
+
+        final Finder card = find.byKey(
+          const Key('mcb_service_card_salon-svc-1'),
+        );
+        expect(
+          card,
+          findsOneWidget,
+          reason:
+              'anti-vacuity — nothing below means anything if the picker '
+              'card never rendered',
+        );
+
+        final Finder well = find.descendant(
+          of: card,
+          matching: find.byType(PhotoThumbnail),
+        );
+        expect(
+          well,
+          findsOneWidget,
+          reason:
+              'the picker is SCANNED rather than read, and the leading well '
+              'anchors the selectable row against its trailing check '
+              'indicator — this consumer must never inherit the services '
+              "page's `showPhoto: false`",
+        );
+        expect(
+          tester.getSize(well),
+          const Size(40, 40),
+          reason:
+              'present-but-collapsed is the failure mode a findsOneWidget '
+              'check alone cannot see',
+        );
+
+        // The gap is the other half of the 50 dp the services page reclaims,
+        // so a half-applied opt-out here (well dropped, gap kept, or vice
+        // versa) has to fail too.
+        final double indent =
+            tester
+                .getTopLeft(
+                  find.descendant(of: card, matching: find.byType(ServiceInfo)),
+                )
+                .dx -
+            tester.getTopLeft(card).dx;
+        expect(
+          indent,
+          58.0,
+          reason:
+              "8 dp card inset + 40 dp well + 10 dp gap. The services page's "
+              'opt-out drops the last two together (50 dp); this consumer '
+              'keeps both.',
+        );
+      },
+    );
   });
 }

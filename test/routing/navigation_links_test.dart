@@ -364,6 +364,26 @@ void main() {
         kSampleId,
         kSampleId,
       ),
+      // Phase 317 — a chosen master's «Послуги» and the two leaves under it.
+      // The three render the SAME `ServicesListScreen` / `ServiceSetupScreen`
+      // / `ServiceEditScreen` the INDEPENDENT_MASTER's own `/services*` routes
+      // do, inside ONE `ProviderScope` supplied by the subtree's `ShellRoute`.
+      // Each leaf keeps its own full path and its own `salonManageGuard`, so
+      // `findMatch` resolves each independently — exactly like every other row
+      // in this map.
+      'salonManageStaffServices()': RouteNames.salonManageStaffServices(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageStaffServiceSetup()': RouteNames.salonManageStaffServiceSetup(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageStaffServiceEdit()': RouteNames.salonManageStaffServiceEdit(
+        kSampleId,
+        kSampleId,
+        kSampleId,
+      ),
       // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
       // Phase 21.9 settings hub will push to. Standalone top-level routes,
       // same rationale as `salonManage()`/`salonManageSettings()` above.
@@ -435,6 +455,11 @@ void main() {
       // MasterScheduleScreen at its own /staff/* path (see route_names.dart's
       // doc). Same rationale as the salonMaster* rows immediately above.
       'salonMasterSchedule': RouteNames.salonMasterSchedule,
+      // Phase 321 — SALON_MASTER's read-only «Послуги», reusing
+      // ServicesListScreen(writable: false) at its own /staff/* path (see
+      // route_names.dart's doc). Same rationale as `salonMasterSchedule`
+      // immediately above.
+      'salonMasterServices': RouteNames.salonMasterServices,
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,

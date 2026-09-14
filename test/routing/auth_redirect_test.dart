@@ -510,6 +510,54 @@ void main() {
       );
     });
 
+    // Phase 321 D2 — the structural claim that gaining `/staff/services`
+    // does NOT widen `/services`'s two write leaves for a SALON_MASTER.
+    // Named individually per this track's mutation check #5: deleting the
+    // `/services` gate's SALON_MASTER bounce must turn these (and the case
+    // immediately above) RED.
+    test('SALON_MASTER at /services/setup is redirected to /staff/profile', () {
+      const salonMasterUser = User(
+        id: 'u-sm3b',
+        email: 'salonmaster3b@example.com',
+        role: UserRole.salonMaster,
+        firstName: 'Salon',
+        lastName: 'Master',
+      );
+      const salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonMasterUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonMasterSession, RouteNames.serviceSetup),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    test(
+      'SALON_MASTER at /services/:id/edit is redirected to /staff/profile',
+      () {
+        const salonMasterUser = User(
+          id: 'u-sm3c',
+          email: 'salonmaster3c@example.com',
+          role: UserRole.salonMaster,
+          firstName: 'Salon',
+          lastName: 'Master',
+        );
+        const salonMasterSession = AsyncData<AuthSession>(
+          AuthSession.authenticated(
+            user: salonMasterUser,
+            accessToken: 'token',
+          ),
+        );
+        expect(
+          authRedirectForLocation(
+            salonMasterSession,
+            RouteNames.serviceEdit('svc-001'),
+          ),
+          equals(RouteNames.salonMasterProfile),
+        );
+      },
+    );
+
     // Phase 6.2 — /master/working-hours role gate (SEC regression).
     //
     // The /master/* prefix guard in auth_redirect.dart redirects any
@@ -828,6 +876,12 @@ void main() {
         // each bounced to their own landing) for every route in this list —
         // one insertion covers all five without hand-duplicating them.
         RouteNames.salonMasterSchedule, // /staff/schedule
+        // Phase 321 — /staff/services (read-only ServicesListScreen reuse).
+        // Same reasoning as the phase-309 insertion immediately above: one
+        // insertion covers the six-assertion matrix (SALON_MASTER admitted;
+        // INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/CLIENT each bounced;
+        // unauthenticated → /login) without hand-duplicating them.
+        RouteNames.salonMasterServices, // /staff/services
       ];
 
       for (final route in staffRoutes) {

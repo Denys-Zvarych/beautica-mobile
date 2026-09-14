@@ -39,6 +39,18 @@ class ErrorState extends StatelessWidget {
 
     return Center(
       child: Padding(
+        // NOT a gutter, and NOT coupled to `VelvetSpacing.lg` (2026-09-14
+        // mobile-qa). The `Center` above hands this loose constraints and the
+        // `Column` below is `mainAxisSize.min`, so this inset never positions
+        // the block — it only CLAMPS its max width to `viewport - 2 × lg`,
+        // and the content is centred inside whatever is left. A caller that
+        // renders `ErrorState` beside `VelvetSpacing`-padded siblings is
+        // therefore not relying on the two scales agreeing: their left edges
+        // are not comparable in the first place. `AppSpacing` is the
+        // canonical app-wide scale (`app_spacing.dart:1-18`) and this shared
+        // widget uses it consistently at :47 and :54 — do NOT "align" it to
+        // `VelvetSpacing` and do NOT add a parity test pinning the two `lg`
+        // values equal; they are deliberately independent scales.
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -1,39 +1,40 @@
 // Phase 7.7 — the master's own service catalogue, as a DATA-layer provider.
 //
-// ## Why this exists rather than `servicesListProvider`
+// ## This is THE fetch. Everything else wraps it. (N2, 2026-09-10)
 //
-// The same list is already fetched by `ServicesList`
-// (`features/services/presentation/services_list_notifier.dart`). Booking's
-// filter sheet cannot watch it: `presentation/` is the one layer a sibling
-// feature may never import (see `ARCHITECTURE-mobile.md` § 3 — cross-feature
-// imports go through `domain/` or `data/`, never `presentation/`). This
-// provider is that reachable entry point, sitting next to the repository it
-// calls.
+// `GET /independent-masters/me/services` is issued in exactly one place in the
+// app: here. Two surfaces consume it —
 //
-// ## The duplicate fetch is deliberate, and it is one request
+//   • «Мої послуги» (`presentation/services_list_notifier.dart`'s
+//     `servicesListProvider`), which now `ref.watch`es this provider's
+//     `.future` instead of calling the repository itself;
+//   • the «Послуга» filter universe on the master's «Мої записи» (Phase 7.7),
+//     which watches this provider directly.
 //
-// Delegating either way round was considered and rejected. `ServicesList`
-// cannot watch THIS provider, because six call sites across the services and
-// master features invalidate the list after a create/edit/delete and expect a
-// refetch — with a watch edge in between, invalidating the watcher re-reads the
-// untouched cache and the services list silently stops refreshing after a save.
-// That is a live-path regression traded for a startup request, which is a bad
-// trade.
+// It lives in `data/`, next to the repository it calls, because `presentation/`
+// is the one layer a sibling feature may never import (see
+// `ARCHITECTURE-mobile.md` § 3 — cross-feature imports go through `domain/` or
+// `data/`). That same rule FORCES the direction of the wrap: this provider
+// cannot watch `servicesListProvider`, so `servicesListProvider` watches this.
 //
-// So this is an independent `keepAlive` fetch: ONE extra
-// `GET /independent-masters/me/services` per session, and every subsequent
-// filter-sheet open is served from cache.
+// ### What changed, and why the old header said the opposite
 //
-// ## Both halves of the cache are dropped together
+// Until 2026-09-10 these were two INDEPENDENT `keepAlive` fetches, and the
+// header here argued the duplication was a deliberate trade. The argument was:
+// «six call sites invalidate the services list after a create/edit/delete and
+// expect a refetch — with a watch edge in between, invalidating the WATCHER
+// re-reads the untouched cache and the list silently stops refreshing after a
+// save». That failure mode is real, and it is why the mutation edge now points
+// UPSTREAM: every mutation, and every error-state retry, goes through
+// `invalidateMasterServiceCatalogues(ref)`, which drops THIS provider — the
+// shared fetch — so both surfaces refresh from one request. A call site that
+// invalidates either provider directly is a structural test failure; see
+// `test/features/services/presentation/services_catalogue_invalidation_test
+// .dart`.
 //
-// Being independent means this provider needs its OWN invalidation edge, and
-// Phase 7.7 shipped without one: all six mutation sites invalidated
-// `servicesListProvider` alone, so a service created mid-session never joined
-// the «Послуга» filter universe until the app restarted. They now all call
-// `invalidateMasterServiceCatalogues` (in `services_list_notifier.dart`), which
-// drops both. Pinned — including a structural guard against a seventh call site
-// reintroducing the direct invalidation — by
-// `test/features/services/presentation/services_catalogue_invalidation_test.dart`.
+// Cost, measured by that test: ONE request when both surfaces are live, ONE
+// when either is, ONE per mutation. It was two-and-two whenever both listeners
+// coexisted.
 //
 // ## This provider must stay SUBSCRIBED while the filter is reachable
 //
@@ -43,16 +44,49 @@
 // reader gets `AsyncLoading` and, correctly refusing to render retained data
 // (see below), shows NO services at all. `MasterBookingsScreen` therefore holds
 // a dedicated zero-height `_ServiceCatalogueWarmer` that `ref.watch`es this
-// provider, rather than reading it once in `initState`.
+// provider, rather than reading it once in `initState`. (A live listener on
+// `servicesListProvider` now also keeps this provider live transitively — but
+// only while «Мої послуги» is mounted, which is exactly when «Мої записи» is
+// not. The warmer is still load-bearing.)
 //
 // ## Consumers must read `asData?.value`, never `.value`
 //
 // SEC: `AsyncValue.value` returns RETAINED previous data in `AsyncLoading` and
 // `AsyncError`, not only in `AsyncData`. Because `logout()` deliberately does
-// not invalidate feature providers, this provider is re-run by the repository
-// swap and lands in `AsyncError` still holding the PREVIOUS master's catalogue
-// — which on a shared device is one account's service names rendered into
-// another's filter sheet.
+// not invalidate feature providers, this provider is re-run by the identity
+// watch below and lands in `AsyncError` still holding the PREVIOUS master's
+// catalogue — which on a shared device is one account's service names rendered
+// into another's filter sheet.
+//
+// THE WRAP DOES NOT LAUNDER THIS (correction, 2026-09-10 — the previous
+// wording of this paragraph claimed it did, and that claim is FALSE).
+// `servicesListProvider` reads `.future`, and `.future` completing with the
+// error buys exactly one thing: the wrapper can never land in **AsyncData**
+// republishing stale data. It does NOT strip the retained value. Riverpod
+// re-attaches it on every async transition — `element.dart:66` calls
+// `copyWithPrevious`, and `AsyncError.copyWithPrevious` sets
+// `value: previous._value` UNCONDITIONALLY, ignoring its own `isRefresh`
+// parameter (riverpod-3.1.0 `async_value.dart:873-878`);
+// `AsyncLoading.copyWithPrevious` retains it in BOTH branches (`:780-816`).
+// So `servicesListProvider.value` inside `AsyncError` holds the previous
+// account's catalogue byte-identically to this provider's.
+//
+// What actually protects the render path is two things, and BOTH must stay
+// true:
+//
+//   • every consumer reads `asData?.value` or `.when` — `asData` is null
+//     outside `AsyncData`, `.value` is not. This rule is MANDATORY downstream
+//     of the wrapper exactly as much as it is here; the watch edge does not
+//     excuse a single call site from it;
+//   • an identity change is a DEPENDENCY change, so `isReload == true`
+//     (`element.dart:563`) → `seamless: false` → the state reports
+//     `isReloading`, and `.when`'s defaults (`skipLoadingOnReload: false`,
+//     `skipError: false`) paint the spinner / the error body rather than the
+//     retained list. Every consumer today uses `.when`.
+//
+// Direct `.value` readers were swept at the same time
+// (`service_by_id_notifier.dart`, `service_setup_screen.dart`) and moved to
+// `asData?.value`.
 //
 // ## No facet endpoint (backend Phase 26.4)
 //
@@ -78,25 +112,33 @@
 // "Consumers must read `asData?.value`, never `.value`" rule above is the
 // OTHER half, and depends on every future call site remembering it.
 //
-// [masterServiceCatalog] now `ref.watch`es the authenticated user's id
-// directly, mirroring `BookingsDayNotifier.build` /
-// `bookedDays`'s identical fix — narrowed to `.select((s) => ...id)`, never
-// the whole `AsyncValue<AuthSession>`, so a silent token refresh
+// [masterServiceCatalog] `ref.watch`es the authenticated user's id directly,
+// mirroring `BookingsDayNotifier.build` / `bookedDays`'s identical fix —
+// narrowed through the SHARED [authUserIdOrNull] selector, never the whole
+// `AsyncValue<AuthSession>`, so a silent token refresh
 // (`AuthNotifier.setAccessToken`, same id/new accessToken) stays a no-op for
-// this cache instead of forcing a refetch on every silent refresh.
+// this cache instead of forcing a refetch on every silent refresh. (The
+// selector was an inline hand-copied `switch` here until 2026-09-10; that is
+// the eighth copy [authUserIdOrNull]'s own doc exists to prevent, so it now
+// watches through the one definition. Behaviourally identical — `.select`
+// compares the returned `String?`, not the closure.) Pinned by
+// `test/features/services/data/master_service_catalog_provider_test.dart`.
+//
+// `servicesListProvider` carries its OWN copy of this watch and must keep it:
+// the `.future` edge it reads is a coalescing channel that drops the auth
+// boundary while a fetch is in flight. See that file's header.
 
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../auth/domain/auth_session.dart';
-import '../../auth/domain/user.dart';
 import '../../auth/presentation/auth_notifier.dart';
 
 part 'master_service_catalog_provider.g.dart';
 
-/// The authenticated master's full service catalogue.
+/// The authenticated master's full service catalogue — the app's ONE
+/// `GET /independent-masters/me/services`.
 ///
 /// Resolves to an empty list when the master has no services configured — but
 /// ONLY for a well-formed empty response. This provider is NOT error-free:
@@ -107,20 +149,22 @@ part 'master_service_catalog_provider.g.dart';
 /// [AsyncError] state, and treat an EMPTY catalogue — not a failed one — as
 /// "no service filter is offerable".
 ///
-/// `keepAlive` so repeated filter-sheet opens cost zero requests; see the file
-/// header for why this does not reuse `servicesListProvider`.
-@Riverpod(keepAlive: true)
+/// `keepAlive` so repeated filter-sheet opens cost zero requests. `ServicesList`
+/// («Мої послуги») wraps this provider's `.future`; see the file header for the
+/// forced import direction and for why mutations must invalidate THIS provider
+/// rather than the wrapper.
+/// Phase 317 — `dependencies: [serviceRepository]` is MANDATORY, not
+/// decorative: without it this provider resolves against the ROOT container
+/// even inside the salon-target `ProviderScope`, hands back the OPERATOR's own
+/// catalogue, and the delete button on a service card would hit
+/// `DELETE /services/{id}` (destroying a shared salon definition) instead of
+/// the unassign endpoint. The guard assert is `kDebugMode`-only — see
+/// [serviceRepositoryProvider]'s SCOPED-TARGET CONTRACT doc.
+@Riverpod(keepAlive: true, dependencies: [serviceRepository])
 Future<List<MasterService>> masterServiceCatalog(Ref ref) {
   // Security (mobile-security MEDIUM-2, 2026-07-20) — see the file header.
   // Explicit identity watch, independent of whatever `serviceRepositoryProvider`
   // happens to depend on today.
-  ref.watch(
-    authProvider.select(
-      (AsyncValue<AuthSession> session) => switch (session.value) {
-        Authenticated(:final User user) => user.id,
-        Unauthenticated() || null => null,
-      },
-    ),
-  );
+  ref.watch(authProvider.select(authUserIdOrNull));
   return ref.watch(serviceRepositoryProvider).listMyServices();
 }

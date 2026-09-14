@@ -16,15 +16,17 @@
 // [MasterProfileScreen] does, `activeIndex: 3` (Профіль). Since Phase 310,
 // tile 2 (Графік) targets `RouteNames.salonMasterSchedule` (`/staff/schedule`,
 // Phase 309) and lands on the role's own read-only «Графік роботи» — it no
-// longer bounces. The remaining two tiles (Послуги/Мої записи) still target
-// INDEPENDENT_MASTER-only routes this role is gated away from —
-// `auth_redirect.dart`'s `/services` and `/master/*` role gates bounce a
+// longer bounces. Since Phase 321, tile 0 (Послуги) targets
+// `RouteNames.salonMasterServices` (`/staff/services`) and lands on the
+// role's own read-only services list the same way. The remaining tile (Мої
+// записи) still targets an INDEPENDENT_MASTER-only route this role is gated
+// away from — `auth_redirect.dart`'s `/master/*` role gate bounces a
 // SALON_MASTER straight back to `roleHomePath` (`/staff/profile`, this same
 // screen) before any frame of the guarded destination ever builds, since
 // `redirect` resolves ahead of the route match. Verified live via
 // `test/routing/navigation_links_test.dart`'s matrix-driven harness. This is
-// accepted as the current interim state for those two tiles, not a bug to
-// fix here — neither has a `/staff/*` counterpart yet.
+// accepted as the current interim state for that tile, not a bug to fix here
+// — it has no `/staff/*` counterpart yet (out of scope, phase 321 D4).
 //
 // Identity card also carries the EMPLOYING salon's name + address, read-only
 // (user requirement, 2026-09-01: "location for salon master should [be the]
@@ -231,14 +233,16 @@ class _SalonMasterProfileScreenState
       // `showBack: false`.
       showBack: false,
       // Same shared bar every other master "tab" screen hosts — see this
-      // file's header for the tile-3-active / other-two-gated rationale.
+      // file's header for the tile-3-active / other-tile-gated rationale.
       // Phase 310 — tile 3 (Профіль) is active here so `profileRoute` is
       // never read; `scheduleRoute` targets the SALON_MASTER's read-only
       // «Графік роботи» at `/staff/schedule` (Phase 309) instead of the
-      // INDEPENDENT_MASTER-only default.
+      // INDEPENDENT_MASTER-only default. Phase 321 — `servicesRoute` targets
+      // the read-only «Послуги» at `/staff/services` the same way.
       bottomNavBar: const VelvetBottomNavBar(
         activeIndex: 3,
         scheduleRoute: RouteNames.salonMasterSchedule,
+        servicesRoute: RouteNames.salonMasterServices,
       ),
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-salon-master'),

@@ -738,6 +738,43 @@ final class ServiceDuplicateFailure extends Failure {
       AppLocalizations.of(ctx).serviceErrDuplicate;
 }
 
+/// Emitted when a salon-target service UNASSIGN
+/// (`DELETE /salons/{s}/masters/{m}/services/{serviceDefId}`, backend phase
+/// 307) returns HTTP **409**: the master still has future **CONFIRMED**
+/// bookings for this service, so the backend refuses the unassign before any
+/// write happens.
+///
+/// **This `409` is the SHIPPING contract, not a placeholder** — backend phase
+/// 307 D4, verbatim: the user deferred phase 308 (cascade-cancel) on
+/// 2026-09-08. There is no scheduled follow-up that replaces this refusal; the
+/// caller cancels the blocking bookings first, or waits for them to elapse.
+///
+/// Carries **no fields** (mobile phase 316 D3, deliberate): the 409 body is a
+/// plain English `String` built by Java concatenation —
+/// `"Master has " + futureConfirmedCount + " future confirmed booking(s)..."`
+/// (`ServiceCatalogService.java:295-297`) — with no error code and no
+/// structured count. Parsing a number out of that string would couple
+/// Ukrainian UI copy to the exact wording of a Java string literal (a backend
+/// copy edit breaks the app silently) and would surface an English fragment on
+/// any parse miss. If the backend later returns a structured count, adding a
+/// field here is additive and the copy can be upgraded then.
+///
+/// Decoded by `HttpServiceRepository._mapUnassignException` — checked BEFORE
+/// deferring to any [Failure] the [ErrorMapperInterceptor] may already have
+/// attached (a non-auth 409 there maps to a generic [ServerFailure], which
+/// carries no distinguishing copy).
+///
+/// The dedicated blocked-delete dialog that renders this failure's copy is
+/// mobile phase 319 — no ARB key is added by this failure; [userMessage]
+/// reuses the existing generic validation copy as a placeholder.
+final class ServiceUnassignBlockedFailure extends Failure {
+  const ServiceUnassignBlockedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errValidation;
+}
+
 /// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
 /// the typed `data.code == "CLIENT_BOOKING_CONFLICT"` envelope (backend
 /// commit f95d8fd): the authenticated CLIENT already has a PENDING/CONFIRMED

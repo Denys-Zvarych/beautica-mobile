@@ -242,7 +242,7 @@ void main() {
         await tester.pumpAndSettle();
         await AppHarness.tapVisible(
           tester,
-          find.byKey(const Key('booking-summary-cta')),
+          find.byKey(const Key('salon-assign-confirm-cta')),
         );
         // Step 3's own back control is the mounted-marker here, same shape as
         // stage 1 above — no fixed sleep for the push + day-availability load.
@@ -358,7 +358,7 @@ void main() {
         AppHarness.expectLocation(router, RouteNames.salonBookingMasters);
         await AppHarness.pumpUntilFound(
           tester,
-          find.byKey(const Key('salon-master-selection-no-covering-master')),
+          find.byKey(const Key('salon-master-selection-empty')),
         );
 
         expect(fb.requestedBookableMastersServiceDefIds, <String>{

@@ -521,6 +521,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     final String scheduleRoute = isSalonMaster
         ? RouteNames.salonMasterSchedule
         : RouteNames.masterSchedule;
+    // Phase 321 D1 — same role-resolved shape as [scheduleRoute] above, for
+    // tile 0 («Послуги») instead of tile 2. For an INDEPENDENT_MASTER this
+    // resolves to the current literal (`RouteNames.services`) —
+    // byte-identical behaviour.
+    final String servicesRoute = isSalonMaster
+        ? RouteNames.salonMasterServices
+        : RouteNames.services;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -531,16 +538,20 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       // `Scaffold` zeroes the bottom `MediaQuery` padding it hands to `body`
       // whenever `bottomNavigationBar` is non-null, so the outer `SafeArea`
       // below consumes nothing extra here — no double-counted inset.
-      // Phase 310 D2 — non-const: passes role-resolved `scheduleRoute` /
-      // `profileRoute` so tile 3 («Профіль») lands a SALON_MASTER on
-      // `/staff/profile` in one navigation instead of bouncing through
-      // `/master/profile`. For an INDEPENDENT_MASTER both resolve to the
-      // current literals (`RouteNames.masterSchedule` /
-      // `RouteNames.masterProfile`) — byte-identical behaviour.
+      // Phase 310 D2 (+ Phase 321 D1) — non-const: passes role-resolved
+      // `scheduleRoute` / `profileRoute` / `servicesRoute` so tile 3
+      // («Профіль») lands a SALON_MASTER on `/staff/profile` in one
+      // navigation instead of bouncing through `/master/profile`, and tile 0
+      // («Послуги», reached FROM here since this screen shares the bar) lands
+      // on `/staff/services` the same way. For an INDEPENDENT_MASTER all
+      // three resolve to the current literals (`RouteNames.masterSchedule` /
+      // `RouteNames.masterProfile` / `RouteNames.services`) — byte-identical
+      // behaviour.
       bottomNavigationBar: VelvetBottomNavBar(
         activeIndex: 2,
         scheduleRoute: scheduleRoute,
         profileRoute: profileRoute,
+        servicesRoute: servicesRoute,
       ),
       body: SafeArea(
         child: Column(

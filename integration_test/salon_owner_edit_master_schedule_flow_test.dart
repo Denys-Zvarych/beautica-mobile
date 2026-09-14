@@ -43,7 +43,9 @@ import 'package:beautica_mobile/features/schedule/presentation/master_schedule_s
 import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -62,6 +64,15 @@ void main() {
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend();
+        // 2026-09-14 (mobile-qa) — the NON-CONTIGUOUS «Пн, Ср, Пт ·
+        // 10:00–19:00» template, not the default contiguous «Пн–Вт» one.
+        // Required by the management-card truncation assertion added below:
+        // a short value would fit any column and make that assertion pass
+        // with OR without the text-token fix. Drop-in for the default seed —
+        // still ≥2 working days (so this flow's Monday toggle is still the
+        // PUT path) and still Sunday-empty (so the NoScheduleBanner
+        // assertion below is unaffected). See the seeder's own doc.
+        fb.seedNonContiguousWeeklySchedule();
         // salon-xyz is not in the owner persona's default mySalons
         // (salon-owner-1 only) - seed BEFORE boot so salonManageGuard's
         // owner arm admits it.
@@ -107,11 +118,12 @@ void main() {
         final Finder masterCard = find.byKey(
           const Key('salon-manage-staff-card-master-aaa'),
         );
-        await AppHarness.pumpUntilFound(
-          tester,
-          masterCard,
-          timeout: const Duration(seconds: 20),
-        );
+        // `AppHarness.revealRosterCard` is the single shared way to locate a
+        // roster card in the lazily-inflated `SliverGrid.builder`: it gates on
+        // the grid having LOADED, then drags only when the target cell was
+        // never built. This target sits in row 0 by fixture shape, so it
+        // no-ops and this path behaves exactly as before.
+        await AppHarness.revealRosterCard(tester, masterCard);
         try {
           await tester.ensureVisible(masterCard);
         } catch (_) {}
@@ -153,6 +165,87 @@ void main() {
         // fixed-wait-ok: third of three lockstep pumps — see the annotation
         // two above.
         await tester.pump(const Duration(milliseconds: 300));
+
+        // ── 2026-09-14 (mobile-qa, Rule 3b) — THE TRUNCATION REGRESSION ──
+        //
+        // The widget tier
+        // (`test/features/salon/presentation/
+        // salon_staff_profile_management_card_text_fit_test.dart`) pins this
+        // against an OVERRIDDEN `weeklyScheduleProvider`. This is the same
+        // contract against the REAL wire: the value on screen right now was
+        // produced by `weeklyScheduleSummary` from a real
+        // `GET …/weekly-schedules` response, through the real notifier, into
+        // the real card.
+        //
+        // Only the NAVIGATION half of this journey was already covered; this
+        // assertion is the genuinely new part, so it is added HERE rather
+        // than in a duplicate flow file (CLAUDE.md REUSE-FIRST, and this
+        // file's own header records the journey being reliable only as a
+        // single test per file).
+        //
+        // flutter-tester's surface is 800x600, which gives each card a
+        // ~336 dp text column — far wider than any shipped phone and wide
+        // enough to hide the defect entirely. Narrow to a real 360 dp phone
+        // for the measurement, then restore before the journey continues.
+        final Size surfaceBefore = tester.view.physicalSize;
+        final double dprBefore = tester.view.devicePixelRatio;
+        tester.view.physicalSize = const Size(360, 760);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        // fixed-wait-ok: one frame to re-lay-out at the narrowed surface;
+        // nothing async is in flight (the schedule value already resolved —
+        // asserted immediately below).
+        await tester.pump();
+
+        for (final Key card in <Key>[
+          const Key('salon-staff-profile-schedule-row'),
+          const Key('salon-staff-profile-services-row'),
+        ]) {
+          for (final Key line in <Key>[
+            kManagementActionCardLabelKey,
+            kManagementActionCardValueKey,
+          ]) {
+            final Finder f = find.descendant(
+              of: find.byKey(card),
+              matching: find.byKey(line),
+            );
+            expect(f, findsOneWidget);
+            final RenderParagraph p = tester.renderObject<RenderParagraph>(f);
+            expect(
+              p.didExceedMaxLines,
+              isFalse,
+              reason:
+                  'card $card line $line was ELLIPSIZED at 360 dp — the '
+                  'exact CRITICAL defect the 2026-09-14 text-token fix '
+                  'removed. A TextOverflow.ellipsis is not a RenderFlex '
+                  'overflow, so `installOverflowGuard` above cannot see it.',
+            );
+          }
+        }
+
+        // Anti-vacuity (M14) — the value really is the long non-contiguous
+        // summary the seeder produces, not «Не задано» or a still-loading
+        // empty string. Without this the loop above would pass on a card
+        // rendering nothing at all.
+        final ManagementActionCard scheduleCard = tester
+            .widget<ManagementActionCard>(scheduleRow);
+        expect(
+          scheduleCard.value.length,
+          greaterThan(18),
+          reason:
+              'the real wire must have delivered the seeded non-contiguous '
+              'weekly template — a short value here silently defangs the '
+              'truncation assertions above',
+        );
+
+        tester.view.physicalSize = surfaceBefore;
+        tester.view.devicePixelRatio = dprBefore;
+        // fixed-wait-ok: one frame to restore the original surface before the
+        // journey continues.
+        await tester.pump();
+        // ── end truncation regression ──────────────────────────────────
+
         try {
           await tester.ensureVisible(scheduleRow);
         } catch (_) {}

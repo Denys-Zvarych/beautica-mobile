@@ -142,6 +142,11 @@ Future<GoRouter> _openStaffSettings(WidgetTester tester, FakeBackend fb) async {
   final Finder adminCard = find.byKey(
     const Key('salon-manage-staff-card-$_kAdminId'),
   );
+  // The roster is a lazily-inflated `SliverGrid.builder`; whether this
+  // target lands in row 0 is fixture accident. `AppHarness.revealRosterCard`
+  // is the single shared way to locate one — it no-ops when the card is
+  // already built, so this first-row path is unchanged.
+  await AppHarness.revealRosterCard(tester, adminCard);
   await tester.ensureVisible(adminCard);
   await tester.pumpAndSettle();
   await tester.tap(adminCard);
@@ -190,6 +195,14 @@ Future<GoRouter> _openMasterStaffSettings(
   final Finder masterCard = find.byKey(
     const Key('salon-manage-staff-card-$_kRemovableMasterUserId'),
   );
+  // `salon-xyz`'s roster renders three members in a 2-column grid and
+  // [_kRemovableMasterUserId] is cell 2 — the first cell of the SECOND row,
+  // laid out at y ~ 641 on flutter-tester's 600 px-tall surface and therefore
+  // never BUILT, so `ensureVisible` would throw "Found 0 widgets".
+  // `AppHarness.revealRosterCard` is the single shared reveal (it also gates
+  // on the grid having LOADED, so a genuinely missing roster reports a clean
+  // timeout instead of failing opaquely inside the scroll).
+  await AppHarness.revealRosterCard(tester, masterCard);
   await tester.ensureVisible(masterCard);
   await tester.pumpAndSettle();
   await tester.tap(masterCard);
