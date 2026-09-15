@@ -12,18 +12,15 @@ part 'pageable_object.g.dart';
 /// PageableObject
 ///
 /// Properties:
-/// * [unpaged]
 /// * [paged]
 /// * [pageNumber]
 /// * [pageSize]
+/// * [unpaged]
 /// * [offset]
 /// * [sort]
 @BuiltValue()
 abstract class PageableObject
     implements Built<PageableObject, PageableObjectBuilder> {
-  @BuiltValueField(wireName: r'unpaged')
-  bool? get unpaged;
-
   @BuiltValueField(wireName: r'paged')
   bool? get paged;
 
@@ -32,6 +29,9 @@ abstract class PageableObject
 
   @BuiltValueField(wireName: r'pageSize')
   int? get pageSize;
+
+  @BuiltValueField(wireName: r'unpaged')
+  bool? get unpaged;
 
   @BuiltValueField(wireName: r'offset')
   int? get offset;
@@ -65,13 +65,6 @@ class _$PageableObjectSerializer
     PageableObject object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.unpaged != null) {
-      yield r'unpaged';
-      yield serializers.serialize(
-        object.unpaged,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.paged != null) {
       yield r'paged';
       yield serializers.serialize(
@@ -91,6 +84,13 @@ class _$PageableObjectSerializer
       yield serializers.serialize(
         object.pageSize,
         specifiedType: const FullType(int),
+      );
+    }
+    if (object.unpaged != null) {
+      yield r'unpaged';
+      yield serializers.serialize(
+        object.unpaged,
+        specifiedType: const FullType(bool),
       );
     }
     if (object.offset != null) {
@@ -132,13 +132,6 @@ class _$PageableObjectSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'unpaged':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.unpaged = valueDes;
-          break;
         case r'paged':
           final valueDes = serializers.deserialize(
             value,
@@ -159,6 +152,13 @@ class _$PageableObjectSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.pageSize = valueDes;
+          break;
+        case r'unpaged':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.unpaged = valueDes;
           break;
         case r'offset':
           final valueDes = serializers.deserialize(

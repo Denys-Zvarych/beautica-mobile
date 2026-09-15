@@ -100,6 +100,7 @@ doc/CategoryRequestControllerApi.md
 doc/CategoryRequestResponse.md
 doc/CityDistrictResponse.md
 doc/CityResponse.md
+doc/ClientAuthoredReviewResponse.md
 doc/ClientControllerApi.md
 doc/ClientReviewControllerApi.md
 doc/ClientReviewResponse.md
@@ -376,6 +377,7 @@ lib/src/model/catalog_category_response.dart
 lib/src/model/category_request_response.dart
 lib/src/model/city_district_response.dart
 lib/src/model/city_response.dart
+lib/src/model/client_authored_review_response.dart
 lib/src/model/client_review_response.dart
 lib/src/model/contact_support_request.dart
 lib/src/model/contact_support_response.dart
@@ -505,3 +507,4 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/client_authored_review_response_test.dart
