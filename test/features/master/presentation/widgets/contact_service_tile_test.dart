@@ -223,12 +223,16 @@ void main() {
       await tester.pump();
 
       expect(find.text('Послуги'), findsOneWidget);
-      expect(find.text('Мої записи'), findsOneWidget);
+      expect(find.text('Записи'), findsOneWidget);
       expect(find.text('Графік'), findsOneWidget);
       expect(find.text('Профіль'), findsOneWidget);
       // Guard the «Календар» → «Графік» rename both ways: the old label must
       // never render on the master nav bar (catches a silent revert).
       expect(find.text('Календар'), findsNothing);
+      // Same both-ways guard for the «Мої записи» → «Записи» rename (2026-09-15,
+      // user-approved): tile 1 is shared with the read-only SALON_MASTER mount,
+      // where a first-person label reads wrong for a salon-owned calendar.
+      expect(find.text('Мої записи'), findsNothing);
     });
 
     testWidgets(

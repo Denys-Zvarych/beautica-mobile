@@ -178,7 +178,7 @@ void main() {
 
       // Tile order is the bar's own 0..3; the literals are the approved copy.
       expect(uk.masterNavTabServices, 'Послуги');
-      expect(uk.masterNavTabBookings, 'Мої записи');
+      expect(uk.masterNavTabBookings, 'Записи');
       expect(uk.masterNavTabSchedule, 'Графік');
       expect(uk.masterNavTabProfile, 'Профіль');
     });
@@ -189,7 +189,7 @@ void main() {
       final en = await localizationsFor(tester, const Locale('en'));
 
       expect(en.masterNavTabServices, 'Services');
-      expect(en.masterNavTabBookings, 'My bookings');
+      expect(en.masterNavTabBookings, 'Bookings');
       expect(en.masterNavTabSchedule, 'Schedule');
       expect(en.masterNavTabProfile, 'Profile');
     });
