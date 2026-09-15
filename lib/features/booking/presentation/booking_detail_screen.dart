@@ -107,7 +107,26 @@ import 'reschedule_navigation.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
 class BookingDetailScreen extends ConsumerStatefulWidget {
-  const BookingDetailScreen({super.key, required this.bookingId});
+  const BookingDetailScreen({
+    super.key,
+    required this.bookingId,
+    this.clientReviewRouteBuilder,
+  });
+
+  /// Phase 330 — builds the leave-client-feedback path for the COMPLETED
+  /// provider footer's «Залишити відгук про клієнта» CTA. `null` (the CLIENT
+  /// `/bookings/:id` mount, the `/master/bookings/:id` mount and every
+  /// existing test) means [RouteNames.clientReview]; the `/staff/bookings/:id`
+  /// mount passes [RouteNames.salonMasterClientReview] so a `SALON_MASTER`'s
+  /// CTA does not push a `/master/*` path their own gate bounces.
+  ///
+  /// ADDITIVE and NULLABLE — a ROUTE parameter, not a role or a capability.
+  /// Locked decision D5 (`booking_viewer_role.dart`) forbids a constructor
+  /// flag that asserts WHO is looking; this one only says where THIS mount's
+  /// push lands, which has always been the host's concern (`onBookingTap`,
+  /// `onOpenArchive`). The CTA's own gate is unchanged: the server-computed
+  /// `Booking.providerCanReviewClient`.
+  final String Function(String bookingId)? clientReviewRouteBuilder;
 
   final String bookingId;
 
@@ -369,7 +388,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `booking.providerCanReviewClient` is `true` — see
   /// `_DetailBody._providerActions`'s doc.
   void _onLeaveClientFeedback(Booking booking) {
-    context.push(RouteNames.clientReview(booking.id));
+    context.push(
+      (widget.clientReviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
+    );
   }
 
   @override

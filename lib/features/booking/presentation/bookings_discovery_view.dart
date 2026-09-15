@@ -257,12 +257,13 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     required this.onBookingTap,
     this.onOpenArchive,
     this.canCreateBooking = true,
+    this.canAddWorkingHours = true,
     super.key,
   }) : assert(
-         !useScheduleWindow || onAddWorkingHours != null,
+         !useScheduleWindow || !canAddWorkingHours || onAddWorkingHours != null,
          'onAddWorkingHours is required whenever useScheduleWindow is true '
-         '— the "no working hours" empty state always needs somewhere to '
-         'route its CTA.',
+         'AND canAddWorkingHours is true — the "no working hours" empty '
+         'state always needs somewhere to route the CTA it is offering.',
        );
 
   /// The scope AND the seed filters — see the file header for exactly which
@@ -345,6 +346,24 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// assert; this flag only narrows what an already-identified viewer is
   /// offered, and its one host resolves it from the session anyway.
   final bool canCreateBooking;
+
+  /// Phase 330 — whether the "no working hours" empty state renders its
+  /// «Додати робочі години» CTA at all. `false` makes it ABSENT, not
+  /// disabled, exactly like [canCreateBooking] — the title and the helper
+  /// copy still render, so the read-only viewer is told WHY the timeline is
+  /// missing, just not invited to fix it.
+  ///
+  /// ADDITIVE, defaulting to `true` — every pre-existing call site (the
+  /// `/master/bookings` mount and every test that pumps this view directly)
+  /// renders byte-identically without passing it, and the constructor assert
+  /// above is unchanged for them. Only the `/staff/bookings` mount passes
+  /// `false`: publishing working hours is a SCHEDULE write that
+  /// `scheduleEditableProvider` has denied `SALON_MASTER` since phase 309.
+  ///
+  /// Like [canCreateBooking], a PARAMETER and not a `ref.watch` here — this
+  /// composition is the salon-reuse seam, so every scope decision stays the
+  /// host's. See that field's doc for the full reasoning.
+  final bool canAddWorkingHours;
 
   @override
   ConsumerState<BookingsDiscoveryView> createState() =>
@@ -1029,6 +1048,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onClearFilters: _clearAllFilters,
               onBookingTap: widget.onBookingTap,
               onAddWorkingHours: widget.onAddWorkingHours,
+              canAddWorkingHours: widget.canAddWorkingHours,
             ),
           );
         },
@@ -1163,6 +1183,7 @@ class _Loaded extends StatelessWidget {
     required this.onClearFilters,
     required this.onBookingTap,
     required this.onAddWorkingHours,
+    required this.canAddWorkingHours,
   }) : assert(
          !useScheduleWindow || scheduleAsync != null,
          'scheduleAsync must be set whenever useScheduleWindow is true — '
@@ -1227,9 +1248,15 @@ class _Loaded extends StatelessWidget {
   final ValueChanged<Booking> onBookingTap;
 
   /// `widget.onAddWorkingHours` — non-null whenever [useScheduleWindow] is
-  /// `true` (the constructor assert on [BookingsDiscoveryView] guarantees
-  /// it), unused otherwise.
+  /// `true` AND [canAddWorkingHours] is `true` (the constructor assert on
+  /// [BookingsDiscoveryView] guarantees it), unused otherwise.
   final ValueChanged<DateTime>? onAddWorkingHours;
+
+  /// `widget.canAddWorkingHours` — see that field's doc on
+  /// [BookingsDiscoveryView]. `false` drops the empty state's CTA entirely,
+  /// which is also what makes [onAddWorkingHours] legitimately `null` on a
+  /// `useScheduleWindow: true` mount.
+  final bool canAddWorkingHours;
 
   @override
   Widget build(BuildContext context) {
@@ -1273,18 +1300,25 @@ class _Loaded extends StatelessWidget {
         if (window == null || resolved == null) {
           // No `!` (repo style) — the constructor assert on
           // [BookingsDiscoveryView] guarantees [onAddWorkingHours] is set
-          // whenever [useScheduleWindow] is `true`, which is the only way
-          // this branch is ever reached; the `??` fallback is a documented,
-          // release-mode safety net for that invariant, not an expected path.
+          // whenever [useScheduleWindow] AND [canAddWorkingHours] are both
+          // `true`, which is the only way the CTA branch is ever reached; the
+          // `??` fallback is a documented, release-mode safety net for that
+          // invariant, not an expected path.
+          //
+          // Phase 330 — when [canAddWorkingHours] is `false` the CTA is
+          // ABSENT and `onAddHours` is handed `null`, so the callback is
+          // never resolved at all and a `null` [onAddWorkingHours] is
+          // legitimate rather than a violated invariant.
           final ValueChanged<DateTime> addWorkingHours =
               onAddWorkingHours ??
               (DateTime _) => throw StateError(
-                'onAddWorkingHours must be set when useScheduleWindow is '
-                'true — see BookingsDiscoveryView\'s constructor assert.',
+                'onAddWorkingHours must be set when useScheduleWindow and '
+                'canAddWorkingHours are both true — see '
+                'BookingsDiscoveryView\'s constructor assert.',
               );
           return MasterBookingsNoWorkingHoursState(
             dayOff: resolved?.source == EffectiveSource.overrideDayOff,
-            onAddHours: () => addWorkingHours(day),
+            onAddHours: canAddWorkingHours ? () => addWorkingHours(day) : null,
           );
         }
 

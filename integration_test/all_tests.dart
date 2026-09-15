@@ -163,6 +163,7 @@ import 'salon_master_services_target_flow_test.dart'
     as salon_master_services_target;
 import 'salon_owner_unassign_master_service_flow_test.dart'
     as salon_owner_unassign_master_service;
+import 'salon_master_bookings_nav_flow_test.dart' as salon_master_bookings_nav;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
 import 'salon_master_services_read_only_flow_test.dart'
     as salon_master_services_read_only;
@@ -556,6 +557,14 @@ void main() {
   // `/staff/schedule`, landing on the SAME `MasterScheduleScreen` an
   // INDEPENDENT_MASTER edits their own hours with.
   group('salon_master_schedule_nav_flow', salon_master_schedule_nav.main);
+  // Phase 330/332 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Записи»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tile-1 tap, the real `auth_redirect.dart` gate
+  // admitting `/staff/bookings`, landing on the SAME `MasterBookingsScreen`
+  // an INDEPENDENT_MASTER runs their day from — with the add (+) button
+  // absent — and on into the SAME `MasterArchiveScreen`. Registered beside
+  // `salon_master_schedule_nav_flow`, the direct sibling this flow mirrors.
+  group('salon_master_bookings_nav_flow', salon_master_bookings_nav.main);
   // Phase 321 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Послуги»
   // journey: real post-login landing dispatch onto `/staff/profile`, a real
   // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting

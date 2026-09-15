@@ -460,6 +460,19 @@ void main() {
       // route_names.dart's doc). Same rationale as `salonMasterSchedule`
       // immediately above.
       'salonMasterServices': RouteNames.salonMasterServices,
+      // Phase 330/332 — SALON_MASTER's read-only «Записи» and its three
+      // drill-ins, reusing MasterBookingsScreen / MasterArchiveScreen /
+      // BookingDetailScreen / LeaveClientFeedbackScreen at their own /staff/*
+      // paths (see route_names.dart's docs). Same rationale as
+      // `salonMasterSchedule` / `salonMasterServices` above.
+      'salonMasterBookings': RouteNames.salonMasterBookings,
+      'salonMasterBookingsArchive': RouteNames.salonMasterBookingsArchive,
+      'salonMasterBookingDetail()': RouteNames.salonMasterBookingDetail(
+        kSampleId,
+      ),
+      'salonMasterClientReview()': RouteNames.salonMasterClientReview(
+        kSampleId,
+      ),
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,

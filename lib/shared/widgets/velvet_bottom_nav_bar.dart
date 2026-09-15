@@ -131,16 +131,15 @@ class VelvetBottomNavBar extends StatelessWidget {
   final String? servicesRoute;
 
   /// 2026-09-13 audit (M6) — additive override for tile 1's («Мої записи»)
-  /// destination, completing the four-tile override set. `null` (every
-  /// current caller) means [RouteNames.masterBookings], byte-identical to
-  /// before this param existed. Same top-level-tab-root precondition as
-  /// [scheduleRoute] / [profileRoute] / [servicesRoute].
+  /// destination, completing the four-tile override set. `null` (the
+  /// INDEPENDENT_MASTER call sites) means [RouteNames.masterBookings],
+  /// byte-identical to before this param existed. Same top-level-tab-root
+  /// precondition as [scheduleRoute] / [profileRoute] / [servicesRoute].
   ///
-  /// No caller passes it yet: a SALON_MASTER has no `/staff/*` bookings
-  /// counterpart, so tile 1 still bounces for that role by design (see
-  /// `salon_master_profile_screen.dart`'s header). The parameter exists so
-  /// the tile that DOES bounce is the one with a visible, documented seam
-  /// rather than the one silently missing one.
+  /// Phase 330 — the three SALON_MASTER call sites now pass
+  /// [RouteNames.salonMasterBookings]. Tile 1 was the last tile on that
+  /// role's bar with no `/staff/*` counterpart; with this wired, none of the
+  /// four bounces for a SALON_MASTER any more.
   final String? bookingsRoute;
 
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
