@@ -93,6 +93,7 @@ import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import '../domain/booking_status.dart';
+import '../domain/client_authored_review.dart';
 import 'widgets/booking_counterparty_header.dart';
 import 'widgets/booking_notes.dart';
 import 'widgets/booking_recap.dart';
@@ -101,6 +102,7 @@ import 'widgets/booking_status_medallion.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/cancel_booking_dialog.dart';
+import 'widgets/client_review_section.dart';
 import 'widgets/complete_booking_dialog.dart';
 import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
@@ -515,6 +517,16 @@ class _DetailBody extends StatelessWidget {
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
 
+    // Phase 334 — the client's review of the master, PROVIDER branch only.
+    // Resolved here (rather than inline in `recapCards`) so the render site
+    // reads a promoted non-nullable local instead of a `!` assertion. Both
+    // gates collapse into this one null: a client viewer gets `null` whatever
+    // the server sent, and a provider gets `null` unless a review really
+    // exists. See the call site below for why each gate is drawn where it is.
+    final ClientAuthoredReview? reviewByClient = viewer.isProvider
+        ? booking.reviewByClient
+        : null;
+
     // The big status TITLE shows for COMPLETED, NOT_COMPLETED, CANCELLED and
     // DECLINED — the finished/closed outcome deserves a header label.
     // CONFIRMED alone drops it (a confirmed booking needs no ceremony — the
@@ -625,6 +637,43 @@ class _DetailBody extends StatelessWidget {
         // section; this is a framing fix, NOT a visibility one.
         if (BookingNotes.has(booking, l10n, viewer: viewer))
           BookingNotes(booking: booking, viewer: viewer),
+
+        // ── Phase 334 — «Відгук клієнта»: the review the CLIENT left about
+        //    the master, read-only.
+        //
+        // PROVIDER-ONLY, and not for a privacy reason — the text is already
+        // world-readable through the permitAll `GET /masters/{id}/reviews`
+        // listing (backend phase 317 decision D2). It is a RELEVANCE gate:
+        // a client reading their own booking wrote this review themselves
+        // and has «Мої відгуки» for it, so echoing it back here would be
+        // noise on the one screen that exists to tell them about the VISIT.
+        //
+        // LAST in the recap, after the notes, on purpose: the notes were
+        // written DURING the booking's life (the brief at creation, the
+        // reason at closure) and the review comes AFTER closure, so the
+        // column reads chronologically top to bottom. It is also reference
+        // material rather than an action — nothing here is tappable, and
+        // nothing above it should be pushed down for it.
+        //
+        // The null check is the WHOLE gate — `reviewByClient` is non-null
+        // only when the server actually sent a review, which it does only
+        // on `GET /bookings/{id}` (this screen's own fetch). Deliberately
+        // NOT cross-checked against `status`: a review that exists exists.
+        // And deliberately no empty state — a booking with no review shows
+        // nothing at all, because on every LISTING surface a null means
+        // "this surface does not answer that question", so an «Відгуку
+        // немає» placeholder built on that null would be a claim the app
+        // cannot support. See `Booking.reviewByClient`'s doc.
+        if (reviewByClient != null)
+          ClientReviewSection(
+            review: reviewByClient,
+            bookingId: booking.id,
+            // The SAME name+«Гість» resolution the counterparty header at the
+            // top of this screen uses, so the review is attributed to exactly
+            // the person named above it.
+            clientDisplayName:
+                booking.clientName ?? l10n.bookingDetailGuestClient,
+          ),
       ],
     );
   }

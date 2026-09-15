@@ -45,6 +45,7 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/booking.dart';
 import '../domain/booking_slot.dart';
+import '../domain/client_authored_review.dart';
 import '../domain/booking_status.dart';
 import '../domain/working_day.dart';
 
@@ -194,6 +195,22 @@ abstract final class BookingMapper {
       // Phase 29.2 field; defaulted so a pre-29.2 backend omitting it entirely
       // cannot crash the mapper. See `Booking.awaitingClosure`'s doc.
       awaitingClosure: dto.awaitingClosure ?? false,
+      // Phase 334 — the CLIENT's review of the master, the opposite direction
+      // from `providerCanReviewClient` above. Carried through verbatim; a null
+      // DTO stays a null domain value.
+      //
+      // NOT re-derived from `status` and NOT ANDed with anything, unlike
+      // `providerCanReviewClient`: that flag is a CAPABILITY (it unlocks a
+      // write CTA, so a stale `true` off an older backend had to be defanged
+      // here), whereas this is a FACT the server already holds — a review that
+      // exists exists, whatever the booking's status says. There is no
+      // fail-closed posture to take on a read-only render.
+      //
+      // `rating` is nullable on the wire but not in the domain: a review row
+      // without a score is a broken backend contract, and the honest reading
+      // of it is "no renderable review", so the whole object collapses to null
+      // rather than laundering the gap into a fabricated 0 stars.
+      reviewByClient: _reviewByClient(dto.reviewByClient),
       clientComment: dto.clientComment,
       providerComment: dto.providerComment,
       clientCancellationNote: dto.clientCancellationNote,
@@ -215,6 +232,47 @@ abstract final class BookingMapper {
       // MO-5's list grouping — nothing keys off it yet.
       appointmentId: dto.appointmentId,
     );
+  }
+
+  /// Phase 334 — maps the nested `ClientAuthoredReviewResponse` (the CLIENT's
+  /// review of the master) onto the domain [ClientAuthoredReview].
+  ///
+  /// Collapses to `null` in TWO cases, deliberately indistinguishable
+  /// downstream: the DTO itself is absent (the usual case — this booking
+  /// carries no review, or this is a listing surface that never populates the
+  /// field at all, see [Booking.reviewByClient]'s doc), OR the DTO is present
+  /// but its `rating` is null. The second is a broken backend contract — the
+  /// wire type marks `rating` nullable only because the generator makes every
+  /// field nullable — and the honest render of "a review with no score" is no
+  /// review at all. Coalescing it to `0` would paint an empty five-star row
+  /// the client never gave.
+  ///
+  /// [ClientAuthoredReview.comment] stays nullable end-to-end: a client who
+  /// rated without writing anything is the ordinary case, not a gap, and the
+  /// shared `ReviewCard` omits its body line for it.
+  ///
+  /// Unlike every other required-field check in this file, a null here never
+  /// throws [ServerFailure] — a booking whose review failed to map is still a
+  /// perfectly good booking, and dropping the whole row (which is what
+  /// [fromDtoList] does with a [Failure]) over an optional display field would
+  /// be wildly disproportionate.
+  static ClientAuthoredReview? _reviewByClient(
+    ClientAuthoredReviewResponse? dto,
+  ) {
+    if (dto == null) return null;
+    final int? rating = dto.rating;
+    if (rating == null) {
+      if (kDebugMode) {
+        log(
+          'ClientAuthoredReviewResponse missing rating — dropping the '
+          'review, keeping the booking',
+          name: 'feature.booking.mapper',
+          level: 900,
+        );
+      }
+      return null;
+    }
+    return ClientAuthoredReview(rating: rating, comment: dto.comment);
   }
 
   /// Entries that fail [fromDto]'s required-field check (or carry an

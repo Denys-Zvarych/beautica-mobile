@@ -4594,6 +4594,25 @@
   "@bookingDetailClientReviewCta": {
     "description": "Track 7.x Wave B — PROVIDER footer action on a COMPLETED booking's detail screen; opens the leave-client-feedback screen. Offered on every COMPLETED provider booking (no server-side canReview-equivalent gate exists yet)."
   },
+  "bookingDetailClientReviewHeading": "Відгук клієнта",
+  "@bookingDetailClientReviewHeading": {
+    "description": "Phase 334 — heading above the read-only block on «Деталі запису» showing the review THIS booking's client left about the master. PROVIDER branch only. Viewer-relative and deliberately matched to the BookingNotes heading idiom («Побажання клієнта», «Причина клієнта») rather than the leave-review screens' ReviewSectionLabel, whose required/optional tag is a form affordance with no meaning on a read-only block. Not to be confused with bookingDetailClientReviewCta, which is the OPPOSITE direction — the provider reviewing the client."
+  },
+  "bookingDetailClientReviewSemantics": "Відгук клієнта: оцінка {rating} з 5. {comment}",
+  "@bookingDetailClientReviewSemantics": {
+    "description": "Phase 334 — screen-reader label for the whole client-review block on «Деталі запису», used when the client left a comment. The shared ReviewCard renders its rating as five bare Icon glyphs, which a screen reader cannot interpret, so the section spells the score out. Use bookingDetailClientReviewSemanticsNoComment when comment is null.",
+    "placeholders": {
+      "rating": { "type": "int" },
+      "comment": { "type": "String" }
+    }
+  },
+  "bookingDetailClientReviewSemanticsNoComment": "Відгук клієнта: оцінка {rating} з 5, без коментаря",
+  "@bookingDetailClientReviewSemanticsNoComment": {
+    "description": "Phase 334 — screen-reader label for the client-review block on «Деталі запису» when the client rated without writing anything (ClientAuthoredReviewResponse.comment is null). A separate key rather than string concatenation so the sentence stays fully translatable.",
+    "placeholders": {
+      "rating": { "type": "int" }
+    }
+  },
   "clientReviewScreenTitle": "ВІДГУК ПРО КЛІЄНТА",
   "@clientReviewScreenTitle": {
     "description": "Top-bar title of the leave-client-feedback screen (track 7.x Wave B)."

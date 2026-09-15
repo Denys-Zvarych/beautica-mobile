@@ -49,6 +49,8 @@ import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
 import 'salon_master_bookings_nav_flow_test.dart' as salon_master_bookings_nav;
+import 'salon_master_client_review_flow_test.dart'
+    as salon_master_client_review;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
 import 'salon_master_services_read_only_flow_test.dart'
     as salon_master_services_read_only;
@@ -237,6 +239,7 @@ void main() {
   // absent — and on into the SAME `MasterArchiveScreen`. Registered beside
   // `salon_master_schedule_nav_flow`, the direct sibling this flow mirrors.
   group('salon_master_bookings_nav_flow', salon_master_bookings_nav.main);
+  group('salon_master_client_review_flow', salon_master_client_review.main);
   // Phase 321 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Послуги»
   // journey: real post-login landing dispatch onto `/staff/profile`, a real
   // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting
