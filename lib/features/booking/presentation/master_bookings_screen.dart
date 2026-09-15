@@ -103,6 +103,7 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'bookings_discovery_view.dart';
+import '../application/bookings_capability.dart';
 import '../domain/booking.dart';
 import '../domain/bookings_day_query.dart';
 
@@ -163,6 +164,15 @@ class MasterBookingsScreen extends ConsumerWidget {
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
         onOpenArchive: () => context.push(RouteNames.masterBookingsArchive),
+        // Phase 329 — the (+) add-booking button is HIDDEN (not disabled)
+        // for a viewer who may not create bookings, i.e. the invited,
+        // read-only `SALON_MASTER`. `watch`, not `read`: the capability is
+        // derived from the session and must re-render the header the moment
+        // the role settles or the session is invalidated. Every other role
+        // this screen serves resolves `true`, so the independent master's
+        // header is unchanged. See `bookingCreationEnabledProvider`'s doc for
+        // why it reads the STRICT settled selector.
+        canCreateBooking: ref.watch(bookingCreationEnabledProvider),
       ),
       // Tile 1 ("Мої записи") — this screen IS that destination.
       bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 1),

@@ -88,6 +88,7 @@ import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
+import '../application/bookings_capability.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
@@ -385,6 +386,19 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // `booking_viewer_role.dart` for why a widget parameter would be unsafe.
     final BookingViewerRole viewer = ref.watch(bookingViewerRoleProvider);
 
+    // Phase 331 — WHICH provider actions the provider footer is allowed to
+    // offer. `bookingViewerRole.dart:71-76` already maps `SALON_MASTER` onto
+    // `BookingViewerRole.provider`, so the provider footer renders for that
+    // role the instant they can reach this screen — and an invited
+    // `SALON_MASTER` is READ-ONLY. This capability is the gate that keeps
+    // «Завершити» / «Скасувати» / «Перенести» off their footer while leaving
+    // the server-driven review CTA alone. `watch`, not `read`: the footer
+    // must re-render the moment the role settles. See
+    // `bookingTransitionsEnabledProvider`'s doc for the strict session read.
+    final bool transitionsEnabled = ref.watch(
+      bookingTransitionsEnabledProvider,
+    );
+
     return async.when(
       loading: () => const _DetailLoading(),
       error: (Object e, StackTrace _) => _DetailError(
@@ -394,6 +408,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       data: (Booking booking) => _DetailBody(
         booking: booking,
         viewer: viewer,
+        transitionsEnabled: transitionsEnabled,
         // Injected clock seam — the PROVIDER footer's start-time gate reads
         // this instead of the device clock so tests can pin it. `watch` (not
         // `read`): a future ticking override must be able to rebuild the
@@ -419,6 +434,7 @@ class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
     required this.viewer,
+    required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
     required this.onReschedule,
@@ -433,6 +449,23 @@ class _DetailBody extends StatelessWidget {
 
   final Booking booking;
   final BookingViewerRole viewer;
+
+  /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
+  /// (complete / decline / reschedule / not-complete). Sourced from
+  /// `bookingTransitionsEnabledProvider` by the owning [ConsumerState]; never
+  /// re-derived here.
+  ///
+  /// REQUIRED, not defaulted: [_DetailBody] is private with exactly one call
+  /// site, so a default would buy no caller compatibility and would instead
+  /// let a future call site silently inherit the PERMISSIVE value. The
+  /// additive-default rule is for widely-used PUBLIC widgets (see
+  /// `BookingsDiscoveryView.canCreateBooking`, which does default).
+  ///
+  /// Gates only the transitions. The review CTA below it is server-driven
+  /// (`booking.providerCanReviewClient`) and stays reachable for a read-only
+  /// viewer — leaving feedback about a client is not a booking mutation. See
+  /// [_providerActions].
+  final bool transitionsEnabled;
 
   /// The current instant, sourced from `clockProvider` by the owning
   /// [ConsumerState] — NEVER read off the device here. Feeds
@@ -800,6 +833,21 @@ class _DetailBody extends StatelessWidget {
           onPressed: onLeaveClientFeedback,
         ),
       ];
+    }
+    // Phase 331 — the READ-ONLY gate, placed BELOW the COMPLETED arm above
+    // on purpose: everything from here down is a status TRANSITION
+    // («Завершити», «Скасувати», «Перенести»), while the arm above is the
+    // server-gated «Залишити відгук про клієнта» CTA, which a read-only
+    // viewer keeps. An invited `SALON_MASTER` reaches this method because
+    // `booking_viewer_role.dart:71-76` maps their role onto
+    // `BookingViewerRole.provider` — that mapping is correct (they DO see the
+    // client as counterparty), so the footer's CONTENTS are the right place
+    // to draw the read-only line, not the viewer-role resolution.
+    //
+    // An empty list renders NO footer at all (`_actions`' own doc), which is
+    // the intended read-only outcome: absent, never disabled.
+    if (!transitionsEnabled) {
+      return const <Widget>[];
     }
     if (booking.status != BookingStatus.confirmed) {
       return const <Widget>[];

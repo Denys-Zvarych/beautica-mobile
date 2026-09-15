@@ -256,6 +256,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.onAddWorkingHours,
     required this.onBookingTap,
     this.onOpenArchive,
+    this.canCreateBooking = true,
     super.key,
   }) : assert(
          !useScheduleWindow || onAddWorkingHours != null,
@@ -320,6 +321,30 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// header behaviour changed. Navigation is the HOST's concern, same as
   /// [onBookingTap]/[onBack] — no `Navigator`/`context.push` in this file.
   final VoidCallback? onOpenArchive;
+
+  /// Phase 329 — whether the header's manual add-booking (+) button is
+  /// rendered at all. `false` makes it ABSENT, not disabled: the invited
+  /// `SALON_MASTER` this track's read-only «Записи» exists for must not see a
+  /// write affordance they can never use (the same user-locked ruling that
+  /// removed the permanently-disabled «Перенести» button in
+  /// `booking_detail_screen.dart`'s `_providerActions`).
+  ///
+  /// ADDITIVE, defaulting to `true` — every pre-existing call site (the one
+  /// production host `MasterBookingsScreen`, and every test that pumps this
+  /// view directly) renders byte-identically without passing it. Only
+  /// `MasterBookingsScreen` passes it, from `bookingCreationEnabledProvider`
+  /// (`../application/bookings_capability.dart`).
+  ///
+  /// A widget PARAMETER and not a `ref.watch` inside this view, deliberately
+  /// and for the same reason `showMasterFilter`/`useScheduleWindow` are
+  /// parameters: this composition is the salon-reuse seam
+  /// (`bookings_discovery_view_reuse_test.dart` pins it), so every scope
+  /// decision stays the HOST's to make. Note this differs from
+  /// `booking_viewer_role.dart`'s "never a constructor flag" rule — that rule
+  /// is about the VIEWER'S IDENTITY, which a caller must not be able to
+  /// assert; this flag only narrows what an already-identified viewer is
+  /// offered, and its one host resolves it from the session anyway.
+  final bool canCreateBooking;
 
   @override
   ConsumerState<BookingsDiscoveryView> createState() =>
@@ -1023,7 +1048,11 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onBack: widget.onBack,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
-              onAdd: _openCreateBooking,
+              // Phase 329 — `null` when the viewer may not create bookings,
+              // which removes the (+) button from the header entirely rather
+              // than disabling it. See
+              // [BookingsDiscoveryView.canCreateBooking].
+              onAdd: widget.canCreateBooking ? _openCreateBooking : null,
               onOpenArchive: widget.onOpenArchive,
             ),
             const _ServiceCatalogueWarmer(),
@@ -1524,7 +1553,7 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.activeFilterCount,
     required this.onOpenFilters,
-    required this.onAdd,
+    this.onAdd,
     this.onOpenArchive,
   });
 
@@ -1533,11 +1562,20 @@ class _Header extends StatelessWidget {
   final int activeFilterCount;
   final VoidCallback onOpenFilters;
 
-  /// Finding #6 — the add-booking affordance. Always shown: unlike the
-  /// design's salon-wide screen (where this is admin/owner-gated), THIS
-  /// screen only ever renders for the independent master's own bookings, the
-  /// one scope the design always shows it for.
-  final VoidCallback onAdd;
+  /// Finding #6 — the add-booking affordance.
+  ///
+  /// Phase 329: `null` hides it ENTIRELY (button not rendered), exactly like
+  /// [onOpenArchive] below — the header grew a second optional trailing
+  /// control rather than a parallel `bool` + non-null callback, so the two
+  /// read the same way. Non-null on every pre-existing path: the host
+  /// ([BookingsDiscoveryView.canCreateBooking]) defaults to `true`, and only
+  /// a read-only viewer (`SALON_MASTER`) resolves it to `null`.
+  ///
+  /// Was previously documented as "always shown" — that was true while this
+  /// view had exactly one host (the independent master's own bookings). The
+  /// track that gives an invited `SALON_MASTER` this same screen read-only is
+  /// what made the affordance conditional.
+  final VoidCallback? onAdd;
 
   /// Phase 231 — the archive button. `null` hides it entirely; see
   /// [BookingsDiscoveryView.onOpenArchive]'s doc.
@@ -1613,26 +1651,36 @@ class _Header extends StatelessWidget {
               activeCount: activeFilterCount,
               onTap: onOpenFilters,
             ),
-            const SizedBox(width: VelvetSpacing.sm),
-            Semantics(
-              button: true,
-              label: l10n.masterBookingsAddSemantics,
-              child: GestureDetector(
-                key: const Key('master-bookings-add'),
-                onTap: onAdd,
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  height: 40,
-                  width: 40,
-                  decoration: _addButtonDecoration,
-                  child: const Icon(
-                    Icons.add_rounded,
-                    color: BrandColors.white,
-                    size: 22,
+            // Phase 329 — the (+) affordance and ITS OWN leading gap are
+            // dropped together when [onAdd] is null. Spreading the
+            // `SizedBox` inside the guard (rather than leaving it above as
+            // an unconditional sibling) is what keeps a read-only header
+            // from ending in 8dp of stray trailing space after the filter
+            // button. With a non-null [onAdd] the emitted child order is
+            // unchanged — gap, then button — so every existing caller
+            // renders byte-identically.
+            if (onAdd != null) ...<Widget>[
+              const SizedBox(width: VelvetSpacing.sm),
+              Semantics(
+                button: true,
+                label: l10n.masterBookingsAddSemantics,
+                child: GestureDetector(
+                  key: const Key('master-bookings-add'),
+                  onTap: onAdd,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    height: 40,
+                    width: 40,
+                    decoration: _addButtonDecoration,
+                    child: const Icon(
+                      Icons.add_rounded,
+                      color: BrandColors.white,
+                      size: 22,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),

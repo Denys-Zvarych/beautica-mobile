@@ -275,6 +275,21 @@ GoRouter appRouter(Ref ref) {
   // therefore not act on a stale session either: see
   // `salon_home_resolver_screen.dart`, which applies the same concrete-subtype
   // gate to its own session read for exactly this reason.
+  // DO NOT add `&& !auth.isLoading` here, however much it looks like the
+  // missing half of `authUserRoleSettledOrNull`'s gate (which grew exactly
+  // that clause on 2026-09-15, because a SEAMLESS refresh —
+  // `ref.invalidate(authProvider)` from a settled session — produces an
+  // `AsyncData` still carrying the stale value with `isRefreshing == true`;
+  // `riverpod-3.2.1/.../async_value.dart:789-796`). In a SELECTOR, `null`
+  // means "no role" and tightening the gate fails CLOSED. Here it means the
+  // opposite: every guard below reads `resolvedSession()` and returns `null`
+  // — ADMIT, fall through to the global [authRedirect] — when it cannot see an
+  // `Authenticated`. Returning `null` more often therefore makes every
+  // per-route role guard MORE permissive, inverting the fix. The staleness the
+  // selectors fence is harmless on this side: an admission is re-decided the
+  // moment the session settles, because `refreshListenable` re-runs every
+  // redirect on each `authProvider` emission (the trade-off spelled out
+  // immediately above). Leave this on the subtype check alone.
   AuthSession? resolvedSession() {
     final AsyncValue<AuthSession> auth = ref.read(authProvider);
     return auth is AsyncData<AuthSession> ? auth.value : null;
@@ -476,6 +491,40 @@ GoRouter appRouter(Ref ref) {
   String? salonAdminOnlyGuard(BuildContext context, GoRouterState state) {
     final session = resolvedSession();
     if (session is Authenticated && session.user.role != UserRole.salonAdmin) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 331 — per-route INDEPENDENT_MASTER-only gate for the walk-in
+  // booking chain (`/master/bookings/new`, `/master/bookings/new/services`).
+  // The exact mirror of [salonAdminOnlyGuard] / [mySalonsGuard] one role
+  // over: any other authenticated role is bounced to its own landing, and
+  // unauthenticated access is left to the global [authRedirect] (-> /login).
+  //
+  // WHY IT EXISTS EVEN THOUGH `/master/*` IS ALREADY FENCED: today
+  // `auth_redirect.dart`'s `/master/*` prefix gate admits INDEPENDENT_MASTER
+  // only, so this guard is a no-op — but the salon-staff track widens that
+  // prefix to admit the read-only SALON_MASTER. At that moment the only thing
+  // standing between a read-only master and the walk-in wizard would be the
+  // ABSENCE of the add (+) button (`bookingCreationEnabled`, phase 329) — a
+  // hidden control is not an authorization boundary, and this track exists to
+  // forbid load-bearing client-side affordance gates. The backend already
+  // 403s (`StaffBookingScopeResolver`), so the exposure ceiling was a
+  // dead-end wizard rather than data loss; the gate still belongs in the
+  // router, and it belongs here BEFORE the widening, not after.
+  //
+  // REUSE-FIRST was checked: no shipped guard expresses "INDEPENDENT_MASTER
+  // and nothing else" — the existing prefix gate in `auth_redirect.dart` is
+  // location-keyed, not a reusable per-route closure, and every guard in this
+  // file admits a salon role set.
+  String? independentMasterOnlyGuard(
+    BuildContext context,
+    GoRouterState state,
+  ) {
+    final session = resolvedSession();
+    if (session is Authenticated &&
+        session.user.role != UserRole.independentMaster) {
       return roleHomePath(session.user.role);
     }
     return null;
@@ -1725,8 +1774,13 @@ GoRouter appRouter(Ref ref) {
           // of the ROUTED walk-in chain (see `route_names.dart`'s
           // [RouteNames.masterBookingNewServices] doc and phase-264's D4).
           // The old wizard screen was deleted outright in Phase 265.
+          //
+          // Phase 331 — gated by [independentMasterOnlyGuard]. See that
+          // guard's doc for why the `/master/*` prefix gate in
+          // `auth_redirect.dart` is not enough here.
           GoRoute(
             path: 'new',
+            redirect: independentMasterOnlyGuard,
             pageBuilder: (context, state) => const MaterialPage<void>(
               fullscreenDialog: true,
               child: WalkInGuestStepScreen(),
@@ -1745,11 +1799,30 @@ GoRouter appRouter(Ref ref) {
               // [RouteNames.masterBookingNew] — a two-hop bounce to a safe
               // place once that screen's own guard sends a non-master
               // there too (phase-264 D9, pinned by test).
+              //
+              // Phase 331 — [independentMasterOnlyGuard] composed FIRST,
+              // mirroring how [RouteNames.bookingNew] composes
+              // [clientOnlyGuard] ahead of its own `extra` validation. The
+              // parent `new` route's redirect already runs for this location
+              // (go_router evaluates `redirect:` for every route in the
+              // matched stack, outermost first), so this is belt-and-braces
+              // — but stating it here keeps the guard attached to the route
+              // that would survive a future re-parenting, and ordering it
+              // first means a wrong-role deep link is bounced to its OWN
+              // landing rather than two-hopping through a wizard it may not
+              // open.
               GoRoute(
                 path: 'services',
-                redirect: (context, state) => state.extra is WalkInGuest
-                    ? null
-                    : RouteNames.masterBookingNew,
+                redirect: (context, state) {
+                  final String? roleRedirect = independentMasterOnlyGuard(
+                    context,
+                    state,
+                  );
+                  if (roleRedirect != null) return roleRedirect;
+                  return state.extra is WalkInGuest
+                      ? null
+                      : RouteNames.masterBookingNew;
+                },
                 // `builder:` (MaterialPage, not fullscreenDialog) — mirrors
                 // how `time` nests under [bookingSlots] elsewhere in this
                 // file: a normal forward push within the already-modal

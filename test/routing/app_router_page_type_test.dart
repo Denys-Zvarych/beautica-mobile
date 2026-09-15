@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -76,12 +77,17 @@ class _FixedAuthNotifier extends AuthNotifier {
 
 /// Creates a [ProviderContainer] with the minimum overrides needed to read
 /// [appRouterProvider] without real network or storage I/O.
-ProviderContainer _makeContainer() {
+///
+/// ADDITIVE (phase 331): [session] defaults to [_authenticatedSession] — the
+/// INDEPENDENT_MASTER fixture every pre-existing caller relied on — so those
+/// callers are unchanged. The walk-in role-guard group below passes a
+/// different role to exercise `independentMasterOnlyGuard`.
+ProviderContainer _makeContainer({AsyncValue<AuthSession>? session}) {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(
-        () => _FixedAuthNotifier(_authenticatedSession),
+        () => _FixedAuthNotifier(session ?? _authenticatedSession),
       ),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -130,6 +136,29 @@ class _NeverUsedBuildContext extends Fake implements BuildContext {}
 /// unlike a bare `Fake`, this stub answers `.uri` with an empty query string
 /// rather than throwing, so the fake exercises the "no date param" branch
 /// (`initialDate == null`) rather than crashing before returning a widget.
+/// Phase 331 — the walk-in chain's `extra` payload, used to prove the
+/// `new/services` role guard fires even when the pre-existing `extra`
+/// validation would otherwise ADMIT the navigation.
+const WalkInGuest _walkInGuestFixture = WalkInGuest(
+  name: 'Марина',
+  surname: 'Кравчук',
+  phone: '+380501234567',
+);
+
+/// Phase 331 — a [GoRouterState] stand-in for the walk-in chain's redirects.
+/// `independentMasterOnlyGuard` reads neither argument; the `new/services`
+/// redirect additionally reads `state.extra`, which this stub answers with
+/// [extra] (default `null` — the "direct deep link" branch).
+class _WalkInGoRouterState extends Fake implements GoRouterState {
+  _WalkInGoRouterState({this.extra});
+
+  @override
+  final Object? extra;
+
+  @override
+  Uri get uri => Uri.parse('/master/bookings/new');
+}
+
 class _NeverUsedGoRouterState extends Fake implements GoRouterState {
   @override
   Uri get uri => Uri.parse('/schedule');
@@ -886,6 +915,147 @@ void main() {
             'own-target wrapper, not the bare ServicesListScreen — a '
             'different wrapper here means the target resolution was '
             'skipped or forked',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 331 — `/master/bookings/new` (+ its `new/services` child) carry
+  // their OWN per-route INDEPENDENT_MASTER guard, independent of the
+  // `/master/*` prefix gate in `auth_redirect.dart`.
+  //
+  // ## Why the assertion INVOKES the redirect closure instead of navigating
+  //
+  // Pumping the real router and calling `router.go('/master/bookings/new')`
+  // as a SALON_MASTER would be VACUOUS today: `auth_redirect.dart`'s
+  // `/master/*` prefix gate bounces that role before any route-level
+  // `redirect:` runs, so such a test stays green whether or not
+  // `independentMasterOnlyGuard` exists — it would assert the prefix gate,
+  // not this guard. The whole reason the guard was added is that the
+  // salon-staff track WIDENS that prefix gate to admit SALON_MASTER, at
+  // which point the only remaining fence would be the ABSENCE of the add (+)
+  // button (`bookingCreationEnabled`) — a hidden control, which is not an
+  // authorization boundary.
+  //
+  // So these tests reach past the prefix gate and call the route's own
+  // `redirect` directly, with the session the guard actually reads. That is
+  // exactly the state the repo will be in after the widening, asserted
+  // today.
+  //
+  // MUTATION CHECK: deleting `redirect: independentMasterOnlyGuard` from the
+  // `new` route turns RG-1 red (`route.redirect` becomes null); making the
+  // guard admit every role turns RG-1/RG-2 red on the returned path. RG-3 is
+  // the positive control — an INDEPENDENT_MASTER must still be admitted, so
+  // a guard that simply bounced everyone cannot pass the group.
+  // -------------------------------------------------------------------------
+  group('app_router Phase 331 — the walk-in chain is INDEPENDENT_MASTER-only '
+      'at the ROUTER, not merely by a hidden button', () {
+    GoRouter routerFor(UserRole role) => _makeContainer(
+      session: AsyncData<AuthSession>(
+        AuthSession.authenticated(
+          user: User(
+            id: 'u1',
+            email: 'test@beautica.ua',
+            role: role,
+            firstName: 'Тест',
+            lastName: 'Користувач',
+          ),
+          accessToken: 'token',
+        ),
+      ),
+    ).read(appRouterProvider);
+
+    test('RG-1: a SALON_MASTER is REFUSED at /master/bookings/new and sent to '
+        'its own landing', () async {
+      final route = _findRoute(
+        routerFor(UserRole.salonMaster).configuration.routes,
+        'new',
+      );
+      expect(
+        route,
+        isNotNull,
+        reason: '/master/bookings/new must still be registered',
+      );
+      expect(
+        route!.redirect,
+        isNotNull,
+        reason:
+            'Phase 331: the walk-in entry route must carry its own role '
+            'guard — the /master/* prefix gate is about to be widened and '
+            'cannot be the only fence',
+      );
+
+      final Object? result = await route.redirect!(
+        _NeverUsedBuildContext(),
+        _WalkInGoRouterState(),
+      );
+      expect(
+        result,
+        RouteNames.salonMasterProfile,
+        reason:
+            'a read-only SALON_MASTER must be bounced to its own landing, '
+            'never admitted into the walk-in booking wizard',
+      );
+    });
+
+    test('RG-2: the nested new/services step refuses a SALON_MASTER too, and '
+        'bounces to its OWN landing rather than two-hopping through the '
+        'wizard it may not open', () async {
+      final route = _findRoute(
+        routerFor(UserRole.salonMaster).configuration.routes,
+        'services',
+      );
+      expect(route, isNotNull);
+      expect(route!.redirect, isNotNull);
+
+      final Object? result = await route.redirect!(
+        _NeverUsedBuildContext(),
+        // Carries a VALID WalkInGuest `extra`, so the only thing that can
+        // produce a redirect here is the role guard — if the guard were
+        // removed this returns null (admitted) and the test goes red.
+        _WalkInGoRouterState(extra: _walkInGuestFixture),
+      );
+      expect(result, RouteNames.salonMasterProfile);
+    });
+
+    test('RG-3: POSITIVE CONTROL — an INDEPENDENT_MASTER is still admitted to '
+        'both steps of the chain', () async {
+      final List<RouteBase> routes = routerFor(
+        UserRole.independentMaster,
+      ).configuration.routes;
+
+      expect(
+        await _findRoute(routes, 'new')!.redirect!(
+          _NeverUsedBuildContext(),
+          _WalkInGoRouterState(),
+        ),
+        isNull,
+      );
+      expect(
+        await _findRoute(routes, 'services')!.redirect!(
+          _NeverUsedBuildContext(),
+          _WalkInGoRouterState(extra: _walkInGuestFixture),
+        ),
+        isNull,
+      );
+    });
+
+    test('RG-4: the services step\'s PRE-EXISTING `extra` validation is '
+        'preserved — an INDEPENDENT_MASTER with no WalkInGuest still bounces '
+        'back to the wizard entry', () async {
+      final route = _findRoute(
+        routerFor(UserRole.independentMaster).configuration.routes,
+        'services',
+      );
+      expect(
+        await route!.redirect!(
+          _NeverUsedBuildContext(),
+          _WalkInGoRouterState(),
+        ),
+        RouteNames.masterBookingNew,
+        reason:
+            'composing the role guard in front of the extra check must not '
+            'drop the extra check',
       );
     });
   });

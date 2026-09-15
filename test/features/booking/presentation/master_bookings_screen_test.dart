@@ -35,6 +35,10 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -185,6 +189,43 @@ PageResponse<Booking> _page(
   totalElements: totalElements ?? items.length,
 );
 
+/// Phase 329 — the signed-in identity every test in this file assumes: an
+/// `INDEPENDENT_MASTER` looking at their own «Мої записи».
+///
+/// `MasterBookingsScreen` now reads `bookingCreationEnabledProvider`, which
+/// derives the (+) add-booking affordance from the SESSION through the STRICT
+/// settled selector. Without an authenticated session that provider correctly
+/// fails closed and the button is ABSENT — so the ONE harness whose test taps
+/// «+» ([_pumpWithNavRoutes]) seeds a real session, rather than overriding the
+/// capability provider itself (an override there would bypass the very role
+/// mapping the screen now depends on — the `approvedCategoriesProvider`
+/// footgun the backlog records).
+///
+/// DELIBERATELY NOT applied to [_pump]. `AuthNotifier.build` is `async`, so
+/// any stub of it passes through one `AsyncLoading` frame before settling —
+/// and `bookings_day_notifier.dart:493-500` watches the authenticated USER ID,
+/// so that null → id transition legitimately re-fetches the day. In
+/// production the router's auth guard has already settled the session before
+/// this screen ever mounts, so no such second fetch exists there; inside a
+/// fetch-COUNTING test it would be pure stub artifact. [_pump]'s tests never
+/// touch the (+) button (it is the only affordance the capability gates), so
+/// they keep their unauthenticated harness and their exact call counts.
+const User _stubIndependentMaster = User(
+  id: 'master-bookings-test-1',
+  email: 'master@beautica.ua',
+  role: UserRole.independentMaster,
+  firstName: 'Олена',
+  lastName: 'Майстер',
+);
+
+class _IndependentMasterAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: _stubIndependentMaster,
+    accessToken: 'tok',
+  );
+}
+
 /// Pumps the screen with [repo] backing both the timeline and the booked-days
 /// dot set.
 ///
@@ -281,6 +322,8 @@ Future<GoRouter> _pumpWithNavRoutes(
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
+      // Phase 329 — see [_IndependentMasterAuthNotifier].
+      authProvider.overrideWith(_IndependentMasterAuthNotifier.new),
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
       bookedDaysProvider.overrideWith((ref) async => bookedDays),
