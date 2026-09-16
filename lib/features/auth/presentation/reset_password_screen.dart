@@ -373,7 +373,13 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const VelvetHeader(),
+          // VelvetHeader (logo + wordmark) intentionally omitted on the SUCCESS
+          // state only — the verified tile is the sole focal point here. The
+          // `form` and `invalid` states keep the header, and VelvetHeader
+          // itself is untouched (it is shared by six other auth screens).
+          // Top breathing room in place of the logo header, matching
+          // DoneScreen's identical omission.
+          const SizedBox(height: VelvetSpacing.xl),
           Center(
             child: Container(
               height: 72,
