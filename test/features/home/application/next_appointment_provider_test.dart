@@ -76,6 +76,21 @@ class _FakeBookingRepository implements BookingRepository {
   DateTime? capturedFrom;
   int callCount = 0;
 
+  /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
+  /// screen; present only because [BookingRepository] gained the method.
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    String? masterId,
+    BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   @override
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
@@ -176,6 +191,21 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
   final Booking elapsed;
   int callCount = 0;
   BookingPartition? capturedPartition;
+
+  /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
+  /// screen; present only because [BookingRepository] gained the method.
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    String? masterId,
+    BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 
   @override
   Future<PageResponse<Booking>> getMyBookings({

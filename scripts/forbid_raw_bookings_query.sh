@@ -32,7 +32,8 @@
 #
 # THE RULE
 # --------
-# Zero `BookingsDayQuery.masterOwn(` under lib/ and test/, except in the
+# Zero `BookingsDayQuery.masterOwn(` / `BookingsDayQuery.salon(` under lib/
+# and test/, except in the
 # declaring file itself (which must name it) and `.freezed.dart` codegen
 # output (which generates it). Build queries with
 # `BookingsDayQuery.of(...)`.
@@ -73,7 +74,12 @@ run_scan() {
     # `.masterOwn(day: picked)` shortcut gets written. Matches the scan roots
     # of the sibling gates (`forbid_cyrillic_finder.sh`, `forbid_fixed_wait
     # .sh`), which already cover all three.
-    cd "$scan_root" && grep -rEn 'BookingsDayQuery\.masterOwn\(' \
+    # Phase 21.12 — `.salon(` joined `.masterOwn(`: it is the SECOND
+    # pass-through constructor of the same sealed union, skips the same
+    # `dateOnly` truncation, and leaks the family in exactly the same way. Its
+    # normalising entry points are `BookingsDayQuery.salonOf` /
+    # `BookingsDayQuery.salonDayList`.
+    cd "$scan_root" && grep -rEn 'BookingsDayQuery\.(masterOwn|salon)\(' \
       lib/ test/ integration_test/ 2>/dev/null | sort || true
   )
 }
@@ -111,20 +117,52 @@ EOF
     final q = BookingsDayQuery.masterOwn(day: picked, statuses: s);
 EOF
 
+  # ── The SALON half of the regex (Phase 21.12) ────────────────────────────
+  # The verifier's V1 finding: the scan regex gained `|salon` but the
+  # self-test synthesized ONLY `.masterOwn(` sites, so deleting `|salon` from
+  # the regex left this self-test GREEN — a ratchet protecting half of what it
+  # claims to. Both halves are synthesized from here on: one `.salon(`
+  # offender under lib/ (the scope the master half never exercised either) and
+  # one under integration_test/.
+  mkdir -p "$tmp/lib/features/salon/presentation"
+  cat > "$tmp/lib/features/salon/presentation/leaky_board.dart" <<'EOF'
+    final q = BookingsDayQuery.salon(day: picked, salonId: id, statuses: s);
+EOF
+  cat > "$tmp/integration_test/leaky_salon_e2e_test.dart" <<'EOF'
+    final q = BookingsDayQuery.salon(day: picked, salonId: id, statuses: s);
+EOF
+
+  # The salon declaring-file / codegen exemptions must hold for `.salon(` too,
+  # not only for `.masterOwn(` — otherwise "exempt" could silently mean
+  # "invisible to the regex".
+  cat >> "$tmp/$declaring_file" <<'EOF'
+  const factory BookingsDayQuery.salon({
+    return BookingsDayQuery.salon(day: dateOnly(day), salonId: salonId);
+EOF
+  cat >> "$tmp/lib/features/booking/domain/bookings_day_query.freezed.dart" <<'EOF'
+    return BookingsDayQuery.salon(salonId: salonId);
+EOF
+
   out="$(run_scan "$tmp")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
 
-  if [ "$flagged" -ne 2 ] ||
+  if [ "$flagged" -ne 4 ] ||
     ! printf '%s' "$out" | grep -q 'leaky_test.dart:1' ||
-    ! printf '%s' "$out" | grep -q 'leaky_e2e_test.dart:1'; then
-    echo "SELF-TEST FAIL: expected the leaky_test.dart AND leaky_e2e_test.dart"
-    echo "                sites flagged (and nothing else), got:"
+    ! printf '%s' "$out" | grep -q 'leaky_e2e_test.dart:1' ||
+    ! printf '%s' "$out" | grep -q 'leaky_board.dart:1' ||
+    ! printf '%s' "$out" | grep -q 'leaky_salon_e2e_test.dart:1'; then
+    echo "SELF-TEST FAIL: expected the .masterOwn( offenders (leaky_test.dart,"
+    echo "                leaky_e2e_test.dart) AND the .salon( offenders"
+    echo "                (leaky_board.dart, leaky_salon_e2e_test.dart) flagged"
+    echo "                — and nothing else. Got:"
     printf '%s\n' "$out"
     exit 1
   fi
-  echo "SELF-TEST PASS: the declaring file and .freezed.dart codegen are exempt;"
-  echo "                the BookingsDayQuery.masterOwn( calls under test/ AND"
-  echo "                integration_test/ are both flagged."
+  echo "SELF-TEST PASS: the declaring file and .freezed.dart codegen are exempt"
+  echo "                for BOTH pass-through constructors; the"
+  echo "                BookingsDayQuery.masterOwn( AND BookingsDayQuery.salon("
+  echo "                calls under lib/, test/ AND integration_test/ are all"
+  echo "                flagged."
   echo "SELF-TEST OK: forbid_raw_bookings_query.sh"
   exit 0
 fi
@@ -135,17 +173,41 @@ fi
 offenders="$(run_scan "$root")"
 
 if [ -n "$offenders" ]; then
-  echo "BookingsDayQuery.masterOwn( used outside its declaring file:"
+  # Verifier finding V2 — NAME THE ACTUAL OFFENDER. The banner used to say
+  # `.masterOwn(` unconditionally, so a `.salon(` violation was reported under
+  # the wrong constructor's name and pointed at the wrong normalising factory.
+  # Both are derived from what was really matched.
+  hit_master=0
+  hit_salon=0
+  printf '%s\n' "$offenders" | grep -q 'BookingsDayQuery\.masterOwn(' &&
+    hit_master=1
+  printf '%s\n' "$offenders" | grep -q 'BookingsDayQuery\.salon(' && hit_salon=1
+
+  if [ "$hit_master" -eq 1 ] && [ "$hit_salon" -eq 1 ]; then
+    named='BookingsDayQuery.masterOwn( and BookingsDayQuery.salon('
+  elif [ "$hit_salon" -eq 1 ]; then
+    named='BookingsDayQuery.salon('
+  else
+    named='BookingsDayQuery.masterOwn('
+  fi
+
+  echo "$named used outside its declaring file:"
   echo "$offenders"
   echo
-  echo ".masterOwn() is the freezed pass-through constructor — it skips ALL"
-  echo "normalisation. In particular it does NOT truncate day to date-only,"
-  echo "so two taps on the same calendar day at 09:14 and 09:15 become two"
-  echo "different bookingsDayProvider family members: two fetches for one day"
-  echo "the user sees as identical."
+  echo ".masterOwn() / .salon() are the freezed pass-through constructors of"
+  echo "the same sealed union — they skip ALL normalisation. In particular"
+  echo "neither truncates day to date-only, so two taps on the same calendar"
+  echo "day at 09:14 and 09:15 become two different bookingsDayProvider family"
+  echo "members: two fetches for one day the user sees as identical."
   echo
-  echo "Use the normalising factory instead:"
-  echo "    BookingsDayQuery.of(day: ..., statuses: ..., serviceIds: ...)"
+  echo "Use the normalising factory for the member you are building:"
+  if [ "$hit_master" -eq 1 ]; then
+    echo "    BookingsDayQuery.of(day: ..., statuses: ..., serviceIds: ...)"
+  fi
+  if [ "$hit_salon" -eq 1 ]; then
+    echo "    BookingsDayQuery.salonOf(day: ..., salonId: ..., ...)"
+    echo "    BookingsDayQuery.salonDayList(day: ..., salonId: ..., ...)"
+  fi
   echo
   echo "It takes Sets and a plain DateTime and canonicalises both — see the"
   echo "file header of lib/features/booking/domain/bookings_day_query.dart."

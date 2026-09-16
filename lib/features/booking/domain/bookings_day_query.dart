@@ -5,13 +5,38 @@
 // render page 0 — see `bookings_day_notifier.dart`'s header for why the whole
 // day is fetched in one request instead.
 //
-// ## A freezed SEALED union — ahead of need, deliberately
+// ## A freezed SEALED union
 //
-// This is the salon-reuse seam Phase 7.11 (D11) lands: a `.salon({salonId,
-// masterIds, ...})` member joins this one when the multi-master salon day
-// view ships. Do NOT add it now — only the independent master's OWN day
-// ships in this phase. `masterId` is implicit on [BookingsDayQuery.masterOwn]
-// — the server derives it from the bearer token.
+// Phase 21.12 landed the salon-reuse seam this class was shaped for:
+// [SalonDayQuery] is the second member, for the owner/admin salon-wide board
+// («Записи» tab of the salon shell). `masterId` is implicit on
+// [BookingsDayQuery.masterOwn] — the server derives it from the bearer token —
+// and EXPLICIT (and optional) on [BookingsDayQuery.salon], where the caller
+// names the salon and may narrow to one of its masters.
+//
+// ## The two members DO NOT filter alike, and that is a WIRE fact
+//
+// `GET /bookings/me` accepts a repeated `status` list and a repeated
+// `serviceId` list. `GET /bookings/salon/{salonId}` accepts NEITHER: exactly
+// one optional `status` enum and no service predicate at all (verified against
+// `BookingController.getSalonBookings` and the committed OpenAPI snapshot, not
+// assumed). So on the salon member [statuses]/[serviceIds] are a CLIENT-SIDE
+// narrowing applied in `bookings_day_notifier.dart` after the fetch, never
+// query params.
+//
+// That is sound only because the day is fetched WHOLE in one `size: 100`
+// request (see that notifier's header): the list being narrowed is the
+// server's complete answer for the day, not a page of it. It does mean a
+// >100-booking salon day narrows a TRUNCATED set —
+// [BookingsDayState.isTruncated] surfaces that to the user exactly as it does
+// for a >100-booking master day, and the locked "no multi-page loop" decision
+// is unchanged. 100 is the backend's own `spring.data.web.pageable
+// .max-page-size`, so a bigger page is not available to ask for.
+//
+// Both getters below ([hasFilters], [showsAllOccupancy]) therefore keep
+// answering the same questions for both members — they are about what the
+// RENDERED list can contain, and a client-side narrowing removes exactly the
+// same rows a server-side one would.
 //
 // ## `.masterOwn` is the raw, un-normalised pass-through
 //
@@ -96,8 +121,27 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
     required List<String> serviceIds,
   }) = MasterOwnDayQuery;
 
-  // A `.salon({salonId, masterIds, ...})` member lands with the salon screen.
-  // Do NOT add it now.
+  /// Phase 21.12 — the salon owner/admin's salon-wide day.
+  ///
+  /// [salonId] is the path segment of `GET /bookings/salon/{salonId}`.
+  /// [masterId] narrows to ONE of that salon's masters on the WIRE (the
+  /// endpoint's own optional param) and is `null` for the whole board.
+  ///
+  /// [statuses]/[serviceIds] are carried for the SAME reasons they are on
+  /// [BookingsDayQuery.masterOwn] — they key the family, they drive
+  /// [hasFilters]/[showsAllOccupancy], and they narrow the rendered list — but
+  /// they are applied CLIENT-SIDE here. See the file header.
+  ///
+  /// Pass-through freezed constructor, same as [BookingsDayQuery.masterOwn]:
+  /// build through [BookingsDayQuery.salonOf] instead.
+  /// `scripts/forbid_raw_bookings_query.sh` gates BOTH.
+  const factory BookingsDayQuery.salon({
+    required DateTime day,
+    required String salonId,
+    required List<BookingStatus> statuses,
+    required List<String> serviceIds,
+    String? masterId,
+  }) = SalonDayQuery;
 
   const BookingsDayQuery._();
 
@@ -126,6 +170,59 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
       serviceIds: List<String>.unmodifiable(sortedServiceIds),
     );
   }
+
+  /// [BookingsDayQuery.of]'s salon twin — the ONLY normalising path to
+  /// [SalonDayQuery], canonicalising the same three fields the same way for
+  /// the same two reasons (one family member per user-visible filter; one
+  /// family member per calendar DAY rather than per INSTANT).
+  factory BookingsDayQuery.salonOf({
+    required DateTime day,
+    required String salonId,
+    String? masterId,
+    Set<BookingStatus> statuses = const <BookingStatus>{},
+    Set<String> serviceIds = const <String>{},
+  }) {
+    final List<BookingStatus> sortedStatuses = statuses.toList(growable: false)
+      ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
+    final List<String> sortedServiceIds = serviceIds.toList(growable: false)
+      ..sort();
+
+    return BookingsDayQuery.salon(
+      day: dateOnly(day),
+      salonId: salonId,
+      masterId: masterId,
+      statuses: List<BookingStatus>.unmodifiable(sortedStatuses),
+      serviceIds: List<String>.unmodifiable(sortedServiceIds),
+    );
+  }
+
+  /// [BookingsDayQuery.dayList]'s salon twin — [BookingsDayQuery.salonOf] with
+  /// the SAME day-list status default resolved through the SAME
+  /// [BookingStatus.dayListWireStatuses]. Shared deliberately: "which statuses
+  /// does a provider's day list open on" is a PRODUCT decision (locked
+  /// 2026-08-13), not a per-endpoint one, so the owner's board hides
+  /// CANCELLED/DECLINED by default exactly as the master's does.
+  ///
+  /// The resolved set is applied client-side on this member (file header); it
+  /// is still resolved HERE, once, so the non-idempotent mapping runs exactly
+  /// once and the `State` still holds only the raw selection.
+  factory BookingsDayQuery.salonDayList({
+    required DateTime day,
+    required String salonId,
+    String? masterId,
+    Set<BookingStatus> statuses = const <BookingStatus>{},
+    Set<String> serviceIds = const <String>{},
+    Set<BookingStatus>? maximalStatuses,
+  }) => BookingsDayQuery.salonOf(
+    day: day,
+    salonId: salonId,
+    masterId: masterId,
+    statuses: BookingStatus.dayListWireStatuses(
+      statuses,
+      maximal: maximalStatuses,
+    ),
+    serviceIds: serviceIds,
+  );
 
   /// The provider day list's query — [BookingsDayQuery.of] with the day-list
   /// status DEFAULT already applied.
@@ -186,6 +283,60 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
     ),
     serviceIds: serviceIds,
   );
+
+  /// The family member that actually ISSUES THE REQUEST for this query.
+  ///
+  /// ## The bug this exists for (audit M2, 2026-09-16)
+  ///
+  /// [statuses]/[serviceIds] are part of the freezed key on BOTH members, but
+  /// they only reach the WIRE on [BookingsDayQuery.masterOwn] — the salon
+  /// endpoint takes neither (see "The two members DO NOT filter alike"). So
+  /// every salon filter combination was a distinct `bookingsDayProvider`
+  /// family member issuing a BYTE-IDENTICAL
+  /// `GET /bookings/salon/{id}?from=X&to=X&size=100`: ticking five status
+  /// chips fetched the same day five times. It also churned the notifier's
+  /// `_kMaxKeptDays = 3` LRU by FILTER rather than by DAY, so four combos on
+  /// one day evicted every other day the owner had visited.
+  ///
+  /// This getter is the fix's hinge: it strips exactly the fields that do NOT
+  /// travel, so a salon day has ONE fetching member regardless of how the
+  /// board is filtered. The filtered members still exist (they are what the
+  /// screen watches, and what `hasFilters` / the rendered list are derived
+  /// from) — they simply DERIVE from this one instead of re-fetching. See
+  /// `BookingsDayNotifier.build`'s delegation branch.
+  ///
+  /// IDENTITY on [BookingsDayQuery.masterOwn] — always, unconditionally. That
+  /// member's statuses/serviceIds are real query params, so stripping them
+  /// would change what the server returns. The master query's key is
+  /// deliberately untouched by this whole fix.
+  ///
+  /// Identity on a salon query that already carries no filters, which is what
+  /// makes the delegation branch non-recursive: `fetchKey == this` there, and
+  /// that member does the real fetch.
+  BookingsDayQuery get fetchKey => switch (this) {
+    MasterOwnDayQuery() => this,
+    SalonDayQuery(
+      :final DateTime day,
+      :final String salonId,
+      :final String? masterId,
+      :final List<BookingStatus> statuses,
+      :final List<String> serviceIds,
+    ) =>
+      statuses.isEmpty && serviceIds.isEmpty
+          ? this
+          // The declaring file — the one place `.salon(` may be called
+          // directly (`scripts/forbid_raw_bookings_query.sh`). No
+          // normalisation is skipped: `day` is already date-only on `this`
+          // (it came through `salonOf`), and the two list fields are being
+          // emptied rather than passed through.
+          : BookingsDayQuery.salon(
+              day: day,
+              salonId: salonId,
+              masterId: masterId,
+              statuses: const <BookingStatus>[],
+              serviceIds: const <String>[],
+            ),
+  };
 
   /// Whether any filter narrows the list — [day] is navigation, not a
   /// filter, so it never counts.

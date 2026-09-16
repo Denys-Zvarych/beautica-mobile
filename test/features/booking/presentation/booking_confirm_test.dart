@@ -525,6 +525,21 @@ class _RecordingRescheduleRepository implements BookingRepository {
     return _bookingFixture();
   }
 
+  /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
+  /// screen; present only because [BookingRepository] gained the method.
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    String? masterId,
+    BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   @override
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,

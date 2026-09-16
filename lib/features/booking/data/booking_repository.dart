@@ -58,6 +58,7 @@ import 'package:beautica_api/beautica_api.dart'
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/beautica_serializers.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:built_value/serializer.dart';
@@ -234,6 +235,55 @@ abstract interface class BookingRepository {
     DateTime? from,
     DateTime? to,
     BookingPartition? partition,
+    CancelToken? cancelToken,
+  });
+
+  /// Fetches ONE page of a salon's bookings — the owner/admin salon-wide
+  /// «Записи» board (Phase 21.12; backend Phase 23.4).
+  ///
+  /// Wraps `GET /api/v1/bookings/salon/{salonId}`, gated server-side by
+  /// `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon` — an
+  /// owner of a DIFFERENT salon, or an admin assigned elsewhere, gets 403.
+  ///
+  /// ## THE FILTER SURFACE IS NARROWER THAN [getMyBookings]', ON THE WIRE
+  ///
+  /// This endpoint accepts exactly ONE optional [status] enum and NO service
+  /// predicate at all — not a repeated `status` list and not `serviceId`, both
+  /// of which `GET /bookings/me` does accept. Verified against
+  /// `BookingController.getSalonBookings` and the committed OpenAPI snapshot
+  /// rather than assumed by symmetry. `BookingsDayNotifier` therefore narrows
+  /// a salon day by status/service CLIENT-SIDE, which is sound only because
+  /// the whole day is fetched in one page — see
+  /// `bookings_day_query.dart`'s header.
+  ///
+  /// [masterId] IS a real wire param and narrows to one of the salon's
+  /// masters server-side.
+  ///
+  /// ## Why this bypasses the generated client
+  ///
+  /// Same reason [getMyBookings] does: the generated
+  /// `BookingControllerApi.getSalonBookings` takes a typed `Pageable`, whose
+  /// `encodeQueryParameter` JSON-encodes the whole object into a single
+  /// `pageable=` value, while Spring's `PageableHandlerMethodArgumentResolver`
+  /// expects FLAT `page`/`size`/`sort` keys. The generated operation DOES
+  /// exist (`api/lib/src/api/booking_controller_api.dart`) — it is unusable,
+  /// not missing. The raw GET below deserializes with the SAME
+  /// [beauticaSerializers] the generated client is built on, so an
+  /// unrecognised booking status degrades identically here and on the detail
+  /// path.
+  ///
+  /// [sort] is sent as the flat `sort=` param the same resolver reads.
+  /// `BookingsDayNotifier` fixes it at [BookingSort.oldest] because
+  /// `assignLanes` requires ascending `startsAt` — see that file's header.
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    String? masterId,
+    BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
     CancelToken? cancelToken,
   });
 
@@ -594,6 +644,71 @@ final class HttpBookingRepository implements BookingRepository {
       if (kDebugMode) {
         log(
           'getMyBookings failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    String? masterId,
+    BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) async {
+    // `unknown` is a DECODE-only member with no wire representation — sending
+    // `status=UNKNOWN` would be a 400. Dropped to "no status predicate",
+    // which is also what the caller means by it.
+    final BookingStatus? wireStatus = status == BookingStatus.unknown
+        ? null
+        : status;
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        // Hardened via the promoted `encodePathSegment`
+        // (`core/network/path_segment.dart`) rather than a raw interpolation:
+        // this path bypasses the generated client's automatic encoding, and a
+        // path-significant id would retarget the request on the authenticated
+        // [_dio] that carries the bearer token. Defence-in-depth — today
+        // `salonId` is an exact match against one of the caller's own salons —
+        // and the SAME helper `service_repository.dart` already used, so a `.`
+        // or `..` Dio's `normalizePath()` would collapse is REJECTED, not just
+        // percent-encoded. See that helper's doc for the measured collapse.
+        '/api/v1/bookings/salon/${encodePathSegment(salonId, 'salonId', logTag: _tag)}',
+        queryParameters: <String, dynamic>{
+          'page': page,
+          'size': size,
+          if (sort != null) 'sort': sort.wireValue,
+          // SINGLE-valued, unlike [getMyBookings]' repeated `status` list —
+          // this endpoint binds `@RequestParam BookingStatus status`, so a
+          // Dart `List` here would render as repeated params and Spring would
+          // bind only the first. See this method's doc.
+          'status': ?wireStatus?.wireValue,
+          'masterId': ?masterId,
+          // `yyyy-MM-dd` off the LOCAL calendar fields — never
+          // `toIso8601String()`/`.toUtc()`, which would shift the day for any
+          // device east of UTC. The backend reads both as `LocalDate` in
+          // `Europe/Kyiv`. See `shared/formatters/api_date.dart`.
+          'from': toApiDate(from),
+          'to': toApiDate(to),
+        },
+        cancelToken: cancelToken,
+      );
+      return _decodeBookingsPage(response.data, requestedPage: page);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getSalonBookings failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,

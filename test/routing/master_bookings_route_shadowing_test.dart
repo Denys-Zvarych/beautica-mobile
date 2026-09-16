@@ -134,6 +134,21 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// below is answered by `getMyBookings` alone. Every other method throws so
 /// an unexpected call fails loudly rather than silently hitting real Dio.
 class _FakeBookingRepository implements BookingRepository {
+  /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
+  /// screen; present only because [BookingRepository] gained the method.
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    String? masterId,
+    BookingStatus? status,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   @override
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,

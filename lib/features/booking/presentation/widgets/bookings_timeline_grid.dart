@@ -724,6 +724,94 @@
 // geometry as EACH OTHER, which is all ADDENDUM 4 ever relied on.
 //
 // ============================================================================
+// ADDENDUM 10 (2026-09-16) — THE DENSITY TOKEN, AND THE SALON MASTER-COLUMN
+// BOARD (Phase 21.12)
+// ============================================================================
+// PART 1 — EVERY CONSTANT ABOVE IS NOW A GETTER ON ONE TOKEN. `_kHourH`,
+// `_kSlotH` and `_kCardW` were per-file literals, and the FIRST of them was
+// additionally spelled a second time in `timeline_hour_ruler.dart`, coupled to
+// this file only by a comment plus a test asserting the two agreed. All three
+// now read [TimelineDensity] — see `timeline_density.dart`'s header for the
+// scale/typography split and the per-duration band table. The three constants
+// survive as `static const` mirrors of `TimelineDensity.master`'s getters so
+// ADDENDUM 2/3/7/8/9 above still have names to cite; nothing reads them on a
+// render path, and `TimelineDensity.master` reproduces all three literals
+// exactly, so the master scope is unchanged BY CONSTRUCTION.
+//
+// PART 2 — A SECOND SCOPE, NOT A SECOND WIDGET. The salon owner/admin board
+// renders ONE COLUMN PER MASTER instead of overlap lanes for a single master.
+// It is the SAME widget: [columns] (null by default) is the only thing that
+// switches it, and everything the two scopes share — the R1 minutes-anchored
+// extent, [assignLanes], [_geometryForLane]'s no-drift tiling, R3's
+// Column-cannot-overlap guarantee, ADDENDUM 4/5/6/9's culling window,
+// [MasterBookingCard] itself — is shared code, not a transcription.
+//
+// TWO THINGS DIFFER, AND ONLY TWO:
+//
+//   (a) LANES ARE PER-COLUMN AND ABSOLUTELY POSITIONED. In the master scope
+//       the lane `Row` is the `Stack`'s one non-`Positioned` child and drives
+//       its size (see R3). That shape CANNOT carry master columns: a master
+//       with an empty day contributes a zero-width lane set, so every column
+//       to its right would slide left and stop sitting under its own roster
+//       chip. Each column is therefore `Positioned` at `columnIndex *
+//       (columnWidth + gutter)`, and the `Stack`'s size comes from the
+//       explicit `ConstrainedBox` instead — which is exactly what the
+//       zero-lane BUG FIX below already made that `ConstrainedBox` capable of.
+//       The per-lane `Column` inside each `Positioned` is unchanged, so R3's
+//       guarantee holds identically.
+//
+//   (b) THE SCROLL AXES ARE NESTED THE OTHER WAY ROUND — see the next section.
+//
+// ============================================================================
+// THE SALON BOARD'S SCROLL LOCK — ONE HORIZONTAL `ScrollPosition`
+// ============================================================================
+// The roster strip must sit PINNED above the grid and stay welded to it
+// horizontally: chip N must be over column N at every scroll offset, forever.
+// The mechanism is NOT two controllers kept in step by a listener — it is that
+// there is only ONE number to keep:
+//
+//   Row(stretch)
+//    ├ SizedBox(width: rulerWidth)                 <- the FIXED left gutter
+//    │   └ Column
+//    │       ├ SizedBox(height: strip height)      <- reserves the strip's row
+//    │       └ Expanded → ClipRect → AnimatedBuilder(_scrollController)
+//    │            └ Stack → Positioned(top: -offset) → TimelineHourRuler
+//    └ Expanded
+//        └ SingleChildScrollView(horizontal, _horizontalController)   <-- the
+//            └ SizedBox(width: contentWidth)                       ONLY
+//                └ Column                                          horizontal
+//                    ├ MasterColumnStrip                           position
+//                    └ Expanded
+//                        └ SingleChildScrollView(vertical, _scrollController)
+//                            └ the gridline + card Stack
+//
+// Dragging anywhere in the strip or anywhere in the grid moves the same
+// `ScrollPosition`, so a chip cannot drift off its column: there is no
+// listener, no `jumpTo` echo, no re-entrancy guard, and no ballistic fight
+// between two simulations — none of it is reproduced because there is nothing
+// to reproduce.
+//
+// The vertical axis is the mirror image. The ruler must NOT move horizontally,
+// so it cannot live inside that scroller; it sits in the fixed gutter and is
+// slaved ONE-WAY to `_scrollController` through an `AnimatedBuilder` + a
+// negative `Positioned.top` inside a `ClipRect`. One-way because the ruler has
+// no gestures of its own — it is a projection of the single vertical position,
+// not a second scrollable kept in step — and the `AnimatedBuilder` also
+// confines a scroll tick's rebuild to the 30dp gutter instead of dirtying the
+// grid.
+//
+// WHY THE MASTER SCOPE IS NOT RESTRUCTURED TO MATCH. It has no strip, so it
+// needs none of the above, and its shipped nesting (vertical OUTER, horizontal
+// INNER) is what every geometry assertion in `bookings_timeline_grid_test
+// .dart` and `bookings_timeline_grid_gridline_registration_test.dart` is
+// written against — including the ruler's participation in the outer scroll
+// extent. There are NO goldens on this widget (see the backlog), so "it should
+// look the same" could not have been verified. The two shapes are selected by
+// `columns == null`, and the master branch is the pre-existing code verbatim.
+// `_scrollController` is the vertical position in BOTH, so ADDENDUM 4/6/9's
+// culling machinery is shared untouched.
+//
+// ============================================================================
 // THE RULER IS THE KYIV WALL-CLOCK
 // ============================================================================
 // Every card's vertical position reads through [toBeauticaTime] — `Booking
@@ -740,11 +828,37 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+
 import '../../domain/booking.dart';
 import '../../domain/booking_lane_layout.dart';
 import 'master_booking_card.dart';
+import 'master_bookings_states.dart';
+import 'master_column_strip.dart';
 import 'schedule_timeline_window.dart';
+import 'timeline_density.dart';
 import 'timeline_hour_ruler.dart';
+
+/// Phase 21.12 — ONE master's column on the salon board: the roster chip that
+/// pins above it, plus that master's bookings for the shown day.
+///
+/// [bookings] must be a SUBLIST of [BookingsTimelineGrid.bookings] in the same
+/// ascending-`startAt` order (the grid's own class-doc invariant, which
+/// [assignLanes] depends on), and the columns together must partition it —
+/// that is what makes the host's «N записів» header count and the rendered
+/// cards the same number by construction rather than by two agreeing
+/// computations.
+@immutable
+class TimelineBoardColumn {
+  const TimelineBoardColumn({required this.header, required this.bookings});
+
+  /// The pinned roster chip's content — see [MasterColumnStrip].
+  final MasterColumnEntry header;
+
+  /// This master's bookings for the shown Kyiv day, ascending by `startAt`.
+  final List<Booking> bookings;
+}
 
 /// The master timeline body for ONE Kyiv calendar day: an hour ruler plus a
 /// non-lazy card grid, one flex `Column` per overlap lane (see the file
@@ -787,6 +901,10 @@ class BookingsTimelineGrid extends StatefulWidget {
     required this.onBookingTap,
     this.scheduleFirstMinute,
     this.scheduleWindowEndMinute,
+    this.density = TimelineDensity.master,
+    this.columns,
+    this.selectedMasterId,
+    this.onSelectMaster,
     super.key,
   }) : assert(
          (scheduleFirstMinute == null) == (scheduleWindowEndMinute == null),
@@ -810,6 +928,46 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// The selected Kyiv calendar day, date-only — the anchor
   /// [_minutesSinceDayStart] measures every card position against.
   final DateTime day;
+
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// PHASE 21.12 — DENSITY AND THE MASTER-COLUMN BOARD
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// The scope's geometry token. [TimelineDensity.master] (the default, and
+  /// every pre-existing call site) resolves every getter to the exact literal
+  /// the retired `_kHourH` / `_kSlotH` / `_kCardW` constants held, so the
+  /// independent-master and salon-master routes render byte-identically
+  /// without passing anything. See `timeline_density.dart`.
+  ///
+  /// Passed straight down to [TimelineHourRuler] too, so the ruler's labels
+  /// and this grid's hairlines read ONE number and cannot desync.
+  final TimelineDensity density;
+
+  /// The salon board's master columns — `null` (the default) keeps the
+  /// single-master OVERLAP-LANE layout this widget has always drawn.
+  ///
+  /// Non-null switches the horizontal axis from "one lane per time-overlap"
+  /// to "one column per master, sub-divided into overlap lanes WITHIN that
+  /// master", pins a [MasterColumnStrip] above the grid, and inverts the two
+  /// scroll axes so the strip can stay welded to its columns — see this file's
+  /// "ADDENDUM 10" and "THE SALON BOARD'S SCROLL LOCK".
+  ///
+  /// [bookings] must still be the FLATTENED union of every column's bookings,
+  /// in ascending `startAt` order: it is what the R1 minute-extent, the ruler's
+  /// hour span and the caller's own header count are all derived from, and
+  /// deriving the extent from the columns instead would be a second,
+  /// independently-maintained computation of the same number (the shape of bug
+  /// [bookingsInsideScheduleWindow]'s doc describes).
+  final List<TimelineBoardColumn>? columns;
+
+  /// The roster chip the owner has tapped to inspect; `null` = none. Purely a
+  /// strip affordance — it does NOT filter the grid, which is the host's job
+  /// through the query.
+  final String? selectedMasterId;
+
+  /// `null` leaves every roster chip inert. Navigation and filtering are the
+  /// HOST's concern, same as [onBookingTap] — no `Navigator`/`context.push`
+  /// anywhere in this file.
+  final ValueChanged<String>? onSelectMaster;
 
   /// Fires with the tapped booking. No `Navigator`/`context.push` in this
   /// leaf widget — the caller (Phase 7.11) owns navigation.
@@ -854,8 +1012,12 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// own left to apply.
   final int? scheduleWindowEndMinute;
 
-  /// One hour of vertical space — MUST match
-  /// `TimelineHourRuler._kHourH` so the ruler and the lane hairlines line up.
+  /// The MASTER scope's hour height — `TimelineDensity.master.hourHeight`,
+  /// mirrored here as a `static const` so ADDENDUM 2/7/8/9 above still have a
+  /// name to cite and `bookings_timeline_grid_test.dart` can pin the two
+  /// against each other. NOT read on any render path since ADDENDUM 10: every
+  /// call site reads [density] instead, which is what removed the two-file
+  /// lockstep with `TimelineHourRuler` entirely.
   ///
   /// See this file's "ADDENDUM 2" for the original derivation and "ADDENDUM 8"
   /// for the current value. History: `72` → `112` → `168` → **`120`**. The
@@ -873,23 +1035,35 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// further, and re-check it whenever the full body's content grows, since
   /// that threshold is a measured height rather than a number tuned to fit
   /// here.
-  static const double _kHourH = 120;
+  static const double kMasterHourHeight = 120;
 
-  /// One 30-minute slot — the grid's minimum unit (ADDENDUM 2). Half of
-  /// [_kHourH] by construction (now `60dp`). Drives the half-hour GRIDLINE
-  /// spacing only. Since the vertical-scale pass it does NOT govern the card
+  /// The MASTER scope's 30-minute slot (ADDENDUM 2) — half of
+  /// [kMasterHourHeight] by construction (`60dp`), mirroring
+  /// `TimelineDensity.master.slotHeight`. Like [kMasterHourHeight] it is a
+  /// NAME, not a render-path read: gridlines come off `density.slotHeight`.
+  /// Drives the half-hour GRIDLINE spacing only. Since the vertical-scale pass it does NOT govern the card
   /// floor — that is [MasterBookingCard.microLayoutNaturalHeight] (see
   /// `_cardMinHeightFor`), and keeping the two decoupled is what lets short
   /// bookings land on their end-time line. Read off this constant for
   /// gridlines, never a re-derived literal.
-  static const double _kSlotH = _kHourH / 2;
+  static const double kMasterSlotHeight = kMasterHourHeight / 2;
 
-  /// One lane's card width CEILING — the design's fixed value, but never
-  /// used directly as a rendered width. See this file's "ADDENDUM 3": [build]
+  /// The MASTER scope's lane-width CEILING — the design's fixed value,
+  /// mirroring `TimelineDensity.master.columnWidthCeiling`, and never used
+  /// directly as a rendered width. See this file's "ADDENDUM 3": [build]
   /// clamps it down to `constraints.maxWidth` (per render, for every lane)
-  /// before it reaches [contentWidth] or any [_LaneColumn.cardWidth], so a
+  /// before it reaches `contentWidth` or any [_LaneColumn.cardWidth], so a
   /// narrow device never clips a card at the viewport's right edge.
-  static const double _kCardW = 272;
+  /// [TimelineDensity.columnWidth] is that same clamp with the divisor
+  /// generalised from 1 to N — at N == 1 it IS this expression.
+  static const double kMasterColumnWidthCeiling = 272;
+
+  /// Phase 21.12 — the text-scale ceiling the SALON BOARD's cards are clamped
+  /// to (`_BoardStack._laneWidgets`, which carries the full reasoning). It is
+  /// exactly the ceiling `master_booking_card.dart`'s compact-row budget
+  /// documents for itself, so the two stay ONE number rather than two that
+  /// can drift. The MASTER scope is NOT clamped — its 272dp lane fits 2.0.
+  static const double kBoardCardMaxTextScale = 1.3;
 
   /// Minutes in one calendar day — the ceiling on where this grid's TOP may
   /// sit. See [_kMaxEndMinute].
@@ -959,7 +1133,10 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// ([BrandColors.faint]) at a lighter alpha, so the half-hour rhythm reads
   /// as secondary structure rather than competing with the hour lines (see
   /// "ADDENDUM 2"). Hoisted per the file's colour-allocation convention.
-  static final Color _halfHourLineColor = BrandColors.faint.withValues(
+  /// Phase 21.12 — PUBLIC so `_BoardStack` (the salon scope's own gridline
+  /// layer, below) draws the identical hairline rather than re-deriving the
+  /// alpha. One colour, both scopes.
+  static final Color halfHourLineColor = BrandColors.faint.withValues(
     alpha: 0.4,
   );
 
@@ -972,7 +1149,7 @@ class BookingsTimelineGrid extends StatefulWidget {
 /// `scrollOffset + (1 + this) * viewport`.
 ///
 /// ADDENDUM 9 cut it from `1.0` to `0.5`: the window is a PIXEL quantity, so
-/// when [BookingsTimelineGrid._kHourH] dropped 168 -> 120 the same slack
+/// when `BookingsTimelineGrid._kHourH` dropped 168 -> 120 the same slack
 /// started buying 1.4x more of the DAY and culling all but stopped engaging on
 /// an ordinary 09:00–19:00 shift. Read ADDENDUM 9 before changing either this
 /// or `_kHourH` — they are coupled.
@@ -991,7 +1168,20 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// The grid's OWN vertical scroll controller — the culling window's only
   /// source of truth (see the file header's "ADDENDUM 4"). Owned here rather
   /// than injected: nothing outside this widget drives or reads this scroll.
+  ///
+  /// The SAME controller in both scopes, which is what lets ADDENDUM 4/6/9's
+  /// culling machinery be shared untouched. Only WHERE it is attached differs:
+  /// the outer scroller in the master scope, the inner one in the salon board
+  /// (see "THE SALON BOARD'S SCROLL LOCK").
   final ScrollController _scrollController = ScrollController();
+
+  /// Phase 21.12 — the salon board's ONE horizontal position, shared by the
+  /// roster strip and the column grid because they are the two children of the
+  /// single `SingleChildScrollView` it drives. Read (never driven) by
+  /// [StripScrollIndicator]. Unattached — and therefore inert — in the master
+  /// scope, whose inner horizontal scroller takes no controller, exactly as
+  /// before.
+  final ScrollController _horizontalController = ScrollController();
 
   // ── The memoised layout model (ADDENDUM 4, extended by ADDENDUM 6) ────
   // Pure functions of `widget.bookings` + `widget.day` (+ the schedule-window
@@ -1001,6 +1191,37 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   late int _lanesCount;
   late int _firstMinute;
   late int _lastMinute;
+
+  /// Phase 21.12 — the SALON scope's per-master layout, memoised on exactly
+  /// the same terms as [_laneGeometry] (and computed by the same
+  /// [_geometryForLane]). Empty in the master scope, where [_laneGeometry] is
+  /// the model and this is never read.
+  late List<_ColumnModel> _columnModels;
+
+  /// The deepest planned card bottom across every column, in the lane
+  /// `Column`s' own coordinates. The salon board's `Stack` has NO
+  /// non-`Positioned` sizing child (see "ADDENDUM 10" part (a)), so unlike the
+  /// master scope it cannot let real card content drive the extent — this is
+  /// what replaces that, floored against the clock-derived `gridStackHeight`
+  /// in [_buildBoard] so the ruler is always covered too. `0` in the master
+  /// scope.
+  late double _columnsDeepestBottom;
+
+  /// The index of the column that ATTAINS [_columnsDeepestBottom] — the one
+  /// `_BoardStack` must never cull, so the `Row`'s maximum is always a REAL
+  /// laid-out height rather than the model's estimate (mobile-perf L-a).
+  ///
+  /// ⚠ AN INDEX, NOT THE VALUE. Comparing `model.bottom >= deepestBottom`
+  /// instead pins EVERY column that ties for deepest — and on a salon board
+  /// the columns very often tie (identical shift, identical slot grid), which
+  /// disabled horizontal culling outright. Measured on the 10-master × 11-
+  /// booking fixture, where all ten columns share a bottom: the value compare
+  /// left 110 cards live and 0 columns culled; the index compare culls 5
+  /// columns and leaves 55. Ties keep the FIRST attaining column, so the pin
+  /// costs at most ONE extra live column.
+  ///
+  /// `-1` until [_recomputeLayoutModel] has run, and on an empty board.
+  int _deepestColumnIndex = -1;
 
   /// Always `widget.bookings` (this widget no longer filters — see that
   /// field's doc) — held here, alongside [_laneGeometry] and friends, purely
@@ -1044,6 +1265,97 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// change.
   final ValueNotifier<double> _visibleBottom = ValueNotifier<double>(0);
 
+  // ── The SALON board's HORIZONTAL culling window (audit H2, 2026-09-16) ──
+  //
+  // The vertical machinery above (ADDENDUM 4/6/9) had no horizontal analogue,
+  // so on the salon board EVERY master column was built, laid out and painted
+  // no matter how far off-screen it sat: measured at 110 cards live, 0 culled,
+  // 77 of them entirely beyond x = 360. The documented "~100-card ceiling" is
+  // PER MASTER — at 6–10 masters the board carried N× it with nothing culling
+  // it. The vertical band could not rescue that either: at `salonScale` 0.7 an
+  // 11-hour day compresses to ~924dp, inside the ~953dp band on a 640dp
+  // screen, so `plannedTop > visibleBottom` was never true for any card.
+  //
+  // This is the SAME mechanism as the vertical one, not a second one: the same
+  // `_kWindowSlack` / `_kWindowReanchorFraction` pair, the same re-anchor
+  // quantisation, the same `ValueNotifier` delivery so a scroll tick rebuilds
+  // only the column `Row` and never this `State`'s `build`, the ruler or the
+  // gridlines.
+  //
+  // WHY THIS ONE HAS A LEFT EDGE AND THE VERTICAL ONE DOES NOT. ADDENDUM 6's
+  // reason for having no `visibleTop` is that a culled card's placeholder
+  // HEIGHT is only an estimate (exact at textScaler 1.0, an under-estimate
+  // above it), so culling above the viewport could shift a visible card.
+  // A column's WIDTH is not an estimate at all — `columnWidth` is computed by
+  // `TimelineDensity.columnWidth` and handed to the placeholder verbatim — so
+  // a culled column on the left is pixel-exact and nothing downstream of it
+  // can move. Hence a symmetric band here.
+  //
+  // Seeded WIDE OPEN (`-inf, +inf`) rather than at zero: until the real
+  // viewport is known, culling nothing is the only safe answer — the same
+  // "an over-estimate can only ever cull less" principle as
+  // [_windowViewport]'s screen-height seed.
+  final ValueNotifier<(double, double)> _visibleColumnBand =
+      ValueNotifier<(double, double)>((
+        double.negativeInfinity,
+        double.infinity,
+      ));
+
+  /// The horizontal scroll offset [_visibleColumnBand] is anchored at. Inert
+  /// in the master scope, where [_horizontalController] is never attached.
+  double _hWindowOffset = 0;
+
+  /// The lane viewport WIDTH the current column band was sized from. `0` until
+  /// [_syncHorizontalViewportFromMetrics] reads the real one — and while it is
+  /// `0` the band stays at its wide-open seed, so nothing is culled.
+  double _hWindowViewport = 0;
+
+  /// Guards [_syncHorizontalViewportFromMetrics] against queueing more than
+  /// one post-frame callback at a time — the twin of [_viewportSyncScheduled].
+  bool _hViewportSyncScheduled = false;
+
+  /// One column + its gutter, in the column `Row`'s own coordinates. Recorded
+  /// during `build` (it is derived from the measured lane viewport, which only
+  /// `LayoutBuilder` knows) so [_columnCullingBand] can quantise its slack to
+  /// it. `0` until the first layout — and while it is `0` the band falls back
+  /// to the viewport-fraction slack, which can only ever cull LESS.
+  double _hColumnPitch = 0;
+
+  /// The [_hColumnPitch] the currently-published band was computed from, so
+  /// [_syncHorizontalViewportFromMetrics] can tell "the pitch became known"
+  /// apart from "nothing changed".
+  double _hBandPitch = 0;
+
+  /// The column band's `(left, right)` edges in the column `Row`'s own
+  /// coordinates — symmetric, unlike [_cullingWindowBottom]; see
+  /// [_visibleColumnBand]'s doc for why.
+  ///
+  /// ⚠ THE SLACK IS ONE COLUMN PITCH PER SIDE, NOT `_kWindowSlack × V`
+  /// (mobile-perf finding 2). The vertical band's slack is a viewport
+  /// fraction because a card's height is a continuum; a column's is not — the
+  /// `Row` advances in exact `columnPitch` steps, so one pitch per side is
+  /// already a whole column of pre-build margin on each edge and any more is
+  /// pure waste. Measured on a 10-master × 11-booking board at 1024dp: the
+  /// viewport-fraction slack left **88 cards live and 2 columns culled** —
+  /// within 12 of this file's own ~100-card ceiling, i.e. the band admitted
+  /// ~2 viewports of columns at the density it exists to thin. One pitch per
+  /// side leaves **66 live and 4 culled** on the same board. The vertical band
+  /// is inert at salon density (a 924dp day inside a ~953dp band), so
+  /// horizontal culling carries this win alone and must not be handed back.
+  ///
+  /// Re-anchoring is unchanged ([_kWindowReanchorFraction] of the viewport),
+  /// and the margin argument still holds: a re-anchor fires after at most
+  /// `0.25V` of drift, while the band keeps a full column beyond each edge, so
+  /// a column that becomes visible between two anchors was already built.
+  /// Kept as a `math.max` against a single pitch so a degenerate `0` pitch
+  /// (pre-layout) cannot produce a band NARROWER than the viewport.
+  (double, double) get _columnCullingBand {
+    final double slack = _hColumnPitch > 0
+        ? _hColumnPitch
+        : _kWindowSlack * _hWindowViewport;
+    return (_hWindowOffset - slack, _hWindowOffset + _hWindowViewport + slack);
+  }
+
   /// The current culling-band bottom edge from the window anchor + viewport.
   ///
   /// ADDENDUM 6 — there is deliberately no matching `visibleTop`: cards above
@@ -1063,6 +1375,10 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     super.initState();
     _recomputeLayoutModel();
     _scrollController.addListener(_onScroll);
+    // Audit H2 — inert in the master scope: [_horizontalController] is never
+    // handed to a scroll view there, so it never has clients and this listener
+    // never fires.
+    _horizontalController.addListener(_onHorizontalScroll);
   }
 
   @override
@@ -1078,6 +1394,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // and again after any dependency change (a rotation, a
     // `MediaQuery` insets change), since those resize it silently too.
     _scheduleViewportSync();
+    _scheduleHorizontalViewportSync();
   }
 
   @override
@@ -1093,15 +1410,43 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     if (!identical(widget.bookings, oldWidget.bookings) ||
         widget.day != oldWidget.day ||
         widget.scheduleFirstMinute != oldWidget.scheduleFirstMinute ||
-        widget.scheduleWindowEndMinute != oldWidget.scheduleWindowEndMinute) {
+        widget.scheduleWindowEndMinute != oldWidget.scheduleWindowEndMinute ||
+        widget.density != oldWidget.density ||
+        !identical(widget.columns, oldWidget.columns)) {
       _recomputeLayoutModel();
+    }
+
+    // ── AUDIT L3 — RE-ARM THE VIEWPORT SYNC ON A COLUMN-COUNT TRANSITION ──
+    // [_scheduleViewportSync] used to be armed ONLY from
+    // [didChangeDependencies]. On the salon board the roster arrives AFTER the
+    // first frame, so the 0 → N transition is the one that matters, and at the
+    // moment that single post-frame callback fired [_buildBoard] had already
+    // early-returned [MasterBookingsEmptyState] — no scroll view, no clients,
+    // [_syncViewportFromMetrics] bailing on `hasClients`. Nothing re-armed it
+    // (this method never did), so both culling windows stayed at their seeds:
+    // vertical at the whole SCREEN height, horizontal wide open, for the
+    // board's entire lifetime.
+    //
+    // Compared on the COUNT, not on `identical`: the list identity changes on
+    // every fetch (that is what the memoisation gate above keys on) and
+    // re-arming a post-frame callback per fetch would be noise. A count change
+    // is exactly "the tree the controller attaches to may have appeared,
+    // vanished, or changed width". `null` counts as 0, so the master scope —
+    // where `columns` is always `null` — never trips this.
+    final int oldColumnCount = oldWidget.columns?.length ?? 0;
+    final int newColumnCount = widget.columns?.length ?? 0;
+    if (oldColumnCount != newColumnCount) {
+      _scheduleViewportSync();
+      _scheduleHorizontalViewportSync();
     }
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _horizontalController.dispose();
     _visibleBottom.dispose();
+    _visibleColumnBand.dispose();
     super.dispose();
   }
 
@@ -1130,6 +1475,63 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     _windowViewport = viewport;
     if (position.hasPixels) _windowOffset = position.pixels;
     _visibleBottom.value = _cullingWindowBottom;
+  }
+
+  /// [_scheduleViewportSync]'s horizontal twin (audit H2). Same guard, same
+  /// post-frame timing, same reason: a `ScrollPosition` never notifies on
+  /// `applyViewportDimension`, so the lane viewport's real WIDTH can only be
+  /// read after the frame that laid it out.
+  void _scheduleHorizontalViewportSync() {
+    if (_hViewportSyncScheduled) return;
+    _hViewportSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hViewportSyncScheduled = false;
+      if (!mounted) return;
+      _syncHorizontalViewportFromMetrics();
+    });
+  }
+
+  void _syncHorizontalViewportFromMetrics() {
+    // Never has clients in the master scope — see [_horizontalController].
+    if (!_horizontalController.hasClients) return;
+    final ScrollPosition position = _horizontalController.position;
+    if (!position.hasViewportDimension) return;
+    final double viewport = position.viewportDimension;
+    // `_hColumnPitch != _hBandPitch` joins the viewport check because the band
+    // is now quantised to the pitch (see [_columnCullingBand]): the pitch is
+    // only known after `build` has measured the lane viewport, so the FIRST
+    // publish would otherwise ship the pre-layout fallback slack and never be
+    // corrected on a board whose viewport never changes again.
+    if (viewport <= 0 ||
+        (viewport == _hWindowViewport && _hColumnPitch == _hBandPitch)) {
+      return;
+    }
+    _hWindowViewport = viewport;
+    _hBandPitch = _hColumnPitch;
+    if (position.hasPixels) _hWindowOffset = position.pixels;
+    _visibleColumnBand.value = _columnCullingBand;
+  }
+
+  /// [_onScroll]'s horizontal twin (audit H2) — the SAME re-anchor
+  /// quantisation ([_kWindowReanchorFraction] of the viewport) against the
+  /// SAME [_kWindowSlack] band, so the guaranteed off-screen margin is the
+  /// identical `(0.5 − 0.25) × viewport`. Publishes through
+  /// [_visibleColumnBand] rather than `setState`, so a horizontal scroll tick
+  /// rebuilds the column `Row` alone and never the ruler or the gridlines.
+  void _onHorizontalScroll() {
+    if (!_horizontalController.hasClients) return;
+    final ScrollPosition position = _horizontalController.position;
+    if (!position.hasPixels || !position.hasViewportDimension) return;
+    final double viewport = position.viewportDimension;
+    if (viewport <= 0) return;
+    if (viewport == _hWindowViewport &&
+        (position.pixels - _hWindowOffset).abs() <
+            viewport * _kWindowReanchorFraction) {
+      return;
+    }
+    _hWindowOffset = position.pixels;
+    _hWindowViewport = viewport;
+    _visibleColumnBand.value = _columnCullingBand;
   }
 
   /// Rebuilds everything derived from `bookings` + `day` — lane assignment,
@@ -1238,7 +1640,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // ADDENDUM 6 — the per-card geometry, memoised alongside the lanes. Every
     // term below is a pure function of `bookings` + `day`, so none of it
     // belongs on the culling rebuild path.
-    const double hourHeight = BookingsTimelineGrid._kHourH;
+    final double hourHeight = widget.density.hourHeight;
     // ADDENDUM 7 (part 2) — the card layer's vertical ORIGIN is the FLOORED
     // hour (`firstHour * 60`), NOT the raw `_firstMinute`. The gridlines and
     // the ruler both anchor to `firstHour = _firstMinute ~/ 60` (see [build]
@@ -1270,6 +1672,53 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
           maxTopPx: maxTopPx,
         ),
     ];
+
+    // ADDENDUM 10 part (a) — the SALON scope's per-master model, built from
+    // the very same [_geometryForLane] and the very same [assignLanes] as the
+    // block above. The ONLY difference is that overlap lanes are resolved
+    // WITHIN one master's bookings instead of across the whole day, so two
+    // masters both busy at 11:00 get two COLUMNS rather than two lanes of one
+    // column. Every card's `desiredTop` is still measured against the SHARED
+    // [originMinute], so a card in column 3 lands on the same gridline as a
+    // card in column 0 that starts at the same time.
+    _columnsDeepestBottom = 0;
+    // Reset BEFORE the master-scope early return below, so a grid that stops
+    // carrying `columns` cannot keep pointing at a column index that no longer
+    // exists.
+    _deepestColumnIndex = -1;
+    final List<TimelineBoardColumn>? columns = widget.columns;
+    // Not a constructor assert: `density.columnsPerViewport` is an INSTANCE
+    // getter, so it is not a constant expression and cannot appear in a const
+    // constructor's initialiser list. Asserted on the first layout instead —
+    // debug-only either way.
+    assert(
+      columns == null || widget.density.columnsPerViewport > 1,
+      'A master-column board needs a multi-column density — pass '
+      'TimelineDensity.salon alongside columns.',
+    );
+    if (columns == null) {
+      _columnModels = const <_ColumnModel>[];
+      return;
+    }
+    _columnModels = <_ColumnModel>[
+      for (final TimelineBoardColumn column in columns)
+        _modelForColumn(
+          column: column,
+          midnight: midnight,
+          originMinute: originMinute,
+          hourHeight: hourHeight,
+          maxTopPx: maxTopPx,
+        ),
+    ];
+    for (int i = 0; i < _columnModels.length; i++) {
+      final double bottom = _columnModels[i].bottom;
+      // STRICTLY greater, so ties keep the FIRST attaining column and exactly
+      // ONE index is ever pinned — see [_deepestColumnIndex].
+      if (_deepestColumnIndex < 0 || bottom > _columnsDeepestBottom) {
+        _columnsDeepestBottom = bottom;
+        _deepestColumnIndex = i;
+      }
+    }
   }
 
   /// Re-anchors the culling window when the scroll offset has drifted a
@@ -1332,19 +1781,38 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // empty-lane case render. The trailing `+ 1` covers the last gridline's
     // own 1dp height, which sits exactly at `totalHours * _kHourH`.
     final double gridStackHeight =
-        (lastHour - firstHour) * BookingsTimelineGrid._kHourH + 1;
+        (lastHour - firstHour) * widget.density.hourHeight + 1;
 
     // The scroll-derived culling band ([_visibleBottom]) is consumed ONLY
     // inside the [ValueListenableBuilder] wrapping the lane `Row` below, so a
     // scroll re-anchor rebuilds that `Row` alone — never this `build`, the
     // ruler, or the gridlines. See [_visibleBottom] / [_cullingWindowBottom].
 
+    // ADDENDUM 10 — the SALON board is a genuinely different tree (the scroll
+    // axes nest the other way round so the roster strip can pin; see "THE
+    // SALON BOARD'S SCROLL LOCK"). Selected by `columns == null` so the
+    // master branch below is the pre-existing code verbatim, byte for byte.
+    final List<TimelineBoardColumn>? columns = widget.columns;
+    if (columns != null) {
+      return _buildBoard(
+        context,
+        columns: columns,
+        firstHour: firstHour,
+        lastHour: lastHour,
+        gridStackHeight: gridStackHeight,
+      );
+    }
+
     return SingleChildScrollView(
       controller: _scrollController,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          TimelineHourRuler(firstHour: firstHour, lastHour: lastHour),
+          TimelineHourRuler(
+            firstHour: firstHour,
+            lastHour: lastHour,
+            density: widget.density,
+          ),
           // Finding #7 — the grid sat too far right of the ruler versus the
           // design; `VelvetSpacing.xs` (was `.sm`) nudges the whole card area
           // (and its gridlines) slightly left, combined with
@@ -1361,8 +1829,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                 // header's "ADDENDUM 3" for why 2+ lanes still needs this on
                 // the LEADING lane even though multi-lane days already
                 // scroll horizontally by design.
-                final double effectiveCardW = math.min(
-                  BookingsTimelineGrid._kCardW,
+                final double effectiveCardW = widget.density.columnWidth(
                   constraints.maxWidth,
                 );
                 final double contentWidth = lanesCount == 0
@@ -1458,14 +1925,14 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                             Positioned(
                               top:
                                   (half - firstHour * 2) *
-                                  BookingsTimelineGrid._kSlotH,
+                                  widget.density.slotHeight,
                               left: 0,
                               right: 0,
                               height: 1,
                               child: ColoredBox(
                                 color: half.isEven
                                     ? BrandColors.faint
-                                    : BookingsTimelineGrid._halfHourLineColor,
+                                    : BookingsTimelineGrid.halfHourLineColor,
                               ),
                             ),
                           // The lane `Row` is the sole non-`Positioned` child
@@ -1521,6 +1988,690 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // THE SALON MASTER-COLUMN BOARD (Phase 21.12)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  /// The salon owner/admin board: a pinned roster strip welded to a
+  /// master-column grid by ONE horizontal `ScrollPosition`, beside a fixed
+  /// ruler gutter slaved one-way to the vertical one. Read this file's "THE
+  /// SALON BOARD'S SCROLL LOCK" section before touching the nesting — the
+  /// weld is the nesting, not a listener.
+  Widget _buildBoard(
+    BuildContext context, {
+    required List<TimelineBoardColumn> columns,
+    required int firstHour,
+    required int lastHour,
+    required double gridStackHeight,
+  }) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final TimelineDensity density = widget.density;
+    final double rulerWidth = density.rulerWidth;
+    final double gutter = density.columnGutter;
+    final int columnCount = columns.length;
+
+    // A salon with no masters at all. Distinct from "no bookings today",
+    // which still draws the roster and the ruled grid — here there is no
+    // roster to draw and no column to put an hour against, so the ruler would
+    // stand beside an empty box. REUSES the shared empty state with content
+    // overrides rather than adding a second icon-over-two-lines widget.
+    if (columnCount == 0) {
+      return MasterBookingsEmptyState(
+        centerKey: const Key('salon-bookings-no-masters'),
+        icon: Icons.groups_2_outlined,
+        title: l10n.salonBookingsNoMastersTitle,
+        body: l10n.salonBookingsNoMastersBlurb,
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // The lane viewport is what is left after the FIXED gutter — the same
+        // subtraction the master scope performs implicitly by putting the
+        // ruler in a `Row` and giving the lane area an `Expanded`.
+        final double laneViewport = math.max(
+          0,
+          constraints.maxWidth - rulerWidth - VelvetSpacing.xs,
+        );
+        final double columnWidth = density.columnWidth(laneViewport);
+        // Record the pitch the culling band quantises its slack to (finding 2).
+        // Written here rather than in the `State`'s fields because it is
+        // derived from the MEASURED lane viewport, which only this
+        // `LayoutBuilder` knows. A plain assignment — publishing the band
+        // during `build` would rebuild the `Row` mid-build; the post-frame
+        // sync below picks the new pitch up instead.
+        if (columnWidth + gutter != _hColumnPitch) {
+          _hColumnPitch = columnWidth + gutter;
+          _scheduleHorizontalViewportSync();
+        }
+        // Never narrower than the viewport, so a one-master salon still fills
+        // the width instead of leaving the gridlines short — the same
+        // `math.max(contentWidth, constraints.maxWidth)` floor the master
+        // branch applies.
+        final double contentWidth = math.max(
+          laneViewport,
+          columnCount * columnWidth + (columnCount - 1) * gutter,
+        );
+        // The `Stack` here has NO non-`Positioned` sizing child (see ADDENDUM
+        // 10 part (a)), so unlike the master scope it cannot let real content
+        // drive its own height. `_columnsDeepestBottom` is the PLANNED
+        // equivalent, floored against the clock-derived extent so the ruler is
+        // covered on a day whose cards all sit near the top, and given the
+        // same `VelvetSpacing.lg` tail the ruler's own `_kTrailingMargin`
+        // gives the master scope.
+        final double stackHeight =
+            math.max(gridStackHeight, _columnsDeepestBottom + 1) +
+            TimelineHourRuler.labelCenteringNudge +
+            VelvetSpacing.lg;
+        final bool scrollable = contentWidth > laneViewport + 0.5;
+        final int visibleColumns = columnWidth <= 0
+            ? 1
+            : math.max(
+                1,
+                math.min(
+                  columnCount,
+                  (laneViewport / (columnWidth + gutter)).floor(),
+                ),
+              );
+
+        return Stack(
+          children: <Widget>[
+            Row(
+              // STRETCH, not `start` — the two children must both receive a
+              // TIGHT height, or the `Expanded`s inside them have no bounded
+              // main axis to divide and the whole board unbounds.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // ── The fixed left gutter: strip spacer + slaved ruler ────
+                SizedBox(
+                  width: rulerWidth,
+                  child: Column(
+                    children: <Widget>[
+                      // Reserves EXACTLY the strip's row, so the first hour
+                      // label starts on the same line as the first gridline.
+                      // `heightFor`, not the bare constant: the chip is three
+                      // stacked text lines and grows with the system font.
+                      SizedBox(height: MasterColumnStrip.heightFor(context)),
+                      Expanded(
+                        child: ClipRect(
+                          // ── AUDIT H1 — THE RULER IS BUILT ONCE ──────────
+                          // This `AnimatedBuilder` used to take no `child:`,
+                          // so every scroll tick reconstructed
+                          // [TimelineHourRuler] from scratch — including the
+                          // one-shot `TextPainter(...).layout()` its
+                          // `_labelHeight` runs on every build. Measured: 540
+                          // widget rebuilds per 20 scroll ticks on this board
+                          // versus ZERO in the master scope, whose ruler is a
+                          // plain `Row` child that scroll never touches.
+                          //
+                          // The ruler depends on `firstHour`/`lastHour`/
+                          // `density` and on NOTHING scroll-derived, so it is
+                          // hoisted into `child:` and passed through
+                          // untouched. `AnimatedBuilder` hands the same
+                          // `Widget` instance back on every tick, so the
+                          // element is reused and `build()` never re-runs.
+                          //
+                          // And `Transform.translate`, not a mutating
+                          // `Positioned.top`: a changing `top` is a layout
+                          // parameter, so every tick marked the gutter
+                          // `Stack` needing LAYOUT. `Transform` is
+                          // paint-only — `RenderTransform`'s transform setter
+                          // marks needsPaint alone. The outer `Positioned` is
+                          // now CONSTANT, which is what keeps the ruler
+                          // stretched to the gutter's width (and therefore
+                          // right-aligned exactly as before) while the
+                          // translation happens beneath it.
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: <Widget>[
+                              Positioned(
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                child: AnimatedBuilder(
+                                  animation: _scrollController,
+                                  child: TimelineHourRuler(
+                                    firstHour: firstHour,
+                                    lastHour: lastHour,
+                                    density: density,
+                                  ),
+                                  builder:
+                                      (BuildContext context, Widget? child) {
+                                        // One-way projection of the single
+                                        // vertical position — the ruler has no
+                                        // gestures of its own.
+                                        final double offset =
+                                            _scrollController.hasClients
+                                            ? _scrollController.offset
+                                            : 0;
+                                        return Transform.translate(
+                                          offset: Offset(0, -offset),
+                                          child: child,
+                                        );
+                                      },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.xs),
+                // ── The ONE horizontal scrollable: strip over grid ────────
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    controller: _horizontalController,
+                    physics: const ClampingScrollPhysics(),
+                    child: SizedBox(
+                      width: contentWidth,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          MasterColumnStrip(
+                            key: const ValueKey<String>(
+                              'salon-bookings-column-strip',
+                            ),
+                            entries: <MasterColumnEntry>[
+                              for (final TimelineBoardColumn c in columns)
+                                c.header,
+                            ],
+                            columnWidth: columnWidth,
+                            gutter: gutter,
+                            selectedMasterId: widget.selectedMasterId,
+                            onSelectMaster: widget.onSelectMaster,
+                          ),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              controller: _scrollController,
+                              // ── AUDIT M1 — A FLOOR, NOT A FIXED SIZE ────
+                              // This was a `SizedBox(height: stackHeight)`,
+                              // i.e. TIGHT — which froze the board's scroll
+                              // extent at a textScaler-1.0 ESTIMATE
+                              // (`_CardGeometry.occupiedHeight` is exact only
+                              // there). Measured: the master branch's extent
+                              // grows 1479 → 1495 → 1975 across scale 1.0 /
+                              // 1.3 / 2.0 while this one stayed frozen at
+                              // 1040. The failure is silent — the `Stack` is
+                              // `Clip.none` but the scroller above it clips
+                              // `Clip.hardEdge`, and the extent simply never
+                              // grows — which is the same "RenderFlex
+                              // overflowed" clipping the MASTER branch's own
+                              // `ConstrainedBox(minHeight:)` (see
+                              // `gridStackHeight`'s doc at `:1657`) was
+                              // introduced to fix. Same fix, same shape:
+                              // width stays TIGHT, height becomes a FLOOR.
+                              //
+                              // This is only expressible because [_BoardStack]
+                              // now has a real non-`Positioned` sizing child
+                              // (see its own doc): a `Stack` whose children
+                              // are ALL `Positioned` sizes to
+                              // `constraints.biggest`, which under an
+                              // unbounded `maxHeight` is infinite and asserts.
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minWidth: contentWidth,
+                                  maxWidth: contentWidth,
+                                  minHeight: stackHeight,
+                                ),
+                                child: _BoardStack(
+                                  key: const ValueKey<String>(
+                                    'timeline-column-stack',
+                                  ),
+                                  density: density,
+                                  firstHour: firstHour,
+                                  lastHour: lastHour,
+                                  columns: columns,
+                                  models: _columnModels,
+                                  columnWidth: columnWidth,
+                                  deepestIndex: _deepestColumnIndex,
+                                  visibleBottom: _visibleBottom,
+                                  visibleColumnBand: _visibleColumnBand,
+                                  onBookingTap: widget.onBookingTap,
+                                  emptyDayLabel:
+                                      l10n.salonBookingsColumnFreeDay,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // The roster's scroll affordance — pinned OUTSIDE the scroller so
+            // it READS the position rather than riding it.
+            if (scrollable)
+              Positioned(
+                left: rulerWidth + VelvetSpacing.xs,
+                right: 0,
+                top: MasterColumnStrip.heightFor(context) - 6,
+                child: StripScrollIndicator(
+                  key: const ValueKey<String>('salon-bookings-strip-indicator'),
+                  controller: _horizontalController,
+                  semanticsLabel: l10n.salonBookingsRosterVisibleSemantics(
+                    visibleColumns,
+                    columnCount,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The salon board's gridline + column stack. A [StatelessWidget] of its own
+/// (rather than an inline `Stack` in [_buildBoard]) so the per-lane
+/// [ValueListenableBuilder]s below have a stable element to rebuild under.
+///
+/// WHY EACH LANE CARRIES ITS OWN [ValueListenableBuilder] on [visibleBottom]:
+/// a VERTICAL culling re-anchor then rebuilds one lane at a time rather than
+/// the whole board. The HORIZONTAL band ([visibleColumnBand]) is watched once,
+/// around the column `Row` — it decides which columns exist at all, so it
+/// cannot be pushed any further down.
+///
+/// ## The column `Row` is also the `Stack`'s SIZING CHILD (audit M1)
+///
+/// Every column used to be a `Positioned`, leaving this `Stack` with no
+/// non-`Positioned` child at all — so it sized to `constraints.biggest`,
+/// its host had to hand it a TIGHT height, and no amount of real card content
+/// could push the board's scroll extent out (the master branch, whose lane
+/// `Row` IS a plain `Stack` child, has always grown correctly). The `Row`
+/// reproduces the retired `_columnLeft(i) = i * (columnWidth + gutter)`
+/// exactly, as fixed-width boxes separated by fixed-width gutters, so the
+/// geometry is unchanged and the `Stack` is now content-sized.
+///
+/// ## Why this is a [StatefulWidget] (mobile-perf finding 1)
+///
+/// The single [ValueListenableBuilder] around the column `Row` rebuilds EVERY
+/// column on every horizontal re-anchor, because the `Row`'s child list is
+/// rebuilt wholesale. Measured at 10 masters × 11 bookings on 360×640:
+/// **4885 widget rebuilds / 198 [MasterBookingCard] rebuilds per 400dp of
+/// pan** — 6 re-anchors × 33 live cards — where before horizontal culling
+/// existed a pan rebuilt nothing but `StripScrollIndicator`. Re-measured here
+/// on a 10 × 11 board at 360dp: **2078 widget / 143 card rebuilds** before,
+/// **340 widget / 22 card rebuilds** after. Re-anchors fire
+/// about twice as often horizontally as vertically (`0.25 × 302dp` lane
+/// viewport = 75dp, versus 142dp down the page), so this is the hotter axis of
+/// the two.
+///
+/// The fix is H1's `AnimatedBuilder(child:)` lesson applied to its twin: the
+/// built widget for each column is CACHED and the **identical `Widget`
+/// instance** is returned whenever that column's culled-ness has not changed.
+/// `Element.updateChild` short-circuits on `identical(newWidget, oldWidget)`
+/// and skips the subtree entirely, so a re-anchor now rebuilds only the
+/// columns that actually crossed the band edge.
+class _BoardStack extends StatefulWidget {
+  const _BoardStack({
+    required this.density,
+    required this.firstHour,
+    required this.lastHour,
+    required this.columns,
+    required this.models,
+    required this.columnWidth,
+    required this.deepestIndex,
+    required this.visibleBottom,
+    required this.visibleColumnBand,
+    required this.onBookingTap,
+    required this.emptyDayLabel,
+    super.key,
+  });
+
+  final TimelineDensity density;
+  final int firstHour;
+  final int lastHour;
+  final List<TimelineBoardColumn> columns;
+  final List<_ColumnModel> models;
+  final double columnWidth;
+
+  /// `_BookingsTimelineGridState._deepestColumnIndex` — the index of the ONE
+  /// column attaining the deepest planned bottom. Never culled; see
+  /// [_BoardStackState._isCulled]'s extent-pinning comment. `-1` on an empty
+  /// board.
+  final int deepestIndex;
+
+  final ValueNotifier<double> visibleBottom;
+
+  /// The horizontal culling band's `(left, right)` edges, in this `Stack`'s
+  /// own coordinates — audit H2. See
+  /// [_BookingsTimelineGridState._visibleColumnBand].
+  final ValueNotifier<(double, double)> visibleColumnBand;
+
+  final ValueChanged<Booking> onBookingTap;
+  final String emptyDayLabel;
+
+  /// The column separator — one hairline in each gutter, so a card always
+  /// reads as belonging to the master whose chip it sits under.
+  static final Color _columnDividerColor = BrandColors.accent.withValues(
+    alpha: 0.16,
+  );
+
+  @override
+  State<_BoardStack> createState() => _BoardStackState();
+}
+
+class _BoardStackState extends State<_BoardStack> {
+  /// The last built widget for each column index, and the culled-ness it was
+  /// built at. A re-anchor that leaves a column on the same side of the band
+  /// returns `_columnCache[i]` UNCHANGED — the same instance, which is what
+  /// makes `Element.updateChild` skip its whole subtree.
+  ///
+  /// Both are cleared by [didUpdateWidget] on ANY change to an input the built
+  /// column depends on, so a stale card can never survive a data refresh. The
+  /// cache is a pure render-identity optimisation; it holds no state of its
+  /// own.
+  List<Widget?> _columnCache = const <Widget?>[];
+  List<bool?> _cachedCulled = const <bool?>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _resetCache();
+  }
+
+  @override
+  void didUpdateWidget(_BoardStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Everything [_columnBox] reads, by identity. `models` and `columns` are
+    // rebuilt wholesale by `_recomputeLayoutModel`, so an identity compare is
+    // exactly right: a new list means new geometry or new bookings.
+    if (!identical(oldWidget.models, widget.models) ||
+        !identical(oldWidget.columns, widget.columns) ||
+        !identical(oldWidget.visibleBottom, widget.visibleBottom) ||
+        oldWidget.onBookingTap != widget.onBookingTap ||
+        oldWidget.density != widget.density ||
+        oldWidget.columnWidth != widget.columnWidth ||
+        oldWidget.deepestIndex != widget.deepestIndex ||
+        oldWidget.emptyDayLabel != widget.emptyDayLabel) {
+      _resetCache();
+    }
+  }
+
+  void _resetCache() {
+    final int n = widget.columns.length;
+    _columnCache = List<Widget?>.filled(n, null);
+    _cachedCulled = List<bool?>.filled(n, null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const double nudge = TimelineHourRuler.labelCenteringNudge;
+    // AUDIT L2 — read ONCE per build, not per gridline and per lane.
+    // `TimelineDensity.slotHeight` is `120 * scale / 2` and `columnGutter` is
+    // `math.max(4, (8 * scale).roundToDouble())`; both were re-evaluated
+    // inside the `for` headers below, ~80 times on a full board.
+    final double slotHeight = widget.density.slotHeight;
+    final double gutter = widget.density.columnGutter;
+    final double columnPitch = widget.columnWidth + gutter;
+    final int columnCount = widget.columns.length;
+    final int totalHalfHours = (widget.lastHour - widget.firstHour) * 2;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        // Gridlines FIRST so they paint UNDER the cards — same Finding #8
+        // ordering, and the same even/odd hour-vs-half-hour split, as the
+        // master branch.
+        for (int half = 0; half <= totalHalfHours; half++)
+          Positioned(
+            top: nudge + half * slotHeight,
+            left: 0,
+            right: 0,
+            height: 1,
+            child: ColoredBox(
+              color: half.isEven
+                  ? BrandColors.faint
+                  : BookingsTimelineGrid.halfHourLineColor,
+            ),
+          ),
+        for (int i = 1; i < columnCount; i++)
+          Positioned(
+            left: i * columnPitch - gutter / 2,
+            top: nudge,
+            bottom: 0,
+            width: 1,
+            child: ColoredBox(color: _BoardStack._columnDividerColor),
+          ),
+        // ── THE SIZING CHILD (audit M1 + H2) ────────────────────────────
+        // Every column used to be its own `Positioned`, which left this
+        // `Stack` with NO non-`Positioned` child — so it could only ever size
+        // to `constraints.biggest`, which is why its host had to hand it a
+        // TIGHT height and why real (text-scaled) card content could not push
+        // the scroll extent out. One `Row` of fixed-width column boxes is
+        // geometrically IDENTICAL — box `i` starts at
+        // `i * (columnWidth + gutter)`, exactly what the retired `_columnLeft`
+        // computed — and it makes the `Stack` content-sized, so the host's
+        // `ConstrainedBox(minHeight:)` floor behaves exactly like the master
+        // branch's.
+        //
+        // It is also what makes horizontal culling expressible: a culled
+        // column is a `SizedBox` of the SAME width in the SAME slot of the
+        // same `Row`, so nothing to its right moves — the width is computed
+        // (`TimelineDensity.columnWidth`), never estimated.
+        ValueListenableBuilder<(double, double)>(
+          valueListenable: widget.visibleColumnBand,
+          builder: (BuildContext context, (double, double) band, Widget? _) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (int i = 0; i < columnCount; i++) ...<Widget>[
+                  if (i > 0) SizedBox(width: gutter),
+                  _cachedColumn(
+                    index: i,
+                    left: i * columnPitch,
+                    nudge: nudge,
+                    band: band,
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  /// [_columnBox] behind the identity cache (mobile-perf finding 1).
+  ///
+  /// Decides culled-ness — the ONE thing a horizontal re-anchor can change
+  /// about a column — and returns the PREVIOUSLY BUILT widget instance
+  /// unchanged when it has not flipped. `Element.updateChild` compares
+  /// `identical(newWidget, oldWidget)` first and returns the existing element
+  /// untouched, so the column's entire subtree (its lanes, its
+  /// [MasterBookingCard]s) is skipped rather than rebuilt and diffed.
+  ///
+  /// Nothing else in [_columnBox] depends on `band` or `left`: a LIVE column's
+  /// widget is a pure function of `models[index]` / `columns[index]` /
+  /// `columnWidth`, and a CULLED one of `columnWidth` + `model.bottom`. Every
+  /// one of those is a `widget` field, and [didUpdateWidget] drops the cache
+  /// when any of them changes, so a cached instance can never outlive its
+  /// inputs.
+  Widget _cachedColumn({
+    required int index,
+    required double left,
+    required double nudge,
+    required (double, double) band,
+  }) {
+    final _ColumnModel model = widget.models[index];
+    final bool culled = _isCulled(
+      index: index,
+      left: left,
+      model: model,
+      band: band,
+    );
+    final Widget? cached = _columnCache[index];
+    if (cached != null && _cachedCulled[index] == culled) return cached;
+
+    final Widget built = _columnBox(
+      index: index,
+      nudge: nudge,
+      model: model,
+      culled: culled,
+    );
+    _columnCache[index] = built;
+    _cachedCulled[index] = culled;
+    return built;
+  }
+
+  /// Whether column [index] sits entirely outside the horizontal band.
+  ///
+  /// ⚠ THE DEEPEST COLUMN IS NEVER CULLED (mobile-perf finding 1, L-a). A
+  /// culled column contributes its PLANNED height (`nudge + model.bottom`)
+  /// while a live one contributes its REAL laid-out height — and the planned
+  /// number is an UNDER-estimate above textScaler 1.0, where real card content
+  /// grows past the model's geometry. So culling whichever column happens to
+  /// attain [_BoardStack.deepestBottom] shrank the `Row`, and with it the
+  /// `Stack`'s content height. Measured before this guard: dragging fully
+  /// right shrank the stack extent by **−7dp** on an 8-card column and
+  /// **−55dp** on a 20-card one at textScaler 1.3 / 2.0, and by exactly 0 at
+  /// 1.0 — visible as the board jumping up and back while panning sideways
+  /// near the bottom of a text-scaled day. Re-measured after this guard: the
+  /// same board's Stack height is **identical at rest and dragged fully
+  /// right** at 1.0, 1.3 and 2.0.
+  ///
+  /// Pinned by INDEX ([_BoardStack.deepestIndex]), never by comparing this
+  /// column's `bottom` against the deepest VALUE — see that field's doc: on a
+  /// board whose columns tie for deepest (the common salon case — same shift,
+  /// same slot grid) a value compare pins every one of them and turns
+  /// horizontal culling off entirely. Measured on the 10-master × 11-booking
+  /// board: value compare → 110 cards live, 0 columns culled; index compare →
+  /// 55 live, 5 culled.
+  ///
+  /// Pinning the attaining column costs at most ONE extra live column and
+  /// makes the extent exact rather than merely bounded: the `Row`'s max is
+  /// then always a REAL height, never an estimate. It also subsumes the same
+  /// class of drift for an empty column (whose placeholder is `nudge + 0`
+  /// against a live «Вільний день» form ~32dp taller) — an empty column can
+  /// only matter to the `Row`'s max when it IS the max, and then this guard
+  /// keeps it live.
+  ///
+  /// This replaces the old claim that "the extent cannot breathe as the board
+  /// scrolls sideways", which was true only at textScaler 1.0.
+  bool _isCulled({
+    required int index,
+    required double left,
+    required _ColumnModel model,
+    required (double, double) band,
+  }) {
+    if (index == widget.deepestIndex) return false;
+    return left + widget.columnWidth < band.$1 || left > band.$2;
+  }
+
+  /// One master column's box — `columnWidth` wide, always, culled or not.
+  Widget _columnBox({
+    required int index,
+    required double nudge,
+    required _ColumnModel model,
+    required bool culled,
+  }) {
+    // AUDIT H2 — a column entirely outside the band is replaced by an
+    // identically-sized blank. `model.bottom` is the column's PLANNED deepest
+    // card bottom (the same number `_columnsDeepestBottom` is a `max` over),
+    // so the placeholder preserves the column's contribution to the `Stack`'s
+    // height — exactly at textScaler 1.0, and as a LOWER bound above it. The
+    // column that attains the deepest bottom is never culled ([_isCulled]), so
+    // the `Row`'s maximum is always a real laid-out height and the extent is
+    // pinned at every text scale.
+    if (culled) {
+      return SizedBox(
+        key: ValueKey<String>('timeline-column-culled-$index'),
+        width: widget.columnWidth,
+        height: nudge + model.bottom,
+      );
+    }
+
+    // A free master's column is STATED, not left blank — an empty column and
+    // a column scrolled past the data both look like nothing at all
+    // otherwise. Deliberately OUTSIDE the text-scale clamp below, exactly as
+    // before: only the CARDS are clamped.
+    if (widget.columns[index].bookings.isEmpty) {
+      return SizedBox(
+        width: widget.columnWidth,
+        child: Padding(
+          padding: EdgeInsets.only(top: nudge + VelvetSpacing.md),
+          child: Center(
+            child: Text(
+              widget.emptyDayLabel,
+              style: VelvetText.timelineColumnEmptyDay,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final int laneCount = model.lanes.length;
+    // A master with two overlapping bookings splits their OWN column, never
+    // borrows the next master's — the column is the master's, always.
+    final double laneWidth = laneCount == 1
+        ? widget.columnWidth
+        : (widget.columnWidth - (laneCount - 1) * VelvetSpacing.xs) / laneCount;
+
+    return SizedBox(
+      width: widget.columnWidth,
+      child: Padding(
+        padding: EdgeInsets.only(top: nudge),
+        // ── THE SALON BOARD'S TEXT-SCALE CEILING ──────────────────────
+        // [MasterBookingCard]'s compact body budgets its client-name /
+        // time-range / status-dot row against "the 1.3 textScaler ceiling"
+        // and a 203dp lane — its own comment states both numbers. The salon
+        // board hands it a 148dp column (125dp of inner width), so above
+        // ~1.3 the fixed-width range label alone exceeds the row and the
+        // `Expanded` name is squeezed to zero BEFORE the row overflows
+        // (measured: +8.9dp on the right at textScaler 2.0, on every card at
+        // once).
+        //
+        // Clamped HERE — the narrowest scope that still covers every card in
+        // the column — rather than inside the card: the INDEPENDENT_MASTER's
+        // 272dp lane genuinely fits 2.0 and must keep scaling. Clamped to
+        // exactly the ceiling the card documents, so the two numbers stay one
+        // number. Gridlines and the «Вільний день» marker are deliberately
+        // OUTSIDE this clamp and still scale freely.
+        child: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: BookingsTimelineGrid.kBoardCardMaxTextScale,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (int lane = 0; lane < laneCount; lane++) ...<Widget>[
+                if (lane > 0) const SizedBox(width: VelvetSpacing.xs),
+                SizedBox(
+                  width: laneWidth,
+                  // Per-LANE, still: a vertical culling re-anchor rebuilds
+                  // one lane at a time rather than the whole board.
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: widget.visibleBottom,
+                    builder: (BuildContext context, double bottom, Widget? _) {
+                      return _LaneColumn(
+                        key: ValueKey<String>(
+                          'timeline-column-$index-lane-$lane',
+                        ),
+                        bookings: model.bookings,
+                        geometry: model.lanes[lane],
+                        cardWidth: laneWidth,
+                        visibleBottom: bottom,
+                        onBookingTap: widget.onBookingTap,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1751,6 +2902,79 @@ List<_CardGeometry> _geometryForLane({
   }
 
   return geometry;
+}
+
+/// Phase 21.12 — one salon column's resolved layout: its own bookings, its
+/// own overlap lanes, and the deepest planned bottom across them.
+///
+/// The salon twin of [_BookingsTimelineGridState._laneGeometry], memoised on
+/// exactly the same terms and built by exactly the same [_geometryForLane].
+class _ColumnModel {
+  const _ColumnModel({
+    required this.bookings,
+    required this.lanes,
+    required this.bottom,
+  });
+
+  /// This column's own bookings — [_CardGeometry.bookingIndex] indexes into
+  /// THIS list, not the grid's flattened day list.
+  final List<Booking> bookings;
+
+  final List<List<_CardGeometry>> lanes;
+
+  /// `max` over [lanes] of the last card's `plannedTop + occupiedHeight`. The
+  /// board's `Stack` has no non-`Positioned` sizing child, so this is what
+  /// stands in for "the tallest lane's real height" — see [_buildBoard]'s
+  /// `stackHeight`.
+  final double bottom;
+}
+
+/// Resolves one salon column's [_ColumnModel].
+///
+/// [assignLanes] runs over THIS COLUMN'S bookings only, so two masters busy at
+/// the same hour get two columns rather than two lanes of one. Every other
+/// input is shared with the master scope — most importantly [originMinute],
+/// which is the whole grid's floored-hour origin, so a card in column 3 lands
+/// on the same gridline as a same-time card in column 0.
+_ColumnModel _modelForColumn({
+  required TimelineBoardColumn column,
+  required tz.TZDateTime midnight,
+  required int originMinute,
+  required double hourHeight,
+  required double maxTopPx,
+}) {
+  final List<Booking> bookings = column.bookings;
+  final List<int> startMinutes = <int>[
+    for (final Booking b in bookings)
+      _minutesSinceDayStart(b.startAt, midnight),
+  ];
+  final List<int> lanes = assignLanes(bookings);
+  final int lanesCount = laneCount(lanes);
+  final List<List<int>> indicesByLane = List<List<int>>.generate(
+    lanesCount,
+    (_) => <int>[],
+  );
+  for (int i = 0; i < bookings.length; i++) {
+    indicesByLane[lanes[i]].add(i);
+  }
+  final List<List<_CardGeometry>> geometry = <List<_CardGeometry>>[
+    for (final List<int> indices in indicesByLane)
+      _geometryForLane(
+        bookings: bookings,
+        indices: indices,
+        startMinutes: startMinutes,
+        originMinute: originMinute,
+        hourHeight: hourHeight,
+        maxTopPx: maxTopPx,
+      ),
+  ];
+  double bottom = 0;
+  for (final List<_CardGeometry> lane in geometry) {
+    if (lane.isEmpty) continue;
+    final _CardGeometry last = lane.last;
+    bottom = math.max(bottom, last.plannedTop + last.occupiedHeight);
+  }
+  return _ColumnModel(bookings: bookings, lanes: geometry, bottom: bottom);
 }
 
 /// A booking's proportional-duration card floor — see this file's

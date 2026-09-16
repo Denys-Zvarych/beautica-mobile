@@ -722,6 +722,65 @@ abstract final class RouteNames {
   /// fails on `Navigator` in `lib/features/`.
   static const String salonStaffBookingNew = '$salonStaffBookings/new';
 
+  /// Phase 21.12 — the SALON_OWNER/SALON_ADMIN's «Деталі запису», pushed from
+  /// a card tap on the salon «Записи» board ([SalonBookingsScreen]).
+  ///
+  /// ⚠ THIS ROUTE EXISTS BECAUSE [bookingDetail] CANNOT BE USED HERE.
+  /// `bookingDetail` resolves to `/bookings/:id`, and `/bookings` is
+  /// `clientBranchPrefixes[3]` in `auth_redirect.dart` — every non-CLIENT
+  /// role that reaches it is redirected to `roleHomePath(role)`. An owner
+  /// tapping a card on their own salon board was therefore bounced clean out
+  /// of the salon shell to the owner home, never reaching a detail screen.
+  /// The `/salon/*` gate admits exactly SALON_OWNER + SALON_ADMIN, which is
+  /// the audience of the board this is pushed from.
+  ///
+  /// Resolves to the SAME [BookingDetailScreen] as [bookingDetail] and
+  /// [masterBookingDetail] — one screen, role-branched off
+  /// `bookingViewerRoleProvider` (locked decision D5) — exactly as
+  /// [salonMasterBookingDetail] does for the `/staff/*` audience.
+  ///
+  /// ⚠ DECLARATION ORDER: it is the dynamic sibling of the literal
+  /// [salonStaffBookingNew] under `/salon/bookings`, so it MUST be registered
+  /// AFTER it — `/salon/bookings/:bookingId` matches `/salon/bookings/new`
+  /// perfectly happily with `bookingId == 'new'`. Pinned by
+  /// `test/routing/salon_bookings_route_shadowing_test.dart`, which asserts
+  /// the resolved page TYPE, not the location string.
+  ///
+  /// Navigate with `context.push` (never `Navigator`); note that a pushed
+  /// leaf collapses to its PARENT in `GoRouterState.fullPath`, so
+  /// nav-detection must inspect `leaf.matches.fullPath`.
+  static String salonStaffBookingDetail(String bookingId) =>
+      '$salonStaffBookings/${Uri.encodeComponent(bookingId)}';
+
+  /// Phase 21.12 — «ВІДГУК ПРО КЛІЄНТА» for a SALON_OWNER/SALON_ADMIN. The
+  /// SAME [LeaveClientFeedbackScreen] [clientReview] and
+  /// [salonMasterClientReview] render, reached from
+  /// [salonStaffBookingDetail]'s COMPLETED footer.
+  ///
+  /// ⚠ THIS ROUTE IS NOT OPTIONAL — the CTA that aims at it RENDERS for this
+  /// audience. `Booking.providerCanReviewClient` is computed server-side by
+  /// `BookingService#computeProviderCanReviewClient`
+  /// (`booking/service/BookingService.java`), whose provider-authority leg is
+  /// a UNION: `isPerformingMasterOfBooking(...) ||
+  /// hasProviderAuthorityOverBooking(...)`. The second disjunct
+  /// (`common/security/AuthorizationService#hasProviderAuthorityOverBooking`)
+  /// returns true when the booking's master belongs to a salon the actor
+  /// OWNS, and otherwise falls through to `hasManagementAccess`, which admits
+  /// the assigned `SALON_ADMIN`. So an owner/admin who never performed the
+  /// service still gets the flag — "not the performing master" does NOT
+  /// suppress the CTA. `BookingDetailScreen._providerActions` renders it
+  /// above the `bookingTransitionsEnabledProvider` gate, so nothing else
+  /// suppresses it either. Without this route the CTA's push falls through to
+  /// `/master/bookings/:id/review`, whose INDEPENDENT_MASTER-only gate bounces
+  /// the owner clean out of the salon shell to `/salons/mine` — the exact
+  /// dead-end tap [salonStaffBookingDetail] itself exists to remove.
+  ///
+  /// STANDALONE top-level `GoRoute`, mirroring [clientReview] and
+  /// [salonMasterClientReview] for the identical reason (nesting under a plain
+  /// content screen mounts a shadow detail page underneath it).
+  static String salonStaffClientReview(String bookingId) =>
+      '${salonStaffBookingDetail(bookingId)}/review';
+
   /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
   ///
   /// Same URL shape as [masterBookingDetail]'s `/review` child would be, but

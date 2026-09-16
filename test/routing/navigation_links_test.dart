@@ -485,6 +485,20 @@ void main() {
       // (`app_router.dart`, near the `/salon/bookings/:bookingId` sibling
       // group) — see [RouteNames.salonStaffBookingNew]'s own doc.
       'salonStaffBookingNew': RouteNames.salonStaffBookingNew,
+      // Phase 21.12 — the salon «Записи» board's OWNER-gated drill-in,
+      // registered as the dynamic sibling declared AFTER the literal `new`
+      // above (the order is what resolves them — see
+      // `test/routing/salon_bookings_route_shadowing_test.dart`).
+      'salonStaffBookingDetail()': RouteNames.salonStaffBookingDetail(
+        kSampleId,
+      ),
+      // Phase 21.12 — the owner/admin «ВІДГУК ПРО КЛІЄНТА», the twin of
+      // `salonMasterClientReview` above. Registered because
+      // `Booking.providerCanReviewClient` is TRUE for a salon owner/admin
+      // (its provider-authority leg is a union whose salon disjunct admits
+      // both), so the CTA renders on the drill-in and needs a `/salon/*`
+      // target instead of bouncing off the `/master/*` gate.
+      'salonStaffClientReview()': RouteNames.salonStaffClientReview(kSampleId),
     };
 
     // Deliberate exclusions. `/master/working-hours` was retired in Phase 6.2

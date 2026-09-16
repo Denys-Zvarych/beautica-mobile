@@ -1902,6 +1902,66 @@ GoRouter appRouter(Ref ref) {
           child: SalonCreateBookingScreen(salonId: state.extra! as String),
         ),
       ),
+      // Phase 21.12 — /salon/bookings/:bookingId. The owner/admin drill-in
+      // from the salon «Записи» board.
+      //
+      // ⚠ DECLARED AFTER the literal `new` above — and that ordering, not the
+      // path string, is the only thing that keeps `/salon/bookings/new`
+      // resolving to the wizard: this dynamic route matches it just as well,
+      // with `bookingId == 'new'`. This is the exact shadowing the `new`
+      // route's own banner (and [RouteNames.salonStaffBookingNew]'s doc)
+      // predicted a `:bookingId` sibling would create.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` pins the
+      // resolved page TYPE for both.
+      //
+      // The SAME [BookingDetailScreen] the CLIENT, INDEPENDENT_MASTER and
+      // SALON_MASTER routes render; the viewer side is resolved from the
+      // session (`booking_viewer_role.dart`, locked decision D5), never from
+      // this route. It exists only because `RouteNames.bookingDetail`
+      // (`/bookings/:id`) is CLIENT-gated in `auth_redirect.dart` and bounces
+      // an owner to their role home — see that RouteName's doc.
+      //
+      // `clientReviewRouteBuilder` re-aims the ONE push that would otherwise
+      // leave the `/salon/*` subtree. It is NOT optional here: the CTA
+      // RENDERS for this audience. `Booking.providerCanReviewClient` is
+      // computed by `BookingService#computeProviderCanReviewClient`, whose
+      // provider-authority leg is a union — `isPerformingMasterOfBooking(...)
+      // || hasProviderAuthorityOverBooking(...)` — and that second disjunct
+      // (`AuthorizationService#hasProviderAuthorityOverBooking`) returns true
+      // for the salon's OWNER and falls through to `hasManagementAccess` for
+      // the assigned SALON_ADMIN. `_providerActions` in
+      // `booking_detail_screen.dart` renders the CTA ABOVE the
+      // `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
+      // suppress it either. Left null, the push fell through to
+      // `/master/bookings/:id/review` and its INDEPENDENT_MASTER-only gate
+      // bounced the owner to `/salons/mine`.
+      GoRoute(
+        path: '${RouteNames.salonStaffBookings}/:bookingId',
+        builder: (context, state) => BookingDetailScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
+        ),
+      ),
+      // Phase 21.12 — /salon/bookings/:bookingId/review, the SALON_OWNER/
+      // SALON_ADMIN's «ВІДГУК ПРО КЛІЄНТА». Mirrors the `/staff/*` twin
+      // registered further down (`salonMasterClientReview`) exactly, including
+      // its `extra`-carries-the-entry-point contract — see
+      // [RouteNames.clientReview]'s registration for why an absent or
+      // unexpected `extra` falls back to `bookingDetail`.
+      //
+      // A deeper path than the `:bookingId` route above, so the two cannot
+      // shadow each other; the literal `new` ordering constraint is unaffected
+      // (it is a `/salon/bookings` child, this is a grandchild).
+      GoRoute(
+        path: '${RouteNames.salonStaffBookings}/:bookingId/review',
+        builder: (context, state) => LeaveClientFeedbackScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          entry: switch (state.extra) {
+            final ClientReviewEntry entry => entry,
+            _ => ClientReviewEntry.bookingDetail,
+          },
+        ),
+      ),
       // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
       // Registered as a STANDALONE top-level route carrying the SAME full
       // path [RouteNames.clientReview] resolves to

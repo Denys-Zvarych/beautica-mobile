@@ -1836,6 +1836,67 @@ abstract final class VelvetText {
   );
 
   // ---------------------------------------------------------------------------
+  // SALON BOARD ROSTER CHIP (Phase 21.12) — `MasterColumnStrip`
+  // ---------------------------------------------------------------------------
+  // One chip is 148dp wide at the 360dp baseline, so its four lines are set a
+  // step below the identity card they mirror (`masterStripName` 13 sp →
+  // `timelineColumnName` 12 sp, and so on). Cached as tokens rather than
+  // inlined `copyWith`s for the same two reasons the ruler labels above are:
+  // the strip rebuilds on every layout pass that resolves a new column width,
+  // and `forbid_inline_fontsize.sh` has to stay green.
+
+  /// Roster-chip master name — Comfortaa subheading at 12 sp, the tightest
+  /// line height that still clears Comfortaa's descenders.
+  static final TextStyle timelineColumnName = _subheadingStyle.copyWith(
+    fontSize: 12,
+    height: 1.15,
+  );
+
+  /// [timelineColumnName] for a master with NOTHING booked on the shown day —
+  /// same metrics, demoted to textSecondary so a free column reads as quiet
+  /// rather than absent.
+  static final TextStyle timelineColumnNameMuted = timelineColumnName.copyWith(
+    color: BrandColors.textSecondary,
+  );
+
+  /// Roster-chip role/title sub-line — Nunito feedback at 9.5 sp, muted.
+  static final TextStyle timelineColumnRole = _feedbackBase.copyWith(
+    fontSize: 9.5,
+    height: 1.15,
+    color: BrandColors.muted,
+  );
+
+  /// Roster-chip ★ figure — the compact form of [MasterRatingReadout], which
+  /// renders [bodyStrong14] at every other call site.
+  static final TextStyle timelineColumnRating = _statCaptionStyle.copyWith(
+    fontSize: 9.5,
+    letterSpacing: 0,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Roster-chip booking count for the shown day — accentDeep, so the one
+  /// number the owner is scanning for is the one thing that carries the brand
+  /// colour inside the chip.
+  static final TextStyle timelineColumnCount = _statCaptionStyle.copyWith(
+    fontSize: 9.5,
+    letterSpacing: 0,
+    color: BrandColors.accentDeep,
+  );
+
+  /// [timelineColumnCount]'s «вільно» counterpart — muted, because an empty
+  /// column is information, not an alert.
+  static final TextStyle timelineColumnCountFree = timelineColumnCount.copyWith(
+    color: BrandColors.muted,
+  );
+
+  /// The salon board's «Вільний день» marker, centred in an empty master
+  /// column — Nunito feedback at 11 sp, muted.
+  static final TextStyle timelineColumnEmptyDay = _feedbackBase.copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+  );
+
+  // ---------------------------------------------------------------------------
   // Design-parity pass (finding #4/#5) — the master timeline's month
   // switcher (`_MonthSwitcher` in `bookings_discovery_view.dart`), above the
   // day rail.

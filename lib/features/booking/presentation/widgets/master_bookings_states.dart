@@ -44,14 +44,42 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// Shown when the master has no bookings whatsoever — no filter is active and
 /// there is nothing to reset.
+///
+/// Phase 21.12 — also the salon board's "this salon has no masters" state, via
+/// the four optional overrides below. They are ADDITIVE and every one defaults
+/// to exactly what this widget rendered before they existed, so
+/// `const MasterBookingsEmptyState()` — the spelling at both master call sites
+/// — is unchanged down to the `Key`. Promoting one composition beats a second
+/// icon-over-two-lines widget that would drift from this one the first time
+/// the illustration moves.
 class MasterBookingsEmptyState extends StatelessWidget {
-  const MasterBookingsEmptyState({super.key});
+  const MasterBookingsEmptyState({
+    super.key,
+    this.icon,
+    this.title,
+    this.body,
+    this.centerKey,
+  });
+
+  /// `null` keeps the master list's own calendar glyph.
+  final IconData? icon;
+
+  /// `null` keeps `l10n.masterBookingsEmptyTitle`.
+  final String? title;
+
+  /// `null` keeps `l10n.masterBookingsEmptyBody`.
+  final String? body;
+
+  /// The `Key` on the outer [Center] — the handle this state's own tests find
+  /// it by. `null` keeps `master-bookings-empty`, so every existing finder is
+  /// untouched; a variant passes its own so a test can tell the two apart.
+  final Key? centerKey;
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     return Center(
-      key: const Key('master-bookings-empty'),
+      key: centerKey ?? const Key('master-bookings-empty'),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 320),
         child: Padding(
@@ -59,20 +87,20 @@ class MasterBookingsEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              const Icon(
-                Icons.event_note_outlined,
+              Icon(
+                icon ?? Icons.event_note_outlined,
                 size: 48,
                 color: BrandColors.accent,
               ),
               const SizedBox(height: VelvetSpacing.md),
               Text(
-                l10n.masterBookingsEmptyTitle,
+                title ?? l10n.masterBookingsEmptyTitle,
                 textAlign: TextAlign.center,
                 style: VelvetText.subheading(),
               ),
               const SizedBox(height: VelvetSpacing.xs),
               Text(
-                l10n.masterBookingsEmptyBody,
+                body ?? l10n.masterBookingsEmptyBody,
                 textAlign: TextAlign.center,
                 style: VelvetText.body(),
               ),

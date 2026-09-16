@@ -6265,5 +6265,61 @@
   "masterNavTabProfile": "Profile",
   "@masterNavTabProfile": {
     "description": "VelvetBottomNavBar tile 3 label on the master surface."
+  },
+  "salonBookingsTitle": "Salon bookings",
+  "salonBookingsColumnFreeDay": "Free day",
+  "salonBookingsMasterColumnFree": "free",
+  "salonBookingsMasterColumnSemantics": "{name}, {role}, {load}",
+  "salonBookingsRosterVisibleSemantics": "Masters shown: {visible} of {total}",
+  "salonBookingsAddSemantics": "Create booking",
+  "salonBookingsNoMastersTitle": "No masters in this salon yet",
+  "salonBookingsNoMastersBlurb": "Invite a master and their column will appear on the board.",
+  "@salonBookingsTitle": {
+    "description": "Phase 21.12 — header title of the salon-wide owner/admin bookings board (the «Записи» tab of the salon shell). The salon's own name renders as the subtitle beneath it."
+  },
+  "@salonBookingsColumnFreeDay": {
+    "description": "Phase 21.12 — marker centred in a salon board column whose master has no bookings on the shown day."
+  },
+  "@salonBookingsMasterColumnFree": {
+    "description": "Phase 21.12 — the roster chip's trailing readout when that master has nothing booked on the shown day. Lowercase: it sits inline beside the ★ rating, not as a heading."
+  },
+  "@salonBookingsMasterColumnSemantics": {
+    "description": "Phase 21.12 — accessibility label for one roster chip on the salon bookings board.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Стиліст"
+      },
+      "load": {
+        "type": "String",
+        "example": "3 записи"
+      }
+    }
+  },
+  "@salonBookingsRosterVisibleSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon board's horizontal scroll indicator, which encodes as a 3dp bar how much of the roster is off-screen.",
+    "placeholders": {
+      "visible": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "@salonBookingsAddSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon bookings board header's '+' button. PLACEHOLDER: the control renders in its final place and styling but its handler is a documented no-op until the salon walk-in wizard is wired to it."
+  },
+  "@salonBookingsNoMastersTitle": {
+    "description": "Phase 21.12 — empty state title on the salon bookings board when the salon's roster is empty."
+  },
+  "@salonBookingsNoMastersBlurb": {
+    "description": "Phase 21.12 — empty state body on the salon bookings board when the salon's roster is empty."
   }
 }

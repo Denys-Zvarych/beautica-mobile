@@ -5,21 +5,28 @@
 // story (commenting out the literal route left the OLD suite green because
 // `:bookingId` silently absorbed the path).
 //
-// ## Why this route has no LIVE dynamic sibling to shadow it (today)
+// ## THE DYNAMIC SIBLING ARRIVED — Phase 21.12 (QA)
 //
-// `/salon/bookings/new` is registered as a STANDALONE top-level `GoRoute` —
-// there is no `/salon/bookings/:bookingId` sibling yet (that would arrive
-// with a future salon booking-detail phase). So THIS phase cannot reproduce
-// the master wizard's exact "reorder two siblings" mutation — there is only
-// one route to reorder against. The mutation this file DOES perform (see the
-// bottom of this header) is the one that IS reachable today: deleting the
-// route entirely and confirming the pin goes red, exactly the falsification
-// `master_bookings_route_shadowing_test.dart` used BEFORE `archive`/`new`
-// existed as a pair. The moment a future phase adds a dynamic
-// `/salon/bookings/:bookingId` sibling under a shared parent, this test's
-// assertion (resolved widget type, not merely "some route matched") is
-// exactly what would catch that shadowing regression too — no rewrite
-// needed, only a second `testWidgets` case mirroring the master file's pair.
+// This header used to say `/salon/bookings/new` had no dynamic sibling to be
+// shadowed BY, and that the pair-case would be needed "the moment a future
+// phase adds a dynamic `/salon/bookings/:bookingId`". That phase is this one:
+// the salon «Записи» board's drill-in needed an OWNER-gated detail route,
+// because `RouteNames.bookingDetail` (`/bookings/:id`) is CLIENT-gated in
+// `auth_redirect.dart` and bounces a SALON_OWNER to their role home.
+//
+// So the second case promised above is now written, exactly as promised: the
+// `:bookingId` route matches `/salon/bookings/new` perfectly happily with
+// `bookingId == 'new'`, and NOTHING BUT DECLARATION ORDER stops it. Both
+// cases assert the resolved page TYPE, never the location string — a path
+// assertion passes while the wrong screen renders.
+//
+// MUTATION-VERIFIED (Phase 21.12, QA) — SWAPPING the declaration order of
+// the two `GoRoute`s in `app_router.dart` (registering `:bookingId` BEFORE
+// `new`) turns the `new` case RED: `/salon/bookings/new` then resolves to
+// `BookingDetailScreen` with `bookingId == 'new'` and
+// `find.byType(SalonCreateBookingScreen)` reports zero matches, while the
+// detail case stays green. Restoring the order turns it back GREEN. This is
+// the falsification the old header said could not be performed yet.
 //
 // MUTATION-VERIFIED (see phase-250 report) — commenting out the
 // `/salon/bookings/new` `GoRoute` in `app_router.dart` turns this test RED:
@@ -38,12 +45,20 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'dart:async';
+
+import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
+import 'package:beautica_mobile/routing/auth_redirect.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -92,6 +107,22 @@ class _SettledMySalons extends MySalons {
   Future<List<Salon>> build() async => const <Salon>[];
 }
 
+/// `getBookingById` never completes; every other member is unreachable from
+/// this route. A PENDING read keeps `BookingDetailScreen` in its loading
+/// branch, which is all this test needs: it asserts WHICH SCREEN RESOLVED,
+/// never what that screen renders. A failing stub was tried first and is
+/// wrong — the detail provider surfaces the error during element mounting,
+/// which fails the test for a reason that has nothing to do with routing.
+class _PendingBookingRepository implements BookingRepository {
+  @override
+  Future<Booking> getBookingById(String bookingId) =>
+      Completer<Booking>().future;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('unreachable from /salon/bookings/:bookingId');
+}
+
 class _RouterApp extends StatelessWidget {
   const _RouterApp({required this.router});
 
@@ -115,10 +146,14 @@ void main() {
     );
     tearDown(AppStartTime.resetForTest);
 
-    ProviderContainer makeContainer() {
+    ProviderContainer makeContainer({
+      Duration? Function(int, Object)? retry = beauticaProviderRetry,
+      List<Object> extra = const <Object>[],
+    }) {
       final container = ProviderContainer(
-        retry: beauticaProviderRetry,
-        overrides: [
+        retry: retry,
+        overrides: <Object>[
+          ...extra,
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSalonOwnerSession),
           ),
@@ -141,7 +176,7 @@ void main() {
           // regression — same shape every other override in this file
           // guards against).
           mySalonsProvider.overrideWith(_SettledMySalons.new),
-        ],
+        ].cast(),
       );
       addTearDown(container.dispose);
       return container;
@@ -171,7 +206,94 @@ void main() {
         reason:
             'the route must resolve to the SALON wizard, not the home '
             'shell fallback (a missing/misrouted `new` segment) or any '
-            'other screen',
+            'other screen, and NOT BookingDetailScreen with '
+            "bookingId == 'new' — which is exactly what the dynamic sibling "
+            'resolves to if it is ever declared first',
+      );
+      // The other half of the same claim: the wizard won, so the DETAIL
+      // screen must not be anywhere in the tree.
+      expect(find.byType(BookingDetailScreen), findsNothing);
+    });
+
+    // Phase 21.12 (QA) — the dynamic sibling's own pin. Without a registered
+    // `/salon/bookings/:bookingId`, the salon board's drill-in had nowhere
+    // OWNER-gated to land: `RouteNames.bookingDetail` resolves to
+    // `/bookings/:id`, which `auth_redirect.dart` reserves for CLIENT.
+    testWidgets('/salon/bookings/:bookingId resolves BookingDetailScreen', (
+      tester,
+    ) async {
+      // `BookingDetailScreen` mounts its OWN provider graph, which reaches
+      // the real Dio-backed `bookingRepositoryProvider` and leaves a pending
+      // retry timer after the tree is disposed. Stubbed to a settled failure
+      // with the retry policy OFF: this test asserts WHICH SCREEN RESOLVES,
+      // not what that screen then renders, and the error branch is a page
+      // like any other.
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.salonStaffBookingDetail('bk-1'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byType(BookingDetailScreen),
+        findsOneWidget,
+        reason:
+            'an owner drilling in from the salon «Записи» board must reach '
+            'the detail screen under the /salon/* prefix, which the '
+            'SALON_OWNER/SALON_ADMIN gate admits',
+      );
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+    });
+
+    // The gate itself, as a pure decision — this is WHY the route above had
+    // to exist, and it is the assertion that fails if anyone ever "simplifies"
+    // the board back onto `RouteNames.bookingDetail`.
+    test('the CLIENT-gated /bookings/:id BOUNCES a SALON_OWNER, while '
+        '/salon/bookings/:id admits them', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSalonOwnerSession,
+          RouteNames.bookingDetail('bk-1'),
+        ),
+        equals(roleHomePath(UserRole.salonOwner)),
+        reason:
+            '/bookings is a clientBranchPrefix — a non-CLIENT role that '
+            'reaches it is redirected to its own role home, i.e. bounced '
+            'clean out of the salon shell',
+      );
+      expect(
+        authRedirectForLocation(
+          _authenticatedSalonOwnerSession,
+          RouteNames.salonStaffBookingDetail('bk-1'),
+        ),
+        isNull,
+        reason: 'the /salon/* gate admits SALON_OWNER and SALON_ADMIN',
+      );
+      expect(
+        authRedirectForLocation(
+          _authenticatedSalonOwnerSession,
+          RouteNames.masterBookingDetail('bk-1'),
+        ),
+        equals(roleHomePath(UserRole.salonOwner)),
+        reason:
+            '/master/* is INDEPENDENT_MASTER-only, so it was never an option '
+            'for this board either',
       );
     });
   });

@@ -8043,6 +8043,7 @@ final class FakeBackend {
     );
 
     _wireBookingDetail();
+    _wireSalonBoard();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -8230,6 +8231,159 @@ final class FakeBackend {
   /// doc for why a plain field cannot work. [getBookingDetailCalls] is bumped on
   /// BOTH branches: a flow proving a manual retry re-issues the request needs
   /// the failing replies counted too.
+  // ── Phase 21.12 — the SALON «Записи» board ────────────────────────────────
+  //
+  // `GET /api/v1/bookings/salon/{salonId}` had NO registration in this file at
+  // all before Phase 21.12's QA pass (verified by enumerating every
+  // `_adapter.onRoute` path), and neither did `salon-owner-1`'s own
+  // `/salons/{id}` / `/staff` / `/masters` reads — every existing salon
+  // fixture is keyed to `salon-xyz` or `salon-admin-1`. So the owner's OWN
+  // primary salon (the one `roleHomePath` lands them on, and therefore the one
+  // the board actually mounts for) could not be served at all, and the board
+  // was unreachable at the E2E tier.
+  //
+  // `DioAdapter.onRoute` matches the PATH ONLY — query params are ignored —
+  // so one registration covers every day the rail navigates to. The handler
+  // captures the query instead, which is what lets a flow assert the Kyiv day
+  // window that went on the wire.
+
+  /// The salon id these handlers serve — the id [mySalons] defaults its ONE
+  /// primary salon to, i.e. the one an owner's `roleHomePath` lands on.
+  static const String kOwnerSalonId = 'salon-owner-1';
+
+  /// `GET /api/v1/bookings/salon/{kOwnerSalonId}` call count.
+  int getSalonBookingsCalls = 0;
+
+  /// The raw query of the MOST RECENT salon-board fetch, as Dio sent it.
+  /// The endpoint takes NO status/service predicate (the narrowing is
+  /// client-side — see `bookings_day_query.dart`), so a flow can assert that
+  /// nothing filter-shaped ever appears here.
+  Map<String, dynamic>? lastSalonBookingsQuery;
+
+  /// The rows `GET /bookings/salon/{id}` serves. Mutable and read at REQUEST
+  /// time so a flow can reseed it between navigations.
+  List<Map<String, dynamic>> salonBoardBookings = <Map<String, dynamic>>[];
+
+  /// One salon-board row, in the same `BookingResponse` wire shape
+  /// [datasetBookingRow] uses, but with the MASTER parameterised — which is
+  /// the whole point of a salon-wide board and the one field
+  /// `SalonBookingsScreen.columnsFor` partitions on.
+  Map<String, dynamic> salonBoardBookingRow({
+    required String id,
+    required String masterId,
+    required String masterFirstName,
+    required String masterLastName,
+    required DateTime startsAt,
+    String status = 'CONFIRMED',
+    Duration duration = const Duration(minutes: 60),
+    String clientFirstName = 'Марія',
+    String clientLastName = 'Іванюк',
+  }) => <String, dynamic>{
+    'id': id,
+    'masterId': masterId,
+    'masterFirstName': masterFirstName,
+    'masterLastName': masterLastName,
+    'masterAvatarUrl': null,
+    'masterType': 'SALON_MASTER',
+    'clientFirstName': clientFirstName,
+    'clientLastName': clientLastName,
+    'salonName': 'Салон Оксани',
+    'masterServiceId': 'pub-assign-1',
+    'serviceName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
+    'cityLabel': 'Київ',
+    'districtLabel': 'Печерський',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'durationMinutesAtBooking': duration.inMinutes,
+    'priceAtBooking': bookingPrice,
+    'priceMaxAtBooking': null,
+    'startsAt': startsAt.toIso8601String(),
+    'endsAt': startsAt.add(duration).toIso8601String(),
+    'status': status,
+    'canReview': false,
+    'providerCanReviewClient': false,
+    'clientComment': null,
+    'providerComment': null,
+    'clientCancellationNote': null,
+    'masterProfessionalTitle': 'Майстриня манікюру',
+    'locationNote': null,
+  };
+
+  void _wireSalonBoard() {
+    // The board's own day fetch.
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kOwnerSalonId',
+      (server) => server.replyCallback(200, (req) {
+        getSalonBookingsCalls++;
+        lastSalonBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
+        // A COPY read at REQUEST time — the list is mutable by design.
+        final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
+          salonBoardBookings.map(Map<String, dynamic>.from),
+        );
+        return _searchEnvelope(
+          rows,
+          page: 0,
+          totalPages: 1,
+          totalElements: rows.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's ROSTER — `salonMastersRosterProvider`. Serves the SAME
+    // [_salonMasters] fixture the `salon-xyz` rail does, so a column header
+    // rendered here and a rail card rendered there cannot disagree.
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId/masters',
+      (server) => server.replyCallback(200, (_) {
+        getSalonMastersCalls++;
+        lastGetSalonMastersId = kOwnerSalonId;
+        return _searchEnvelope(
+          _salonMasters,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonMasters.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's SUBTITLE — `salonManagementProfileProvider` `.wait`s these
+    // two, so BOTH must answer or the subtitle stays null and the provider
+    // parks in AsyncError.
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId',
+      (server) => server.replyCallback(200, (_) {
+        getSalonByIdCalls++;
+        lastGetSalonId = kOwnerSalonId;
+        return _ok(<String, dynamic>{
+          ...mySalons.first,
+          'description': null,
+          'phone': null,
+          'instagramUrl': null,
+          'districtId': null,
+          'locationNote': null,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId/staff',
+      (server) => server.replyCallback(200, (_) {
+        getSalonStaffCalls++;
+        lastGetSalonStaffId = kOwnerSalonId;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonStaff.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   void _wireBookingDetail() {
     final int? failStatus = _bookingDetailFailStatus;
     _adapter.onRoute(
