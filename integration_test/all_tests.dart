@@ -109,6 +109,8 @@ import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
+import 'forgot_password_rate_limited_flow_test.dart'
+    as forgot_password_rate_limited;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
@@ -371,6 +373,7 @@ void main() {
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
+  group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
   // Harness ratchet — pins AppHarness.boot's DEFAULT retry predicate to the
   // production one. Not a user journey: it guards the boot policy every other
   // flow in this file inherits.

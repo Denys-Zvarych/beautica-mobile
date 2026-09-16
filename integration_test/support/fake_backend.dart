@@ -325,6 +325,7 @@ final class FakeBackend {
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
     this.deleteServiceDelay,
+    this.forgotPasswordFailureStatusCode,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -931,6 +932,22 @@ final class FakeBackend {
   String? lastValidateInviteToken;
 
   // ── Beautica OTP task (Phase B) — password-reset OTP flow counters ────────
+
+  /// Overrides the `POST /api/v1/auth/forgot-password` status.
+  ///
+  /// `null` (every pre-existing call site) keeps the generic anti-enumeration
+  /// 200. Set it to 429 to reproduce the per-IP `AuthRateLimitFilter` bucket
+  /// being exhausted — the body is then the FILTER's own bare
+  /// `{"error":"Too many requests"}`, with no `message`, no `errors` and no
+  /// `data.code`, because the filter runs BEFORE the controller and the
+  /// generic-200 contract never gets a say. That exact shape is the point:
+  /// a richer envelope would let a mapper branch that merely reads the body
+  /// look correct.
+  ///
+  /// Read at construction time (like [deleteMyAccountFailureStatusCode]) —
+  /// routes are wired once from the constructor, so pass it to `FakeBackend()`
+  /// rather than mutating it after boot.
+  final int? forgotPasswordFailureStatusCode;
 
   /// `POST /api/v1/auth/forgot-password` call count + the last requested email.
   int forgotPasswordCalls = 0;
@@ -6046,11 +6063,17 @@ final class FakeBackend {
     // Always returns a generic 200 (anti-enumeration) regardless of email.
     _adapter.onRoute(
       '/api/v1/auth/forgot-password',
-      (server) => server.replyCallback(200, (req) {
-        forgotPasswordCalls++;
-        lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
-        return _okVoid;
-      }),
+      (server) =>
+          server.replyCallback(forgotPasswordFailureStatusCode ?? 200, (req) {
+            forgotPasswordCalls++;
+            lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
+            if (forgotPasswordFailureStatusCode != null) {
+              // The rate-limit FILTER's own body — deliberately NOT the
+              // `{success,message,data}` envelope the controllers use.
+              return <String, dynamic>{'error': 'Too many requests'};
+            }
+            return _okVoid;
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 

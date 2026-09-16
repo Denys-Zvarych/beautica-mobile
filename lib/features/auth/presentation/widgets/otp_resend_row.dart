@@ -20,7 +20,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart'
+import 'package:beautica_mobile/core/errors/failures.dart'
     show kMaxUxCooldownSeconds;
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';

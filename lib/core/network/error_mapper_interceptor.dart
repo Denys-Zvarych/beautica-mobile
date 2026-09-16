@@ -29,22 +29,6 @@ import 'package:flutter/foundation.dart';
 
 import '../errors/failures.dart';
 
-/// The longest cooldown, in seconds, this app is willing to render as a live
-/// numeric countdown (10 minutes).
-///
-/// ONE threshold, two enforcement points — keep them reading the same constant:
-///
-///   * [ErrorMapperInterceptor._extractRetryAfterSecondsNullable] returns
-///     `null` instead of a server value above this, so a rogue or merely
-///     long `Retry-After` never reaches a widget as a number.
-///   * `OtpResendRow` (auth presentation) renders its non-numeric
-///     "unavailable" label — and starts NO periodic timer — for a cooldown
-///     above this, so «Надіслати знову (3600 с)» is unrepresentable.
-///
-/// Was a function-local const until 2026-09-15; promoted so the second
-/// enforcement point could not drift into a duplicate magic number.
-const int kMaxUxCooldownSeconds = 600;
-
 /// Dio interceptor that maps [DioException] → typed [Failure].
 ///
 /// Must be the last interceptor in the chain (after LoggingInterceptor,

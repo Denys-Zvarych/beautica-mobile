@@ -17,6 +17,27 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 
+/// The longest cooldown, in seconds, this app is willing to render as a live
+/// numeric countdown (10 minutes).
+///
+/// ONE threshold, two enforcement points — keep them reading the same constant:
+///
+///   * `ErrorMapperInterceptor._extractRetryAfterSecondsNullable` (core/network)
+///     returns `null` instead of a server value above this, so a rogue or
+///     merely long `Retry-After` never reaches a widget as a number.
+///   * `OtpResendRow` (auth presentation) renders its non-numeric
+///     "unavailable" label — and starts NO periodic timer — for a cooldown
+///     above this, so «Надіслати знову (3600 с)» is unrepresentable.
+///
+/// Lives here (not in `core/network`) because it is a UX presentation
+/// ceiling, not an HTTP concern — and both the network and presentation
+/// layers already depend on `core/errors`, so this is the neutral home that
+/// avoids a presentation → network layering inversion.
+///
+/// Was a function-local const until 2026-09-15; promoted so the second
+/// enforcement point could not drift into a duplicate magic number.
+const int kMaxUxCooldownSeconds = 600;
+
 /// Base class for all domain-level failures.
 ///
 /// Every public repository method either returns a value or throws a `Failure`

@@ -1164,6 +1164,11 @@ void main() {
       final input = filterThrottle('/api/v1/auth/forgot-password');
       final rejected = _captureRejected(input);
 
+      // Pin the TYPE as well. Without it this assertion survives deleting the
+      // password-reset branch outright: whatever failure the 429 then falls
+      // through to still carries `cause`, so it stayed GREEN while the three
+      // path tests above went red (mobile-qa mutation M6, 2026-09-16).
+      expect(rejected.error, isA<PasswordResetRateLimitedFailure>());
       expect((rejected.error as Failure).cause, same(input));
     });
   });

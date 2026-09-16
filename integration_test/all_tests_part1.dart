@@ -85,6 +85,8 @@ import 'client_shell_edge_swipe_back_flow_test.dart'
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
+import 'forgot_password_rate_limited_flow_test.dart'
+    as forgot_password_rate_limited;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
@@ -271,6 +273,7 @@ void main() {
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
+  group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
   group('logout_flow', logout.main);
   // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
   // profile: real login → salonManageGuard admits a real session → PATCH

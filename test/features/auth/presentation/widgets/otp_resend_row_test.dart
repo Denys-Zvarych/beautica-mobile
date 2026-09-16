@@ -374,6 +374,19 @@ void main() {
     // build counter alone cannot separate 1 tick from 3600. Stepping to the
     // boundary second, where the two implementations diverge in the LABEL, is
     // what makes the distinction assertable.)
+    //
+    // KNOWN LIMIT, measured (mobile-qa mutation M3, 2026-09-16). What this
+    // test pins is the USER-VISIBLE contract — non-numeric label held for the
+    // whole window, zero numeric rebuilds, row re-enabled at the end and
+    // genuinely tappable. It does NOT discriminate the one-shot from a
+    // `Timer.periodic(Duration(seconds: seconds))`, which fires at 601 s,
+    // zeroes, and merely repeats thereafter: that mutant passes this entire
+    // file. Separating them needs a white-box build counter inside the widget
+    // for a difference no frame and no user can observe, so it is deliberately
+    // not pinned. The mutants that DO matter are covered next door — test 8's
+    // 59-minute probe goes red both for a 1 Hz timer and for a one-shot whose
+    // deadline is hardcoded to the ceiling instead of `seconds` (the
+    // re-enables-an-hour-early defect).
     testWidgets(
       '11. the unavailable window elapses via ONE single-shot tick: frozen '
       'label during it, row re-enabled after it, zero per-second rebuilds',
@@ -435,8 +448,8 @@ void main() {
           timerLabelBuilds,
           0,
           reason:
-              'ONE tick, not 601: the row never once rebuilt with a numeric '
-              'countdown label, from mount through to re-enable',
+              'not one numeric rebuild between mount and re-enable — see the '
+              'KNOWN LIMIT above for what this does and does not separate',
         );
 
         // Genuinely re-enabled, not merely relabelled.

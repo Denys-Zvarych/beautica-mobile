@@ -296,9 +296,15 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   ScheduleOverrideRateLimitedFailure() => false,
   AccountDeleteRateLimitedFailure() => false,
   // 429 from the per-IP AuthRateLimitFilter on the password-reset journey.
-  // The bucket is 3/hour with `Retry-After: 3600`, so an automatic re-issue
-  // cannot succeed within any backoff this file is willing to wait — and each
-  // attempt it burns is one the user's next deliberate try no longer has.
+  // THREE separate buckets, and they are NOT uniform — forgot-password 3 per
+  // 60 min and reset-password 10 per 60 min (Retry-After 3600),
+  // verify-password-reset-otp 10 per 15 min (Retry-After 900). See
+  // `PasswordResetRateLimitedFailure` for the table; do not collapse it to
+  // "3/hour", which is what the ORIGINAL mapper comment said and is why this
+  // branch did not exist for so long. The shortest of those windows is still
+  // 15 minutes, so an automatic re-issue cannot succeed within any backoff
+  // this file is willing to wait — and each attempt it burns is one the
+  // user's next deliberate try no longer has.
   // [isThrottleFailure] already stops it above; this arm is the honest answer
   // to the separate transience question.
   PasswordResetRateLimitedFailure() => false,

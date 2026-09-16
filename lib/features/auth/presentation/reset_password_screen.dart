@@ -378,8 +378,11 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
           // `form` and `invalid` states keep the header, and VelvetHeader
           // itself is untouched (it is shared by six other auth screens).
           // Top breathing room in place of the logo header, matching
-          // DoneScreen's identical omission.
-          const SizedBox(height: VelvetSpacing.xl),
+          // DoneScreen's identical omission. Read off VelvetHeader's OWN
+          // bottomSpacing rather than repeating its current literal, so the
+          // gap above the tile tracks the header the other two states still
+          // render instead of silently drifting from it.
+          const SizedBox(height: VelvetHeader.bottomSpacing),
           Center(
             child: Container(
               height: 72,

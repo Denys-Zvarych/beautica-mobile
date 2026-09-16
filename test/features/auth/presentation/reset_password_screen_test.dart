@@ -24,12 +24,17 @@
 //   7. NetworkFailure → inline error, stays on form (not invalid state).
 //   8. ServerFailure → inline error, stays on form.
 //   9. Visibility toggles reveal/hide both password fields.
+//  14. VelvetHeader is ABSENT on the success state but PRESENT on the form
+//      (regression guard for a7c38471, which shipped with no test).
+//  15. VelvetHeader is PRESENT on the invalid-link state — the second
+//      positive control for 14.
 
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/reset_password_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/password_checklist.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -592,6 +597,99 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+
+    // ── 10/11. The brand header is STATE-SCOPED ─────────────────────────────
+    //
+    // Commit a7c38471 removed `VelvetHeader` from the SUCCESS state only and
+    // shipped with no test of any kind — nothing in the suite could tell the
+    // deliberate omission from a header lost in a refactor, in EITHER
+    // direction. These are the guard, modelled on the identical convention
+    // DoneScreen already carries (`done_screen_test.dart` test 8).
+    //
+    // Test 14 asserts the form state FIRST, in the same body, on purpose: the
+    // `findsNothing` half alone would pass just as well if VelvetHeader were
+    // deleted from this screen entirely — or from the widget tree — which is
+    // precisely what the commit promises did NOT happen. Test 11 repeats the
+    // control on the third state.
+    testWidgets(
+      '14. VelvetHeader is present on the form state and ABSENT once the '
+      'reset succeeds',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository();
+        await _pump(tester, repo);
+
+        // a. FORM state — header present (positive control).
+        expect(
+          find.byType(VelvetHeader),
+          findsOneWidget,
+          reason:
+              'the form state keeps the brand header — it is an entry point',
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_password')),
+          'Password1',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_confirm')),
+          'Password1',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
+        await tester.pumpAndSettle();
+
+        // b. SUCCESS state. Prove we actually got here before asserting an
+        // absence — an absence asserted on the wrong state is vacuous.
+        expect(
+          find.byKey(const ValueKey<String>('reset_back_login')),
+          findsOneWidget,
+        );
+        expect(find.byIcon(Icons.verified_rounded), findsOneWidget);
+
+        expect(
+          find.byType(VelvetHeader),
+          findsNothing,
+          reason:
+              'the success state is the END of the flow — re-introducing the '
+              'brand here is the regression a7c38471 fixed',
+        );
+        expect(
+          find.byType(VelvetLogo),
+          findsNothing,
+          reason: 'and no bare logo may creep back in place of the header',
+        );
+      },
+    );
+
+    testWidgets('15. VelvetHeader is still present on the invalid-link state', (
+      WidgetTester tester,
+    ) async {
+      final FakeAuthRepository repo = FakeAuthRepository()
+        ..confirmPasswordResetResult = const ResetTokenInvalidFailure();
+      await _pump(tester, repo);
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('reset_password')),
+        'Password1',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('reset_confirm')),
+        'Password1',
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reset_invalid_cta')),
+        findsOneWidget,
+      );
+      expect(
+        find.byType(VelvetHeader),
+        findsOneWidget,
+        reason:
+            'the invalid-link state keeps the header — unlike success it '
+            'offers a way back INTO the flow',
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------
