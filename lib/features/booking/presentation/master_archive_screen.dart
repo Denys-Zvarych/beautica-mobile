@@ -111,6 +111,7 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
+import '../application/bookings_capability.dart';
 import '../application/client_review_signal_provider.dart';
 import '../application/master_archive_dialog_visible_notifier.dart';
 import '../application/master_archive_in_flight_notifier.dart';
@@ -150,8 +151,34 @@ void debugResetGroupArchiveByKyivDayCallCount() {
 }
 
 /// The master's «Архів» page. See file header.
+///
+/// Phase 332 — mounted TWICE, at two routes, as ONE widget:
+/// `/master/bookings/archive` for the `INDEPENDENT_MASTER` and
+/// `/staff/bookings/archive` for the invited, read-only `SALON_MASTER`. Both
+/// parameters below are ADDITIVE and NULLABLE, so the `/master/*`
+/// registration — and every test that pumps `const MasterArchiveScreen()` —
+/// renders byte-identically to before they existed. Read-only-ness itself is
+/// NOT a parameter: «Виконано» is gated off `bookingTransitionsEnabledProvider`
+/// (phase 328), which reads the session.
 class MasterArchiveScreen extends ConsumerStatefulWidget {
-  const MasterArchiveScreen({super.key});
+  const MasterArchiveScreen({
+    super.key,
+    this.detailRouteBuilder,
+    this.reviewRouteBuilder,
+  });
+
+  /// Builds the booking-detail path from a booking id for a row tap. `null`
+  /// means [RouteNames.masterBookingDetail]; the `/staff/*` mount passes
+  /// [RouteNames.salonMasterBookingDetail] so the push does not land on a
+  /// `/master/*` path this viewer's own gate bounces.
+  final String Function(String bookingId)? detailRouteBuilder;
+
+  /// Builds the leave-client-feedback path for a row's «Відгук» slot. `null`
+  /// means [RouteNames.clientReview]; the `/staff/*` mount passes
+  /// [RouteNames.salonMasterClientReview]. Backend phase 316 grants a
+  /// `SALON_MASTER` exactly this one write on their own booking, so the slot
+  /// genuinely renders for them and genuinely needs somewhere to go.
+  final String Function(String bookingId)? reviewRouteBuilder;
 
   @override
   ConsumerState<MasterArchiveScreen> createState() =>
@@ -311,7 +338,9 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   void _openDetail(Booking booking) {
-    context.push(RouteNames.masterBookingDetail(booking.id));
+    context.push(
+      (widget.detailRouteBuilder ?? RouteNames.masterBookingDetail)(booking.id),
+    );
   }
 
   /// «Відгук» — pushes the SHIPPED leave-client-feedback screen (Track 7.x
@@ -417,7 +446,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // push→schedule ordering the warm-up depends on is exactly as it was; the
     // await happens only after both have run.
     final Future<bool?> popped = context.push<bool>(
-      RouteNames.clientReview(booking.id),
+      (widget.reviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
       extra: ClientReviewEntry.masterArchive,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => warmup.close());
@@ -680,6 +709,22 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // `itemBuilder` where watching would be out of build scope. See
     // `core/time/clock_provider.dart`.
     final DateTime now = ref.watch(clockProvider)();
+    // Phase 332 — whether this viewer may apply a status TRANSITION, i.e.
+    // whether a not-yet-closed row offers «Виконано». `false` for the
+    // invited, read-only `SALON_MASTER` (and, fail-closed, for an unsettled
+    // session) — see `bookingTransitionsEnabledProvider`'s doc for the strict
+    // session read. `watch`, not `read`: the list must re-render the moment
+    // the role settles. Every other role this screen serves resolves `true`,
+    // so the independent master's rows are unchanged.
+    //
+    // Gated HERE, at the call site, and NOT inside `MasterBookingCard`:
+    // `onComplete` has been nullable since it was introduced, so the card
+    // already knows how to render a row without the button (the timeline grid
+    // and `declared_time_cards.dart` have always relied on exactly that). The
+    // card stays role-agnostic and route-agnostic; the host decides.
+    final bool transitionsEnabled = ref.watch(
+      bookingTransitionsEnabledProvider,
+    );
     // The session-scoped set of bookings whose client this provider has already
     // reviewed — see [_scheduleClientReviewSignalPatch]. `ref.watch` (not
     // `ref.listen`) on purpose: it is what makes an id deposited while this
@@ -911,7 +956,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                               entry: entry,
                             ),
                             ArchiveBookingEntry(:final Booking booking) =>
-                              _archiveBookingRow(booking, completing, now),
+                              _archiveBookingRow(
+                                booking,
+                                completing,
+                                now,
+                                transitionsEnabled,
+                              ),
                           };
                         },
                       );
@@ -930,7 +980,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// of the `itemBuilder` switch above purely so that switch stays a clean
   /// one-line-per-variant match; identical widget to what this screen
   /// rendered before date-group headers existed.
-  Widget _archiveBookingRow(Booking booking, bool completing, DateTime now) {
+  Widget _archiveBookingRow(
+    Booking booking,
+    bool completing,
+    DateTime now,
+    bool transitionsEnabled,
+  ) {
     return RepaintBoundary(
       key: ValueKey<String>(booking.id),
       // «Виконано» is now an ADDITIVE slot on `MasterBookingCard` itself
@@ -944,7 +999,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         booking: booking,
         onTap: () => _openDetail(booking),
         minHeight: MasterBookingCard.fullLayoutMinHeight,
-        onComplete: () => _confirmComplete(booking),
+        // Phase 332 — ABSENT, not disabled, for a read-only viewer (the
+        // user-locked ruling that removed the permanently-disabled
+        // «Перенести» caption in `booking_detail_screen.dart`). `null` is the
+        // card's own long-standing "no close affordance" contract, so nothing
+        // in that widget changes.
+        onComplete: transitionsEnabled ? () => _confirmComplete(booking) : null,
         completing: completing,
         // Required alongside `onComplete` — the card's start-time gate. See
         // `MasterBookingCard.now`.

@@ -849,6 +849,79 @@ abstract final class RouteNames {
   /// `_SalonMasterOwnServicesRoute`.
   static const String salonMasterServices = '/staff/services';
 
+  /// Phase 330 — «Записи» read-only view for a SALON_MASTER. Renders the SAME
+  /// [MasterBookingsScreen] widget [masterBookings] does; every write
+  /// affordance on it is already hidden by phase 328's capability resolvers
+  /// (`bookingCreationEnabledProvider` hides the header's (+) add button,
+  /// `bookingTransitionsEnabledProvider` empties the detail footer), so this
+  /// route reuses the screen verbatim rather than forking a read-only
+  /// variant. Registered under its own `/staff/*` subtree rather than
+  /// widening [masterBookings]'s guard, mirroring [salonMasterSchedule] and
+  /// [salonMasterServices] above: `/master/bookings/new` — the walk-in
+  /// creation chain — stays fenced to INDEPENDENT_MASTER exactly as before
+  /// (and carries its own `independentMasterOnlyGuard` on top, so a hidden
+  /// button is never the only thing standing between a read-only master and
+  /// a write). A TOP-LEVEL tab root, as every [VelvetBottomNavBar] target
+  /// must be.
+  static const String salonMasterBookings = '/staff/bookings';
+
+  /// Phase 330 — the SALON_MASTER's read-only «Деталі запису». The SAME
+  /// [BookingDetailScreen] [masterBookingDetail] renders; the viewer role is
+  /// still derived from the session (`booking_viewer_role.dart`, locked
+  /// decision D5), never from this route.
+  ///
+  /// Registered as a STANDALONE top-level `GoRoute`, NOT nested under
+  /// [salonMasterBookings] — that path is a leaf of the `ShellRoute` holding
+  /// the role's three (now four) bottom-nav tab roots, and nesting a pushed
+  /// drill-in inside it would put the detail page on the SHELL's navigator
+  /// (breaking `ModalRoute.impliesAppBarDismissal`, exactly the failure
+  /// `_SalonManageServicesListRoute` documents) instead of the root one.
+  /// `/staff/settings` and `/staff/edit/*` sit outside the shell for the same
+  /// reason.
+  ///
+  /// ⚠ ORDERING — declared AFTER [salonMasterBookingsArchive] in
+  /// `app_router.dart`. `:bookingId` matches the literal `archive` happily;
+  /// only declaration order keeps it from swallowing it. See
+  /// `test/routing/salon_master_bookings_route_shadowing_test.dart`.
+  static String salonMasterBookingDetail(String bookingId) =>
+      '$salonMasterBookings/${Uri.encodeComponent(bookingId)}';
+
+  /// Phase 332 — the SALON_MASTER's «Архів». The SAME [MasterArchiveScreen]
+  /// [masterBookingsArchive] renders, with «Виконано» gated off
+  /// `bookingTransitionsEnabledProvider` at the row's call site (the card is
+  /// unchanged — `MasterBookingCard.onComplete` has always been nullable).
+  ///
+  /// Not optional for this track: a COMPLETED booking is where
+  /// `Booking.providerCanReviewClient` becomes true, and the archive is where
+  /// a salon master's COMPLETED bookings live — so without this route the
+  /// «Залишити відгук про клієнта» capability backend phase 316 just shipped
+  /// is unreachable in practice.
+  ///
+  /// ⚠ ORDERING — declared BEFORE [salonMasterBookingDetail] in
+  /// `app_router.dart`, for the same literal-before-dynamic reason
+  /// [masterBookingsArchive] documents one level up.
+  static const String salonMasterBookingsArchive =
+      '$salonMasterBookings/archive';
+
+  /// Phase 330 — «ВІДГУК ПРО КЛІЄНТА» for a SALON_MASTER. The SAME
+  /// [LeaveClientFeedbackScreen] [clientReview] renders, reached from the
+  /// same two entry points ([BookingDetailScreen]'s COMPLETED footer and the
+  /// archive row's «Відгук» slot), both of which stay gated on the
+  /// server-computed `Booking.providerCanReviewClient`.
+  ///
+  /// This route exists because backend phase 316 (✅ COMPLETE 2026-09-15)
+  /// grants a `SALON_MASTER` exactly ONE write on their own booking: leaving
+  /// feedback about its client. Without a `/staff/*` counterpart the CTA
+  /// would render and then bounce off the `/master/*` gate — the dead-end tap
+  /// this whole track exists to remove.
+  ///
+  /// STANDALONE top-level `GoRoute`, mirroring [clientReview]'s own
+  /// registration and for the identical reason (nesting under a plain content
+  /// screen mounts a shadow detail page underneath and breaks pop-back from
+  /// the archive entry path).
+  static String salonMasterClientReview(String bookingId) =>
+      '${salonMasterBookingDetail(bookingId)}/review';
+
   // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
   // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
   // masterId from the session (authProvider), so the reviews are always the

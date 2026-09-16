@@ -18,6 +18,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'booking_status.dart';
+import 'client_authored_review.dart';
 
 part 'booking.freezed.dart';
 
@@ -286,5 +287,21 @@ abstract class Booking with _$Booking {
     /// entirely (pre-29.2) cannot crash the mapper — nothing reads this field
     /// yet (phases 227/229 do).
     @Default(false) bool awaitingClosure,
+
+    /// Phase 334 — the review this booking's CLIENT left about the master
+    /// (rating + full comment), or `null` when the booking carries none.
+    ///
+    /// The OPPOSITE direction from [providerCanReviewClient], which gates the
+    /// provider's own review OF the client. A booking can carry both, one, or
+    /// neither; they are separate entities with separate payloads.
+    ///
+    /// ⚠️ SURFACE-SCOPED, exactly like [providerCanReviewClient]: served with
+    /// a real value ONLY by `GET /bookings/{id}`. Every listing surface sends
+    /// `null` unconditionally, so a `null` on a list row carries NO
+    /// information about whether a review exists — do not read this field on
+    /// a list, and do not key an empty state off it there. Rendered by the
+    /// PROVIDER branch of «Деталі запису» alone. See
+    /// [ClientAuthoredReview]'s own file header for the full contract.
+    ClientAuthoredReview? reviewByClient,
   }) = _Booking;
 }

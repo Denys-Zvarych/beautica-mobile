@@ -150,6 +150,22 @@ void main() {
   // Pinned against hard-coded literals in BOTH locales — never against
   // another getter, which a swap would satisfy just as well.
   group('masterNavTab* tile labels are pinned', () {
+    // `VelvetBottomNavBar` is mounted as the Scaffold `bottomNavigationBar` of
+    // several full-screen-golden'd screens, so a nav-label edit repaints their
+    // baselines. Commit 77677a95 («Мої записи» → «Записи») swept
+    // `test/golden/goldens/` by directory and left the seven feature-local
+    // baselines in `test/features/schedule/presentation/goldens/` stale — the
+    // only signal was an opaque 283 px diff deep into CI. This `reason:` is
+    // the sweep instruction attached to the assertion a copy change actually
+    // trips, so the failure names the baselines instead of hiding behind a
+    // pixel diff.
+
+    const String goldenSweepReason =
+        'nav-tab copy changed: the bottom nav bar is captured by full-screen '
+        'goldens, so regenerate BOTH test/golden/goldens/ AND '
+        'test/features/schedule/presentation/goldens/ '
+        '(flutter test --update-goldens <file>) and verify the pixel diff is '
+        'confined to the label before accepting the new baselines';
     Future<AppLocalizations> localizationsFor(
       WidgetTester tester,
       Locale locale,
@@ -177,10 +193,10 @@ void main() {
       final uk = await localizationsFor(tester, const Locale('uk', 'UA'));
 
       // Tile order is the bar's own 0..3; the literals are the approved copy.
-      expect(uk.masterNavTabServices, 'Послуги');
-      expect(uk.masterNavTabBookings, 'Мої записи');
-      expect(uk.masterNavTabSchedule, 'Графік');
-      expect(uk.masterNavTabProfile, 'Профіль');
+      expect(uk.masterNavTabServices, 'Послуги', reason: goldenSweepReason);
+      expect(uk.masterNavTabBookings, 'Записи', reason: goldenSweepReason);
+      expect(uk.masterNavTabSchedule, 'Графік', reason: goldenSweepReason);
+      expect(uk.masterNavTabProfile, 'Профіль', reason: goldenSweepReason);
     });
 
     testWidgets('English — the four tiles carry their EN copy', (
@@ -188,10 +204,10 @@ void main() {
     ) async {
       final en = await localizationsFor(tester, const Locale('en'));
 
-      expect(en.masterNavTabServices, 'Services');
-      expect(en.masterNavTabBookings, 'My bookings');
-      expect(en.masterNavTabSchedule, 'Schedule');
-      expect(en.masterNavTabProfile, 'Profile');
+      expect(en.masterNavTabServices, 'Services', reason: goldenSweepReason);
+      expect(en.masterNavTabBookings, 'Bookings', reason: goldenSweepReason);
+      expect(en.masterNavTabSchedule, 'Schedule', reason: goldenSweepReason);
+      expect(en.masterNavTabProfile, 'Profile', reason: goldenSweepReason);
     });
 
     // Anti-vacuity for the two rows above: four literal equalities would all

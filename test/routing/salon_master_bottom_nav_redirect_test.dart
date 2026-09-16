@@ -19,9 +19,16 @@
 // Phase 321 CLOSED it for tile 0 (Послуги) too: it now targets
 // `RouteNames.salonMasterServices` (`/staff/services`, an additive
 // `servicesRoute` override), which renders the SAME `ServicesListScreen`
-// read-only (`writable: false`) and does NOT bounce. Tile 1 (Мої записи)
-// still has no `/staff/*` counterpart and keeps bouncing — see
-// `salon_master_profile_screen.dart`'s header (narrowed by Phase 321 D4).
+// read-only (`writable: false`) and does NOT bounce. Phase 330 CLOSED THE
+// LAST ONE: tile 1 (Мої записи) now targets
+// `RouteNames.salonMasterBookings` (`/staff/bookings`, an additive
+// `bookingsRoute` override), which renders the SAME `MasterBookingsScreen`
+// read-only and does NOT bounce either. All four tiles now land.
+//
+// What did NOT change, and is pinned below: `/master/bookings` and every
+// leaf under it still bounce a SALON_MASTER. The `/master/*` gate in
+// `auth_redirect.dart` is byte-unchanged by all three phases — each tile got
+// its own `/staff/*` counterpart instead of a widened fence.
 //
 // `role_landing_chrome_matrix.dart` proves the bar RENDERS; `auth_redirect
 // _test.dart` proves the pure redirect FUNCTION bounces SALON_MASTER off
@@ -67,6 +74,9 @@ const Key _servicesMarker = Key('stub-services-screen');
 const Key _serviceSetupMarker = Key('stub-service-setup-screen');
 const Key _serviceEditMarker = Key('stub-service-edit-screen');
 const Key _bookingsMarker = Key('stub-master-bookings-screen');
+const Key _bookingsArchiveMarker = Key('stub-master-bookings-archive-screen');
+const Key _bookingDetailMarker = Key('stub-master-booking-detail-screen');
+const Key _staffBookingsMarker = Key('stub-staff-bookings-screen');
 const Key _staffScheduleMarker = Key('stub-staff-schedule-screen');
 const Key _staffServicesMarker = Key('stub-staff-services-screen');
 
@@ -101,6 +111,7 @@ GoRouter _buildRouter({List<String>? redirectLog}) => GoRouter(
           activeIndex: 3,
           scheduleRoute: RouteNames.salonMasterSchedule,
           servicesRoute: RouteNames.salonMasterServices,
+          bookingsRoute: RouteNames.salonMasterBookings,
         ),
       ),
     ),
@@ -130,6 +141,34 @@ GoRouter _buildRouter({List<String>? redirectLog}) => GoRouter(
       builder: (context, _) => const Scaffold(
         body: SizedBox.shrink(key: _bookingsMarker),
         bottomNavigationBar: VelvetBottomNavBar(activeIndex: 1),
+      ),
+    ),
+    // Registered so the "still bounced off /master/bookings*" matrix below
+    // exercises the WIRED redirect against real destinations, exactly as the
+    // `/services` write leaves above do.
+    GoRoute(
+      path: RouteNames.masterBookingsArchive,
+      builder: (context, _) =>
+          const Scaffold(body: SizedBox.shrink(key: _bookingsArchiveMarker)),
+    ),
+    GoRoute(
+      path: '/master/bookings/:bookingId',
+      builder: (context, _) =>
+          const Scaffold(body: SizedBox.shrink(key: _bookingDetailMarker)),
+    ),
+    // Phase 330 — «Мої записи» LANDS here now. Mirrors the production
+    // `/staff/bookings` registration's own bar wiring: tile 1 is active, so
+    // the other three carry `/staff/*` overrides.
+    GoRoute(
+      path: RouteNames.salonMasterBookings,
+      builder: (context, _) => const Scaffold(
+        body: SizedBox.shrink(key: _staffBookingsMarker),
+        bottomNavigationBar: VelvetBottomNavBar(
+          activeIndex: 1,
+          scheduleRoute: RouteNames.salonMasterSchedule,
+          servicesRoute: RouteNames.salonMasterServices,
+          profileRoute: RouteNames.salonMasterProfile,
+        ),
       ),
     ),
     GoRoute(
@@ -185,8 +224,8 @@ String _location(GoRouter router) =>
     router.routerDelegate.currentConfiguration.uri.toString();
 
 void main() {
-  group('SALON_MASTER tapping VelvetBottomNavBar tile 1 still bounces '
-      'back to /staff/profile with no intermediate frame', () {
+  group('SALON_MASTER tapping VelvetBottomNavBar tile 1 (Мої записи) LANDS '
+      '— Phase 330', () {
     testWidgets('precondition: SALON_MASTER lands on /staff/profile with '
         'the bar at activeIndex 3', (tester) async {
       final router = _buildRouter();
@@ -198,27 +237,60 @@ void main() {
     });
 
     testWidgets(
-      'tapping tile 1 (Мої записи, /master/bookings) never renders the '
-      'master-bookings screen',
+      'tapping tile 1 renders the /staff/bookings destination — pinned by a '
+      'marker key that is only present on THAT stub screen (not the route '
+      'string alone), guarding against go_router literal-vs-dynamic '
+      'shadowing; the real router type-level proof (both routes build '
+      'MasterBookingsScreen) lives in '
+      'salon_master_bookings_route_shadowing_test.dart',
       (tester) async {
         final router = _buildRouter();
         await tester.pumpWidget(_app(router));
         await tester.pumpAndSettle();
 
         await tester.tap(find.byKey(const Key('master-nav-tile-1')));
-        await tester.pump();
-
-        expect(find.byKey(_bookingsMarker), findsNothing);
-        expect(find.byKey(_staffProfileMarker), findsOneWidget);
-
         await tester.pumpAndSettle();
-        expect(_location(router), RouteNames.salonMasterProfile);
+
+        expect(
+          find.byKey(_staffBookingsMarker),
+          findsOneWidget,
+          reason:
+              'Phase 330 registered /staff/bookings as a tab root reusing '
+              'MasterBookingsScreen and retargeted this tile onto it. No '
+              'redirect should fire.',
+        );
+        expect(find.byKey(_bookingsMarker), findsNothing);
+        expect(find.byKey(_staffProfileMarker), findsNothing);
+        expect(_location(router), RouteNames.salonMasterBookings);
       },
     );
 
+    testWidgets('tapping tile 1 lands in ONE navigation — the tap never '
+        'passes through the INDEPENDENT_MASTER-only /master/bookings '
+        'literal and gets corrected by the gate', (tester) async {
+      final redirectLog = <String>[];
+      final router = _buildRouter(redirectLog: redirectLog);
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
+      redirectLog.clear();
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        redirectLog,
+        <String>[RouteNames.salonMasterBookings],
+        reason:
+            'if bookingsRoute were NOT wired, the tap would go to '
+            '/master/bookings and the log would show BOTH that (rejected) '
+            'AND /staff/profile (the correction) — two matched locations '
+            'for one tap.',
+      );
+    });
+
     testWidgets(
-      'the bar itself is still present after the bounce — the master is '
-      'never left on a screen with no way to navigate',
+      'from /staff/bookings the bar is present — no dead end even though '
+      'go leaves no back button',
       (tester) async {
         final router = _buildRouter();
         await tester.pumpWidget(_app(router));
@@ -230,6 +302,60 @@ void main() {
         expect(find.byType(VelvetBottomNavBar), findsOneWidget);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 330 D-list — the structural claim: gaining `/staff/bookings` does
+  // NOT widen `/master/*`. Each leaf named individually so a single carve-out
+  // cannot hide behind a sibling. Mutation: delete the `/master/` gate's
+  // non-INDEPENDENT_MASTER bounce and all three must go RED.
+  // ---------------------------------------------------------------------
+  group('SALON_MASTER still bounced off /master/bookings and its leaves — '
+      'Phase 330', () {
+    testWidgets('/master/bookings still bounces to /staff/profile', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
+
+      router.go(RouteNames.masterBookings);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_bookingsMarker), findsNothing);
+      expect(find.byKey(_staffProfileMarker), findsOneWidget);
+      expect(_location(router), RouteNames.salonMasterProfile);
+    });
+
+    testWidgets('/master/bookings/archive still bounces to /staff/profile', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
+
+      router.go(RouteNames.masterBookingsArchive);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_bookingsArchiveMarker), findsNothing);
+      expect(find.byKey(_staffProfileMarker), findsOneWidget);
+      expect(_location(router), RouteNames.salonMasterProfile);
+    });
+
+    testWidgets('/master/bookings/:id still bounces to /staff/profile', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
+
+      router.go(RouteNames.masterBookingDetail('b-001'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_bookingDetailMarker), findsNothing);
+      expect(find.byKey(_staffProfileMarker), findsOneWidget);
+      expect(_location(router), RouteNames.salonMasterProfile);
+    });
   });
 
   // ---------------------------------------------------------------------

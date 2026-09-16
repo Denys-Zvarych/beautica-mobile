@@ -143,15 +143,59 @@ final class ErrorMapperInterceptor extends Interceptor {
       }
 
       // Backend Phase A3 — authenticated change-password OTP resend cooldown.
-      // Unlike /auth/forgot-password (anti-enumeration — no 429 surfaced),
-      // this authenticated entry point DOES throw the same
-      // ResendThrottledException shape as /auth/resend-verification.
+      // This authenticated entry point throws the same
+      // ResendThrottledException shape as /auth/resend-verification:
+      // {success:false, message:"...", data:{retryAfterSeconds:N}}, i.e. a
+      // per-ACCOUNT cooldown raised by the controller.
+      //
+      // Contrast with the password-reset branch below, which is a different
+      // mechanism entirely (per-IP servlet filter, no envelope) — see there.
       if (statusCode == 429 &&
           path.endsWith('/users/me/change-password/request-otp')) {
         return ResendThrottledFailure(
           retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
           cause: err,
         );
+      }
+
+      // Password-reset journey 429 — per-IP `AuthRateLimitFilter`
+      // (`RateLimitConfig.java`). The three endpoints below have SEPARATE
+      // buckets, and the budgets are NOT uniform:
+      //
+      //   /auth/forgot-password            3 per 60 min, Retry-After 3600
+      //   /auth/reset-password            10 per 60 min, Retry-After 3600
+      //   /auth/verify-password-reset-otp 10 per 15 min, Retry-After  900
+      //
+      // (Do not paraphrase this as "3/hour on all three" — that was the
+      // original comment, it was wrong for two of the three, and copy is
+      // deliberately window-agnostic because of it.)
+      //
+      // CORRECTION (this was previously believed not to happen, and that
+      // belief is why this branch did not exist): /auth/forgot-password's
+      // anti-enumeration contract — always a generic 200 — is a property of
+      // the CONTROLLER. The rate-limit filter sits in front of it and never
+      // reaches the controller, so it DOES answer 429, with
+      // `Retry-After: 3600` and the filter's own bare body
+      // `{"error":"Too many requests"}` — no `message`, no `errors`, no
+      // `data.code`. Without this branch the response fell all the way to the
+      // terminal UnknownFailure and the user was told «Спробуйте ще раз»,
+      // which at 3/hour is the one action that cannot work.
+      //
+      // All three steps of the journey are covered: the buckets are separate
+      // but the hole was identical, and gating only the first step leaves the
+      // user hitting the same wall two taps later.
+      //
+      // Note the failure carries no retry-after: every window above (3600 s,
+      // and 900 s for the OTP step) is beyond
+      // [_extractRetryAfterSecondsNullable]'s 600 s UX ceiling, so the value
+      // would be `null` every time (see PasswordResetRateLimitedFailure).
+      //
+      // Suffix match (see verify-email above) — immune to baseUrl prefix drift.
+      if (statusCode == 429 &&
+          (path.endsWith('/auth/forgot-password') ||
+              path.endsWith('/auth/reset-password') ||
+              path.endsWith('/auth/verify-password-reset-otp'))) {
+        return PasswordResetRateLimitedFailure(cause: err);
       }
 
       if (statusCode == 401) {
@@ -351,7 +395,6 @@ final class ErrorMapperInterceptor extends Interceptor {
   /// Returns `0` when both sources are absent or malformed.
   int? _extractRetryAfterSecondsNullable(DioException err) {
     const int kMaxCooldown = 1 << 31; // overflow guard (MASVS-PLATFORM)
-    const int kMaxUxCooldownSeconds = 600; // 10 min UX ceiling
 
     // 1. Retry-After header (RFC 7231 §7.1.3 — integer seconds form only;
     //    HTTP-date form is intentionally not parsed here since the backend

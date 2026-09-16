@@ -16,8 +16,8 @@ Name | Type | Description | Notes
 **cancelOverlapping** | **bool** |  | [optional] 
 **windowStart** | **String** |  | [optional] 
 **windowEnd** | **String** |  | [optional] 
-**windowConsistent** | **bool** |  | [optional] 
 **kindConsistent** | **bool** |  | [optional] 
+**windowConsistent** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

@@ -201,9 +201,10 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   final String? navScheduleRoute;
   final String? navProfileRoute;
 
-  /// Tile 1 («Мої записи»). No `/staff/*` counterpart exists for a
-  /// SALON_MASTER yet, so this stays `null` at every call site and that tile
-  /// keeps its documented bounce — see [VelvetBottomNavBar.bookingsRoute].
+  /// Tile 1 («Мої записи»). `null` for the INDEPENDENT_MASTER and the
+  /// owner/admin mounts; phase 330 points the SALON_MASTER's `/staff/services`
+  /// mount at [RouteNames.salonMasterBookings], so that tile no longer
+  /// bounces — see [VelvetBottomNavBar.bookingsRoute].
   final String? navBookingsRoute;
 
   /// Resolved setup destination — the parameter, or today's literal.

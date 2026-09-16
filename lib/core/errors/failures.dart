@@ -17,6 +17,27 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 
+/// The longest cooldown, in seconds, this app is willing to render as a live
+/// numeric countdown (10 minutes).
+///
+/// ONE threshold, two enforcement points — keep them reading the same constant:
+///
+///   * `ErrorMapperInterceptor._extractRetryAfterSecondsNullable` (core/network)
+///     returns `null` instead of a server value above this, so a rogue or
+///     merely long `Retry-After` never reaches a widget as a number.
+///   * `OtpResendRow` (auth presentation) renders its non-numeric
+///     "unavailable" label — and starts NO periodic timer — for a cooldown
+///     above this, so «Надіслати знову (3600 с)» is unrepresentable.
+///
+/// Lives here (not in `core/network`) because it is a UX presentation
+/// ceiling, not an HTTP concern — and both the network and presentation
+/// layers already depend on `core/errors`, so this is the neutral home that
+/// avoids a presentation → network layering inversion.
+///
+/// Was a function-local const until 2026-09-15; promoted so the second
+/// enforcement point could not drift into a duplicate magic number.
+const int kMaxUxCooldownSeconds = 600;
+
 /// Base class for all domain-level failures.
 ///
 /// Every public repository method either returns a value or throws a `Failure`
@@ -508,6 +529,42 @@ final class ResetTokenInvalidFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).resetErrTokenInvalid;
+}
+
+/// Emitted when any step of the password-reset journey returns **429** because
+/// the backend's per-IP `AuthRateLimitFilter` bucket is exhausted.
+///
+/// Covers all three endpoints of the same journey. Each has its OWN bucket in
+/// `RateLimitConfig`, and the budgets are NOT uniform:
+///
+/// | Endpoint                          | Capacity      | `Retry-After` |
+/// |-----------------------------------|---------------|---------------|
+/// | `/auth/forgot-password`           | 3 per 60 min  | 3600          |
+/// | `/auth/reset-password`            | 10 per 60 min | 3600          |
+/// | `/auth/verify-password-reset-otp` | 10 per 15 min | 900           |
+///
+/// The filter runs BEFORE the controller, so the anti-enumeration generic-200
+/// contract of forgot-password does not apply: the body is the filter's own
+/// `{"error":"Too many requests"}` — no `message`, no `errors`, no
+/// `data.code`.
+///
+/// Deliberately carries NO `retryAfterSeconds`. Every window above — 3600 s,
+/// and 900 s for the OTP step — is beyond `ErrorMapperInterceptor`'s 600 s UX
+/// ceiling, so the extracted value would be `null` on every single occurrence
+/// and a countdown could never render. A field that is structurally always
+/// `null` is worse than no field — it invites a countdown branch that is dead
+/// code.
+///
+/// The copy must NOT invite an IMMEDIATE retry: at these budgets the very next
+/// tap is guaranteed to fail. Nor may it name a window — the three differ by
+/// 4×, and telling an OTP-throttled user to wait an hour strands a legitimate
+/// reset.
+final class PasswordResetRateLimitedFailure extends Failure {
+  const PasswordResetRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).authResetErrRateLimited;
 }
 
 /// Emitted when `POST /api/v1/service-categories/requests` returns **409**

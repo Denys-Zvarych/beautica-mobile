@@ -275,6 +275,21 @@ GoRouter appRouter(Ref ref) {
   // therefore not act on a stale session either: see
   // `salon_home_resolver_screen.dart`, which applies the same concrete-subtype
   // gate to its own session read for exactly this reason.
+  // DO NOT add `&& !auth.isLoading` here, however much it looks like the
+  // missing half of `authUserRoleSettledOrNull`'s gate (which grew exactly
+  // that clause on 2026-09-15, because a SEAMLESS refresh —
+  // `ref.invalidate(authProvider)` from a settled session — produces an
+  // `AsyncData` still carrying the stale value with `isRefreshing == true`;
+  // `riverpod-3.2.1/.../async_value.dart:789-796`). In a SELECTOR, `null`
+  // means "no role" and tightening the gate fails CLOSED. Here it means the
+  // opposite: every guard below reads `resolvedSession()` and returns `null`
+  // — ADMIT, fall through to the global [authRedirect] — when it cannot see an
+  // `Authenticated`. Returning `null` more often therefore makes every
+  // per-route role guard MORE permissive, inverting the fix. The staleness the
+  // selectors fence is harmless on this side: an admission is re-decided the
+  // moment the session settles, because `refreshListenable` re-runs every
+  // redirect on each `authProvider` emission (the trade-off spelled out
+  // immediately above). Leave this on the subtype check alone.
   AuthSession? resolvedSession() {
     final AsyncValue<AuthSession> auth = ref.read(authProvider);
     return auth is AsyncData<AuthSession> ? auth.value : null;
@@ -476,6 +491,40 @@ GoRouter appRouter(Ref ref) {
   String? salonAdminOnlyGuard(BuildContext context, GoRouterState state) {
     final session = resolvedSession();
     if (session is Authenticated && session.user.role != UserRole.salonAdmin) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
+
+  // Phase 331 — per-route INDEPENDENT_MASTER-only gate for the walk-in
+  // booking chain (`/master/bookings/new`, `/master/bookings/new/services`).
+  // The exact mirror of [salonAdminOnlyGuard] / [mySalonsGuard] one role
+  // over: any other authenticated role is bounced to its own landing, and
+  // unauthenticated access is left to the global [authRedirect] (-> /login).
+  //
+  // WHY IT EXISTS EVEN THOUGH `/master/*` IS ALREADY FENCED: today
+  // `auth_redirect.dart`'s `/master/*` prefix gate admits INDEPENDENT_MASTER
+  // only, so this guard is a no-op — but the salon-staff track widens that
+  // prefix to admit the read-only SALON_MASTER. At that moment the only thing
+  // standing between a read-only master and the walk-in wizard would be the
+  // ABSENCE of the add (+) button (`bookingCreationEnabled`, phase 329) — a
+  // hidden control is not an authorization boundary, and this track exists to
+  // forbid load-bearing client-side affordance gates. The backend already
+  // 403s (`StaffBookingScopeResolver`), so the exposure ceiling was a
+  // dead-end wizard rather than data loss; the gate still belongs in the
+  // router, and it belongs here BEFORE the widening, not after.
+  //
+  // REUSE-FIRST was checked: no shipped guard expresses "INDEPENDENT_MASTER
+  // and nothing else" — the existing prefix gate in `auth_redirect.dart` is
+  // location-keyed, not a reusable per-route closure, and every guard in this
+  // file admits a salon role set.
+  String? independentMasterOnlyGuard(
+    BuildContext context,
+    GoRouterState state,
+  ) {
+    final session = resolvedSession();
+    if (session is Authenticated &&
+        session.user.role != UserRole.independentMaster) {
       return roleHomePath(session.user.role);
     }
     return null;
@@ -1725,8 +1774,13 @@ GoRouter appRouter(Ref ref) {
           // of the ROUTED walk-in chain (see `route_names.dart`'s
           // [RouteNames.masterBookingNewServices] doc and phase-264's D4).
           // The old wizard screen was deleted outright in Phase 265.
+          //
+          // Phase 331 — gated by [independentMasterOnlyGuard]. See that
+          // guard's doc for why the `/master/*` prefix gate in
+          // `auth_redirect.dart` is not enough here.
           GoRoute(
             path: 'new',
+            redirect: independentMasterOnlyGuard,
             pageBuilder: (context, state) => const MaterialPage<void>(
               fullscreenDialog: true,
               child: WalkInGuestStepScreen(),
@@ -1745,11 +1799,30 @@ GoRouter appRouter(Ref ref) {
               // [RouteNames.masterBookingNew] — a two-hop bounce to a safe
               // place once that screen's own guard sends a non-master
               // there too (phase-264 D9, pinned by test).
+              //
+              // Phase 331 — [independentMasterOnlyGuard] composed FIRST,
+              // mirroring how [RouteNames.bookingNew] composes
+              // [clientOnlyGuard] ahead of its own `extra` validation. The
+              // parent `new` route's redirect already runs for this location
+              // (go_router evaluates `redirect:` for every route in the
+              // matched stack, outermost first), so this is belt-and-braces
+              // — but stating it here keeps the guard attached to the route
+              // that would survive a future re-parenting, and ordering it
+              // first means a wrong-role deep link is bounced to its OWN
+              // landing rather than two-hopping through a wizard it may not
+              // open.
               GoRoute(
                 path: 'services',
-                redirect: (context, state) => state.extra is WalkInGuest
-                    ? null
-                    : RouteNames.masterBookingNew,
+                redirect: (context, state) {
+                  final String? roleRedirect = independentMasterOnlyGuard(
+                    context,
+                    state,
+                  );
+                  if (roleRedirect != null) return roleRedirect;
+                  return state.extra is WalkInGuest
+                      ? null
+                      : RouteNames.masterBookingNew;
+                },
                 // `builder:` (MaterialPage, not fullscreenDialog) — mirrors
                 // how `time` nests under [bookingSlots] elsewhere in this
                 // file: a normal forward push within the already-modal
@@ -1988,7 +2061,107 @@ GoRouter appRouter(Ref ref) {
             path: RouteNames.salonMasterServices,
             builder: (context, state) => const _SalonMasterOwnServicesRoute(),
           ),
+          // Phase 330 — «Записи» read-only view for a SALON_MASTER. Reuses
+          // [MasterBookingsScreen] VERBATIM (see `route_names.dart`'s
+          // [RouteNames.salonMasterBookings] doc): the read-only behaviour is
+          // phase 328's `bookingCreationEnabledProvider` /
+          // `bookingTransitionsEnabledProvider`, both session-derived, not
+          // anything asserted here. The parameters passed below are purely
+          // WHERE this mount's own navigation lands — every one of them is
+          // additive and defaults to the `/master/*` literal, so the
+          // `/master/bookings` registration further up is untouched.
+          //
+          // A tab root, like its three siblings: the shell adds no path
+          // segment, so `/staff/bookings` is still a top-level path and
+          // `VelvetBottomNavBar`'s `context.go` precondition holds.
+          //
+          // `canAddWorkingHours: false` — the "no working hours" empty state
+          // is a COMMON landing for an invited master (the salon owns their
+          // schedule), and its «Додати робочі години» CTA is a schedule WRITE
+          // `scheduleEditableProvider` has denied this role since phase 309.
+          // Structural, at the route, exactly like `writable: false` on
+          // `/staff/services` above.
+          GoRoute(
+            path: RouteNames.salonMasterBookings,
+            builder: (context, state) => const MasterBookingsScreen(
+              detailRouteBuilder: RouteNames.salonMasterBookingDetail,
+              archiveRoute: RouteNames.salonMasterBookingsArchive,
+              navServicesRoute: RouteNames.salonMasterServices,
+              navScheduleRoute: RouteNames.salonMasterSchedule,
+              navProfileRoute: RouteNames.salonMasterProfile,
+              canAddWorkingHours: false,
+            ),
+          ),
         ],
+      ),
+      // ═══════════════════════════════════════════════════════════════════
+      // Phase 330 / 332 — the SALON_MASTER's «Записи» DRILL-INS.
+      //
+      // Deliberately OUTSIDE the `ShellRoute` above, mirroring `/staff/
+      // settings` and `/staff/edit/*`: these are pushed pages, not tabs. A
+      // nested child of a shell leaf would be contributed to the SHELL's own
+      // Navigator, which is what breaks `ModalRoute.impliesAppBarDismissal`
+      // (see `_SalonManageServicesListRoute`'s `showBack` comment for the
+      // concrete failure that shipped as). Registered flat, they push onto
+      // the ROOT navigator and pop straight back to the tab underneath —
+      // which is also what makes each one exactly ONE match, the property
+      // [RouteNames.clientReview]'s own standalone registration exists for.
+      //
+      // ⚠ DECLARATION ORDER IS THE ONLY THING THAT RESOLVES THESE.
+      // `/staff/bookings/:bookingId` matches the literal `/staff/bookings/
+      // archive` perfectly happily, with `bookingId == 'archive'`. go_router
+      // matches siblings in declaration order and takes the FIRST hit, so
+      // `archive` MUST be declared first — the same rule `archive` / `new` /
+      // `:bookingId` obey one subtree up under [RouteNames.masterBookings].
+      // Pinned by `test/routing/salon_master_bookings_route_shadowing_test
+      // .dart`, which asserts the resolved page TYPE (not the location
+      // string — a path assertion passes while the wrong screen renders).
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // Phase 332 — /staff/bookings/archive. Reuses [MasterArchiveScreen]
+      // VERBATIM; «Виконано» is gated off `bookingTransitionsEnabledProvider`
+      // inside that screen, so nothing about read-only-ness is asserted here.
+      // Not optional for this track: a COMPLETED booking is where
+      // `providerCanReviewClient` turns true, and the archive is where a
+      // salon master's COMPLETED bookings live.
+      GoRoute(
+        path: RouteNames.salonMasterBookingsArchive,
+        builder: (context, state) => const MasterArchiveScreen(
+          detailRouteBuilder: RouteNames.salonMasterBookingDetail,
+          reviewRouteBuilder: RouteNames.salonMasterClientReview,
+        ),
+      ),
+      // Phase 330 — /staff/bookings/:bookingId. The SAME
+      // [BookingDetailScreen] the CLIENT and INDEPENDENT_MASTER routes
+      // render; the viewer side is still resolved from the session
+      // (`booking_viewer_role.dart`, locked decision D5), never from this
+      // route. `clientReviewRouteBuilder` only re-aims the ONE push that
+      // would otherwise leave the `/staff/*` subtree.
+      //
+      // Declared AFTER `archive` above — see the ordering banner.
+      GoRoute(
+        path: '${RouteNames.salonMasterBookings}/:bookingId',
+        builder: (context, state) => BookingDetailScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
+        ),
+      ),
+      // Phase 330 — /staff/bookings/:bookingId/review, the SALON_MASTER's
+      // «ВІДГУК ПРО КЛІЄНТА». Backend phase 316 (✅ COMPLETE) grants this role
+      // exactly one write on their own booking; without a `/staff/*`
+      // counterpart the CTA would render and then bounce off the `/master/*`
+      // gate. Same `extra`-carries-the-entry-point contract as
+      // [RouteNames.clientReview]'s registration — see that route's comment
+      // for why an absent/unexpected `extra` falls back to `bookingDetail`.
+      GoRoute(
+        path: '${RouteNames.salonMasterBookings}/:bookingId/review',
+        builder: (context, state) => LeaveClientFeedbackScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          entry: switch (state.extra) {
+            final ClientReviewEntry entry => entry,
+            _ => ClientReviewEntry.bookingDetail,
+          },
+        ),
       ),
       // Settings hub reached from the profile's trailing `tune_rounded`
       // action. REUSE-FIRST: the SAME [SettingsHubScreen] widget
@@ -2422,12 +2595,15 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
     // pointed at this role's OWN `/staff/*` roots. Left at their defaults
     // they targeted `/master/schedule` and `/master/profile`, which
     // `auth_redirect.dart:300` bounces back to `roleHomePath` — a tap that
-    // visibly does nothing. Tile 1 («Мої записи») has no `/staff/*`
-    // counterpart and keeps its documented bounce.
+    // visibly does nothing. Phase 330 completes the set with tile 1.
     return const ServicesListScreen(
       writable: false,
       navScheduleRoute: RouteNames.salonMasterSchedule,
       navProfileRoute: RouteNames.salonMasterProfile,
+      // Phase 330 — tile 1 («Мої записи») now has a `/staff/*` counterpart
+      // too, so the M6 note above is fully discharged: none of this bar's
+      // four tiles bounces for a SALON_MASTER any more.
+      navBookingsRoute: RouteNames.salonMasterBookings,
     );
   }
 }

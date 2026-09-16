@@ -109,6 +109,7 @@ import 'package:beautica_api/src/model/catalog_category_response.dart';
 import 'package:beautica_api/src/model/category_request_response.dart';
 import 'package:beautica_api/src/model/city_district_response.dart';
 import 'package:beautica_api/src/model/city_response.dart';
+import 'package:beautica_api/src/model/client_authored_review_response.dart';
 import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
@@ -334,6 +335,7 @@ part 'serializers.g.dart';
   CategoryRequestResponse,
   CityDistrictResponse,
   CityResponse,
+  ClientAuthoredReviewResponse,
   ClientReviewResponse,
   ContactSupportRequest,
   ContactSupportResponse,

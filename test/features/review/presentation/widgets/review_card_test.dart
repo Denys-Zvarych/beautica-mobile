@@ -22,16 +22,26 @@ ReviewCardData _data({
   String id = 'r-1',
   String clientDisplayName = 'Олена К.',
   int rating = 4,
-  String comment = 'Все чудово, дякую!',
+  String? comment = 'Все чудово, дякую!',
   String? serviceName,
+  bool noDate = false,
 }) => ReviewCardData(
   id: id,
   clientDisplayName: clientDisplayName,
   rating: rating,
   comment: comment,
-  createdAt: DateTime.utc(2026, 6, 10, 10),
+  // The two SHIPPED callers (salon + master reviews) always supply a
+  // timestamp; `noDate: true` is the phase-334 booking-detail case, whose
+  // payload carries none.
+  createdAt: noDate ? null : DateTime.utc(2026, 6, 10, 10),
   serviceName: serviceName,
 );
+
+/// Every [Text] string currently in the tree, in paint order.
+List<String> _texts(WidgetTester tester) => tester
+    .widgetList<Text>(find.byType(Text))
+    .map((Text t) => t.data ?? '')
+    .toList();
 
 Widget _host(ReviewCard card) => Scaffold(body: Center(child: card));
 
@@ -145,5 +155,109 @@ void main() {
 
     expect(find.byIcon(Icons.star_rounded), findsNWidgets(5));
     expect(_filledStars(tester), 0);
+  });
+
+  // ── Phase 334 — the nullable widening ───────────────────────────────────
+  //
+  // «Деталі запису»'s provider branch renders the client's review of the
+  // master through THIS card (`ClientReviewSection`). Its payload,
+  // `ClientAuthoredReviewResponse`, is `{rating, comment?}` and nothing else
+  // — no timestamp, and a comment that is genuinely absent when the client
+  // rated without writing anything. Both fields were widened to nullable for
+  // it.
+  //
+  // The widening is ADDITIVE, and the two regression tests at the end of this
+  // group are the load-bearing half: the salon and master reviews tabs pass
+  // non-null values for both, so their cards must render byte-for-byte as
+  // before. `null` is the ONLY value that suppresses either line — an EMPTY
+  // comment string still renders its (empty) Text and its leading gap, which
+  // is what the pre-widening code did unconditionally.
+
+  testWidgets('omits the relative-date line when createdAt is null, keeping '
+      'every other line', (tester) async {
+    await tester.pumpApp(
+      _host(ReviewCard(data: _data(), keyPrefix: 'client-review')),
+    );
+    final List<String> withDate = _texts(tester);
+
+    await tester.pumpApp(
+      _host(ReviewCard(data: _data(noDate: true), keyPrefix: 'client-review')),
+    );
+    final List<String> withoutDate = _texts(tester);
+
+    // Exactly ONE Text disappears, and it is neither the name nor the
+    // comment — i.e. the relative date, without this test having to know what
+    // string the formatter produces for a clock it does not control.
+    expect(withDate.length, withoutDate.length + 1);
+    expect(
+      withoutDate,
+      containsAll(<String>['Олена К.', 'Все чудово, дякую!']),
+    );
+    final Set<String> dropped = withDate.toSet().difference(
+      withoutDate.toSet(),
+    );
+    expect(dropped, hasLength(1));
+    expect(dropped.single, isNot('Олена К.'));
+    expect(dropped.single, isNot('Все чудово, дякую!'));
+  });
+
+  testWidgets('omits the comment body when comment is null — the ★ row IS the '
+      'review', (tester) async {
+    await tester.pumpApp(
+      _host(
+        ReviewCard(
+          data: _data(comment: null, noDate: true),
+          keyPrefix: 'client-review',
+        ),
+      ),
+    );
+
+    // The name survives, the body is gone, and the score still renders in
+    // full — a stars-only review is a complete review, not an empty state.
+    expect(_texts(tester), <String>['Олена К.']);
+    // i18n-finder-ok: the fixture review body is backend data, not UI copy.
+    expect(find.text('Все чудово, дякую!'), findsNothing);
+    expect(find.byIcon(Icons.star_rounded), findsNWidgets(5));
+    expect(_filledStars(tester), 4);
+  });
+
+  testWidgets('REGRESSION — an EMPTY comment still renders its Text, exactly '
+      'as before the nullable widening (only null suppresses it)', (
+    tester,
+  ) async {
+    await tester.pumpApp(
+      _host(
+        ReviewCard(
+          data: _data(comment: '', noDate: true),
+          keyPrefix: 'salon-review',
+        ),
+      ),
+    );
+
+    // Two Texts: the name and the empty body. Were the guard written
+    // `comment != null && comment.isNotEmpty`, this would collapse to one and
+    // an existing caller's card would silently lose a row of height.
+    expect(_texts(tester), <String>['Олена К.', '']);
+  });
+
+  testWidgets('REGRESSION — the shipped callers pass both fields non-null and '
+      'get the unchanged three-line card', (tester) async {
+    await tester.pumpApp(
+      _host(
+        ReviewCard(
+          data: _data(),
+          keyPrefix: 'master-review',
+          serviceName: 'Манікюр',
+        ),
+      ),
+    );
+
+    final List<String> texts = _texts(tester);
+    // name, relative date, comment, service sub-line — nothing dropped.
+    expect(texts, hasLength(4));
+    expect(texts.first, 'Олена К.');
+    expect(texts, contains('Все чудово, дякую!'));
+    expect(texts, contains('Манікюр'));
+    expect(find.byIcon(Icons.spa_outlined), findsOneWidget);
   });
 }

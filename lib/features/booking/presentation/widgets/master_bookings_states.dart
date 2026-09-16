@@ -153,7 +153,8 @@ class MasterBookingsNoResultsState extends StatelessWidget {
 /// "no schedule published" reading. Both share the same helper body and the
 /// same «Додати робочі години» CTA, which routes to the schedule screen with
 /// this date pre-selected — see `bookings_discovery_view.dart`'s
-/// `onAddWorkingHours`.
+/// `onAddWorkingHours`. That CTA is omitted entirely when [onAddHours] is
+/// `null` (phase 330's read-only mount); the two copy variants are unchanged.
 class MasterBookingsNoWorkingHoursState extends StatelessWidget {
   const MasterBookingsNoWorkingHoursState({
     super.key,
@@ -166,7 +167,16 @@ class MasterBookingsNoWorkingHoursState extends StatelessWidget {
   /// intervals/times defensively resolved empty).
   final bool dayOff;
 
-  final VoidCallback onAddHours;
+  /// The «Додати робочі години» CTA's handler. `null` (phase 330) renders the
+  /// state WITHOUT the button at all — absent, never disabled — for a viewer
+  /// who may not publish working hours (the invited, read-only
+  /// `SALON_MASTER`; see `BookingsDiscoveryView.canAddWorkingHours`). The
+  /// title and helper copy still render, so the reader is told why the
+  /// timeline is missing.
+  ///
+  /// ADDITIVE: every pre-existing caller passes a non-null callback and is
+  /// byte-identical to before this became nullable.
+  final VoidCallback? onAddHours;
 
   @override
   Widget build(BuildContext context) {
@@ -199,16 +209,18 @@ class MasterBookingsNoWorkingHoursState extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: VelvetText.body(),
               ),
-              const SizedBox(height: VelvetSpacing.lg),
-              SizedBox(
-                width: double.infinity,
-                child: NeumorphicButton(
-                  key: const Key('master-bookings-no-schedule-cta'),
-                  label: l10n.scheduleAddHoursCta,
-                  icon: Icons.event_available_rounded,
-                  onPressed: onAddHours,
+              if (onAddHours case final VoidCallback onAdd) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.lg),
+                SizedBox(
+                  width: double.infinity,
+                  child: NeumorphicButton(
+                    key: const Key('master-bookings-no-schedule-cta'),
+                    label: l10n.scheduleAddHoursCta,
+                    icon: Icons.event_available_rounded,
+                    onPressed: onAdd,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

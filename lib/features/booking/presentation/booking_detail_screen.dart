@@ -88,10 +88,12 @@ import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
+import '../application/bookings_capability.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import '../domain/booking_status.dart';
+import '../domain/client_authored_review.dart';
 import 'widgets/booking_counterparty_header.dart';
 import 'widgets/booking_notes.dart';
 import 'widgets/booking_recap.dart';
@@ -100,13 +102,33 @@ import 'widgets/booking_status_medallion.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/cancel_booking_dialog.dart';
+import 'widgets/client_review_section.dart';
 import 'widgets/complete_booking_dialog.dart';
 import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
 class BookingDetailScreen extends ConsumerStatefulWidget {
-  const BookingDetailScreen({super.key, required this.bookingId});
+  const BookingDetailScreen({
+    super.key,
+    required this.bookingId,
+    this.clientReviewRouteBuilder,
+  });
+
+  /// Phase 330 — builds the leave-client-feedback path for the COMPLETED
+  /// provider footer's «Залишити відгук про клієнта» CTA. `null` (the CLIENT
+  /// `/bookings/:id` mount, the `/master/bookings/:id` mount and every
+  /// existing test) means [RouteNames.clientReview]; the `/staff/bookings/:id`
+  /// mount passes [RouteNames.salonMasterClientReview] so a `SALON_MASTER`'s
+  /// CTA does not push a `/master/*` path their own gate bounces.
+  ///
+  /// ADDITIVE and NULLABLE — a ROUTE parameter, not a role or a capability.
+  /// Locked decision D5 (`booking_viewer_role.dart`) forbids a constructor
+  /// flag that asserts WHO is looking; this one only says where THIS mount's
+  /// push lands, which has always been the host's concern (`onBookingTap`,
+  /// `onOpenArchive`). The CTA's own gate is unchanged: the server-computed
+  /// `Booking.providerCanReviewClient`.
+  final String Function(String bookingId)? clientReviewRouteBuilder;
 
   final String bookingId;
 
@@ -368,7 +390,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `booking.providerCanReviewClient` is `true` — see
   /// `_DetailBody._providerActions`'s doc.
   void _onLeaveClientFeedback(Booking booking) {
-    context.push(RouteNames.clientReview(booking.id));
+    context.push(
+      (widget.clientReviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
+    );
   }
 
   @override
@@ -385,6 +409,19 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // `booking_viewer_role.dart` for why a widget parameter would be unsafe.
     final BookingViewerRole viewer = ref.watch(bookingViewerRoleProvider);
 
+    // Phase 331 — WHICH provider actions the provider footer is allowed to
+    // offer. `bookingViewerRole.dart:71-76` already maps `SALON_MASTER` onto
+    // `BookingViewerRole.provider`, so the provider footer renders for that
+    // role the instant they can reach this screen — and an invited
+    // `SALON_MASTER` is READ-ONLY. This capability is the gate that keeps
+    // «Завершити» / «Скасувати» / «Перенести» off their footer while leaving
+    // the server-driven review CTA alone. `watch`, not `read`: the footer
+    // must re-render the moment the role settles. See
+    // `bookingTransitionsEnabledProvider`'s doc for the strict session read.
+    final bool transitionsEnabled = ref.watch(
+      bookingTransitionsEnabledProvider,
+    );
+
     return async.when(
       loading: () => const _DetailLoading(),
       error: (Object e, StackTrace _) => _DetailError(
@@ -394,6 +431,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       data: (Booking booking) => _DetailBody(
         booking: booking,
         viewer: viewer,
+        transitionsEnabled: transitionsEnabled,
         // Injected clock seam — the PROVIDER footer's start-time gate reads
         // this instead of the device clock so tests can pin it. `watch` (not
         // `read`): a future ticking override must be able to rebuild the
@@ -419,6 +457,7 @@ class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
     required this.viewer,
+    required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
     required this.onReschedule,
@@ -433,6 +472,23 @@ class _DetailBody extends StatelessWidget {
 
   final Booking booking;
   final BookingViewerRole viewer;
+
+  /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
+  /// (complete / decline / reschedule / not-complete). Sourced from
+  /// `bookingTransitionsEnabledProvider` by the owning [ConsumerState]; never
+  /// re-derived here.
+  ///
+  /// REQUIRED, not defaulted: [_DetailBody] is private with exactly one call
+  /// site, so a default would buy no caller compatibility and would instead
+  /// let a future call site silently inherit the PERMISSIVE value. The
+  /// additive-default rule is for widely-used PUBLIC widgets (see
+  /// `BookingsDiscoveryView.canCreateBooking`, which does default).
+  ///
+  /// Gates only the transitions. The review CTA below it is server-driven
+  /// (`booking.providerCanReviewClient`) and stays reachable for a read-only
+  /// viewer — leaving feedback about a client is not a booking mutation. See
+  /// [_providerActions].
+  final bool transitionsEnabled;
 
   /// The current instant, sourced from `clockProvider` by the owning
   /// [ConsumerState] — NEVER read off the device here. Feeds
@@ -460,6 +516,16 @@ class _DetailBody extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
+
+    // Phase 334 — the client's review of the master, PROVIDER branch only.
+    // Resolved here (rather than inline in `recapCards`) so the render site
+    // reads a promoted non-nullable local instead of a `!` assertion. Both
+    // gates collapse into this one null: a client viewer gets `null` whatever
+    // the server sent, and a provider gets `null` unless a review really
+    // exists. See the call site below for why each gate is drawn where it is.
+    final ClientAuthoredReview? reviewByClient = viewer.isProvider
+        ? booking.reviewByClient
+        : null;
 
     // The big status TITLE shows for COMPLETED, NOT_COMPLETED, CANCELLED and
     // DECLINED — the finished/closed outcome deserves a header label.
@@ -571,6 +637,43 @@ class _DetailBody extends StatelessWidget {
         // section; this is a framing fix, NOT a visibility one.
         if (BookingNotes.has(booking, l10n, viewer: viewer))
           BookingNotes(booking: booking, viewer: viewer),
+
+        // ── Phase 334 — «Відгук клієнта»: the review the CLIENT left about
+        //    the master, read-only.
+        //
+        // PROVIDER-ONLY, and not for a privacy reason — the text is already
+        // world-readable through the permitAll `GET /masters/{id}/reviews`
+        // listing (backend phase 317 decision D2). It is a RELEVANCE gate:
+        // a client reading their own booking wrote this review themselves
+        // and has «Мої відгуки» for it, so echoing it back here would be
+        // noise on the one screen that exists to tell them about the VISIT.
+        //
+        // LAST in the recap, after the notes, on purpose: the notes were
+        // written DURING the booking's life (the brief at creation, the
+        // reason at closure) and the review comes AFTER closure, so the
+        // column reads chronologically top to bottom. It is also reference
+        // material rather than an action — nothing here is tappable, and
+        // nothing above it should be pushed down for it.
+        //
+        // The null check is the WHOLE gate — `reviewByClient` is non-null
+        // only when the server actually sent a review, which it does only
+        // on `GET /bookings/{id}` (this screen's own fetch). Deliberately
+        // NOT cross-checked against `status`: a review that exists exists.
+        // And deliberately no empty state — a booking with no review shows
+        // nothing at all, because on every LISTING surface a null means
+        // "this surface does not answer that question", so an «Відгуку
+        // немає» placeholder built on that null would be a claim the app
+        // cannot support. See `Booking.reviewByClient`'s doc.
+        if (reviewByClient != null)
+          ClientReviewSection(
+            review: reviewByClient,
+            bookingId: booking.id,
+            // The SAME name+«Гість» resolution the counterparty header at the
+            // top of this screen uses, so the review is attributed to exactly
+            // the person named above it.
+            clientDisplayName:
+                booking.clientName ?? l10n.bookingDetailGuestClient,
+          ),
       ],
     );
   }
@@ -800,6 +903,21 @@ class _DetailBody extends StatelessWidget {
           onPressed: onLeaveClientFeedback,
         ),
       ];
+    }
+    // Phase 331 — the READ-ONLY gate, placed BELOW the COMPLETED arm above
+    // on purpose: everything from here down is a status TRANSITION
+    // («Завершити», «Скасувати», «Перенести»), while the arm above is the
+    // server-gated «Залишити відгук про клієнта» CTA, which a read-only
+    // viewer keeps. An invited `SALON_MASTER` reaches this method because
+    // `booking_viewer_role.dart:71-76` maps their role onto
+    // `BookingViewerRole.provider` — that mapping is correct (they DO see the
+    // client as counterparty), so the footer's CONTENTS are the right place
+    // to draw the read-only line, not the viewer-role resolution.
+    //
+    // An empty list renders NO footer at all (`_actions`' own doc), which is
+    // the intended read-only outcome: absent, never disabled.
+    if (!transitionsEnabled) {
+      return const <Widget>[];
     }
     if (booking.status != BookingStatus.confirmed) {
       return const <Widget>[];

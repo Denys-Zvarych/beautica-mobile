@@ -1202,6 +1202,10 @@
   "@resetOtpResendBtn": {
     "description": "Resend code link shown when the countdown reaches zero on the password-reset OTP screen."
   },
+  "resetOtpResendUnavailable": "Недоступно",
+  "@resetOtpResendUnavailable": {
+    "description": "Resend link label on the password-reset OTP screen while the cooldown exceeds the 10-minute UX ceiling (kMaxUxCooldownSeconds) — i.e. the per-IP AuthRateLimitFilter 429 with Retry-After: 3600. Replaces the numeric countdown, which would read «Надіслати знову (3600 с)». Must NOT invite a retry: the inline banner (authResetErrRateLimited) already tells the user to come back later, so this label only states that the action is unavailable right now."
+  },
   "resetOtpSemantics": "Код підтвердження, 6 цифр",
   "@resetOtpSemantics": {
     "description": "Accessibility label for the OTP entry as a whole on the password-reset OTP screen."
@@ -1213,6 +1217,10 @@
   "resetOtpErrCodeExpired": "Термін дії коду минув. Надішліть код повторно.",
   "@resetOtpErrCodeExpired": {
     "description": "userMessage for PasswordResetOtpFailure.codeExpired (POST /auth/verify-password-reset-otp returns CODE_EXPIRED)."
+  },
+  "authResetErrRateLimited": "Забагато спроб. Спробуйте трохи пізніше.",
+  "@authResetErrRateLimited": {
+    "description": "userMessage for PasswordResetRateLimitedFailure — the per-IP AuthRateLimitFilter answered 429 on /auth/forgot-password (3 per 60 min, Retry-After: 3600), /auth/reset-password (10 per 60 min, Retry-After: 3600) or /auth/verify-password-reset-otp (10 per 15 min, Retry-After: 900). The three windows differ, so the copy is deliberately window-agnostic: naming an hour would overstate the OTP endpoint's wait fourfold and strand a legitimate reset. Must NOT invite an IMMEDIATE retry — at these budgets the very next tap is guaranteed to fail — and no countdown is representable either way, since even 900 s is above the 600 s UX ceiling (kMaxUxCooldownSeconds)."
   },
   "changePasswordRowLabel": "Змінити пароль",
   "@changePasswordRowLabel": {
@@ -4594,6 +4602,25 @@
   "@bookingDetailClientReviewCta": {
     "description": "Track 7.x Wave B — PROVIDER footer action on a COMPLETED booking's detail screen; opens the leave-client-feedback screen. Offered on every COMPLETED provider booking (no server-side canReview-equivalent gate exists yet)."
   },
+  "bookingDetailClientReviewHeading": "Відгук клієнта",
+  "@bookingDetailClientReviewHeading": {
+    "description": "Phase 334 — heading above the read-only block on «Деталі запису» showing the review THIS booking's client left about the master. PROVIDER branch only. Viewer-relative and deliberately matched to the BookingNotes heading idiom («Побажання клієнта», «Причина клієнта») rather than the leave-review screens' ReviewSectionLabel, whose required/optional tag is a form affordance with no meaning on a read-only block. Not to be confused with bookingDetailClientReviewCta, which is the OPPOSITE direction — the provider reviewing the client."
+  },
+  "bookingDetailClientReviewSemantics": "Відгук клієнта: оцінка {rating} з 5. {comment}",
+  "@bookingDetailClientReviewSemantics": {
+    "description": "Phase 334 — screen-reader label for the whole client-review block on «Деталі запису», used when the client left a comment. The shared ReviewCard renders its rating as five bare Icon glyphs, which a screen reader cannot interpret, so the section spells the score out. Use bookingDetailClientReviewSemanticsNoComment when comment is null.",
+    "placeholders": {
+      "rating": { "type": "int" },
+      "comment": { "type": "String" }
+    }
+  },
+  "bookingDetailClientReviewSemanticsNoComment": "Відгук клієнта: оцінка {rating} з 5, без коментаря",
+  "@bookingDetailClientReviewSemanticsNoComment": {
+    "description": "Phase 334 — screen-reader label for the client-review block on «Деталі запису» when the client rated without writing anything (ClientAuthoredReviewResponse.comment is null). A separate key rather than string concatenation so the sentence stays fully translatable.",
+    "placeholders": {
+      "rating": { "type": "int" }
+    }
+  },
   "clientReviewScreenTitle": "ВІДГУК ПРО КЛІЄНТА",
   "@clientReviewScreenTitle": {
     "description": "Top-bar title of the leave-client-feedback screen (track 7.x Wave B)."
@@ -6227,7 +6254,7 @@
   "@masterNavTabServices": {
     "description": "VelvetBottomNavBar tile 0 label on the master surface (INDEPENDENT_MASTER and SALON_MASTER). Deliberately its OWN key rather than a reuse of `servicesTitle`: the app-bar title and the nav-tab label happen to read the same today, but they are two independent copy decisions on two different surfaces and must be free to diverge. Was a hardcoded literal inside `velvet_bottom_nav_bar.dart` until the 2026-09-13 audit (the `no_raw_ui_strings` gate cannot see a string held in a `const _NavItem` record)."
   },
-  "masterNavTabBookings": "Мої записи",
+  "masterNavTabBookings": "Записи",
   "@masterNavTabBookings": {
     "description": "VelvetBottomNavBar tile 1 label on the master surface. Own key for the same reason as masterNavTabServices — `masterBookingsTitle` is the SCREEN title and must stay free to diverge from the tab label."
   },

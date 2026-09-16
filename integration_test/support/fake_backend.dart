@@ -325,6 +325,7 @@ final class FakeBackend {
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
     this.deleteServiceDelay,
+    this.forgotPasswordFailureStatusCode,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -931,6 +932,22 @@ final class FakeBackend {
   String? lastValidateInviteToken;
 
   // ── Beautica OTP task (Phase B) — password-reset OTP flow counters ────────
+
+  /// Overrides the `POST /api/v1/auth/forgot-password` status.
+  ///
+  /// `null` (every pre-existing call site) keeps the generic anti-enumeration
+  /// 200. Set it to 429 to reproduce the per-IP `AuthRateLimitFilter` bucket
+  /// being exhausted — the body is then the FILTER's own bare
+  /// `{"error":"Too many requests"}`, with no `message`, no `errors` and no
+  /// `data.code`, because the filter runs BEFORE the controller and the
+  /// generic-200 contract never gets a say. That exact shape is the point:
+  /// a richer envelope would let a mapper branch that merely reads the body
+  /// look correct.
+  ///
+  /// Read at construction time (like [deleteMyAccountFailureStatusCode]) —
+  /// routes are wired once from the constructor, so pass it to `FakeBackend()`
+  /// rather than mutating it after boot.
+  final int? forgotPasswordFailureStatusCode;
 
   /// `POST /api/v1/auth/forgot-password` call count + the last requested email.
   int forgotPasswordCalls = 0;
@@ -3822,6 +3839,27 @@ final class FakeBackend {
   /// [bookingCanReview]'s post-review flip.
   bool bookingProviderCanReviewClient = true;
 
+  /// Phase 334 — the CLIENT's review of the master (`{rating, comment?}`,
+  /// wire shape of `ClientAuthoredReviewResponse`), served ONLY on
+  /// `GET /bookings/{id}` — and on the `PATCH` reschedule reply, which is the
+  /// same `BookingDetailResponse` DTO — NEVER on a listing row.
+  ///
+  /// `null` (the default) means the booking carries no client review and the
+  /// `reviewByClient` key is OMITTED from the payload entirely, exactly as the
+  /// real backend does — matching the neighbouring optional
+  /// `masterAvgRating` / `masterReviewCount` keys, so every pre-334 flow keeps
+  /// the byte-identical payload it had.
+  ///
+  /// LISTING SURFACES DO NOT CARRY IT. `_seededBookingJson` takes
+  /// [includeReviewByClient] and `_bookingsPageEnvelope` (the `GET
+  /// /bookings/me` rows) leaves it at its `false` default, mirroring the real
+  /// backend's unconditional null on every listing; `datasetBookingRow` never
+  /// emits the key at all. That asymmetry is the point: `Booking.reviewByClient`
+  /// being null on a list means "this surface does not answer that question",
+  /// and a fake that answered it there would let a screen reading the review
+  /// off a LIST pass a test it must fail.
+  Map<String, Object?>? bookingReviewByClient;
+
   /// When true, `POST /client-reviews` replies HTTP **409** instead of 200 —
   /// feedback about this booking's client already exists (it landed from
   /// another device, or a second submit raced the destination screen's own
@@ -4237,7 +4275,14 @@ final class FakeBackend {
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
   /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
   /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
-  Map<String, dynamic> _seededBookingJson() => <String, dynamic>{
+  ///
+  /// [includeReviewByClient] is the DETAIL-ONLY switch for phase 334's
+  /// `reviewByClient` key — see [bookingReviewByClient] for why a listing must
+  /// never carry it. Callers serving a `BookingDetailResponse` pass `true`;
+  /// `_bookingsPageEnvelope` keeps the `false` default.
+  Map<String, dynamic> _seededBookingJson({
+    bool includeReviewByClient = false,
+  }) => <String, dynamic>{
     'id': 'booking-1',
     'masterId': 'master-aaa',
     'masterFirstName': 'Софія',
@@ -4280,6 +4325,11 @@ final class FakeBackend {
     'status': bookingStatus,
     'canReview': bookingCanReview,
     'providerCanReviewClient': bookingProviderCanReviewClient,
+    // Phase 334. Emitted ONLY on a detail payload AND only when seeded, so the
+    // default keeps the pre-334 shape (key absent entirely) — same idiom as
+    // `masterAvgRating` below.
+    if (includeReviewByClient && bookingReviewByClient != null)
+      'reviewByClient': bookingReviewByClient,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': bookingClientCancellationNote,
@@ -5400,7 +5450,8 @@ final class FakeBackend {
             bookingEndsAt = end.toIso8601String();
           }
           // A reschedule leaves the booking CONFIRMED — never touches status.
-          return _ok(_seededBookingJson());
+          // `BookingDetailResponse` shape → carries phase 334's review.
+          return _ok(_seededBookingJson(includeReviewByClient: true));
         },
       ),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
@@ -6012,11 +6063,17 @@ final class FakeBackend {
     // Always returns a generic 200 (anti-enumeration) regardless of email.
     _adapter.onRoute(
       '/api/v1/auth/forgot-password',
-      (server) => server.replyCallback(200, (req) {
-        forgotPasswordCalls++;
-        lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
-        return _okVoid;
-      }),
+      (server) =>
+          server.replyCallback(forgotPasswordFailureStatusCode ?? 200, (req) {
+            forgotPasswordCalls++;
+            lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
+            if (forgotPasswordFailureStatusCode != null) {
+              // The rate-limit FILTER's own body — deliberately NOT the
+              // `{success,message,data}` envelope the controllers use.
+              return <String, dynamic>{'error': 'Too many requests'};
+            }
+            return _okVoid;
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
@@ -8180,7 +8237,9 @@ final class FakeBackend {
       (server) => server.replyCallback(failStatus ?? 200, (_) {
         getBookingDetailCalls++;
         if (failStatus != null) return _bookingNotFoundEnvelope();
-        return _ok(_seededBookingJson());
+        // THE detail endpoint — the only surface the real backend ever puts
+        // `reviewByClient` on (phase 334).
+        return _ok(_seededBookingJson(includeReviewByClient: true));
       }),
       request: const Request(method: RequestMethods.get),
     );

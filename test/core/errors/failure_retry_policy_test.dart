@@ -85,6 +85,15 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'VerificationFailure': false,
   'PasswordResetOtpFailure': false,
   'ResetTokenInvalidFailure': false,
+  // 429 from the per-IP AuthRateLimitFilter on the password-reset journey.
+  // The three endpoints have SEPARATE, non-uniform buckets:
+  // /auth/forgot-password 3 per 60 min and /auth/reset-password 10 per 60 min
+  // (Retry-After 3600), /auth/verify-password-reset-otp 10 per 15 min
+  // (Retry-After 900). Same "false to both" treatment as the other throttles:
+  // even the shortest window is 15 minutes, so no backoff this predicate is
+  // willing to sit through could clear it, and every automatic attempt spends
+  // one the user's next deliberate try needs.
+  'PasswordResetRateLimitedFailure': false,
   'EmailAlreadyRegisteredFailure': false,
   'ProviderMissingCityFailure': false,
   'CategoryAlreadyExistsFailure': false,
@@ -160,6 +169,7 @@ Map<String, Failure> _instances() {
       code: PasswordResetOtpErrorCode.codeExpired,
     ),
     'ResetTokenInvalidFailure': const ResetTokenInvalidFailure(),
+    'PasswordResetRateLimitedFailure': const PasswordResetRateLimitedFailure(),
     'EmailAlreadyRegisteredFailure': const EmailAlreadyRegisteredFailure(),
     'ProviderMissingCityFailure': const ProviderMissingCityFailure(),
     'CategoryAlreadyExistsFailure': const CategoryAlreadyExistsFailure(),
@@ -410,6 +420,7 @@ void main() {
           retryAfterSeconds: 20,
         ),
         'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
+        'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),
       };
       for (final MapEntry<String, Failure> e in throttles.entries) {
         expect(

@@ -11,6 +11,11 @@
 //   4. onVerify throwing PasswordResetOtpFailure shows the mapped inline copy.
 //   5. Resend calls onRequestOtp(); success clears the OTP input.
 //   6. Resend ResendThrottledFailure adopts the server retryAfterSeconds.
+//   6b. Resend PasswordResetRateLimitedFailure (per-IP 429) shows the
+//      try-later copy and KEEPS the resend link on cooldown.
+//   6c. Resend ResendThrottledFailure with a NULL retryAfterSeconds (the
+//      change-password per-IP 3600 s filter shape) also KEEPS the link on
+//      cooldown rather than clearing it.
 //   7. The masked displayEmail is rendered.
 //   8. Top-left back button navigates back (pop).
 
@@ -262,6 +267,147 @@ void main() {
           find.text(l10n.verificationErrResendThrottled(42)),
           findsOneWidget,
         );
+      },
+    );
+
+    // ── 6b. Resend hits the SAME per-IP bucket as the original request ──────
+    //
+    // The resend and the forgot-password submit that got the user here share
+    // one 3-requests/hour per-IP bucket (`AuthRateLimitFilter`). Before the
+    // fix a 429 landed in the generic catch arm, which returns `null` — and
+    // `OtpResendRow` reads `null` as "generic error, let them retry now",
+    // cancelling the cooldown and re-enabling the link. The next tap would
+    // then burn one of the three attempts the user has left, against a bucket
+    // that is still closed.
+    //
+    // Two things are asserted, because either alone would pass while the bug
+    // remained: the inline copy must be the rate-limit copy (NOT the generic
+    // «Щось пішло не так»), and the link must still be counting down rather
+    // than tappable.
+    testWidgets(
+      '6b. resend PasswordResetRateLimitedFailure shows the try-later copy '
+      'AND keeps the resend link on cooldown (does not re-enable it)',
+      (tester) async {
+        int resendCalls = 0;
+        await _pump(
+          tester,
+          onRequestOtp: () async {
+            resendCalls++;
+            throw const PasswordResetRateLimitedFailure();
+          },
+          onVerify: (code) async => 'ticket',
+        );
+
+        // fixed-wait-ok: TTL crossing — see the identical drain above.
+        await tester.pump(const Duration(seconds: 31));
+        await tester.tap(
+          find.byKey(const ValueKey<String>('reset_otp_resend')),
+        );
+        await tester.pump();
+        await tester.pump();
+        // fixed-wait-ok: real-async integration step — lets the throttled
+        // onRequestOtp resolve.
+        await tester.pump(const Duration(milliseconds: 50));
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('reset_otp_submit')),
+          ),
+        );
+        expect(find.text(l10n.authResetErrRateLimited), findsOneWidget);
+        expect(find.text(l10n.errUnknown), findsNothing);
+
+        // The link is still showing the countdown label, not the tappable
+        // resend label — proving the handler returned a cooldown instead of
+        // the generic arm's null.
+        expect(find.text(l10n.resetOtpResendBtn), findsNothing);
+        expect(resendCalls, 1);
+
+        // And a further tap cannot spend another attempt while it counts down.
+        await tester.tap(
+          find.byKey(const ValueKey<String>('reset_otp_resend')),
+          warnIfMissed: false,
+        );
+        await tester.pump();
+        expect(resendCalls, 1);
+      },
+    );
+
+    // ── 6c. The SIBLING arm of the same defect ──────────────────────────────
+    //
+    // mobile-security MEDIUM (2026-09-16). Test 6 above drives
+    // ResendThrottledFailure with a NUMERIC retryAfterSeconds, which is only
+    // the per-ACCOUNT producer (`ResendThrottledException`, small
+    // `data.retryAfterSeconds`). The change-password entry point
+    // (app_router.dart's second registration, `fromChangePassword: true`)
+    // resends against `/users/me/change-password/request-otp`, which ALSO
+    // sits behind the per-IP `changePasswordOtpBuckets` filter — 3/hour,
+    // `Retry-After: 3600`. That 3600 is above the interceptor's 600 s UX
+    // ceiling, so `_extractRetryAfterSecondsNullable` clamps it to `null` and
+    // the SAME ResendThrottledFailure arrives carrying NO seconds.
+    //
+    // A null returned to OtpResendRow means "generic error, retry now": it
+    // cancels the cooldown and re-enables the link, against a bucket that is
+    // still closed. That is verbatim the defect test 6b guards on the other
+    // arm, and it survived here because no test drove the null shape.
+    //
+    // Both halves are asserted, because either alone passes with the bug
+    // present: the banner must carry the null-seconds copy (cooldownTryLater,
+    // NOT the numeric throttle string), and the link must stay disabled.
+    testWidgets(
+      '6c. resend ResendThrottledFailure with NULL retryAfterSeconds (the '
+      'per-IP 3600 s filter shape) keeps the resend link on cooldown',
+      (tester) async {
+        int resendCalls = 0;
+        await _pump(
+          tester,
+          fromChangePassword: true,
+          onRequestOtp: () async {
+            resendCalls++;
+            throw const ResendThrottledFailure(retryAfterSeconds: null);
+          },
+          onVerify: (code) async => 'ticket',
+        );
+
+        // fixed-wait-ok: TTL crossing — drains the screen's 30 s mount
+        // cooldown so the resend link is tappable, same as tests 6 / 6b.
+        await tester.pump(const Duration(seconds: 31));
+        await tester.tap(
+          find.byKey(const ValueKey<String>('reset_otp_resend')),
+        );
+        await tester.pump();
+        await tester.pump();
+        // fixed-wait-ok: real-async integration step — lets the throttled
+        // onRequestOtp resolve.
+        await tester.pump(const Duration(milliseconds: 50));
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('reset_otp_submit')),
+          ),
+        );
+        expect(find.text(l10n.cooldownTryLater), findsOneWidget);
+        expect(find.text(l10n.errUnknown), findsNothing);
+
+        // THE assertion. With the null passed straight through, the row would
+        // read it as "no cooldown", cancel the countdown and show the
+        // tappable resend label again.
+        expect(
+          find.text(l10n.resetOtpResendBtn),
+          findsNothing,
+          reason:
+              'a null-seconds throttle must be floored to the bucket window, '
+              'not forwarded as null — null re-enables the link',
+        );
+        expect(resendCalls, 1);
+
+        // And a further tap cannot spend another of the three hourly attempts.
+        await tester.tap(
+          find.byKey(const ValueKey<String>('reset_otp_resend')),
+          warnIfMissed: false,
+        );
+        await tester.pump();
+        expect(resendCalls, 1);
       },
     );
 

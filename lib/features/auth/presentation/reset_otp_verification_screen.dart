@@ -43,6 +43,21 @@ import 'widgets/otp_resend_row.dart';
 
 const _kOtpLength = 6;
 
+/// Cooldown the resend row shows when a per-IP `AuthRateLimitFilter` bucket
+/// answers 429 on either entry point of this screen and the failure carries no
+/// seconds.
+///
+/// Hard-coded rather than read off the failure on purpose: the two resend
+/// endpoints this screen can hit — `/auth/forgot-password` (3 per 60 min) and
+/// `/users/me/change-password/request-otp` (3 per 60 min) — both send
+/// `Retry-After: 3600`, which exceeds `ErrorMapperInterceptor`'s 600 s UX
+/// ceiling, so the extracted value is `null` every time. One hour is those
+/// buckets' own refill window, straight from `RateLimitConfig`.
+///
+/// Used as a FLOOR on both 429 arms of [_resend]: a null-seconds throttle must
+/// keep the resend link disabled, never clear the cooldown.
+const int _kPasswordResetRateLimitCooldownSeconds = 3600;
+
 /// Generalized password-reset OTP screen — Beautica OTP task Phase B3.
 ///
 /// Reused by two entry points via constructor closures:
@@ -179,9 +194,37 @@ class _ResetOtpVerificationScreenState
       }
       return kDefaultOtpResendCooldownSeconds;
     } on ResendThrottledFailure catch (throttle) {
-      if (!mounted) return throttle.retryAfterSeconds;
+      // The change-password entry point (`fromChangePassword: true`, see
+      // app_router.dart) resends against `/users/me/change-password/
+      // request-otp`, which has TWO 429 producers:
+      //   * the controller's per-ACCOUNT `ResendThrottledException` — a small
+      //     `data.retryAfterSeconds`, which arrives here as a real number; and
+      //   * the per-IP `AuthRateLimitFilter` bucket (3/hour, `Retry-After:
+      //     3600`) — above the interceptor's 600 s UX ceiling, so it arrives
+      //     with `retryAfterSeconds == null`.
+      // Both map to THIS failure (the interceptor's branch is path-gated, not
+      // shape-gated). Returning that `null` straight to `OtpResendRow` means
+      // "generic error, allow immediate retry": it cancels the cooldown and
+      // re-enables the link, burning the user's next attempt against a bucket
+      // that is still closed — verbatim the defect the
+      // PasswordResetRateLimitedFailure arm below exists to prevent. Floor a
+      // null to the bucket's own refill window so the link stays DISABLED.
+      final int seconds =
+          throttle.retryAfterSeconds ?? _kPasswordResetRateLimitCooldownSeconds;
+      if (!mounted) return seconds;
       setState(() => _inlineError = throttle.userMessage(context));
-      return throttle.retryAfterSeconds;
+      return seconds;
+    } on PasswordResetRateLimitedFailure catch (limited) {
+      // MUST precede the generic catch below. The forgot-password resend hits
+      // the SAME per-IP bucket as the original request (3/hour), so falling
+      // into the generic arm's `return null` would re-enable the resend link
+      // immediately and let the next tap burn one of the three attempts the
+      // user has left — while the bucket is still closed and cannot succeed.
+      // The filter's `Retry-After: 3600` is above the interceptor's UX ceiling
+      // so the failure carries no seconds; name the hour here instead.
+      if (!mounted) return _kPasswordResetRateLimitCooldownSeconds;
+      setState(() => _inlineError = limited.userMessage(context));
+      return _kPasswordResetRateLimitCooldownSeconds;
     } catch (e) {
       if (!mounted) return null;
       setState(
@@ -276,6 +319,13 @@ class _ResetOtpVerificationScreenState
             resendLabel: l10n.resetOtpResendBtn,
             resendTimerLabel: (int seconds) =>
                 l10n.resetOtpResendTimer('$seconds с'),
+            // Opt in to the non-numeric label above the 10-minute ceiling.
+            // Only THIS flow can exceed it: its per-IP 429 carries
+            // `Retry-After: 3600`, which would otherwise render «Надіслати
+            // знову (3600 с)» and tick once a second for an hour. The
+            // email-verification row (verification_screen.dart) passes
+            // nothing and is unaffected.
+            resendUnavailableLabel: l10n.resetOtpResendUnavailable,
           ),
           if (_inlineError != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),

@@ -145,9 +145,29 @@ UserRole? authUserRoleOrNull(AsyncValue<AuthSession> session) =>
 /// the same concrete-subtype gate used by
 /// `salon_home_resolver_screen.dart`, `app_router.dart`, and
 /// `auth_redirect.dart`'s `resolvedAuth` (never [AsyncValue.value]'s lenient
-/// unwrap). Returns `null` for every other shape: `Unauthenticated`,
-/// `AsyncLoading` — including one carrying a `copyWithPrevious`-attached
-/// stale `Authenticated` value — and `AsyncError` (ditto).
+/// unwrap) AND is not itself in flight. Returns `null` for every other shape:
+/// `Unauthenticated`, `AsyncLoading` — including one carrying a
+/// `copyWithPrevious`-attached stale `Authenticated` value — and `AsyncError`
+/// (ditto).
+///
+/// THE SUBTYPE CHECK ALONE IS NOT ENOUGH, which is why `!session.isLoading`
+/// rides with it (mobile-security MEDIUM, 2026-09-15). A SEAMLESS refresh —
+/// `ref.invalidate(authProvider)` / `ref.refresh(authProvider)` from an
+/// already-settled session — never materialises an `AsyncLoading` for a
+/// subscriber to observe. The element computes `seamless: !ref.isReload`
+/// (`riverpod-3.2.1/.../element.dart:50`, fed by `isReload:
+/// _didChangeDependency` at `:572`) and hands it to
+/// `AsyncLoading.copyWithPrevious(previous, isRefresh: true)`, whose `data`
+/// arm returns `AsyncData._(previousValue!, loading: _loading)`
+/// (`riverpod-3.2.1/.../async_value.dart:789-796`) — a genuine
+/// `AsyncData<AuthSession>` still carrying the STALE `Authenticated`, with
+/// `isRefreshing == true`. So `copyWithPrevious`-attached staleness reaches
+/// this selector as `AsyncData`, not only as `AsyncLoading`/`AsyncError`, and
+/// a gate that stopped at the subtype would keep granting write affordances
+/// for the whole re-fetch window. Pinned by
+/// `test/features/booking/application/bookings_capability_test.dart` group 2,
+/// which asserts the shape (`isA<AsyncData>` + `isRefreshing` + a non-null
+/// carried `Authenticated`) before asserting the gate closes.
 ///
 /// WHY THIS MUST NOT COLLAPSE INTO [authUserRoleOrNull] (mobile-security
 /// MEDIUM, phase 309–311 track, 2026-09-06): Riverpod 3 auto-applies
@@ -169,7 +189,10 @@ UserRole? authUserRoleOrNull(AsyncValue<AuthSession> session) =>
 /// read. Do not "simplify" the two into one — that is the bug this selector
 /// exists to prevent.
 UserRole? authUserRoleSettledOrNull(AsyncValue<AuthSession> session) {
-  final AuthSession? settled = session is AsyncData<AuthSession>
+  // `!session.isLoading` is NOT redundant with the subtype check: a seamless
+  // refresh yields an `AsyncData` that is still in flight — see the doc above.
+  final AuthSession? settled =
+      session is AsyncData<AuthSession> && !session.isLoading
       ? session.value
       : null;
   return settled is Authenticated ? settled.user.role : null;
@@ -180,16 +203,22 @@ UserRole? authUserRoleSettledOrNull(AsyncValue<AuthSession> session) {
 /// (phase 312, D8): "does the caller manage THIS scope's salon".
 ///
 /// Returns `null` for every session shape that is not a settled, authenticated
-/// [AsyncData] — same concrete-subtype gate as [authUserRoleSettledOrNull], for
-/// the same write-gate reason (never the lenient [AsyncValue.value] unwrap,
-/// which can still return a `copyWithPrevious`-attached STALE salonId mid
-/// token-refresh / mid-logout / a failed re-fetch). A non-admin authenticated
+/// [AsyncData] — same concrete-subtype-AND-`!isLoading` gate as
+/// [authUserRoleSettledOrNull], for the same write-gate reason (never the
+/// lenient [AsyncValue.value] unwrap, which can still return a
+/// `copyWithPrevious`-attached STALE salonId mid token-refresh / mid-logout /
+/// a failed re-fetch — nor the subtype check alone, which a seamless refresh
+/// walks straight through; see [authUserRoleSettledOrNull]'s doc). A non-admin
+/// authenticated
 /// user (whose `User.salonId` is meaningless) also reads `null` here — callers
 /// must gate on the role themselves before trusting this value, exactly like
 /// `app_router.dart`'s `salonManageGuard` admin arm does with the un-narrowed
 /// `session.user.salonId` read it mirrors.
 String? authUserSalonIdSettledOrNull(AsyncValue<AuthSession> session) {
-  final AuthSession? settled = session is AsyncData<AuthSession>
+  // Same two-part gate as [authUserRoleSettledOrNull] — see its doc for why
+  // the `AsyncData` subtype check alone admits an in-flight seamless refresh.
+  final AuthSession? settled =
+      session is AsyncData<AuthSession> && !session.isLoading
       ? session.value
       : null;
   return settled is Authenticated ? settled.user.salonId : null;

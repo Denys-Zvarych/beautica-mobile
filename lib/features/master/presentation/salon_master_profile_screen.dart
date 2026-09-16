@@ -18,15 +18,17 @@
 // Phase 309) and lands on the role's own read-only «Графік роботи» — it no
 // longer bounces. Since Phase 321, tile 0 (Послуги) targets
 // `RouteNames.salonMasterServices` (`/staff/services`) and lands on the
-// role's own read-only services list the same way. The remaining tile (Мої
-// записи) still targets an INDEPENDENT_MASTER-only route this role is gated
-// away from — `auth_redirect.dart`'s `/master/*` role gate bounces a
-// SALON_MASTER straight back to `roleHomePath` (`/staff/profile`, this same
-// screen) before any frame of the guarded destination ever builds, since
-// `redirect` resolves ahead of the route match. Verified live via
-// `test/routing/navigation_links_test.dart`'s matrix-driven harness. This is
-// accepted as the current interim state for that tile, not a bug to fix here
-// — it has no `/staff/*` counterpart yet (out of scope, phase 321 D4).
+// role's own read-only services list the same way. And since Phase 330, tile
+// 1 (Мої записи) targets `RouteNames.salonMasterBookings` (`/staff/bookings`) and
+// lands on the role's own read-only «Записи» — the LAST of the four tiles to
+// stop bouncing, so the accepted-interim-state paragraph that used to stand
+// here is now fully discharged and deleted rather than softened.
+//
+// `/master/*` itself is UNCHANGED by all four phases: `auth_redirect.dart`'s
+// `/master/*` gate is still INDEPENDENT_MASTER-only, byte for byte. Each tile
+// was given its own `/staff/*` counterpart instead — see
+// `RouteNames.salonMasterBookings`' doc for why widening the gate was
+// rejected.
 //
 // Identity card also carries the EMPLOYING salon's name + address, read-only
 // (user requirement, 2026-09-01: "location for salon master should [be the]
@@ -243,6 +245,10 @@ class _SalonMasterProfileScreenState
         activeIndex: 3,
         scheduleRoute: RouteNames.salonMasterSchedule,
         servicesRoute: RouteNames.salonMasterServices,
+        // Phase 330 — tile 1 («Мої записи») was the LAST tile on this bar with no
+        // `/staff/*` counterpart; it now lands on the role's own read-only
+        // «Записи» instead of bouncing back to this very screen.
+        bookingsRoute: RouteNames.salonMasterBookings,
       ),
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-salon-master'),

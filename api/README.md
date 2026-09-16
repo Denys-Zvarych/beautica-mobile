@@ -301,6 +301,7 @@ Class | Method | HTTP request | Description
  - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
  - [CityDistrictResponse](doc/CityDistrictResponse.md)
  - [CityResponse](doc/CityResponse.md)
+ - [ClientAuthoredReviewResponse](doc/ClientAuthoredReviewResponse.md)
  - [ClientReviewResponse](doc/ClientReviewResponse.md)
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)

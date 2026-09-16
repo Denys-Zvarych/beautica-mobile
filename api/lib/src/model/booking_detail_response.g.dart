@@ -252,6 +252,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? salonId;
   @override
   final String? categoryKey;
+  @override
+  final ClientAuthoredReviewResponse? reviewByClient;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -295,7 +297,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.masterAvgRating,
       this.masterReviewCount,
       this.salonId,
-      this.categoryKey})
+      this.categoryKey,
+      this.reviewByClient})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -347,7 +350,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         masterAvgRating == other.masterAvgRating &&
         masterReviewCount == other.masterReviewCount &&
         salonId == other.salonId &&
-        categoryKey == other.categoryKey;
+        categoryKey == other.categoryKey &&
+        reviewByClient == other.reviewByClient;
   }
 
   @override
@@ -391,6 +395,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, masterReviewCount.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
     _$hash = $jc(_$hash, categoryKey.hashCode);
+    _$hash = $jc(_$hash, reviewByClient.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -435,7 +440,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('masterAvgRating', masterAvgRating)
           ..add('masterReviewCount', masterReviewCount)
           ..add('salonId', salonId)
-          ..add('categoryKey', categoryKey))
+          ..add('categoryKey', categoryKey)
+          ..add('reviewByClient', reviewByClient))
         .toString();
   }
 }
@@ -618,6 +624,12 @@ class BookingDetailResponseBuilder
   String? get categoryKey => _$this._categoryKey;
   set categoryKey(String? categoryKey) => _$this._categoryKey = categoryKey;
 
+  ClientAuthoredReviewResponseBuilder? _reviewByClient;
+  ClientAuthoredReviewResponseBuilder get reviewByClient =>
+      _$this._reviewByClient ??= ClientAuthoredReviewResponseBuilder();
+  set reviewByClient(ClientAuthoredReviewResponseBuilder? reviewByClient) =>
+      _$this._reviewByClient = reviewByClient;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -663,6 +675,7 @@ class BookingDetailResponseBuilder
       _masterReviewCount = $v.masterReviewCount;
       _salonId = $v.salonId;
       _categoryKey = $v.categoryKey;
+      _reviewByClient = $v.reviewByClient?.toBuilder();
       _$v = null;
     }
     return this;
@@ -682,47 +695,61 @@ class BookingDetailResponseBuilder
   BookingDetailResponse build() => _build();
 
   _$BookingDetailResponse _build() {
-    final _$result = _$v ??
-        _$BookingDetailResponse._(
-          id: id,
-          clientId: clientId,
-          masterId: masterId,
-          masterServiceId: masterServiceId,
-          serviceName: serviceName,
-          status: status,
-          startsAt: startsAt,
-          endsAt: endsAt,
-          priceAtBooking: priceAtBooking,
-          priceMaxAtBooking: priceMaxAtBooking,
-          durationMinutesAtBooking: durationMinutesAtBooking,
-          createdAt: createdAt,
-          clientFirstName: clientFirstName,
-          clientLastName: clientLastName,
-          masterFirstName: masterFirstName,
-          masterLastName: masterLastName,
-          masterProfessionalTitle: masterProfessionalTitle,
-          clientComment: clientComment,
-          providerComment: providerComment,
-          clientCancellationNote: clientCancellationNote,
-          masterAvatarUrl: masterAvatarUrl,
-          masterType: masterType,
-          salonName: salonName,
-          cityLabel: cityLabel,
-          districtLabel: districtLabel,
-          street: street,
-          buildingNo: buildingNo,
-          locationNote: locationNote,
-          categoryName: categoryName,
-          canReview: canReview,
-          providerCanReviewClient: providerCanReviewClient,
-          appointmentId: appointmentId,
-          clientAvatarUrl: clientAvatarUrl,
-          awaitingClosure: awaitingClosure,
-          masterAvgRating: masterAvgRating,
-          masterReviewCount: masterReviewCount,
-          salonId: salonId,
-          categoryKey: categoryKey,
-        );
+    _$BookingDetailResponse _$result;
+    try {
+      _$result = _$v ??
+          _$BookingDetailResponse._(
+            id: id,
+            clientId: clientId,
+            masterId: masterId,
+            masterServiceId: masterServiceId,
+            serviceName: serviceName,
+            status: status,
+            startsAt: startsAt,
+            endsAt: endsAt,
+            priceAtBooking: priceAtBooking,
+            priceMaxAtBooking: priceMaxAtBooking,
+            durationMinutesAtBooking: durationMinutesAtBooking,
+            createdAt: createdAt,
+            clientFirstName: clientFirstName,
+            clientLastName: clientLastName,
+            masterFirstName: masterFirstName,
+            masterLastName: masterLastName,
+            masterProfessionalTitle: masterProfessionalTitle,
+            clientComment: clientComment,
+            providerComment: providerComment,
+            clientCancellationNote: clientCancellationNote,
+            masterAvatarUrl: masterAvatarUrl,
+            masterType: masterType,
+            salonName: salonName,
+            cityLabel: cityLabel,
+            districtLabel: districtLabel,
+            street: street,
+            buildingNo: buildingNo,
+            locationNote: locationNote,
+            categoryName: categoryName,
+            canReview: canReview,
+            providerCanReviewClient: providerCanReviewClient,
+            appointmentId: appointmentId,
+            clientAvatarUrl: clientAvatarUrl,
+            awaitingClosure: awaitingClosure,
+            masterAvgRating: masterAvgRating,
+            masterReviewCount: masterReviewCount,
+            salonId: salonId,
+            categoryKey: categoryKey,
+            reviewByClient: _reviewByClient?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'reviewByClient';
+        _reviewByClient?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'BookingDetailResponse', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

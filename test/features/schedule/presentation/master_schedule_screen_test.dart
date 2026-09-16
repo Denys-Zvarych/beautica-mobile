@@ -51,6 +51,7 @@ import 'package:beautica_mobile/features/schedule/presentation/widgets/slot_colo
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1261,6 +1262,78 @@ void main() {
         matchesGoldenFile('goldens/schedule_custom_hours.png'),
       );
     });
+  });
+
+  // ── Bottom-nav label tripwire for the full-screen goldens ─────────────────
+  //
+  // Every golden in this file captures `find.byType(MasterScheduleScreen)`,
+  // and that screen mounts `VelvetBottomNavBar` as its Scaffold's
+  // `bottomNavigationBar` (master_schedule_screen.dart) — so a one-word edit
+  // to ANY nav tab label repaints all seven baselines under
+  // `test/features/schedule/presentation/goldens/`.
+  //
+  // That is exactly how commit 77677a95 («Мої записи» → «Записи») went wrong:
+  // it regenerated the 15 baselines under `test/golden/goldens/` but swept by
+  // directory, so this feature-local goldens dir was left behind. Nothing tied
+  // the schedule screen to the bookings ARB key, so the only signal was an
+  // opaque 283 px pixel diff deep into CI.
+  //
+  // This NON-golden assertion is that missing tie, and it is deliberately
+  // split from the copy itself:
+  //
+  //   • HERE (structural): the schedule screen really does mount
+  //     `VelvetBottomNavBar`, and tile 1 really does render
+  //     `masterNavTabBookings` — not a sibling key, not nothing. It resolves
+  //     the expected string from the live [AppLocalizations] rather than
+  //     hardcoding «Записи», so it does NOT (and cannot) fail on a copy
+  //     change; what it catches is the tile being rewired to another key,
+  //     dropped, or the bar being unmounted from this screen.
+  //   • The COPY change is already gated by the literal ledger in
+  //     `test/l10n/staff_profile_services_count_copy_test.dart` ("masterNavTab*
+  //     tile labels are pinned"), which pins all four labels against
+  //     hardcoded literals in both locales. That ledger's `reason:` now names
+  //     BOTH golden directories, so the next «…» → «…» edit fails there with
+  //     a readable Expected:/Actual: that says exactly which baselines to
+  //     regenerate — instead of surfacing as an opaque pixel diff.
+  //
+  // Duplicating the literal here instead would re-encode the copy in a third
+  // place and rot the same way the PNGs did.
+  group('MasterScheduleScreen — bottom-nav label tripwire', () {
+    testWidgets(
+      'tile 1 renders l10n.masterNavTabBookings — the structural tie that '
+      'makes every nav label part of this screen\'s goldens',
+      (tester) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        // The bar really is part of this screen's captured subtree — that is
+        // the whole reason its labels reach the goldens.
+        expect(
+          find.descendant(
+            of: find.byType(MasterScheduleScreen),
+            matching: find.byType(VelvetBottomNavBar),
+          ),
+          findsOneWidget,
+          reason:
+              'the schedule screen hosts the shared bottom nav bar, so every '
+              'nav label is baked into every schedule golden',
+        );
+
+        final l10n = _l10n(tester);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('master-nav-tile-1')),
+            matching: find.text(l10n.masterNavTabBookings),
+          ),
+          findsOneWidget,
+          reason:
+              'tile 1 must render the live `masterNavTabBookings` value — if '
+              'this fails the tile was rewired to another key or the label '
+              'stopped rendering (a COPY change fails in test/l10n/'
+              'staff_profile_services_count_copy_test.dart instead)',
+        );
+      },
+    );
   });
 
   // ── Selected-day body branch contract (regression) ────────────────────────

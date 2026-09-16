@@ -56,6 +56,10 @@ import 'package:beautica_mobile/features/booking/presentation/master_archive_scr
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -69,6 +73,58 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+
+/// Phase 332 — the signed-in identity every test in this file assumes: an
+/// `INDEPENDENT_MASTER` looking at their own «Архів».
+///
+/// [MasterArchiveScreen] now reads `bookingTransitionsEnabledProvider`, which
+/// derives the «Виконано» close affordance from the SESSION through the STRICT
+/// settled selector. Without an authenticated session that provider correctly
+/// fails closed and the button is ABSENT — so every harness in this file seeds
+/// a real session, rather than overriding the capability provider itself (an
+/// override there would bypass the very role mapping the screen now depends
+/// on — the `approvedCategoriesProvider` footgun the backlog records).
+///
+/// Mirrors `master_bookings_screen_test.dart`'s
+/// `_IndependentMasterAuthNotifier` (phase 329) exactly; the read-only
+/// SALON_MASTER counterpart lives in
+/// `master_archive_read_only_salon_master_test.dart`.
+const User _stubIndependentMaster = User(
+  id: 'master-archive-test-1',
+  email: 'master@beautica.ua',
+  role: UserRole.independentMaster,
+  firstName: 'Олена',
+  lastName: 'Майстер',
+);
+
+class _IndependentMasterAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: _stubIndependentMaster,
+    accessToken: 'tok',
+  );
+}
+
+/// Phase 332 — the invited, READ-ONLY provider. Same screen, same route
+/// topology, different session: `bookingTransitionsEnabledProvider` resolves
+/// `false` for this role, so «Виконано» must be ABSENT while «Відгук» — gated
+/// on the SERVER's `providerCanReviewClient`, not on any client-side role map
+/// — must still render (backend phase 316 grants exactly that one write).
+const User _stubSalonMaster = User(
+  id: 'salon-master-archive-test-1',
+  email: 'salonmaster@beautica.ua',
+  role: UserRole.salonMaster,
+  firstName: 'Ірина',
+  lastName: 'Салонна',
+);
+
+class _SalonMasterAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: _stubSalonMaster,
+    accessToken: 'tok',
+  );
+}
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -282,7 +338,18 @@ void main() {
 
   /// Pumps `MasterArchiveScreen` behind a stub `/from` route, so the back
   /// arrow (`context.pop`) has somewhere real to land.
-  Future<void> pump(WidgetTester tester) async {
+  ///
+  /// Phase 332 — [auth] is ADDITIVE and defaults to
+  /// [_IndependentMasterAuthNotifier], the identity every pre-existing test
+  /// in this file assumes, so none of them changed. The read-only group at
+  /// the bottom passes [_SalonMasterAuthNotifier] instead; it is the SAME
+  /// harness and the SAME screen, only the session differs — which is the
+  /// whole point, since read-only-ness is derived from the session and from
+  /// nothing else.
+  Future<void> pump(
+    WidgetTester tester, {
+    AuthNotifier Function() auth = _IndependentMasterAuthNotifier.new,
+  }) async {
     final GoRouter router = GoRouter(
       initialLocation: '/from',
       routes: <RouteBase>[
@@ -332,6 +399,8 @@ void main() {
     await tester.pumpRoutedApp(
       router,
       overrides: <Object>[
+        // Phase 332 — see [_IndependentMasterAuthNotifier] / the `auth` param.
+        authProvider.overrideWith(auth),
         screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
         bookingRepositoryProvider.overrideWithValue(repo),
         masterServiceCatalogProvider.overrideWith(
@@ -1853,6 +1922,109 @@ void main() {
     );
   });
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 332 — the READ-ONLY SALON_MASTER mount.
+  //
+  // Same `pump` harness, same `MasterArchiveScreen`, same fixtures — only
+  // the SESSION differs, which is exactly the claim: read-only-ness comes
+  // from `bookingTransitionsEnabledProvider`, never from a route, a flag or
+  // a fork. Every assertion below has its INDEPENDENT_MASTER counterpart
+  // above (the «Виконано» / «Відгук» groups), so an absence here is proved
+  // against a presence there rather than against a blank screen.
+  //
+  // Mutation check: force `bookingTransitionsEnabled` to return `true`
+  // unconditionally (`bookings_capability.dart`) — the first test must go
+  // RED. Force it to `false` — the INDEPENDENT_MASTER control must go RED.
+  // ─────────────────────────────────────────────────────────────────────
+  group('Phase 332 — a read-only SALON_MASTER sees no «Виконано», but keeps '
+      '«Відгук»', () {
+    testWidgets(
+      '«Виконано» is ABSENT on an awaitingClosure row for a SALON_MASTER — '
+      'absent, not disabled',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(
+            id: 'awaiting',
+            status: BookingStatus.confirmed,
+            awaitingClosure: true,
+          ),
+        ]);
+
+        await pump(tester, auth: _SalonMasterAuthNotifier.new);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-awaiting')),
+          findsOneWidget,
+          reason:
+              'ANTI-VACUITY — the row itself must render, otherwise the '
+              'absence below would pass on an empty list.',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-complete-awaiting')),
+          findsNothing,
+          reason:
+              'bookingTransitionsEnabledProvider resolves false for '
+              'SALON_MASTER, so the close affordance must not be drawn at '
+              'all — a control that can never be tapped is never shown.',
+        );
+      },
+    );
+
+    testWidgets(
+      'CONTROL — the SAME fixture on the SAME harness DOES render «Виконано» '
+      'for an INDEPENDENT_MASTER',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(
+            id: 'awaiting',
+            status: BookingStatus.confirmed,
+            awaitingClosure: true,
+          ),
+        ]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-complete-awaiting')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '«Відгук» STILL renders for a SALON_MASTER on a COMPLETED row the '
+      'SERVER marks reviewable — the one write backend phase 316 grants this '
+      'role must not be collateral damage of the transitions gate',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(
+            id: 'done',
+            status: BookingStatus.completed,
+            providerCanReviewClient: true,
+          ),
+        ]);
+
+        await pump(tester, auth: _SalonMasterAuthNotifier.new);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-done')),
+          findsOneWidget,
+          reason:
+              'the review CTA is gated on the server flag alone; if this '
+              'goes red, the read-only gate has been widened past status '
+              'transitions and taken the review capability with it.',
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-complete-done')),
+          findsNothing,
+        );
+      },
+    );
+  });
+
   group('navigation', () {
     testWidgets('the back arrow pops the route', (WidgetTester tester) async {
       stubList(const <Booking>[]);
@@ -1949,6 +2121,8 @@ void main() {
       await tester.pumpRoutedApp(
         router,
         overrides: <Object>[
+          // Phase 332 — see [_IndependentMasterAuthNotifier].
+          authProvider.overrideWith(_IndependentMasterAuthNotifier.new),
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           bookingRepositoryProvider.overrideWithValue(repo),
           if (clientReviewRepo != null)
@@ -2346,6 +2520,15 @@ void main() {
       await tester.pumpRoutedApp(
         router,
         overrides: <Object>[
+          // Phase 332 — DELIBERATELY NO `authProvider` override here, unlike
+          // the two harnesses above. This one COUNTS regroups and fetches;
+          // `AuthNotifier.build` is `async`, so any stub of it passes through
+          // one extra `AsyncLoading` frame and shifts those counts by a pure
+          // stub artifact (the same reasoning phase 329 recorded for
+          // `master_bookings_screen_test.dart`'s `_pump`). None of this
+          // group's tests touch «Виконано» — the one affordance
+          // `bookingTransitionsEnabledProvider` gates — so the fail-closed
+          // default is inert for them.
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           bookingRepositoryProvider.overrideWithValue(repo),
           masterServiceCatalogProvider.overrideWith(

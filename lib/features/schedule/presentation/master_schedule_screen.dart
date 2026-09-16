@@ -528,6 +528,15 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     final String servicesRoute = isSalonMaster
         ? RouteNames.salonMasterServices
         : RouteNames.services;
+    // Phase 330 — same role-resolved shape again, for tile 1 («Мої записи»).
+    // Until this phase that tile was the one with no `/staff/*` counterpart
+    // and bounced a SALON_MASTER straight back to `/staff/profile`; it now
+    // lands on their own read-only «Записи». For an INDEPENDENT_MASTER it
+    // resolves to the current literal (`RouteNames.masterBookings`) —
+    // byte-identical behaviour.
+    final String bookingsRoute = isSalonMaster
+        ? RouteNames.salonMasterBookings
+        : RouteNames.masterBookings;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -552,6 +561,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         scheduleRoute: scheduleRoute,
         profileRoute: profileRoute,
         servicesRoute: servicesRoute,
+        bookingsRoute: bookingsRoute,
       ),
       body: SafeArea(
         child: Column(

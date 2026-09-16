@@ -76,6 +76,22 @@ const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
 
+/// Phase 330 — the fixture for the `/master/*`-stays-fenced group. Its own
+/// user id so a failure message names this group rather than borrowing one of
+/// the `/services` fixtures above.
+const _salonMasterSessionForMasterFence = AsyncData<AuthSession>(
+  AuthSession.authenticated(
+    user: User(
+      id: 'u-sm-master-fence',
+      email: 'salonmaster-fence@example.com',
+      role: UserRole.salonMaster,
+      firstName: 'Salon',
+      lastName: 'Master',
+    ),
+    accessToken: 'token',
+  ),
+);
+
 const _loadingSession = AsyncLoading<AuthSession>();
 
 // ---------------------------------------------------------------------------
@@ -510,6 +526,59 @@ void main() {
       );
     });
 
+    // Phase 330 D-list — the structural claim that gaining `/staff/bookings`
+    // does NOT widen `/master/*` for a SALON_MASTER. Named individually, one
+    // per leaf, because a single "some /master/* path bounces" assertion
+    // would stay green while exactly one of them was carved out. Mutation:
+    // delete the `/master/` gate's non-INDEPENDENT_MASTER bounce
+    // (`auth_redirect.dart`) and all four of these must go RED.
+    test(
+      'SALON_MASTER at /master/bookings is redirected to /staff/profile',
+      () {
+        expect(
+          authRedirectForLocation(
+            _salonMasterSessionForMasterFence,
+            RouteNames.masterBookings,
+          ),
+          equals(RouteNames.salonMasterProfile),
+        );
+      },
+    );
+
+    test('SALON_MASTER at /master/bookings/archive is redirected to '
+        '/staff/profile', () {
+      expect(
+        authRedirectForLocation(
+          _salonMasterSessionForMasterFence,
+          RouteNames.masterBookingsArchive,
+        ),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    test('SALON_MASTER at /master/bookings/new is redirected to /staff/profile '
+        '— the walk-in creation chain stays fenced', () {
+      expect(
+        authRedirectForLocation(
+          _salonMasterSessionForMasterFence,
+          RouteNames.masterBookingNew,
+        ),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    test('SALON_MASTER at /master/bookings/:id/review is redirected to '
+        '/staff/profile — the INDEPENDENT_MASTER review path stays fenced even '
+        'though the role now has its own at /staff/bookings/:id/review', () {
+      expect(
+        authRedirectForLocation(
+          _salonMasterSessionForMasterFence,
+          RouteNames.clientReview('b-001'),
+        ),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
     // Phase 321 D2 — the structural claim that gaining `/staff/services`
     // does NOT widen `/services`'s two write leaves for a SALON_MASTER.
     // Named individually per this track's mutation check #5: deleting the
@@ -882,6 +951,16 @@ void main() {
         // INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/CLIENT each bounced;
         // unauthenticated → /login) without hand-duplicating them.
         RouteNames.salonMasterServices, // /staff/services
+        // Phase 330/332 — the read-only «Записи» surface and its three
+        // drill-ins. Same reasoning as the phase-309 / phase-321 insertions
+        // above: each inserted route gets the full six-assertion matrix
+        // (SALON_MASTER admitted; INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/
+        // CLIENT each bounced to their own landing; unauthenticated →
+        // /login) from the generator below.
+        RouteNames.salonMasterBookings, // /staff/bookings
+        RouteNames.salonMasterBookingsArchive, // /staff/bookings/archive
+        '/staff/bookings/b-001', // salonMasterBookingDetail('b-001')
+        '/staff/bookings/b-001/review', // salonMasterClientReview('b-001')
       ];
 
       for (final route in staffRoutes) {
