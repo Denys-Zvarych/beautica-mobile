@@ -67,6 +67,7 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -82,7 +83,7 @@ import '../../application/salon_booking_schedule_notifier.dart'
 import '../../domain/booking_slot.dart';
 import '../../domain/salon_booking_args.dart';
 import '../../domain/salon_master_day_slots_query.dart';
-import 'master_strip.dart' show masterRoleLabel, MasterRatingReadout;
+import 'master_strip.dart' show MasterRatingReadout;
 import 'month_calendar.dart';
 import 'salon_avatar_gradients.dart';
 import 'slot_chip.dart';

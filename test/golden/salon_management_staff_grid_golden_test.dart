@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -139,6 +140,38 @@ const List<SalonStaffMember> _selfOnlyRoster = <SalonStaffMember>[
   ),
 ];
 
+/// ADDED 2026-09-16 alongside the «Власник салону» roster-label fix — a NEW
+/// baseline, never a mutation of the two above (their rosters carry a null
+/// `masterType`, so their pixels are unchanged by that fix, and that is
+/// itself the proof the change was additive).
+///
+/// One owner row (`role: master`, `masterType: salonOwner`, NO own title, so
+/// the identity fallback is what renders) beside one plain salon master in
+/// the same shape — the two labels sit side by side in row 1, which is what
+/// makes a regression that relabels every non-admin row visible here.
+const List<SalonStaffMember> _ownerRowRoster = <SalonStaffMember>[
+  SalonStaffMember(
+    userId: 'owner-1',
+    masterId: 'owner-master-1',
+    role: SalonStaffRole.master,
+    masterType: MasterType.salonOwner,
+    firstName: 'Оксана',
+    lastName: 'Швець',
+    avgRating: 4.8,
+    reviewCount: 31,
+  ),
+  SalonStaffMember(
+    userId: 'master-1',
+    masterId: 'master-1',
+    role: SalonStaffRole.master,
+    masterType: MasterType.salonMaster,
+    firstName: 'Олена',
+    lastName: 'Ковальчук',
+    avgRating: 4.9,
+    reviewCount: 12,
+  ),
+];
+
 List<Object> _overrides(List<SalonStaffMember> staff) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   salonManagementProfileProvider(
@@ -154,6 +187,7 @@ void main() {
       <({String name, List<SalonStaffMember> staff})>[
         (name: 'salon_manage_staff_grid_multi_row', staff: _multiRowRoster),
         (name: 'salon_manage_staff_grid_self_only', staff: _selfOnlyRoster),
+        (name: 'salon_manage_staff_grid_owner_row', staff: _ownerRowRoster),
       ];
 
   for (final ({String name, List<SalonStaffMember> staff}) c in cases) {

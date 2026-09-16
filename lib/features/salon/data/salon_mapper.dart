@@ -237,6 +237,7 @@ abstract final class SalonStaffMemberMapper {
           userId: userId,
           masterId: dto.masterId,
           role: _staffRoleFromDto(dto.role),
+          masterType: _masterTypeFromStaffRole(dto.role),
           firstName: dto.firstName ?? '',
           lastName: dto.lastName ?? '',
           professionalTitle: dto.professionalTitle,
@@ -253,14 +254,45 @@ abstract final class SalonStaffMemberMapper {
     return out;
   }
 
+  /// [SalonStaffRole] answers CAPABILITY, not identity — so every non-admin
+  /// wire role collapses to [SalonStaffRole.master], and that is CORRECT
+  /// rather than a fail-safe approximation: this endpoint returns the
+  /// salon's active masters, and a `SALON_OWNER` row is here precisely
+  /// because the owner is auto-enrolled as a master of their own salon
+  /// (`SalonService.java:140`). Who the account IS now rides on
+  /// [_masterTypeFromStaffRole] instead, so nothing is lost by the collapse.
   static SalonStaffRole _staffRoleFromDto(SalonStaffMemberResponseRoleEnum? e) {
     if (e == SalonStaffMemberResponseRoleEnum.SALON_ADMIN) {
       return SalonStaffRole.admin;
     }
-    // Covers SALON_MASTER and any future/unknown value — fail-safe (this
-    // endpoint's contract never returns CLIENT/SALON_OWNER/INDEPENDENT_MASTER
-    // — mirrors [SalonMasterMapper._masterTypeFromDto]'s own precedent).
     return SalonStaffRole.master;
+  }
+
+  /// The identity half of the same wire `role`: `SALON_OWNER`,
+  /// `INDEPENDENT_MASTER` and `SALON_MASTER` each name a real
+  /// [MasterType]; `SALON_ADMIN`, `CLIENT` and a null/unknown value carry no
+  /// master identity at all and map to null rather than to a guess.
+  ///
+  /// An if-chain, not a `switch`: [SalonStaffMemberResponseRoleEnum] is a
+  /// built_value `EnumClass`, not a Dart enum, so the compiler offers no
+  /// exhaustiveness check here. `salon_mapper_test.dart`'s role-mapping
+  /// cardinality ledger is the tripwire that stands in for one — a new wire
+  /// role fails that test rather than silently landing on null.
+  /// Mirrors [SalonMasterMapper._masterTypeFromDto]'s own precedent.
+  static MasterType? _masterTypeFromStaffRole(
+    SalonStaffMemberResponseRoleEnum? e,
+  ) {
+    if (e == SalonStaffMemberResponseRoleEnum.SALON_OWNER) {
+      return MasterType.salonOwner;
+    }
+    if (e == SalonStaffMemberResponseRoleEnum.INDEPENDENT_MASTER) {
+      return MasterType.independentMaster;
+    }
+    if (e == SalonStaffMemberResponseRoleEnum.SALON_MASTER) {
+      return MasterType.salonMaster;
+    }
+    // SALON_ADMIN, CLIENT, null, and any future value — no master identity.
+    return null;
   }
 }
 

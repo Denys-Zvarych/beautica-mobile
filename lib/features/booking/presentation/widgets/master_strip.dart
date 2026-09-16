@@ -24,26 +24,13 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
 import '../../domain/salon_master_schedule.dart';
 import 'master_strip_shell.dart';
-
-/// Resolves a display label for [type]. Shared by every booking-flow screen
-/// that renders a [MasterStrip] / day-header chip so the wording never drifts
-/// from `PublicMasterProfileScreen`'s own `_roleLabel`.
-String masterRoleLabel(MasterType type, AppLocalizations l10n) {
-  switch (type) {
-    case MasterType.independentMaster:
-      return l10n.masterRoleIndependent;
-    case MasterType.salonMaster:
-      return l10n.masterRoleSalonMaster;
-    case MasterType.salonOwner:
-      return l10n.masterRoleSalonOwner;
-  }
-}
 
 /// A compact "who you're booking with" strip — a camel-wash card with a small
 /// raised avatar glyph, the master's name, their title/role sub-line and their

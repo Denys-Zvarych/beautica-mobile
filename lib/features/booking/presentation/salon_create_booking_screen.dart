@@ -147,6 +147,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -167,7 +168,7 @@ import 'widgets/booking_summary_bar.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/booking_wizard_steps.dart';
-import 'widgets/master_strip.dart' show MasterRatingReadout, masterRoleLabel;
+import 'widgets/master_strip.dart' show MasterRatingReadout;
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/salon_booking_wizard_steps.dart';
 import 'widgets/service_catalogue_accordion.dart'

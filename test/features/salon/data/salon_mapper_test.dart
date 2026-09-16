@@ -24,7 +24,9 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/data/salon_mapper.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -445,4 +447,122 @@ void main() {
       expect(out.map((SiblingSalonOption o) => o.id), <String>['c', 'a', 'b']);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // CARDINALITY LEDGER — the wire `role` splits into TWO domain facts.
+  //
+  // [SalonStaffMemberResponseRoleEnum] is a built_value `EnumClass`, not a
+  // Dart enum, so neither `_staffRoleFromDto` nor `_masterTypeFromStaffRole`
+  // can be a `switch` and NOTHING in the compiler notices when the backend
+  // adds a sixth role — a new value would silently land on
+  // `(master, null)` and relabel a whole class of people. This table IS the
+  // tripwire that stands in for exhaustiveness: it enumerates every wire
+  // value with its expected `(SalonStaffRole, MasterType?)` pair, and the
+  // closing count assertion fails the moment the generated enum grows.
+  //
+  // The split itself is the point: `role` answers CAPABILITY (performs
+  // services / manages), `masterType` answers ACCOUNT IDENTITY. `SALON_OWNER`
+  // is routinely on this endpoint — the owner is auto-enrolled as a master of
+  // their own salon (`SalonService.java:140`) — and must land on
+  // `(master, salonOwner)`, NOT on `(master, null)`: the 2026-09-16
+  // «Майстер салону»-for-the-owner roster bug was exactly that null.
+  // -------------------------------------------------------------------------
+  group(
+    'SalonStaffMemberMapper.fromDtoList — wire role → (role, masterType)',
+    () {
+      SalonStaffMemberResponse staffDto(
+        SalonStaffMemberResponseRoleEnum? role,
+      ) => SalonStaffMemberResponse(
+        (b) => b
+          ..userId = 'user-1'
+          ..masterId = 'master-1'
+          ..role = role
+          ..firstName = 'Оксана'
+          ..lastName = 'Швець',
+      );
+
+      final List<
+        ({
+          String label,
+          SalonStaffMemberResponseRoleEnum? wire,
+          SalonStaffRole role,
+          MasterType? masterType,
+        })
+      >
+      table =
+          <
+            ({
+              String label,
+              SalonStaffMemberResponseRoleEnum? wire,
+              SalonStaffRole role,
+              MasterType? masterType,
+            })
+          >[
+            (
+              label: 'SALON_OWNER',
+              wire: SalonStaffMemberResponseRoleEnum.SALON_OWNER,
+              role: SalonStaffRole.master,
+              masterType: MasterType.salonOwner,
+            ),
+            (
+              label: 'SALON_MASTER',
+              wire: SalonStaffMemberResponseRoleEnum.SALON_MASTER,
+              role: SalonStaffRole.master,
+              masterType: MasterType.salonMaster,
+            ),
+            (
+              label: 'INDEPENDENT_MASTER',
+              wire: SalonStaffMemberResponseRoleEnum.INDEPENDENT_MASTER,
+              role: SalonStaffRole.master,
+              masterType: MasterType.independentMaster,
+            ),
+            (
+              label: 'SALON_ADMIN',
+              wire: SalonStaffMemberResponseRoleEnum.SALON_ADMIN,
+              role: SalonStaffRole.admin,
+              masterType: null,
+            ),
+            (
+              label: 'CLIENT',
+              wire: SalonStaffMemberResponseRoleEnum.CLIENT,
+              role: SalonStaffRole.master,
+              masterType: null,
+            ),
+            (
+              label: 'a null/absent wire role',
+              wire: null,
+              role: SalonStaffRole.master,
+              masterType: null,
+            ),
+          ];
+
+      for (final entry in table) {
+        test('${entry.label} → (${entry.role.name}, '
+            '${entry.masterType?.name ?? 'null'})', () {
+          final members = SalonStaffMemberMapper.fromDtoList(
+            <SalonStaffMemberResponse>[staffDto(entry.wire)],
+          );
+
+          expect(members, hasLength(1));
+          expect(members.single.role, entry.role);
+          expect(members.single.masterType, entry.masterType);
+        });
+      }
+
+      test('the table above covers EVERY generated wire role — a sixth value '
+          'means a new row is owed here, not a silent (master, null)', () {
+        expect(
+          SalonStaffMemberResponseRoleEnum.values.length,
+          5,
+          reason:
+              'CARDINALITY LEDGER: the role→(role, masterType) table in this '
+              'group enumerates CLIENT, SALON_OWNER, SALON_ADMIN, '
+              'SALON_MASTER and INDEPENDENT_MASTER. Neither mapper function '
+              'is a switch (built_value EnumClass — no exhaustiveness), so a '
+              'new backend role would otherwise map to (master, null) with '
+              'nothing failing. Add the row, then bump this count.',
+        );
+      });
+    },
+  );
 }

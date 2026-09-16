@@ -53,6 +53,8 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
@@ -371,11 +373,18 @@ class _StaffProfileBody extends StatelessWidget {
         ? member.phoneNumber!.trim()
         : null;
     final String? ownTitle = member.professionalTitle?.trim();
+    // The non-admin fallback is keyed on `masterType` (identity), NOT on
+    // `role` (capability): an admin tapping the OWNER's roster row lands
+    // here, and the owner is auto-enrolled as a master of their own salon,
+    // so `role` is `master` while the chip must read «Власник салону». A
+    // null `masterType` (an unrecognised wire role) keeps the old
+    // salon-master wording. The master's own [professionalTitle] still wins
+    // over both.
     final String roleLabel = isAdmin
         ? l10n.salonStaffRoleAdmin
         : (ownTitle != null && ownTitle.isNotEmpty)
         ? ownTitle
-        : l10n.masterRoleSalonMaster;
+        : masterRoleLabel(member.masterType ?? MasterType.salonMaster, l10n);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

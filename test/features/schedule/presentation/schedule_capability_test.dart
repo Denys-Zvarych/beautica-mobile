@@ -66,6 +66,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -114,6 +115,25 @@ const _kDecoyMasterMember = SalonStaffMember(
   role: SalonStaffRole.master,
   firstName: 'Інший',
   lastName: 'Майстер',
+);
+
+/// The SAME master as [_kMasterMember], but carrying the owner's account
+/// identity — `SalonService.java:140` auto-enrols a salon's owner as a master
+/// of their first salon, so their roster row arrives as
+/// `role: master` (CAPABILITY) with `masterType: salonOwner` (IDENTITY).
+const _kOwnerAsMasterMember = SalonStaffMember(
+  userId: 'user-cap-owner-1',
+  masterId: _kMasterId,
+  role: SalonStaffRole.master,
+  masterType: MasterType.salonOwner,
+  firstName: 'Оксана',
+  lastName: 'Швець',
+);
+
+/// A resolved roster whose only entry is the owner's OWN master row.
+const _kRosterWithOwnerAsMaster = (
+  _kSalon,
+  <SalonStaffMember>[_kOwnerAsMasterMember],
 );
 
 /// A resolved roster for [_kSalonId] that does NOT contain [_kMasterId] —
@@ -605,6 +625,46 @@ void main() {
       expect(
         container.read(scheduleEditableProvider(_viewedMasterScope)),
         isFalse,
+      );
+    });
+
+    // ---------------------------------------------------------------
+    // REGRESSION GUARD (2026-09-16) — the «Власник салону» roster-label fix
+    // added [SalonStaffMember.masterType] and rewired the LABEL fork onto
+    // it. This gate must stay keyed on `role`: the owner's own roster row is
+    // `role: master`, so the owner editing THEIR OWN salon-master schedule
+    // still resolves `true`. Had `owner` been added to [SalonStaffRole]
+    // instead, `roster.any(... role == master)` would have silently gone
+    // false here and locked the owner out of their own schedule with
+    // nothing failing to compile. This test is that tripwire.
+    // ---------------------------------------------------------------
+    test('SALON_OWNER whose own roster row carries masterType.salonOwner, '
+        'viewing a scope naming that same masterId → true', () async {
+      final container = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+        extraOverrides: [
+          mySalonsProvider.overrideWith(
+            () => _SettledMySalons(const <Salon>[_kSalon]),
+          ),
+          salonManagementProfileProvider.overrideWith(
+            () => _FixedRoster(_kRosterWithOwnerAsMaster),
+          ),
+        ],
+      );
+      await container.read(authProvider.future);
+      // Both async facts settled before the sync read — see test 7's own
+      // doc for why an un-awaited read would pass for the wrong reason
+      // (here it would FAIL for the wrong reason, which is just as bad).
+      await container.read(mySalonsProvider.future);
+      await container.read(salonManagementProfileProvider(_kSalonId).future);
+
+      expect(
+        container.read(scheduleEditableProvider(_viewedMasterScope)),
+        isTrue,
+        reason:
+            'the owner performs services for their own salon — `role` is '
+            'still `master` and the identity now rides on `masterType`, so '
+            'the roster scan must still admit them',
       );
     });
 
