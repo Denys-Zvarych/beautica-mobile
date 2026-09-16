@@ -1053,6 +1053,121 @@ void main() {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Password-reset journey 429 — per-IP AuthRateLimitFilter (2026-09-15)
+  // ---------------------------------------------------------------------------
+  //
+  // The live bug: a real, active, verified user asked for a password reset and
+  // got «Щось пішло не так. Спробуйте ще раз.» — the errUnknown copy. The
+  // backend caps each of these three endpoints at 3 requests/hour per IP in a
+  // servlet FILTER that runs BEFORE the controller, so forgot-password's
+  // anti-enumeration generic-200 contract never gets a say: the filter answers
+  // 429 with `Retry-After: 3600` and its own bare `{"error":"Too many
+  // requests"}` — no `message`, no `errors`, no `data.code`. With no branch
+  // for it the response fell to the terminal UnknownFailure.
+  //
+  // The body below is that exact filter shape on purpose: a fixture carrying
+  // the richer `{data:{retryAfterSeconds}}` envelope would let a branch that
+  // merely reads the body look correct, which is the mistake that produced
+  // the gap in the first place.
+  group('ErrorMapperInterceptor — password-reset 429 (per-IP filter)', () {
+    DioException filterThrottle(String path) {
+      final opts = _opts(path: path);
+      return DioException(
+        requestOptions: opts,
+        response: Response<dynamic>(
+          requestOptions: opts,
+          statusCode: 429,
+          data: <String, dynamic>{'error': 'Too many requests'},
+          headers: Headers.fromMap({
+            'retry-after': ['3600'],
+          }),
+        ),
+        type: DioExceptionType.badResponse,
+      );
+    }
+
+    // All three steps of the same journey (request → verify OTP → set
+    // password) have their own bucket and had the identical hole. Gating only
+    // the first would leave the user hitting the same wall two taps later.
+    for (final String path in <String>[
+      '/api/v1/auth/forgot-password',
+      '/api/v1/auth/verify-password-reset-otp',
+      '/api/v1/auth/reset-password',
+    ]) {
+      test('429 on $path → PasswordResetRateLimitedFailure, NOT '
+          'UnknownFailure', () {
+        final rejected = _captureRejected(filterThrottle(path));
+
+        expect(rejected.error, isA<PasswordResetRateLimitedFailure>());
+        expect(
+          rejected.error,
+          isNot(isA<UnknownFailure>()),
+          reason:
+              'falling through to UnknownFailure is the reported bug — it '
+              'renders errUnknown («Спробуйте ще раз»), which at 3 '
+              'requests/hour is the one action that cannot work',
+        );
+      });
+    }
+
+    // The suffix match must not swallow the whole 429 space: the
+    // change-password entry point immediately above it keeps its own
+    // per-account ResendThrottledFailure, and an unrelated 429 keeps falling
+    // through. Without this the new branch could be a no-op-looking widening.
+    test('429 on /users/me/change-password/request-otp still maps to '
+        'ResendThrottledFailure (the new branch did not swallow it)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          429,
+          path: '/api/v1/users/me/change-password/request-otp',
+          body: <String, dynamic>{
+            'data': <String, dynamic>{'retryAfterSeconds': 42},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ResendThrottledFailure>());
+      expect(
+        (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+        equals(42),
+      );
+    });
+
+    test('429 on an unrelated path is untouched by the password-reset '
+        'branch', () {
+      final rejected = _captureRejected(
+        _httpError(429, path: '/api/v1/bookings'),
+      );
+
+      expect(rejected.error, isNot(isA<PasswordResetRateLimitedFailure>()));
+    });
+
+    // A 400 on the same path must keep its typed-code handling — the new
+    // branch is gated on the status code as well as the path.
+    test('400 on /auth/verify-password-reset-otp still maps to '
+        'PasswordResetOtpFailure', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/api/v1/auth/verify-password-reset-otp',
+          body: <String, dynamic>{
+            'data': <String, dynamic>{'code': 'CODE_EXPIRED'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<PasswordResetOtpFailure>());
+    });
+
+    test('the failure carries the original DioException as its cause', () {
+      final input = filterThrottle('/api/v1/auth/forgot-password');
+      final rejected = _captureRejected(input);
+
+      expect((rejected.error as Failure).cause, same(input));
+    });
+  });
+
   group('ErrorMapperInterceptor — handler.reject called exactly once', () {
     test('reject called once per onError invocation', () {
       final handler = _MockErrorInterceptorHandler();

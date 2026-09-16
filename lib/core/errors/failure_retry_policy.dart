@@ -178,7 +178,8 @@ bool isThrottleFailure(Failure failure) =>
     failure is BookingRateLimitedFailure ||
     failure is ScheduleOverrideRateLimitedFailure ||
     failure is ServiceRateLimitedFailure ||
-    failure is AccountDeleteRateLimitedFailure;
+    failure is AccountDeleteRateLimitedFailure ||
+    failure is PasswordResetRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
 ///
@@ -294,6 +295,13 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   BookingRateLimitedFailure() => false,
   ScheduleOverrideRateLimitedFailure() => false,
   AccountDeleteRateLimitedFailure() => false,
+  // 429 from the per-IP AuthRateLimitFilter on the password-reset journey.
+  // The bucket is 3/hour with `Retry-After: 3600`, so an automatic re-issue
+  // cannot succeed within any backoff this file is willing to wait — and each
+  // attempt it burns is one the user's next deliberate try no longer has.
+  // [isThrottleFailure] already stops it above; this arm is the honest answer
+  // to the separate transience question.
+  PasswordResetRateLimitedFailure() => false,
 
   // ---- deterministic: server-side configuration --------------------------
   // Nominally a 503, but it means "the support channel is not configured on
