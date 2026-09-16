@@ -70,6 +70,8 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -1175,12 +1177,21 @@ class _StaffTab extends StatelessWidget {
             // Phase 21.5 — the roster now includes admins (previously
             // masters-only): an admin has no professional title, so it
             // always shows the admin role label; a master falls back to the
-            // generic salon-master label when no own title is set.
+            // generic label for their own [MasterType] when no own title is
+            // set. That fallback is keyed on `masterType`, NOT on `role`:
+            // the salon's OWNER is auto-enrolled as a master of their own
+            // salon, so they arrive here as `role: master` with a null
+            // title, and must read «Власник салону» rather than «Майстер
+            // салону». A null `masterType` (an unrecognised wire role)
+            // keeps the old salon-master wording.
             final String role = isAdmin
                 ? l10n.salonStaffRoleAdmin
                 : (ownTitle != null && ownTitle.isNotEmpty)
                 ? ownTitle
-                : l10n.masterRoleSalonMaster;
+                : masterRoleLabel(
+                    member.masterType ?? MasterType.salonMaster,
+                    l10n,
+                  );
             return SalonMasterCard(
               key: Key('salon-manage-staff-card-${member.userId}'),
               name: member.firstName,

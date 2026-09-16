@@ -35,6 +35,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -61,6 +62,13 @@ const String _kMasterUserId = 'user-master-1';
 const String _kMasterRowId = 'master-row-77';
 const String _kAdminUserId = 'user-admin-1';
 
+/// The salon OWNER's own roster row. `SalonService.java:140` auto-enrols the
+/// owner as a master of their first salon, so the staff wire reports
+/// `SALON_OWNER` and the mapper resolves `role: master` (CAPABILITY) with
+/// `masterType: salonOwner` (IDENTITY).
+const String _kOwnerUserId = 'user-owner-1';
+const String _kOwnerMasterRowId = 'master-row-owner-99';
+
 const _stubSalon = Salon(id: _kSalonId, name: 'Салон «Тест»');
 
 const _masterMember = SalonStaffMember(
@@ -78,7 +86,16 @@ const _adminMember = SalonStaffMember(
   lastName: 'Ковальська',
 );
 
-const _staff = <SalonStaffMember>[_masterMember, _adminMember];
+const _ownerMember = SalonStaffMember(
+  userId: _kOwnerUserId,
+  masterId: _kOwnerMasterRowId,
+  role: SalonStaffRole.master,
+  masterType: MasterType.salonOwner,
+  firstName: 'Оксана',
+  lastName: 'Швець',
+);
+
+const _staff = <SalonStaffMember>[_masterMember, _adminMember, _ownerMember];
 
 const _services = <MasterService>[
   MasterService(
@@ -192,5 +209,35 @@ void main() {
       expect(result.$2, isEmpty);
       verifyNever(() => serviceRepo.getMasterServices(any()));
     });
+
+    // REGRESSION GUARD (2026-09-16) — the «Власник салону» roster-label fix
+    // added [SalonStaffMember.masterType] and rewired the label fork onto it.
+    // It must NOT have touched the services gate, which keys on `role`: the
+    // owner is a real, service-performing master of their own salon, so
+    // their profile still fetches services exactly like any other master.
+    // A "fix" that had instead moved `owner` onto the ROLE enum would have
+    // silently dropped this fetch — this test is what would have caught it.
+    test(
+      'an OWNER entry (role: master, masterType: salonOwner) still '
+      'fetches services — the identity field did not touch the role gate',
+      () async {
+        final serviceRepo = _MockServiceRepository();
+        when(
+          () => serviceRepo.getMasterServices(_kOwnerMasterRowId),
+        ).thenAnswer((_) async => _services);
+        final container = _makeContainer(serviceRepo: serviceRepo);
+
+        final SalonStaffMemberProfileData result = await container.read(
+          salonStaffMemberProfileProvider(_kSalonId, _kOwnerUserId).future,
+        );
+
+        expect(result.$1, _ownerMember);
+        expect(result.$1.masterType, MasterType.salonOwner);
+        expect(result.$2, _services);
+        verify(
+          () => serviceRepo.getMasterServices(_kOwnerMasterRowId),
+        ).called(1);
+      },
+    );
   });
 }

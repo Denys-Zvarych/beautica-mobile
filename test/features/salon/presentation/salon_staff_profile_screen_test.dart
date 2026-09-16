@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
@@ -487,6 +488,84 @@ void main() {
             .label,
         l10n.masterRoleSalonMaster,
       );
+    });
+
+    // -----------------------------------------------------------------
+    // The SECOND display site of the «Власник салону» roster-label bug
+    // (2026-09-16): an owner/admin tapping the OWNER's «Команда» row lands
+    // HERE. `SalonService.java:140` auto-enrols the owner as a master of
+    // their first salon, so the wire says `SALON_OWNER` and the mapper
+    // resolves `role: master` with `masterType: salonOwner` and a null
+    // `professionalTitle` — the exact shape that used to read «Майстер
+    // салону» on this chip.
+    //
+    // The page TITLE is deliberately not asserted to change: it names the
+    // KIND of page, and the owner's entry genuinely IS their master
+    // profile. Identity lives on the chip alone.
+    // -----------------------------------------------------------------
+    testWidgets('an OWNER entry (role: master, masterType: salonOwner, no own '
+        'title) labels the RoleChip «Власник салону»', (tester) async {
+      const SalonStaffMember ownerEntry = SalonStaffMember(
+        userId: _kMasterId,
+        masterId: 'master-row-owner-1',
+        role: SalonStaffRole.master,
+        masterType: MasterType.salonOwner,
+        firstName: 'Оксана',
+        lastName: 'Швець',
+      );
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: _overrides(
+          _kMasterId,
+          (ref) async => (ownerEntry, const <MasterService>[]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(
+        tester
+            .widget<RoleChip>(
+              find.byKey(const Key('salon-staff-profile-role-chip')),
+            )
+            .label,
+        l10n.masterRoleSalonOwner,
+      );
+      expect(find.text(l10n.masterRoleSalonMaster), findsNothing);
+    });
+
+    testWidgets('an OWNER entry WITH an own professionalTitle still shows the '
+        'title — identity never outranks the master\'s own wording', (
+      tester,
+    ) async {
+      const SalonStaffMember titledOwner = SalonStaffMember(
+        userId: _kMasterId,
+        masterId: 'master-row-owner-1',
+        role: SalonStaffRole.master,
+        masterType: MasterType.salonOwner,
+        firstName: 'Оксана',
+        lastName: 'Швець',
+        professionalTitle: 'Топ-стиліст',
+      );
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: _overrides(
+          _kMasterId,
+          (ref) async => (titledOwner, const <MasterService>[]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(
+        tester
+            .widget<RoleChip>(
+              find.byKey(const Key('salon-staff-profile-role-chip')),
+            )
+            .label,
+        'Топ-стиліст',
+      );
+      expect(find.text(l10n.masterRoleSalonOwner), findsNothing);
     });
 
     testWidgets(

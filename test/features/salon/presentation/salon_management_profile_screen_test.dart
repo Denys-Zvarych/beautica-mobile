@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/location/data/location_repository.dart'
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
@@ -122,10 +123,15 @@ const _stubStaff = <SalonStaffMember>[
 // ---------------------------------------------------------------------------
 
 /// The owner's own staff-roster row — `role` is [SalonStaffRole.master] (the
-/// staff wire's `SALON_OWNER` value maps there, same fail-safe direction
-/// `SalonStaffMemberMapper._staffRoleFromDto` takes for anything that is not
-/// `SALON_ADMIN`), WITH an active master row (`masterId` set). D2's "toggle
-/// ON" staff-side cell.
+/// staff wire's `SALON_OWNER` value maps there: [SalonStaffRole] answers
+/// CAPABILITY, and the owner genuinely performs services), WITH an active
+/// master row (`masterId` set). D2's "toggle ON" staff-side cell.
+///
+/// `masterType` is deliberately left NULL here — this fixture predates the
+/// identity field and exists to pin ROSTER MEMBERSHIP, not the role label.
+/// Its null is what keeps the old «Майстер салону» wording on this card, so
+/// the owner-label group below carries its own fixture rather than mutating
+/// this one.
 const _matrixOwner = SalonStaffMember(
   userId: 'matrix-owner-1',
   masterId: 'matrix-owner-master-1',
@@ -2384,6 +2390,127 @@ void main() {
             'deleted as redundant — it is not: the empty branch renders '
             'INSTEAD of the self-padding accordion, never alongside it.',
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The «Власник салону» roster-label regression (2026-09-16).
+  //
+  // `GET /salons/{id}/staff` returns `role: SALON_OWNER` for the salon's own
+  // owner — `SalonService.java:140` auto-enrols them as a master of their
+  // first salon — with `professionalTitle: null`. The mapper collapses every
+  // non-admin wire role onto [SalonStaffRole.master] (correct: that enum
+  // answers CAPABILITY), so the card's role fork hit its generic fallback
+  // and labelled the OWNER «Майстер салону».
+  //
+  // The fix keys that fallback on the new [SalonStaffMember.masterType]
+  // (identity) instead. Both rows below are load-bearing:
+  //   * the plain salon master stops a "fix" that simply relabels EVERY
+  //     non-admin row as the owner from passing;
+  //   * both `professionalTitle`s are NULL, so the fixture cannot defang the
+  //     assertion by short-circuiting on the own-title branch before the
+  //     role fork is ever reached.
+  // -------------------------------------------------------------------------
+  group('«Команда» roster role label — owner vs plain master', () {
+    const SalonStaffMember ownerRow = SalonStaffMember(
+      userId: 'label-owner-1',
+      masterId: 'label-owner-master-1',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonOwner,
+      firstName: 'Оксана',
+      lastName: 'Швець',
+    );
+
+    const SalonStaffMember plainMasterRow = SalonStaffMember(
+      userId: 'label-master-1',
+      masterId: 'label-master-master-1',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonMaster,
+      firstName: 'Софія',
+      lastName: 'Бондаренко',
+    );
+
+    testWidgets(
+      'should_labelOwnerRowAsSalonOwner_when_rosterCarriesBothRoles',
+      (tester) async {
+        final repo = FakeSalonRepository(
+          salon: _stubSalon,
+          staff: const <SalonStaffMember>[ownerRow, plainMasterRow],
+        );
+        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        final Finder ownerCard = find.byKey(
+          const Key('salon-manage-staff-card-label-owner-1'),
+        );
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-label-master-1'),
+        );
+        expect(ownerCard, findsOneWidget);
+        expect(masterCard, findsOneWidget);
+
+        expect(
+          tester.widget<SalonMasterCard>(ownerCard).role,
+          l10n.masterRoleSalonOwner,
+          reason:
+              'the owner arrives as role=master with a null professional '
+              'title; their card must read «Власник салону», keyed on '
+              'masterType (identity), not on role (capability)',
+        );
+        expect(
+          tester.widget<SalonMasterCard>(masterCard).role,
+          l10n.masterRoleSalonMaster,
+          reason:
+              'the plain salon master must be UNAFFECTED — a fix that '
+              'relabels every non-admin row as the owner fails here',
+        );
+
+        // Rendered text, not just the widget field: the label has to reach
+        // the pixels, and exactly one row may claim each wording.
+        expect(find.text(l10n.masterRoleSalonOwner), findsOneWidget);
+        expect(find.text(l10n.masterRoleSalonMaster), findsOneWidget);
+      },
+    );
+
+    testWidgets('should_keepOwnProfessionalTitle_when_ownerSetOne', (
+      tester,
+    ) async {
+      const SalonStaffMember titledOwner = SalonStaffMember(
+        userId: 'label-owner-1',
+        masterId: 'label-owner-master-1',
+        role: SalonStaffRole.master,
+        masterType: MasterType.salonOwner,
+        firstName: 'Оксана',
+        lastName: 'Швець',
+        professionalTitle: 'Топ-стиліст',
+      );
+      final repo = FakeSalonRepository(
+        salon: _stubSalon,
+        staff: const <SalonStaffMember>[titledOwner],
+      );
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<SalonMasterCard>(
+              find.byKey(const Key('salon-manage-staff-card-label-owner-1')),
+            )
+            .role,
+        'Топ-стиліст',
+        reason:
+            'the own-title branch still WINS over the identity fallback — '
+            'the fix only replaced the generic arm',
+      );
+      expect(find.text(l10n.masterRoleSalonOwner), findsNothing);
     });
   });
 }

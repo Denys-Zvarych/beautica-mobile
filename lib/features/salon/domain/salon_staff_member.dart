@@ -11,18 +11,33 @@
 // the master" blurb), not merely unset; do not treat a null admin bio as a
 // gap to backfill.
 //
+// [role] and [masterType] answer two DIFFERENT questions and must not be
+// conflated: [role] is CAPABILITY (performs services / manages), [masterType]
+// is ACCOUNT IDENTITY (owner / salon master / independent). The salon owner
+// is auto-enrolled as a master of their own salon (`SalonService.java:140`),
+// so they arrive here as `role: master` WITH `masterType: salonOwner`.
+//
 // Pure Dart: no Flutter imports in this file.
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../master/domain/master.dart';
+
 part 'salon_staff_member.freezed.dart';
 
-/// The two roles this roster can carry. Any other backend role value
-/// (CLIENT/SALON_OWNER/INDEPENDENT_MASTER) is unreachable on this endpoint by
-/// contract — see [SalonStaffMemberMapper] in `salon_mapper.dart` for the
-/// fail-safe fallback if one ever appears.
+/// The two CAPABILITIES this roster can carry — what an entry may DO for this
+/// salon, never who the account is.
+///
+/// This enum deliberately has exactly two values and is shared with
+/// `SalonInvite`. It does NOT encode account identity: `SALON_OWNER` is
+/// routinely present on `GET /salons/{salonId}/staff` (the owner is
+/// auto-enrolled as a master of their first salon) and is correctly a
+/// [master] here, because they do perform services. Identity rides on
+/// [SalonStaffMember.masterType] instead — see [SalonStaffMemberMapper] in
+/// `salon_mapper.dart`.
 enum SalonStaffRole {
-  /// A master (any `MasterType`) performing services for this salon.
+  /// A master (any `MasterType`, the salon's own owner included) performing
+  /// services for this salon.
   master,
 
   /// A SALON_ADMIN with management access to this salon.
@@ -40,6 +55,17 @@ abstract class SalonStaffMember with _$SalonStaffMember {
     /// Backend `Master` row id — null for an admin entry.
     String? masterId,
     required SalonStaffRole role,
+
+    /// The account identity behind a [SalonStaffRole.master] entry — what
+    /// the backend's `role` says this user IS, as opposed to what [role]
+    /// says they may do.
+    ///
+    /// Null for an admin entry BY DESIGN — an admin has no master row, hence
+    /// no master type — and null for an unrecognised wire role, where
+    /// guessing an identity would be worse than naming none. A display site
+    /// therefore falls back to [MasterType.salonMaster], the roster's
+    /// commonest case.
+    MasterType? masterType,
     required String firstName,
     required String lastName,
     String? professionalTitle,
