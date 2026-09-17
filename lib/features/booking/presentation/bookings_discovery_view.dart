@@ -453,17 +453,21 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// fetch.)
   final bool showServiceFilter;
 
-  /// Whether the day rail's booked-day dots are fetched.
+  /// Whether the day rail's booked-day dots are fetched at all.
   ///
-  /// `true` (the default) is every pre-existing call site. `false` on the
-  /// salon board: `bookedDaysProvider` wraps `GET /bookings/me/booked-days`,
-  /// the CALLER's own days — for an owner who is not themselves a master that
-  /// is empty, and it is never the salon's days. It is also "the single
-  /// heaviest request in the feature" (a full ±180-day sweep; see
-  /// `BookingRepository.getMyBookedDays`), so the salon board skips it rather
-  /// than paying for dots that would be wrong if they appeared. A salon-wide
-  /// booked-days endpoint does not exist yet; when it does, this flag is the
-  /// seam it lands on.
+  /// `true` on every current call site. WHICH endpoint supplies them is NOT
+  /// this flag's business — [_bookedDaysAsync] dispatches on the seed query's
+  /// sealed member, exactly as [_rebuildQuery] does, so the master's own board
+  /// reads `bookedDaysProvider` (`GET /bookings/me/booked-days`) and the salon
+  /// board reads `salonBookedDaysProvider(salonId)`
+  /// (`GET /bookings/salon/{salonId}/booked-days`, backend Phase 319).
+  ///
+  /// The salon board passed `false` until that endpoint existed: `/me/booked-
+  /// days` is the CALLER's days — for an owner it aggregates every salon they
+  /// own and for a `SALON_ADMIN` the backend rejects it outright, so it is
+  /// never THIS board's days. Both of those are now moot; the flag is kept as
+  /// the "don't pay for the feature's heaviest request" seam (a full ±180-day
+  /// sweep) for any future host that wants a rail without dots.
   final bool showBookedDayDots;
 
   @override
@@ -843,6 +847,31 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       // the module-level `_kMaximalFilterStatuses` — see its doc for why.
       maximalStatuses: _kMaximalFilterStatuses,
     );
+  }
+
+  /// The booked-day dot set for THIS view's scope, or `null` when
+  /// [BookingsDiscoveryView.showBookedDayDots] is `false` (nothing is watched
+  /// at all, so no request is issued).
+  ///
+  /// Dispatches on the SEED query's sealed member, exactly as [_rebuildQuery]
+  /// does and for the same reason — the scope travels on the seed the host
+  /// already passes, so this view still never branches on "am I a salon?"
+  /// anywhere else. The two endpoints are strictly scope twins (same window,
+  /// same 366-day cap, same filter-independence, one shared provider body in
+  /// `booked_days_notifier.dart`), so everything downstream of here is
+  /// identical for both.
+  ///
+  /// Takes the `Consumer`'s own [WidgetRef], NOT the `State`'s: the watch must
+  /// stay scoped to that builder, which is what keeps a dot-set emission from
+  /// rebuilding the timeline subtree above it (see the call site's comment).
+  AsyncValue<Set<DateTime>>? _bookedDaysAsync(WidgetRef ref) {
+    if (!widget.showBookedDayDots) return null;
+    return switch (widget.query) {
+      SalonDayQuery(:final String salonId) => ref.watch(
+        salonBookedDaysProvider(salonId),
+      ),
+      MasterOwnDayQuery() => ref.watch(bookedDaysProvider),
+    };
   }
 
   /// Selecting a rail day narrows to exactly that day. Debounced; see
@@ -1285,15 +1314,11 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                   // narrows. Feeds BOTH the collapsed rail's dots and the
                   // expanded grid's density dots inside the panel — same
                   // source, unchanged.
-                  // Phase 21.12 — not watched at all on the salon board; see
-                  // [BookingsDiscoveryView.showBookedDayDots] for why dots
-                  // sourced from `GET /bookings/me/booked-days` would be
-                  // wrong there, and why skipping the heaviest request in the
-                  // feature beats rendering them.
+                  // Which ENDPOINT is a scope question, answered once in
+                  // [_bookedDaysAsync] off the seed query's sealed member —
+                  // see [BookingsDiscoveryView.showBookedDayDots].
                   final AsyncValue<Set<DateTime>>? bookedDaysAsync =
-                      widget.showBookedDayDots
-                      ? ref.watch(bookedDaysProvider)
-                      : null;
+                      _bookedDaysAsync(ref);
                   final Set<DateTime> bookedDays =
                       bookedDaysAsync?.value ?? const <DateTime>{};
 

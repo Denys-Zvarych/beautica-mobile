@@ -8334,7 +8334,50 @@ final class FakeBackend {
     'locationNote': null,
   };
 
+  /// `GET /api/v1/bookings/salon/{kOwnerSalonId}/booked-days` call count
+  /// (backend Phase 319 — the salon rail's dots).
+  int salonBookedDaysCalls = 0;
+
+  /// The raw query of the MOST RECENT salon booked-days call, as Dio sent it.
+  /// Lets a flow assert the Kyiv-anchored ±`kBookedDaysSpanDays` window
+  /// `salonBookedDaysProvider` (`booked_days_notifier.dart`) sends — and that
+  /// nothing filter-shaped ever appears on it.
+  Map<String, dynamic>? lastSalonBookedDaysQuery;
+
   void _wireSalonBoard() {
+    // GET /api/v1/bookings/salon/{id}/booked-days?from=&to= — the dot set
+    // behind the salon «Записи» day rail (backend Phase 319). Registered
+    // BEFORE `/api/v1/bookings/salon/{id}` deliberately, for the same reason
+    // `/me/booked-days` precedes `/me`: DioAdapter matches on the path, and
+    // the longer path must get first refusal.
+    //
+    // Derived from [salonBoardBookings] at REQUEST time (that list is mutable
+    // by design), so a dot can never point at a day the board itself renders
+    // empty — the invariant the backend's own `getSalonBookedDays` javadoc
+    // pins by reusing one query with no status predicate on either side.
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kOwnerSalonId/booked-days',
+      (server) => server.replyCallback(200, (req) {
+        salonBookedDaysCalls++;
+        lastSalonBookedDaysQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        final Set<String> days = <String>{};
+        for (final Map<String, dynamic> row in salonBoardBookings) {
+          final Object? startsAt = row['startsAt'];
+          if (startsAt is String && startsAt.length >= 10) {
+            days.add(startsAt.substring(0, 10));
+          }
+        }
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': days.toList()..sort(),
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // The board's own day fetch.
     _adapter.onRoute(
       '/api/v1/bookings/salon/$kOwnerSalonId',

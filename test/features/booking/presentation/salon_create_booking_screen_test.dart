@@ -303,6 +303,14 @@ class _FakeBookingRepository implements BookingRepository {
   }) => throw UnimplementedError();
 
   @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<Booking> getBookingById(String id) => throw UnimplementedError();
 
   /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's

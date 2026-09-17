@@ -1,7 +1,10 @@
 // Phase 7.1 — the day-rail's dot set: which days the master has bookings on.
 //
-// One unpaged call to `GET /bookings/me/booked-days` (backend Phase 26.5)
-// covering today ± [kBookedDaysSpanDays].
+// One unpaged call covering today ± [kBookedDaysSpanDays]:
+// `GET /bookings/me/booked-days` (backend Phase 26.5) for the master's own
+// rail, and `GET /bookings/salon/{salonId}/booked-days` (backend Phase 319)
+// for the salon board's. Same window, same caching, same cancellation — see
+// [_bookedDaysWindow], which both providers share.
 //
 // ## Filter-independent BY DESIGN — do not key this on the query
 //
@@ -13,8 +16,8 @@
 // user narrows — so the rail would stop showing them the days they'd need to
 // clear the filter to reach, which is precisely when it is most useful.
 //
-// The backend agrees and enforces it: `/me/booked-days` exposes no status or
-// serviceId param at all.
+// The backend agrees and enforces it: neither `/me/booked-days` nor
+// `/salon/{salonId}/booked-days` exposes a status or serviceId param at all.
 //
 // Invalidate this after any action that changes a booking's EXISTENCE
 // (Phase 7.3 cancel / no-show); a mere status change does not move a dot.
@@ -74,6 +77,7 @@ import '../../auth/domain/auth_session.dart';
 import '../../auth/domain/user.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/booking_providers.dart';
+import '../data/booking_repository.dart';
 
 part 'booked_days_notifier.g.dart';
 
@@ -94,7 +98,64 @@ const int kBookedDaysSpanDays = 180;
 ///
 /// Generated provider name: `bookedDaysProvider`.
 @riverpod
-Future<Set<DateTime>> bookedDays(Ref ref) async {
+Future<Set<DateTime>> bookedDays(Ref ref) => _bookedDaysWindow(ref, (
+  BookingRepository repo,
+  DateTime from,
+  DateTime to,
+  CancelToken cancelToken,
+) {
+  return repo.getMyBookedDays(from: from, to: to, cancelToken: cancelToken);
+});
+
+/// [bookedDays]' salon-wide twin — the days on which [salonId] has at least
+/// one booking, across today ± [kBookedDaysSpanDays]. Feeds the salon
+/// «Записи» board's day-rail dots.
+///
+/// Wraps `GET /bookings/salon/{salonId}/booked-days` (backend Phase 319).
+/// A FAMILY, unlike [bookedDays]: an owner may manage several salons and each
+/// board asks about its own. Everything else — the session-boundary auth
+/// watch, the 30-minute `keepAlive`, the cancel token, the Kyiv-anchored
+/// ±180-day window — is the SAME code path
+/// ([_bookedDaysWindow]), so the two can never drift on any of it.
+///
+/// Filter-independent by design, exactly like [bookedDays] — never widen this
+/// into a family keyed by the board's filter. See this file's header.
+///
+/// Generated provider name: `salonBookedDaysProvider`.
+@riverpod
+Future<Set<DateTime>> salonBookedDays(Ref ref, String salonId) =>
+    _bookedDaysWindow(ref, (
+      BookingRepository repo,
+      DateTime from,
+      DateTime to,
+      CancelToken cancelToken,
+    ) {
+      return repo.getSalonBookedDays(
+        salonId: salonId,
+        from: from,
+        to: to,
+        cancelToken: cancelToken,
+      );
+    });
+
+/// The shared body of [bookedDays] and [salonBookedDays] — everything except
+/// WHICH endpoint is called.
+///
+/// Extracted rather than copied: the session-boundary auth watch below is a
+/// mobile-security HIGH fix, the `keepAlive` + TTL is a mobile-perf fix, the
+/// cancel token is a mobile-perf fix, and the calendar arithmetic is a DST
+/// fix. A forked salon copy would be four regressions waiting to happen, in
+/// code whose whole reason for existing is documented above it.
+Future<Set<DateTime>> _bookedDaysWindow(
+  Ref ref,
+  Future<List<DateTime>> Function(
+    BookingRepository repo,
+    DateTime from,
+    DateTime to,
+    CancelToken cancelToken,
+  )
+  fetch,
+) async {
   // Security (mobile-security HIGH, 2026-07-20) — see the file header's
   // "Session-boundary PII" section. Ties this singleton's lifetime to the
   // AUTHENTICATED IDENTITY, not just to its listeners, exactly like
@@ -166,9 +227,12 @@ Future<Set<DateTime>> bookedDays(Ref ref) async {
     today.day + kBookedDaysSpanDays,
   );
 
-  final List<DateTime> days = await ref
-      .read(bookingRepositoryProvider)
-      .getMyBookedDays(from: from, to: to, cancelToken: cancelToken);
+  final List<DateTime> days = await fetch(
+    ref.read(bookingRepositoryProvider),
+    from,
+    to,
+    cancelToken,
+  );
 
   // The repository already returns date-only locals; `dateOnly` again is a
   // cheap idempotent guard so a membership test can never miss on a stray

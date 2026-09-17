@@ -133,6 +133,14 @@ class _FakeBookingRepository implements BookingRepository {
   }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
   Future<Booking> getBookingById(String id) =>
       throw UnimplementedError('not used by nextAppointmentProvider');
 
@@ -244,6 +252,14 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
 
   @override
   Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError('not used by nextAppointmentProvider');
+
+  @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,

@@ -189,6 +189,39 @@ void main() {
         expect(query.containsKey('serviceId'), isFalse);
         expect(query['size'].toString(), '100');
 
+        // ── The rail's DOTS come from the SALON endpoint ───────────────────
+        //
+        // Backend Phase 319. `/bookings/me/booked-days` is the CALLER's days:
+        // for this owner it aggregates every salon they own, and for a
+        // SALON_ADMIN the backend rejects it outright — neither is THIS
+        // board's answer. Asserted at the E2E tier because the distinction is
+        // a PATH, which only a real Dio round trip can show.
+        expect(
+          fb.salonBookedDaysCalls,
+          greaterThan(0),
+          reason:
+              'the salon rail must be fed by '
+              'GET /bookings/salon/{salonId}/booked-days',
+        );
+        expect(
+          fb.bookedDaysCalls,
+          0,
+          reason:
+              'and never by the caller-scoped /bookings/me/booked-days, whose '
+              'days are not this salon\'s',
+        );
+        // Filter-independent, exactly like the master rail's: a dot marks
+        // where bookings ARE, so nothing filter-shaped may narrow it.
+        final Map<String, dynamic> dotsQuery = fb.lastSalonBookedDaysQuery!;
+        expect(dotsQuery.containsKey('status'), isFalse);
+        expect(dotsQuery.containsKey('serviceId'), isFalse);
+        expect(dotsQuery.containsKey('masterId'), isFalse);
+        // Both bounds are REQUIRED on this endpoint (unlike the sibling
+        // list's optional range) — an unbounded default would scan the
+        // salon's entire booking history.
+        expect(dotsQuery['from'], isNotNull);
+        expect(dotsQuery['to'], isNotNull);
+
         // ── The board itself: a COLUMN PER MASTER, not one merged list ─────
         expect(find.byType(MasterColumnStrip), findsOneWidget);
         expect(

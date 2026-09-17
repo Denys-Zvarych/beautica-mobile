@@ -221,6 +221,14 @@ class _FakeBookingRepository implements BookingRepository {
   }) async => const <DateTime>[];
 
   @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) async => const <DateTime>[];
+
+  @override
   Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,

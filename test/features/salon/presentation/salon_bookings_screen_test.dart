@@ -38,11 +38,14 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
@@ -209,6 +212,26 @@ void main() {
   // `canManageSalonProvider` (audit M3) renders the denied state instead of
   // the board. The one test that WANTS the denied state re-stubs it.
   setUp(() => stubMySalons());
+
+  /// `GET /bookings/salon/{salonId}/booked-days` — the rail's dot set (backend
+  /// Phase 319). Registered for EVERY test in this file, like [stubMySalons]
+  /// above: the board issues it on mount, and an unstubbed mocktail call there
+  /// lands inside an `AsyncValue` the rail silently reads as "no dots", so a
+  /// missing stub would never surface as a failure — it would just make every
+  /// dot assertion in this file vacuous.
+  ///
+  /// Answers with the fixture day itself, so the rail's dot and the board's
+  /// cards describe the same Kyiv day.
+  setUp(() {
+    when(
+      () => bookingRepo.getSalonBookedDays(
+        salonId: any(named: 'salonId'),
+        from: any(named: 'from'),
+        to: any(named: 'to'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer((_) async => <DateTime>[DateTime(2026, 6, 15)]);
+  });
 
   List<Object> overrides() => <Object>[
     bookingRepositoryProvider.overrideWithValue(bookingRepo),
@@ -796,6 +819,169 @@ void main() {
       );
       expect(find.byKey(const Key('sentinel-salon-detail')), findsOneWidget);
       expect(find.byKey(const Key('sentinel-client-detail')), findsNothing);
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 5. The UNTOUCHED board — what the owner sees before they filter anything.
+  // ═════════════════════════════════════════════════════════════════════════
+  //
+  // The bug these pin (user report, 2026-09-17): the screen seeded the view
+  // with `BookingsDayQuery.salonDayList(...)`, which RESOLVES an empty
+  // selection through `BookingStatus.dayListWireStatuses` — so the seed came
+  // back carrying {CONFIRMED, COMPLETED, NOT_COMPLETED} and
+  // `BookingsDiscoveryView.initState` read that WIRE set into `_statuses` as
+  // though the owner had chosen it. The sheet opened pre-ticked and the funnel
+  // wore a badge on a board nobody had filtered.
+  //
+  // The seed is now `.salonOf(...)` — the raw member, the exact twin of the
+  // master board's `BookingsDayQuery.of(...)`. The two halves below are
+  // deliberately in ONE group: the fix is PRESENTATIONAL, and the first test
+  // is the proof that it is (the resolved wire set, and therefore every row
+  // the board renders, is byte-identical either way).
+  group('SalonBookingsScreen — the untouched board', () {
+    /// Every filterable status on one master, on the fixture day.
+    List<Booking> allFiveStatuses() => <Booking>[
+      _booking(id: 'conf', masterId: 'm1', hour: 9),
+      _booking(
+        id: 'comp',
+        masterId: 'm1',
+        hour: 10,
+        status: BookingStatus.completed,
+      ),
+      _booking(
+        id: 'noshow',
+        masterId: 'm1',
+        hour: 11,
+        status: BookingStatus.notCompleted,
+      ),
+      _booking(
+        id: 'canc',
+        masterId: 'm1',
+        hour: 12,
+        status: BookingStatus.cancelled,
+      ),
+      _booking(
+        id: 'decl',
+        masterId: 'm1',
+        hour: 13,
+        status: BookingStatus.declined,
+      ),
+    ];
+
+    testWidgets('renders EXACTLY the locked default row set — CANCELLED and '
+        'DECLINED hidden, NOT_COMPLETED kept (this is the regression pin for '
+        'the .salonDayList → .salonOf seed change: it must move no row)', (
+      WidgetTester tester,
+    ) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(allFiveStatuses());
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      for (final String id in <String>['conf', 'comp', 'noshow']) {
+        expect(
+          find.byKey(ValueKey<String>('timeline-card-$id')),
+          findsOneWidget,
+          reason:
+              'BookingStatus.visibleInDayListByDefault keeps $id on an '
+              'untouched provider board (locked 2026-08-13)',
+        );
+      }
+      for (final String id in <String>['canc', 'decl']) {
+        expect(
+          find.byKey(ValueKey<String>('timeline-card-$id')),
+          findsNothing,
+          reason:
+              'CANCELLED/DECLINED stay hidden until the owner ticks '
+              '«Скасовані» — they live on «Архів»',
+        );
+      }
+    });
+
+    testWidgets('shows NO funnel badge and opens the filter sheet with NOTHING '
+        'ticked — an unfiltered board must not read as a filtered one', (
+      WidgetTester tester,
+    ) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(allFiveStatuses());
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-bookings-filter-badge')),
+        findsNothing,
+        reason:
+            'the badge counts the OWNER\'s selection, which is empty until '
+            'they tick a group',
+      );
+
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-bookings-filter-sheet')),
+        findsOneWidget,
+      );
+      for (final BookingStatusFilterGroup g
+          in BookingStatusFilterGroup.values) {
+        final Finder row = find.byKey(
+          Key('master-bookings-filter-status-${g.name}'),
+        );
+        expect(row, findsOneWidget);
+        // The RENDERED glyph, not a widget field: a ticked row draws
+        // `check_circle_rounded`, an unticked one `circle_outlined`.
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.byIcon(Icons.check_circle_rounded),
+          ),
+          findsNothing,
+          reason: '«${g.name}» must open UNTICKED on an untouched board',
+        );
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.byIcon(Icons.circle_outlined),
+          ),
+          findsOneWidget,
+        );
+      }
+    });
+
+    testWidgets('the rail dots come from GET /bookings/salon/{id}/booked-days '
+        'over the rail\'s own ±kBookedDaysSpanDays Kyiv window — NEVER the '
+        'caller\'s /me/booked-days', (WidgetTester tester) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[_booking(id: 'conf', masterId: 'm1', hour: 9)]);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      verify(
+        () => bookingRepo.getSalonBookedDays(
+          salonId: _salonId,
+          from: DateTime(2026, 6, 15 - kBookedDaysSpanDays),
+          to: DateTime(2026, 6, 15 + kBookedDaysSpanDays),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+      verifyNever(
+        () => bookingRepo.getMyBookedDays(
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      );
+
+      // Rendered, not merely fetched: the dot key only exists on a day the
+      // set actually contains (`bookings_day_rail.dart`'s `hasBookings`).
+      expect(find.byKey(dayDotKey(DateTime(2026, 6, 15))), findsOneWidget);
     });
   });
 }

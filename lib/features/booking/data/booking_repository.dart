@@ -313,6 +313,33 @@ abstract interface class BookingRepository {
     CancelToken? cancelToken,
   });
 
+  /// [getMyBookedDays]' salon-wide twin — the set of local days on which
+  /// [salonId] has at least one booking, across the inclusive `[from, to]`
+  /// local-day range.
+  ///
+  /// Wraps `GET /bookings/salon/{salonId}/booked-days` (backend Phase 319).
+  /// Same wire shape (bare `yyyy-MM-dd` strings), same 366-day cap, same
+  /// both-bounds-required contract, same per-day tolerance — the two share one
+  /// implementation (`HttpBookingRepository._fetchBookedDays`).
+  ///
+  /// This exists because `/me/booked-days` is the CALLER's days: for a
+  /// `SALON_OWNER` it aggregates every salon they own (never one board's), and
+  /// for a `SALON_ADMIN` the backend rejects it outright. Only this endpoint
+  /// answers "which days does THIS salon have bookings on".
+  ///
+  /// **Filter-independent by design**, exactly like [getMyBookedDays]: the
+  /// endpoint takes no `status`/`serviceId`/`masterId` param, so the dots mark
+  /// where bookings ARE while the filter narrows the list below them. Note the
+  /// deliberate asymmetry the backend documents: the salon rail's day set
+  /// carries NO status predicate at all, so it agrees row-for-row with an
+  /// unfiltered `GET /bookings/salon/{salonId}`.
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  });
+
   /// Fetches the enriched detail for a single booking.
   ///
   /// Wraps `GET /bookings/{bookingId}` (backend 19.3 enrichment). Throws
@@ -723,15 +750,66 @@ final class HttpBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+  }) => _fetchBookedDays(
+    path: '/api/v1/bookings/me/booked-days',
+    label: 'getMyBookedDays',
+    from: from,
+    to: to,
+    cancelToken: cancelToken,
+  );
+
+  @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) async {
+    // Hardened via `encodePathSegment` for the same reason
+    // [getSalonBookings] does it — see that method's comment. This path
+    // bypasses the generated client's automatic encoding, and a
+    // path-significant id would retarget the request on the authenticated
+    // [_dio] that carries the bearer token. Throws [UnknownFailure] (a
+    // [Failure], so the interface contract holds) on a rejected segment.
+    final String segment = encodePathSegment(salonId, 'salonId', logTag: _tag);
+    return _fetchBookedDays(
+      path: '/api/v1/bookings/salon/$segment/booked-days',
+      label: 'getSalonBookedDays',
+      from: from,
+      to: to,
+      cancelToken: cancelToken,
+    );
+  }
+
+  /// The ONE implementation behind [getMyBookedDays] and
+  /// [getSalonBookedDays] — the two endpoints differ only in their path.
+  ///
+  /// Raw Dio rather than the generated client. `listMyBookedDays` /
+  /// `listSalonBookedDays` are both generated with FLAT `from`/`to` params
+  /// (neither takes a `Pageable`, so neither hits the JSON-blob defect that
+  /// forces [getMyBookings]/[getSalonBookings] off the generated client) —
+  /// but their `ApiResponseListLocalDate` return type deserializes the day
+  /// list as a WHOLE through built_value, so one malformed `yyyy-MM-dd`
+  /// string would throw and blank the entire rail. The dots are a hint, not a
+  /// correctness gate, so the per-day tolerance below is the contract, and it
+  /// is only expressible by walking the payload ourselves.
+  ///
+  /// [label] names the caller in the debug logs so the two are still
+  /// distinguishable in a trace.
+  Future<List<DateTime>> _fetchBookedDays({
+    required String path,
+    required String label,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
   }) async {
     try {
-      // Raw Dio rather than the generated client, for the same reason
-      // `getMyBookings` bypasses it (see the file header): this response is a
-      // bare `ApiResponse<List<LocalDate>>` of plain strings, which the
-      // built_value serializers have no registered type for.
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v1/bookings/me/booked-days',
+        path,
         queryParameters: <String, dynamic>{
+          // `yyyy-MM-dd` off the LOCAL calendar fields — never
+          // `toIso8601String()`/`.toUtc()`. Both endpoints read these as
+          // `LocalDate` in `Europe/Kyiv`.
           'from': toApiDate(from),
           'to': toApiDate(to),
         },
@@ -742,7 +820,7 @@ final class HttpBookingRepository implements BookingRepository {
       if (payload is! List) {
         if (kDebugMode) {
           log(
-            'getMyBookedDays: expected a List, got ${payload.runtimeType}',
+            '$label: expected a List, got ${payload.runtimeType}',
             name: _tag,
             level: 1000,
           );
@@ -760,7 +838,7 @@ final class HttpBookingRepository implements BookingRepository {
           // hint, not a correctness gate. Skip it and keep the rest.
           if (kDebugMode) {
             log(
-              'getMyBookedDays: skipping unparseable day "$raw"',
+              '$label: skipping unparseable day "$raw"',
               name: _tag,
               level: 900,
             );
@@ -773,7 +851,7 @@ final class HttpBookingRepository implements BookingRepository {
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'getMyBookedDays failed: ${e.type} ${e.response?.statusCode}',
+          '$label failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,

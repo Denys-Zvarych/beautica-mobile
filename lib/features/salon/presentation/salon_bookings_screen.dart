@@ -9,18 +9,20 @@
 // INDEPENDENT_MASTER's `/master/bookings` and the invited SALON_MASTER's
 // `/staff/bookings` — and adds exactly three things to it:
 //
-//   1. the SEED QUERY's scope (`BookingsDayQuery.salonDayList`), which is what
+//   1. the SEED QUERY's scope (`BookingsDayQuery.salonOf`), which is what
 //      makes `bookingsDayProvider` fetch `GET /bookings/salon/{salonId}`
-//      instead of `GET /bookings/me`. The view dispatches on the seed's sealed
-//      member and branches on scope nowhere else — see its `_rebuildQuery`.
+//      instead of `GET /bookings/me` — and, for the same reason, makes the
+//      rail's dots `GET /bookings/salon/{salonId}/booked-days` instead of
+//      `/bookings/me/booked-days`. The view dispatches on the seed's sealed
+//      member and branches on scope nowhere else — see its `_rebuildQuery`
+//      and `_bookedDaysAsync`.
 //   2. the COLUMNS BUILDER: the salon's roster, partitioned against whatever
 //      day the view fetched. The view owns the day and the fetch; this screen
 //      owns "which masters exist". Neither can do the other's half, which is
 //      exactly why the seam is a builder.
 //   3. the chrome differences an owner needs: the salon's name as a subtitle,
-//      no «Послуга» filter (the signed-in owner has no master catalogue), no
-//      rail dots (`/bookings/me/booked-days` is the CALLER's days, never the
-//      salon's), and no archive button.
+//      no «Послуга» filter (the signed-in owner has no master catalogue) and
+//      no archive button.
 //
 // Everything else — the day rail, the week/month pagers, the filter sheet, the
 // four async states, the hour ruler, every [MasterBookingCard] — is the
@@ -256,11 +258,26 @@ class SalonBookingsScreen extends ConsumerWidget {
         // learns the right pattern rather than a bare `DateTime.now()`.
         //
         // NO seed statuses — an empty seed means "the owner has chosen no
-        // filter", which resolves on the wire to
+        // filter", which `BookingsDiscoveryView._rebuildQuery` resolves to
         // `BookingStatus.visibleInDayListByDefault` (CANCELLED and DECLINED
         // hidden, NOT_COMPLETED kept — locked 2026-08-13), the same default the
         // master's own board opens on.
-        query: BookingsDayQuery.salonDayList(
+        //
+        // ⚠ `.salonOf`, NOT `.salonDayList` — the twin of the master board's
+        // own `BookingsDayQuery.of`, and for the same reason. `.salonDayList`
+        // RESOLVES the selection through `BookingStatus.dayListWireStatuses`,
+        // so an empty seed came back out of it as the WIRE set
+        // {CONFIRMED, COMPLETED, NOT_COMPLETED} — which the view then read
+        // into `_statuses` as though the owner had picked it, opening the
+        // filter sheet with «Підтверджено» and «Виконано» already ticked and
+        // lighting the funnel badge on an untouched board. `_statuses`' own
+        // doc forbids exactly that ("must never hold an already-resolved wire
+        // set"): the mapping is NOT idempotent and belongs solely to
+        // `_rebuildQuery`, which applies it once. The resolved wire set is
+        // unchanged either way — {} and {CONFIRMED, COMPLETED, NOT_COMPLETED}
+        // both resolve to `visibleInDayListByDefault` — so no list's content
+        // moves; only the sheet's ticks and the badge do.
+        query: BookingsDayQuery.salonOf(
           day: kyivToday(ref.read(clockProvider)),
           salonId: salonId,
         ),
@@ -281,9 +298,12 @@ class SalonBookingsScreen extends ConsumerWidget {
         // «Послуга» section would filter against an empty universe — and
         // warming it would be a wasted request on every mount.
         showServiceFilter: false,
-        // `GET /bookings/me/booked-days` is the CALLER's days, not the
-        // salon's. See [BookingsDiscoveryView.showBookedDayDots].
-        showBookedDayDots: false,
+        // Backend Phase 319 shipped `GET /bookings/salon/{salonId}/booked-
+        // days`, so the rail's dots are now this SALON's days.
+        // `BookingsDiscoveryView` picks the endpoint off the seed query's
+        // sealed member — this flag only says "fetch them at all". See
+        // [BookingsDiscoveryView.showBookedDayDots].
+        showBookedDayDots: true,
         // The salon board has no «Архів» page of its own yet.
         onOpenArchive: null,
         columnsBuilder: (List<Booking> dayItems) =>
