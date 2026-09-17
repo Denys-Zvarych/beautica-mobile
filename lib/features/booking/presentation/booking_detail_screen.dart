@@ -862,6 +862,20 @@ class _DetailBody extends StatelessWidget {
   ///     клієнта» (track 7.x Wave B). PRIVATE feedback about the booking's
   ///     client; the client only ever sees their aggregate rating number
   ///     move, never this screen's words.
+  ///
+  ///     AUDIENCE (Phase 320): the PERFORMING MASTER of this booking, and
+  ///     nobody else. The flag is server-computed by
+  ///     `BookingService#computeProviderCanReviewClient` (backend `a0df4cf`),
+  ///     whose provider-authority leg is the single term
+  ///     `isPerformingMasterOfBooking(...)` — the former
+  ///     `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted a
+  ///     salon's owner and its assigned admin regardless of who performed the
+  ///     service, is gone. A `SALON_OWNER`/`SALON_ADMIN` who did not perform
+  ///     the booking may still COMPLETE it but gets `false` here, so this arm
+  ///     returns an empty footer for them with no Dart-side role check. An
+  ///     owner who DID perform it (owner-as-master) is a performing master
+  ///     and keeps the CTA — that is the case
+  ///     [BookingDetailScreen.clientReviewRouteBuilder] exists to aim.
   ///   * COMPLETED, but `!booking.providerCanReviewClient` (client already
   ///     reviewed, or not eligible) — no CTA, footer is empty.
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /

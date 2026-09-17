@@ -1922,19 +1922,25 @@ GoRouter appRouter(Ref ref) {
       // an owner to their role home — see that RouteName's doc.
       //
       // `clientReviewRouteBuilder` re-aims the ONE push that would otherwise
-      // leave the `/salon/*` subtree. It is NOT optional here: the CTA
-      // RENDERS for this audience. `Booking.providerCanReviewClient` is
-      // computed by `BookingService#computeProviderCanReviewClient`, whose
-      // provider-authority leg is a union — `isPerformingMasterOfBooking(...)
-      // || hasProviderAuthorityOverBooking(...)` — and that second disjunct
-      // (`AuthorizationService#hasProviderAuthorityOverBooking`) returns true
-      // for the salon's OWNER and falls through to `hasManagementAccess` for
-      // the assigned SALON_ADMIN. `_providerActions` in
+      // leave the `/salon/*` subtree. It is NOT optional here — but Phase 320
+      // narrowed WHO it serves, and this comment asserted the opposite until
+      // then. `Booking.providerCanReviewClient` is computed by
+      // `BookingService#computeProviderCanReviewClient` (read at backend
+      // `a0df4cf`), whose provider-authority leg is now the SINGLE term
+      // `isPerformingMasterOfBooking(...)`; the former
+      // `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted
+      // the salon's OWNER and the assigned SALON_ADMIN whoever performed the
+      // service, is GONE. An owner or admin may still COMPLETE a booking;
+      // only the master who performed it may rate its client.
+      //
+      // So the audience is OWNER-AS-MASTER: an owner who personally performed
+      // the booking still gets the flag, and views that booking through THIS
+      // mount. Left null, their push falls through to
+      // `/master/bookings/:id/review`, whose INDEPENDENT_MASTER-only gate
+      // bounces them to `/salons/mine`. `_providerActions` in
       // `booking_detail_screen.dart` renders the CTA ABOVE the
       // `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
-      // suppress it either. Left null, the push fell through to
-      // `/master/bookings/:id/review` and its INDEPENDENT_MASTER-only gate
-      // bounced the owner to `/salons/mine`.
+      // suppress it either — the server flag is the only gate.
       GoRoute(
         path: '${RouteNames.salonStaffBookings}/:bookingId',
         builder: (context, state) => BookingDetailScreen(
@@ -1942,8 +1948,11 @@ GoRouter appRouter(Ref ref) {
           clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
         ),
       ),
-      // Phase 21.12 — /salon/bookings/:bookingId/review, the SALON_OWNER/
-      // SALON_ADMIN's «ВІДГУК ПРО КЛІЄНТА». Mirrors the `/staff/*` twin
+      // Phase 21.12 — /salon/bookings/:bookingId/review, «ВІДГУК ПРО КЛІЄНТА»
+      // for the OWNER-AS-MASTER viewer of the salon board (Phase 320 narrowed
+      // this from "every SALON_OWNER/SALON_ADMIN"; see the `:bookingId`
+      // route's comment above for the backend method that decides it).
+      // Mirrors the `/staff/*` twin
       // registered further down (`salonMasterClientReview`) exactly, including
       // its `extra`-carries-the-entry-point contract — see
       // [RouteNames.clientReview]'s registration for why an absent or

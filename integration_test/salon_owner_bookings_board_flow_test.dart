@@ -89,7 +89,16 @@ void main() {
     'booking WITHOUT being bounced out of the shell',
     (tester) async {
       await mockNetworkImagesFor(() async {
-        final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          // Phase 320 — this flow drills into `GET /bookings/booking-1` as the
+          // OWNER, who is not `booking-1`'s performing master (`master-aaa`).
+          // `BookingService#computeProviderCanReviewClient` (backend
+          // `a0df4cf`) answers on `isPerformingMasterOfBooking(...)` alone, so
+          // the real server returns `false` here; the fake's `true` default
+          // models the performing master's view and would misrepresent this
+          // session.
+          ..bookingProviderCanReviewClient = false;
 
         final GoRouter router = await AppHarness.boot(tester, fb);
 

@@ -752,28 +752,39 @@ abstract final class RouteNames {
   static String salonStaffBookingDetail(String bookingId) =>
       '$salonStaffBookings/${Uri.encodeComponent(bookingId)}';
 
-  /// Phase 21.12 — «ВІДГУК ПРО КЛІЄНТА» for a SALON_OWNER/SALON_ADMIN. The
-  /// SAME [LeaveClientFeedbackScreen] [clientReview] and
-  /// [salonMasterClientReview] render, reached from
-  /// [salonStaffBookingDetail]'s COMPLETED footer.
+  /// Phase 21.12 — «ВІДГУК ПРО КЛІЄНТА» reached from
+  /// [salonStaffBookingDetail]'s COMPLETED footer. The SAME
+  /// [LeaveClientFeedbackScreen] [clientReview] and [salonMasterClientReview]
+  /// render.
   ///
-  /// ⚠ THIS ROUTE IS NOT OPTIONAL — the CTA that aims at it RENDERS for this
-  /// audience. `Booking.providerCanReviewClient` is computed server-side by
+  /// ⚠ AUDIENCE (Phase 320, narrowed — this doc asserted the opposite until
+  /// then): only an OWNER-AS-MASTER reaches this route, i.e. a `SALON_OWNER`
+  /// who personally performed the booking. `Booking.providerCanReviewClient`
+  /// is computed server-side by
   /// `BookingService#computeProviderCanReviewClient`
-  /// (`booking/service/BookingService.java`), whose provider-authority leg is
-  /// a UNION: `isPerformingMasterOfBooking(...) ||
-  /// hasProviderAuthorityOverBooking(...)`. The second disjunct
-  /// (`common/security/AuthorizationService#hasProviderAuthorityOverBooking`)
-  /// returns true when the booking's master belongs to a salon the actor
-  /// OWNS, and otherwise falls through to `hasManagementAccess`, which admits
-  /// the assigned `SALON_ADMIN`. So an owner/admin who never performed the
-  /// service still gets the flag — "not the performing master" does NOT
-  /// suppress the CTA. `BookingDetailScreen._providerActions` renders it
-  /// above the `bookingTransitionsEnabledProvider` gate, so nothing else
-  /// suppresses it either. Without this route the CTA's push falls through to
-  /// `/master/bookings/:id/review`, whose INDEPENDENT_MASTER-only gate bounces
-  /// the owner clean out of the salon shell to `/salons/mine` — the exact
-  /// dead-end tap [salonStaffBookingDetail] itself exists to remove.
+  /// (`booking/service/BookingService.java` — read at backend `a0df4cf`),
+  /// whose provider-authority leg is now the SINGLE term
+  /// `isPerformingMasterOfBooking(...)`, behind an `isOwningClientViewer`
+  /// cost gate that cannot change the answer. The former
+  /// `|| hasProviderAuthorityOverBooking(...)` disjunct — which admitted the
+  /// salon's owner and the assigned `SALON_ADMIN` regardless of who performed
+  /// the service — is GONE. Per the locked product decision, an owner or
+  /// admin may still COMPLETE a booking; only the master who performed it may
+  /// rate its client.
+  ///
+  /// ⚠ STILL NOT OPTIONAL. The route's audience shrank; its necessity did
+  /// not. An owner who IS the performing master still gets
+  /// `providerCanReviewClient: true`, and views that booking through the
+  /// salon board's [salonStaffBookingDetail] mount. Without this route
+  /// `clientReviewRouteBuilder` falls back to [clientReview]
+  /// (`/master/bookings/:id/review`), whose INDEPENDENT_MASTER-only gate in
+  /// `auth_redirect.dart` bounces them clean out of the salon shell to
+  /// `/salons/mine` — the exact dead-end tap [salonStaffBookingDetail] itself
+  /// exists to remove, for a real reachable user.
+  ///
+  /// `BookingDetailScreen._providerActions` renders the CTA above the
+  /// `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
+  /// suppress it either — the server flag is the only gate.
   ///
   /// STANDALONE top-level `GoRoute`, mirroring [clientReview] and
   /// [salonMasterClientReview] for the identical reason (nesting under a plain

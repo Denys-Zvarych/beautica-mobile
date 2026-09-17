@@ -3837,6 +3837,23 @@ final class FakeBackend {
   /// detail re-fetch (triggered by the screen's `bookingDetailProvider`
   /// invalidation on success) re-resolves the CTA away, mirroring
   /// [bookingCanReview]'s post-review flip.
+  ///
+  /// ⚠ WHOSE VIEW THE `true` DEFAULT MODELS (Phase 320). The real value is
+  /// computed by `BookingService#computeProviderCanReviewClient` (backend
+  /// `a0df4cf`), whose provider-authority leg is the SINGLE term
+  /// `isPerformingMasterOfBooking(...)`; the former
+  /// `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted the
+  /// salon's owner and its assigned admin whoever performed the service, is
+  /// gone. The seeded booking's master is `master-aaa`, so the `true` default
+  /// is the PERFORMING MASTER's answer — correct for the INDEPENDENT_MASTER
+  /// and `SALON_MASTER` personas that drive the review flows, and for an
+  /// owner-as-master flow if one is ever written.
+  ///
+  /// A flow driving a `SALON_OWNER`/`SALON_ADMIN` session that is NOT the
+  /// performing master into `GET /bookings/{id}` MUST seed this `false` — the
+  /// real server does. Leaving the default would let such a flow pass against
+  /// a CTA the real app never renders.
+  /// `salon_owner_bookings_board_flow_test.dart` does exactly that.
   bool bookingProviderCanReviewClient = true;
 
   /// Phase 334 — the CLIENT's review of the master (`{rating, comment?}`,
@@ -8302,6 +8319,13 @@ final class FakeBackend {
     'endsAt': startsAt.add(duration).toIso8601String(),
     'status': status,
     'canReview': false,
+    // Phase 320 — HARDCODED `false`, and deliberately NOT parameterised. This
+    // row is served to the salon board's SALON_OWNER/SALON_ADMIN viewer, who
+    // by construction is not [masterId]. `BookingService`'s page-scoped form
+    // of `computeProviderCanReviewClient` (backend `a0df4cf`) now answers on
+    // `isPerformingMasterOfBooking(...)` alone, so `false` is the ONLY value
+    // the real server can return for these rows. An owner-as-master board row
+    // would need its own seeder that passes the owner's OWN master id.
     'providerCanReviewClient': false,
     'clientComment': null,
     'providerComment': null,
