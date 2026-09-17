@@ -1,0 +1,386 @@
+// mobile-perf LOW (audit cycle 3, 2026-09-17) — `MasterColumnStrip`'s
+// render-identity cache, and the gate that arms it.
+//
+// ## WHAT IS BEING PROTECTED, AND FROM WHICH SIDE
+//
+// The optimisation is one line of behaviour: a rebuild whose inputs did not
+// move must hand the SAME widget instance back, so `Element.updateChild`
+// skips the chip subtree. Measured before the fix (element-identity snapshot
+// across one no-op parent `setState`): 362 of 512 elements took a fresh widget
+// instance at 10 masters, 110/155 at 3 — including an all-day-off board where
+// nothing on screen can have moved. After: 1 of 512, the strip widget itself.
+//
+// But a cache is only ever wrong in ONE direction, and it is the direction a
+// green test suite does not notice: a gate NARROWER than the recompute ships
+// a STALE strip, silently and correctly-looking. So the bulk of this file is
+// not the cache hit — it is one case per input `build()` reads, each proving
+// the cache is thrown away when that input moves. The class doc on
+// `MasterColumnStrip` carries the same list as a table; if a param is ever
+// added to that widget, it needs a row there AND a case here.
+//
+// ## THE TWO INPUTS DELIBERATELY NOT IN THE GATE
+//
+// `AppLocalizations` is read by `_MasterColumnChip.build`, not by the strip's
+// own `build`, so each chip ELEMENT is itself a `Localizations` dependant: a
+// locale change marks those elements dirty directly and they rebuild with
+// their unchanged configuration. Handing back an identical parent cannot
+// suppress that — `updateChild` skips the `update()` call, it does not remove
+// elements from the dirty list. The last test asserts exactly that, and it is
+// the one case here where the cached instance is EXPECTED to be retained
+// while the rendered text still changes.
+//
+// MUTATIONS, each reddening a different case:
+//   * delete `_cached = null;` from `didUpdateWidget`  → the five gate cases.
+//   * drop `height == _cachedHeight` from `build`      → the text-scale case.
+//   * change `oldWidget.onSelectMaster != widget.onSelectMaster` to
+//     `!identical(...)`                                → the no-op case (the
+//     cache never hits again), which is how this optimisation would otherwise
+//     be deleted with nothing failing.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+
+import '../../../../helpers/pump_app.dart';
+
+MasterColumnEntry _entry(
+  String id, {
+  String name = 'Олена Ковальчук',
+  int bookingCount = 2,
+  bool dayOff = false,
+}) => MasterColumnEntry(
+  masterId: id,
+  name: name,
+  type: MasterType.salonMaster,
+  bookingCount: bookingCount,
+  avgRating: 4.6,
+  dayOff: dayOff,
+);
+
+/// Identity-stable entries, exactly as `_columnsFor`'s memo produces them —
+/// the list literal is rebuilt per host build, the ELEMENTS are not. That is
+/// why the gate compares with `listEquals` and not `identical`.
+final MasterColumnEntry _a = _entry('m1');
+final MasterColumnEntry _b = _entry('m2', name: 'Ірина Бондар');
+final MasterColumnEntry _freeC = _entry('m3', name: 'Ася Лис', bookingCount: 0);
+
+class _Host extends StatefulWidget {
+  const _Host({required this.state});
+  final _HostController state;
+  @override
+  State<_Host> createState() => _HostState();
+}
+
+/// Mutable holder the tests poke, so a rebuild can change exactly ONE input.
+class _HostController {
+  List<MasterColumnEntry> entries = <MasterColumnEntry>[_a, _b, _freeC];
+  double columnWidth = 148;
+  double gutter = 8;
+  String? selectedMasterId;
+  ValueChanged<String>? onSelectMaster;
+  late void Function() rebuild;
+}
+
+class _HostState extends State<_Host> {
+  @override
+  void initState() {
+    super.initState();
+    widget.state.rebuild = () => setState(() {});
+  }
+
+  // `Align` rather than a scroll view: it hands the strip LOOSE constraints
+  // in both axes, so `getSize` reads the strip's own intrinsic width (which
+  // the columnWidth/gutter cases assert on) and its own 64dp height (which
+  // the text-scale case asserts on). Under a tight parent — which is what
+  // the real board gives it — both would read the parent, and both
+  // assertions would be vacuous.
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.topLeft,
+    child: MasterColumnStrip(
+      entries: <MasterColumnEntry>[...widget.state.entries],
+      columnWidth: widget.state.columnWidth,
+      gutter: widget.state.gutter,
+      selectedMasterId: widget.state.selectedMasterId,
+      onSelectMaster: widget.state.onSelectMaster,
+    ),
+  );
+}
+
+/// The widget instance `MasterColumnStrip.build` produced — its root
+/// `SizedBox`. Identity of THIS object is the whole contract.
+Widget _built(WidgetTester tester) => tester.widget(
+  find
+      .descendant(
+        of: find.byType(MasterColumnStrip),
+        matching: find.byType(SizedBox),
+      )
+      .first,
+);
+
+Finder _chip(String id) =>
+    find.byKey(ValueKey<String>('salon-bookings-column-chip-$id'));
+
+Future<_HostController> _pump(
+  WidgetTester tester, {
+  double textScaleFactor = 1.0,
+}) async {
+  final _HostController c = _HostController();
+  await tester.pumpApp(
+    _Host(state: c),
+    width: 900,
+    textScaleFactor: textScaleFactor,
+  );
+  await tester.pump();
+  return c;
+}
+
+void main() {
+  testWidgets('a NO-OP rebuild returns the SAME widget instance — the cache '
+      'hit this optimisation exists for', (WidgetTester tester) async {
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+
+    c.rebuild();
+    await tester.pump();
+
+    expect(
+      identical(_built(tester), first),
+      isTrue,
+      reason:
+          'nothing moved, so Element.updateChild must be able to skip the '
+          'whole chip subtree',
+    );
+
+    // And again — a cache that survives exactly one rebuild is not a cache.
+    c.rebuild();
+    await tester.pump();
+    expect(identical(_built(tester), first), isTrue);
+  });
+
+  testWidgets('a NO-OP rebuild is a hit even when onSelectMaster is a fresh '
+      'tear-off of the same method — `!=`, never `!identical`', (
+    WidgetTester tester,
+  ) async {
+    final _HostController c = await _pump(tester);
+    final _Recorder rec = _Recorder();
+    c.onSelectMaster = rec.call;
+    c.rebuild();
+    await tester.pump();
+    final Widget first = _built(tester);
+
+    // A SECOND tear-off of the same instance method on the same receiver:
+    // `==` but never `identical`. This is precisely what the host does every
+    // build, and `!identical` here would make the cache never hit again.
+    c.onSelectMaster = rec.call;
+    c.rebuild();
+    await tester.pump();
+
+    expect(
+      identical(_built(tester), first),
+      isTrue,
+      reason:
+          'two tear-offs of the same method on the same receiver are the same '
+          'callback; treating them as different deletes the optimisation with '
+          'no test failing',
+    );
+  });
+
+  // ── one case per gate input ──────────────────────────────────────────────
+
+  testWidgets('entries CONTENT change evicts the cache and re-renders', (
+    WidgetTester tester,
+  ) async {
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+    // i18n-finder-ok: a fixture master's name — this test's own data, handed
+    // in as `MasterColumnEntry.name`, never sourced from AppLocalizations.
+    expect(find.text('Ірина Бондар'), findsOneWidget);
+
+    c.entries = <MasterColumnEntry>[_a, _entry('m2', name: 'Ната Гай'), _freeC];
+    c.rebuild();
+    await tester.pump();
+
+    expect(identical(_built(tester), first), isFalse);
+    // i18n-finder-ok: fixture master names — this test's own data (see above).
+    expect(find.text('Ната Гай'), findsOneWidget);
+    // i18n-finder-ok: fixture master names — this test's own data (see above).
+    expect(find.text('Ірина Бондар'), findsNothing);
+  });
+
+  testWidgets('entries LENGTH change evicts the cache and re-renders', (
+    WidgetTester tester,
+  ) async {
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+
+    c.entries = <MasterColumnEntry>[_a, _b];
+    c.rebuild();
+    await tester.pump();
+
+    expect(identical(_built(tester), first), isFalse);
+    // i18n-finder-ok: fixture master names — this test's own data (see above).
+    expect(find.text('Ася Лис'), findsNothing);
+  });
+
+  testWidgets('columnWidth change evicts the cache and resizes the strip', (
+    WidgetTester tester,
+  ) async {
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+    // MEASURED off the laid-out chip, not read off the widget field: the
+    // strip itself expands to the incoming max width either way, so a
+    // strip-level measure would be constant and the assertion vacuous.
+    expect(tester.getSize(_chip('m1')).width, closeTo(148, 0.01));
+
+    c.columnWidth = 200;
+    c.rebuild();
+    await tester.pump();
+
+    expect(identical(_built(tester), first), isFalse);
+    expect(
+      tester.getSize(_chip('m1')).width,
+      closeTo(200, 0.01),
+      reason: 'a stale strip would keep the 148dp chips',
+    );
+  });
+
+  testWidgets('gutter change evicts the cache and resizes the strip', (
+    WidgetTester tester,
+  ) async {
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+    double gap() =>
+        tester.getTopLeft(_chip('m2')).dx - tester.getTopRight(_chip('m1')).dx;
+    expect(gap(), closeTo(8, 0.01));
+
+    c.gutter = 40;
+    c.rebuild();
+    await tester.pump();
+
+    expect(identical(_built(tester), first), isFalse);
+    expect(
+      gap(),
+      closeTo(40, 0.01),
+      reason: 'a stale strip would keep the 8dp gutters',
+    );
+  });
+
+  testWidgets('selectedMasterId change evicts the cache and moves the '
+      'selected flag', (WidgetTester tester) async {
+    // Disposed INLINE, not via addTearDown: the framework's
+    // "a SemanticsHandle was active at the end of the test" assertion fires
+    // before tearDowns run.
+    final SemanticsHandle handle = tester.ensureSemantics();
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+    final Finder chip = find.byKey(
+      const ValueKey<String>('salon-bookings-column-chip-m2'),
+    );
+    expect(tester.getSemantics(chip), isSemantics(isSelected: false));
+
+    c.selectedMasterId = 'm2';
+    c.rebuild();
+    await tester.pump();
+
+    expect(identical(_built(tester), first), isFalse);
+    expect(
+      tester.getSemantics(chip),
+      isSemantics(isSelected: true),
+      reason: 'a stale strip would keep showing the previous selection',
+    );
+    handle.dispose();
+  });
+
+  testWidgets('onSelectMaster null → non-null evicts the cache and makes the '
+      'chips tappable', (WidgetTester tester) async {
+    final _HostController c = await _pump(tester);
+    final Widget first = _built(tester);
+    final Finder chip = find.byKey(
+      const ValueKey<String>('salon-bookings-column-chip-m1'),
+    );
+
+    await tester.tap(chip);
+    await tester.pump();
+
+    final _Recorder rec = _Recorder();
+    c.onSelectMaster = rec.call;
+    c.rebuild();
+    await tester.pump();
+
+    expect(identical(_built(tester), first), isFalse);
+    await tester.tap(chip);
+    await tester.pump();
+    expect(rec.taps, <String>[
+      'm1',
+    ], reason: 'a stale strip would keep the inert GestureDetector');
+  });
+
+  testWidgets('a MediaQuery text-scale change bypasses the cache and regrows '
+      'the strip — didUpdateWidget never runs for an inherited-dependency '
+      'rebuild, so this gate lives in build()', (WidgetTester tester) async {
+    await _pump(tester);
+    final double atOne = tester.getSize(find.byType(MasterColumnStrip)).height;
+    expect(atOne, closeTo(MasterColumnStrip.height, 0.01));
+
+    // Re-pump the SAME host at a larger scale: the element tree is updated in
+    // place, so the strip's State — and its cache — survive.
+    await _pump(tester, textScaleFactor: 1.6);
+
+    expect(
+      tester.getSize(find.byType(MasterColumnStrip)).height,
+      greaterThan(atOne),
+      reason:
+          'a cache keyed only on the widget fields would serve the scale-1.0 '
+          'strip and overflow it',
+    );
+  });
+
+  // ── the input deliberately NOT in the gate ───────────────────────────────
+
+  testWidgets('a LOCALE change re-renders the chips THROUGH the retained '
+      'cache — l10n is read by the chip, not by the strip, so each chip '
+      'element is its own Localizations dependant', (
+    WidgetTester tester,
+  ) async {
+    // Both captions come FROM AppLocalizations, never spelled here: the whole
+    // point is that the chip re-reads them, and a hard-coded literal would
+    // both couple this test to today's copy and trip
+    // `forbid_cyrillic_finder.sh`.
+    final AppLocalizations uk = await AppLocalizations.delegate.load(
+      const Locale('uk'),
+    );
+    final AppLocalizations en = await AppLocalizations.delegate.load(
+      const Locale('en'),
+    );
+
+    final _HostController c = _HostController();
+    await tester.pumpApp(_Host(state: c), width: 900);
+    await tester.pump();
+    expect(find.text(uk.salonBookingsMasterColumnFree), findsOneWidget);
+
+    await tester.pumpApp(
+      _Host(state: c),
+      width: 900,
+      locale: const Locale('en'),
+    );
+    await tester.pump();
+
+    expect(
+      find.text(en.salonBookingsMasterColumnFree),
+      findsOneWidget,
+      reason:
+          'updateChild skipping an identical widget does not remove elements '
+          'from the dirty list — the chip rebuilds itself on the locale flip',
+    );
+    expect(find.text(uk.salonBookingsMasterColumnFree), findsNothing);
+  });
+}
+
+class _Recorder {
+  final List<String> taps = <String>[];
+  void call(String id) => taps.add(id);
+}

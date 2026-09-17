@@ -38,6 +38,7 @@
 // strip and grid share a single `ScrollPosition` by construction, so a chip
 // physically cannot drift off its column.
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -62,6 +63,7 @@ class MasterColumnEntry {
     required this.bookingCount,
     this.professionalTitle,
     this.avgRating,
+    this.dayOff = false,
   });
 
   final String masterId;
@@ -78,6 +80,22 @@ class MasterColumnEntry {
   /// «вільно» state and dims the avatar.
   final int bookingCount;
 
+  /// Phase 336 — this master is NOT WORKING on the shown day (a settled day
+  /// off, or no schedule at all). Renders the chip in its quiet form with
+  /// «Вихідний» in place of the booking figure, and greys that master's whole
+  /// grid column — see [BookingsTimelineGrid]'s `_BoardStack`.
+  ///
+  /// ⚠ DEFAULTS TO `false`, AND `false` MEANS "NOT KNOWN TO BE OFF", NEVER
+  /// "WORKING". Every pre-existing call site omits it and renders exactly as
+  /// before. The salon screen derives it from the ROSTER-COMPLETE schedule
+  /// response (`SalonBookingsScreen.masterDayOff`) and leaves it `false`
+  /// whenever those hours have not resolved — an unloaded roster must never
+  /// grey a column out. It is emphatically NOT derived from
+  /// [bookingCount] == 0: "working, nothing booked" is a different state with
+  /// its own «Вільний день» marker, and conflating the two IS the bug this
+  /// field exists to fix.
+  final bool dayOff;
+
   final String? professionalTitle;
 
   /// `null` renders [MasterStrip.noRatingLabel] — never a damning `0.0` for a
@@ -86,7 +104,55 @@ class MasterColumnEntry {
 }
 
 /// The pinned roster strip — a `Row` of fixed-width chips, one per column.
-class MasterColumnStrip extends StatelessWidget {
+///
+/// ## IT CACHES ITS OWN SUBTREE (mobile-perf LOW, 2026-09-17)
+///
+/// `StatefulWidget` for exactly one reason: to hold the built `Row` and hand
+/// the SAME widget instance back on a rebuild whose inputs did not change, so
+/// `Element.updateChild` skips the whole chip subtree. Measured on this
+/// widget alone (element-identity snapshot before/after one no-op parent
+/// `setState`, `_p1_measure_scratch_test.dart` methodology): **362 of 512**
+/// elements took a fresh widget instance per no-op rebuild at 10 masters,
+/// 110/155 at 3 — including an all-day-off board where nothing on screen can
+/// possibly have moved. It holds no state of its own; the cache is a pure
+/// render-identity optimisation, exactly like `_BoardStack`'s `_columnCache`
+/// in `bookings_timeline_grid.dart`.
+///
+/// ### THE GATE'S INPUTS, ENUMERATED AGAINST WHAT `build()` ACTUALLY READS
+///
+/// A gate NARROWER than the recompute ships a stale strip, so every read is
+/// accounted for here — including the two that are deliberately absent:
+///
+/// | read by `build()`                                  | in the gate? |
+/// |----------------------------------------------------|--------------|
+/// | `entries.length`, `entries[i]` (→ chip `entry`)     | yes — `listEquals` |
+/// | `entries[i].masterId == selectedMasterId`           | yes — both halves |
+/// | `columnWidth` (chip `SizedBox.width`)               | yes |
+/// | `gutter` (inter-chip `SizedBox.width`)              | yes |
+/// | `selectedMasterId`                                  | yes |
+/// | `onSelectMaster` (null-ness AND the captured value) | yes, via `!=` |
+/// | `heightFor(context)` → `MediaQuery.textScalerOf`    | yes — `_cachedHeight` |
+/// | `AppLocalizations.of(context)` (in `_MasterColumnChip.build`) | NO — see below |
+/// | `BrandColors` / `VelvetText` statics                | NO — class-load constants |
+///
+/// `l10n` is read by the CHIP, not by this `build()`, so each chip element is
+/// itself a `Localizations` dependant: a locale change marks those elements
+/// dirty directly and they rebuild with their unchanged configuration. Handing
+/// back an identical parent widget cannot suppress that — `updateChild` only
+/// skips the `update()` call, it does not remove elements from the dirty list.
+/// The same holds for `Directionality`, which the `Row` element re-reads
+/// itself. Only what THIS `build()` reads from the tree needs a gate entry,
+/// and that is `heightFor(context)`.
+///
+/// `entries` is compared with `listEquals`, NOT `identical`, on purpose:
+/// [BookingsTimelineGrid] rebuilds the list literal (`[for (c in columns)
+/// c.header]`) every build, so the LIST identity is never stable — but
+/// `_columnsFor`'s memo makes each `TimelineBoardColumn`, and therefore each
+/// `header`, identity-stable. `MasterColumnEntry` declares no `==`, so
+/// `listEquals` IS an element-identity compare at ≤10 elements. A caller that
+/// rebuilds its entries wholesale simply gets no cache hit — the conservative
+/// direction, never a stale render.
+class MasterColumnStrip extends StatefulWidget {
   const MasterColumnStrip({
     required this.entries,
     required this.columnWidth,
@@ -138,28 +204,74 @@ class MasterColumnStrip extends StatelessWidget {
   }
 
   @override
+  State<MasterColumnStrip> createState() => _MasterColumnStripState();
+}
+
+class _MasterColumnStripState extends State<MasterColumnStrip> {
+  /// The last built strip, and the resolved height it was built at. Returned
+  /// UNCHANGED — the same instance — whenever nothing `build()` reads has
+  /// moved, which is what makes `Element.updateChild` skip the chip subtree.
+  ///
+  /// Cleared by [didUpdateWidget] on ANY change to a widget field the built
+  /// tree depends on, and bypassed in [build] when the ambient text scale
+  /// resolves to a different height, so a stale strip can never survive a
+  /// real change. See the class doc for the full input enumeration.
+  Widget? _cached;
+  double? _cachedHeight;
+
+  @override
+  void didUpdateWidget(covariant MasterColumnStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `!=` on the callback, NOT `!identical` — the host hands over an
+    // instance-method tear-off, and Dart mints a fresh closure object for each
+    // one, so two tear-offs of the same method on the same receiver are `==`
+    // but never `identical`. `!identical` here would clear the cache on every
+    // rebuild and silently delete this whole optimisation with no test
+    // failing. Same trap, same reasoning as `_BoardStack.didUpdateWidget`'s
+    // `onBookingTap` line in `bookings_timeline_grid.dart`.
+    if (!listEquals(oldWidget.entries, widget.entries) ||
+        oldWidget.columnWidth != widget.columnWidth ||
+        oldWidget.gutter != widget.gutter ||
+        oldWidget.selectedMasterId != widget.selectedMasterId ||
+        oldWidget.onSelectMaster != widget.onSelectMaster) {
+      _cached = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: heightFor(context),
+    // The ONE thing this build reads from the tree rather than from `widget`.
+    // A `MediaQuery` text-scale change marks THIS element dirty (the read
+    // below registers the dependency), so the gate has to notice it here —
+    // `didUpdateWidget` does not even run for an inherited-dependency rebuild.
+    final double height = MasterColumnStrip.heightFor(context);
+    final Widget? cached = _cached;
+    if (cached != null && height == _cachedHeight) return cached;
+
+    final Widget built = SizedBox(
+      height: height,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          for (int i = 0; i < entries.length; i++) ...<Widget>[
-            if (i > 0) SizedBox(width: gutter),
+          for (int i = 0; i < widget.entries.length; i++) ...<Widget>[
+            if (i > 0) SizedBox(width: widget.gutter),
             SizedBox(
-              width: columnWidth,
+              width: widget.columnWidth,
               child: _MasterColumnChip(
-                entry: entries[i],
-                selected: entries[i].masterId == selectedMasterId,
-                onTap: onSelectMaster == null
+                entry: widget.entries[i],
+                selected: widget.entries[i].masterId == widget.selectedMasterId,
+                onTap: widget.onSelectMaster == null
                     ? null
-                    : () => onSelectMaster!(entries[i].masterId),
+                    : () => widget.onSelectMaster!(widget.entries[i].masterId),
               ),
             ),
           ],
         ],
       ),
     );
+    _cached = built;
+    _cachedHeight = height;
+    return built;
   }
 }
 
@@ -202,6 +314,18 @@ class _MasterColumnChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool free = entry.bookingCount == 0;
+    // Phase 336 — the two quiet states share the chip's DE-EMPHASIS (dimmed
+    // avatar, muted name) and differ only in the trailing readout below. A
+    // master who is off always has nothing booked in practice, so `free` is
+    // usually true alongside `dayOff`; the readout checks `dayOff` FIRST so
+    // «Вихідний» ("not working") is never overwritten by «вільно» ("working,
+    // free"), which is the weaker and, on an off day, the wrong statement.
+    final bool quiet = free || entry.dayOff;
+    final String load = entry.dayOff
+        ? l10n.salonBookingsColumnDayOff
+        : (free
+              ? l10n.salonBookingsMasterColumnFree
+              : l10n.masterBookingsCount(entry.bookingCount));
 
     // Same precedence as [MasterStrip.build]: the master's own professional
     // title wins, the generic role label is the fallback.
@@ -216,9 +340,7 @@ class _MasterColumnChip extends StatelessWidget {
       label: l10n.salonBookingsMasterColumnSemantics(
         entry.name,
         subtitle,
-        free
-            ? l10n.salonBookingsMasterColumnFree
-            : l10n.masterBookingsCount(entry.bookingCount),
+        load,
       ),
       child: GestureDetector(
         key: ValueKey<String>('salon-bookings-column-chip-${entry.masterId}'),
@@ -266,7 +388,7 @@ class _MasterColumnChip extends StatelessWidget {
             children: <Widget>[
               // The SHARED glyph, at the chip's size — see the file header.
               Opacity(
-                opacity: free ? 0.45 : 1,
+                opacity: quiet ? 0.45 : 1,
                 child: const MasterAvatarBadge(size: 28),
               ),
               const SizedBox(width: VelvetSpacing.xs + 2),
@@ -277,7 +399,7 @@ class _MasterColumnChip extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       entry.name,
-                      style: free
+                      style: quiet
                           ? VelvetText.timelineColumnNameMuted
                           : VelvetText.timelineColumnName,
                       maxLines: 1,
@@ -304,10 +426,14 @@ class _MasterColumnChip extends StatelessWidget {
                         const SizedBox(width: VelvetSpacing.xs + 1),
                         Flexible(
                           child: Text(
-                            free
-                                ? l10n.salonBookingsMasterColumnFree
+                            // The SEMANTIC label and the visible one agree on
+                            // every state but the booked one, where the chip
+                            // shows the bare figure ("3") and the screen
+                            // reader hears the full «3 записи» — see [load].
+                            entry.dayOff || free
+                                ? load
                                 : '${entry.bookingCount}',
-                            style: free
+                            style: quiet
                                 ? VelvetText.timelineColumnCountFree
                                 : VelvetText.timelineColumnCount,
                             maxLines: 1,

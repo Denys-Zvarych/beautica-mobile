@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_col
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
@@ -454,6 +455,258 @@ void main() {
         expect(
           find.byKey(const ValueKey<String>('timeline-card-board-midday')),
           findsOneWidget,
+        );
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 336 — the DAY-OFF COLUMN, end to end (Step 2.7 Rule 3b, mobile-qa).
+  //
+  // WHY THIS BELONGS AT THIS TIER, and is not a duplicate of the 16 predicate
+  // tests + 7 column tests + 3 goldens already shipped. Every one of those
+  // hands `dayOff:` (or an `EffectiveDay` map) STRAIGHT to the thing under
+  // test. None of them proves the WIRE → PREDICATE → RENDER chain: that a
+  // real `GET /salons/{id}/masters/effective-schedule` response, parsed by the
+  // generated client, keyed through `salonEffectiveScheduleProvider`, matched
+  // against the day the rail actually selected, reaches
+  // `MasterColumnEntry.dayOff` on the right column of the real roster. A
+  // single wrong hop anywhere on that chain — a masterId that does not match
+  // the roster's, a date parsed off by a timezone, a month window that
+  // excludes the selected day — leaves every one of those tiers green and the
+  // board silently un-greyed. Only a real Dio round trip can see it.
+  //
+  // THE ANTI-VACUITY SHAPE. Three columns are asserted, and two of them are
+  // EMPTY:
+  //   • `master-aaa` — OFF by the response          → wash + «Вихідний»
+  //   • `master-ddd` — no entry in the response at all (fail-open unknown 2),
+  //     and no bookings                             → no wash + «Вільний день»
+  //   • `master-ccc` — working, one card            → no wash, no marker
+  // The first two differ ONLY in what the schedule says. `bookings.isEmpty` is
+  // identical across them, so a regression that derives the mark from the
+  // booking list — the exact bug this phase exists to remove — cannot pass
+  // here, and neither can one that greys every column it has no answer for.
+  //
+  // NO PATROL FLOW, restated for this arm: the day-off state is a render
+  // driven by a GET. No OS permission dialog, no deep/app link, no FCM or
+  // local notification, no WebView, no biometric. `integration_test/patrol/`
+  // does not apply.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'the board greys the column of a master the roster says is NOT WORKING '
+    'the selected day and marks it as a day off, while a working master and '
+    'a master the response says nothing about both render ordinary columns',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final AppLocalizationsUk l10n = AppLocalizationsUk();
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false;
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        // Seeded AFTER boot — `kyivToday` reads `beauticaZone`, which only
+        // exists once the harness has initialised the timezone database.
+        // Same reason, same shape, as the two flows above.
+        final DateTime boardDay = kyivToday(() => kFixedNow);
+
+        // ONE card, on the WORKING master. `master-aaa` (the off one) is left
+        // card-less on purpose: its column has to render the marker, and a
+        // column that carries a booking deliberately renders none.
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'board-working-card',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            startsAt: _atKyivHour(12, 0),
+          ),
+        ];
+
+        // EXACTLY TWO entries for an EIGHT-master roster. That is not a
+        // shortcut — it is the third assertion: every other master is an
+        // "unknown 2" (present on the roster, absent from the schedule
+        // response) and MUST come back un-greyed. A predicate that guessed
+        // "off" at an unknown would grey six columns here.
+        fb.salonRosterEffectiveSchedule = <Map<String, dynamic>>[
+          FakeBackend.salonRosterScheduleEntry(
+            masterId: 'master-aaa',
+            dates: <DateTime>[boardDay],
+            dayOff: true,
+          ),
+          FakeBackend.salonRosterScheduleEntry(
+            masterId: 'master-ccc',
+            dates: <DateTime>[boardDay],
+            intervals: const <(String, String)>[('09:00:00', '18:00:00')],
+          ),
+        ];
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonId));
+
+        final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          bookingsTab.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(bookingsTab);
+        await tester.pump();
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingsTimelineGrid),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // The schedule resolves AFTER the grid's first paint (the board mounts
+        // with `_rosterSchedule == null` — unknown 1, nobody greyed — and
+        // re-renders when the response lands), so the wait is on the FETCH,
+        // never on the wash itself. Waiting on the thing under test would
+        // convert a broken feature into a 20-second timeout instead of the
+        // one-line expectation failure below.
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.getSalonRosterEffectiveScheduleCalls > 0,
+          description:
+              'GET /salons/{salonId}/masters/effective-schedule to be issued',
+          timeout: const Duration(seconds: 20),
+        );
+        // …and one more frame for the provider emission to reach the board.
+        await tester.pump();
+        await tester.pump();
+
+        // The request went out at all. Checked FIRST: the whole feature
+        // degrades silently to "nobody is off" when this fetch does not
+        // happen, and a silent degradation would make every render assertion
+        // below reachable for the wrong reason.
+        expect(
+          fb.getSalonRosterEffectiveScheduleCalls,
+          greaterThan(0),
+          reason:
+              'the day-off mark comes off '
+              'GET /salons/{salonId}/masters/effective-schedule — the same '
+              'response Phase 335 already fetches for the timeline union',
+        );
+
+        // The mark is a COLUMN INDEX on screen, and the roster's order is the
+        // backend's. Resolved from the rendered strip rather than hard-coded,
+        // so a fixture reorder can never quietly re-point these finders at
+        // the wrong master. The strip is a plain `Row` (never a lazy list),
+        // so all eight chips are BUILT even though flutter-tester is 800dp
+        // wide and only the first few are visible.
+        final List<MasterColumnEntry> entries = tester
+            .widget<MasterColumnStrip>(find.byType(MasterColumnStrip))
+            .entries;
+        int columnOf(String masterId) {
+          final int i = entries.indexWhere(
+            (MasterColumnEntry e) => e.masterId == masterId,
+          );
+          expect(
+            i,
+            isNonNegative,
+            reason: '$masterId must have a column on the salon board',
+          );
+          return i;
+        }
+
+        final int offColumn = columnOf('master-aaa');
+        final int workingColumn = columnOf('master-ccc');
+        final int unknownColumn = columnOf('master-ddd');
+
+        // ── 1. THE WASH: exactly one column, and it is the off one ─────────
+        expect(
+          find.byKey(
+            ValueKey<String>('timeline-column-day-off-wash-$offColumn'),
+          ),
+          findsOneWidget,
+          reason: 'the master the response marked OVERRIDE_DAY_OFF is greyed',
+        );
+        for (int i = 0; i < entries.length; i++) {
+          if (i == offColumn) continue;
+          expect(
+            find.byKey(ValueKey<String>('timeline-column-day-off-wash-$i')),
+            findsNothing,
+            reason:
+                'column $i (${entries[i].masterId}) is either working or not '
+                'mentioned by the response at all — an unknown must fail OPEN '
+                'and render as an ordinary column',
+          );
+        }
+
+        // ── 2. THE MARKER: two EMPTY columns, two DIFFERENT words ──────────
+        // This pair is the load-bearing one. Both columns hold zero bookings,
+        // so nothing derived from the booking list can tell them apart; only
+        // the schedule response can.
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(
+                  ValueKey<String>('timeline-column-marker-$offColumn'),
+                ),
+              )
+              .data,
+          l10n.salonBookingsColumnDayOff,
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(
+                  ValueKey<String>('timeline-column-marker-$unknownColumn'),
+                ),
+              )
+              .data,
+          l10n.salonBookingsColumnFreeDay,
+          reason:
+              'a master the schedule says nothing about is «working, nothing '
+              'booked» — never «off»',
+        );
+        // …and the two are genuinely different strings, so the pair above
+        // cannot both be passing against one shared value.
+        expect(
+          l10n.salonBookingsColumnDayOff,
+          isNot(l10n.salonBookingsColumnFreeDay),
+        );
+
+        // ── 3. THE ROSTER CHIP agrees with the column beneath it ───────────
+        expect(
+          find.descendant(
+            of: find.byKey(
+              const ValueKey<String>('salon-bookings-column-chip-master-aaa'),
+            ),
+            matching: find.text(l10n.salonBookingsColumnDayOff),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(
+              const ValueKey<String>('salon-bookings-column-chip-master-ddd'),
+            ),
+            matching: find.text(l10n.salonBookingsMasterColumnFree),
+          ),
+          findsOneWidget,
+          reason:
+              'the unknown master reads «вільно» on the chip, matching the '
+              '«Вільний день» on their column',
+        );
+
+        // ── 4. The working master's board is untouched ─────────────────────
+        expect(
+          find.byKey(
+            const ValueKey<String>('timeline-card-board-working-card'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(ValueKey<String>('timeline-column-marker-$workingColumn')),
+          findsNothing,
+          reason: 'a column with a card carries no marker at all',
         );
       });
     },

@@ -23,6 +23,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -296,9 +297,37 @@ final class HttpMasterRepository implements MasterRepository {
     // than the generated `ReviewControllerApi.getMasterReviewSummary`) keeps
     // this repository on the single injected Dio (no second client, no
     // constructor churn) while still producing a generated built_value DTO.
+    // Hardened via [encodePathSegment] (mobile-security LOW, 2026-09-17).
+    // A bare [Uri.encodeComponent] stood here, and it does NOT escape `.` —
+    // so a `..` survived verbatim into Dio's `Uri.parse(url).normalizePath()`,
+    // which collapses dot-segments per RFC 3986 §5.2.4 and retargets the
+    // request on the authenticated [_dio] that carries the bearer token.
+    // [encodePathSegment] percent-encodes AND rejects dot-segments; see its
+    // doc. Encoding a well-formed UUID is a no-op, so this is
+    // behaviour-neutral on every real id.
+    //
+    // ITS POSITION ABOVE THE `try` IS STYLISTIC, NOT LOAD-BEARING (corrected
+    // 2026-09-17, cycle-3 finding D1 — an earlier revision of this comment
+    // claimed the hoist was what kept the [UnknownFailure] unreshaped, and no
+    // test held that). The first catch below is `on Failure { rethrow; }`, so
+    // moving this call inside the `try` rethrows the identical exception and
+    // still issues no request — the encode throws before `_dio.get` is
+    // reached either way. MEASURED, not assumed (2026-09-17): with the encode
+    // moved inside the `try` at all four hardened sites, the `path hardening`
+    // groups stay fully green — master 4/4, salon 4/4, and location 7/7 as an
+    // untouched control.
+    //
+    // WHAT ACTUALLY PINS PRE-WIRE REJECTION is `verifyNever(dio.get)` beside
+    // each `throwsA` in those tests. That pair — and only that pair —
+    // distinguishes "rejected before the wire" from "issued, then remapped".
+    final String masterSegment = encodePathSegment(
+      masterId,
+      'masterId',
+      logTag: 'master.repository',
+    );
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v1/masters/${Uri.encodeComponent(masterId)}/reviews/summary',
+        '/api/v1/masters/$masterSegment/reviews/summary',
       );
       final decoded = _deserialize<ApiResponseMasterReviewSummaryResponse>(
         response.data,
@@ -349,9 +378,37 @@ final class HttpMasterRepository implements MasterRepository {
     // `page`/`size` keys (the same bug documented in
     // `HttpSalonRepository.getSalonReviews`). So bypass it: issue a raw GET with
     // flat query params and deserialize with the shared serializers.
+    // Hardened via [encodePathSegment] (mobile-security LOW, 2026-09-17).
+    // A bare [Uri.encodeComponent] stood here, and it does NOT escape `.` —
+    // so a `..` survived verbatim into Dio's `Uri.parse(url).normalizePath()`,
+    // which collapses dot-segments per RFC 3986 §5.2.4 and retargets the
+    // request on the authenticated [_dio] that carries the bearer token.
+    // [encodePathSegment] percent-encodes AND rejects dot-segments; see its
+    // doc. Encoding a well-formed UUID is a no-op, so this is
+    // behaviour-neutral on every real id.
+    //
+    // ITS POSITION ABOVE THE `try` IS STYLISTIC, NOT LOAD-BEARING (corrected
+    // 2026-09-17, cycle-3 finding D1 — an earlier revision of this comment
+    // claimed the hoist was what kept the [UnknownFailure] unreshaped, and no
+    // test held that). The first catch below is `on Failure { rethrow; }`, so
+    // moving this call inside the `try` rethrows the identical exception and
+    // still issues no request — the encode throws before `_dio.get` is
+    // reached either way. MEASURED, not assumed (2026-09-17): with the encode
+    // moved inside the `try` at all four hardened sites, the `path hardening`
+    // groups stay fully green — master 4/4, salon 4/4, and location 7/7 as an
+    // untouched control.
+    //
+    // WHAT ACTUALLY PINS PRE-WIRE REJECTION is `verifyNever(dio.get)` beside
+    // each `throwsA` in those tests. That pair — and only that pair —
+    // distinguishes "rejected before the wire" from "issued, then remapped".
+    final String masterSegment = encodePathSegment(
+      masterId,
+      'masterId',
+      logTag: 'master.repository',
+    );
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v1/masters/${Uri.encodeComponent(masterId)}/reviews',
+        '/api/v1/masters/$masterSegment/reviews',
         queryParameters: <String, dynamic>{
           'sort': sort.wireValue,
           'page': page,

@@ -9,6 +9,13 @@
 //   5. A connectionError DioException surfaces as NetworkFailure.
 //   6. A pre-mapped Failure attached as e.error is re-thrown unchanged.
 //   7. A malformed envelope (no data list) surfaces as UnknownFailure.
+//   8. REJECTION DIRECTION (2026-09-17, cycle-2 finding B2) — the two
+//      `encodePathSegment` hardenings at `location_repository.dart:75,82`
+//      actually reject, and actually encode. These were the two sites where
+//      `scripts/forbid_unencoded_path_interpolation.sh` was ALSO blind (the
+//      path is `dart format`-wrapped across lines), so until the guard was
+//      made multi-line aware on the same day, NOTHING would have caught a
+//      regression here — not the gate, not a test.
 //
 // Pure Dart: no ProviderScope, no widget tree.
 
@@ -213,6 +220,122 @@ void main() {
         repository.fetchOblasts(),
         throwsA(isA<UnknownFailure>()),
       );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Path hardening — the rejection direction
+  // ---------------------------------------------------------------------------
+  //
+  // `fetchCities` / `fetchDistricts` route their id through
+  // [encodePathSegment] in the `path:` ARGUMENT EXPRESSION, i.e. before
+  // `_fetchList` is even entered. Every test here asserts
+  // `verifyNever(dio.get)` alongside the throw: that pair is what
+  // distinguishes "rejected before the wire" from "issued, then remapped",
+  // and it is the ONLY thing that pins it.
+  //
+  // There is no "hoisting out of the `try`" to credit here (corrected
+  // 2026-09-17, cycle-3 finding D1). An argument expression is outside the
+  // callee's `try` by construction, and `_fetchList` catches only
+  // `DioException` — an [UnknownFailure] raised inside it would propagate
+  // unreshaped regardless. The assertions below are what constrain this.
+  group('path hardening', () {
+    test('fetchCities rejects a ".." id before any request is issued', () {
+      // `..` survives `Uri.encodeComponent` verbatim, so without the reject
+      // Dio's `Uri.parse(url).normalizePath()` would collapse
+      // `/api/v1/locations/oblasts/../cities` to `/api/v1/locations/cities`
+      // — a different endpoint, on the Dio that carries the bearer token.
+      expect(
+        () => repository.fetchCities('..'),
+        throwsA(
+          isA<UnknownFailure>().having(
+            (UnknownFailure f) => f.cause,
+            'cause',
+            isA<ArgumentError>().having(
+              (ArgumentError e) => e.name,
+              'name',
+              'oblastId',
+            ),
+          ),
+        ),
+      );
+      verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+    });
+
+    test('fetchDistricts rejects a ".." id before any request is issued', () {
+      expect(
+        () => repository.fetchDistricts('..'),
+        throwsA(
+          isA<UnknownFailure>().having(
+            (UnknownFailure f) => f.cause,
+            'cause',
+            isA<ArgumentError>().having(
+              (ArgumentError e) => e.name,
+              'name',
+              'cityId',
+            ),
+          ),
+        ),
+      );
+      verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+    });
+
+    test('fetchCities rejects a "." id before any request is issued', () {
+      expect(() => repository.fetchCities('.'), throwsA(isA<UnknownFailure>()));
+      verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+    });
+
+    test(
+      'fetchCities rejects an EMPTY id — the documented behaviour change',
+      () {
+        // BEFORE the hardening this issued `/api/v1/locations/oblasts//cities`
+        // and surfaced whatever the backend returned for it; it now throws
+        // before the wire. The repository doc comment states exactly this, and
+        // the `encoded.isEmpty` branch it rests on was untested everywhere
+        // until 2026-09-17.
+        expect(
+          () => repository.fetchCities(''),
+          throwsA(isA<UnknownFailure>()),
+        );
+        verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+      },
+    );
+
+    test('fetchDistricts rejects an EMPTY id before any request is issued', () {
+      expect(
+        () => repository.fetchDistricts(''),
+        throwsA(isA<UnknownFailure>()),
+      );
+      verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+    });
+
+    test('fetchCities percent-encodes the id INTO the path it requests', () {
+      // The rejection tests above stay green if the encode call is deleted and
+      // replaced by a hand-rolled guard. This one does not: it pins that the
+      // ENCODED value is what reaches Dio.
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          '/api/v1/locations/oblasts/a%20b%2Fc/cities',
+        ),
+      ).thenAnswer(
+        (_) async =>
+            _envelope('/api/v1/locations/oblasts/a%20b%2Fc/cities', const []),
+      );
+
+      expect(repository.fetchCities('a b/c'), completion(isEmpty));
+    });
+
+    test('fetchDistricts percent-encodes the id INTO the path it requests', () {
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          '/api/v1/locations/cities/a%20b%2Fc/districts',
+        ),
+      ).thenAnswer(
+        (_) async =>
+            _envelope('/api/v1/locations/cities/a%20b%2Fc/districts', const []),
+      );
+
+      expect(repository.fetchDistricts('a b/c'), completion(isEmpty));
     });
   });
 }

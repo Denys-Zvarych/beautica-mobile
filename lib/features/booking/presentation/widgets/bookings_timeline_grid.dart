@@ -853,7 +853,11 @@ import 'timeline_hour_ruler.dart';
 class TimelineBoardColumn {
   const TimelineBoardColumn({required this.header, required this.bookings});
 
-  /// The pinned roster chip's content — see [MasterColumnStrip].
+  /// The pinned roster chip's content — see [MasterColumnStrip]. Also carries
+  /// [MasterColumnEntry.dayOff], which greys this whole column and swaps its
+  /// «Вільний день» marker for «Вихідний»; the flag lives on the header rather
+  /// than on this class so the chip and the column beneath it read ONE field
+  /// and can never disagree about whether that master is working.
   final MasterColumnEntry header;
 
   /// This master's bookings for the shown Kyiv day, ascending by `startAt`.
@@ -2257,6 +2261,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                                   onBookingTap: widget.onBookingTap,
                                   emptyDayLabel:
                                       l10n.salonBookingsColumnFreeDay,
+                                  dayOffLabel: l10n.salonBookingsColumnDayOff,
                                 ),
                               ),
                             ),
@@ -2345,6 +2350,7 @@ class _BoardStack extends StatefulWidget {
     required this.visibleColumnBand,
     required this.onBookingTap,
     required this.emptyDayLabel,
+    required this.dayOffLabel,
     super.key,
   });
 
@@ -2369,12 +2375,41 @@ class _BoardStack extends StatefulWidget {
   final ValueNotifier<(double, double)> visibleColumnBand;
 
   final ValueChanged<Booking> onBookingTap;
+
+  /// «Вільний день» — the marker for a column whose master IS WORKING and has
+  /// nothing booked.
   final String emptyDayLabel;
+
+  /// Phase 336 — «Вихідний», the marker for a column whose master is NOT
+  /// WORKING at all that day ([MasterColumnEntry.dayOff]). A strictly
+  /// different statement from [emptyDayLabel]: before this existed the two
+  /// rendered identically, which is precisely the bug — an owner could not
+  /// tell "free, book them" from "off, do not".
+  final String dayOffLabel;
 
   /// The column separator — one hairline in each gutter, so a card always
   /// reads as belonging to the master whose chip it sits under.
   static final Color _columnDividerColor = BrandColors.accent.withValues(
     alpha: 0.16,
+  );
+
+  /// Phase 336 — the wash painted over a day-off master's whole column.
+  ///
+  /// [BrandColors.shadowDarkCard] is the palette's NEUMORPHIC RECESS tone —
+  /// the dark half of the paired card shadow — so a column wearing it reads
+  /// as pushed back behind the board rather than as a new colour introduced
+  /// for this one state. Held at alpha 0.35: enough to separate the column
+  /// from [BrandColors.base] at a glance, light enough that the hour
+  /// gridlines ([BrandColors.faint], a darker tone of the same warm taupe)
+  /// still read THROUGH it, so a greyed column is still a readable timeline
+  /// and not a blanked-out box.
+  ///
+  /// A flat [ColoredBox], deliberately — no [BoxDecoration], no [BoxShadow],
+  /// therefore nothing for the Impeller-GLES opaque-offset-shadow corner
+  /// artifact to bite on and nothing to register in
+  /// `impeller_circle_shadow_guard_test.dart`.
+  static final Color _dayOffWashColor = BrandColors.shadowDarkCard.withValues(
+    alpha: 0.35,
   );
 
   @override
@@ -2406,6 +2441,33 @@ class _BoardStackState extends State<_BoardStack> {
     // Everything [_columnBox] reads, by identity. `models` and `columns` are
     // rebuilt wholesale by `_recomputeLayoutModel`, so an identity compare is
     // exactly right: a new list means new geometry or new bookings.
+    //
+    // ⚠ THE CALLBACK LINE USES `!=`, NOT `!identical`, AND THAT IS LOAD-BEARING
+    // (documented 2026-09-17, cycle-3 finding D2).
+    // `onBookingTap` arrives as an instance-METHOD TEAR-OFF from the host
+    // (`salon_bookings_screen.dart` hands over `_onBookingTap` / `_columnsFor`
+    // the same way). Dart creates a FRESH closure object for each such
+    // tear-off, so two tear-offs of the same method on the same receiver are
+    // `==` but NEVER `identical`. `!=` therefore reads "a different callback",
+    // which is the question this gate is asking; `!identical` would read "a
+    // different closure OBJECT", which is true on every single rebuild and
+    // would make `_resetCache()` unconditional — silently deleting the entire
+    // column cache this fix exists to provide. "Tightening" this one operator
+    // for consistency with the three lines above it is the specific way this
+    // optimisation gets killed. Do not.
+    //
+    // AND A TEST DOES HOLD IT (corrected 2026-09-18, mobile-qa). An earlier
+    // revision of this block warned that the change would land "with NO test
+    // failing, because a cache that never hits still renders correctly". That
+    // is no longer true, and leaving the warning would send the next reader
+    // hunting for a guard that already exists — or adding a redundant second
+    // one. The guard is `salon_bookings_screen_test.dart`'s
+    // «SalonBookingsScreen — the board survives a no-op rebuild» →
+    // "a rebuild that changes NOTHING rebuilds ZERO of the four cards", which
+    // compares the rendered `MasterBookingCard` WIDGET INSTANCES either side
+    // of a `markNeedsBuild()`. Mutation-verified: swapping this line to
+    // `!identical(oldWidget.onBookingTap, widget.onBookingTap)` reddens that
+    // test (0/4 → 4/4 cards rebuilt). Check it rather than trust this note.
     if (!identical(oldWidget.models, widget.models) ||
         !identical(oldWidget.columns, widget.columns) ||
         !identical(oldWidget.visibleBottom, widget.visibleBottom) ||
@@ -2413,7 +2475,8 @@ class _BoardStackState extends State<_BoardStack> {
         oldWidget.density != widget.density ||
         oldWidget.columnWidth != widget.columnWidth ||
         oldWidget.deepestIndex != widget.deepestIndex ||
-        oldWidget.emptyDayLabel != widget.emptyDayLabel) {
+        oldWidget.emptyDayLabel != widget.emptyDayLabel ||
+        oldWidget.dayOffLabel != widget.dayOffLabel) {
       _resetCache();
     }
   }
@@ -2440,6 +2503,38 @@ class _BoardStackState extends State<_BoardStack> {
     return Stack(
       clipBehavior: Clip.none,
       children: <Widget>[
+        // ── PHASE 336 — THE DAY-OFF WASH ────────────────────────────────
+        // One flat band per NOT-WORKING master, the exact width and left
+        // offset of that master's column (`i * columnPitch`, the same
+        // arithmetic the `Row` of column boxes below lays out with, so the
+        // wash cannot drift off its column).
+        //
+        // PAINTED FIRST — before the gridlines, therefore under them and
+        // under every card. The greyed column must still read as a timeline:
+        // an owner has to see WHICH hours are shaded, and a card belonging to
+        // an off master (a walk-in booked onto their day off — rare, but the
+        // salon board deliberately never drops one) must stay at full
+        // contrast rather than being veiled by the state of its column.
+        //
+        // `top: nudge` aligns it with the first gridline and with the column
+        // boxes' own `nudge` padding; `bottom: 0` lets it run the full
+        // `Stack` extent, which is content-sized off those same boxes.
+        for (int i = 0; i < columnCount; i++)
+          if (widget.columns[i].header.dayOff)
+            Positioned(
+              left: i * columnPitch,
+              width: widget.columnWidth,
+              top: nudge,
+              bottom: 0,
+              // The key sits on the [ColoredBox], NOT on the [Positioned]:
+              // `Positioned` is a `ParentDataWidget` and owns no render
+              // object, so a test measuring the band by key would be
+              // measuring whatever descendant happened to be found first.
+              child: ColoredBox(
+                key: ValueKey<String>('timeline-column-day-off-wash-$i'),
+                color: _BoardStack._dayOffWashColor,
+              ),
+            ),
         // Gridlines FIRST so they paint UNDER the cards — same Finding #8
         // ordering, and the same even/odd hour-vs-half-hour split, as the
         // master branch.
@@ -2616,6 +2711,14 @@ class _BoardStackState extends State<_BoardStack> {
     // a column scrolled past the data both look like nothing at all
     // otherwise. Deliberately OUTSIDE the text-scale clamp below, exactly as
     // before: only the CARDS are clamped.
+    //
+    // PHASE 336 — and it states WHICH of the two quiet states it is.
+    // «Вихідний» when that master is not working the day at all, «Вільний
+    // день» when they are working and simply have nothing booked. A column
+    // that IS off but still carries a booking keeps its cards and says
+    // nothing here — the wash behind it and its roster chip carry the state,
+    // and a banner floated over live cards would collide with whichever one
+    // starts nearest the top of the union window.
     if (widget.columns[index].bookings.isEmpty) {
       return SizedBox(
         width: widget.columnWidth,
@@ -2623,7 +2726,10 @@ class _BoardStackState extends State<_BoardStack> {
           padding: EdgeInsets.only(top: nudge + VelvetSpacing.md),
           child: Center(
             child: Text(
-              widget.emptyDayLabel,
+              key: ValueKey<String>('timeline-column-marker-$index'),
+              widget.columns[index].header.dayOff
+                  ? widget.dayOffLabel
+                  : widget.emptyDayLabel,
               style: VelvetText.timelineColumnEmptyDay,
               textAlign: TextAlign.center,
               maxLines: 1,

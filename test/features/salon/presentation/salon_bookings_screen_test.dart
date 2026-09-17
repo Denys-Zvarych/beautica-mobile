@@ -61,6 +61,7 @@ import 'package:beautica_mobile/features/schedule/data/schedule_repository_provi
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -1360,6 +1361,246 @@ void main() {
       // Rendered, not merely fetched: the dot key only exists on a day the
       // set actually contains (`bookings_day_rail.dart`'s `hasBookings`).
       expect(find.byKey(dayDotKey(DateTime(2026, 6, 15))), findsOneWidget);
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 8. THE TWO RE-ARMED CACHES (mobile-perf MEDIUM ×2, 2026-09-17)
+  //
+  // `BookingsTimelineGrid` and its `_BoardStack` each memoise expensive work
+  // behind an `identical(...)` gate in `didUpdateWidget`. Both were DEAD on
+  // this route since they shipped, for two independent reasons that are
+  // AND-gated — fixing either alone left the board at 4/4 cards rebuilt:
+  //
+  //   * `columnsBuilder:` was an inline closure, so `_Loaded._body`'s
+  //     `columnsBuilder?.call(items, day)` allocated a fresh `List` on every
+  //     rebuild → `!identical(widget.columns, oldWidget.columns)`, always true;
+  //   * `onBookingTap:` was an inline closure, so `_BoardStack`'s
+  //     `oldWidget.onBookingTap != widget.onBookingTap` was always true too.
+  //
+  // ── WHY THE ASSERTION IS WIDGET-INSTANCE IDENTITY ────────────────────────
+  // NOT a widget-FIELD read (`grid.columns`, `boardStack.onBookingTap`), which
+  // would only prove the screen PASSED something and is vacuous about what the
+  // framework then did with it. `_BoardStack._cachedColumn` returns the SAME
+  // `Widget` instance for an unchanged column, and `Element.updateChild`
+  // skipping a subtree on an identical widget is a documented framework
+  // guarantee — so "the card widget instance survived a rebuild" IS the
+  // observation that the subtree was not rebuilt. A rebuilt column allocates
+  // fresh `MasterBookingCard`s and the identity necessarily moves.
+  //
+  // ── WHY markNeedsBuild AND NOT A PROVIDER NUDGE ──────────────────────────
+  // Every provider this screen watches feeds the columns, so re-emitting any
+  // of them would change a real input and the cache SHOULD miss. What is being
+  // pinned is "this screen rebuilt for any reason at all, with nothing
+  // relevant changed" — which is exactly what `markNeedsBuild` expresses, and
+  // what a parent rebuild (the salon shell swapping tabs, an ancestor
+  // `InheritedWidget` notifying) does in production.
+  // ═════════════════════════════════════════════════════════════════════════
+  group('SalonBookingsScreen — the board survives a no-op rebuild', () {
+    /// Every rendered card, by the key the timeline gives it.
+    List<Widget> cards(WidgetTester tester, List<String> ids) => <Widget>[
+      for (final String id in ids)
+        tester.widget(find.byKey(ValueKey<String>('timeline-card-$id'))),
+    ];
+
+    testWidgets('a rebuild that changes NOTHING rebuilds ZERO of the four '
+        'cards — both the column-list memo and the stable onBookingTap '
+        'tear-off are required, and either one missing takes it to 4/4', (
+      WidgetTester tester,
+    ) async {
+      stubRoster(<SalonMasterSummary>[
+        _rosterMaster('m1', 'Оля', 'Коваль'),
+        _rosterMaster('m2', 'Ніна', 'Бойко'),
+      ]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[
+        _booking(id: 'a1', masterId: 'm1', hour: 10),
+        _booking(id: 'a2', masterId: 'm1', hour: 12),
+        _booking(id: 'b1', masterId: 'm2', hour: 11),
+        _booking(id: 'b2', masterId: 'm2', hour: 13),
+      ]);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      const List<String> ids = <String>['a1', 'a2', 'b1', 'b2'];
+      // The board is genuinely showing all four before anything is measured —
+      // otherwise "nothing rebuilt" would be satisfied by nothing existing.
+      for (final String id in ids) {
+        expect(
+          find.byKey(ValueKey<String>('timeline-card-$id')),
+          findsOneWidget,
+          reason: 'card $id must be on the board before the no-op rebuild',
+        );
+      }
+
+      final List<Widget> before = cards(tester, ids);
+
+      // One no-op rebuild of the screen — same roster, same schedule, same
+      // day, same bookings.
+      tester.element(find.byType(SalonBookingsScreen)).markNeedsBuild();
+      await tester.pump();
+
+      final List<Widget> after = cards(tester, ids);
+
+      final List<String> rebuilt = <String>[
+        for (int i = 0; i < ids.length; i++)
+          if (!identical(before[i], after[i])) ids[i],
+      ];
+      expect(
+        rebuilt,
+        isEmpty,
+        reason:
+            'a rebuild that changed no input must not rebuild a single card: '
+            "_BoardStack's built-column cache returns the same Widget "
+            'instance and Element.updateChild skips the subtree. Cards that '
+            'moved: $rebuilt (${rebuilt.length}/${ids.length})',
+      );
+    });
+  });
+  // ═════════════════════════════════════════════════════════════════════════
+  // 9. THE DAY-OFF MARK FOLLOWS THE SELECTED DAY (mobile-qa, 2026-09-18)
+  //
+  // The 16 predicate tests answer `masterDayOff(id, day, schedule)` for one
+  // day at a time, and the 7 column tests pump one board. Neither pumps the
+  // SAME board TWICE across a rail tap, which is the only place the mark's
+  // day-dependence is observable — and the place where two separate
+  // mechanisms can silently pin it to the first day rendered:
+  //   • `masterDayOff`'s date match (a comparison that dropped `.day` still
+  //     resolves, just always against the first entry for that month), and
+  //   • `_SalonBookingsScreenState._columnsFor`'s memo, whose `day` key is
+  //     the only one that is compared BY VALUE.
+  //
+  // ANTI-VACUITY: BOTH days are EMPTY for the marked master. `bookings`,
+  // `roster` and `rosterSchedule` are byte-identical either side of the tap,
+  // so nothing except the selected date can move this assertion, in either
+  // direction.
+  // ═════════════════════════════════════════════════════════════════════════
+  group('SalonBookingsScreen — the day-off mark tracks the rail', () {
+    testWidgets('a master OFF on the selected day is greyed, and un-greys when '
+        'the rail moves to a day they WORK — both days empty', (
+      WidgetTester tester,
+    ) async {
+      // Read from the ARB, never spelled here: a locale retune must move
+      // this test with the app (M2/M11), not silently break it.
+      final AppLocalizationsUk uk = AppLocalizationsUk();
+      final String off = uk.salonBookingsColumnDayOff;
+      final String freeDay = uk.salonBookingsColumnFreeDay;
+      expect(off, isNot(freeDay));
+
+      stubRoster(<SalonMasterSummary>[
+        _rosterMaster('m1', 'Оля', 'Коваль'),
+        _rosterMaster('m2', 'Ніна', 'Бойко'),
+      ]);
+      stubSalonProfile();
+      // m1: OFF on the 15th, WORKING on the 16th. m2: working both days, so
+      // the board always has a window and the timeline never collapses.
+      stubRosterSchedule(<String, List<EffectiveDay>>{
+        'm1': <EffectiveDay>[
+          EffectiveDay(
+            date: DateTime(2026, 6, 15),
+            source: EffectiveSource.overrideDayOff,
+            intervals: const <WorkInterval>[],
+          ),
+          EffectiveDay(
+            date: DateTime(2026, 6, 16),
+            source: EffectiveSource.template,
+            intervals: <WorkInterval>[
+              WorkInterval(
+                start: const TimeOfDay(hour: 9, minute: 0),
+                end: const TimeOfDay(hour: 18, minute: 0),
+              ),
+            ],
+          ),
+        ],
+        'm2': <EffectiveDay>[
+          working(9, 18),
+          EffectiveDay(
+            date: DateTime(2026, 6, 16),
+            source: EffectiveSource.template,
+            intervals: <WorkInterval>[
+              WorkInterval(
+                start: const TimeOfDay(hour: 9, minute: 0),
+                end: const TimeOfDay(hour: 18, minute: 0),
+              ),
+            ],
+          ),
+        ],
+      });
+      // BOTH days empty — the whole point. `stubSalonDay` pins the 15th; the
+      // 16th needs its own equally-strict stub.
+      stubSalonDay(const <Booking>[]);
+      when(
+        () => bookingRepo.getSalonBookings(
+          salonId: _salonId,
+          masterId: null,
+          from: DateTime(2026, 6, 16),
+          to: DateTime(2026, 6, 16),
+          sort: BookingSort.oldest,
+          page: 0,
+          size: 100,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => _page(const <Booking>[]));
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      // ── The 15th: m1 is off, m2 is merely free ───────────────────────────
+      expect(
+        find.byKey(const ValueKey<String>('timeline-column-day-off-wash-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('timeline-column-day-off-wash-1')),
+        findsNothing,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey<String>('timeline-column-marker-0')),
+            )
+            .data,
+        off,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey<String>('timeline-column-marker-1')),
+            )
+            .data,
+        freeDay,
+      );
+
+      // ── Tap the rail to the 16th ─────────────────────────────────────────
+      final Finder nextDay = find.byKey(dayChipKey(DateTime(2026, 6, 16)));
+      expect(nextDay, findsOneWidget);
+      await tester.tap(nextDay);
+      // fixed-wait-ok: waits out the REAL 220ms rail-tap debounce timer in
+      // `_BookingsDiscoveryViewState._selectDay`. `pumpAndSettle` alone never
+      // fires it — a pending Timer schedules no frame, so the settle returns
+      // with the selection unchanged and every assertion below would be
+      // measuring the FIRST day twice.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+
+      // ── The 16th: m1 WORKS, so the grey is gone and the word changed ─────
+      expect(
+        find.byKey(const ValueKey<String>('timeline-column-day-off-wash-0')),
+        findsNothing,
+        reason:
+            'the wash must follow the SELECTED day — a mark pinned to the '
+            'first day rendered leaves this column greyed forever',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey<String>('timeline-column-marker-0')),
+            )
+            .data,
+        freeDay,
+      );
+      expect(find.text(off), findsNothing);
     });
   });
 }

@@ -26,6 +26,7 @@ import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -70,16 +71,42 @@ final class HttpLocationRepository implements LocationRepository {
     operation: 'fetchOblasts',
   );
 
+  /// Hardened via [encodePathSegment] (mobile-security LOW, 2026-09-17 — found
+  /// by `scripts/forbid_unencoded_path_interpolation.sh`, NOT by the audit that
+  /// prompted it; the audit named only the four bare-[Uri.encodeComponent]
+  /// sites, and these two had no encoding at all).
+  ///
+  /// [oblastId] / [cityId] reach here from route and profile state, are
+  /// interpolated into a hand-built path, and are issued on the shared
+  /// [dioProvider] Dio — so a dot-segment would survive into Dio's
+  /// `Uri.parse(url).normalizePath()` and retarget the read. These endpoints
+  /// are public, but the Dio is the same instance that carries the bearer
+  /// token on every other call, and `/locations/oblasts/../..` collapsing onto
+  /// a different `/api/v1/` resource is the same shape regardless.
+  ///
+  /// BEHAVIOUR NOTE: an EMPTY id now throws [UnknownFailure] here instead of
+  /// issuing `/api/v1/locations/oblasts//cities` and surfacing whatever the
+  /// backend returned for it. Both are error states the cascade already
+  /// renders through its `error:` branch; every caller passes a server-issued
+  /// UUID (`oblast.id` / `city.id`, or a persisted profile field), so this is
+  /// unreachable in practice. Encoding a well-formed UUID is a no-op.
   @override
   Future<List<City>> fetchCities(String oblastId) => _fetchList(
-    path: '/api/v1/locations/oblasts/$oblastId/cities',
+    path:
+        '/api/v1/locations/oblasts/'
+        '${encodePathSegment(oblastId, 'oblastId', logTag: 'location.repository')}'
+        '/cities',
     mapper: City.fromResponse,
     operation: 'fetchCities',
   );
 
+  /// See [fetchCities] for why [cityId] is encoded and what an empty id does.
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) => _fetchList(
-    path: '/api/v1/locations/cities/$cityId/districts',
+    path:
+        '/api/v1/locations/cities/'
+        '${encodePathSegment(cityId, 'cityId', logTag: 'location.repository')}'
+        '/districts',
     mapper: CityDistrict.fromResponse,
     operation: 'fetchDistricts',
   );

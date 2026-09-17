@@ -10,6 +10,7 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -1270,6 +1271,109 @@ void main() {
             data: any(named: 'data'),
           ),
         ).called(1);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Path hardening — the rejection direction (2026-09-17, cycle-2 finding B2)
+  // ---------------------------------------------------------------------------
+  //
+  // `getMasterReviewSummary` / `getMasterReviews` are the other two of the four
+  // sites that stood on a bare `Uri.encodeComponent`, which does NOT escape `.`
+  // — so a `..` survived into Dio's `Uri.parse(url).normalizePath()`, which
+  // collapses dot-segments per RFC 3986 §5.2.4 and retargets the request on the
+  // authenticated `_dio` that carries the bearer token. They were swapped onto
+  // `encodePathSegment` but had no rejection-direction test; only the guard
+  // script covered them, and a guard proves the CALL, never the BEHAVIOUR.
+  //
+  // `verifyNever(dio.get)` alongside each throw is what distinguishes "rejected
+  // before the wire" from "issued, then remapped" — the reason the encode is
+  // HOISTED OUTSIDE the `try`.
+  group('path hardening', () {
+    test(
+      'getMasterReviewSummary rejects a ".." masterId before any request',
+      () {
+        expect(
+          () => repository.getMasterReviewSummary('..'),
+          throwsA(
+            isA<UnknownFailure>().having(
+              (UnknownFailure f) => f.cause,
+              'cause',
+              isA<ArgumentError>().having(
+                (ArgumentError e) => e.name,
+                'name',
+                'masterId',
+              ),
+            ),
+          ),
+        );
+        verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+      },
+    );
+
+    test(
+      'getMasterReviewSummary rejects an EMPTY masterId before any request',
+      () {
+        expect(
+          () => repository.getMasterReviewSummary(''),
+          throwsA(isA<UnknownFailure>()),
+        );
+        verifyNever(() => dio.get<Map<String, dynamic>>(any()));
+      },
+    );
+
+    test('getMasterReviews rejects a ".." masterId before any request', () {
+      expect(
+        () => repository.getMasterReviews(
+          masterId: '..',
+          sort: MasterReviewSort.newest,
+        ),
+        throwsA(
+          isA<UnknownFailure>().having(
+            (UnknownFailure f) => f.cause,
+            'cause',
+            isA<ArgumentError>().having(
+              (ArgumentError e) => e.name,
+              'name',
+              'masterId',
+            ),
+          ),
+        ),
+      );
+      verifyNever(
+        () => dio.get<Map<String, dynamic>>(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      );
+    });
+
+    test(
+      'getMasterReviewSummary percent-encodes the masterId INTO the path',
+      () async {
+        // The rejection tests above stay green if the encode call is swapped for
+        // a hand-rolled dot-segment guard. This one does not: it pins that the
+        // ENCODED value is what reaches Dio.
+        when(
+          () => dio.get<Map<String, dynamic>>(
+            '/api/v1/masters/a%20b%2Fc/reviews/summary',
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(
+              path: '/api/v1/masters/a%20b%2Fc/reviews/summary',
+            ),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        // A NetworkFailure (not an UnknownFailure) proves the stubbed path — the
+        // percent-encoded one — is the path that was actually requested.
+        await expectLater(
+          repository.getMasterReviewSummary('a b/c'),
+          throwsA(isA<NetworkFailure>()),
+        );
       },
     );
   });

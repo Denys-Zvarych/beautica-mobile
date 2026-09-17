@@ -55,6 +55,50 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
+/// A [SecureStorage] that delegates everything to a real [FakeSecureStorage]
+/// except `deleteAll()`, which throws.
+///
+/// The seam for the ONE scenario that still discriminates `logout()`'s
+/// `finally` gate — see the `_logoutInFlight` test that uses it.
+final class _DeleteAllThrowsStorage implements SecureStorage {
+  _DeleteAllThrowsStorage(this._inner);
+
+  final FakeSecureStorage _inner;
+
+  @override
+  Future<void> deleteAll() async => throw StateError('keystore wedged');
+
+  @override
+  Future<String?> readRefreshToken() => _inner.readRefreshToken();
+  @override
+  Future<void> writeRefreshToken(String token) =>
+      _inner.writeRefreshToken(token);
+  @override
+  Future<String?> readUserJson() => _inner.readUserJson();
+  @override
+  Future<void> writeUserJson(String json) => _inner.writeUserJson(json);
+  @override
+  Future<String?> readPendingLocality() => _inner.readPendingLocality();
+  @override
+  Future<void> writePendingLocality(String json) =>
+      _inner.writePendingLocality(json);
+  @override
+  Future<void> deletePendingLocality() => _inner.deletePendingLocality();
+  @override
+  Future<String?> readLastSalon() => _inner.readLastSalon();
+  @override
+  Future<void> writeLastSalon(String json) => _inner.writeLastSalon(json);
+  @override
+  Future<void> deleteLastSalon() => _inner.deleteLastSalon();
+}
+
+/// A [ScreenProtectionManager] whose `reset()` can be made to throw — the
+/// injection point for the "a cleanup failure after the storage wipe" test.
+/// Mocked rather than subclassed because the real `reset()` is not virtual in
+/// spirit: the test is about the CALLER's control flow, not this class's.
+class _ThrowingScreenProtection extends Mock
+    implements ScreenProtectionManager {}
+
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 /// Spy [DayKeepAliveLru] for the session-boundary-PII logout test below —
@@ -575,6 +619,340 @@ void main() {
         expect(
           container.read(authProvider).value,
           equals(const AuthSession.unauthenticated()),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5a2b — mobile-security INFO, accepted at `mobile-backlog.md:76` on
+    // 2026-08-17 and CLOSED 2026-09-17 because that audit cycle widened it.
+    //
+    // THE WINDOW: `logout()` wipes secure storage, then runs a run of cleanup
+    // calls that are NOT individually try/caught — `screenProtectionProvider
+    // .reset()`, `registerDraftProvider.notifier.reset()`,
+    // `dayKeepAliveLruProvider.clear()`, and (new this cycle) FOUR schedule-
+    // family sweeps. The state flip to `Unauthenticated` used to be the LAST
+    // statement of the `try`, so a throw anywhere in that run escaped with
+    // storage already wiped and the in-memory session still reading
+    // `Authenticated`: a router guard happily rendering authenticated screens
+    // against a token store that no longer holds a token.
+    //
+    // The fix moves the flip into the `finally`, gated on `wipedStorage` — so
+    // the two halves of "this session is over" can no longer disagree, while a
+    // wipe that never completed still leaves a genuinely-signed-in user alone.
+    //
+    // The exception must STILL propagate: a `finally` cannot swallow it, and a
+    // silently-swallowed cleanup failure would be a worse bug than the one
+    // being fixed. Both halves are asserted.
+    //
+    // `screenProtectionProvider` is the injection point only because it is the
+    // cheapest of the uncaught calls to make throw; the finding is about the
+    // WINDOW, not about that particular call.
+    // -----------------------------------------------------------------------
+    test('a cleanup failure AFTER the storage wipe still leaves the session '
+        'Unauthenticated — the in-memory session can never outlive the wiped '
+        'token store (mobile-security INFO, closed 2026-09-17)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final screenProtection = _ThrowingScreenProtection();
+      when(screenProtection.reset).thenThrow(StateError('cleanup exploded'));
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          screenProtectionProvider.overrideWithValue(screenProtection),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      expect(
+        container.read(authProvider).value,
+        equals(
+          const AuthSession.authenticated(
+            user: testUser,
+            accessToken: 'access-123',
+          ),
+        ),
+        reason: 'the session is genuinely alive before the logout',
+      );
+
+      await expectLater(
+        container.read(authProvider.notifier).logout(),
+        throwsA(isA<StateError>()),
+        reason:
+            'the cleanup failure must still surface — a finally that '
+            'swallowed it would hide a real fault',
+      );
+
+      // The wipe DID complete (it runs before the throwing call), so both
+      // halves of "signed out" must agree.
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason: 'storage was wiped before the cleanup threw',
+      );
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+        reason:
+            'the in-memory session must not survive a wipe that completed '
+            '— that disagreement is the whole finding',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2b2 — mobile-security MEDIUM, audit cycle 3, 2026-09-17.
+    //
+    // The sibling above pins that a cleanup throw leaves the SESSION
+    // `Unauthenticated`. This pins the other half of that same turn: it must
+    // also leave no LIVE BEARER TOKEN behind.
+    //
+    // `_lastKnownAccessToken` / `coldStartAccessToken` used to be wiped as the
+    // try block's last two statements, i.e. AFTER the five uncaught cleanup
+    // calls. A throw from any of them skipped the wipe, and
+    // [AuthNotifier.lastKnownAccessToken] — which reads
+    // `coldStartAccessToken ?? _lastKnownAccessToken` and deliberately does
+    // NOT consult `logoutInFlight` — kept handing `AuthInterceptor` the
+    // outgoing session's token while the notifier reported `Unauthenticated`.
+    //
+    // MUTATION that reddens this and nothing else: move the two assignments
+    // back out of the `finally` (to where the `NOTE` in the `try` now stands).
+    // The sibling test above stays green, because the state flip is already in
+    // the `finally`; only this assertion falls.
+    // -----------------------------------------------------------------------
+    test('a cleanup failure AFTER the storage wipe still clears the bearer '
+        'token fallback — lastKnownAccessToken must not outlive the wipe '
+        '(mobile-security MEDIUM, 2026-09-17)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final screenProtection = _ThrowingScreenProtection();
+      when(screenProtection.reset).thenThrow(StateError('cleanup exploded'));
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          screenProtectionProvider.overrideWithValue(screenProtection),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+      expect(
+        notifier.lastKnownAccessToken,
+        equals('access-123'),
+        reason: 'the interceptor fallback is live before the logout',
+      );
+
+      await expectLater(
+        notifier.logout(),
+        throwsA(isA<StateError>()),
+        reason: 'the cleanup failure must still surface',
+      );
+
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason: 'storage was wiped before the cleanup threw',
+      );
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+        reason: 'precondition — the session is reported as over',
+      );
+      expect(
+        notifier.lastKnownAccessToken,
+        isNull,
+        reason:
+            'a session reported Unauthenticated must not still hand the '
+            'interceptor the outgoing bearer token',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2b3 — THE ORDER OF THE TWO `finally` BLOCKS (mobile-qa,
+    // 2026-09-18).
+    //
+    // `logout()`'s `finally` does two things under the same `wipedStorage`
+    // gate: it clears the bearer-token fallback, and it flips the session to
+    // `Unauthenticated`. The source comment calls the ORDER load-bearing —
+    // "ABOVE the flip, not below it… flipping to `Unauthenticated`
+    // synchronously notifies every listener, and a listener that fires a
+    // request in that turn must not find a live token still sitting in the
+    // fallback."
+    //
+    // NOTHING ENFORCED THAT. Swapping the two blocks left all 573 tests under
+    // `test/features/auth/` green (measured 2026-09-18), because every
+    // sibling assertion runs AFTER `logout()` returns, by which time both
+    // blocks have run and the two orders are indistinguishable. This is the
+    // same shape as cycle-2 finding B3 — a documented causal ordering with no
+    // gate — so it is closed the same way: by SAMPLING INSIDE the turn.
+    //
+    // The listener below is the stand-in for the real reader, `AuthInterceptor`,
+    // which calls [AuthNotifier.lastKnownAccessToken] on a request it fires in
+    // response to the session flip. It records what that reader would have
+    // seen at the instant the flip was announced.
+    //
+    // MUTATION that reddens this and nothing else: move the token-wipe block
+    // BELOW the state-flip block inside the same `finally`.
+    // -----------------------------------------------------------------------
+    test('the bearer-token fallback is already gone at the instant logout '
+        'announces Unauthenticated — a listener that fires a request in that '
+        'turn cannot pick up the outgoing token', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+      expect(
+        notifier.lastKnownAccessToken,
+        equals('access-123'),
+        reason: 'precondition — the interceptor fallback is live',
+      );
+
+      // Sampled AT NOTIFICATION TIME, never afterwards. `false` would mean
+      // the listener never saw the flip at all, which would make the
+      // assertion below vacuous — so it is checked separately.
+      bool sawFlip = false;
+      String? tokenAtFlip = 'never-sampled';
+      container.listen<AsyncValue<AuthSession>>(authProvider, (_, next) {
+        if (next.value == const AuthSession.unauthenticated()) {
+          sawFlip = true;
+          tokenAtFlip = notifier.lastKnownAccessToken;
+        }
+      });
+
+      await notifier.logout();
+
+      expect(
+        sawFlip,
+        isTrue,
+        reason:
+            'the listener must actually have observed the Unauthenticated '
+            'announcement — otherwise the token assertion below proves '
+            'nothing',
+      );
+      expect(
+        tokenAtFlip,
+        isNull,
+        reason:
+            'the wipe must run ABOVE the flip: a listener reacting to '
+            '«signed out» by firing a request must not be handed the '
+            'outgoing session bearer token',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2c — THE SCENARIO THAT STILL DISCRIMINATES THE `finally` GATE,
+    // added 2026-09-17 because the test above took the previous one away.
+    //
+    // `logout()`'s `finally` resets `_logoutInFlight` only when the wipe did
+    // NOT complete. The original mobile-security MEDIUM-2 fix (phase 287)
+    // replaced a `state.value is! Unauthenticated` predicate with that
+    // `wipedStorage` flag, and `salon_shell_screen_test.dart`'s
+    // `should_notWriteLastSalon_when_postWipeCleanupCallThrows` discriminated
+    // the two by exploiting the fact that a post-wipe throw left `state`
+    // stale-`Authenticated`. Moving the state flip into the `finally` (the
+    // test above) removed exactly that asymmetry: after a post-wipe throw
+    // `state` is now `Unauthenticated`, so BOTH predicates agree there and
+    // that test no longer tells them apart. Its stale precondition was updated
+    // in the same commit, with a pointer here.
+    //
+    // ONE asymmetry survives, in the opposite direction, and this is it:
+    // `logout()` on an ALREADY-unauthenticated session whose `deleteAll()`
+    // throws. The wipe did NOT complete, so the writer must be re-enabled —
+    // but `state` was `Unauthenticated` the whole time, so a `state`-gated
+    // predicate reads "already signed out", skips the reset, and WEDGES
+    // `_logoutInFlight` at `true` for the rest of the notifier's life
+    // (recoverable only by a successful `login()`, which is the phase-287
+    // flag-wedge regression this suite already knows about).
+    //
+    // Reachable in production: `RefreshInterceptor` force-logs-out on a failed
+    // token refresh and can do so after the user has already signed out;
+    // `deleteAll()` throwing is the platform-channel failure the whole
+    // `wipedStorage` design exists for.
+    // -----------------------------------------------------------------------
+    test(
+      'logout() on an ALREADY-unauthenticated session whose deleteAll() '
+      'throws still RE-ENABLES the lastSalon writer — the wipe did not '
+      'complete, so gating the finally on `state` would wedge the flag',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = _DeleteAllThrowsStorage(FakeSecureStorage());
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // No stored refresh token → the cold start resolves Unauthenticated.
+        await container.read(authProvider.future);
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
+          reason:
+              'precondition: `state` is Unauthenticated BEFORE logout runs, '
+              'which is what makes a state-gated predicate misread the wipe',
+        );
+
+        final notifier = container.read(authProvider.notifier);
+        await expectLater(
+          notifier.logout(),
+          throwsA(isA<StateError>()),
+          reason: 'the deleteAll() failure must still surface',
+        );
+
+        expect(
+          notifier.logoutInFlight,
+          isFalse,
+          reason:
+              'the wipe did NOT complete, so the user may still be holding a '
+              'live session on disk and _writeLastSalon must be re-enabled. A '
+              '`state`-gated finally sees Unauthenticated here and skips the '
+              'reset, wedging the flag — that is the MEDIUM-2 regression this '
+              'case now pins on its own.',
         );
       },
     );

@@ -16,6 +16,7 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
@@ -903,6 +904,120 @@ void main() {
           .getSiblingSalons('s-1');
 
       expect(out.map((SiblingSalonOption o) => o.id), <String>['salon-2']);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Path hardening — the rejection direction (2026-09-17, cycle-2 finding B2)
+  // ---------------------------------------------------------------------------
+  //
+  // `getSalonMasters` / `getSalonReviews` are two of the four sites that stood
+  // on a bare `Uri.encodeComponent`, which does NOT escape `.` — so a `..`
+  // survived into Dio's `Uri.parse(url).normalizePath()`, which collapses
+  // dot-segments per RFC 3986 §5.2.4 and retargets the request on the
+  // authenticated `_dio` that carries the bearer token. They were swapped onto
+  // `encodePathSegment` but had no rejection-direction test; only the guard
+  // script covered them, and a guard proves the CALL, never the BEHAVIOUR.
+  //
+  // Each test asserts `verifyNever(dio.get)` alongside the throw. That pair is
+  // what distinguishes "rejected before the wire" from "issued, then remapped",
+  // and it is the ONLY thing that pins it.
+  //
+  // It is NOT a test of where the encode sits relative to the `try`
+  // (corrected 2026-09-17, cycle-3 finding D1 — this comment used to claim
+  // the hoist was load-bearing). Every hardened site here opens with
+  // `on Failure { rethrow; }`, and the encode throws BEFORE `_dio.get` is
+  // reached wherever it is written, so moving it inside the `try` leaves
+  // every test in this group green. The hoist is a style choice; these
+  // assertions are the contract.
+  group('path hardening', () {
+    test('getSalonMasters rejects a ".." salonId before any request', () {
+      expect(
+        () => repository.getSalonMasters('..'),
+        throwsA(
+          isA<UnknownFailure>().having(
+            (UnknownFailure f) => f.cause,
+            'cause',
+            isA<ArgumentError>().having(
+              (ArgumentError e) => e.name,
+              'name',
+              'salonId',
+            ),
+          ),
+        ),
+      );
+      verifyNever(
+        () => dio.get<Map<String, dynamic>>(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      );
+    });
+
+    test('getSalonMasters rejects an EMPTY salonId before any request', () {
+      expect(
+        () => repository.getSalonMasters(''),
+        throwsA(isA<UnknownFailure>()),
+      );
+      verifyNever(
+        () => dio.get<Map<String, dynamic>>(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      );
+    });
+
+    test('getSalonReviews rejects a ".." salonId before any request', () {
+      expect(
+        () => repository.getSalonReviews(
+          salonId: '..',
+          sort: SalonReviewSort.newest,
+        ),
+        throwsA(
+          isA<UnknownFailure>().having(
+            (UnknownFailure f) => f.cause,
+            'cause',
+            isA<ArgumentError>().having(
+              (ArgumentError e) => e.name,
+              'name',
+              'salonId',
+            ),
+          ),
+        ),
+      );
+      verifyNever(
+        () => dio.get<Map<String, dynamic>>(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      );
+    });
+
+    test('getSalonMasters percent-encodes the salonId INTO the path', () async {
+      // The rejection tests above stay green if the encode call is swapped for
+      // a hand-rolled dot-segment guard. This one does not: it pins that the
+      // ENCODED value is what reaches Dio.
+      when(
+        () => dio.get<Map<String, dynamic>>(
+          '/api/v1/salons/a%20b%2Fc/masters',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(
+            path: '/api/v1/salons/a%20b%2Fc/masters',
+          ),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      // A NetworkFailure (not an UnknownFailure) proves the stubbed path — the
+      // percent-encoded one — is the path that was actually requested: an
+      // unmatched mocktail call would return null and surface differently.
+      await expectLater(
+        repository.getSalonMasters('a b/c'),
+        throwsA(isA<NetworkFailure>()),
+      );
     });
   });
 }

@@ -427,7 +427,26 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// is what keeps the «N записів» header count and the rendered cards one
   /// number rather than two agreeing computations. See
   /// [TimelineBoardColumn.bookings].
-  final List<TimelineBoardColumn> Function(List<Booking> dayItems)?
+  ///
+  /// ## PHASE 336 — WHY THIS TAKES `day`
+  ///
+  /// Identical in shape to [boardWindowBuilder], and now literally so. The
+  /// host must mark a master who is NOT WORKING on the shown day
+  /// ([MasterColumnEntry.dayOff]), and "which day" is a fact this view owns
+  /// and the host cannot see — the host supplies a SEED query; the selected
+  /// day lives in `_BookingsDiscoveryViewState` and moves with the rail (see
+  /// "the day is NOT read from query"). So the day travels the same way the
+  /// bookings do: as an argument.
+  ///
+  /// Widening the arity rather than adding a third builder was the narrower
+  /// change, not the wider one: this callback has exactly ONE call site in
+  /// the repository (`SalonBookingsScreen`), both master routes pass `null`,
+  /// and the two host seams now have one signature between them instead of
+  /// two that differ for no reason a reader could recover.
+  final List<TimelineBoardColumn> Function(
+    List<Booking> dayItems,
+    DateTime day,
+  )?
   columnsBuilder;
 
   /// ═══════════════════════════════════════════════════════════════════════
@@ -605,15 +624,40 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   late final ScreenProtectionManager _screenProtection;
 
   /// Memoises [bookingsInsideScheduleWindow]'s result across rebuilds where
-  /// the inputs haven't actually changed — mobile-perf MEDIUM fix (this
-  /// session). `_Loaded` is a `StatelessWidget` (deliberately, see its class
-  /// doc) and calls this via [_visibleBookingsFor] instead of the free
-  /// function directly, so a rebuild triggered by `effectiveScheduleProvider`
+  /// the inputs haven't actually changed — mobile-perf MEDIUM fix (2026-09-17).
+  /// `_Loaded` is a `StatelessWidget` (deliberately, see its class doc) and
+  /// calls this via [_visibleBookingsFor] instead of the free function
+  /// directly, so a rebuild triggered by `effectiveScheduleProvider`
   /// re-fetching with an UNCHANGED resolved window (see
   /// `effective_schedule_notifier.dart:78`) reuses the SAME list instance
-  /// instead of reallocating one — which is what lets
-  /// [BookingsTimelineGrid]'s `identical(widget.bookings,
-  /// oldWidget.bookings)` gate (`didUpdateWidget`) short-circuit again.
+  /// instead of reallocating one.
+  ///
+  /// ## WHAT THIS ACTUALLY BUYS, PER ROUTE (mobile-perf LOW, 2026-09-17)
+  ///
+  /// An earlier revision of this doc ended "— which is what lets
+  /// [BookingsTimelineGrid]'s `identical(widget.bookings, oldWidget.bookings)`
+  /// gate (`didUpdateWidget`) short-circuit again", full stop. That is true on
+  /// ONE of the two routes and overstated on the other, and the difference is
+  /// worth knowing before anyone "simplifies" this away or copies the claim:
+  ///
+  ///   * MASTER board (`useScheduleWindow: true`) — identity IS on this memo.
+  ///     When the working-hours window genuinely excludes a booking,
+  ///     [bookingsInsideScheduleWindow] must allocate a filtered copy, and a
+  ///     fresh copy per rebuild is exactly what defeats the grid's gate. This
+  ///     memo is the only thing holding that identity stable.
+  ///   * SALON board (`columnsBuilder` + `boardWindowBuilder`) — identity is
+  ///     ALREADY preserved without it. `salonBoardWindow` is the union of the
+  ///     roster's hours WIDENED to cover every booking, so the filter is
+  ///     provably vacuous there (the proof is in
+  ///     `schedule_timeline_window.dart`; `_Loaded.build` asserts it with
+  ///     `identical()` in debug), and
+  ///     [bookingsInsideScheduleWindow]'s own "nothing was excluded → hand
+  ///     back the input instance" short-circuit returns the same list anyway.
+  ///     Here this memo saves only the O(N) window scan — ~8 µs on a full
+  ///     board — never an identity.
+  ///
+  /// Load-bearing on the master route, a micro-optimisation on the salon one.
+  /// Do NOT remove it on the strength of the salon measurement alone.
   ///
   /// Single-slot, not a per-day map: a day switch is a genuine cache miss
   /// anyway ([BookingsDayState.items] changes identity as soon as
@@ -1531,7 +1575,10 @@ class _Loaded extends StatelessWidget {
   /// `widget.columnsBuilder` — `null` on both master routes, which is what
   /// makes [_body] hand [BookingsTimelineGrid] `columns: null` and
   /// [TimelineDensity.master], i.e. the pre-existing call verbatim.
-  final List<TimelineBoardColumn> Function(List<Booking> dayItems)?
+  final List<TimelineBoardColumn> Function(
+    List<Booking> dayItems,
+    DateTime day,
+  )?
   columnsBuilder;
 
   /// `widget.boardWindowBuilder` — see that field's doc on
@@ -1831,7 +1878,11 @@ class _Loaded extends StatelessWidget {
     // Phase 21.12 — built from the SAME `items` the header count below reads
     // and the grid renders, so the columns cannot partition a different list
     // than the one that was counted.
-    final List<TimelineBoardColumn>? columns = columnsBuilder?.call(items);
+    // Phase 336 — `day` is this widget's own field, the SAME one
+    // [boardWindowBuilder] is handed in [build] and the same one the grid
+    // renders, so the columns' day-off marks and the timeline's bounds can
+    // never describe two different dates.
+    final List<TimelineBoardColumn>? columns = columnsBuilder?.call(items, day);
     // `totalElements` is the SERVER's whole-day count (see
     // `bookings_day_state.dart`'s header) — kept ONLY as the legacy/loading/
     // error fallback. Once a window has resolved, `visibleItems!.length` is

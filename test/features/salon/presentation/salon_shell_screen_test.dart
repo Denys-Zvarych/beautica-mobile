@@ -1652,17 +1652,34 @@ void main() {
             'is exactly the MEDIUM-2 regression',
       );
 
-      // The terminal flip never ran — state is still the STALE
-      // Authenticated session. This is the exact condition the ORIGINAL
-      // (buggy) `state.value is! Unauthenticated` predicate would read
-      // as "session still alive" and wrongly re-arm the writer for.
+      // ── UPDATED 2026-09-17 (mobile-security INFO, `auth_notifier.dart`) ──
+      // This used to assert `isA<Authenticated>()`, and the reason called it a
+      // precondition: the post-wipe throw skipped the terminal state flip, so
+      // a `state`-gated reset would read "still logged in" and wrongly re-arm
+      // the writer. That asymmetry is GONE ON PURPOSE. The flip now lives in
+      // `logout()`'s `finally`, gated on wipe completion, because leaving a
+      // WIPED token store behind an `Authenticated` in-memory session was
+      // itself a finding (accepted at `mobile-backlog.md:76`, closed once this
+      // audit added two more uncaught statements into that window).
+      //
+      // ⚠ AND THAT COSTS THIS TEST ITS DISCRIMINATING POWER FOR MEDIUM-2.
+      // With `state` now Unauthenticated here, a `state`-gated finally would
+      // ALSO skip the reset, so this scenario no longer tells the two
+      // predicates apart — everything below it still passes under either.
+      // Do not read the two assertions that follow as proof of the
+      // `wipedStorage` gate. The one scenario that DOES still discriminate it
+      // (an already-unauthenticated session whose `deleteAll()` throws, where
+      // the two gates disagree in the OPPOSITE direction) is pinned by
+      // `auth_notifier_test.dart`'s test 5a2c, added in the same commit.
+      // What this test still pins, and pins well, is the CONSEQUENCE: a fresh
+      // shell mount after a failed logout must not repopulate the wiped slot.
       expect(
         container.read(authProvider).value,
-        isA<Authenticated>(),
+        isA<Unauthenticated>(),
         reason:
-            'precondition: the throw skipped the terminal state flip, '
-            'so a state-gated reset would (wrongly) see "still logged '
-            'in" here',
+            'the state flip now runs in the finally on wipe completion — a '
+            'wiped token store must never be paired with a live in-memory '
+            'session (mobile-security INFO, closed 2026-09-17)',
       );
 
       // (2) — the consequence that matters: a FRESH shell mount landing

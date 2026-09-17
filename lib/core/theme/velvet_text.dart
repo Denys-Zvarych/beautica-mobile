@@ -1889,8 +1889,12 @@ abstract final class VelvetText {
     color: BrandColors.muted,
   );
 
-  /// The salon board's «Вільний день» marker, centred in an empty master
-  /// column — Nunito feedback at 11 sp, muted.
+  /// The salon board's empty-column marker, centred in a master column with
+  /// no cards — Nunito feedback at 11 sp, muted. Carries BOTH quiet states'
+  /// wording: «Вільний день» (working, nothing booked) and, since phase 336,
+  /// «Вихідний» (not working at all). One style deliberately: the two states
+  /// are distinguished by the WORD and by the column's grey wash, not by a
+  /// second type token that could drift away from this one.
   static final TextStyle timelineColumnEmptyDay = _feedbackBase.copyWith(
     fontSize: 11,
     color: BrandColors.muted,

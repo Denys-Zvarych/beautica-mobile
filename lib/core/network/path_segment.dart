@@ -11,9 +11,20 @@ import '../errors/failures.dart';
 /// file's three raw paths; `booking_repository.dart`'s
 /// `/api/v1/bookings/salon/$salonId` was interpolating a raw segment with no
 /// hardening at all, and `salon_repository.dart` / `master_repository.dart`
-/// each reach for a bare [Uri.encodeComponent]. Rather than add a fourth
-/// hand-rolled variant, the strictest one moved here so a fix reaches every
-/// raw path in the app at once.
+/// each reached for a bare [Uri.encodeComponent]. Rather than add a fourth
+/// hand-rolled variant, the strictest one moved here.
+///
+/// THAT PROMOTION DID NOT ACTUALLY REACH EVERY CALL SITE, and an earlier
+/// revision of this paragraph claimed it did ("so a fix reaches every raw path
+/// in the app at once"). It did not: four sites kept their bare
+/// [Uri.encodeComponent] — `salon_repository.dart`'s `getSalonMasters` /
+/// `getSalonReviews` and `master_repository.dart`'s `getMasterReviewSummary` /
+/// `getMasterReviews` — and `location_repository.dart`'s two cascade reads had
+/// no encoding at all. All six were swapped on 2026-09-17, and the claim is
+/// now ENFORCED rather than asserted:
+/// `scripts/forbid_unencoded_path_interpolation.sh` fails the build on any
+/// hand-built `/api/v1/…` literal that interpolates an id the file never
+/// routed through [encodePathSegment]. A promotion comment is not a gate.
 ///
 /// The single encoder for every HAND-BUILT path in the app — an id carrying a
 /// path-significant character would otherwise retarget the request on an
@@ -38,6 +49,11 @@ import '../errors/failures.dart';
 /// input is not automatically safe, and must route its id through
 /// [encodePathSegment] (or an equivalent gate) before the call. Do not read
 /// "the generated client handles it" anywhere in this codebase; it does not.
+///
+/// The PROVENANCE half of that invariant is not mechanically enforceable, and
+/// the guard above deliberately does not pretend to enforce it — it checks
+/// hand-built literals only. A new generated path param fed from freer input
+/// stays a code-review obligation; a green guard run says nothing about it.
 ///
 /// **Encoding alone is NOT sufficient, which is why this also rejects.**
 /// [Uri.encodeComponent] does not escape `.`, so a bare `..` or `.` survives

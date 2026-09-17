@@ -6268,6 +6268,7 @@
   },
   "salonBookingsTitle": "Salon bookings",
   "salonBookingsColumnFreeDay": "Free day",
+  "salonBookingsColumnDayOff": "Day off",
   "salonBookingsMasterColumnFree": "free",
   "salonBookingsMasterColumnSemantics": "{name}, {role}, {load}",
   "salonBookingsRosterVisibleSemantics": "Masters shown: {visible} of {total}",
@@ -6279,6 +6280,9 @@
   },
   "@salonBookingsColumnFreeDay": {
     "description": "Phase 21.12 — marker centred in a salon board column whose master has no bookings on the shown day."
+  },
+  "@salonBookingsColumnDayOff": {
+    "description": "Phase 336 — the salon board's marker for a master who is NOT WORKING on the shown day. Used twice on the same board and deliberately one key: centred in that master's greyed-out grid column, and as the trailing readout on their roster chip. Distinct from salonBookingsColumnFreeDay, which means the master IS working and simply has nothing booked."
   },
   "@salonBookingsMasterColumnFree": {
     "description": "Phase 21.12 — the roster chip's trailing readout when that master has nothing booked on the shown day. Lowercase: it sits inline beside the ★ rating, not as a heading."

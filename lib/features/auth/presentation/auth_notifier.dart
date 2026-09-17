@@ -62,6 +62,8 @@ import '../../booking/application/bookings_day_notifier.dart';
 // back, so this cannot reopen the CircularDependencyError the NOTE further
 // down in [logout] warns about.
 import '../../schedule/presentation/effective_schedule_notifier.dart';
+import '../../schedule/presentation/overrides_notifier.dart';
+import '../../schedule/presentation/overrides_revision_provider.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../data/auth_repository_provider.dart';
@@ -1308,6 +1310,61 @@ class AuthNotifier extends _$AuthNotifier {
       // keepalive-safe: session-boundary sweep (logout) — weeklyScheduleProvider is never watched via local mutable state (see comment above) and @Riverpod(keepAlive:true) never disposes on zero listeners, so invalidateSelf's queued-disposal race this guard protects against cannot occur here
       // cycle-safe: weeklyScheduleProvider only watches scheduleRepositoryProvider(scope), which watches masterApiProvider -> dioProvider — none of which watch authProvider, so no back-edge into this notifier, no cycle. Proven on the real graph by provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider" entrypoint.
       ref.invalidate(weeklyScheduleProvider);
+      // Security (mobile-security MEDIUM, 2026-09-17) — the sweep below
+      // MUST run BEFORE `invalidateAllEffectiveScheduleWindows`, and the
+      // ordering is the whole point.
+      //
+      // ORDER-PINNED, not just asserted (cycle-2 finding B3, 2026-09-17): for
+      // one day this comment claimed a causal ordering that NOTHING enforced —
+      // swapping the two lines left `test/features/schedule/`,
+      // `test/features/auth/` and `test/core/` all green, because no existing
+      // test combined a COLLIDING `ScheduleScope.salonMaster` key with a live
+      // `effectiveScheduleProvider` listener held across the boundary. It is
+      // now pinned by the fourth test in `salon_effective_schedule_cross_
+      // session_isolation_test.dart` ("pins the invalidate ORDER inside
+      // logout()"), which records which session's override rows each
+      // effective-schedule resolution ran against: correct order `[1, 2]`,
+      // reversed `[1, 1, 2]`. Reorder these three lines and that test reddens.
+      //
+      // The mechanism: `EffectiveScheduleNotifier.build`
+      // `await`s `ref.watch(overridesProvider(scope, range).future)` as its
+      // GATING dependency, and `OverridesNotifier.build` pins every member
+      // with its own `ref.keepAlive()` + 5-minute `Timer` while watching
+      // nothing auth-shaped at any hop. Invalidating the effective-schedule
+      // family alone therefore stopped one hop short: the invalidated
+      // window immediately re-derived from the OUTGOING session's still-
+      // pinned override rows (its `wasPinned` eager `ref.read` re-subscribes
+      // to the very same cached overrides member and resolves off it with no
+      // wire call).
+      //
+      // Which key shapes actually collide, precisely: `ScheduleScope.own`
+      // self-isolates — its `masterId` is part of the freezed structural
+      // identity, so two accounts never share a member and a session flip
+      // re-keys on its own. `ScheduleScope.salonMaster(salonId, masterId)`
+      // does NOT: on a shared salon device two different owner/admin
+      // accounts managing the SAME salon produce a byte-identical scope for
+      // the same roster master, so the incoming session lands on the
+      // outgoing one's pinned per-date time-off rows — that master's
+      // absences are the PII being carried across the boundary.
+      //
+      // `overridesRevisionProvider` goes with it: it is the one-way
+      // recompute counter `EffectiveScheduleNotifier` reads alongside the
+      // overrides themselves (its `writtenRange` drives the cross-range
+      // skip short-circuit), and a counter left holding the outgoing
+      // session's last written range can suppress a legitimate first fetch
+      // for the incoming one. Sweeping one without the other leaves half
+      // the pair session-bound.
+      //
+      // BARE (whole-family) invalidates, for the same reason the
+      // salon-scoped sweep below is bare: every live member belongs to the
+      // outgoing session, so there is no key worth keeping, and the keys are
+      // not enumerable here anyway.
+      // keepalive-safe: session-boundary sweep (logout) — `overridesProvider`'s only watch sites key it off `(scope, range)` handed in as provider/build parameters (effective_schedule_notifier.dart's build args) or off route- and calendar-derived values in the schedule editors, NEVER off a `_`-prefixed mutable State field that a still-mounted screen swaps between keys, so the pinned-but-unwatched-element disposal race this guard protects against cannot arise here; a member with a live listener rebuilds, one without is disposed outright, and either outcome is the eviction intended.
+      // cycle-safe: overridesProvider watches only scheduleRepositoryProvider(scope) -> masterApiProvider -> dioProvider (the SAME chain weeklyScheduleProvider's annotation above enumerates), and overridesRevisionProvider is a plain counter Notifier that watches nothing at all — neither touches authProvider, so invalidating them from inside this notifier records no back-edge and closes no dependency cycle.
+      ref.invalidate(overridesProvider);
+      // keepalive-safe: session-boundary sweep (logout) — `overridesRevisionProvider` is a plain `@riverpod` counter Notifier with no `ref.keepAlive()` of its own and exactly one watch site (`EffectiveScheduleNotifier.build`, keyed off its own build parameter, never a `_`-prefixed mutable State field), so there is no pinned-but-unwatched element for `invalidateSelf`'s queued disposal to race.
+      // cycle-safe: overridesRevisionProvider's build() returns a const OverridesRevisionEvent and watches NOTHING — it is the one-way counter that exists precisely so OverridesNotifier never has to touch effectiveScheduleProvider directly (see overrides_notifier.dart's header). A provider that watches nothing cannot carry a back-edge into this notifier.
+      ref.invalidate(overridesRevisionProvider);
       // cycle-safe: invalidateAllEffectiveScheduleWindows only touches effectiveScheduleProvider, which watches overridesProvider + overridesRevisionProvider + scheduleRepositoryProvider — none of which watch authProvider (same chain as weeklyScheduleProvider above), so no back-edge into this notifier, no cycle. Same test coverage as above.
       invalidateAllEffectiveScheduleWindows(ref);
       // Security (mobile-security MEDIUM + mobile-perf LOW, both found it
@@ -1348,10 +1405,11 @@ class AuthNotifier extends _$AuthNotifier {
       // work on every logout. Pinned by `client_review_signal_provider_test.dart`
       // and by `master_archive_review_flow_test.dart`'s session-boundary scenario,
       // which drives a real logout → login round trip.
-      // Wipe the interceptor's session-lifetime token fallback so no request can
-      // carry a stale Bearer token after an explicit logout.
-      _lastKnownAccessToken = null;
-      coldStartAccessToken = null;
+      // NOTE — the interceptor's session-lifetime token fallback
+      // (`_lastKnownAccessToken` / `coldStartAccessToken`) used to be wiped
+      // HERE, as the try block's last two statements. It moved into the
+      // `finally` below — see the "TOKEN WIPE LIVES IN THE `finally`" block
+      // there for why, and for the ordering guarantee that move preserves.
       // NOTE — do NOT `ref.invalidate(...)` the master profile / service repository
       // / services list here. Each of those providers transitively
       // `ref.watch(authProvider)` (masterProfileProvider directly; serviceRepository
@@ -1362,20 +1420,93 @@ class AuthNotifier extends _$AuthNotifier {
       // already handles teardown: when state flips to Unauthenticated below, those
       // watchers rebuild and clear their stale PII automatically. The manual
       // invalidation was both redundant and the cause of the cycle.
-      if (kDebugMode) {
-        log('Logout: session cleared', name: 'auth', level: 800);
-      }
-      state = const AsyncData(AuthSession.unauthenticated());
     } finally {
+      // ── TOKEN WIPE LIVES IN THE `finally`, ABOVE THE STATE FLIP ─────────
+      // Security (mobile-security MEDIUM, audit cycle 3, 2026-09-17).
+      //
+      // BE ACCURATE ABOUT WHAT CHANGED: the 2026-09-17 restructure that moved
+      // the state flip up into this `finally` changed the SHAPE of this
+      // exposure, not its existence. The stale token was reachable before
+      // too — the wipe has always sat after five uncaught cleanup calls
+      // (`screenProtectionProvider.reset()`,
+      // `registerDraftProvider.notifier.reset()`,
+      // `dayKeepAliveLruProvider.clear()` and the provider sweeps, which this
+      // file itself documents can throw `CircularDependencyError`), so a
+      // throw from any of them always skipped it. What the restructure added
+      // is a state flip that now runs REGARDLESS, so the notifier reports
+      // `Unauthenticated` while [lastKnownAccessToken] — which reads
+      // `coldStartAccessToken ?? _lastKnownAccessToken` and deliberately does
+      // NOT consult [logoutInFlight] — still hands [AuthInterceptor] the
+      // outgoing session's bearer token. Wiping in the `finally`, gated on
+      // the same `wipedStorage` the flip is gated on, closes both shapes at
+      // once: once secure storage is gone the token is dead no matter what
+      // threw, and if the wipe never completed the user may still be signed
+      // in and the fallback must survive.
+      //
+      // ABOVE the flip, not below it, and that ordering is load-bearing:
+      // flipping to `Unauthenticated` synchronously notifies every listener,
+      // and a listener that fires a request in that turn must not find a live
+      // token still sitting in the fallback.
+      //
+      // IT ALSO DEFUSES A SECOND, SUBTLER ORDERING (INFO, same audit).
+      // `invalidateAllEffectiveScheduleWindows`'s `wasPinned` eager
+      // `ref.read` re-subscribes and re-issues requests during `logout()`.
+      // Those go out TOKENLESS and 401 — which is the intended outcome — but
+      // only because the wipe runs before their async continuations do. The
+      // last `await` in the `try` is `purgeBeauticaMediaCache()`, far above
+      // the sweeps, so every statement from the sweeps through this `finally`
+      // runs in ONE synchronous turn and the wipe still precedes any
+      // microtask an invalidate scheduled. After this move that holds BY
+      // CONSTRUCTION — the `finally` always runs, in that same turn — rather
+      // than by the luck of the wipe happening to be the try block's last
+      // statement.
+      if (wipedStorage) {
+        _lastKnownAccessToken = null;
+        coldStartAccessToken = null;
+      }
+      // ── THE STATE FLIP LIVES HERE, NOT AT THE END OF THE `try` ──────────
+      // Security (mobile-security INFO, 2026-08-17 — closed 2026-09-17).
+      // It used to be the try block's last statement, which left a real
+      // window: every cleanup call between `deleteAll()` and the flip
+      // (`purgeBeauticaMediaCache` is individually try/caught, but
+      // `screenProtectionProvider.reset()`, `registerDraftProvider.notifier
+      // .reset()`, `dayKeepAliveLruProvider.clear()` and the four provider
+      // sweeps are NOT) could throw and escape, leaving secure storage
+      // WIPED while the in-memory session still read `Authenticated` — a
+      // router guard that keeps rendering authenticated screens against a
+      // token store that no longer has a token. The finding was accepted at
+      // `mobile-backlog.md:76` while that window held three statements;
+      // this session's `overridesProvider`/`overridesRevisionProvider` sweep
+      // added two more, so it is closed here rather than widened.
+      //
+      // Gated on `wipedStorage` for exactly the reason the flag reset below
+      // is: if the wipe never completed (the server call or `deleteAll()`
+      // itself threw), the user may still be genuinely signed in and
+      // tearing down their session would be wrong. Once the wipe HAS
+      // completed the session is dead regardless of what threw afterwards,
+      // so the flip must happen. A `finally` cannot swallow the in-flight
+      // exception — it still propagates to the caller after this runs — so
+      // a cleanup failure is still surfaced, it just no longer leaves the
+      // notifier lying about the session.
+      //
+      // Behaviour on the happy path is byte-identical: the flip was already
+      // the last thing the try block did.
+      if (wipedStorage) {
+        if (kDebugMode) {
+          log('Logout: session cleared', name: 'auth', level: 800);
+        }
+        state = const AsyncData(AuthSession.unauthenticated());
+      }
       // Gate on WIPE COMPLETION, not on `state` — the two are not the same
-      // thing. `state` is only reassigned on the unconditional flip at the
-      // very end of the try block, but `wipedStorage` flips right after
-      // `deleteAll()` returns, several statements earlier. Three cleanup
-      // calls run between those two points (`screenProtectionProvider.reset()`,
-      // `registerDraftProvider.notifier.reset()`, `dayKeepAliveLruProvider.clear()`)
+      // thing, and they were even further apart before the flip moved up
+      // into this `finally` (see the block directly above). `wipedStorage`
+      // flips right after `deleteAll()` returns; several cleanup calls run
+      // after that point (`screenProtectionProvider.reset()`,
+      // `registerDraftProvider.notifier.reset()`, `dayKeepAliveLruProvider.clear()`,
+      // and the four schedule-family sweeps)
       // and are not individually try/caught — if any of them throws, control
-      // reaches this `finally` with secure storage already wiped but `state`
-      // still holding the stale `Authenticated` session. Gating on `state`
+      // reaches this `finally` with secure storage already wiped. Gating on
+      // `state` READ BEFORE the flip above
       // would then see "session still alive" and wrongly reset the flag,
       // re-enabling `_writeLastSalon` to repopulate the just-wiped
       // `lastSalon` slot with the outgoing session (mobile-security MEDIUM-2

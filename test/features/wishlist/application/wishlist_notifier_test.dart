@@ -41,10 +41,37 @@ const User _user = User(
   lastName: 'Client',
 );
 
+/// A settled session from FRAME ZERO.
+///
+/// `state = …` runs SYNCHRONOUSLY inside `build()` — the repo idiom
+/// (`test/routing/app_router_test.dart`'s `_FixedAuthNotifier`,
+/// `search_filters_screen_category_icons_test.dart`), not a plain
+/// `async => session`. The difference matters since 2026-09-17, when
+/// `Wishlist.build()` gained the session-boundary
+/// `ref.watch(authProvider.select(authUserIdOrNull))`: a stub that only
+/// RETURNS the session leaves the notifier in `AsyncLoading` for the first
+/// frame, so the selector reads `null`, the list fetches, and then the
+/// null → user-id transition rebuilds it and fetches a SECOND time. That is a
+/// harness artifact, not app behaviour — the wish list sits behind the router
+/// guard, which does not render it until the session has settled — but it
+/// makes every exact fetch-count assertion in this file off by one.
+///
+/// "Not app behaviour" is CHECKED, not assumed: `authRedirect` parks the
+/// visitor on `/splash` for the whole `AsyncLoading` window (see
+/// `app_router.dart`'s redirect commentary and `auth_redirect.dart`), so no
+/// authenticated screen — this one included — is ever built against an
+/// unsettled session in the real app.
 class _StubAuthNotifier extends AuthNotifier {
+  static const AuthSession _settled = AuthSession.authenticated(
+    user: _user,
+    accessToken: 'token',
+  );
+
   @override
-  Future<AuthSession> build() async =>
-      const AuthSession.authenticated(user: _user, accessToken: 'token');
+  Future<AuthSession> build() async {
+    state = const AsyncData<AuthSession>(_settled);
+    return _settled;
+  }
 }
 
 /// A REALISTIC RANGE row (phase 239).
