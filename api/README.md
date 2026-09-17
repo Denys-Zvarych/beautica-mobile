@@ -167,6 +167,7 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getMastersBySalon**](doc/SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalonMastersEffectiveSchedule**](doc/SalonControllerApi.md#getsalonmasterseffectiveschedule) | **GET** /api/v1/salons/{salonId}/masters/effective-schedule | Effective schedule for every active master of a salon
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalonStaff**](doc/SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSiblingSalons**](doc/SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
@@ -232,6 +233,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
  - [ApiResponseListPlatformCategoryUsageResponse](doc/ApiResponseListPlatformCategoryUsageResponse.md)
  - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
+ - [ApiResponseListSalonMasterEffectiveScheduleResponse](doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
  - [ApiResponseListSalonStaffMemberResponse](doc/ApiResponseListSalonStaffMemberResponse.md)
  - [ApiResponseListScheduleOverrideResponse](doc/ApiResponseListScheduleOverrideResponse.md)
@@ -392,6 +394,7 @@ Class | Method | HTTP request | Description
  - [SalonDeletionBlockedResponse](doc/SalonDeletionBlockedResponse.md)
  - [SalonInviteHistoryResponse](doc/SalonInviteHistoryResponse.md)
  - [SalonInviteResponse](doc/SalonInviteResponse.md)
+ - [SalonMasterEffectiveScheduleResponse](doc/SalonMasterEffectiveScheduleResponse.md)
  - [SalonResponse](doc/SalonResponse.md)
  - [SalonReviewResponse](doc/SalonReviewResponse.md)
  - [SalonReviewSummaryResponse](doc/SalonReviewSummaryResponse.md)

@@ -16,10 +16,5 @@ void main() {
     test('to test the property `endTime`', () async {
       // TODO
     });
-
-    // bool ordered
-    test('to test the property `ordered`', () async {
-      // TODO
-    });
   });
 }
