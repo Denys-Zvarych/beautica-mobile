@@ -183,6 +183,21 @@ class _MasterColumnChip extends StatelessWidget {
     width: 1.5,
   );
 
+  /// The hairline every UNSELECTED chip wears, mirroring `NeumorphicCard`'s
+  /// `showBorder` path. It is the definition the chip used to get from
+  /// [VelvetShadows.extrudedSmall]'s near-white highlight — see the decoration
+  /// below for why that highlight had to go.
+  ///
+  /// The two borders are mutually EXCLUSIVE, never stacked: a selected chip
+  /// wears its camel ring alone (the ring is the stronger, more specific
+  /// signal and already defines the edge), an unselected chip the faint
+  /// hairline. So selection still reads as exactly one visual change — taupe
+  /// hairline → camel ring — and no chip is ever double-bordered.
+  static final Border _restBorder = Border.all(
+    color: BrandColors.faint,
+    width: 1,
+  );
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -216,11 +231,36 @@ class _MasterColumnChip extends StatelessWidget {
             horizontal: VelvetSpacing.sm,
             vertical: VelvetSpacing.xs,
           ),
+          // IMPELLER-GLES CORNER FIX: this chip shipped on
+          // `VelvetShadows.extrudedSmall` — an OPAQUE `shadowDarkButton` at
+          // `Offset(5,5)` paired with an OPAQUE `shadowLightStrong` at
+          // `Offset(-5,-5)`. A shadow's rrect is the surface's shape
+          // TRANSLATED then blurred, so its untranslated corner protrudes past
+          // the rounded fill, and Impeller's OpenGLES backend rasterizes that
+          // blur hard into a crisp un-antialiased square in whatever hue the
+          // shadow carries — the "background bleeding through the corners" the
+          // owner saw along this roster strip.
+          //
+          // Judge a recipe by "is it OPAQUE and OFFSET?", never by its colour:
+          // the rule was once written as "near-white is the offender" and a
+          // *dark* opaque offset shadow then shipped black rectangles on
+          // `MasterBookingCard`. The remedy is the button-scaled
+          // `borderedButton` sibling — a single `shadowDarkButton` at alpha
+          // 0.45 with NO offset, safe for two independent reasons (attenuated
+          // AND non-offset), so its footprint exactly matches the chip and can
+          // only read as a uniform halo. The hairline border below carries the
+          // definition the extruded highlight used to, mirroring
+          // `NeumorphicCard`'s `showBorder` path — the same repair
+          // `master_strip_shell.dart` and `calendar_button.dart` already made.
+          //
+          // Guarded structurally (not by a golden — the artifact is
+          // Impeller-GLES-only and a Skia render draws it correctly) in
+          // `test/features/booking/impeller_circle_shadow_guard_test.dart`.
           decoration: BoxDecoration(
             color: BrandColors.base,
             borderRadius: BorderRadius.circular(VelvetRadii.field),
-            boxShadow: VelvetShadows.extrudedSmall,
-            border: selected ? _selectedBorder : null,
+            boxShadow: VelvetShadows.borderedButton,
+            border: selected ? _selectedBorder : _restBorder,
           ),
           child: Row(
             children: <Widget>[
