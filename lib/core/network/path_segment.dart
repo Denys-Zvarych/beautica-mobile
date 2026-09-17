@@ -15,10 +15,29 @@ import '../errors/failures.dart';
 /// hand-rolled variant, the strictest one moved here so a fix reaches every
 /// raw path in the app at once.
 ///
-/// The single encoder for every hand-built path that bypasses the generated
-/// client's automatic encoding (see `api/lib/src/api/*_api.dart`) — an id
-/// carrying a path-significant character would otherwise retarget the request
-/// on an authenticated Dio that holds the bearer token.
+/// The single encoder for every HAND-BUILT path in the app — an id carrying a
+/// path-significant character would otherwise retarget the request on an
+/// authenticated Dio that holds the bearer token.
+///
+/// **The generated client does NOT do this for you.** An earlier revision of
+/// this doc said hand-built paths "bypass the generated client's automatic
+/// encoding"; there is no such encoding. Measured, not assumed:
+/// `api/lib/src/api/salon_controller_api.dart:599-603` builds its path with
+/// `.replaceAll('{salonId}', encodeQueryParameter(...).toString())`, and
+/// `api/lib/src/api_util.dart:44-46`'s `encodeQueryParameter` returns a
+/// `String` input **verbatim** — no escaping, no dot-segment rejection. Every
+/// generated path param is therefore interpolated raw, exactly like the
+/// hand-built paths this helper guards.
+///
+/// What makes the generated call sites safe today is NOT encoding but the
+/// PROVENANCE of the ids that reach them: each is a server-issued UUID that an
+/// equality gate (ownership/`canManage` checks, roster membership, a route
+/// guard) has already matched against a value the server returned. Nothing
+/// user-typed reaches a generated path param. That is a property of the call
+/// sites, not of the client — so a NEW generated path param fed from freer
+/// input is not automatically safe, and must route its id through
+/// [encodePathSegment] (or an equivalent gate) before the call. Do not read
+/// "the generated client handles it" anywhere in this codebase; it does not.
 ///
 /// **Encoding alone is NOT sufficient, which is why this also rejects.**
 /// [Uri.encodeComponent] does not escape `.`, so a bare `..` or `.` survives

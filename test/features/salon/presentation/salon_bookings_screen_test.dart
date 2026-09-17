@@ -54,7 +54,12 @@ import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
+import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
+import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../../../helpers/pump_app.dart';
@@ -62,6 +67,23 @@ import '../../../helpers/pump_app.dart';
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
 class _MockSalonRepository extends Mock implements SalonRepository {}
+
+/// Phase 335 — the board's roster-wide working-hours read
+/// (`GET /salons/{id}/masters/effective-schedule`).
+///
+/// Mocked at the REPOSITORY, like the two above and for the same reason: it
+/// keeps `salonEffectiveScheduleProvider` — the family key, its 5-minute TTL
+/// pin, and `SalonBookingsScreen`'s own month derivation — REAL, so these tests
+/// exercise the wiring the screen ships rather than a hand-stubbed echo of it.
+///
+/// It MUST be overridden in every test that mounts this screen, stub or not:
+/// unoverridden it is the real `HttpSalonRosterScheduleRepository` over the
+/// real Dio, whose failure is then RETRIED by `beauticaProviderRetry` and
+/// leaves a pending timer behind — which surfaces as "A Timer is still pending
+/// even after the widget tree was disposed" in whichever test disposes first,
+/// not in the one that caused it.
+class _MockSalonRosterScheduleRepository extends Mock
+    implements SalonRosterScheduleRepository {}
 
 const String _salonId = 'salon-1';
 
@@ -144,11 +166,44 @@ void main() {
 
   late _MockBookingRepository bookingRepo;
   late _MockSalonRepository salonRepo;
+  late _MockSalonRosterScheduleRepository rosterScheduleRepo;
 
   setUp(() {
     bookingRepo = _MockBookingRepository();
     salonRepo = _MockSalonRepository();
+    rosterScheduleRepo = _MockSalonRosterScheduleRepository();
   });
+
+  /// Phase 335 — seeds `GET /salons/{id}/masters/effective-schedule`.
+  ///
+  /// EMPTY by default (registered as a `setUp` below), which is the board's
+  /// DEGRADED shape: no master contributes a window, `boardWindowFor` returns
+  /// `null`, and every pre-existing expectation in this file sees the
+  /// booking-derived timeline it always saw. That is the whole
+  /// backwards-compatibility argument, executed rather than asserted in prose.
+  void stubRosterSchedule([
+    Map<String, List<EffectiveDay>> byMaster =
+        const <String, List<EffectiveDay>>{},
+  ]) {
+    when(
+      () =>
+          rosterScheduleRepo.salonRosterEffectiveSchedule(any(), any(), any()),
+    ).thenAnswer((_) async => byMaster);
+  }
+
+  /// An INTERVAL working day on the fixture date `[startHour:00, endHour:00)`.
+  EffectiveDay working(int startHour, int endHour) => EffectiveDay(
+    date: DateTime(2026, 6, 15),
+    source: EffectiveSource.template,
+    intervals: <WorkInterval>[
+      WorkInterval(
+        start: TimeOfDay(hour: startHour, minute: 0),
+        end: TimeOfDay(hour: endHour, minute: 0),
+      ),
+    ],
+  );
+
+  setUp(() => stubRosterSchedule());
 
   /// Stubs `GET /bookings/salon/{salonId}` with STRICT argument matching on
   /// every field the screen is responsible for putting on the wire (M4): the
@@ -236,6 +291,7 @@ void main() {
   List<Object> overrides() => <Object>[
     bookingRepositoryProvider.overrideWithValue(bookingRepo),
     salonRepositoryProvider.overrideWithValue(salonRepo),
+    salonRosterScheduleRepositoryProvider.overrideWithValue(rosterScheduleRepo),
     authProvider.overrideWith(_SettledAuthNotifier.new),
     clockProvider.overrideWithValue(() => _now),
   ];
@@ -244,11 +300,21 @@ void main() {
     WidgetTester tester, {
     double? textScaleFactor,
     Duration? Function(int, Object)? retry = beauticaProviderRetry,
+    // Phase 335 — the viewport HEIGHT, 720 by default (unchanged for every
+    // pre-existing test in this file). One test overrides it: a 22:00 card
+    // sits ~1100dp down a 09:00-anchored salon-density timeline, past
+    // `_LaneColumn`'s viewport-culling edge, so at 720 it is replaced by a
+    // placeholder and `find.byKey('timeline-card-…')` misses it — which is
+    // indistinguishable from the booking having been FILTERED AWAY, the very
+    // thing that test exists to rule out. A taller viewport removes the
+    // ambiguity at the source instead of papering over it with a scroll
+    // gesture.
+    double height = 720,
   }) => tester.pumpApp(
     const SalonBookingsScreen(salonId: _salonId),
     overrides: overrides(),
     width: 360,
-    height: 720,
+    height: height,
     textScaleFactor: textScaleFactor,
     retry: retry,
   );
@@ -439,6 +505,246 @@ void main() {
       expect(
         find.byKey(const ValueKey<String>('timeline-card-b1')),
         findsOneWidget,
+      );
+    });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PHASE 335 — the timeline spans the ROSTER'S HOURS, not the bookings.
+    //
+    // Asserted on RENDERED OUTPUT — the hour labels [TimelineHourRuler]
+    // actually painted — never on `BookingsTimelineGrid.scheduleFirstMinute`.
+    // Reading that field would prove the screen PASSED a number, not that the
+    // number produced a taller ruler; a widget-field assertion is vacuous
+    // about layout by construction.
+    //
+    // Each test pumps ONCE. Two passes inside one `testWidgets` would NOT
+    // work: `pumpApp` reuses the same `ProviderScope` element and therefore
+    // the same container, and `SalonEffectiveScheduleNotifier` pins itself
+    // with a 5-minute `keepAlive`, so the second pass would be served the
+    // FIRST pass's cached map and both renders would come out identical —
+    // a silently vacuous "no change detected".
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// The wall-clock labels [TimelineHourRuler] painted, top to bottom.
+    List<String> rulerLabels(WidgetTester tester) => tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(TimelineHourRuler),
+            matching: find.byType(Text),
+          ),
+        )
+        .map((Text t) => t.data ?? '')
+        .toList(growable: false);
+
+    testWidgets(
+      'the timeline spans the UNION of every master\'s hours — the ruler runs '
+      '09:00→20:00 even though the only booking is 10:00–11:00',
+      (WidgetTester tester) async {
+        stubRoster(<SalonMasterSummary>[
+          _rosterMaster('m1', 'Оля', 'Коваль'),
+          _rosterMaster('m2', 'Ніна', 'Бойко'),
+        ]);
+        stubSalonProfile();
+        stubRosterSchedule(<String, List<EffectiveDay>>{
+          'm1': <EffectiveDay>[working(9, 18)],
+          // The 20:00 close comes from the SECOND master. Neither master's own
+          // window is 09:00–20:00 — that pair only exists as a UNION, which is
+          // exactly what makes this assertion about the union and not about
+          // whichever master happens to be first.
+          'm2': <EffectiveDay>[working(11, 20)],
+        });
+        stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
+
+        await pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        // Twelve labels, 09:00 … 20:00 inclusive. Without the union this same
+        // fixture renders the booking-derived window — 10:00 → 11:00, two
+        // labels — so every one of these three expectations MOVES.
+        expect(rulerLabels(tester).first, '09:00');
+        expect(rulerLabels(tester).last, '20:00');
+        expect(rulerLabels(tester).length, 12);
+
+        // …and the one booking still renders on it.
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-a1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a day nobody works falls back to the booking-derived window — the '
+      'roster-complete response says "off", not "not loaded", and the board '
+      'still renders every booking',
+      (WidgetTester tester) async {
+        stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+        stubSalonProfile();
+        stubRosterSchedule(<String, List<EffectiveDay>>{
+          'm1': <EffectiveDay>[
+            // Present in the map (roster-complete) but resolving to a settled
+            // day off — contributes no window.
+            EffectiveDay(
+              date: DateTime(2026, 6, 15),
+              source: EffectiveSource.overrideDayOff,
+              intervals: const <WorkInterval>[],
+            ),
+          ],
+        });
+        stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
+
+        await pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        // The booking-derived window, exactly as before this phase — and
+        // CRUCIALLY not `MasterBookingsNoWorkingHoursState`, which is the
+        // master board's response to an hours-less day and would hide the
+        // whole timeline here.
+        expect(rulerLabels(tester).first, '10:00');
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-a1')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a 22:00 walk-in past every master\'s closing time is STILL LAID OUT and '
+      'still reachable — the data-loss regression this phase exists to make '
+      'impossible',
+      (WidgetTester tester) async {
+        stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+        stubSalonProfile();
+        stubRosterSchedule(<String, List<EffectiveDay>>{
+          'm1': <EffectiveDay>[working(9, 20)],
+        });
+        stubSalonDay(<Booking>[
+          _booking(id: 'a1', masterId: 'm1', hour: 10),
+          // 22:00 — two hours past the close. On the MASTER board
+          // (`useScheduleWindow: true`, phase 244) this card is DROPPED
+          // outright. On a manager's board that is data loss.
+          _booking(id: 'walkin', masterId: 'm1', hour: 22),
+        ]);
+
+        await pumpScreen(tester, height: 2400);
+        await tester.pumpAndSettle();
+
+        // The ruler was WIDENED to reach it — 09:00 (roster) → 23:00 (the
+        // walk-in's own END). A dropped booking could not have moved this.
+        expect(rulerLabels(tester).first, '09:00');
+        expect(rulerLabels(tester).last, '23:00');
+
+        // AND THE CARD ITSELF. The viewport is tall enough (see
+        // [pumpScreen]'s `height`) that `_LaneColumn`'s culling does not
+        // reach it, so this finder distinguishes "rendered" from "dropped"
+        // rather than from "scrolled out of view".
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-walkin')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-a1')),
+          findsOneWidget,
+        );
+        // The header count and the cards come off ONE list — a walk-in that
+        // rendered but was not counted would be the header-vs-cards
+        // divergence `bookingsInsideScheduleWindow` was extracted to close.
+        //
+        // The VALUE, not merely the widget's existence (mobile-qa, this
+        // audit): `tester.widget<Text>(finder)` throws when the finder misses,
+        // so the `isNotNull` this line used to carry could not fail under any
+        // circumstance. `contains('2')` reads the rendered number out of the
+        // localised plural without coupling the test to the Ukrainian string
+        // (M2) — and 2 is BOTH cards, so a board that counted only the
+        // in-hours one would print «1 запис» and fail here.
+        expect(
+          tester
+              .widget<Text>(find.byKey(const Key('master-bookings-count')))
+              .data,
+          contains('2'),
+        );
+      },
+    );
+
+    // ─────────────────────────────────────────────────────────────────
+    // QA 2026-09-17 — THE DEFAULT BOARD, END TO END, with the roster's hours
+    // actually seeded so `boardWindowFor` returns a real window and
+    // `_Loaded.build`'s debug vacuity assert is REACHED. Every pre-existing
+    // test in this file walked past that assert because the default
+    // `stubRosterSchedule()` is EMPTY — `boardWindowFor` returns `null` and
+    // the whole branch is skipped.
+    //
+    // WHAT IT GUARDS. Freezed's generated `BookingsDayState.items` getter
+    // allocates a FRESH `EqualUnmodifiableListView` on every access whenever
+    // the stored list is raw, so two reads yield two different objects over
+    // the same rows and an `identical` assert fires on wrapper identity
+    // rather than on the window — "0 of N would be dropped" on a perfectly
+    // ordinary board.
+    //
+    // THE CAUSE IS NOT THE NARROWING. An earlier reading of this bug blamed
+    // `_narrowSalonDay`'s `items.sublist(0, i)` branch — the one a day
+    // carrying a CANCELLED or DECLINED row takes, since an untouched
+    // `SalonDayQuery` resolves to {CONFIRMED, COMPLETED, NOT_COMPLETED}. That
+    // was falsified: `PageResponse` is hand-written, not freezed, so
+    // `page.items` is a plain `List` and the UNNARROWED branch stored a raw
+    // list too. Every route was affected, and the vacuity group's own "a
+    // VACUOUS window passes straight through" case — a plain
+    // `MyBookingsQuery`, no narrowing at all — reproduced it.
+    //
+    // Fixed at the root by `stableBookingList` (`bookings_day_state.dart`),
+    // pinned directly in `salon_day_narrowing_test.dart` and
+    // `bookings_day_notifier_test.dart`; `_Loaded.build` additionally hoists
+    // the getter into a local. This test is the end-to-end guard over both:
+    // it keeps a CANCELLED row precisely because that is the branch the
+    // original report named, so the composition stays covered on it.
+    // ─────────────────────────────────────────────────────────────────
+    testWidgets('a day carrying a CANCELLED row — hidden by the DEFAULT status '
+        'narrowing, no owner input — still renders the union window and must '
+        'NOT trip the board\'s own debug vacuity assert', (
+      WidgetTester tester,
+    ) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubRosterSchedule(<String, List<EffectiveDay>>{
+        'm1': <EffectiveDay>[working(9, 18)],
+      });
+      stubSalonDay(<Booking>[
+        _booking(id: 'conf', masterId: 'm1', hour: 10),
+        // Hidden by `BookingStatus.visibleInDayListByDefault` (locked
+        // 2026-08-13) — the narrowing that reshapes the state's list.
+        _booking(
+          id: 'canc',
+          masterId: 'm1',
+          hour: 12,
+          status: BookingStatus.cancelled,
+        ),
+      ]);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'the board threw on a perfectly ordinary day. The union window '
+            'excludes NOTHING here — the assert is comparing two '
+            'freshly-allocated EqualUnmodifiableListView wrappers over the '
+            'same rows, so it fires on list IDENTITY rather than on the '
+            'window it claims to police',
+      );
+
+      // And the board is genuinely intact: roster-bounded ruler, the
+      // visible row rendered, the hidden one still hidden.
+      expect(rulerLabels(tester).first, '09:00');
+      expect(rulerLabels(tester).last, '18:00');
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-conf')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-canc')),
+        findsNothing,
       );
     });
 
@@ -681,6 +987,78 @@ void main() {
         find.byKey(const ValueKey<String>('salon-bookings-column-chip-m1')),
         findsNothing,
         reason: 'a foreign salon\'s roster must never render',
+      );
+      // ⚠ THE LOAD-BEARING HALF (audit M2, 2026-09-17). Everything above is a
+      // UI assertion, and UI assertions alone do NOT pin this behaviour:
+      // mobile-security mutation-proved it by HOISTING the
+      // `salonEffectiveScheduleProvider` watch ABOVE the
+      // `canManageSalonProvider` gate in `salon_bookings_screen.dart` — the
+      // denied state still rendered, this whole file stayed green (25/25),
+      // and the board had quietly issued a roster-wide schedule fan-out for an
+      // attacker-supplied `salonId` on an authenticated Dio carrying the
+      // bearer token. The denied render is what the user sees; THIS is what
+      // the wire sees, and only this can catch a future watch-hoisting
+      // refactor. `any()` on all three params on purpose: the assertion is
+      // "not at all", not "not with these arguments".
+      verifyNever(
+        () => rosterScheduleRepo.salonRosterEffectiveSchedule(
+          any(),
+          any(),
+          any(),
+        ),
+      );
+    });
+
+    testWidgets('a FAILED roster-schedule fetch DEGRADES silently — the board '
+        'still renders its booking-derived timeline and NO error panel, '
+        'because the schedule is adornment and the bookings are not', (
+      WidgetTester tester,
+    ) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
+      // A 403 on the batch route — the shape a stale/foreign membership
+      // produces server-side. Replaces the empty-map `setUp` stub.
+      when(
+        () => rosterScheduleRepo.salonRosterEffectiveSchedule(
+          any(),
+          any(),
+          any(),
+        ),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 403));
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      // NOT folded into the `fetchError` gate the roster and salon-profile
+      // reads share — see `salon_bookings_screen.dart`'s "WHY THIS FETCH IS
+      // NOT IN THE `fetchError` GATE ABOVE". A board showing today's real
+      // bookings against a booking-derived window is completely usable; an
+      // error panel in its place is not.
+      expect(
+        find.byKey(const Key('my_bookings_error')),
+        findsNothing,
+        reason:
+            'a schedule failure is ADORNMENT — surfacing it would replace a '
+            'usable board with an error panel over a cosmetic window',
+      );
+      expect(
+        find.byKey(const Key('salon-bookings-denied')),
+        findsNothing,
+        reason: 'and it is certainly not an ownership failure',
+      );
+      // The board is fully alive: columns mounted, and the day's booking is
+      // still on the timeline. `boardWindowFor` simply returned `null` and the
+      // grid fell back to its booking-derived bounds — the identical
+      // degradation an empty schedule produces (the default `setUp` stub), so
+      // a dropped booking here could only come from the failure path itself.
+      expect(find.byType(MasterColumnStrip), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-a1')),
+        findsOneWidget,
+        reason:
+            'the degraded window must never exclude a booking — that is the '
+            'one thing a wrong window could actually cost the owner',
       );
     });
 

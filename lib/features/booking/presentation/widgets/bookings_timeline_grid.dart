@@ -974,15 +974,27 @@ class BookingsTimelineGrid extends StatefulWidget {
   final ValueChanged<Booking> onBookingTap;
 
   /// ═══════════════════════════════════════════════════════════════════════
-  /// SCHEDULE-DERIVED WINDOW (master «Мої записи» working-hours bounds)
+  /// SCHEDULE-DERIVED WINDOW (working-hours bounds)
   /// ═══════════════════════════════════════════════════════════════════════
   /// Both `null` (the default, and every pre-existing call site) keeps the
   /// ORIGINAL booking-derived window: grid top/bottom come from
   /// [bookings] alone, exactly as before this feature. Set BOTH together (see
-  /// the constructor assert) to bound the grid by the master's WORKING HOURS
-  /// for [day] instead — `BookingsDiscoveryView`'s `useScheduleWindow: true`
-  /// path (the master's own screen only) computes them from
-  /// `ScheduleTimelineWindow` (`schedule_timeline_window.dart`).
+  /// the constructor assert) to bound the grid by WORKING HOURS for [day]
+  /// instead. TWO callers now supply them, both through
+  /// `ScheduleTimelineWindow` (`schedule_timeline_window.dart`) and both from
+  /// `BookingsDiscoveryView`:
+  ///   * `useScheduleWindow: true` — the MASTER's own screen, ONE person's
+  ///     hours, via `scheduleWindowFor`.
+  ///   * `boardWindowBuilder != null` — Phase 335, the SALON board, the UNION
+  ///     of every roster master's hours widened to cover the day's bookings,
+  ///     via `salonBoardWindow`. (This doc used to say "the master's own
+  ///     screen only"; that stopped being true with phase 335.)
+  ///
+  /// This widget cannot tell the two apart and does not need to: it receives
+  /// two minute values and an already-filtered list either way. What DOES
+  /// differ is upstream — the master path's filter can genuinely drop a
+  /// booking, the salon path's is provably vacuous by construction. See
+  /// `salon_bookings_screen.dart`'s `boardWindowFor`.
   ///
   /// When set:
   ///   * [_firstMinute] (grid top) becomes [scheduleFirstMinute] directly —
@@ -1402,7 +1414,16 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     super.didUpdateWidget(oldWidget);
     // `identical`, not `==`: `List` has reference equality anyway, and the
     // notifier hands out a fresh list on every fetch — so this is exactly
-    // "did the data actually change", with no O(N) comparison. The schedule
+    // "did the data actually change", with no O(N) comparison.
+    //
+    // THIS GATE WAS INERT UNTIL 2026-09-17: `BookingsDayState.items` is
+    // freezed-generated and allocated a fresh `EqualUnmodifiableListView` on
+    // every ACCESS (not every fetch), so `widget.bookings` differed from
+    // `oldWidget.bookings` on every rebuild and `_recomputeLayoutModel` — an
+    // O(N log N) `assignLanes` plus every card's layout — ran unconditionally.
+    // The notifier now stores the list via `stableBookingList`
+    // (`bookings_day_state.dart`), which is the ONLY reason this short-circuit
+    // can fire at all. Do not remove that wrapping. The schedule
     // window params are also compared: a master editing today's working
     // hours while this screen is open changes them WITHOUT necessarily
     // changing `widget.bookings`'s identity, and missing that would leave
@@ -3076,4 +3097,51 @@ List<Booking> bookingsInsideScheduleWindow(
     }
   }
   return filtered ?? bookings;
+}
+
+/// The Kyiv-minute span of [bookings] on [day] — `firstStartMinute` is the
+/// earliest booking START, `lastEndMinute` the latest booking END, both in
+/// minutes since [day]'s Kyiv midnight (the same unit
+/// [bookingsInsideScheduleWindow] and this grid's own layout model measure in).
+/// `null` when [bookings] is empty.
+///
+/// Phase 335 — public, and living HERE rather than in
+/// `schedule_timeline_window.dart`, for the same reason
+/// [bookingsInsideScheduleWindow] does: this file owns the
+/// [_minutesSinceDayStart] Kyiv conversion, and a second implementation of it
+/// at a call site is exactly the kind of copy that drifts. Its one caller today
+/// is `salon_bookings_screen.dart`'s board-window builder.
+///
+/// DURATION IS FLOORED AT ONE MINUTE. `lastEndMinute` is
+/// `max over bookings of (start + max(durationMinutes, 1))`, never
+/// `start + durationMinutes` raw. That floor is load-bearing for
+/// `salonBoardWindow`'s vacuity proof: the union window's bottom is
+/// end-EXCLUSIVE, so a hypothetical zero-duration booking whose end equalled
+/// its own start would set `windowEndMinute == startMinute` and then be
+/// excluded by its own presence — the one shape that could reintroduce the
+/// data loss the union exists to rule out. One minute of slack removes the
+/// case unconditionally instead of relying on the server never emitting it.
+({int firstStartMinute, int lastEndMinute})? bookingsMinuteSpan(
+  List<Booking> bookings,
+  DateTime day,
+) {
+  if (bookings.isEmpty) return null;
+  final tz.TZDateTime midnight = tz.TZDateTime(
+    beauticaZone,
+    day.year,
+    day.month,
+    day.day,
+  );
+  int? first;
+  int? lastEnd;
+  for (final Booking b in bookings) {
+    final int start = _minutesSinceDayStart(b.startAt, midnight);
+    final int end = start + math.max(b.durationMinutes, 1);
+    first = first == null ? start : math.min(first, start);
+    lastEnd = lastEnd == null ? end : math.max(lastEnd, end);
+  }
+  // Flow-typing pair (repo style forbids `!`): both are written together on
+  // the first iteration, and `bookings` is non-empty above.
+  if (first == null || lastEnd == null) return null;
+  return (firstStartMinute: first, lastEndMinute: lastEnd);
 }

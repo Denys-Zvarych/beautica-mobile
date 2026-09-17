@@ -23,6 +23,11 @@
 //   3. the chrome differences an owner needs: the salon's name as a subtitle,
 //      no «Послуга» filter (the signed-in owner has no master catalogue) and
 //      no archive button.
+//   4. (Phase 335) the BOARD WINDOW BUILDER: the timeline's vertical bounds,
+//      taken from the UNION of every roster master's working hours for the
+//      selected day rather than from whichever bookings happen to exist. Same
+//      shape as the columns builder and for the same reason — this screen owns
+//      "which masters work when", the view owns the day and the fetch.
 //
 // Everything else — the day rail, the week/month pagers, the filter sheet, the
 // four async states, the hour ruler, every [MasterBookingCard] — is the
@@ -71,6 +76,10 @@ import '../../booking/presentation/bookings_discovery_view.dart';
 import '../../booking/presentation/widgets/bookings_timeline_grid.dart';
 import '../../booking/presentation/widgets/master_column_strip.dart';
 import '../../booking/presentation/widgets/my_bookings_states.dart';
+import '../../booking/presentation/widgets/schedule_timeline_window.dart';
+import '../../schedule/domain/weekly_schedule.dart';
+import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
+import '../../schedule/presentation/schedule_range.dart';
 import '../application/salon_manage_capability.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../domain/salon_master_summary.dart';
@@ -160,6 +169,68 @@ class SalonBookingsScreen extends ConsumerWidget {
     ];
   }
 
+  /// The board's timeline bounds for ONE day: the UNION of every roster
+  /// master's working hours, WIDENED to cover every booking on the day.
+  ///
+  /// ## Why a union, and not the master board's per-person window
+  ///
+  /// `BookingsDiscoveryView.useScheduleWindow` (the master's own «Мої записи»)
+  /// answers "which hours does THIS person work" and DROPS a booking that
+  /// starts outside them — see `phase-244-master-timeline-working-hours-window
+  /// .md`, whose rule is scoped to the master board and stays correct there.
+  /// On a MANAGER's board that same rule is data loss: a 22:00 walk-in must not
+  /// vanish because the master it belongs to finishes at 20:00.
+  ///
+  /// So this board does not filter differently — it asks for a WIDER WINDOW.
+  /// `salonBoardWindow` takes the min of the roster's starts AND the earliest
+  /// booking start, and the max of the roster's ends AND the latest booking
+  /// END, which makes `bookingsInsideScheduleWindow` (still the one and only
+  /// filter, unchanged, on both paths) provably vacuous here. The proof is in
+  /// `schedule_timeline_window.dart`; `BookingsDiscoveryView._Loaded.build`
+  /// asserts it with `identical()` in debug builds.
+  ///
+  /// ## `null` means "render as before"
+  ///
+  /// Returned when [rosterSchedule] is `null` (the hours fetch failed, or has
+  /// not resolved yet) or when the selected [day] falls outside the fetched
+  /// month, or when NO master on the roster works that day. The view then uses
+  /// the booking-derived window it has always used. See [build]'s comment for
+  /// why a schedule failure is deliberately NOT surfaced as an error state the
+  /// way a roster or profile failure is.
+  ///
+  /// [rosterSchedule] is ROSTER-COMPLETE by contract — every ACTIVE master has
+  /// an entry, even with zero schedule rows (see
+  /// `SalonRosterScheduleRepository.salonRosterEffectiveSchedule`). That is
+  /// what makes `null` above mean "not loaded" and never "everyone is off".
+  @visibleForTesting
+  static ScheduleTimelineWindow? boardWindowFor(
+    List<Booking> dayItems,
+    DateTime day,
+    Map<String, List<EffectiveDay>>? rosterSchedule,
+  ) {
+    if (rosterSchedule == null) return null;
+    final List<EffectiveDay> daysForDate = <EffectiveDay>[
+      for (final List<EffectiveDay> days in rosterSchedule.values)
+        for (final EffectiveDay d in days)
+          if (d.date.year == day.year &&
+              d.date.month == day.month &&
+              d.date.day == day.day)
+            d,
+    ];
+    if (daysForDate.isEmpty) return null;
+    // Kyiv-minute conversion is owned by `bookings_timeline_grid.dart` — the
+    // same one `bookingsInsideScheduleWindow` measures against, so the span fed
+    // into the union and the starts the filter tests are in one unit by
+    // construction rather than by two agreeing implementations.
+    final ({int firstStartMinute, int lastEndMinute})? span =
+        bookingsMinuteSpan(dayItems, day);
+    return salonBoardWindow(
+      rosterDays: daysForDate,
+      bookingFirstMinute: span?.firstStartMinute,
+      bookingLastEndMinute: span?.lastEndMinute,
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -246,6 +317,48 @@ class SalonBookingsScreen extends ConsumerWidget {
         rosterState.value ?? const <SalonMasterSummary>[];
     final String? salonName = profileState.value?.$1.name;
 
+    // ── THE BOARD'S WORKING-HOURS WINDOW (Phase 335) ─────────────────────
+    // One request per MONTH, not per day: the batch route fans out across the
+    // whole roster, so a per-day key would fire a roster-wide fan-out on every
+    // rail chip tap. `ScheduleRange.month` covers every day the rail can reach
+    // in one fetch.
+    //
+    // ⚠ THE MONTH IS KYIV-TODAY'S, NOT THE SELECTED DAY'S. This screen cannot
+    // see the selected day — `BookingsDiscoveryView` owns it deliberately (see
+    // its "the day is NOT read from query" section) and exposes no
+    // day-changed callback. Paging the board into a DIFFERENT month therefore
+    // finds no [EffectiveDay] for that date, [boardWindowFor] returns `null`,
+    // and the timeline falls back to the booking-derived window — the same
+    // graceful degradation as a failed fetch, never a wrong window and never a
+    // dropped booking. Widening this to follow the selection needs an
+    // additive `onDayChanged` seam on the view; it is a follow-up, not a
+    // silent gap.
+    //
+    // ── WHY THIS FETCH IS NOT IN THE `fetchError` GATE ABOVE ─────────────
+    // The roster and the salon profile are STRUCTURAL: without them there are
+    // no columns and no title, so a failure there is an error state (audit
+    // M4). The schedule is ADORNMENT: it moves the timeline's top and bottom
+    // and nothing else. A board showing today's real bookings against a
+    // booking-derived window is completely usable; an error panel in its place
+    // is not. So a schedule failure degrades silently and DELIBERATELY. Do not
+    // "fix" this by folding it into `fetchError`.
+    //
+    // `.value`, never a `hasError` branch — an `AsyncLoading(retrying: true)`
+    // carrying a previous error satisfies `hasError` while still holding a
+    // perfectly good previous window, and `.value` keeps rendering it.
+    final Map<String, List<EffectiveDay>>? rosterSchedule = ref
+        .watch(
+          salonEffectiveScheduleProvider(
+            salonId,
+            // `kyivToday(clock)`, never a bare `DateTime.now()` — the device
+            // supplies the INSTANT, Kyiv decides the DAY (and therefore the
+            // month). `watch`, not `read`: a session that crosses Kyiv
+            // midnight must re-key onto the new month.
+            ScheduleRange.month(kyivToday(ref.watch(clockProvider))),
+          ),
+        )
+        .value;
+
     return Scaffold(
       key: const Key('salon-bookings-screen'),
       backgroundColor: BrandColors.base,
@@ -287,12 +400,15 @@ class SalonBookingsScreen extends ConsumerWidget {
         onBack: null,
         // See this file's "WHAT IS DELIBERATELY NOT HERE".
         showMasterFilter: false,
-        // The working-hours window is a SINGLE master's question ("which
-        // hours does THIS person work"), and this board shows many at once.
-        // `BookingsDiscoveryView.useScheduleWindow`'s own doc names this exact
-        // scope as the one that must leave it false until a per-teammate
-        // answer exists. The grid therefore bounds itself by the day's
-        // bookings, as it always did before that feature.
+        // STILL FALSE, and Phase 335 did NOT change that — read this before
+        // "finishing the job" by flipping it. `useScheduleWindow` is not just
+        // "bound the grid by hours": it also swaps the whole timeline for
+        // `MasterBookingsNoWorkingHoursState` on an hours-less day (which on a
+        // manager's board would HIDE a real walk-in) and routes EXPLICIT_TIMES
+        // days onto a single master's declared-times card list (which has no
+        // meaning across a roster). The bounds this board wanted arrive
+        // through the additive `boardWindowBuilder` below instead, which
+        // brings neither behaviour with it.
         useScheduleWindow: false,
         // An owner has no master service catalogue of their own, so the
         // «Послуга» section would filter against an empty universe — and
@@ -308,6 +424,12 @@ class SalonBookingsScreen extends ConsumerWidget {
         onOpenArchive: null,
         columnsBuilder: (List<Booking> dayItems) =>
             columnsFor(dayItems, roster),
+        // Phase 335 — the timeline spans every master's hours, not just the
+        // day's bookings. See [boardWindowFor], and the union's vacuity proof
+        // in `schedule_timeline_window.dart`: this must never be a window that
+        // excludes a booking.
+        boardWindowBuilder: (List<Booking> dayItems, DateTime day) =>
+            boardWindowFor(dayItems, day, rosterSchedule),
         // The (+) renders; its handler is the documented no-op.
         //
         // Audit M5 — the capability, never a hardcoded `true`. The sibling

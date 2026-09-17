@@ -540,7 +540,11 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
         query as SalonDayQuery,
       );
       return BookingsDayState(
-        items: narrowed,
+        // `stableBookingList`, not the bare list — see its doc: freezed's
+        // `items` getter allocates a fresh wrapper on EVERY access unless the
+        // stored list already IS one, which silently defeated three shipped
+        // identity gates and misfired `_Loaded.build`'s vacuity assert.
+        items: stableBookingList(narrowed),
         // Same invariant as the fetching branch below: the header prints this
         // and it must equal the cards on screen.
         totalElements: narrowed.length,
@@ -661,7 +665,11 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
     if (query is SalonDayQuery) {
       final List<Booking> narrowed = _narrowSalonDay(page.items, query);
       return BookingsDayState(
-        items: narrowed,
+        // `stableBookingList`, not the bare list — see its doc: freezed's
+        // `items` getter allocates a fresh wrapper on EVERY access unless the
+        // stored list already IS one, which silently defeated three shipped
+        // identity gates and misfired `_Loaded.build`'s vacuity assert.
+        items: stableBookingList(narrowed),
         // `narrowed.length`, NOT `page.totalElements`: on this branch the
         // narrowing is ours, so the server's count describes a list the
         // screen does not render. The host's «N записів» header reads
@@ -676,7 +684,10 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
     }
 
     return BookingsDayState(
-      items: page.items,
+      // See `stableBookingList`'s doc. `PageResponse` is hand-written, so
+      // `page.items` is a PLAIN list — storing it raw is exactly what made
+      // `state.items` allocate a new wrapper per read on the master routes too.
+      items: stableBookingList(page.items),
       totalElements: page.totalElements,
       isTruncated: isTruncated,
     );

@@ -289,6 +289,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.canAddWorkingHours = true,
     this.subtitle,
     this.columnsBuilder,
+    this.boardWindowBuilder,
     this.onCreateBooking,
     this.showServiceFilter = true,
     this.showBookedDayDots = true,
@@ -428,6 +429,52 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// [TimelineBoardColumn.bookings].
   final List<TimelineBoardColumn> Function(List<Booking> dayItems)?
   columnsBuilder;
+
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// PHASE 335 — THE SALON BOARD'S UNION WINDOW
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// Resolves the timeline's vertical bounds for ONE day from something the
+  /// HOST knows and this view does not — on the salon board, every roster
+  /// master's working hours. Returns `null` when no such bound applies.
+  ///
+  /// `null` (the DEFAULT, and both master routes, and every test that pumps
+  /// this view without it) is byte-for-byte the behaviour that predates this
+  /// parameter: [_Loaded.build]'s `!useScheduleWindow` arm calls
+  /// `boardWindowBuilder?.call(...)`, gets `null`, and takes the same
+  /// `_body(context, window: null)` return it always has. Nothing else in this
+  /// file reads it. That is the whole compatibility argument — there is no
+  /// second code path to reason about.
+  ///
+  /// A BUILDER, not a `ScheduleTimelineWindow`, for exactly [columnsBuilder]'s
+  /// reason: the window is a function of the day's fetched bookings (which
+  /// this view owns and the host cannot see) AND of the roster's schedule
+  /// (which the host owns and this view must not learn about).
+  ///
+  /// ## Why this is NOT `useScheduleWindow: true`
+  ///
+  /// `useScheduleWindow` drags in two behaviours that are correct for one
+  /// master and wrong for a manager's board:
+  ///   * [MasterBookingsNoWorkingHoursState], which REPLACES the whole
+  ///     timeline. On a salon board that would hide a real walk-in behind a
+  ///     "no working hours" panel.
+  ///   * the EXPLICIT_TIMES free-card branch, which is a single master's
+  ///     declared-times list and has no meaning across a roster.
+  /// It also has ~30 production references, so widening its contract would
+  /// reach every one of them. This parameter is additive and reaches nothing.
+  ///
+  /// ## THE WINDOW THIS RETURNS MUST NOT EXCLUDE ANY BOOKING
+  ///
+  /// [_Loaded.build] runs the returned window through the SAME
+  /// `bookingsInsideScheduleWindow` the master path uses — no flag, no branch,
+  /// no divergent code path. On a manager's board a dropped booking is DATA
+  /// LOSS, so the host must return a window under which that filter is
+  /// VACUOUS: `salonBoardWindow` (`schedule_timeline_window.dart`) unions the
+  /// roster's hours with the day's own booking span for precisely that
+  /// reason, and [_Loaded.build] asserts the vacuity with `identical()` in
+  /// debug builds. Read that function's proof before writing another
+  /// implementation of this callback.
+  final ScheduleTimelineWindow? Function(List<Booking> dayItems, DateTime day)?
+  boardWindowBuilder;
 
   /// Overrides where the header's (+) button goes. `null` (the default, and
   /// both master routes) keeps the Phase 248 behaviour verbatim —
@@ -572,6 +619,13 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// anyway ([BookingsDayState.items] changes identity as soon as
   /// `bookingsDayProvider` re-fetches for the new day), so there is nothing
   /// to gain from keeping more than the last result.
+  ///
+  /// THIS MEMO WAS INERT UNTIL 2026-09-17 and every call missed. Its identity
+  /// key is only meaningful because [BookingsDayState.items] is now
+  /// identity-stable; before `stableBookingList` (see its doc in
+  /// `bookings_day_state.dart`) freezed's getter allocated a fresh
+  /// `EqualUnmodifiableListView` on every access, so `identical` below could
+  /// never hit. Do not "simplify" that wrapping away.
   List<Booking>? _cachedVisibleSource;
   DateTime? _cachedVisibleDay;
   int? _cachedVisibleFirstMinute;
@@ -580,7 +634,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   List<Booking> _cachedVisibleResult = const <Booking>[];
 
   /// See [_cachedVisibleSource]'s doc. Compares [items] by IDENTITY (a list
-  /// [BookingsDayState] only ever hands out fresh on a genuine re-fetch) and
+  /// [BookingsDayState] only ever hands out fresh on a genuine re-fetch —
+  /// true only because the notifier stores it via `stableBookingList`) and
   /// [window] by its three VALUE fields — [ScheduleTimelineWindow] has no
   /// `==` override and a fresh instance is constructed on every schedule
   /// resolve regardless of whether the working hours actually changed (see
@@ -1245,6 +1300,9 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               // Phase 21.12 — `null` on both master routes, which is what
               // keeps `_body` selecting the single-master grid verbatim.
               columnsBuilder: widget.columnsBuilder,
+              // Phase 335 — `null` on both master routes, which is what keeps
+              // `_Loaded.build`'s `!useScheduleWindow` arm identical.
+              boardWindowBuilder: widget.boardWindowBuilder,
               selectedMasterId: _selectedMasterId,
               onSelectMaster: _onSelectMasterColumn,
             ),
@@ -1393,6 +1451,7 @@ class _Loaded extends StatelessWidget {
     required this.onAddWorkingHours,
     required this.canAddWorkingHours,
     required this.columnsBuilder,
+    required this.boardWindowBuilder,
     required this.selectedMasterId,
     required this.onSelectMaster,
   }) : assert(
@@ -1475,6 +1534,13 @@ class _Loaded extends StatelessWidget {
   final List<TimelineBoardColumn> Function(List<Booking> dayItems)?
   columnsBuilder;
 
+  /// `widget.boardWindowBuilder` — see that field's doc on
+  /// [BookingsDiscoveryView], which carries the full contract (including why
+  /// the window it returns must make `bookingsInsideScheduleWindow` vacuous).
+  /// `null` on both master routes and on every pre-existing test mount.
+  final ScheduleTimelineWindow? Function(List<Booking> dayItems, DateTime day)?
+  boardWindowBuilder;
+
   /// `_BookingsDiscoveryViewState._selectedMasterId` — the highlighted roster
   /// chip. Ignored unless [columnsBuilder] is non-null.
   final String? selectedMasterId;
@@ -1484,7 +1550,127 @@ class _Loaded extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!useScheduleWindow) {
-      return _body(context, window: null);
+      // ═══════════════════════════════════════════════════════════════════
+      // PHASE 335 — THE SALON BOARD'S UNION WINDOW
+      // ═══════════════════════════════════════════════════════════════════
+      // `null` on every pre-existing call site (both master routes, every
+      // test that pumps this view without the new parameter), and a `null`
+      // builder yields a `null` window, so the next two statements collapse
+      // to the single `return _body(context, window: null)` this arm has
+      // always been. There is no second path for those callers to take.
+      //
+      // DEGRADATION IS DELIBERATE AND IS THE HOST'S TO DECIDE. The builder
+      // also returns `null` when the salon's working-hours fetch has FAILED
+      // or is still LOADING — see `salon_bookings_screen.dart`, which owns
+      // that rule and states it in full. Summary for whoever reads this file
+      // first and is tempted to "fix" it by surfacing an error here: the
+      // roster and the salon profile are STRUCTURAL (there are no columns
+      // without them, so the screen shows `MyBookingsErrorState`); the
+      // schedule is ADORNMENT — it moves the timeline's top and bottom and
+      // nothing else. A board that renders today's bookings against a
+      // booking-derived window is completely usable; an error panel in its
+      // place is not. Do not fold the schedule fetch into that error gate.
+      // READ `state.items` EXACTLY ONCE, into a local, and use THAT local
+      // everywhere below (mobile-qa HIGH, 2026-09-17). This is not style.
+      // `BookingsDayState` is freezed, and freezed's generated `items` getter
+      // is:
+      //
+      //     if (_items is EqualUnmodifiableListView) return _items;
+      //     return EqualUnmodifiableListView(_items);
+      //
+      // so whenever the stored list is RAW it allocates a BRAND NEW wrapper on
+      // every single access, and reading the getter twice yields two DIFFERENT
+      // objects over the same rows. The `identical` assert below — whose whole
+      // job is to police the WINDOW — then fired on that wrapper identity
+      // instead, red-screening the board in every asserts-enabled build with
+      // the nonsense diagnostic "0 of N would be dropped".
+      //
+      // THE STORED LIST WAS RAW ON EVERY ROUTE, not just the salon board's.
+      // `PageResponse` is hand-written rather than freezed (see
+      // `core/network/page_response.dart`), so `page.items` is a plain
+      // `List<Booking>` and every `BookingsDayState` the notifier built stored
+      // one. `_narrowSalonDay`'s `sublist` branch is NOT what caused this — it
+      // merely yields another plain list. Falsified 2026-09-17 by reverting
+      // this hoist and running the vacuity group's own "a VACUOUS window
+      // passes straight through" case, which pumps a plain `MyBookingsQuery`
+      // with no narrowing, no `sublist` and no CANCELLED row: it went red too.
+      //
+      // FIXED AT THE ROOT as well — `BookingsDayNotifier` now stores
+      // `stableBookingList(...)` (see its doc in `bookings_day_state.dart`), so
+      // the getter is identity-stable and three further gates that silently
+      // depended on it work again. This hoist is kept as the local guarantee:
+      // it is correct regardless of what any future writer of that state does,
+      // and it is one fewer getter call either way.
+      //
+      // `state` is a `final` field of an immutable widget and nothing between
+      // this read and the assert can reach it — `boardWindowBuilder` receives
+      // the list as an argument and `visibleBookingsFor` only touches the
+      // memo's own fields — so ONE read is genuinely sufficient.
+      //
+      // Release behaviour is unchanged (the assert is stripped, and the rows
+      // are the same either way).
+      final List<Booking> items = state.items;
+      final ScheduleTimelineWindow? boardWindow = boardWindowBuilder?.call(
+        items,
+        day,
+      );
+      if (boardWindow == null) {
+        return _body(context, window: null);
+      }
+
+      // THE SAME `bookingsInsideScheduleWindow` THE MASTER PATH USES — no
+      // flag, no branch, no second predicate. What differs is the WINDOW: on
+      // a manager's board a dropped booking is DATA LOSS (a 22:00 walk-in
+      // must not vanish because its master finishes at 20:00), so
+      // `salonBoardWindow` returns a union wide enough that this call is
+      // provably VACUOUS. See its proof in `schedule_timeline_window.dart`.
+      final List<Booking> visible = visibleBookingsFor(items, day, boardWindow);
+      // THE VACUITY, ASSERTED — as TWO separate claims, because they fail for
+      // entirely different reasons and a single `identical` could not tell
+      // them apart. That ambiguity is not hypothetical: it is exactly what
+      // made the original one-assert form report "0 of 1 would be dropped"
+      // when nothing was being dropped at all (mobile-qa HIGH, 2026-09-17).
+      //
+      // Both are debug-only and neither can change shipped behaviour.
+      //
+      // (1) THE WINDOW EXCLUDED NOTHING. `bookingsInsideScheduleWindow` only
+      // ever REMOVES elements (it never adds or reorders), so equal length is
+      // an EXACT "excluded nothing" oracle — and, unlike identity, it stays
+      // exact even if that function ever loses its return-the-input
+      // optimisation. This is the claim about the WINDOW, and it is the one
+      // the negative control in `bookings_discovery_view_schedule_window_test
+      // .dart` ("a builder whose window EXCLUDES a booking") trips.
+      assert(
+        visible.length == items.length,
+        'boardWindowBuilder returned a window that EXCLUDES bookings — '
+        '${items.length - visible.length} of ${items.length} '
+        'would be dropped from the board. On a salon board that is data '
+        'loss. The window must satisfy salonBoardWindow\'s vacuity proof '
+        '(schedule_timeline_window.dart): min over master starts AND the '
+        'earliest booking start, max over master ends AND the latest '
+        'booking END.',
+      );
+      // (2) …AND HANDED BACK THE INPUT INSTANCE. Given (1) this is no longer a
+      // statement about the window at all — it is the IDENTITY contract three
+      // shipped gates depend on: `visibleBookingsFor`'s memo,
+      // `BookingsTimelineGrid.didUpdateWidget`'s `identical(widget.bookings,
+      // oldWidget.bookings)` (which decides whether to re-run `assignLanes`
+      // plus every card's layout), and `bookingsInsideScheduleWindow`'s own
+      // return-the-input optimisation that exists to feed them. Breaking it
+      // costs frames, not rows, so it gets its own message rather than
+      // masquerading as data loss.
+      assert(
+        identical(visible, items),
+        'the board window excluded nothing (both lists hold '
+        '${items.length} booking(s)) but visibleBookingsFor returned a '
+        'DIFFERENT list instance. No booking is lost, but every identity gate '
+        'downstream now misses on every rebuild — BookingsTimelineGrid will '
+        're-run assignLanes and re-lay-out every card. Either '
+        'bookingsInsideScheduleWindow stopped returning its input instance, '
+        'or BookingsDayState.items lost its identity stability (see '
+        'stableBookingList in bookings_day_state.dart).',
+      );
+      return _body(context, window: boardWindow, visibleItems: visible);
     }
 
     // No `!` (repo style) — the constructor assert above guarantees

@@ -47,6 +47,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -337,6 +338,123 @@ void main() {
           findsOneWidget,
         );
         expect(find.byType(BookingsTimelineGrid), findsOneWidget);
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 335 — the board's timeline spans the ROSTER'S HOURS.
+  //
+  // WHY THIS BELONGS AT THIS TIER. The widget tier proves the union maths
+  // and the screen's own composition against a mocked repository. It cannot
+  // prove the PATH: `GET /salons/{salonId}/masters/effective-schedule` is a
+  // route that exists only on the wire, and the client reaches it through a
+  // repository, a family provider and a month derivation that no widget test
+  // exercises end to end. Only a real Dio round trip against the fake
+  // backend shows that the request is issued at all, at the right path, with
+  // both bounds — and that its answer moves the rendered ruler.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'the board fetches the salon roster\'s effective schedule and bounds its '
+    'timeline by the UNION of every master\'s hours, not by the bookings',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false;
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        // Seeded AFTER boot, same reason as the first flow: `_atKyivHour` and
+        // `kyivToday` both read `beauticaZone`, which only exists once the
+        // harness has initialised the timezone database.
+        final DateTime boardDay = kyivToday(() => kFixedNow);
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'board-midday',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(12, 0),
+          ),
+        ];
+        // Two masters, DIFFERENT shifts. Neither master's own window is
+        // 09:00–20:00 — that pair exists only as a union, which is what makes
+        // the assertion below about the union rather than about whichever
+        // entry happens to come first.
+        fb.salonRosterEffectiveSchedule = <Map<String, dynamic>>[
+          FakeBackend.salonRosterScheduleEntry(
+            masterId: 'master-aaa',
+            dates: <DateTime>[boardDay],
+            intervals: const <(String, String)>[('09:00:00', '18:00:00')],
+          ),
+          FakeBackend.salonRosterScheduleEntry(
+            masterId: 'master-ccc',
+            dates: <DateTime>[boardDay],
+            intervals: const <(String, String)>[('11:00:00', '20:00:00')],
+          ),
+        ];
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonId));
+
+        final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          bookingsTab.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(bookingsTab);
+        await tester.pump();
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingsTimelineGrid),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // The REQUEST happened at all — a silent degradation would leave this
+        // at 0 and every rendering assertion below would still be reachable
+        // through the booking-derived fallback, so this is checked first.
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(TimelineHourRuler),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          fb.getSalonRosterEffectiveScheduleCalls,
+          greaterThan(0),
+          reason:
+              'the board must fetch '
+              'GET /salons/{salonId}/masters/effective-schedule',
+        );
+
+        // And it moved the RULER. 09:00 comes from one master, 20:00 from the
+        // other; the only booking is 12:00–13:00, so the booking-derived
+        // window this same fixture would otherwise render is 12:00 → 13:00.
+        // Both ends therefore MOVE — neither assertion can pass vacuously.
+        final List<String> labels = tester
+            .widgetList<Text>(
+              find.descendant(
+                of: find.byType(TimelineHourRuler),
+                matching: find.byType(Text),
+              ),
+            )
+            .map((Text t) => t.data ?? '')
+            .toList(growable: false);
+        expect(labels.first, '09:00');
+        expect(labels.last, '20:00');
+
+        // The booking still renders on the widened grid.
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-board-midday')),
+          findsOneWidget,
+        );
       });
     },
   );

@@ -843,4 +843,109 @@ void main() {
       ).called(2);
     });
   });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // QA 2026-09-17 — `BookingsDayState.items` HAS A STABLE IDENTITY.
+  //
+  // `BookingsDayState` is freezed, and freezed generates its list getter as
+  //
+  //     if (_items is EqualUnmodifiableListView) return _items;
+  //     return EqualUnmodifiableListView(_items);
+  //
+  // so a RAW stored list makes every single `state.items` read allocate a
+  // brand-new wrapper. That was the shipped behaviour on EVERY route —
+  // `PageResponse` is hand-written, not freezed, so `page.items` is a plain
+  // `List` and all three `BookingsDayState(...)` sites stored one — and it
+  // silently defeated three identity gates that the code documents as live:
+  // `_visibleBookingsFor`'s memo, `BookingsTimelineGrid.didUpdateWidget`'s
+  // `identical(widget.bookings, oldWidget.bookings)` (which decides whether
+  // to re-run `assignLanes` + every card's layout), and
+  // `bookingsInsideScheduleWindow`'s return-the-input optimisation that
+  // exists to feed them. It also misfired `_Loaded.build`'s vacuity assert,
+  // red-screening the salon board on an ordinary day.
+  //
+  // `stableBookingList` (`bookings_day_state.dart`) is what fixes it, at the
+  // three construction sites in `BookingsDayNotifier`. NOTHING ELSE CATCHES
+  // ITS REMOVAL: the wrapper compares `==` by value, so every content
+  // assertion in this repo stays green with it gone. Only an `identical`
+  // assertion on TWO SEPARATE READS of the getter can see it — which is what
+  // these tests are.
+  //
+  // Both narrowing branches are covered, because they are separate
+  // constructor call sites: `_narrowSalonDay` returns `items` itself when
+  // nothing is excluded and a `sublist`-seeded copy when something is.
+  //
+  // THEIR STRENGTH DIFFERS, and the weaker one says so on itself. Reverting
+  // `stableBookingList` (2026-09-17) turns the NARROWED test red and leaves
+  // the UNNARROWED one green: on the salon branch the pass-through case
+  // stores `base.items`, which is itself a freezed getter result and so is
+  // ALREADY an `EqualUnmodifiableListView`. That branch was stable by
+  // accident before the fix. It is kept as a characterisation guard — if the
+  // delegation ever starts handing a raw list through, it turns red — but
+  // the sites that were genuinely broken are the `sublist` branch here and
+  // `items: page.items` on the master branch, the latter pinned in
+  // `bookings_day_notifier_test.dart`.
+  // ═════════════════════════════════════════════════════════════════════════
+  group('BookingsDayState.items is identity-stable across reads', () {
+    test(
+      'the NARROWED salon branch (a CANCELLED row is hidden, so the state '
+      'is built from a fresh sublist) still hands out ONE instance',
+      () async {
+        stub(<Booking>[
+          _booking(id: 'keep', status: BookingStatus.confirmed),
+          // Excluded by the DEFAULT status selection — this is what forces
+          // `_narrowSalonDay` down its `items.sublist(0, i)` branch.
+          _booking(id: 'drop', status: BookingStatus.cancelled, hour: 12),
+        ]);
+
+        final ProviderContainer container = await _container(repo);
+        final BookingsDayState state = await container.read(
+          bookingsDayProvider(
+            BookingsDayQuery.salonDayList(day: _day, salonId: _salonId),
+          ).future,
+        );
+
+        // Precondition — the narrowing genuinely happened, so this is the
+        // sublist branch and not the pass-through one.
+        expect(state.items.map((Booking b) => b.id), <String>['keep']);
+        expect(
+          identical(state.items, state.items),
+          isTrue,
+          reason:
+              'two reads of the freezed getter handed back two different '
+              'wrappers. Every identity gate downstream now misses on every '
+              'rebuild — restore stableBookingList in BookingsDayNotifier',
+        );
+      },
+    );
+
+    // CHARACTERISATION, not a regression pin — see the group doc: this branch
+    // stores `base.items`, already an `EqualUnmodifiableListView`, so it is
+    // green with or without `stableBookingList`. It guards the day that stops
+    // being true.
+    test(
+      'the UNNARROWED salon branch (nothing hidden, so the delegated '
+      'base.items is stored through verbatim) still hands out ONE instance',
+      () async {
+        stub(<Booking>[_booking(id: 'a', status: BookingStatus.confirmed)]);
+
+        final ProviderContainer container = await _container(repo);
+        final BookingsDayState state = await container.read(
+          bookingsDayProvider(
+            BookingsDayQuery.salonDayList(day: _day, salonId: _salonId),
+          ).future,
+        );
+
+        expect(state.items.single.id, 'a');
+        expect(
+          identical(state.items, state.items),
+          isTrue,
+          reason:
+              'the pass-through branch stopped handing through an already-'
+              'wrapped base.items — it now stores a raw list, so wrap it with '
+              'stableBookingList like the other two construction sites',
+        );
+      },
+    );
+  });
 }

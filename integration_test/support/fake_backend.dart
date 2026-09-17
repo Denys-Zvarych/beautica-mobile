@@ -8281,6 +8281,46 @@ final class FakeBackend {
   /// time so a flow can reseed it between navigations.
   List<Map<String, dynamic>> salonBoardBookings = <Map<String, dynamic>>[];
 
+  /// `GET /api/v1/salons/{kOwnerSalonId}/masters/effective-schedule` call
+  /// count (Phase 335 — the board's roster-wide working-hours fetch).
+  int getSalonRosterEffectiveScheduleCalls = 0;
+
+  /// The rows that endpoint serves — a list of
+  /// `SalonMasterEffectiveScheduleResponse` maps
+  /// (`{masterId, days: [EffectiveDayResponse…]}`). EMPTY by default, which is
+  /// every pre-existing flow's behaviour byte-for-byte: no master contributes
+  /// a window, `SalonBookingsScreen.boardWindowFor` returns `null`, and the
+  /// board's timeline stays on the booking-derived bounds it had before this
+  /// phase. Read at REQUEST time so a flow can reseed between navigations.
+  ///
+  /// Query params (`from`/`to`) are ignored, same as every other route in this
+  /// file — the whole seeded list comes back for any range requested.
+  List<Map<String, dynamic>> salonRosterEffectiveSchedule =
+      <Map<String, dynamic>>[];
+
+  /// One `SalonMasterEffectiveScheduleResponse` entry: [masterId] working the
+  /// given [intervals] on each of [dates].
+  ///
+  /// ROSTER-COMPLETENESS is the caller's to model: the real endpoint emits an
+  /// entry for EVERY active master, including one with no schedule rows (pass
+  /// `dayOff: true`, or an empty [dates] list). A flow that seeds only the
+  /// masters it cares about is modelling a roster that small, not a partial
+  /// response — the client cannot tell the difference and must not need to.
+  static Map<String, dynamic> salonRosterScheduleEntry({
+    required String masterId,
+    required List<DateTime> dates,
+    bool dayOff = false,
+    List<(String start, String end)> intervals = const <(String, String)>[
+      ('09:00:00', '18:00:00'),
+    ],
+  }) => <String, dynamic>{
+    'masterId': masterId,
+    'days': <Map<String, dynamic>>[
+      for (final DateTime date in dates)
+        seedEffectiveScheduleDay(date, dayOff: dayOff, intervals: intervals),
+    ],
+  };
+
   /// One salon-board row, in the same `BookingResponse` wire shape
   /// [datasetBookingRow] uses, but with the MASTER parameterised — which is
   /// the whole point of a salon-wide board and the one field
@@ -8412,6 +8452,24 @@ final class FakeBackend {
           totalPages: 1,
           totalElements: _salonMasters.length,
         );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's WORKING-HOURS union (Phase 335) —
+    // `salonEffectiveScheduleProvider`. Registered unconditionally so the
+    // board's fetch never 404s into the silent-degradation path by accident;
+    // it serves an EMPTY list unless [salonRosterEffectiveSchedule] is seeded,
+    // which IS the degradation path and is what every pre-existing flow gets.
+    //
+    // MUST be its own registration: `DioAdapter.onRoute` matches the whole
+    // path, so the `/masters` route above does NOT cover `/masters/
+    // effective-schedule`.
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId/masters/effective-schedule',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterEffectiveScheduleCalls++;
+        return _okList(salonRosterEffectiveSchedule);
       }),
       request: const Request(method: RequestMethods.get),
     );

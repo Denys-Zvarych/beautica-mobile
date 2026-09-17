@@ -62,6 +62,7 @@ import '../../booking/application/bookings_day_notifier.dart';
 // back, so this cannot reopen the CircularDependencyError the NOTE further
 // down in [logout] warns about.
 import '../../schedule/presentation/effective_schedule_notifier.dart';
+import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
@@ -1309,6 +1310,31 @@ class AuthNotifier extends _$AuthNotifier {
       ref.invalidate(weeklyScheduleProvider);
       // cycle-safe: invalidateAllEffectiveScheduleWindows only touches effectiveScheduleProvider, which watches overridesProvider + overridesRevisionProvider + scheduleRepositoryProvider — none of which watch authProvider (same chain as weeklyScheduleProvider above), so no back-edge into this notifier, no cycle. Same test coverage as above.
       invalidateAllEffectiveScheduleWindows(ref);
+      // Security (mobile-security MEDIUM + mobile-perf LOW, both found it
+      // independently, 2026-09-17) — THIRD sweep, and the one whose absence
+      // was a real cross-session read rather than a bookkeeping smudge.
+      // `SalonEffectiveScheduleNotifier` is keyed on `(salonId, ScheduleRange)`
+      // — NEITHER component carries the authenticated identity, and unlike its
+      // master-scoped sibling `effectiveScheduleProvider` (whose
+      // `ScheduleScope.masterId` differs per account, so a session flip re-keys
+      // onto a fresh member all by itself) the SALON id is IDENTICAL across a
+      // logout→login on the same salon. Its chain —
+      // `salonRosterScheduleRepositoryProvider` → `scheduleSalonApiProvider` →
+      // `dioProvider` — contains no `authProvider` watch at any hop, so nothing
+      // rebuilds it and nothing evicts it; its own `ref.keepAlive()` then holds
+      // the whole roster's hours (186–310 parsed `EffectiveDay`s) for 5 minutes
+      // past the session that fetched them. On a shared salon tablet the next
+      // sign-in would be served the outgoing session's roster window from
+      // memory — no wire call, no server re-check. Pinned by
+      // `salon_effective_schedule_cross_session_isolation_test.dart`.
+      //
+      // BARE (whole-family) invalidate, deliberately: the keys are not
+      // enumerable here (no range tracker — see that notifier's header on why
+      // it deliberately does not register one) and every live member belongs to
+      // the outgoing session, so there is no key worth keeping.
+      // keepalive-safe: session-boundary sweep (logout) — the one watch site (salon_bookings_screen.dart:351) keys this family off `salonId` + `ScheduleRange.month(kyivToday(clock))`, both derived from route/clock, NEVER from local mutable widget state, so the swap-key-then-invalidate shape this guard protects against (a pinned-but-unwatched member racing invalidateSelf's queued disposal) cannot arise; a member with a live listener rebuilds, one without is disposed outright, and either outcome is the eviction intended here.
+      // cycle-safe: salonEffectiveScheduleProvider watches only salonRosterScheduleRepositoryProvider -> scheduleSalonApiProvider -> dioProvider — grep-proven to contain zero authProvider references (that absence IS the finding being fixed), so invalidating it from inside this notifier records no back-edge and closes no dependency cycle. HOW THAT ABSENCE IS MAINTAINED, precisely: this annotation is grep-enforced by scripts/forbid_provider_self_invalidation.sh (which checks the annotation EXISTS, never that its reason is true), and the chain staying auth-free is a CODE-REVIEW obligation — there is no test that fails if someone adds `ref.watch(authProvider)` to SalonEffectiveScheduleNotifier.build(). provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider + salonEffectiveScheduleProvider" entrypoint (extended additively by this fix to subscribe and pre-build this third family) EXERCISES the family on a real container and would surface a genuine CircularDependencyError, but it carries no assertion that discriminates an authProvider back-edge: mobile-build-verifier injected exactly that watch and the guard stayed green 8/8 (2026-09-17). The blind spot is pre-existing and applies equally to weeklyScheduleProvider — do not read that entrypoint as proof of this claim.
+      ref.invalidate(salonEffectiveScheduleProvider);
       // NOTE — this belt-and-braces list is NOT the app's full inventory of
       // keepAlive, user-scoped state, and must not be read as one (mobile-security
       // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of
