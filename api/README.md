@@ -98,6 +98,7 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getUnclosedCount**](doc/BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookedDays**](doc/BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**listSalonBookedDays**](doc/BookingControllerApi.md#listsalonbookeddays) | **GET** /api/v1/bookings/salon/{salonId}/booked-days | List the salon&#39;s booked days (owner/admin)
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**rescheduleBooking**](doc/BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 [*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**listApproved**](doc/CategoryRequestControllerApi.md#listapproved) | **GET** /api/v1/service-categories/approved | 

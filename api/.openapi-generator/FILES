@@ -507,4 +507,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/client_authored_review_response_test.dart
