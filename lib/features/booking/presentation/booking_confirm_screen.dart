@@ -549,6 +549,31 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // every non-reschedule-provider path, same as those args fields.
           rescheduleClientName: widget.args.rescheduleClientName,
           rescheduleClientPhone: widget.args.rescheduleClientPhone,
+          // PROVIDER-VIEWER CALENDAR GATE (2026-09-18) — seeded from the
+          // ALREADY-THREADED `hideMasterIdentity`, which
+          // `reschedule_navigation.dart` derives from
+          // `bookingViewerRoleProvider.isProvider` INTERSECTED with the
+          // viewer's relation to the booking being moved (a provider who is
+          // that booking's own `clientId` is acting as a CLIENT and resolves
+          // `false`); no second read, and no new signal invented. The done
+          // screen uses it to suppress «Додати в календар» for a provider who
+          // just moved someone else's booking. A CLIENT rescheduling their own
+          // booking resolves `false` here (as it always has) and KEEPS the
+          // button — a locked product decision, and the reason this is NOT
+          // gated on `isReschedule`. So does a salon owner/admin/master
+          // rescheduling a booking they made for THEMSELVES as a customer
+          // (mobile-security LOW, 2026-09-18) — merely HOLDING a provider role
+          // is not the condition; acting in provider capacity is. The
+          // walk-in CREATE path (`walk_in_service_step_screen.dart`) hard-codes
+          // `hideMasterIdentity: true` and is untouched by that intersection —
+          // there the master genuinely IS the provider.
+          isProviderViewer: widget.args.hideMasterIdentity,
+          // VENUE ADDRESS (2026-09-18) — forwarded verbatim from the picker
+          // chain; `null` on every create path, so those render unchanged.
+          venueStreet: widget.args.venueStreet,
+          venueBuildingNo: widget.args.venueBuildingNo,
+          venueCity: widget.args.venueCity,
+          venueLocationNote: widget.args.venueLocationNote,
         ),
       );
     } on Failure catch (failure) {

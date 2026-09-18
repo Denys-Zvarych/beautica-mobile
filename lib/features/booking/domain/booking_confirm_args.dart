@@ -122,5 +122,19 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// the terminal done screen.
     String? rescheduleClientName,
     String? rescheduleClientPhone,
+
+    /// VENUE ADDRESS OVERRIDE (2026-09-18). Forwarded unchanged from
+    /// [BookingSlotPickerArgs.venueStreet] / [BookingSlotPickerArgs
+    /// .venueBuildingNo] / [BookingSlotPickerArgs.venueCity] /
+    /// [BookingSlotPickerArgs.venueLocationNote] by `SlotTimeScreen._confirm`,
+    /// and on again onto [BookingSuccessArgs] by this screen's `_submit` — see
+    /// those fields' docs for the full rationale (the backend nulls a salon
+    /// master's USER-level address, so the visit's real address has to come
+    /// from the `Booking`). ALL default to `null` so every existing call site
+    /// is unaffected.
+    String? venueStreet,
+    String? venueBuildingNo,
+    String? venueCity,
+    String? venueLocationNote,
   }) = _BookingConfirmArgs;
 }

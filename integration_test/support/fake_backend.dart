@@ -2656,14 +2656,47 @@ final class FakeBackend {
   ///
   /// INSTANCE (not static) because the rating block MOVES once the client's
   /// `POST /reviews` lands — see [publicMasterReviewLanded].
+  ///
+  /// The USER-level address `MasterDetailResponse` carries for an
+  /// INDEPENDENT_MASTER. Named constants (not inline literals) so a test can
+  /// assert against the value the fake actually serves instead of
+  /// hard-coding a Cyrillic literal into a `find.text(...)`, which
+  /// `scripts/forbid_cyrillic_finder.sh` forbids.
+  static const String kPublicMasterCity = 'Київ';
+  static const String kPublicMasterStreet = 'вул. Хрещатик';
+  static const String kPublicMasterBuildingNo = '12';
+  static const String kPublicMasterLocationNote = '2 поверх';
+
+  /// VENUE-ADDRESS SEAM (2026-09-18) — when `true`, the PUBLIC master-detail
+  /// envelope OMITS `city`/`street`/`buildingNo`/`locationNote` entirely,
+  /// reproducing what the real backend does for a `SALON_MASTER` /
+  /// `SALON_OWNER`: `MasterDetailResponse.java:104-127` deliberately nulls a
+  /// salon master's USER-level address because "a salon master's precise
+  /// address is the salon's business address".
+  ///
+  /// This is the ONLY fixture shape under which the done screen's `venue*`
+  /// override is DISCRIMINATING. With the default (address present) the
+  /// `Master` fallback composes «вул. Хрещатик, 12, Київ» — the very same
+  /// string the booking carries — so an address assertion would pass
+  /// identically with and without the fix. Seed this together with a
+  /// DISTINCT [bookingStreet]/[bookingBuildingNo]/[bookingCityLabel] to get a
+  /// test that can actually go red.
+  ///
+  /// Defaults to `false`; every pre-existing flow is untouched.
+  bool publicMasterAddressSuppressed = false;
+
   Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'master-aaa',
     'firstName': 'Софія',
     'lastName': 'Бондар',
-    'city': 'Київ',
-    'street': 'вул. Хрещатик',
-    'buildingNo': '12',
-    'locationNote': '2 поверх',
+    // VENUE-ADDRESS SEAM (2026-09-18) — see [publicMasterAddressSuppressed].
+    // Present by default, so every pre-existing flow's body is byte-identical.
+    if (!publicMasterAddressSuppressed) ...<String, dynamic>{
+      'city': kPublicMasterCity,
+      'street': kPublicMasterStreet,
+      'buildingNo': kPublicMasterBuildingNo,
+      'locationNote': kPublicMasterLocationNote,
+    },
     'bio': 'Майстриня манікюру з 6-річним досвідом.',
     'instagram': '@sofia_nails',
     'avgRating': publicMasterReviewLanded
@@ -4289,6 +4322,36 @@ final class FakeBackend {
   String? bookingSalonName;
   String? bookingSalonId;
 
+  /// VENUE ADDRESS (2026-09-18) — the seeded booking's OWN address, i.e. the
+  /// place the visit happens, as `BookingDetailResponse.java:580-648` resolves
+  /// it server-side (the SALON's business address for a salon master, the
+  /// master's own for an independent one).
+  ///
+  /// Defaults are byte-for-byte the literals `_seededBookingJson` used to
+  /// hard-code, so every pre-existing flow sees the identical wire body.
+  ///
+  /// ⚠ A test that means to PROVE the done screen's `venue*` override is
+  /// load-bearing must seed these to something DIFFERENT from the public
+  /// master's own address AND set [publicMasterAddressSuppressed] — otherwise
+  /// the `Master` fallback composes the very same string and the assertion is
+  /// vacuous in both directions. [kSalonVenueStreet] and friends below are
+  /// the ready-made distinct salon address for exactly that.
+  String bookingStreet = kPublicMasterStreet;
+  String bookingBuildingNo = kPublicMasterBuildingNo;
+  String bookingCityLabel = kPublicMasterCity;
+  String? bookingLocationNote;
+
+  /// A SALON business address, deliberately distinct from
+  /// [kPublicMasterStreet] / [kPublicMasterBuildingNo] in every part, so a
+  /// rendered assertion against it can only pass when the value came off the
+  /// `Booking` and not off the `Master`. Borrowed from the sibling-salon
+  /// fixture's own «вул. Спаська, 5», so the address is one this fake already
+  /// treats as a real salon's.
+  static const String kSalonVenueStreet = 'вул. Спаська';
+  static const String kSalonVenueBuildingNo = '5';
+  static const String kSalonVenueCity = 'Київ';
+  static const String kSalonVenueLocationNote = 'вхід з двору';
+
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
   /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
   /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
@@ -4330,10 +4393,15 @@ final class FakeBackend {
     'masterServiceId': 'pub-assign-1',
     'serviceName': 'Манікюр з покриттям',
     'categoryName': 'NAIL_SERVICE',
-    'cityLabel': 'Київ',
+    // VENUE ADDRESS (2026-09-18) — the address the BACKEND already resolved
+    // salon-vs-independent server-side (`BookingDetailResponse.java:580-648`),
+    // i.e. the place the visit actually happens. Seam-backed so a flow can
+    // make it DIFFER from the master's USER-level address — see
+    // [bookingStreet]. Defaults reproduce the pre-seam literals exactly.
+    'cityLabel': bookingCityLabel,
     'districtLabel': 'Печерський',
-    'street': 'вул. Хрещатик',
-    'buildingNo': '12',
+    'street': bookingStreet,
+    'buildingNo': bookingBuildingNo,
     'durationMinutesAtBooking': 90,
     'priceAtBooking': bookingPrice,
     'priceMaxAtBooking': bookingPriceMax,
@@ -4359,7 +4427,7 @@ final class FakeBackend {
       'masterAvgRating': bookingMasterAvgRating,
     if (bookingMasterReviewCount != null)
       'masterReviewCount': bookingMasterReviewCount,
-    'locationNote': null,
+    'locationNote': bookingLocationNote,
     'appointmentId': bookingAppointmentId,
   };
 

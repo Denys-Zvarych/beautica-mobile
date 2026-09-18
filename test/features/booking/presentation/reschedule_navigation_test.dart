@@ -616,4 +616,110 @@ void main() {
       );
     },
   );
+
+  // ---------------------------------------------------------------------
+  // mobile-security LOW (2026-09-18) — `hideMasterIdentity` must express
+  // "acting in PROVIDER CAPACITY", not "holds a provider role". A salon
+  // owner / admin / master who books a service for THEMSELVES as a customer
+  // and then reschedules it is acting as a CLIENT: they must keep the master
+  // identity card, keep `rescheduleClientName` null (no card of themselves),
+  // and — via `BookingConfirmScreen._submit`, which forwards this very
+  // boolean onto `BookingSuccessArgs.isProviderViewer` — keep «Додати в
+  // календар» on the done screen.
+  //
+  // The OTHER direction must not regress: the gate can still never be `true`
+  // for a non-provider, and a provider moving someone ELSE's booking (or a
+  // walk-in) still resolves `true`. Those are pinned by the FIX 3 group above
+  // plus the first case here.
+  // ---------------------------------------------------------------------
+  group('hideMasterIdentity requires PROVIDER CAPACITY, not just the role', () {
+    testWidgets(
+      'a PROVIDER rescheduling a booking whose clientId is SOMEONE ELSE keeps '
+      'hideMasterIdentity: true — the unchanged provider-capacity path',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
+          tester,
+          detail: () async =>
+              _booking(status: BookingStatus.confirmed, clientId: 'c1'),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kProviderUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.hideMasterIdentity, isTrue);
+      },
+    );
+
+    testWidgets(
+      'THE FIX — a PROVIDER-ROLE user rescheduling a booking they made for '
+      'THEMSELVES (booking.clientId == their own user id) resolves '
+      'hideMasterIdentity: false — they are acting as a CLIENT and must keep '
+      'the master card, no self-identity card, and the calendar button',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
+          tester,
+          detail: () async => _booking(
+            status: BookingStatus.confirmed,
+            // The SAME id as `_kProviderUser` — this provider is this
+            // booking's own client.
+            clientId: _kProviderUser.id,
+            clientFirstName: 'Софія',
+            clientLastName: 'Бондар',
+          ),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kProviderUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.hideMasterIdentity, isFalse);
+        // Same gate, both fields: no identity card of themselves either.
+        expect(captured.rescheduleClientName, isNull);
+        // A registered client booking is never a walk-in, so the terminal
+        // screen's other calendar-suppressing gate stays off too.
+        expect(captured.rescheduleTargetIsWalkIn, isFalse);
+      },
+    );
+
+    testWidgets(
+      'a PROVIDER rescheduling a WALK-IN (clientId null) still resolves '
+      'hideMasterIdentity: true — a null clientId must never read as "this is '
+      'my own booking"',
+      (tester) async {
+        final BookingSlotPickerArgs? captured = await _driveCaptured(
+          tester,
+          detail: () async =>
+              _booking(status: BookingStatus.confirmed, clientId: null),
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _StubAuth(
+                const AuthSession.authenticated(
+                  user: _kProviderUser,
+                  accessToken: 't',
+                ),
+              ),
+            ),
+          ],
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.hideMasterIdentity, isTrue);
+      },
+    );
+  });
 }

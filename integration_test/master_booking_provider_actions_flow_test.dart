@@ -59,6 +59,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -593,6 +594,66 @@ void main() {
       // i18n-finder-ok: client name is FakeBackend fixture data, not
       // localized UI copy.
       expect(find.text('Дмитро Клієнт'), findsOneWidget);
+
+      // ── CALENDAR CTA — THE «PROVIDER LOSES IT» DIRECTION (2026-09-18). ────
+      //
+      // `BookingSuccessArgs.isProviderViewer`, seeded from the SAME
+      // `hideMasterIdentity` this journey already proves is derived from the
+      // live session role + the real `clientId` off `GET /bookings/booking-1`,
+      // suppresses «Додати в календар»: a master who has just moved someone
+      // ELSE's booking has no use for that visit in their own OS calendar.
+      //
+      // The mirror arm — a CLIENT rescheduling their OWN booking KEEPS the
+      // button (locked product decision) — is pinned in
+      // `client_reschedule_flow_test.dart`. BOTH are required: a
+      // one-directional assertion lets the gate silently invert and stay
+      // green.
+      //
+      // PAIRED WITH A POSITIVE CONTROL so a done screen that rendered nothing
+      // at all could not satisfy the absence: the recap card is present and
+      // the client-identity card above is already asserted with its real
+      // seeded name.
+      expect(
+        find.byKey(const Key('booking-success-visit-card')),
+        findsOneWidget,
+        reason:
+            'positive control — the recap the missing CTA belongs to must '
+            'itself be on screen, or "no button" proves nothing',
+      );
+      expect(
+        find.byKey(const Key('booking-success-add-calendar')),
+        findsNothing,
+        reason:
+            'a PROVIDER who just rescheduled a REGISTERED client\'s booking '
+            'must not be offered «Додати в календар» — this booking keeps '
+            'clientId != null, so the pre-existing walk-in arm never caught '
+            'it and the button used to render',
+      );
+
+      // ── ADDRESS FALLBACK DID NOT REGRESS (2026-09-18). ────────────────────
+      // This fixture is the INDEPENDENT_MASTER shape: the `Booking` and the
+      // `Master` carry the SAME address, so this is deliberately NOT the
+      // discriminating test for the `venue*` override (that one needs the two
+      // to DISAGREE, and lives in `client_reschedule_flow_test.dart`'s salon
+      // test). What it DOES pin is the other half of the change — that
+      // preferring `venue*` never leaves a create/independent path composing
+      // `null` and falling through to «Адресу не вказано».
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('booking-success-visit-card')),
+          matching: find.text(
+            formatStreetCityLine(
+              street: FakeBackend.kPublicMasterStreet,
+              buildingNo: FakeBackend.kPublicMasterBuildingNo,
+              city: FakeBackend.kPublicMasterCity,
+            )!,
+          ),
+        ),
+        findsOneWidget,
+        reason:
+            'the master-composed address line must still render when no '
+            'venue* override is in play',
+      );
 
       // ── The journey ENDS with the master back on its own home. ────────────
       //

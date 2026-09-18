@@ -167,5 +167,32 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// existing "open on the current Kyiv month" behaviour — every existing
     /// call site is unaffected.
     DateTime? initialVisibleDate,
+
+    /// VENUE ADDRESS OVERRIDE (2026-09-18) — the address of the place the
+    /// visit actually happens, threaded through the picker → confirm → done
+    /// chain so the terminal recap can render it.
+    ///
+    /// Needed because the recap's default source — `Master.street /
+    /// .buildingNo / .city`, read off `MasterDetailResponse` — is
+    /// DELIBERATELY nulled by the backend for a `SALON_MASTER` /
+    /// `SALON_OWNER` ("a salon master's precise address is the salon's
+    /// business address", `MasterDetailResponse.java:104-127`), so a salon
+    /// booking's done screen fell back to «Адресу не вказано».
+    /// `reschedule_navigation.dart`'s `startBookingReschedule` seeds these
+    /// from the SAME freshly-fetched `Booking` it already reads
+    /// `rescheduleAppointmentId` / `hideMasterIdentity` off — `Booking
+    /// .street` / `.buildingNo` / `.cityLabel` / `.locationNote`, which the
+    /// backend already resolved salon-vs-independent server-side
+    /// (`BookingDetailResponse.java:580-648`).
+    ///
+    /// ALL default to `null`, and the done screen falls back to the `Master`
+    /// composition when the venue line comes out `null`, so every CREATE call
+    /// site (client, walk-in) renders byte-identically. Applies to BOTH a
+    /// client's and a provider's reschedule — a client rescheduling a salon
+    /// booking hits the identical empty-address bug.
+    String? venueStreet,
+    String? venueBuildingNo,
+    String? venueCity,
+    String? venueLocationNote,
   }) = _BookingSlotPickerArgs;
 }

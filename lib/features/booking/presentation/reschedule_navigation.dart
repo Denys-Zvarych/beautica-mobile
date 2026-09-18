@@ -80,6 +80,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 
+import '../../auth/presentation/auth_selectors.dart';
 import '../../master/application/public_master_profile_notifier.dart';
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
@@ -175,18 +176,54 @@ Future<void> startBookingReschedule({
     if (!context.mounted) return;
     // FIX 3 (audit-fix cycle 3, 2026-08-21) — hide the master identity card
     // (+ its Hero + the address block) through the picker/confirm chain when
-    // the RESCHEDULE VIEWER is the provider: a master rescheduling their own
-    // booking has no use for a card of themselves. Derived from the SAME
-    // session-backed `bookingViewerRoleProvider` `booking_detail_screen.dart`
-    // already watches for its footer split (never a caller-supplied flag —
-    // see that provider's own "derived from the session" rationale) — a
-    // CLIENT rescheduling their own booking resolves `BookingViewerRole
+    // the RESCHEDULE VIEWER is acting as the provider: a master rescheduling
+    // their own booking has no use for a card of themselves. Derived from the
+    // SAME session-backed `bookingViewerRoleProvider` `booking_detail_screen
+    // .dart` already watches for its footer split (never a caller-supplied
+    // flag — see that provider's own "derived from the session" rationale) —
+    // a CLIENT rescheduling their own booking resolves `BookingViewerRole
     // .client` here exactly as it always has, so `hideMasterIdentity` stays
     // `false` and that path is UNCHANGED (the pre-existing default every
     // other `BookingSlotPickerArgs` call site relies on).
-    final bool hideMasterIdentity = ref
-        .read(bookingViewerRoleProvider)
-        .isProvider;
+    //
+    // ACTING IN PROVIDER CAPACITY, not merely HOLDING a provider role
+    // (mobile-security LOW, 2026-09-18) — `bookingViewerRoleProvider` answers
+    // "what role is signed in", which is a fact about the SESSION, not about
+    // this booking. A salon owner / admin / master who books a service for
+    // THEMSELVES, as a customer, and then reschedules it was classified as a
+    // provider: their own identity card was suppressed, `rescheduleClientName`
+    // was seeded with their OWN name (the exact "your own strip staring back
+    // at you" problem the guest card was introduced to solve), and
+    // `BookingConfirmScreen._submit` — which forwards this very boolean onto
+    // `BookingSuccessArgs.isProviderViewer` — silently stripped their
+    // «Додати в календар» button. So the role is intersected with the
+    // viewer's RELATION to this booking: a provider who is this booking's own
+    // client is acting as a client and keeps every client affordance.
+    //
+    // `booking.clientId` comes off the SAME fresh fetch above (never a second
+    // read, same reasoning as `rescheduleAppointmentId` /
+    // `rescheduleTargetIsWalkIn`), and the backend sends it identically to
+    // both sides — "a function of the booking alone ... for the provider and
+    // for the client reading their own booking" (`booking.dart`'s
+    // `clientAvatarUrl` doc; `BookingDetailResponse.java:621`). The viewer id
+    // comes from the existing `currentUserProvider` selector (REUSE-FIRST —
+    // the same `member.userId == currentUserId` "is this me?" idiom
+    // `salon_staff_profile_screen.dart:235` and `staff_settings_screen
+    // .dart:566` already use); no new plumbing.
+    //
+    // FAILS CLOSED in the direction that matters: the gate can still never be
+    // `true` for a non-provider, because `isProvider` is still the outer
+    // conjunct. A walk-in target (`clientId == null`) is never equal to a
+    // signed-in id, so the walk-in reschedule path is byte-for-byte
+    // unchanged; the `viewerUserId != null` guard keeps a null-vs-null
+    // comparison from reading as "this is my booking" on an unsettled
+    // session.
+    final String? viewerUserId = ref.read(currentUserProvider)?.id;
+    final bool viewerIsBookingClient =
+        viewerUserId != null && booking.clientId == viewerUserId;
+    final bool hideMasterIdentity =
+        ref.read(bookingViewerRoleProvider).isProvider &&
+        !viewerIsBookingClient;
     // «Додати в календар» removal (2026-08-21) — a master rescheduling a
     // WALK-IN booking must still hide the terminal screen's calendar button,
     // same as walk-in CREATE. Read off the SAME fresh [booking] fetch above
@@ -211,6 +248,10 @@ Future<void> startBookingReschedule({
     // `BookingDisplayX.clientName` is the SAME name-joining logic every other
     // provider-facing surface uses — never re-implemented here. `Booking`
     // carries no client phone field, so `rescheduleClientPhone` stays `null`.
+    // Since `hideMasterIdentity` now also excludes a provider rescheduling
+    // their OWN customer booking (see its comment above), that viewer stops
+    // being handed an identity card of themselves here too — the same gate,
+    // one fix, both fields.
     final String? rescheduleClientName = hideMasterIdentity
         ? booking.clientName
         : null;
@@ -226,6 +267,24 @@ Future<void> startBookingReschedule({
           hideMasterIdentity: hideMasterIdentity,
           rescheduleTargetIsWalkIn: rescheduleTargetIsWalkIn,
           rescheduleClientName: rescheduleClientName,
+          // VENUE ADDRESS (2026-09-18) — the done screen composes its address
+          // from `Master.street/.buildingNo/.city`, and the backend
+          // DELIBERATELY nulls those for a `SALON_MASTER`/`SALON_OWNER`
+          // (`MasterDetailResponse.java:104-127`: "a salon master's precise
+          // address is the salon's business address"), so every reschedule of
+          // a salon booking rendered «Адресу не вказано». The real address is
+          // already in hand: [booking] — the SAME fresh fetch above, never a
+          // second read — carries it, resolved salon-vs-independent
+          // server-side (`BookingDetailResponse.java:580-648`). Threaded
+          // through the picker/confirm chain rather than widening
+          // `Master`/`MasterMapper` with salon-address fields, which would
+          // change every master surface in the app. Seeded on BOTH the client
+          // and the provider arm — a client rescheduling a salon booking hits
+          // the identical bug.
+          venueStreet: booking.street,
+          venueBuildingNo: booking.buildingNo,
+          venueCity: booking.cityLabel,
+          venueLocationNote: booking.locationNote,
         ),
       ),
     );
