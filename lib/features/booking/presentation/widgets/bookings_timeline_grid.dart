@@ -908,8 +908,6 @@ class BookingsTimelineGrid extends StatefulWidget {
     this.scheduleWindowEndMinute,
     this.density = TimelineDensity.master,
     this.columns,
-    this.selectedMasterId,
-    this.onSelectMaster,
     super.key,
   }) : assert(
          (scheduleFirstMinute == null) == (scheduleWindowEndMinute == null),
@@ -963,16 +961,6 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// independently-maintained computation of the same number (the shape of bug
   /// [bookingsInsideScheduleWindow]'s doc describes).
   final List<TimelineBoardColumn>? columns;
-
-  /// The roster chip the owner has tapped to inspect; `null` = none. Purely a
-  /// strip affordance — it does NOT filter the grid, which is the host's job
-  /// through the query.
-  final String? selectedMasterId;
-
-  /// `null` leaves every roster chip inert. Navigation and filtering are the
-  /// HOST's concern, same as [onBookingTap] — no `Navigator`/`context.push`
-  /// anywhere in this file.
-  final ValueChanged<String>? onSelectMaster;
 
   /// Fires with the tapped booking. No `Navigator`/`context.push` in this
   /// leaf widget — the caller (Phase 7.11) owns navigation.
@@ -2210,8 +2198,6 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                             ],
                             columnWidth: columnWidth,
                             gutter: gutter,
-                            selectedMasterId: widget.selectedMasterId,
-                            onSelectMaster: widget.onSelectMaster,
                           ),
                           Expanded(
                             child: SingleChildScrollView(

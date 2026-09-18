@@ -30,12 +30,14 @@
 // while the rendered text still changes.
 //
 // MUTATIONS, each reddening a different case:
-//   * delete `_cached = null;` from `didUpdateWidget`  → the five gate cases.
+//   * delete `_cached = null;` from `didUpdateWidget`  → the four gate cases.
 //   * drop `height == _cachedHeight` from `build`      → the text-scale case.
-//   * change `oldWidget.onSelectMaster != widget.onSelectMaster` to
-//     `!identical(...)`                                → the no-op case (the
-//     cache never hits again), which is how this optimisation would otherwise
-//     be deleted with nothing failing.
+//
+// 2026-09-18 — the strip's tap-to-select affordance (`selectedMasterId` /
+// `onSelectMaster`) was REMOVED (it filtered nothing; see
+// `master_column_strip.dart`'s class doc). The gate table and the two cases
+// that covered those params went with it — there is nothing left in the
+// widget for them to protect.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -79,8 +81,6 @@ class _HostController {
   List<MasterColumnEntry> entries = <MasterColumnEntry>[_a, _b, _freeC];
   double columnWidth = 148;
   double gutter = 8;
-  String? selectedMasterId;
-  ValueChanged<String>? onSelectMaster;
   late void Function() rebuild;
 }
 
@@ -104,8 +104,6 @@ class _HostState extends State<_Host> {
       entries: <MasterColumnEntry>[...widget.state.entries],
       columnWidth: widget.state.columnWidth,
       gutter: widget.state.gutter,
-      selectedMasterId: widget.state.selectedMasterId,
-      onSelectMaster: widget.state.onSelectMaster,
     ),
   );
 }
@@ -159,34 +157,6 @@ void main() {
     c.rebuild();
     await tester.pump();
     expect(identical(_built(tester), first), isTrue);
-  });
-
-  testWidgets('a NO-OP rebuild is a hit even when onSelectMaster is a fresh '
-      'tear-off of the same method — `!=`, never `!identical`', (
-    WidgetTester tester,
-  ) async {
-    final _HostController c = await _pump(tester);
-    final _Recorder rec = _Recorder();
-    c.onSelectMaster = rec.call;
-    c.rebuild();
-    await tester.pump();
-    final Widget first = _built(tester);
-
-    // A SECOND tear-off of the same instance method on the same receiver:
-    // `==` but never `identical`. This is precisely what the host does every
-    // build, and `!identical` here would make the cache never hit again.
-    c.onSelectMaster = rec.call;
-    c.rebuild();
-    await tester.pump();
-
-    expect(
-      identical(_built(tester), first),
-      isTrue,
-      reason:
-          'two tear-offs of the same method on the same receiver are the same '
-          'callback; treating them as different deletes the optimisation with '
-          'no test failing',
-    );
   });
 
   // ── one case per gate input ──────────────────────────────────────────────
@@ -269,54 +239,86 @@ void main() {
     );
   });
 
-  testWidgets('selectedMasterId change evicts the cache and moves the '
-      'selected flag', (WidgetTester tester) async {
+  // ── the tap-to-select affordance is GONE (2026-09-18) ────────────────────
+  //
+  // The two cases that used to live here (`selectedMasterId` evicting the
+  // cache and moving the selected flag; `onSelectMaster` null → non-null
+  // making the chips tappable) are GONE, not narrowed: the widget no longer
+  // has either param, so there is nothing left for a gate case to protect.
+  // What replaces them is the inert-tap contract itself — a tap must do
+  // NOTHING, and the chip must never announce itself as selectable or
+  // tappable to a screen reader.
+  testWidgets('a chip tap is INERT — no selection, no callback, and the chip '
+      'never announces itself as tappable or selectable', (
+    WidgetTester tester,
+  ) async {
     // Disposed INLINE, not via addTearDown: the framework's
     // "a SemanticsHandle was active at the end of the test" assertion fires
     // before tearDowns run.
     final SemanticsHandle handle = tester.ensureSemantics();
-    final _HostController c = await _pump(tester);
-    final Widget first = _built(tester);
+    await _pump(tester);
     final Finder chip = find.byKey(
       const ValueKey<String>('salon-bookings-column-chip-m2'),
     );
-    expect(tester.getSemantics(chip), isSemantics(isSelected: false));
-
-    c.selectedMasterId = 'm2';
-    c.rebuild();
-    await tester.pump();
-
-    expect(identical(_built(tester), first), isFalse);
+    final Matcher inert = isSemantics(
+      isSelected: false,
+      isButton: false,
+      hasTapAction: false,
+    );
     expect(
       tester.getSemantics(chip),
-      isSemantics(isSelected: true),
-      reason: 'a stale strip would keep showing the previous selection',
+      inert,
+      reason:
+          'the chip must not announce itself as tappable or selectable '
+          'before a tap',
+    );
+
+    // A semantics check alone has a hole: `GestureDetector(excludeFromSemantics:
+    // true)` or a bare `InkWell` with the ripple suppressed still WORKS as a
+    // tap handler while leaving `isSemantics(...)` above green. Guard the
+    // mechanism itself, not just its semantics footprint — no gesture-handling
+    // widget belongs anywhere inside this strip.
+    expect(
+      find.descendant(
+        of: find.byType(MasterColumnStrip),
+        matching: find.byType(GestureDetector),
+      ),
+      findsNothing,
+      reason: 'no GestureDetector belongs in the inert roster strip',
+    );
+    expect(
+      find.descendant(
+        of: find.byType(MasterColumnStrip),
+        matching: find.byType(InkWell),
+      ),
+      findsNothing,
+      reason: 'no InkWell belongs in the inert roster strip',
+    );
+    expect(
+      find.descendant(
+        of: find.byType(MasterColumnStrip),
+        matching: find.byType(InkResponse),
+      ),
+      findsNothing,
+      reason: 'no InkResponse belongs in the inert roster strip',
+    );
+
+    await tester.tap(chip);
+    await tester.pump();
+
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'tapping a chip with no affordance must not throw',
+    );
+    expect(
+      tester.getSemantics(chip),
+      inert,
+      reason:
+          'a tap must change NOTHING about the chip — no ripple, no '
+          'selected flag, no button flag',
     );
     handle.dispose();
-  });
-
-  testWidgets('onSelectMaster null → non-null evicts the cache and makes the '
-      'chips tappable', (WidgetTester tester) async {
-    final _HostController c = await _pump(tester);
-    final Widget first = _built(tester);
-    final Finder chip = find.byKey(
-      const ValueKey<String>('salon-bookings-column-chip-m1'),
-    );
-
-    await tester.tap(chip);
-    await tester.pump();
-
-    final _Recorder rec = _Recorder();
-    c.onSelectMaster = rec.call;
-    c.rebuild();
-    await tester.pump();
-
-    expect(identical(_built(tester), first), isFalse);
-    await tester.tap(chip);
-    await tester.pump();
-    expect(rec.taps, <String>[
-      'm1',
-    ], reason: 'a stale strip would keep the inert GestureDetector');
   });
 
   testWidgets('a MediaQuery text-scale change bypasses the cache and regrows '
@@ -495,9 +497,4 @@ void main() {
     expectSpoken(offD, uk.salonBookingsColumnDayOff);
     handle.dispose();
   });
-}
-
-class _Recorder {
-  final List<String> taps = <String>[];
-  void call(String id) => taps.add(id);
 }

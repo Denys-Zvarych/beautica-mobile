@@ -129,11 +129,8 @@ class MasterColumnEntry {
 /// | read by `build()`                                  | in the gate? |
 /// |----------------------------------------------------|--------------|
 /// | `entries.length`, `entries[i]` (→ chip `entry`)     | yes — `listEquals` |
-/// | `entries[i].masterId == selectedMasterId`           | yes — both halves |
 /// | `columnWidth` (chip `SizedBox.width`)               | yes |
 /// | `gutter` (inter-chip `SizedBox.width`)              | yes |
-/// | `selectedMasterId`                                  | yes |
-/// | `onSelectMaster` (null-ness AND the captured value) | yes, via `!=` |
 /// | `heightFor(context)` → `MediaQuery.textScalerOf`    | yes — `_cachedHeight` |
 /// | `AppLocalizations.of(context)` (in `_MasterColumnChip.build`) | NO — see below |
 /// | `BrandColors` / `VelvetText` statics                | NO — class-load constants |
@@ -160,8 +157,6 @@ class MasterColumnStrip extends StatefulWidget {
     required this.entries,
     required this.columnWidth,
     required this.gutter,
-    this.selectedMasterId,
-    this.onSelectMaster,
     super.key,
   });
 
@@ -173,12 +168,6 @@ class MasterColumnStrip extends StatefulWidget {
 
   /// The inter-column gutter, identical to the grid's own.
   final double gutter;
-
-  /// The column the owner has tapped to inspect; `null` = none.
-  final String? selectedMasterId;
-
-  /// `null` leaves every chip inert (no ripple, no `Semantics(button:)`).
-  final ValueChanged<String>? onSelectMaster;
 
   /// The strip's height AT TEXT SCALE 1.0. [BookingsTimelineGrid] reserves
   /// exactly [heightFor] beside the ruler gutter so the first hour label
@@ -225,18 +214,9 @@ class _MasterColumnStripState extends State<MasterColumnStrip> {
   @override
   void didUpdateWidget(covariant MasterColumnStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // `!=` on the callback, NOT `!identical` — the host hands over an
-    // instance-method tear-off, and Dart mints a fresh closure object for each
-    // one, so two tear-offs of the same method on the same receiver are `==`
-    // but never `identical`. `!identical` here would clear the cache on every
-    // rebuild and silently delete this whole optimisation with no test
-    // failing. Same trap, same reasoning as `_BoardStack.didUpdateWidget`'s
-    // `onBookingTap` line in `bookings_timeline_grid.dart`.
     if (!listEquals(oldWidget.entries, widget.entries) ||
         oldWidget.columnWidth != widget.columnWidth ||
-        oldWidget.gutter != widget.gutter ||
-        oldWidget.selectedMasterId != widget.selectedMasterId ||
-        oldWidget.onSelectMaster != widget.onSelectMaster) {
+        oldWidget.gutter != widget.gutter) {
       _cached = null;
     }
   }
@@ -260,13 +240,7 @@ class _MasterColumnStripState extends State<MasterColumnStrip> {
             if (i > 0) SizedBox(width: widget.gutter),
             SizedBox(
               width: widget.columnWidth,
-              child: _MasterColumnChip(
-                entry: widget.entries[i],
-                selected: widget.entries[i].masterId == widget.selectedMasterId,
-                onTap: widget.onSelectMaster == null
-                    ? null
-                    : () => widget.onSelectMaster!(widget.entries[i].masterId),
-              ),
+              child: _MasterColumnChip(entry: widget.entries[i]),
             ),
           ],
         ],
@@ -279,35 +253,18 @@ class _MasterColumnStripState extends State<MasterColumnStrip> {
 }
 
 class _MasterColumnChip extends StatelessWidget {
-  const _MasterColumnChip({
-    required this.entry,
-    required this.selected,
-    required this.onTap,
-  });
+  const _MasterColumnChip({required this.entry});
 
   final MasterColumnEntry entry;
-  final bool selected;
-  final VoidCallback? onTap;
 
-  /// The camel ring that marks the inspected column. Hoisted — `Border.all`
-  /// over a non-const `Color` cannot be `const`, and resolving it once at
-  /// class-load time keeps it off the per-chip rebuild path (the same fix
-  /// pattern used throughout `master_booking_card.dart`).
-  static final Border _selectedBorder = Border.all(
-    color: BrandColors.accent,
-    width: 1.5,
-  );
-
-  /// The hairline every UNSELECTED chip wears, mirroring `NeumorphicCard`'s
+  /// The hairline every chip wears, mirroring `NeumorphicCard`'s
   /// `showBorder` path. It is the definition the chip used to get from
   /// [VelvetShadows.extrudedSmall]'s near-white highlight — see the decoration
   /// below for why that highlight had to go.
   ///
-  /// The two borders are mutually EXCLUSIVE, never stacked: a selected chip
-  /// wears its camel ring alone (the ring is the stronger, more specific
-  /// signal and already defines the edge), an unselected chip the faint
-  /// hairline. So selection still reads as exactly one visual change — taupe
-  /// hairline → camel ring — and no chip is ever double-bordered.
+  /// The chip carries no selected/inspected state any more (the roster chip's
+  /// tap affordance was removed — it filtered nothing and the border was its
+  /// only effect), so this is the ONE border every chip wears, always.
   static final Border _restBorder = Border.all(
     color: BrandColors.faint,
     width: 1,
@@ -344,102 +301,95 @@ class _MasterColumnChip extends StatelessWidget {
         : masterRoleLabel(entry.type, l10n);
 
     return Semantics(
-      button: onTap != null,
-      selected: selected,
       label: l10n.salonBookingsMasterColumnSemantics(
         entry.name,
         subtitle,
         load,
       ),
-      child: GestureDetector(
+      child: Container(
         key: ValueKey<String>('salon-bookings-column-chip-${entry.masterId}'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          margin: const EdgeInsets.only(bottom: VelvetSpacing.sm),
-          padding: const EdgeInsets.symmetric(
-            horizontal: VelvetSpacing.sm,
-            vertical: VelvetSpacing.xs,
-          ),
-          // IMPELLER-GLES CORNER FIX: this chip shipped on
-          // `VelvetShadows.extrudedSmall` — an OPAQUE `shadowDarkButton` at
-          // `Offset(5,5)` paired with an OPAQUE `shadowLightStrong` at
-          // `Offset(-5,-5)`. A shadow's rrect is the surface's shape
-          // TRANSLATED then blurred, so its untranslated corner protrudes past
-          // the rounded fill, and Impeller's OpenGLES backend rasterizes that
-          // blur hard into a crisp un-antialiased square in whatever hue the
-          // shadow carries — the "background bleeding through the corners" the
-          // owner saw along this roster strip.
-          //
-          // Judge a recipe by "is it OPAQUE and OFFSET?", never by its colour:
-          // the rule was once written as "near-white is the offender" and a
-          // *dark* opaque offset shadow then shipped black rectangles on
-          // `MasterBookingCard`. The remedy is the button-scaled
-          // `borderedButton` sibling — a single `shadowDarkButton` at alpha
-          // 0.45 with NO offset, safe for two independent reasons (attenuated
-          // AND non-offset), so its footprint exactly matches the chip and can
-          // only read as a uniform halo. The hairline border below carries the
-          // definition the extruded highlight used to, mirroring
-          // `NeumorphicCard`'s `showBorder` path — the same repair
-          // `master_strip_shell.dart` and `calendar_button.dart` already made.
-          //
-          // Guarded structurally (not by a golden — the artifact is
-          // Impeller-GLES-only and a Skia render draws it correctly) in
-          // `test/features/booking/impeller_circle_shadow_guard_test.dart`.
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.field),
-            boxShadow: VelvetShadows.borderedButton,
-            border: selected ? _selectedBorder : _restBorder,
-          ),
-          child: Row(
-            children: <Widget>[
-              // The SHARED glyph, at the chip's size — see the file header.
-              Opacity(
-                opacity: quiet ? 0.45 : 1,
-                child: const MasterAvatarBadge(size: 28),
+        margin: const EdgeInsets.only(bottom: VelvetSpacing.sm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: VelvetSpacing.sm,
+          vertical: VelvetSpacing.xs,
+        ),
+        // IMPELLER-GLES CORNER FIX: this chip shipped on
+        // `VelvetShadows.extrudedSmall` — an OPAQUE `shadowDarkButton` at
+        // `Offset(5,5)` paired with an OPAQUE `shadowLightStrong` at
+        // `Offset(-5,-5)`. A shadow's rrect is the surface's shape
+        // TRANSLATED then blurred, so its untranslated corner protrudes past
+        // the rounded fill, and Impeller's OpenGLES backend rasterizes that
+        // blur hard into a crisp un-antialiased square in whatever hue the
+        // shadow carries — the "background bleeding through the corners" the
+        // owner saw along this roster strip.
+        //
+        // Judge a recipe by "is it OPAQUE and OFFSET?", never by its colour:
+        // the rule was once written as "near-white is the offender" and a
+        // *dark* opaque offset shadow then shipped black rectangles on
+        // `MasterBookingCard`. The remedy is the button-scaled
+        // `borderedButton` sibling — a single `shadowDarkButton` at alpha
+        // 0.45 with NO offset, safe for two independent reasons (attenuated
+        // AND non-offset), so its footprint exactly matches the chip and can
+        // only read as a uniform halo. The hairline border below carries the
+        // definition the extruded highlight used to, mirroring
+        // `NeumorphicCard`'s `showBorder` path — the same repair
+        // `master_strip_shell.dart` and `calendar_button.dart` already made.
+        //
+        // Guarded structurally (not by a golden — the artifact is
+        // Impeller-GLES-only and a Skia render draws it correctly) in
+        // `test/features/booking/impeller_circle_shadow_guard_test.dart`.
+        decoration: BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(VelvetRadii.field),
+          boxShadow: VelvetShadows.borderedButton,
+          border: _restBorder,
+        ),
+        child: Row(
+          children: <Widget>[
+            // The SHARED glyph, at the chip's size — see the file header.
+            Opacity(
+              opacity: quiet ? 0.45 : 1,
+              child: const MasterAvatarBadge(size: 28),
+            ),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    entry.name,
+                    style: quiet
+                        ? VelvetText.timelineColumnNameMuted
+                        : VelvetText.timelineColumnName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    subtitle,
+                    style: VelvetText.timelineColumnRole,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  // The SHARED rating readout, in its compact form — the
+                  // review COUNT is dropped at this width (`compact`
+                  // suppresses it). It is now the LAST line of the chip:
+                  // the trailing load readout that used to sit beside it
+                  // («3» / «вільно» / «Вихідний») no longer renders in any
+                  // state, so the separator and the `Row` that held the two
+                  // side by side went with it rather than leaving a
+                  // one-child row and a dangling gap. The load is still
+                  // announced — see the Semantics label above.
+                  MasterRatingReadout(
+                    avgRating: entry.avgRating,
+                    reviewCount: 0,
+                    compact: true,
+                  ),
+                ],
               ),
-              const SizedBox(width: VelvetSpacing.xs + 2),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      entry.name,
-                      style: quiet
-                          ? VelvetText.timelineColumnNameMuted
-                          : VelvetText.timelineColumnName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      subtitle,
-                      style: VelvetText.timelineColumnRole,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    // The SHARED rating readout, in its compact form — the
-                    // review COUNT is dropped at this width (`compact`
-                    // suppresses it). It is now the LAST line of the chip:
-                    // the trailing load readout that used to sit beside it
-                    // («3» / «вільно» / «Вихідний») no longer renders in any
-                    // state, so the separator and the `Row` that held the two
-                    // side by side went with it rather than leaving a
-                    // one-child row and a dangling gap. The load is still
-                    // announced — see the Semantics label above.
-                    MasterRatingReadout(
-                      avgRating: entry.avgRating,
-                      reviewCount: 0,
-                      compact: true,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

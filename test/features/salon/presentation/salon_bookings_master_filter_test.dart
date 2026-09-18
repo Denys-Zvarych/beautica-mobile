@@ -154,11 +154,15 @@ Finder _chip(String masterId) =>
 Finder _sheetRow(String masterId) =>
     find.byKey(Key('master-bookings-filter-master-$masterId'));
 
-/// Whether the roster chip for [masterId] renders in its SELECTED (highlighted)
-/// form, read off the semantics tree the chip actually publishes — not off a
-/// widget field the screen happened to pass down. `Semantics(selected: …)` and
-/// the camel ring on `_MasterColumnChip`'s decoration are set from the same
-/// expression, so this is the highlight as a user perceives it.
+/// Whether the roster chip for [masterId] renders in a SELECTED form, read
+/// off the semantics tree the chip actually publishes.
+///
+/// 2026-09-18 — the chip's tap-to-highlight affordance was REMOVED (it
+/// filtered nothing; the user reported it as redundant with no functionality
+/// behind it). `Semantics(selected: …)` is no longer emitted at all, so this
+/// now resolves `null` (no selected STATE, not merely "not selected") on
+/// every chip, always — kept only so the assertions below read the same way
+/// they always have.
 bool? _chipSelected(WidgetTester tester, String masterId) => tester
     .getSemantics(_chip(masterId))
     .getSemanticsData()
@@ -565,31 +569,50 @@ void main() {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // 4. The HIGHLIGHT is not the filter.
+  // 4. The roster chip's tap-to-highlight affordance is GONE (2026-09-18).
   // ═══════════════════════════════════════════════════════════════════════
-  group('the roster-chip highlight stays independent', () {
-    testWidgets('a chip tap highlights and does NOT narrow the board', (
-      WidgetTester tester,
-    ) async {
+  //
+  // The three cases that used to live in this group — "a chip tap
+  // highlights and does NOT narrow the board", "filtering the highlighted
+  // master AWAY is inert, and the highlight survives to be restored",
+  // "highlighting inside a narrowed board still works" — each had the
+  // highlight itself as their entire reason to exist: the user reported the
+  // affordance as redundant with no functionality behind it, and it was
+  // removed (`MasterColumnStrip.selectedMasterId`/`onSelectMaster` and
+  // `BookingsDiscoveryView`'s `_selectedMasterId` state are gone). There is
+  // nothing left to highlight, survive a filter, or nest inside a narrowed
+  // board, so the cases are REPLACED, not narrowed, by the inert contract
+  // itself.
+  group('the roster chip has no tap affordance', () {
+    testWidgets('a chip tap does NOTHING — no selection, no narrowing, and '
+        'the filter funnel stays cold', (WidgetTester tester) async {
       await pumpBoard(tester);
+
       await tester.tap(_chip('m1'));
       await tester.pumpAndSettle();
 
+      expect(tester.takeException(), isNull);
       expect(
         renderedMasterIds(tester),
         <String>['m1', 'm2', 'm3'],
-        reason: 'a highlight must never collapse the board',
+        reason: 'a tap on an inert chip must never narrow the board',
       );
-      expect(_chipSelected(tester, 'm1'), isTrue);
+      expect(
+        _chipSelected(tester, 'm1'),
+        isNot(isTrue),
+        reason: 'the chip carries no selected STATE at all any more',
+      );
       expect(
         find.byKey(const Key('master-bookings-filter-badge')),
         findsNothing,
-        reason: 'a highlight is not a filter and must not light the funnel',
+        reason: 'an inert chip must never light the filter funnel',
       );
     });
 
-    testWidgets('filtering the highlighted master AWAY is inert, and the '
-        'highlight survives to be restored', (WidgetTester tester) async {
+    testWidgets('tapping a chip before or after applying the «Майстер» '
+        'filter changes nothing about the filter outcome', (
+      WidgetTester tester,
+    ) async {
       await pumpBoard(tester);
       await tester.tap(_chip('m1'));
       await tester.pumpAndSettle();
@@ -598,36 +621,11 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(renderedMasterIds(tester), <String>['m2']);
-      expect(
-        _chipSelected(tester, 'm2'),
-        isFalse,
-        reason:
-            'the surviving column must render in its ORDINARY state — '
-            '`MasterColumnStrip` marks the selected chip alone and dims no '
-            'other, so an absent highlight cannot leave the board looking '
-            'wholly deselected',
-      );
+      expect(_chipSelected(tester, 'm2'), isNot(isTrue));
 
-      // Un-tick: m1 comes back, still highlighted. The filter never touched it.
+      // Un-tick: m1 comes back, still carrying no selected state.
       await filterTo(tester, <String>['m2']);
-      expect(_chipSelected(tester, 'm1'), isTrue);
-    });
-
-    testWidgets('highlighting inside a narrowed board still works', (
-      WidgetTester tester,
-    ) async {
-      await pumpBoard(tester);
-      await filterTo(tester, <String>['m1', 'm2']);
-
-      await tester.tap(_chip('m2'));
-      await tester.pumpAndSettle();
-
-      expect(_chipSelected(tester, 'm2'), isTrue);
-      expect(
-        renderedMasterIds(tester),
-        <String>['m1', 'm2'],
-        reason: 'the highlight must not narrow the already-narrowed board',
-      );
+      expect(_chipSelected(tester, 'm1'), isNot(isTrue));
     });
   });
 }

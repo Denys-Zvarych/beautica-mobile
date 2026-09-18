@@ -363,16 +363,6 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   ///     whenever [columnsBuilder] is non-null (see [_Loaded._body]), so it
   ///     narrows with the filter for free and cannot disagree with the cards
   ///     on screen.
-  ///
-  /// ## THE HIGHLIGHT IS NOT THE FILTER
-  ///
-  /// [_selectedMasterId] (a roster-chip tap) stays completely independent: the
-  /// filter never changes it and it never changes the filter. A highlighted
-  /// master who is then filtered out simply has no chip to carry the highlight
-  /// — `MasterColumnStrip` draws the selected border on that chip ALONE and
-  /// dims nothing else, so an off-screen highlight is inert rather than a
-  /// board where every column looks deselected. Re-ticking that master brings
-  /// the highlight back exactly where it was.
   final List<MasterFilterOption> masterFilterOptions;
 
   /// ═══════════════════════════════════════════════════════════════════════
@@ -1320,31 +1310,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     context.push(RouteNames.masterBookingNew);
   }
 
-  /// Phase 21.12 — the roster chip the owner tapped, or `null`. PURELY a strip
-  /// affordance: it highlights one column so a wide board stays readable, and
-  /// it deliberately does NOT narrow anything. Filtering the board down to one
-  /// master by tapping its own chip would collapse the thing the board exists
-  /// to show.
-  ///
-  /// ⚠ 2026-09-18 — STILL NOT THE FILTER, now that a real one exists. The
-  /// «Майстер» section writes [_masterIds]; a chip tap writes this. Neither
-  /// touches the other, in either direction:
-  ///   * applying a filter never clears or moves the highlight — it would be a
-  ///     second, invisible consequence of a control the owner used for one
-  ///     thing;
-  ///   * a highlight on a master the filter excludes is INERT, not broken —
-  ///     `MasterColumnStrip` draws the selected border on that one chip and
-  ///     dims no other, so an absent chip simply carries no highlight and the
-  ///     remaining columns render in their ordinary state. Re-ticking that
-  ///     master restores it.
-  String? _selectedMasterId;
-
-  void _onSelectMasterColumn(String masterId) {
-    setState(() {
-      _selectedMasterId = _selectedMasterId == masterId ? null : masterId;
-    });
-  }
-
   // ── Build ───────────────────────────────────────────────────────────────
 
   @override
@@ -1497,8 +1462,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               // Phase 335 — `null` on both master routes, which is what keeps
               // `_Loaded.build`'s `!useScheduleWindow` arm identical.
               boardWindowBuilder: widget.boardWindowBuilder,
-              selectedMasterId: _selectedMasterId,
-              onSelectMaster: _onSelectMasterColumn,
             ),
           );
         },
@@ -1648,8 +1611,6 @@ class _Loaded extends StatelessWidget {
     required this.columnsBuilder,
     required this.masterIds,
     required this.boardWindowBuilder,
-    required this.selectedMasterId,
-    required this.onSelectMaster,
   }) : assert(
          !useScheduleWindow || scheduleAsync != null,
          'scheduleAsync must be set whenever useScheduleWindow is true — '
@@ -1745,12 +1706,6 @@ class _Loaded extends StatelessWidget {
   /// `null` on both master routes and on every pre-existing test mount.
   final ScheduleTimelineWindow? Function(List<Booking> dayItems, DateTime day)?
   boardWindowBuilder;
-
-  /// `_BookingsDiscoveryViewState._selectedMasterId` — the highlighted roster
-  /// chip. Ignored unless [columnsBuilder] is non-null.
-  final String? selectedMasterId;
-
-  final ValueChanged<String> onSelectMaster;
 
   @override
   Widget build(BuildContext context) {
@@ -2244,8 +2199,6 @@ class _Loaded extends StatelessWidget {
                         ? TimelineDensity.master
                         : TimelineDensity.salon,
                     columns: columns,
-                    selectedMasterId: selectedMasterId,
-                    onSelectMaster: onSelectMaster,
                   ),
           ),
         ),

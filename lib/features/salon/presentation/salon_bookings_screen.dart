@@ -41,10 +41,15 @@
 //      to a single column. The user resolved it with the answer that dissolves
 //      that argument: the section is MULTI-SELECT and CLIENT-SIDE. No request
 //      changes, `BookingsDayQuery.salon.masterId` stays `null`, the board
-//      keeps its side-by-side shape, and it simply draws fewer columns. What
-//      that old note said about the roster CHIPS is unchanged and still true:
-//      a chip tap is a HIGHLIGHT, not a filter (`BookingsTimelineGrid
-//      .selectedMasterId`), and the two never touch each other.
+//      keeps its side-by-side shape, and it simply draws fewer columns.
+//
+//      ⚠ 2026-09-18 (later) — the roster chip's tap-to-highlight affordance
+//      (`BookingsTimelineGrid.selectedMasterId` / `onSelectMaster`) was
+//      REMOVED: it filtered nothing, and the user reported it as redundant
+//      with no functionality behind it. The chip is inert — no ripple, no
+//      `Semantics(button:)`, no border change. The «Майстер» FILTER above
+//      is the only mechanism left, client-side and multi-select, exactly as
+//      the paragraph above describes.
 //   5. (Phase 336) the DAY-OFF MARK, off the SAME roster hours phase 335
 //      already fetches. A master who is not working the selected day renders
 //      as a greyed «Вихідний» column instead of an empty one that reads
