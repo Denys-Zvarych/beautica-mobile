@@ -4231,7 +4231,7 @@
   "@salonCreateBookingDateHeading": {
     "description": "Body heading above the calendar on the salon booking wizard's date step."
   },
-  "salonCreateBookingDateNextCta": "Next — Masters",
+  "salonCreateBookingDateNextCta": "Next",
   "@salonCreateBookingDateNextCta": {
     "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
   },

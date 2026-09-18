@@ -49,7 +49,6 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
-import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -165,6 +164,41 @@ Map<String, Map<String, String>> _coverageAOnly() =>
       _kMasterA.masterId: <String, String>{_kCatalogService.id: 'assignment-a'},
     };
 
+/// Both masters cover the catalogue service — used by the "covering but no
+/// free time" disabled-tile tests, which need TWO rendered (non-hidden)
+/// tiles to compare a bookable one against a slotless one.
+Map<String, Map<String, String>> _coverageBoth() =>
+    <String, Map<String, String>>{
+      _kMasterA.masterId: <String, String>{_kCatalogService.id: 'assignment-a'},
+      _kMasterB.masterId: <String, String>{_kCatalogService.id: 'assignment-b'},
+    };
+
+/// Phase 341 audit — an N-master roster, all covering `_kCatalogService`,
+/// used to prove `SalonDateStep`'s fan-out ceiling actually truncates
+/// (mirrors `_manySalonServicesCatalog`'s identical "generate N fixtures"
+/// shape, for the master axis instead of the service axis).
+List<SalonMasterSummary> _manySalonMasters(int n) => <SalonMasterSummary>[
+  for (int i = 0; i < n; i++)
+    SalonMasterSummary(
+      masterId: 'master-cap-$i',
+      firstName: 'Майстер',
+      lastName: '$i',
+      type: MasterType.salonMaster,
+      reviewCount: 0,
+    ),
+];
+
+/// Every master in [roster] covers `_kCatalogService` — pairs with
+/// [_manySalonMasters].
+Map<String, Map<String, String>> _coverageAllOf(
+  List<SalonMasterSummary> roster,
+) => <String, Map<String, String>>{
+  for (final SalonMasterSummary m in roster)
+    m.masterId: <String, String>{
+      _kCatalogService.id: 'assignment-${m.masterId}',
+    },
+};
+
 // future-date-ok: fixed clock-override instant; the exact day is the fixture's identity, never now-relative.
 final DateTime _kNow = DateTime.utc(2026, 8, 10, 9); // 12:00 Kyiv, Aug 10.
 // future-date-ok: fixed twin of _kNow — the same clock-override day, see above.
@@ -192,12 +226,37 @@ final BookingSlot _kSlot2 = BookingSlot(
 class _FakeSlotRepository implements SlotRepository {
   _FakeSlotRepository({
     this.slotsByMaster = const <String, List<BookingSlot>>{},
+    this.workingDaysByMaster,
+    this.workingDaysHold,
+    this.workingDaysErrorMasterIds = const <String>{},
   });
 
   /// Keyed by masterId — different masters can return different slot lists.
   Map<String, List<BookingSlot>> slotsByMaster;
 
+  /// 2026-09-18 — `SalonDateStep`'s per-covering-master fan-out gate (own
+  /// doc: `salon_booking_wizard_steps.dart`). Keyed by masterId; `null` (the
+  /// default, every pre-existing call site in this file) means "always
+  /// working" for every requested date — preserves this fixture's
+  /// long-standing assumption that `_kNow`'s Kyiv day (Aug 10) and every
+  /// other future date in the visible month is tappable. A test proving the
+  /// union/grey-out gate supplies an explicit predicate per master.
+  final Map<String, bool Function(DateTime day)>? workingDaysByMaster;
+
+  /// When set, EVERY `getWorkingDays` call awaits this before resolving (or
+  /// throwing) — lets a test observe the date step's fan-out gate mid-flight
+  /// (requirement 3: fail OPEN while loading).
+  final Completer<void>? workingDaysHold;
+
+  /// Master ids whose `getWorkingDays` call throws instead of resolving —
+  /// proves the fail-OPEN contract on a genuine error, not merely "loading".
+  final Set<String> workingDaysErrorMasterIds;
+
   final List<String> getMasterSlotsCalls = <String>[];
+
+  /// One entry per `getWorkingDays` call, in call order — lets a test assert
+  /// the exact per-master request COUNT the date step's fan-out issues.
+  final List<String> getWorkingDaysCalls = <String>[];
 
   @override
   Future<List<WorkingDay>> getWorkingDays({
@@ -206,9 +265,25 @@ class _FakeSlotRepository implements SlotRepository {
     required DateTime to,
     List<String>? serviceIds,
     CancelToken? cancelToken,
-  }) => throw UnimplementedError(
-    'SalonDateStep never fetches working days — see its own doc.',
-  );
+  }) async {
+    getWorkingDaysCalls.add(masterId);
+    if (workingDaysHold != null) await workingDaysHold!.future;
+    if (workingDaysErrorMasterIds.contains(masterId)) {
+      throw DioException(
+        requestOptions: RequestOptions(path: '/masters/$masterId/working-days'),
+      );
+    }
+    final bool Function(DateTime)? rule = workingDaysByMaster?[masterId];
+    final List<WorkingDay> days = <WorkingDay>[];
+    for (
+      DateTime d = from;
+      !d.isAfter(to);
+      d = d.add(const Duration(days: 1))
+    ) {
+      days.add(WorkingDay(date: d, working: rule?.call(d) ?? true));
+    }
+    return days;
+  }
 
   @override
   Future<List<BookingSlot>> getMasterSlots({
@@ -453,7 +528,7 @@ Future<void> _pickService(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Picks Aug 10 (== [_kNow]'s Kyiv "today") and taps «Далі — Майстри».
+/// Picks Aug 10 (== [_kNow]'s Kyiv "today") and taps «Далі».
 Future<void> _pickDateAndAdvance(WidgetTester tester) async {
   await tester.tapCalendarDay(10);
   await tester.pump();
@@ -787,7 +862,7 @@ void main() {
   });
 
   group('SalonCreateBookingScreen — dateTime step (date-only)', () {
-    testWidgets('«Далі — Майстри» is disabled until a date is picked', (
+    testWidgets('«Далі» (dateTime step) is disabled until a date is picked', (
       tester,
     ) async {
       await _pump(tester);
@@ -819,47 +894,341 @@ void main() {
         reason: 'still on dateTime — a date pick alone must not advance',
       );
     });
+
+    // 2026-09-18 — SalonDateStep day-level gating (fan-out + union). See
+    // `salon_booking_wizard_steps.dart`'s `SalonDateStep` header for the
+    // full contract this proves.
+    group('day-level gating (fan-out + union)', () {
+      testWidgets(
+        'UNION: a day is ENABLED the moment ANY covering master confirms '
+        'working it, even while the other covering master is confirmed off',
+        (tester) async {
+          final fakeSlots = _FakeSlotRepository(
+            workingDaysByMaster: <String, bool Function(DateTime)>{
+              _kMasterA.masterId: (DateTime d) => false,
+              _kMasterB.masterId: (DateTime d) => d.day == 20,
+            },
+          );
+          await _pump(
+            tester,
+            coverage: _coverageBoth(),
+            slotRepository: fakeSlots,
+          );
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+
+          // Master B alone confirms working Aug 20 — the union must enable
+          // it despite master A being confirmed off every day.
+          // `tapCalendarDay` itself already fails loudly if the cell has no
+          // tap handler (its own "HANDLER PRESENCE CHECK") — reaching the
+          // `onPressed` check below proves the tap both landed AND
+          // registered the selection.
+          await tester.tapCalendarDay(20);
+          await tester.pump();
+          final NeumorphicButton nextButton = tester.widget<NeumorphicButton>(
+            find.byKey(const Key('salon-create-booking-date-next')),
+          );
+          expect(
+            nextButton.onPressed,
+            isNotNull,
+            reason:
+                'day 20 is enabled (master B confirms working it) and '
+                'must have registered as the selected date',
+          );
+        },
+      );
+
+      testWidgets(
+        'greys out a day ONLY once EVERY covering master is CONFIRMED off '
+        'it — the inverse (any-off greys it) would be backwards',
+        (tester) async {
+          final fakeSlots = _FakeSlotRepository(
+            workingDaysByMaster: <String, bool Function(DateTime)>{
+              _kMasterA.masterId: (DateTime d) => false,
+              _kMasterB.masterId: (DateTime d) => false,
+            },
+          );
+          await _pump(
+            tester,
+            coverage: _coverageBoth(),
+            slotRepository: fakeSlots,
+          );
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('booking-calendar-day-21')),
+              matching: find.byType(GestureDetector),
+            ),
+            findsNothing,
+            reason:
+                'both covering masters are confirmed off Aug 21 — the '
+                'cell must render with NO tap handler at all',
+          );
+        },
+      );
+
+      testWidgets(
+        'zero covering masters: the calendar stays fully tappable, never an '
+        'unexplained all-grey month — SalonMastersStep\'s empty state '
+        'explains the "no covering master" case one step later',
+        (tester) async {
+          await _pump(tester, coverage: const <String, Map<String, String>>{});
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('booking-calendar-day-21')),
+              matching: find.byType(GestureDetector),
+            ),
+            findsOneWidget,
+            reason:
+                'no master covers the whole selection — this step must '
+                'stay ungated, not render an all-grey month',
+          );
+        },
+      );
+
+      testWidgets(
+        'FAIL OPEN — while the working-days fetch is in flight every future '
+        'day stays tappable; it only greys out once the fetch actually '
+        'resolves all-off',
+        (tester) async {
+          final Completer<void> hold = Completer<void>();
+          final fakeSlots = _FakeSlotRepository(
+            workingDaysByMaster: <String, bool Function(DateTime)>{
+              _kMasterA.masterId: (DateTime d) => false,
+            },
+            workingDaysHold: hold,
+          );
+          await _pump(tester, slotRepository: fakeSlots);
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+          await tester.pump();
+
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('booking-calendar-day-21')),
+              matching: find.byType(GestureDetector),
+            ),
+            findsOneWidget,
+            reason:
+                'the fetch has not resolved yet — must fail OPEN, not '
+                'grey the day while data is missing',
+          );
+
+          hold.complete();
+          await tester.pumpAndSettle();
+
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('booking-calendar-day-21')),
+              matching: find.byType(GestureDetector),
+            ),
+            findsNothing,
+            reason: 'now resolved all-off — the day may grey out',
+          );
+        },
+      );
+
+      testWidgets('FAIL OPEN on a genuine error — a permanently-failing '
+          'getWorkingDays call never greys any day', (tester) async {
+        final fakeSlots = _FakeSlotRepository(
+          workingDaysErrorMasterIds: <String>{_kMasterA.masterId},
+        );
+        await _pump(tester, slotRepository: fakeSlots);
+        await _fillClientStepAndAdvance(tester);
+        await _pickService(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('booking-calendar-day-21')),
+            matching: find.byType(GestureDetector),
+          ),
+          findsOneWidget,
+          reason: 'an errored covering master must never cause a grey day',
+        );
+      });
+
+      testWidgets(
+        'issues exactly ONE getWorkingDays request per COVERING master — '
+        'never per roster entry, never duplicated on a re-render',
+        (tester) async {
+          final fakeSlots = _FakeSlotRepository();
+          await _pump(
+            tester,
+            coverage: _coverageAOnly(),
+            slotRepository: fakeSlots,
+          );
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+          await tester.pumpAndSettle();
+
+          expect(
+            fakeSlots.getWorkingDaysCalls,
+            <String>[_kMasterA.masterId],
+            reason:
+                'roster has master A and B; only master A COVERS the '
+                'selected service (`_coverageAOnly`) — master B must never '
+                'be queried',
+          );
+        },
+      );
+
+      testWidgets(
+        'month navigation refetches for the newly visible month without '
+        'thrashing — one request per covering master per chevron tap',
+        (tester) async {
+          final fakeSlots2 = _FakeSlotRepository();
+          await _pump(
+            tester,
+            coverage: _coverageAOnly(),
+            slotRepository: fakeSlots2,
+          );
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+          await tester.pumpAndSettle();
+
+          final int initialCalls = fakeSlots2.getWorkingDaysCalls.length;
+          expect(initialCalls, 1, reason: 'one covering master, one request');
+
+          await tester.tap(
+            find.byKey(const Key('booking-calendar-next-month')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            fakeSlots2.getWorkingDaysCalls.length,
+            initialCalls + 1,
+            reason:
+                'exactly one NEW request for the newly-visible month — '
+                'no storm of duplicates on a single chevron tap',
+          );
+
+          // Re-tapping the SAME chevron target repeatedly (e.g. a double
+          // tap landing as two gestures) must not re-fire beyond the bound
+          // — `_nextMonth` no-ops past the 3-month horizon, so driving past
+          // it proves no thrash rather than exercising the same month twice.
+          await tester.tap(
+            find.byKey(const Key('booking-calendar-next-month')),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const Key('booking-calendar-next-month')),
+          );
+          await tester.pumpAndSettle();
+          final int afterHorizon = fakeSlots2.getWorkingDaysCalls.length;
+
+          await tester.tap(
+            find.byKey(const Key('booking-calendar-next-month')),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            fakeSlots2.getWorkingDaysCalls.length,
+            afterHorizon,
+            reason:
+                'past the 3-month horizon the chevron is disabled — no '
+                'further requests fire',
+          );
+        },
+      );
+
+      testWidgets(
+        'mobile-security MEDIUM fix (phase 341) — an uncapped covering '
+        'roster is TRUNCATED to the fan-out ceiling; masters past it are '
+        'never queried and the gate stays fail-open on the partial data',
+        (tester) async {
+          final List<SalonMasterSummary> bigRoster = _manySalonMasters(10);
+          final fakeSlots = _FakeSlotRepository(
+            workingDaysByMaster: <String, bool Function(DateTime)>{
+              for (final SalonMasterSummary m in bigRoster)
+                m.masterId: (DateTime d) => false,
+            },
+          );
+          await _pump(
+            tester,
+            roster: bigRoster,
+            coverage: _coverageAllOf(bigRoster),
+            slotRepository: fakeSlots,
+          );
+          await _fillClientStepAndAdvance(tester);
+          await _pickService(tester);
+          await tester.pumpAndSettle();
+
+          expect(
+            fakeSlots.getWorkingDaysCalls.length,
+            8,
+            reason:
+                '10 covering masters exceed the fan-out ceiling (8, same '
+                'value as salonMasterServiceCoverageProvider\'s '
+                '_kFetchChunkSize) — only the first 8 in roster order are '
+                'ever queried, never all 10',
+          );
+
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('booking-calendar-day-21')),
+              matching: find.byType(GestureDetector),
+            ),
+            findsOneWidget,
+            reason:
+                'every queried covering master confirms OFF, but exceeding '
+                'the cap means the subset can never prove EVERY covering '
+                'master is off — the day must stay tappable, not grey on '
+                'partial data',
+          );
+        },
+      );
+
+      testWidgets('mobile-perf LOW fix (phase 341) — a masters -> back -> date '
+          'revisit within the 5-minute TTL reuses the cached working-days '
+          'fetch instead of re-issuing it per covering master', (tester) async {
+        final fakeSlots = _FakeSlotRepository();
+        await _pump(
+          tester,
+          coverage: _coverageBoth(),
+          slotRepository: fakeSlots,
+        );
+        await _driveToMasters(tester);
+
+        expect(
+          fakeSlots.getWorkingDaysCalls.length,
+          2,
+          reason:
+              'first date-step mount: one request per covering master '
+              '(N=2)',
+        );
+
+        await tester.tap(find.byKey(const Key('salon-create-booking-back')));
+        await tester.pumpAndSettle();
+
+        expect(
+          fakeSlots.getWorkingDaysCalls.length,
+          2,
+          reason:
+              'back on the date step within the TTL window must reuse '
+              'the cached family members, not refetch (would be 4 '
+              'without the keepAlive TTL)',
+        );
+      });
+    });
   });
 
   group('SalonCreateBookingScreen — masters step (multi-master)', () {
     testWidgets(
-      'renders a tile per master; a non-covering master shows «Не виконує» '
-      'and is not expandable',
-      (tester) async {
-        await _pump(tester);
-        await _driveToMasters(tester);
-
-        expect(
-          find.byKey(const Key('salon-master-tile-master-a')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('salon-master-tile-master-b')),
-          findsOneWidget,
-        );
-
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(SalonCreateBookingScreen)),
-        );
-        expect(
-          find.text(l10n.salonCreateBookingMasterNotOffered),
-          findsOneWidget,
-        );
-
-        // Tapping the non-covering tile is a no-op — no slot section appears.
-        await tester.tap(find.byKey(const Key('salon-master-tile-master-b')));
-        await tester.pumpAndSettle();
-        expect(find.byType(ErrorState), findsNothing);
-        expect(
-          find.byKey(const Key('salon-master-tile-slots-loading')),
-          findsNothing,
-        );
-      },
-    );
-
-    testWidgets(
-      'expanding a covering master lazily fetches ONLY that master\'s slots '
-      '— the other master is never queried',
+      // 2026-09-18 real-device fix — REPLACES the old "non-covering master
+      // shows «Не виконує» and is not expandable" test. Non-covering
+      // masters are HIDDEN now (`SalonMastersStep` drops them before ever
+      // building a tile), so there is no dimmed row left to assert on; this
+      // proves the hide instead — master B's tile (and the old
+      // `salonCreateBookingMasterNotOffered` copy) is entirely absent.
+      'renders a tile per COVERING master only — a non-covering master is '
+      'hidden entirely, not shown dimmed',
       (tester) async {
         final fakeSlots = _FakeSlotRepository(
           slotsByMaster: <String, List<BookingSlot>>{
@@ -869,7 +1238,57 @@ void main() {
         await _pump(tester, slotRepository: fakeSlots);
         await _driveToMasters(tester);
 
-        expect(fakeSlots.getMasterSlotsCalls, isEmpty);
+        expect(
+          find.byKey(const Key('salon-master-tile-master-a')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-tile-master-b')),
+          findsNothing,
+          reason:
+              'master B does not cover the selected service and must '
+              'not render at all, not even dimmed',
+        );
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonCreateBookingScreen)),
+        );
+        expect(
+          find.text(l10n.salonCreateBookingMasterNotOffered),
+          findsNothing,
+        );
+        expect(
+          find.text(l10n.salonCreateBookingMasterOffers),
+          findsNothing,
+          reason:
+              '«Виконує» is gone too — a covering, bookable master carries '
+              'no pill at all now',
+        );
+      },
+    );
+
+    testWidgets(
+      // 2026-09-18 real-device fix — was "lazily fetches ONLY on expand";
+      // `_SalonMasterTile` now watches `salonMasterDaySlotsProvider`
+      // EAGERLY for every covering tile (so the disabled/no-free-time face
+      // is known without a tap — see `salon_booking_wizard_steps.dart`'s
+      // header). What is still true, and still worth pinning: the fetch is
+      // scoped to COVERING masters only (master B, non-covering, is never
+      // queried — it is not even rendered), and expanding a tile never
+      // re-fetches — it reads the SAME cached family entry.
+      'a covering master\'s slots are fetched eagerly on mount — the other '
+      '(non-covering, hidden) master is never queried, and expanding does '
+      'not re-fetch',
+      (tester) async {
+        final fakeSlots = _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        );
+        await _pump(tester, slotRepository: fakeSlots);
+        await _driveToMasters(tester);
+
+        expect(fakeSlots.getMasterSlotsCalls, <String>['master-a']);
 
         await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
         await tester.pumpAndSettle();
@@ -887,8 +1306,16 @@ void main() {
     );
 
     testWidgets(
-      'an empty slot list on an expanded tile renders the empty state, never '
-      'an infinite spinner',
+      // 2026-09-18 real-device fix — was "an empty slot list on an EXPANDED
+      // tile renders the empty state" (tap first, then see the empty
+      // section). A covering master with zero free time is now known
+      // eagerly and renders DISABLED/collapsed with the empty-state copy
+      // on its own pill; tapping it is a no-op (it can no longer be
+      // expanded at all) rather than something that has to be expanded to
+      // reveal the same information. "never an infinite spinner" still
+      // holds — pinned the same way.
+      'a covering master with zero free time renders disabled with «Немає '
+      'вільного часу», never an infinite spinner, and is not tappable',
       (tester) async {
         final fakeSlots = _FakeSlotRepository(
           slotsByMaster: const <String, List<BookingSlot>>{},
@@ -896,14 +1323,23 @@ void main() {
         await _pump(tester, slotRepository: fakeSlots);
         await _driveToMasters(tester);
 
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonCreateBookingScreen)),
+        );
+        expect(find.text(l10n.bookingNoSlotsTitle), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+
         await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
         await tester.pumpAndSettle();
 
         expect(
           find.byKey(const Key('salon-master-tile-slots-empty')),
-          findsOneWidget,
+          findsNothing,
+          reason:
+              'a disabled tile must never expand, so its slot section '
+              'never mounts',
         );
-        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byType(SlotChip), findsNothing);
       },
     );
 
@@ -1031,46 +1467,91 @@ void main() {
     );
   });
 
-  group('SalonCreateBookingScreen — non-covering tile is NOT merely dimmed, it '
-      'is structurally non-interactive', () {
-    testWidgets(
-      'a non-covering master tile is reported disabled/non-button via '
-      'Semantics, and tapping it never renders a slot chip',
-      (tester) async {
-        await _pump(tester);
-        await _driveToMasters(tester);
+  group(
+    // 2026-09-18 real-device fix — REPLACES the old "non-covering tile is
+    // NOT merely dimmed" group. A non-covering tile no longer renders at
+    // all (item 4: hidden outright), so there is nothing left to assert
+    // "structurally non-interactive" about — that premise is gone. The
+    // disabled/non-button Semantics contract this group proved didn't go
+    // away though: it moved to the tile state that inherited the dim
+    // treatment (item 6, a COVERING master with no free time today), so
+    // this group is repurposed to prove it there instead of being quietly
+    // deleted.
+    'SalonCreateBookingScreen — a covering-but-slotless tile is disabled, '
+    'not merely dimmed, it is structurally non-interactive',
+    () {
+      testWidgets(
+        'a covering master with zero free time is reported disabled/'
+        'non-button via Semantics, and tapping it never renders a slot chip',
+        (tester) async {
+          final fakeSlots = _FakeSlotRepository(
+            slotsByMaster: <String, List<BookingSlot>>{
+              _kMasterA.masterId: <BookingSlot>[_kSlot],
+              // master B deliberately absent — empty slots, same as the
+              // real salon's reported masters with no free time left.
+            },
+          );
+          await _pump(
+            tester,
+            coverage: _coverageBoth(),
+            slotRepository: fakeSlots,
+          );
+          await _driveToMasters(tester);
 
-        final Finder tile = find.byKey(const Key('salon-master-tile-master-b'));
-        final Finder disabledSemantics = find.descendant(
-          of: tile,
-          matching: find.byWidgetPredicate(
-            (Widget w) =>
-                w is Semantics &&
-                w.properties.button == false &&
-                w.properties.enabled == false,
-          ),
-        );
-        expect(
-          disabledSemantics,
-          findsOneWidget,
-          reason:
-              'a non-covering tile must report itself as a disabled '
-              'non-button to assistive tech, not just render faded',
-        );
+          final Finder tile = find.byKey(
+            const Key('salon-master-tile-master-b'),
+          );
+          final Finder disabledSemantics = find.descendant(
+            of: tile,
+            matching: find.byWidgetPredicate(
+              (Widget w) =>
+                  w is Semantics &&
+                  w.properties.button == false &&
+                  w.properties.enabled == false,
+            ),
+          );
+          expect(
+            disabledSemantics,
+            findsOneWidget,
+            reason:
+                'a covering-but-slotless tile must report itself as a '
+                'disabled non-button to assistive tech, not just render '
+                'faded',
+          );
 
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
+          await tester.tap(tile);
+          await tester.pumpAndSettle();
 
-        expect(
-          find.descendant(of: tile, matching: find.byType(SlotChip)),
-          findsNothing,
-          reason:
-              'tapping a non-covering tile must never expand a slot '
-              'section',
-        );
-      },
-    );
-  });
+          expect(
+            find.descendant(of: tile, matching: find.byType(SlotChip)),
+            findsNothing,
+            reason:
+                'tapping a covering-but-slotless tile must never expand a '
+                'slot section',
+          );
+
+          // Control — master A (has a free slot) stays a normal enabled
+          // button, proving the disabled state above is genuinely keyed on
+          // free-time, not a blanket effect from the fixture.
+          final Finder tileA = find.byKey(
+            const Key('salon-master-tile-master-a'),
+          );
+          expect(
+            find.descendant(
+              of: tileA,
+              matching: find.byWidgetPredicate(
+                (Widget w) =>
+                    w is Semantics &&
+                    w.properties.button == true &&
+                    w.properties.enabled == true,
+              ),
+            ),
+            findsOneWidget,
+          );
+        },
+      );
+    },
+  );
 
   group('SalonCreateBookingScreen — one-active-master COLLAPSE rule', () {
     testWidgets('a salon with exactly ONE active master renders the slot grid '

@@ -8682,19 +8682,32 @@ final class FakeBackend {
   // of 3", the exact case an `any` filter would get wrong and `every`
   // (phase 335 D2) must get right.
   //
-  // THREE roster masters, reusing existing [_salonMasters] identities (no
+  // FOUR roster masters, reusing existing [_salonMasters] identities (no
   // new master rows minted, so the roster's own rendering/ordering tests
   // stay byte-identical):
-  //   * [kSalonWizardMasterFull] (`master-aaa`) — covers ALL THREE -> the
-  //     one bookable tile.
+  //   * [kSalonWizardMasterFull] (`master-aaa`) — covers ALL THREE and HAS
+  //     free time on the picked day -> the one bookable tile.
   //   * [kSalonWizardMasterPartial] (`master-eee`) — covers TWO of three
   //     (svc A, B — NOT C) -> the DISCRIMINATING case: an `any` filter would
-  //     still show this master as covering; `every` must dim it
+  //     still show this master as covering; `every` must exclude it
   //     (`project_fixture_values_can_defang_assertions` — an all-covering
   //     fixture could never catch the `any`→`every` regression this track
-  //     fixes).
+  //     fixes). 2026-09-18 real-device fix: a non-covering master is now
+  //     HIDDEN outright (never rendered as a tile at all), not merely
+  //     dimmed — see [SalonMastersStep]'s own header.
   //   * [kSalonWizardMasterNone] (`master-fff`) — covers NONE -> absent from
-  //     every coverage response below, dimmed for the ordinary reason.
+  //     every coverage response below, hidden for the ordinary reason.
+  //   * [kSalonWizardMasterSlotless] (`master-ggg`, mobile-qa phase 341
+  //     device-pass addition) — covers ALL THREE (same as `master-aaa`) but
+  //     its OWN `/slots` route always answers an EMPTY list -> the THIRD
+  //     tile state the 2026-09-18 device pass introduced: a covering master
+  //     with genuinely zero free time renders DISABLED with «Немає вільного
+  //     часу» rather than hidden or tappable. A second `/working-days`
+  //     registration lets it also participate in the date step's covering-
+  //     master fan-out (`_unionAvailability`) without ever confirming a day
+  //     non-working on its own (its schedule-shape working-days answer is
+  //     the ordinary wide-window "working every day" envelope — its slots,
+  //     not its schedule shape, are what's empty).
   //
   // Registered for BOTH [kOwnerSalonId] and [kAdminSalonId] — the SAME
   // catalogue/coverage DATA under two different salon-scoped paths, mirroring
@@ -8710,6 +8723,7 @@ final class FakeBackend {
   static const String kSalonWizardMasterFull = 'master-aaa';
   static const String kSalonWizardMasterPartial = 'master-eee';
   static const String kSalonWizardMasterNone = 'master-fff';
+  static const String kSalonWizardMasterSlotless = 'master-ggg';
 
   static const String kSalonWizSvcA = 'wiz-svc-a';
   static const String kSalonWizSvcB = 'wiz-svc-b';
@@ -8861,6 +8875,12 @@ final class FakeBackend {
             firstName: 'Тетяна',
             lastName: 'Мельник',
           ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterSlotless,
+            serviceDefId: kSalonWizSvcA,
+            firstName: 'Юлія',
+            lastName: 'Шевченко',
+          ),
         ]),
       ),
       request: const Request(method: RequestMethods.get),
@@ -8882,12 +8902,19 @@ final class FakeBackend {
             firstName: 'Тетяна',
             lastName: 'Мельник',
           ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterSlotless,
+            serviceDefId: kSalonWizSvcB,
+            firstName: 'Юлія',
+            lastName: 'Шевченко',
+          ),
         ]),
       ),
       request: const Request(method: RequestMethods.get),
     );
-    // svc C — ONLY the full-covering master. `master-eee` (partial) is
-    // absent here, on purpose: this is what makes it "covers two of three".
+    // svc C — the full-covering master AND the slotless master (both cover
+    // ALL three). `master-eee` (partial) is absent here, on purpose: this is
+    // what makes it "covers two of three".
     _adapter.onRoute(
       '/api/v1/salons/$salonId/services/$kSalonWizSvcC/masters',
       (server) => server.replyCallback(
@@ -8898,6 +8925,12 @@ final class FakeBackend {
             serviceDefId: kSalonWizSvcC,
             firstName: 'Софія',
             lastName: 'Бондар',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterSlotless,
+            serviceDefId: kSalonWizSvcC,
+            firstName: 'Юлія',
+            lastName: 'Шевченко',
           ),
         ]),
       ),
@@ -8995,6 +9028,48 @@ final class FakeBackend {
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // `GET /api/v1/masters/$kSalonWizardMasterSlotless/slots` — mobile-qa
+    // phase 341 device-pass addition. ALWAYS answers an empty slot list
+    // (path-only route match, same caveat as every other `/slots`
+    // registration in this file), regardless of the requested date/
+    // serviceIds — this master's whole reason for existing in the fixture
+    // is "covers everything, has nothing free", so there is no scenario in
+    // this journey where it should ever answer non-empty.
+    _adapter.onRoute(
+      '/api/v1/masters/$kSalonWizardMasterSlotless/slots',
+      (server) => server.replyCallback(200, (_) {
+        getMasterSlotsCalls++;
+        final DateTime day = kyivDayOf(serverNow);
+        return _ok(<String, dynamic>{
+          'date':
+              '${day.year.toString().padLeft(4, '0')}-'
+              '${day.month.toString().padLeft(2, '0')}-'
+              '${day.day.toString().padLeft(2, '0')}',
+          'slots': const <Map<String, dynamic>>[],
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // `GET /api/v1/masters/$kSalonWizardMasterSlotless/working-days` — lets
+    // this master also participate in `SalonDateStep`'s covering-master
+    // fan-out (it covers all three wizard services, same as `master-aaa`)
+    // without ever confirming a day non-working on its own: reuses the SAME
+    // wide-window "working every day" envelope [_workingDaysEnvelope]
+    // builds for `master-aaa` (including [forceNonWorkingDate], so a test
+    // that forces a day off for the UNION check forces it off for BOTH
+    // covering masters at once, proving the union rather than one master's
+    // schedule alone). This master's SLOTS are what's empty, never its
+    // schedule shape.
+    _adapter.onRoute(
+      '/api/v1/masters/$kSalonWizardMasterSlotless/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
     );
   }
 

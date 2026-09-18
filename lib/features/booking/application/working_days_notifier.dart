@@ -23,6 +23,8 @@
 // own last-good-month cache for the loading-flash UX instead (mirroring the
 // VISUAL pattern of `MasterScheduleScreen`, not its cache lifetime).
 
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -44,6 +46,35 @@ part 'working_days_notifier.g.dart';
 class WorkingDaysNotifier extends _$WorkingDaysNotifier {
   @override
   Future<List<WorkingDay>> build(WorkingDaysQuery query) async {
+    // 5-minute cache window (mobile-perf LOW fix, phase 341 audit) — mirrors
+    // `salonMasterServiceCoverageProvider`/`salonMastersRosterProvider`'s
+    // identical pattern, but SCOPED to `query.serviceIds == null` (the
+    // schedule-shape mode) rather than applied to every query this shared
+    // family answers. Two reasons, not one:
+    //   1. `query.serviceIds == null` is, today, ONLY `SalonDateStep`'s own
+    //      fan-out (see this class's doc + `working_days_query.dart`'s
+    //      class doc) — the exact caller this fix targets (masters -> back
+    //      -> date revisit). `MasterSchedulePage`/`SlotPickerNotifier`'s
+    //      availability-aware queries (`serviceIds` set) are untouched, so
+    //      their existing behaviour — including their own `ref.invalidate`
+    //      retry buttons (`master_schedule_page.dart`, `slot_picker_screen
+    //      .dart`) — is unaffected by this change.
+    //   2. `forbid_bare_keepalive_family_invalidation.sh` (CI gate) flags
+    //      EXACTLY those two retry sites once this family carries a
+    //      keepAlive for ANY query shape: both watch a LOCAL-state-keyed
+    //      instance (`_visibleMonth`) and invalidate it from the SAME file
+    //      via a bare `ref.invalidate` — safe today only because an
+    //      unwatched autoDispose member disposes immediately, with no queued-
+    //      disposal race to lose. Scoping the keepAlive out of their query
+    //      shape keeps that safety property intact rather than requiring the
+    //      `DayKeepAliveLru`-style pin-then-invalidate remedy those two call
+    //      sites do not otherwise need.
+    if (query.serviceIds == null) {
+      final link = ref.keepAlive();
+      final Timer timer = Timer(const Duration(minutes: 5), link.close);
+      ref.onDispose(timer.cancel);
+    }
+
     // Cancel-on-supersede, mirroring `SlotPickerNotifier.loadSlots`: unlike
     // that notifier (a single long-lived instance reused across calls), this
     // is a `WorkingDaysQuery`-keyed family — rapid month-nav taps

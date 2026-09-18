@@ -39,22 +39,50 @@
 // The design's demo data resolves EVERY master's free-slot count up front
 // (`_MastersStepState._slotsFor`, pure in-memory math over fixture data) and
 // sorts free-first / offers-first / fully-booked-last, with the pill reading
-// "N слот(и/ів)" / "Зайнятий" / "Не виконує". Doing the same against the
-// REAL slot endpoint would mean fetching every covering master's day slots
-// the instant the masters step mounts — an eager N-way fan-out with no
-// existing bound (unlike `salonMasterServiceCoverageProvider`'s own
-// deliberate `_kFetchChunkSize` cap for a comparable fan-out). This screen
-// instead fetches a master's slots LAZILY, on first expand
-// ([_SalonMasterTileState._expanded]), and the status pill is a plain
-// two-state "Виконує" / "Не виконує" (offers the service or not) rather than
-// a live slot count. Sort order is COVERING-FIRST (roster order preserved
-// within each group), not further split by slot availability. The "empty
-// slot list renders the empty state, not a spinner" requirement is still
-// met — it fires once a tile's own lazy fetch resolves empty — and the
-// zero-covering-master case still shows the informational empty state, just
-// without the day-specific "спробуйте інший день" framing (folded into the
-// existing `salonBookingNoCoveringMasterTitle`/`Hint` copy, reused verbatim
-// rather than adding a near-duplicate pair of keys).
+// "N слот(и/ів)" / "Зайнятий" / "Не виконує". This screen does not go that
+// far — the status pill is never a live slot COUNT — but it IS eager about
+// the binary has-slots-today/no-slots-today question (see the next
+// paragraph): a real-device pass found the OLD lazy-only design let a
+// master with genuinely zero free time on the picked day sit in the list
+// looking identical to a bookable one until tapped, which read as broken
+// rather than correct. Sort order is still COVERING-FIRST (roster order
+// preserved within the covering group) — a master who does not perform
+// EVERY selected service is not merely deprioritised, it is HIDDEN (see
+// the next paragraph), so there is no "offers"/"does not offer" split left
+// to sort by.
+//
+// ## HIDE non-covering, DISABLE covering-but-slotless (2026-09-18 real-
+// device fixes)
+//
+// A master who fails the "every selected service" coverage rule
+// (`_resolveOrderedAssignments` returning `null`) is no longer rendered at
+// all — `SalonMastersStep` drops `nonCovering` entirely rather than
+// appending it dimmed after `covering`. The "Виконує" pill is gone too: a
+// covering, bookable tile carries no pill at all now (silence IS the
+// affirmative state). What replaces both is a THIRD tile state this file
+// did not previously distinguish: covering, but no free time left on the
+// picked day (confirmed against the real backend — a master with a single
+// 17:43→18:00 window left against a longer chained visit, a master who
+// simply does not work the picked weekday, and a master with no
+// `weekly_schedules` row at all all legitimately return `{"slots":[]}`).
+// That state reuses [_SalonMasterTileState]'s existing per-element
+// `_kDisabledDim` fade/pill machinery (previously the non-covering tile's
+// only customer, now free for this) and [_SalonMasterStatusPill] (kept —
+// still the vehicle for `bookingNoSlotsTitle`'s "Немає вільного часу"),
+// and is now known EAGERLY: [_SalonMasterTileState.build] watches
+// [salonMasterDaySlotsProvider] unconditionally for every covering tile,
+// not only once the user expands it, so the disabled face — and the
+// tile's own non-tappability — is visible without a tap. The fan-out this
+// reintroduces is bounded by the ALREADY-filtered covering-master list
+// (typically small for a salon roster), and Riverpod dedupes: the eager
+// watch here and [_SalonTileSlotSection]'s own watch key on the identical
+// [SalonMasterDaySlotsQuery], so expanding a tile never re-fetches. The
+// "empty slot list renders the empty state, not a spinner" requirement
+// from the previous design is still met structurally (the empty branch in
+// [_SalonTileSlotSection] stays reachable for the narrow race of a tap
+// landing before the eager fetch resolves), but the steady-state path a
+// user actually sees is the collapsed disabled tile, not an expanded empty
+// list.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -65,7 +93,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
@@ -81,9 +108,12 @@ import '../../application/salon_master_coverage_notifier.dart';
 import '../../application/salon_masters_roster_notifier.dart';
 import '../../application/salon_booking_schedule_notifier.dart'
     show salonMasterDaySlotsProvider;
+import '../../application/working_days_notifier.dart';
 import '../../domain/booking_slot.dart';
 import '../../domain/salon_booking_args.dart';
 import '../../domain/salon_master_day_slots_query.dart';
+import '../../domain/working_day.dart';
+import '../../domain/working_days_query.dart';
 import 'master_strip.dart' show MasterRatingReadout;
 import 'month_calendar.dart';
 import 'salon_avatar_gradients.dart';
@@ -168,21 +198,81 @@ Widget _slotGroups(
 // ---------------------------------------------------------------------------
 // SalonDateStep — the salon wizard's DATE-ONLY step. Time is chosen one step
 // later, inside a master tile — see this file's header.
+//
+// 2026-09-18 — DAY-LEVEL GATING (fan-out + union). No master is picked yet
+// here (that is the whole point of this step existing separately from
+// `masters`), so there is no single `masterId` to key `workingDaysProvider`
+// on the way `MasterSchedulePage`/`SlotDateScreen` do. Locked product
+// decision: fan the query out across every COVERING master (the same
+// "performs EVERY selected service" set `SalonMastersStep` computes via
+// `_resolveOrderedAssignments`, reused verbatim below — it is already a
+// top-level, file-private helper, so nothing needed promoting) and UNION
+// their schedule-shape `working` flags — a day greys out only when NO
+// covering master works it. `WorkingDaysQuery.month(...)` is called WITHOUT
+// `serviceIds` deliberately (the schedule-shape mode, not the
+// availability-aware duration-fit mode `MasterSchedulePage` uses one step
+// later) — this is a coarser, cheaper signal by design. Accepted and
+// explicitly NOT fixed: a day where a covering master works but is fully
+// booked, or (today only) has too little time left for the visit's summed
+// duration, still shows enabled here and is caught one step later by the
+// masters step's existing "Немає вільного часу" disabled tile.
+//
+// FAIL OPEN (not closed): a day is only greyed once EVERY covering master's
+// working-days fetch for the visible month has actually resolved (no
+// loading, no error) AND none of them confirm `working: true` for that day.
+// While any covering master's fetch is still in flight or errored, or before
+// roster/coverage themselves have resolved, every future day stays tappable
+// — exactly today's (pre-feature) behaviour. Zero covering masters (nobody
+// performs the whole selected set) is treated the same way: this step never
+// renders an all-grey month with no explanation — it stays fully tappable
+// and the existing `SalonMastersStep` empty state (`_SalonMastersEmptyState`)
+// explains the "no covering master" case one step later, where the copy
+// already lives.
+//
+// CAPPED FAN-OUT (mobile-security MEDIUM fix, phase 341 audit) — the
+// covering-master set is truncated to `_SalonDateStepState._kFetchChunkSize`
+// (same value as `salonMasterServiceCoverageProvider`'s identically-named
+// cap, reused rather than a second scheme) before it drives any
+// `workingDaysProvider` watch, so an uncapped salon roster can no longer
+// turn one mount into N authenticated calls. Exceeding the cap ALSO forces
+// the union predicate open for every future day (see `_unionAvailability`'s
+// `overCap`) — a truncated subset can prove "some master is free" but never
+// "every covering master is off", so it must never gate on incomplete data.
 // ---------------------------------------------------------------------------
+
+/// mobile-perf LOW (phase 341 audit) — bumped once per genuine recompute of
+/// [_SalonDateStepState]'s memoized covering-master-ids list, never on a
+/// cache hit. Mirrors [debugResolveSalonMastersCallCount]'s identical
+/// precedent (own doc above, in `SalonMastersStep`'s section).
+@visibleForTesting
+int debugCoveringMasterIdsCallCount = 0;
+
+/// Resets [debugCoveringMasterIdsCallCount] to 0 — call at the top of a test
+/// that asserts an exact recompute count.
+@visibleForTesting
+void debugResetCoveringMasterIdsCallCount() {
+  debugCoveringMasterIdsCallCount = 0;
+}
 
 class SalonDateStep extends ConsumerStatefulWidget {
   const SalonDateStep({
     super.key,
+    required this.salonId,
+    required this.services,
     required this.selected,
     required this.onSelect,
-    required this.onNext,
   });
+
+  final String salonId;
+
+  /// The visit's selected services (1..n) — same list `SalonMastersStep`
+  /// receives as `services`, reused here purely to resolve which masters
+  /// COVER the whole set (see this class's header). Never sent over the
+  /// wire from this step.
+  final List<MasterService> services;
 
   final DateTime? selected;
   final ValueChanged<DateTime> onSelect;
-
-  /// Disabled (`onPressed: null`) until [selected] is non-null.
-  final VoidCallback? onNext;
 
   @override
   ConsumerState<SalonDateStep> createState() => _SalonDateStepState();
@@ -193,6 +283,122 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
   bool _initialized = false;
 
   static const int _horizonMonths = 3;
+
+  /// mobile-security MEDIUM (phase 341 audit) — ceiling on how many covering
+  /// masters this step fans `workingDaysProvider` out to per mount/month
+  /// change. Mirrors `salonMasterServiceCoverageProvider`'s `_kFetchChunkSize`
+  /// (same value, same rationale: bounded fan-out over an uncapped roster —
+  /// see that file's header) rather than inventing a second capping scheme.
+  /// Unlike that provider's mechanism — which still reaches every selected
+  /// service eventually, just in bounded-concurrency batches — this is a hard
+  /// TRUNCATION: masters past the first [_kFetchChunkSize] (roster order,
+  /// deterministic) are never queried at all, because there is no sequencing
+  /// step here that could catch up to them (an eager per-build `ref.watch`
+  /// fan-out, not an awaited batch loop). See [_unionAvailability]'s
+  /// `overCap` parameter for what that means for the gate: it stays fail
+  /// open (never greys a day) whenever the covering roster exceeds this
+  /// ceiling, because greying requires confirming EVERY covering master is
+  /// off, which a truncated subset can never assert.
+  static const int _kFetchChunkSize = 8;
+
+  /// Mirrors `MasterSchedulePage._dayKey`/`SlotPickerNotifier`'s identical
+  /// private helper (both already duplicate this exact one-liner rather
+  /// than share it — an established precedent in this file's sibling
+  /// screens, not a new fork introduced here).
+  static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
+
+  // mobile-perf LOW (phase 341 audit) — memoized `_coveringMasterIds` result.
+  // Keyed the SAME shape as `_SalonMastersStepState._resolveDerived` (own
+  // doc there, reused verbatim): `listEquals` CONTENT-equality on the
+  // ordered service ids (the caller mutates its selected-services list IN
+  // PLACE, so an `identical()` check on the list itself would report a
+  // stale HIT — `project_freezed_getter_defeats_identical_memo`) plus
+  // `identical()` on `roster`/`coverage` (safe — both are replaced, never
+  // mutated, by Riverpod's cached `AsyncValue.value` on refetch).
+  List<String>? _cachedServiceDefIds;
+  List<SalonMasterSummary>? _cachedRoster;
+  Map<String, Map<String, String>>? _cachedCoverage;
+  List<String>? _cachedCoveringIds;
+
+  /// The masters who cover EVERY service in [ordered] — same "every, not
+  /// any" rule `SalonMastersStep._resolveDerived` applies, reusing the SAME
+  /// `_resolveOrderedAssignments` helper (file-private, already shared by
+  /// both steps). Returns `null` (not just an empty list) when roster or
+  /// coverage has not resolved yet, so the caller can distinguish
+  /// "not known yet" (fail open) from "known: zero masters cover this set"
+  /// (also fail open, per this class's header, but a distinct case worth
+  /// keeping separate at the call site).
+  List<String>? _coveringMasterIds(
+    List<MasterService> ordered,
+    List<SalonMasterSummary>? roster,
+    Map<String, Map<String, String>>? coverage,
+  ) {
+    if (roster == null || coverage == null) return null;
+
+    final List<String> serviceDefIds = <String>[
+      for (final MasterService s in ordered) s.serviceDefId,
+    ];
+    final bool hit =
+        _cachedCoveringIds != null &&
+        listEquals(_cachedServiceDefIds, serviceDefIds) &&
+        identical(_cachedRoster, roster) &&
+        identical(_cachedCoverage, coverage);
+    if (hit) return _cachedCoveringIds!;
+
+    debugCoveringMasterIdsCallCount++;
+    final List<String> result = <String>[
+      for (final SalonMasterSummary m in roster)
+        if (_resolveOrderedAssignments(coverage[m.masterId], ordered) != null)
+          m.masterId,
+    ];
+
+    _cachedServiceDefIds = serviceDefIds;
+    _cachedRoster = roster;
+    _cachedCoverage = coverage;
+    _cachedCoveringIds = result;
+    return result;
+  }
+
+  /// Builds the union `isAvailable` predicate for [visibleMonth] from
+  /// [workingDaysByMaster] (one [workingDaysProvider] watch per covering
+  /// master, already capped to [_kFetchChunkSize] by the caller — see this
+  /// class's header for the fail-open contract). [overCap] is true whenever
+  /// the covering roster EXCEEDED that ceiling before truncation — see
+  /// [_kFetchChunkSize]'s doc for why that forces every future day to stay
+  /// tappable regardless of what the capped subset reports.
+  bool Function(DateTime) _unionAvailability(
+    Map<String, AsyncValue<List<WorkingDay>>> workingDaysByMaster,
+    DateTime today, {
+    required bool overCap,
+  }) {
+    final List<Map<int, bool>> resolvedByMaster = <Map<int, bool>>[];
+    bool allResolved = true;
+    for (final AsyncValue<List<WorkingDay>> async
+        in workingDaysByMaster.values) {
+      final List<WorkingDay>? days = async.value;
+      if (async.hasError || days == null) {
+        // Loading OR errored: this master contributes nothing to the union
+        // AND must never cause a grey day on its own (fail open).
+        allResolved = false;
+        continue;
+      }
+      resolvedByMaster.add(<int, bool>{
+        for (final WorkingDay w in days) _dayKey(w.date): w.working,
+      });
+    }
+    return (DateTime day) {
+      if (day.isBefore(today)) return false;
+      if (overCap) return true; // truncated subset can never confirm ALL off
+      if (workingDaysByMaster.isEmpty) return true; // no covering master yet
+      final int key = _dayKey(day);
+      for (final Map<int, bool> byDay in resolvedByMaster) {
+        if (byDay[key] == true) return true; // UNION: any master works it
+      }
+      // No covering master CONFIRMED working this day. Only grey out once
+      // every one of them has actually resolved — otherwise fail open.
+      return !allResolved;
+    };
+  }
 
   DateTime _firstMonth(DateTime today) => DateTime(today.year, today.month, 1);
 
@@ -230,6 +436,69 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
     }
     final DateTime visibleMonth = _visibleMonth(today);
 
+    // Single normalisation point — mirrors `SalonMastersStep.build()`.
+    final List<MasterService> ordered = widget.services;
+    final AsyncValue<List<SalonMasterSummary>> rosterAsync = ref.watch(
+      salonMastersRosterProvider(widget.salonId),
+    );
+    final SalonBookingMasterSelectionArgs coverageArgs =
+        SalonBookingMasterSelectionArgs(
+          salonId: widget.salonId,
+          selectedServiceIds: <String>[
+            for (final MasterService s in ordered) s.serviceDefId,
+          ],
+        );
+    final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
+        .watch(salonMasterServiceCoverageProvider(coverageArgs));
+
+    // FAIL OPEN (class header): a roster/coverage error or in-flight fetch
+    // resolves `covering` to `null`, which `_unionAvailability` (via an
+    // empty `workingDaysByMaster` map below) treats identically to "zero
+    // covering masters" — every future day stays tappable, no error surface
+    // blocks the calendar the way `SalonMastersStep`'s `ErrorState` does one
+    // step later (this step has nothing actionable to retry from yet; the
+    // masters step re-fetches the SAME providers right after).
+    final List<String>? covering = _coveringMasterIds(
+      ordered,
+      rosterAsync.value,
+      coverageAsync.value,
+    );
+
+    // Requirement 4 — N requests, keyed per (masterId, visible month): one
+    // `workingDaysProvider` family watch per covering master, re-keyed
+    // automatically whenever `visibleMonth` changes (a new
+    // `WorkingDaysQuery` instance, normalised-equal across re-renders of the
+    // SAME month so chevron re-taps on a month already fetched reuse the
+    // cached family member instead of refetching).
+    //
+    // mobile-security MEDIUM (phase 341 audit) — capped at
+    // [_kFetchChunkSize]: an uncapped salon roster used to turn one mount
+    // into N authenticated calls. See [_kFetchChunkSize]'s doc for why
+    // masters past the cap are truncated (not batched) and what that implies
+    // for the gate below.
+    final List<String> coveringIds = covering ?? const <String>[];
+    final bool overCap = coveringIds.length > _kFetchChunkSize;
+    final List<String> cappedCoveringIds = overCap
+        ? coveringIds.sublist(0, _kFetchChunkSize)
+        : coveringIds;
+    final Map<String, AsyncValue<List<WorkingDay>>> workingDaysByMaster =
+        <String, AsyncValue<List<WorkingDay>>>{
+          for (final String masterId in cappedCoveringIds)
+            masterId: ref.watch(
+              workingDaysProvider(
+                WorkingDaysQuery.month(
+                  masterId: masterId,
+                  anyDayInMonth: visibleMonth,
+                ),
+              ),
+            ),
+        };
+    final bool Function(DateTime) isAvailable = _unionAvailability(
+      workingDaysByMaster,
+      today,
+      overCap: overCap,
+    );
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.lg,
@@ -245,14 +514,26 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
             style: VelvetText.subheadingWizard15,
           ),
           const SizedBox(height: VelvetSpacing.md),
-          const CalendarWeekdayBar(),
-          const SizedBox(height: VelvetSpacing.xs),
+          // 2026-09-18 real-device fix — `CalendarWeekdayBar` used to sit
+          // here as [SalonDateStep]'s OWN sibling, ahead of `MonthCalendar`'s
+          // own header (chevrons + month/year), so the heading→calendar gap
+          // was really `md` + the weekday row's 20dp + another `xs`, with the
+          // weekday LABELS landing above the month header instead of
+          // directly over the grid they describe. `composeWeekdayBar: true`
+          // (an existing additive opt-in on [MonthCalendar], previously used
+          // only by `BookingsMonthCalendarPanel`) folds the SAME
+          // `CalendarWeekdayBar` inside `MonthCalendar`, after its header —
+          // collapsing this step back to the approved design's single `md`
+          // gap between the heading and ONE cohesive calendar block
+          // (`docs/signup-designs/SalonManagementDesign/lib/screens/
+          // create_booking_screen.dart:644-660`'s `_DateTimeStep`, whose
+          // `_MiniCalendar` bundles its own weekday row the same way).
           MonthCalendar(
             key: const Key('salon-create-booking-date-calendar'),
             visibleMonth: visibleMonth,
             today: today,
             selected: widget.selected,
-            isAvailable: (DateTime day) => !day.isBefore(today),
+            isAvailable: isAvailable,
             onSelectDay: widget.onSelect,
             onPrevMonth: visibleMonth.isAfter(_firstMonth(today))
                 ? () => _prevMonth(today)
@@ -260,13 +541,7 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
             onNextMonth: visibleMonth.isBefore(_lastMonth(today))
                 ? () => _nextMonth(today)
                 : null,
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-          NeumorphicButton(
-            key: const Key('salon-create-booking-date-next'),
-            label: l10n.salonCreateBookingDateNextCta,
-            icon: Icons.arrow_forward_rounded,
-            onPressed: widget.onNext,
+            composeWeekdayBar: true,
           ),
         ],
       ),
@@ -463,7 +738,7 @@ class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
     final (
       List<(SalonMasterSummary, List<String>?)> resolved,
       List<(SalonMasterSummary, List<String>?)> covering,
-      List<(SalonMasterSummary, List<String>?)> nonCovering,
+      List<(SalonMasterSummary, List<String>?)> _,
     ) = _resolveDerived(
       ordered,
       roster,
@@ -506,8 +781,11 @@ class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
       );
     }
 
-    final List<(SalonMasterSummary, List<String>?)> orderedMasters =
-        <(SalonMasterSummary, List<String>?)>[...covering, ...nonCovering];
+    // 2026-09-18 real-device fix — a master who does not cover EVERY
+    // selected service used to render here too, dimmed. The user asked for
+    // it gone outright: `covering` alone, roster order preserved, no
+    // dimmed tail — see this file's header.
+    final List<(SalonMasterSummary, List<String>?)> orderedMasters = covering;
 
     return ListView.separated(
       key: const Key('salon-create-booking-masters-list'),
@@ -709,9 +987,10 @@ class _SalonMasterTile extends ConsumerStatefulWidget {
   final List<MasterService> services;
 
   /// `null` when this master does NOT cover EVERY service in [services] —
-  /// renders a faint, non-tappable row (design's `offersService == false`
-  /// face). Non-null carries one assignment id per [services] entry, index-
-  /// aligned.
+  /// 2026-09-18: `SalonMastersStep` now filters these out before ever
+  /// constructing a tile, so this stays `null` only defensively; no live
+  /// caller passes it. Non-null carries one assignment id per [services]
+  /// entry, index-aligned.
   final List<String>? assignmentIds;
   final DateTime date;
   final ValueChanged<BookingSlot>? onSlotPick;
@@ -723,24 +1002,34 @@ class _SalonMasterTile extends ConsumerStatefulWidget {
 class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
   bool _expanded = false;
 
+  /// Set at the top of every [build] — see [_hasNoFreeTime]'s own doc for
+  /// why this can't just be a getter.
+  bool _hasNoFreeTime = false;
+
   bool get _offers => widget.assignmentIds != null;
 
-  /// Alpha multiplier for a non-covering tile's whole face — same value the
+  /// Alpha multiplier for a disabled tile's whole face — same value the
   /// tile previously wrapped in `Opacity(opacity: 0.42, ...)` (mobile-perf
-  /// P1, Phase 250): that subtree `Opacity` forced a `saveLayer` per
-  /// non-covering tile on screen (avatar, name, role, rating, pill — every
-  /// painted layer). Every color below is faded individually instead so no
+  /// P1, Phase 250): that subtree `Opacity` forced a `saveLayer` per faded
+  /// tile on screen (avatar, name, role, rating, pill — every painted
+  /// layer). Every color below is faded individually instead so no
   /// `saveLayer` is needed. See `test/golden/salon_master_tile_golden_test
   /// .dart` for the before/after equivalence check.
-  static const double _kNonOfferingDim = 0.42;
+  ///
+  /// 2026-09-18: this used to gate on [_offers] (a non-covering master's
+  /// face). Non-covering masters are hidden outright now (never reach this
+  /// widget — see [_SalonMasterTile.assignmentIds]'s doc), which freed this
+  /// dim treatment for the tile state that replaced it: a COVERING master
+  /// with no free time left on the picked day.
+  static const double _kDisabledDim = 0.42;
 
-  /// Multiplies [color]'s own alpha by [_kNonOfferingDim] when this tile does
-  /// NOT offer the service; returns [color] unchanged otherwise. Composable
-  /// with a color that already carries its own alpha (e.g. the avatar
-  /// icon's `0.85`) — the two multiply together, same as they would inside a
-  /// group `Opacity`.
+  /// Multiplies [color]'s own alpha by [_kDisabledDim] when this tile has no
+  /// free time; returns [color] unchanged otherwise. Composable with a color
+  /// that already carries its own alpha (e.g. the avatar icon's `0.85`) —
+  /// the two multiply together, same as they would inside a group
+  /// `Opacity`.
   Color _fade(Color color) =>
-      _offers ? color : color.withValues(alpha: color.a * _kNonOfferingDim);
+      _hasNoFreeTime ? color.withValues(alpha: color.a * _kDisabledDim) : color;
 
   /// Maps [_fade] over every shadow's color, preserving offset/blur/spread.
   List<BoxShadow> _fadeShadows(List<BoxShadow> shadows) => <BoxShadow>[
@@ -754,7 +1043,7 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
   ];
 
   void _toggle() {
-    if (!_offers) return;
+    if (!_offers || _hasNoFreeTime) return;
     setState(() => _expanded = !_expanded);
   }
 
@@ -770,6 +1059,29 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
     final double? rating = m.reviewCount > 0 ? m.avgRating : null;
     final String ratingLabel = rating?.toStringAsFixed(1) ?? '—';
 
+    // 2026-09-18 real-device fix — eager, not lazy-on-expand: watched
+    // unconditionally so a covering master with genuinely zero free time
+    // today renders disabled from the first frame, never only after a tap.
+    // Same [SalonMasterDaySlotsQuery] value [_SalonTileSlotSection] builds
+    // below, so Riverpod dedupes the two watches to ONE fetch — expanding
+    // never re-queries. Loading/error both read as "unknown, not yet
+    // disabled" (`valueOrNull` is `null` in both), matching the tile's
+    // pre-existing default (tappable) face until proven otherwise.
+    final List<BookingSlot>? loadedSlots = _offers
+        ? ref
+              .watch(
+                salonMasterDaySlotsProvider(
+                  SalonMasterDaySlotsQuery(
+                    masterId: m.masterId,
+                    serviceIds: widget.assignmentIds!,
+                    date: widget.date,
+                  ),
+                ),
+              )
+              .value
+        : null;
+    _hasNoFreeTime = _offers && loadedSlots != null && loadedSlots.isEmpty;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       decoration: BoxDecoration(
@@ -779,20 +1091,20 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
           color: _fade(
             _expanded
                 ? BrandColors.accent
-                : _offers
-                ? BrandColors.accent.withValues(alpha: 0.18)
-                : BrandColors.faint,
+                : _hasNoFreeTime
+                ? BrandColors.faint
+                : BrandColors.accent.withValues(alpha: 0.18),
           ),
           width: _expanded ? 1.5 : 1,
         ),
-        boxShadow: _offers ? VelvetShadows.extrudedSmall : null,
+        boxShadow: _hasNoFreeTime ? null : VelvetShadows.extrudedSmall,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Semantics(
-            button: _offers,
-            enabled: _offers,
+            button: _offers && !_hasNoFreeTime,
+            enabled: _offers && !_hasNoFreeTime,
             label: l10n.salonMasterCardSemanticLabel(name, role, ratingLabel),
             child: ExcludeSemantics(
               child: GestureDetector(
@@ -868,7 +1180,9 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
                               Text(
                                 '${DurationMinutes.format(widget.services.single.durationMinutes)} '
                                 '· ${ServicePriceDisplay.format(widget.services.single)}',
-                                style: VelvetText.feedbackAccentSm,
+                                style: VelvetText.feedbackAccentSm.copyWith(
+                                  color: _fade(BrandColors.accentDeep),
+                                ),
                               ),
                             ],
                           ],
@@ -883,21 +1197,30 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
                             MasterRatingReadout(
                               avgRating: rating,
                               reviewCount: m.reviewCount,
-                              opacity: _offers ? 1.0 : _kNonOfferingDim,
+                              opacity: _hasNoFreeTime ? _kDisabledDim : 1.0,
                             ),
-                          const SizedBox(height: 5),
-                          _SalonMasterStatusPill(
-                            label: _offers
-                                ? l10n.salonCreateBookingMasterOffers
-                                : l10n.salonCreateBookingMasterNotOffered,
-                            color: _offers
-                                ? BrandColors.success
-                                : BrandColors.textSecondary,
-                            opacity: _offers ? 1.0 : _kNonOfferingDim,
-                          ),
+                          // 2026-09-18 real-device fix — the affirmative
+                          // "covers, has free time" state carries NO pill at
+                          // all now (silence IS the affirmative signal; the
+                          // old «Виконує» pill is gone). Only the disabled
+                          // "covers, but nothing free today" state still
+                          // needs one, reusing `bookingNoSlotsTitle`'s
+                          // «Немає вільного часу» — the SAME copy the
+                          // expanded slot section already shows for this
+                          // exact condition (`_SalonTileSlotSection`'s
+                          // `data` branch below) — rather than minting a
+                          // near-duplicate key.
+                          if (_hasNoFreeTime) ...<Widget>[
+                            if (m.reviewCount > 0) const SizedBox(height: 5),
+                            _SalonMasterStatusPill(
+                              label: l10n.bookingNoSlotsTitle,
+                              color: BrandColors.textSecondary,
+                              opacity: _kDisabledDim,
+                            ),
+                          ],
                         ],
                       ),
-                      if (_offers) ...<Widget>[
+                      if (_offers && !_hasNoFreeTime) ...<Widget>[
                         const SizedBox(width: VelvetSpacing.xs + 2),
                         AnimatedRotation(
                           turns: _expanded ? 0.5 : 0,
@@ -950,8 +1273,8 @@ class _SalonMasterStatusPill extends StatelessWidget {
 
   /// Alpha multiplier for the whole pill (background fill + label) — 1.0
   /// (default) renders identically to before this param existed. Lets
-  /// `_SalonMasterTile` dim a non-covering master's pill without wrapping it
-  /// (or any wider ancestor) in `Opacity`.
+  /// `_SalonMasterTile` dim a disabled (no-free-time) master's pill without
+  /// wrapping it (or any wider ancestor) in `Opacity`.
   final double opacity;
 
   @override

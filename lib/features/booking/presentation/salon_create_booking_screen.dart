@@ -64,11 +64,16 @@
 //      bespoke `NeumorphicCard(color: 0xFFEDE4D5)` block — the SAME
 //      "who you're booking with" visual grammar the rest of this app's
 //      booking flow already uses, not a second bespoke card shape.
-//   3. `masters`-step status pill is two-state ("Виконує"/"Не виконує"), not
-//      the design's eager three-state N-slots/Зайнятий/Не-виконує pill, and
-//      slots are fetched lazily on tile expand, not eagerly for every master
-//      on mount — see `salon_booking_wizard_steps.dart`'s header for the
-//      full fan-out rationale.
+//   3. `masters`-step status pill is not the design's eager three-state
+//      N-slots/Зайнятий/Не-виконує pill: a covering, bookable master carries
+//      NO pill at all, and a non-covering master is hidden outright rather
+//      than shown dimmed. Slots ARE fetched eagerly for every COVERING
+//      master on mount (2026-09-18 real-device fix, reversing this
+//      deviation's earlier "lazily on tile expand" text) so a master with
+//      genuinely zero free time on the picked day renders disabled with
+//      «Немає вільного часу» without requiring a tap — see
+//      `salon_booking_wizard_steps.dart`'s header for the full rationale and
+//      fan-out bound.
 //   4. No «Коментар для майстра» field on `confirm` — mirrors the master
 //      wizard's OWN deviation #5: `CreateMasterBookingRequest` carries no
 //      `clientComment` field to transmit it through.
@@ -80,9 +85,14 @@
 //      22.7); see [AppLocalizations.salonCreateBookingDoneSubline].
 //   7. «Далі» CTA labels on `client`/`service` reuse the app's generic
 //      wording (via the promoted steps themselves), matching the master
-//      wizard; the `dateTime` step's own advance CTA IS transcribed
-//      literally ("Далі — Майстри") since — unlike the client step — no
-//      existing generic convention covers it.
+//      wizard; the `dateTime` step's own advance CTA (`salonCreateBooking
+//      DateNextCta`) used to be transcribed literally ("Далі — Майстри")
+//      since no existing generic convention covered it — 2026-09-18:
+//      reverted to the generic «Далі» wording after all, matching
+//      `registerNextStep`/`registerContinue`/`step2CtaContinue`/
+//      `bookingNextCta`'s existing convention of duplicate-by-value keys.
+//      The `dateTime` CTA also moved from embedded-in-scroll to a pinned
+//      [BookingCtaFooter], matching every other step.
 //
 // ## Walk-in only / no existing-client toggle
 //
@@ -453,9 +463,10 @@ class _SalonCreateBookingScreenState
       case _BookingStep.dateTime:
         return SalonDateStep(
           key: const ValueKey<_BookingStep>(_BookingStep.dateTime),
+          salonId: widget.salonId,
+          services: _selectedServices,
           selected: _date,
           onSelect: (DateTime d) => setState(() => _date = d),
-          onNext: _date == null ? null : () => _goTo(_BookingStep.masters),
         );
       case _BookingStep.masters:
         return SalonMastersStep(
@@ -538,6 +549,21 @@ class _SalonCreateBookingScreenState
           enabled: _selectedServices.isNotEmpty,
           onAction: () => _goTo(_BookingStep.dateTime),
           onRemove: _onToggleService,
+        ),
+        // 2026-09-18 real-device fix — was embedded inside [SalonDateStep]'s
+        // own `SingleChildScrollView` (a deliberate deviation from the
+        // approved design at the time, see this file's deviation #7); the
+        // user asked for it pinned like every other step's footer instead.
+        // [BookingCtaFooter] REUSED verbatim (same widget the `confirm`
+        // footer below and the master wizard's confirm step already use),
+        // not a hand-rolled bar.
+        _BookingStep.dateTime => BookingCtaFooter(
+          label: l10n.salonCreateBookingDateNextCta,
+          enabled: _date != null,
+          loading: false,
+          onPressed: () => _goTo(_BookingStep.masters),
+          buttonKey: const Key('salon-create-booking-date-next'),
+          icon: Icons.arrow_forward_rounded,
         ),
         // Only this footer depends on `_submitting` — same scoping primitive
         // as the master wizard's confirm-step footer (audit-fix cycle 1,

@@ -194,6 +194,13 @@ final BookingSlot _kSlot = BookingSlot(
 // ---------------------------------------------------------------------------
 
 class _FakeSlotRepository implements SlotRepository {
+  // 2026-09-18 — `SalonDateStep`'s fan-out gate (own doc:
+  // `salon_booking_wizard_steps.dart`) now genuinely calls this while this
+  // suite drives through the dateTime step (`_driveToConfirm`, which
+  // `tapCalendarDay(10)`s). Every date in the requested range resolves
+  // `working: true` — this suite never exercises the grey-out gate itself
+  // (that is `salon_create_booking_screen_test.dart`'s job), it only needs
+  // Aug 10 to stay tappable, exactly as before this fetch existed.
   @override
   Future<List<WorkingDay>> getWorkingDays({
     required String masterId,
@@ -201,9 +208,10 @@ class _FakeSlotRepository implements SlotRepository {
     required DateTime to,
     List<String>? serviceIds,
     CancelToken? cancelToken,
-  }) => throw UnimplementedError(
-    'SalonDateStep never fetches working days — see its own doc.',
-  );
+  }) async => <WorkingDay>[
+    for (DateTime d = from; !d.isAfter(to); d = d.add(const Duration(days: 1)))
+      WorkingDay(date: d, working: true),
+  ];
 
   @override
   Future<List<BookingSlot>> getMasterSlots({

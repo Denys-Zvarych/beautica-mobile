@@ -503,6 +503,12 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       calendarBody = _WorkingDaysErrorBody(
         key: const ValueKey<String>('salon-schedule-error'),
         failure: workingDaysAsync.error!,
+        // keepalive-safe: `_workingDaysQuery` always sets `serviceIds`
+        // (`widget.schedule.orderedMasterServiceIds`, availability-aware
+        // mode) — `working_days_notifier.dart`'s phase-341 keepAlive only
+        // opens for `serviceIds == null` queries (`SalonDateStep`'s own
+        // fan-out), so this family member is never keepAlive-pinned and this
+        // invalidate keeps its pre-341 plain-autoDispose semantics.
         onRetry: () => ref.invalidate(workingDaysProvider(_workingDaysQuery)),
       );
     } else {

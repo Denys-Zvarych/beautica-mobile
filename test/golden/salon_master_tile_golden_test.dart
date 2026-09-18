@@ -38,24 +38,28 @@
 // contract.md`.
 //
 // One screenshot per (width, textScale) cell, single step: the masters list
-// with TWO tiles visible —
-//   • `master-a` — COVERS the chosen service (full-opacity face: avatar,
-//     name, role, price/duration line, «Виконує» pill, chevron).
-//   • `master-b` — does NOT cover it (dimmed face: avatar, name, role,
-//     «Не виконує» pill, no price/duration line, no chevron, no border glow,
-//     no shadow) — the subtree the audited `Opacity` wrapped before the
-//     refactor; its dim now reaches the capture as per-element alpha, which
-//     is why it is visible here.
+// with ONE tile visible —
+//   • `master-a` — COVERS the chosen service AND has a free slot
+//     (full-opacity face: avatar, name, role, price/duration line, NO
+//     pill, chevron).
 //
-// Both tiles in ONE frame lets a reviewer diff the two faces side by side and
-// checks the covering tile is untouched by the fix (it never enters the
-// `Opacity`'s `0.42` branch, so it acts as a control).
+// 2026-09-18 real-device fix — this scenario used to also render `master-b`
+// (does NOT cover the service, dimmed) beside `master-a`, and the "Both
+// tiles in ONE frame" comparison below was written against that pairing.
+// Non-covering masters are HIDDEN outright now (see this file's header and
+// `salon_booking_wizard_steps.dart`'s), so `master-b` — absent from
+// `_coverageAOnly()` — no longer renders at all here; this scenario
+// necessarily shrank to the one tile that's left. The «Виконує» pill is
+// also gone — master A's no-pill face is the visible delta these 6 PNGs
+// gate now. The two-face side-by-side comparison this scenario used to
+// provide moved to the multi-service scenario below, which pins a covering
+// tile against a covering-but-slotless one instead of a covering tile
+// against a hidden one.
 //
 // Fixtures mirror `salon_create_booking_screen_test.dart`'s `_kMasterA` /
 // `_kMasterB` / `_kCatalogService` / `_kCatalog` / `_coverageAOnly()` exactly
 // (fixture-parity is deliberate — any drift would be its own bug), plus a
-// three-review rating on master A so `MasterRatingReadout` also renders in
-// the covering (undimmed) tile for a fuller comparison.
+// three-review rating on master A so `MasterRatingReadout` also renders.
 //
 // Clock: pinned to the same `_kNow` (Aug 10, 2026 Kyiv midday) as the sibling
 // widget-test file, for the same reason — the calendar's "today" cell must
@@ -63,14 +67,17 @@
 //
 // Matrix: {320, 360, 414} dp x {textScale 1.0, 1.3} = 6 PNGs.
 //
-// PHASE 341 D6 (2026-09-18) — ADDITIVE second scenario, 6 more PNGs
+// PHASE 341 D6 (2026-09-18) — second scenario, 6 more PNGs
 // (`salon_master_tile_multi_masters_*`), proportional to the original run
 // above rather than forked into a new file: THREE services picked, master A
-// covering all three (no price/duration line — `widget.services.length ==
-// 1` is false) and master B covering two of three (dimmed — the "every"
-// rule's own discriminating case, phase 335 D2 / phase 341 D3). The original
-// 6 `salon_master_tile_masters_*` baselines are untouched — see this file's
-// own test scope note for the byte-identity check.
+// covering all three AND having a free slot (no price/duration line —
+// `widget.services.length == 1` is false; no pill), master B ALSO covering
+// all three but with NO free slot — disabled, «Немає вільного часу» (see
+// this scenario's own fixtures section above for the 2026-09-18 rewrite —
+// this used to be a 2-of-3 partial-coverage/dimmed pairing, phase 335 D2 /
+// phase 341 D3, before non-covering masters were hidden outright). The
+// original 6 `salon_master_tile_masters_*` baselines are NOT untouched
+// this round — see the scenario-1 header above for what changed there too.
 
 import 'package:alchemist/alchemist.dart';
 import 'package:dio/dio.dart';
@@ -163,25 +170,38 @@ Map<String, Map<String, String>> _coverageAOnly() =>
 // fixture's identity, never now-relative.
 final DateTime _kNow = DateTime.utc(2026, 8, 10, 9); // 12:00 Kyiv, Aug 10.
 
+// future-date-ok: fixed twin of _kNow — the same clock-override day, see
+// above. Master A's own free slot — see `_FakeSlotRepository` below.
+final DateTime _kSlotStart = DateTime.utc(2026, 8, 10, 10); // 13:00 Kyiv.
+final BookingSlot _kGoldenSlot = BookingSlot(
+  startAt: _kSlotStart,
+  endAt: _kSlotStart.add(const Duration(minutes: 60)),
+  available: true,
+);
+
 // ---------------------------------------------------------------------------
 // PHASE 341 D6 — multi-service (3-picked) fixtures for the SECOND scenario
-// below. The single-service world above already pins the dim face for a
-// master covering ZERO of the ONE selected service (master B, absent from
-// the coverage map). What it does NOT cover — and what phase 335's "every,
-// not any" rule actually introduced — is a master covering SOME-but-not-ALL
-// of a multi-service visit (D3's "two of three" case). `_offers` is a plain
-// `assignmentIds != null` boolean (`salon_booking_wizard_steps.dart:726`),
-// so the DIM PIXELS a 2-of-3 miss produces are identical to a 0-of-1 miss —
-// but the tile's face is not otherwise identical: with 3 services selected,
-// `widget.services.length == 1` is false, so the duration/price line
-// (`if (_offers && widget.services.length == 1)`, `salon_booking_wizard
-// _steps.dart:865-866`) never renders even for the FULLY-covering master —
-// a layout delta the single-service golden above cannot exercise at all.
+// below.
+//
+// 2026-09-18 real-device fix — REWRITTEN premise. This scenario used to pin
+// master B covering TWO of three selected services (D3's "every, not any"
+// discriminating case) — dimmed, per the old non-covering face. That face no
+// longer exists: a master who fails the "every" rule is HIDDEN outright now
+// (see the file-level header), so a 2-of-3 miss would render NOTHING to
+// golden, not a dimmed tile. This scenario is repurposed instead to pin the
+// state that inherited the dim treatment: master B COVERS all three
+// services (same as master A — see `_coverageBothFull` below) but has NO
+// FREE TIME on the picked day (`_FakeSlotRepository` returns `[]` for
+// master B specifically), rendering disabled with «Немає вільного часу».
+// This still gives a reviewer two faces to diff side by side — a bookable
+// covering tile (master A, no pill) against a covering-but-slotless one
+// (master B, disabled) — same comparative value the old premise had, just
+// keyed on free time instead of coverage.
 //
 // Fixtures mirror `salon_create_booking_screen_test.dart`'s `_kMultiCatalog`
 // (PHASE 253) exactly. Master A covers all three (full face, no price
-// line); master B covers two of three — `salon-svc-1`/`salon-svc-2`, missing
-// `salon-svc-3` — the discriminating case D3 asks for.
+// line — `widget.services.length == 1` is false with 3 selected); master B
+// also covers all three now, but is disabled for lack of free time.
 // ---------------------------------------------------------------------------
 
 const SalonCatalogService _kCatalogService2 = SalonCatalogService(
@@ -218,13 +238,13 @@ const List<SalonServiceCategoryEntry> _kMultiCatalog =
       ),
     ];
 
-/// Master A covers ALL three selected services (assignment ids distinct
-/// from every `serviceDefId`, per D3's id-space note); master B covers only
-/// TWO of the three (`salon-svc-1`, `salon-svc-2`) — missing `salon-svc-3`
-/// is what makes `_resolveOrderedAssignments` return `null` for master B
-/// (`salon_booking_wizard_steps.dart:548-560`), the "every" rule's own
-/// discriminating case.
-Map<String, Map<String, String>> _coveragePartial() =>
+/// Both masters cover ALL three selected services (assignment ids distinct
+/// from every `serviceDefId`, per D3's id-space note) — 2026-09-18: master B
+/// used to cover only two of three here (the "every" rule's discriminating
+/// case); it is now fully covering too, and disabled instead via
+/// `_FakeSlotRepository` returning `[]` for its masterId — see this
+/// section's header.
+Map<String, Map<String, String>> _coverageBothFull() =>
     <String, Map<String, String>>{
       _kMasterA.masterId: <String, String>{
         _kCatalogService.id: 'assignment-a-1',
@@ -234,6 +254,7 @@ Map<String, Map<String, String>> _coveragePartial() =>
       _kMasterB.masterId: <String, String>{
         _kCatalogService.id: 'assignment-b-1',
         _kCatalogService2.id: 'assignment-b-2',
+        _kCatalogService3.id: 'assignment-b-3',
       },
     };
 
@@ -242,6 +263,14 @@ Map<String, Map<String, String>> _coveragePartial() =>
 // ---------------------------------------------------------------------------
 
 class _FakeSlotRepository implements SlotRepository {
+  // 2026-09-18 — `SalonDateStep`'s fan-out gate (own doc:
+  // `salon_booking_wizard_steps.dart`) now genuinely calls this while this
+  // suite drives through the dateTime step (`_driveToMasters`/
+  // `_driveToMastersMulti`, both `tapCalendarDay(10)`). Every date in the
+  // requested range resolves `working: true` — this suite never exercises
+  // the grey-out gate itself (that is `salon_create_booking_screen_test
+  // .dart`'s job), it only needs Aug 10 to stay tappable, exactly as before
+  // this fetch existed.
   @override
   Future<List<WorkingDay>> getWorkingDays({
     required String masterId,
@@ -249,17 +278,26 @@ class _FakeSlotRepository implements SlotRepository {
     required DateTime to,
     List<String>? serviceIds,
     CancelToken? cancelToken,
-  }) => throw UnimplementedError(
-    'SalonDateStep never fetches working days — see its own doc.',
-  );
+  }) async => <WorkingDay>[
+    for (DateTime d = from; !d.isAfter(to); d = d.add(const Duration(days: 1)))
+      WorkingDay(date: d, working: true),
+  ];
 
+  // 2026-09-18 real-device fix — `_SalonMasterTile` now watches this
+  // eagerly for every rendered (covering) tile, to know up front whether it
+  // has free time. Master A always gets [_kGoldenSlot] (the bookable,
+  // no-pill face); every other master — master B in the multi-service
+  // scenario, the only OTHER master either scenario ever renders — gets
+  // `[]` (the disabled, «Немає вільного часу» face).
   @override
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
     required List<String> serviceIds,
     required DateTime date,
     CancelToken? cancelToken,
-  }) async => const <BookingSlot>[];
+  }) async => masterId == _kMasterA.masterId
+      ? <BookingSlot>[_kGoldenSlot]
+      : const <BookingSlot>[];
 }
 
 class _FakeBookingRepository implements BookingRepository {
@@ -368,7 +406,7 @@ List<Object> _overrides() => <Object>[
 ];
 
 /// PHASE 341 D6 — same shape as [_overrides], multi-service catalogue +
-/// partial-coverage map (see the fixtures' own doc above).
+/// both-covering map (see the fixtures' own doc above).
 List<Object> _overridesMulti() => <Object>[
   salonMastersRosterProvider.overrideWith(
     (ref, String salonId) async => const <SalonMasterSummary>[
@@ -377,7 +415,7 @@ List<Object> _overridesMulti() => <Object>[
     ],
   ),
   salonMasterServiceCoverageProvider.overrideWith(
-    (ref, args) async => _coveragePartial(),
+    (ref, args) async => _coverageBothFull(),
   ),
   salonServiceCatalogProvider.overrideWith(
     (ref, String salonId) async => _kMultiCatalog,
@@ -388,8 +426,9 @@ List<Object> _overridesMulti() => <Object>[
 ];
 
 // ---------------------------------------------------------------------------
-// Drive sequence — client → service → dateTime → masters (both tiles
-// visible, neither expanded — the exact frame the `Opacity` wraps).
+// Drive sequence — client → service → dateTime → masters (every rendered
+// tile visible, neither expanded — the exact frame the `Opacity` wrapped,
+// back when a non-covering tile was dimmed rather than hidden).
 // ---------------------------------------------------------------------------
 
 Future<void> _driveToMasters(WidgetTester tester) async {
@@ -570,9 +609,11 @@ void main() {
       );
 
       // PHASE 341 D6 — multi-service (3-picked) world: master A covers all
-      // three (full face, no price line — 341's own layout delta), master B
-      // covers two of three (dimmed — the "every" rule's discriminating
-      // case, D3).
+      // three AND has a free slot (full face, no price line — 341's own
+      // layout delta, no pill). Master B ALSO covers all three but has no
+      // free slot — disabled, «Немає вільного часу» (2026-09-18: used to
+      // be a 2-of-3 partial-coverage/dimmed case, D3 — see the fixtures'
+      // own doc above for the rewrite).
       goldenTest(
         'salon_master_tile multi-service masters ${width.toInt()}dp '
         'text-${scale}x',
