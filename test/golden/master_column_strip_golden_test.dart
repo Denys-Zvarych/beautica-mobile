@@ -12,22 +12,29 @@
 // Three cells, one per state, in one image each so the three can be diffed
 // against each other by eye:
 //
-//  1. BOOKED — camel figure, full-strength name, full-strength avatar.
+//  1. BOOKED — full-strength name, full-strength avatar.
 //  2. FREE — the master IS working and has nothing booked: dimmed avatar,
-//     muted name, «вільно».
+//     muted name.
 //  3. DAY OFF — the master is NOT working: the SAME de-emphasis as cell 2 (it
-//     is deliberately one `quiet` flag, not two styles that could drift) with
-//     «Вихідний» in place of «вільно».
+//     is deliberately one `quiet` flag, not two styles that could drift).
 //
 // THE POLICY CELLS 2 AND 3 ENCODE, MECHANICALLY
 // ---------------------------------------------
-// Cells 2 and 3 differ ONLY in the trailing word. That is the design decision
-// — one de-emphasis, two statements — and the parity test at the bottom of
-// this file is its mechanical form: it asserts the free and day-off baselines
-// are NOT byte-identical (the word must actually change, or the fix is
-// invisible) while both differ from the booked one. Without that pair, a
-// regenerated cell 3 would happily bake in "identical to cell 2" and the whole
-// point of the phase would sail through green.
+// The chip no longer DRAWS a trailing load readout in any state — not the
+// booking figure, not «вільно», not «Вихідний». Those three words were the
+// only thing that ever separated cell 2 from cell 3, so the policy INVERTED:
+// the two quiet baselines must now be byte-IDENTICAL, and the parity test at
+// the bottom of this file is that statement's mechanical form. It is not a
+// weakening — a chip that started styling `dayOff` differently from `free`,
+// or that brought any readout back in one quiet state and not the other,
+// fails there. Both must still differ from the BOOKED cell, which is what
+// pins the `quiet` de-emphasis (dimmed avatar, muted name) that the readout
+// removal deliberately KEPT.
+//
+// «Вихідний» itself did not disappear from the product: it moved to the
+// grid's day-off column overlay (`bookings_timeline_grid.dart`) and to the
+// chip's Semantics label, both covered structurally by the day-off column
+// test named below.
 //
 // A NOTE ON WHAT THESE BASELINES ARE NOT
 // --------------------------------------
@@ -103,9 +110,10 @@ void main() {
   const Size cell = Size(_kColumnWidth + 24, 100);
   const double width = 360;
 
-  // Cell 1 — BOOKED. The unchanged, pre-phase-336 loaded state.
+  // Cell 1 — BOOKED. Full-strength chip; the camel figure it once carried is
+  // gone with the rest of the readout.
   goldenTest(
-    'master_column_strip booked (camel figure, full-strength chip)',
+    'master_column_strip booked (full-strength chip, no readout)',
     fileName: _kBookedFile,
     constraints: BoxConstraints.tight(cell),
     textScaleFactor: 1.0,
@@ -113,9 +121,9 @@ void main() {
     builder: () => _host(_strip(count: 3)),
   );
 
-  // Cell 2 — FREE. Working, nothing booked. Unchanged by phase 336.
+  // Cell 2 — FREE. Working, nothing booked: quiet, and wordless.
   goldenTest(
-    'master_column_strip free (working, nothing booked — «вільно»)',
+    'master_column_strip free (working, nothing booked — quiet, no readout)',
     fileName: _kFreeFile,
     constraints: BoxConstraints.tight(cell),
     textScaleFactor: 1.0,
@@ -123,9 +131,9 @@ void main() {
     builder: () => _host(_strip(count: 0)),
   );
 
-  // Cell 3 — DAY OFF. Phase 336's new state.
+  // Cell 3 — DAY OFF. Phase 336's state, now visually equal to cell 2.
   goldenTest(
-    'master_column_strip day off (not working at all — «Вихідний»)',
+    'master_column_strip day off (not working at all — quiet, no readout)',
     fileName: _kDayOffFile,
     constraints: BoxConstraints.tight(cell),
     textScaleFactor: 1.0,
@@ -133,8 +141,8 @@ void main() {
     builder: () => _host(_strip(count: 0, dayOff: true)),
   );
 
-  // ── The "one de-emphasis, two statements" policy, mechanically ───────────
-  group('quiet-state parity (phase 336)', () {
+  // ── The "one de-emphasis, no statement" policy, mechanically ────────────
+  group('quiet-state parity', () {
     File goldenFile(String name) => File('test/golden/goldens/$name.png');
 
     List<int> bytes(String name) {
@@ -150,19 +158,21 @@ void main() {
       return f.readAsBytesSync();
     }
 
-    test('the DAY-OFF baseline differs from the FREE one — otherwise the state '
-        'the whole phase adds is invisible', () {
+    test('the DAY-OFF baseline is byte-IDENTICAL to the FREE one — the words '
+        'that separated them are no longer drawn', () {
       expect(
         bytes(_kDayOffFile),
-        isNot(orderedEquals(bytes(_kFreeFile))),
+        orderedEquals(bytes(_kFreeFile)),
         reason:
-            'an off master and a free master must not look the same: that '
-            'IS the bug this phase fixes. A chip that stopped picking up '
-            '`dayOff` shows up here even after a regeneration.',
+            'the chip draws no load readout in either quiet state, and the '
+            'de-emphasis is ONE `quiet` flag rather than two styles. Any '
+            'pixel between them means a readout came back in one state, or '
+            '`dayOff` grew a style fork of its own.',
       );
     });
 
-    test('both quiet baselines differ from the BOOKED one', () {
+    test('both quiet baselines differ from the BOOKED one — the de-emphasis '
+        'the readout removal deliberately KEPT', () {
       expect(bytes(_kFreeFile), isNot(orderedEquals(bytes(_kBookedFile))));
       expect(bytes(_kDayOffFile), isNot(orderedEquals(bytes(_kBookedFile))));
     });

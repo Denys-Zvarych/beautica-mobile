@@ -1838,7 +1838,8 @@ abstract final class VelvetText {
   // ---------------------------------------------------------------------------
   // SALON BOARD ROSTER CHIP (Phase 21.12) — `MasterColumnStrip`
   // ---------------------------------------------------------------------------
-  // One chip is 148dp wide at the 360dp baseline, so its four lines are set a
+  // One chip is 148dp wide at the 360dp baseline, so its three lines (name,
+  // subtitle, rating — the trailing load readout was removed) are set a
   // step below the identity card they mirror (`masterStripName` 13 sp →
   // `timelineColumnName` 12 sp, and so on). Cached as tokens rather than
   // inlined `copyWith`s for the same two reasons the ruler labels above are:
@@ -1872,21 +1873,6 @@ abstract final class VelvetText {
     fontSize: 9.5,
     letterSpacing: 0,
     color: BrandColors.textSecondary,
-  );
-
-  /// Roster-chip booking count for the shown day — accentDeep, so the one
-  /// number the owner is scanning for is the one thing that carries the brand
-  /// colour inside the chip.
-  static final TextStyle timelineColumnCount = _statCaptionStyle.copyWith(
-    fontSize: 9.5,
-    letterSpacing: 0,
-    color: BrandColors.accentDeep,
-  );
-
-  /// [timelineColumnCount]'s «вільно» counterpart — muted, because an empty
-  /// column is information, not an alert.
-  static final TextStyle timelineColumnCountFree = timelineColumnCount.copyWith(
-    color: BrandColors.muted,
   );
 
   /// The salon board's empty-column marker, centred in a master column with

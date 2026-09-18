@@ -294,15 +294,44 @@ void main() {
   });
 
   group('the roster chip', () {
-    testWidgets('reads «Вихідний», never «вільно», for an off master', (
+    testWidgets('draws NO load readout — the words moved to the column '
+        'marker and to speech, the chip keeps only the identity', (
       WidgetTester tester,
     ) async {
       await _pump(tester, mixedBoard());
-      // m2 is working-and-free, m3 is off — both have zero bookings, and the
-      // chip must still say two different things.
-      expect(find.text(_uk.salonBookingsMasterColumnFree), findsOneWidget);
-      // «Вихідний» appears twice: the chip AND the column marker beneath it.
-      expect(find.text(_uk.salonBookingsColumnDayOff), findsNWidgets(2));
+      // m1 is booked (1), m2 is working-and-free, m3 is off. None of the
+      // three readout spellings the chip used to draw survives on it.
+      expect(find.text(_uk.salonBookingsMasterColumnFree), findsNothing);
+      expect(find.text('1'), findsNothing);
+      expect(find.text(_uk.masterBookingsCount(1)), findsNothing);
+      // «Вихідний» now appears EXACTLY ONCE — the grid's column marker under
+      // the chip, which this phase deliberately leaves alone. Two would mean
+      // the chip still draws it; zero would mean the marker regressed too.
+      expect(find.text(_uk.salonBookingsColumnDayOff), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(MasterColumnStrip),
+          matching: find.text(_uk.salonBookingsColumnDayOff),
+        ),
+        findsNothing,
+        reason: 'the surviving «Вихідний» is the GRID marker, not the chip',
+      );
+
+      // NOT VACUOUS: the chips are all still there, rendering the master
+      // identity they exist for.
+      for (final String name in <String>[
+        'Оля Коваль',
+        'Ніна Бойко',
+        'Іра Ткач',
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byType(MasterColumnStrip),
+            matching: find.text(name),
+          ),
+          findsOneWidget,
+        );
+      }
     });
 
     testWidgets('exposes the off state to a screen reader', (

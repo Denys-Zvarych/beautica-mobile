@@ -350,17 +350,30 @@ void main() {
     // point is that the chip re-reads them, and a hard-coded literal would
     // both couple this test to today's copy and trip
     // `forbid_cyrillic_finder.sh`.
+    //
+    // The probe is the chip's ROLE SUB-LINE (`masterRoleLabel`), not the
+    // trailing load readout it used to be: that readout no longer renders in
+    // any state. The sub-line is the chip's remaining l10n-sourced text, so
+    // it carries the same proof — all three entries are `salonMaster` with no
+    // `professionalTitle`, so all three fall back to the role label.
     final AppLocalizations uk = await AppLocalizations.delegate.load(
       const Locale('uk'),
     );
     final AppLocalizations en = await AppLocalizations.delegate.load(
       const Locale('en'),
     );
+    expect(
+      uk.masterRoleSalonMaster,
+      isNot(en.masterRoleSalonMaster),
+      reason:
+          'the two locales must genuinely differ here, or the flip below '
+          'proves nothing',
+    );
 
     final _HostController c = _HostController();
     await tester.pumpApp(_Host(state: c), width: 900);
     await tester.pump();
-    expect(find.text(uk.salonBookingsMasterColumnFree), findsOneWidget);
+    expect(find.text(uk.masterRoleSalonMaster), findsNWidgets(3));
 
     await tester.pumpApp(
       _Host(state: c),
@@ -370,13 +383,117 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text(en.salonBookingsMasterColumnFree),
-      findsOneWidget,
+      find.text(en.masterRoleSalonMaster),
+      findsNWidgets(3),
       reason:
           'updateChild skipping an identical widget does not remove elements '
           'from the dirty list — the chip rebuilds itself on the locale flip',
     );
+    expect(find.text(uk.masterRoleSalonMaster), findsNothing);
+  });
+
+  // ── the readout that is GONE ─────────────────────────────────────────────
+
+  testWidgets('the chip renders NO trailing load readout in any state — not '
+      'the booking figure, not «вільно», not «Вихідний» — while still '
+      'rendering the master identity it exists for', (
+    WidgetTester tester,
+  ) async {
+    final AppLocalizations uk = await AppLocalizations.delegate.load(
+      const Locale('uk'),
+    );
+
+    final _HostController c = _HostController();
+    // `_a`/`_b` are booked (2 each), `_freeC` has none; add a fourth that is
+    // OFF, so all three former readout states are on screen at once.
+    c.entries = <MasterColumnEntry>[
+      _a,
+      _b,
+      _freeC,
+      _entry('m4', name: 'Іра Ткач', bookingCount: 0, dayOff: true),
+    ];
+    await tester.pumpApp(_Host(state: c), width: 900);
+    await tester.pump();
+
+    // 1. The two quiet captions are gone from the strip.
     expect(find.text(uk.salonBookingsMasterColumnFree), findsNothing);
+    expect(find.text(uk.salonBookingsColumnDayOff), findsNothing);
+    // 2. …and so is the booked figure, in BOTH the bare («2») and the phrased
+    //    («2 записи») spellings the chip has historically used.
+    expect(find.text('2'), findsNothing);
+    expect(find.text(uk.masterBookingsCount(2)), findsNothing);
+
+    // 3. NOT VACUOUS: every chip still renders the identity it exists for —
+    //    the master's NAME and the role sub-line — so a change that gutted
+    //    the chip cannot pass this test.
+    //
+    //    Located by KEY and asserted against the name the fixture SEEDED
+    //    (`e.name`), never against a spelled-out literal: a hard-coded
+    //    Cyrillic `find.text` would both couple this test to the UA locale
+    //    (`forbid_cyrillic_finder.sh`) and let the assertion drift away from
+    //    the data it is supposed to be checking.
+    for (final MasterColumnEntry e in c.entries) {
+      final Finder chip = _chip(e.masterId);
+      expect(chip, findsOneWidget);
+      expect(
+        find.descendant(of: chip, matching: find.text(e.name)),
+        findsOneWidget,
+        reason: '${e.masterId} must still render its master name',
+      );
+      expect(
+        find.descendant(
+          of: chip,
+          matching: find.text(uk.masterRoleSalonMaster),
+        ),
+        findsOneWidget,
+        reason: '${e.masterId} must still render its role sub-line',
+      );
+    }
+    expect(find.text(uk.masterRoleSalonMaster), findsNWidgets(4));
+  });
+
+  testWidgets('the load the chip stopped DRAWING is still SPOKEN — a screen '
+      'reader has no grid to scan', (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    final AppLocalizations uk = await AppLocalizations.delegate.load(
+      const Locale('uk'),
+    );
+
+    final MasterColumnEntry offD = _entry(
+      'm4',
+      name: 'Іра Ткач',
+      bookingCount: 0,
+      dayOff: true,
+    );
+    final _HostController c = _HostController();
+    c.entries = <MasterColumnEntry>[_a, _freeC, offD];
+    await tester.pumpApp(_Host(state: c), width: 900);
+    await tester.pump();
+
+    // A RegExp, not the bare string: the chip's `Semantics` node MERGES its
+    // descendants, so the node's own label is this phrase plus whatever the
+    // merged children contribute, and `bySemanticsLabel(String)` compares for
+    // EQUALITY.
+    void expectSpoken(MasterColumnEntry e, String load) => expect(
+      find.bySemanticsLabel(
+        RegExp(
+          RegExp.escape(
+            uk.salonBookingsMasterColumnSemantics(
+              e.name,
+              uk.masterRoleSalonMaster,
+              load,
+            ),
+          ),
+        ),
+      ),
+      findsOneWidget,
+      reason: 'the «$load» load must survive as speech for ${e.masterId}',
+    );
+
+    expectSpoken(_a, uk.masterBookingsCount(2));
+    expectSpoken(_freeC, uk.salonBookingsMasterColumnFree);
+    expectSpoken(offD, uk.salonBookingsColumnDayOff);
+    handle.dispose();
   });
 }
 

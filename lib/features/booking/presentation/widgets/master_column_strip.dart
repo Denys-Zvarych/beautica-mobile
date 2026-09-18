@@ -27,7 +27,7 @@
 //     [MasterStrip.build] uses, so «Майстер салону» reads identically here and
 //     on the booking wizard.
 //
-// What is genuinely new is the vertical stack and the day's booking count.
+// What is genuinely new is the vertical stack.
 //
 // ============================================================================
 // IT OWNS NO SCROLL CONTROLLER
@@ -76,14 +76,17 @@ class MasterColumnEntry {
   /// Role / tenure type — the sub-line fallback when no title is set.
   final MasterType type;
 
-  /// How many bookings this master has on the SHOWN day. `0` renders the
-  /// «вільно» state and dims the avatar.
+  /// How many bookings this master has on the SHOWN day. `0` puts the chip in
+  /// its quiet form — dimmed avatar, muted name. The chip renders no figure:
+  /// the count is SPOKEN in the Semantics label only (see [_MasterColumnChip.build])
+  /// because the grid directly below already shows the cards themselves.
   final int bookingCount;
 
   /// Phase 336 — this master is NOT WORKING on the shown day (a settled day
-  /// off, or no schedule at all). Renders the chip in its quiet form with
-  /// «Вихідний» in place of the booking figure, and greys that master's whole
-  /// grid column — see [BookingsTimelineGrid]'s `_BoardStack`.
+  /// off, or no schedule at all). Renders the chip in its quiet form (the
+  /// «Вихідний» wording it once carried is now spoken, not drawn) and greys
+  /// that master's whole grid column — where «Вихідний» IS still drawn, as the
+  /// column overlay: see [BookingsTimelineGrid]'s `_BoardStack`.
   ///
   /// ⚠ DEFAULTS TO `false`, AND `false` MEANS "NOT KNOWN TO BE OFF", NEVER
   /// "WORKING". Every pre-existing call site omits it and renders exactly as
@@ -315,12 +318,18 @@ class _MasterColumnChip extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool free = entry.bookingCount == 0;
     // Phase 336 — the two quiet states share the chip's DE-EMPHASIS (dimmed
-    // avatar, muted name) and differ only in the trailing readout below. A
-    // master who is off always has nothing booked in practice, so `free` is
-    // usually true alongside `dayOff`; the readout checks `dayOff` FIRST so
-    // «Вихідний» ("not working") is never overwritten by «вільно» ("working,
-    // free"), which is the weaker and, on an off day, the wrong statement.
+    // avatar, muted name). A master who is off always has nothing booked in
+    // practice, so `free` is usually true alongside `dayOff`.
     final bool quiet = free || entry.dayOff;
+    // SPOKEN ONLY — the chip renders NO trailing load readout any more (the
+    // owner asked for the strip to carry identity, not a second copy of the
+    // figure the grid below already shows). The load survives here purely as
+    // the third placeholder of the Semantics label: a screen-reader user has
+    // no grid to scan and would otherwise lose the information outright.
+    //
+    // `dayOff` is checked FIRST so «Вихідний» ("not working") is never
+    // overwritten by «вільно» ("working, free"), which is the weaker and, on
+    // an off day, the wrong statement.
     final String load = entry.dayOff
         ? l10n.salonBookingsColumnDayOff
         : (free
@@ -412,35 +421,19 @@ class _MasterColumnChip extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
-                    Row(
-                      children: <Widget>[
-                        // The SHARED rating readout, in its compact form. The
-                        // review COUNT is dropped at this width — `compact`
-                        // suppresses it — so the trailing figure below is
-                        // unambiguously the day's booking count.
-                        MasterRatingReadout(
-                          avgRating: entry.avgRating,
-                          reviewCount: 0,
-                          compact: true,
-                        ),
-                        const SizedBox(width: VelvetSpacing.xs + 1),
-                        Flexible(
-                          child: Text(
-                            // The SEMANTIC label and the visible one agree on
-                            // every state but the booked one, where the chip
-                            // shows the bare figure ("3") and the screen
-                            // reader hears the full «3 записи» — see [load].
-                            entry.dayOff || free
-                                ? load
-                                : '${entry.bookingCount}',
-                            style: quiet
-                                ? VelvetText.timelineColumnCountFree
-                                : VelvetText.timelineColumnCount,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                    // The SHARED rating readout, in its compact form — the
+                    // review COUNT is dropped at this width (`compact`
+                    // suppresses it). It is now the LAST line of the chip:
+                    // the trailing load readout that used to sit beside it
+                    // («3» / «вільно» / «Вихідний») no longer renders in any
+                    // state, so the separator and the `Row` that held the two
+                    // side by side went with it rather than leaving a
+                    // one-child row and a dangling gap. The load is still
+                    // announced — see the Semantics label above.
+                    MasterRatingReadout(
+                      avgRating: entry.avgRating,
+                      reviewCount: 0,
+                      compact: true,
                     ),
                   ],
                 ),

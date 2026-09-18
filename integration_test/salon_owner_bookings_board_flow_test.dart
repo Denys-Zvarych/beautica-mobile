@@ -47,6 +47,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -673,28 +674,93 @@ void main() {
           isNot(l10n.salonBookingsColumnFreeDay),
         );
 
-        // ── 3. THE ROSTER CHIP agrees with the column beneath it ───────────
-        expect(
-          find.descendant(
-            of: find.byKey(
-              const ValueKey<String>('salon-bookings-column-chip-master-aaa'),
+        // ── 3. THE ROSTER CHIP draws NO load readout, in any state ─────────
+        // The chip used to echo the column's word («Вихідний» / «вільно») and
+        // the booking figure. It no longer draws any of the three — the
+        // column marker below it and the chip's Semantics label carry that
+        // information now. Asserted per chip, paired with the master's NAME
+        // so a chip that lost its whole content cannot pass here.
+        for (final String masterId in <String>[
+          'master-aaa', // OFF
+          'master-ddd', // unknown → working, nothing booked
+          'master-ccc', // working, has a card
+        ]) {
+          final Finder chip = find.byKey(
+            ValueKey<String>('salon-bookings-column-chip-$masterId'),
+          );
+          expect(chip, findsOneWidget);
+          for (final String gone in <String>[
+            l10n.salonBookingsColumnDayOff,
+            l10n.salonBookingsMasterColumnFree,
+            l10n.masterBookingsCount(1),
+            '1',
+          ]) {
+            expect(
+              find.descendant(of: chip, matching: find.text(gone)),
+              findsNothing,
+              reason: '$masterId\'s chip must draw no load readout («$gone»)',
+            );
+          }
+          final MasterColumnEntry entry = entries.firstWhere(
+            (MasterColumnEntry e) => e.masterId == masterId,
+          );
+          expect(
+            find.descendant(of: chip, matching: find.text(entry.name)),
+            findsOneWidget,
+            reason: 'the chip still carries the master identity it exists for',
+          );
+          // mobile-qa STRENGTHENING (2026-09-18) — the name alone is a weak
+          // positive control: it is the chip's FIRST `Text`, drawn by a
+          // different branch of the widget from the sub-stack the readout was
+          // deleted out of. A change that gutted that whole sub-stack (rating
+          // readout included) would still leave the name standing and satisfy
+          // every `findsNothing` above. So also pin the readout's surviving
+          // NEIGHBOUR — the line the removal deliberately promoted to last.
+          expect(
+            find.descendant(
+              of: chip,
+              matching: find.byType(MasterRatingReadout),
             ),
-            matching: find.text(l10n.salonBookingsColumnDayOff),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: find.byKey(
-              const ValueKey<String>('salon-bookings-column-chip-master-ddd'),
-            ),
-            matching: find.text(l10n.salonBookingsMasterColumnFree),
-          ),
-          findsOneWidget,
-          reason:
-              'the unknown master reads «вільно» on the chip, matching the '
-              '«Вільний день» on their column',
-        );
+            findsOneWidget,
+            reason:
+                'the rating readout is what the deleted load line sat beside; '
+                'if it vanished too, the sub-stack was gutted rather than '
+                'trimmed, and the absence assertions above would be vacuous',
+          );
+
+          // ── THE LOAD MOVED, IT WAS NOT DELETED ──────────────────────────
+          // The whole point of this change is that the figure stops being
+          // DRAWN while still being SPOKEN — a screen-reader user has no grid
+          // to scan and would otherwise lose it outright. Asserting only the
+          // absence would pass identically against a version that dropped the
+          // information entirely, so pin the surviving channel here.
+          //
+          // `Semantics` WRAPS the keyed `GestureDetector`, so it is the chip
+          // finder's nearest ancestor of that type.
+          final String? spoken = tester
+              .widget<Semantics>(
+                find.ancestor(of: chip, matching: find.byType(Semantics)).first,
+              )
+              .properties
+              .label;
+          final String expectedLoad = entry.dayOff
+              ? l10n.salonBookingsColumnDayOff
+              : (entry.bookingCount == 0
+                    ? l10n.salonBookingsMasterColumnFree
+                    : l10n.masterBookingsCount(entry.bookingCount));
+          expect(
+            spoken,
+            contains(expectedLoad),
+            reason:
+                '$masterId\'s load must still be ANNOUNCED even though it is '
+                'no longer drawn',
+          );
+          expect(
+            spoken,
+            contains(entry.name),
+            reason: 'the label must still identify whose load it is',
+          );
+        }
 
         // ── 4. The working master's board is untouched ─────────────────────
         expect(
