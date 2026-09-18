@@ -5022,6 +5022,14 @@
   "@salonBookingNoCoveringMasterHint": {
     "description": "Empty-state hint guiding the client to adjust their service selection."
   },
+  "salonBookingNoCoveringMasterSingularTitle": "Жоден майстер не виконує цю послугу",
+  "@salonBookingNoCoveringMasterSingularTitle": {
+    "description": "Phase 335 — empty-state title when exactly ONE service is selected and no master performs it (distinct wording from the plural salonBookingNoCoveringMasterTitle, which reads oddly for a single service)."
+  },
+  "salonBookingNoCoveringMasterSingularHint": "Змініть послугу, щоб побачити доступних майстрів.",
+  "@salonBookingNoCoveringMasterSingularHint": {
+    "description": "Phase 335 — empty-state hint for the single-service no-covering-master case."
+  },
   "salonBookingMastersSectionLabel": "Доступні майстри",
   "@salonBookingMastersSectionLabel": {
     "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."

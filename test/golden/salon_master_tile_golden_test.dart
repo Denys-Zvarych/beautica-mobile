@@ -62,6 +62,15 @@
 // agree with the date advanced to deterministically.
 //
 // Matrix: {320, 360, 414} dp x {textScale 1.0, 1.3} = 6 PNGs.
+//
+// PHASE 341 D6 (2026-09-18) — ADDITIVE second scenario, 6 more PNGs
+// (`salon_master_tile_multi_masters_*`), proportional to the original run
+// above rather than forked into a new file: THREE services picked, master A
+// covering all three (no price/duration line — `widget.services.length ==
+// 1` is false) and master B covering two of three (dimmed — the "every"
+// rule's own discriminating case, phase 335 D2 / phase 341 D3). The original
+// 6 `salon_master_tile_masters_*` baselines are untouched — see this file's
+// own test scope note for the byte-identity check.
 
 import 'package:alchemist/alchemist.dart';
 import 'package:dio/dio.dart';
@@ -153,6 +162,80 @@ Map<String, Map<String, String>> _coverageAOnly() =>
 // future-date-ok: fixed clock-override instant; the exact day is the
 // fixture's identity, never now-relative.
 final DateTime _kNow = DateTime.utc(2026, 8, 10, 9); // 12:00 Kyiv, Aug 10.
+
+// ---------------------------------------------------------------------------
+// PHASE 341 D6 — multi-service (3-picked) fixtures for the SECOND scenario
+// below. The single-service world above already pins the dim face for a
+// master covering ZERO of the ONE selected service (master B, absent from
+// the coverage map). What it does NOT cover — and what phase 335's "every,
+// not any" rule actually introduced — is a master covering SOME-but-not-ALL
+// of a multi-service visit (D3's "two of three" case). `_offers` is a plain
+// `assignmentIds != null` boolean (`salon_booking_wizard_steps.dart:726`),
+// so the DIM PIXELS a 2-of-3 miss produces are identical to a 0-of-1 miss —
+// but the tile's face is not otherwise identical: with 3 services selected,
+// `widget.services.length == 1` is false, so the duration/price line
+// (`if (_offers && widget.services.length == 1)`, `salon_booking_wizard
+// _steps.dart:865-866`) never renders even for the FULLY-covering master —
+// a layout delta the single-service golden above cannot exercise at all.
+//
+// Fixtures mirror `salon_create_booking_screen_test.dart`'s `_kMultiCatalog`
+// (PHASE 253) exactly. Master A covers all three (full face, no price
+// line); master B covers two of three — `salon-svc-1`/`salon-svc-2`, missing
+// `salon-svc-3` — the discriminating case D3 asks for.
+// ---------------------------------------------------------------------------
+
+const SalonCatalogService _kCatalogService2 = SalonCatalogService(
+  id: 'salon-svc-2',
+  name: 'Педикюр',
+  durationLabel: '45 хв',
+  priceDisplay: '400 ₴',
+  durationMinutes: 45,
+  priceType: ServicePriceType.fixed,
+  priceMin: 400,
+);
+
+const SalonCatalogService _kCatalogService3 = SalonCatalogService(
+  id: 'salon-svc-3',
+  name: 'Покриття гель-лак',
+  durationLabel: '30 хв',
+  priceDisplay: '300 ₴',
+  durationMinutes: 30,
+  priceType: ServicePriceType.fixed,
+  priceMin: 300,
+);
+
+const List<SalonServiceCategoryEntry> _kMultiCatalog =
+    <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'NAILS',
+        displayName: 'Манікюр',
+        count: 3,
+        services: <SalonCatalogService>[
+          _kCatalogService,
+          _kCatalogService2,
+          _kCatalogService3,
+        ],
+      ),
+    ];
+
+/// Master A covers ALL three selected services (assignment ids distinct
+/// from every `serviceDefId`, per D3's id-space note); master B covers only
+/// TWO of the three (`salon-svc-1`, `salon-svc-2`) — missing `salon-svc-3`
+/// is what makes `_resolveOrderedAssignments` return `null` for master B
+/// (`salon_booking_wizard_steps.dart:548-560`), the "every" rule's own
+/// discriminating case.
+Map<String, Map<String, String>> _coveragePartial() =>
+    <String, Map<String, String>>{
+      _kMasterA.masterId: <String, String>{
+        _kCatalogService.id: 'assignment-a-1',
+        _kCatalogService2.id: 'assignment-a-2',
+        _kCatalogService3.id: 'assignment-a-3',
+      },
+      _kMasterB.masterId: <String, String>{
+        _kCatalogService.id: 'assignment-b-1',
+        _kCatalogService2.id: 'assignment-b-2',
+      },
+    };
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -284,6 +367,26 @@ List<Object> _overrides() => <Object>[
   clockProvider.overrideWithValue(() => _kNow),
 ];
 
+/// PHASE 341 D6 — same shape as [_overrides], multi-service catalogue +
+/// partial-coverage map (see the fixtures' own doc above).
+List<Object> _overridesMulti() => <Object>[
+  salonMastersRosterProvider.overrideWith(
+    (ref, String salonId) async => const <SalonMasterSummary>[
+      _kMasterA,
+      _kMasterB,
+    ],
+  ),
+  salonMasterServiceCoverageProvider.overrideWith(
+    (ref, args) async => _coveragePartial(),
+  ),
+  salonServiceCatalogProvider.overrideWith(
+    (ref, String salonId) async => _kMultiCatalog,
+  ),
+  slotRepositoryProvider.overrideWith((_) => _FakeSlotRepository()),
+  bookingRepositoryProvider.overrideWith((_) => _FakeBookingRepository()),
+  clockProvider.overrideWithValue(() => _kNow),
+];
+
 // ---------------------------------------------------------------------------
 // Drive sequence — client → service → dateTime → masters (both tiles
 // visible, neither expanded — the exact frame the `Opacity` wraps).
@@ -314,6 +417,43 @@ Future<void> _driveToMasters(WidgetTester tester) async {
   // calendar never mounts, so `tapCalendarDay` throws `Bad state: No element`.
   await tester.tap(find.byKey(const Key('mcb_service_card_salon-svc-1')));
   await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
+  await tester.pumpAndSettle();
+
+  await tester.tapCalendarDay(10);
+  await tester.pump();
+  await tester.tap(find.byKey(const Key('salon-create-booking-date-next')));
+  await tester.pumpAndSettle();
+}
+
+/// PHASE 341 D6 — same drive as [_driveToMasters], but marks THREE services
+/// (select-only, per PHASE 253's multi-select — no per-card advance) before
+/// hitting the pinned [BookingSummaryBar] CTA.
+Future<void> _driveToMastersMulti(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('master-create-booking-first-name')),
+    'Марина',
+  );
+  await tester.enterText(
+    find.byKey(const Key('master-create-booking-last-name')),
+    'Кравчук',
+  );
+  await tester.enterText(
+    find.byKey(const Key('master-create-booking-phone')),
+    '0501234567',
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(const Key('master-create-booking-client-next')));
+  await tester.pumpAndSettle();
+
+  for (final String id in <String>[
+    'salon-svc-1',
+    'salon-svc-2',
+    'salon-svc-3',
+  ]) {
+    await tester.tap(find.byKey(Key('mcb_service_card_$id')));
+    await tester.pump();
+  }
   await tester.tap(find.byKey(const Key('booking-summary-cta')));
   await tester.pumpAndSettle();
 
@@ -369,6 +509,48 @@ PumpWidget _wizardPump({required double width}) {
   };
 }
 
+/// PHASE 341 D6 — [_wizardPump] with [_overridesMulti] + [_driveToMastersMulti]
+/// swapped in; otherwise byte-for-byte the same scaffolding (router, l10n,
+/// viewport handling).
+PumpWidget _wizardPumpMulti({required double width}) {
+  return (WidgetTester tester, Widget alchemistWidget) async {
+    tester.view.physicalSize = Size(width, kGoldenHeight);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GoRouter router = GoRouter(
+      initialLocation: RouteNames.salonStaffBookingNew,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.salonStaffBookingNew,
+          builder: (BuildContext context, GoRouterState state) =>
+              alchemistWidget,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        retry: beauticaProviderRetry,
+        // ignore: avoid_dynamic_calls
+        overrides: _overridesMulti().cast(),
+        child: MaterialApp.router(
+          debugShowCheckedModeBanner: false,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _driveToMastersMulti(tester);
+    await tester.pumpAndSettle();
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Goldens
 // ---------------------------------------------------------------------------
@@ -384,6 +566,20 @@ void main() {
         constraints: BoxConstraints.tight(Size(width, kGoldenHeight)),
         textScaleFactor: scale,
         pumpWidget: _wizardPump(width: width),
+        builder: () => const SalonCreateBookingScreen(salonId: _kSalonId),
+      );
+
+      // PHASE 341 D6 — multi-service (3-picked) world: master A covers all
+      // three (full face, no price line — 341's own layout delta), master B
+      // covers two of three (dimmed — the "every" rule's discriminating
+      // case, D3).
+      goldenTest(
+        'salon_master_tile multi-service masters ${width.toInt()}dp '
+        'text-${scale}x',
+        fileName: 'salon_master_tile_multi_masters_$suffix',
+        constraints: BoxConstraints.tight(Size(width, kGoldenHeight)),
+        textScaleFactor: scale,
+        pumpWidget: _wizardPumpMulti(width: width),
         builder: () => const SalonCreateBookingScreen(salonId: _kSalonId),
       );
     }

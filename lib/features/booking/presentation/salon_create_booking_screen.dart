@@ -105,33 +105,32 @@
 // `CatalogueSelectionController` / ordered-list / cap-toggle mechanics,
 // which this screen owns its own instance of (never a shared instance
 // across the two wizards — each wizard is an independent widget subtree).
-// `SalonMastersStep`'s per-master coverage check, `confirm`, and `done`
-// still key off exactly one service (`_primaryService`, a TEMPORARY shim —
-// same as the master wizard's, see its doc).
+// `SalonMastersStep`'s per-master coverage check, `confirm`, and `_submit`
+// used to still key off exactly one service via a TEMPORARY `_primaryService`
+// shim (same as the pre-multi-service master wizard's own) — phases 335–340
+// closed that gap:
 //
-// DOC CORRECTION (found while implementing phases 254/255, reported rather
-// than silently deviated on): this comment used to say "until Phases
-// 254–256 widen them", but neither phase-254 nor phase-255's actual scope
-// (D1–D4, Files touched) mentions `SalonMastersStep` /
-// `salon_booking_wizard_steps.dart` at all — phase 254 widens ONLY
-// [DateTimeStep] (which this wizard never calls — see `SalonMastersStep`'s
-// own file header for why it can't reuse that widget), and phase 255 widens
-// ONLY [ConfirmStep]'s RENDERING. Widening THIS screen's `ConfirmStep` call
-// to the plural `services:` path without also widening `SalonMastersStep` to
-// resolve an assignment id per selected service (today it queries
-// `salonMasterServiceCoverageProvider` with a single-element
-// `selectedServiceIds` and `_submit` sends exactly one `assignmentId`) would
-// make the PRE-EXISTING phase-253 gap actively worse: confirm would show an
-// N-service visit total for a request that still only books service #1,
-// silently dropping the rest of what the walk-in guest was told they'd get.
-// So `confirm` stays on the legacy `service:` path here, `_primaryService`
-// remains genuinely load-bearing at all three of its current call sites
-// (`SalonMastersStep`, `ConfirmStep`, `_submit`), and the salon wizard's
-// multi-service walk-in support needs its own dedicated phase that widens
-// `SalonMastersStep`'s coverage/slot-fetch/`onPick` to an ordered list — the
-// same shape `SalonMasterSelectionScreen` (client flow) already resolves for
-// its own N-service coverage intersection, which that future phase should
-// reuse rather than re-derive.
+//   * Phase 335 — `SalonMastersStep` covers EVERY selected service: a master
+//     is bookable only if they cover the whole visit (`every`, not `any`),
+//     mirroring `project_salon_scheduling_is_per_master` (one master
+//     performs the whole visit).
+//   * Phase 336 — the `masters` step's slot fetch chains every selected
+//     service's assignment id, so the times it offers are times the whole
+//     visit actually fits (never sized to service #1 alone).
+//   * Phase 337 — `SalonMastersStep.onPick` returns every assignment id,
+//     ordered index-for-index with `_selectedServices`, and this screen holds
+//     them as `_assignmentIds` (a changed selection after a pick clears
+//     `_master`/`_assignmentIds`/`_startAt` — `_onToggleService`).
+//   * Phase 338 — `_submit` sends `masterServiceIds: _assignmentIds`
+//     (every selected service), and `_primaryService` is deleted.
+//   * Phase 339 — `confirm` renders `services: _selectedServices` (every
+//     service + one «Разом» total), reaching `ConfirmStep`'s already-built
+//     multi path (`booking_wizard_steps.dart`).
+//
+// Ordering was deliberate: 338 shipped BEFORE 339 so the wizard was never
+// caught mid-track displaying an N-service recap against a request that
+// still only booked service #1 (see phase 338/339's own "D0 — ORDERING"
+// decisions).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -217,15 +216,12 @@ class _SalonCreateBookingScreenState
   final List<MasterService> _selectedServices = <MasterService>[];
   DateTime? _date;
   SalonMasterSummary? _master;
-  String? _assignmentId;
-  DateTime? _startAt;
 
-  /// TEMPORARY single-service shim — see this file's header (D5's "confirm
-  /// stays on the legacy `service:` path" note) for why this screen, unlike
-  /// the master wizard, still keeps it: `SalonMastersStep`/`ConfirmStep`/
-  /// `_submit` all still key off exactly one service.
-  MasterService? get _primaryService =>
-      _selectedServices.isEmpty ? null : _selectedServices.first;
+  /// PHASE 337 — one assignment id per [_selectedServices] entry, index-
+  /// aligned (asserted where set). `SalonMastersStep.onPick`'s ordered
+  /// return value, stored verbatim.
+  List<String> _assignmentIds = <String>[];
+  DateTime? _startAt;
 
   /// PHASE 256 — mirrors `master_create_booking_screen.dart`'s identical
   /// field (own doc there) — the screen-owned reentrancy guard covering the
@@ -288,6 +284,15 @@ class _SalonCreateBookingScreenState
       } else {
         _selectedServices.removeWhere((MasterService s) => s.id == service.id);
       }
+      // PHASE 337 D3 — a changed selection invalidates any pick already
+      // made on `masters`: a stale `_assignmentIds` sized to the previous
+      // selection is the 409 of phase 336 by another route, and a stale
+      // `_master`/`_startAt` would submit a time chosen for a different
+      // visit. `service` is the only step this selection can change from
+      // after a pick, so it is the only step that needs the clear.
+      _master = null;
+      _assignmentIds = <String>[];
+      _startAt = null;
     });
     _selectionController.toggleService(service.id);
   }
@@ -313,18 +318,17 @@ class _SalonCreateBookingScreenState
     // `await` — a `ValueNotifier.value` read/write is exactly as synchronous
     // as the plain-field version it replaced (audit-fix cycle 1).
     if (_submitting.value) return;
-    final MasterService? service = _primaryService;
     final DateTime? startAt = _startAt;
     final SalonMasterSummary? master = _master;
-    final String? assignmentId = _assignmentId;
+    final List<String> assignmentIds = _assignmentIds;
     final String? phone = toE164UaPhone(_phoneCtrl.text);
     // Defensive — unreachable via the normal flow: `confirm` is only reached
     // once every field above is set (see `_buildStep`'s `masters` case), and
     // `client`'s Next is disabled until the phone normalizes.
-    if (service == null ||
+    if (_selectedServices.isEmpty ||
         startAt == null ||
         master == null ||
-        assignmentId == null ||
+        assignmentIds.isEmpty ||
         phone == null) {
       return;
     }
@@ -334,15 +338,13 @@ class _SalonCreateBookingScreenState
     _submitting.value = true;
 
     final CreateMasterBookingRequest request = CreateMasterBookingRequest(
-      // The chosen master's OWN per-master assignment id — NEVER
+      // PHASE 338 — every selected service's assignment id, in tap order.
+      // The chosen master's OWN per-master assignment ids — NEVER
       // `service.id`/`service.serviceDefId` (the salon-catalog id). See
-      // `SalonMastersStep.onPick`'s own doc.
-      //
-      // Phase 252 mechanical adaptation: the domain field widened from a
-      // scalar to an ORDERED list (the backend now creates a visit, not a
-      // single booking). This screen still selects exactly ONE service —
-      // Phase 253 is what lets the wizard build a real multi-element list.
-      masterServiceIds: <String>[assignmentId],
+      // `SalonMastersStep.onPick`'s own doc. Passed verbatim, no
+      // re-derivation, no re-sorting (phase 337 D2 already guarantees
+      // `_assignmentIds` is index-aligned with `_selectedServices`).
+      masterServiceIds: assignmentIds,
       startsAt: startAt,
       guest: WalkInGuest(
         name: _firstNameCtrl.text.trim(),
@@ -459,17 +461,17 @@ class _SalonCreateBookingScreenState
         return SalonMastersStep(
           key: const ValueKey<_BookingStep>(_BookingStep.masters),
           salonId: widget.salonId,
-          service: _primaryService!,
+          services: _selectedServices,
           date: _date!,
           onPick:
               (
                 SalonMasterSummary master,
-                String assignmentId,
+                List<String> assignmentIds,
                 BookingSlot slot,
               ) {
                 setState(() {
                   _master = master;
-                  _assignmentId = assignmentId;
+                  _assignmentIds = assignmentIds;
                   _startAt = slot.startAt;
                 });
                 _goTo(_BookingStep.confirm);
@@ -478,7 +480,7 @@ class _SalonCreateBookingScreenState
       case _BookingStep.confirm:
         return ConfirmStep(
           key: const ValueKey<_BookingStep>(_BookingStep.confirm),
-          service: _primaryService!,
+          services: _selectedServices,
           startAt: _startAt!,
           firstName: _firstNameCtrl.text.trim(),
           lastName: _lastNameCtrl.text.trim(),
@@ -714,14 +716,14 @@ class _SalonConfirmCtaFooter extends ConsumerWidget {
 // Done — success payoff, reuses BookingSuccessScaffold (see file header).
 // ---------------------------------------------------------------------------
 
-/// PHASE 256 (D3/D5) — mirrors `master_create_booking_screen.dart`'s
-/// `_DoneStep` (own doc there): renders the SERVER's [appointment], not the
-/// wizard's local selection. This wizard still only ever books ONE service
-/// per visit (D5 of the file header — `ConfirmStep` stays on the legacy
-/// `service:` path here), so [appointment.items] always has exactly one
-/// entry and the card keeps the `singleSelection:` (not `selections:`)
-/// rendering — matching what `ConfirmStep` already shows one step earlier,
-/// byte-for-byte, for the SAME visit.
+/// PHASE 338 (D5) — mirrors `master_create_booking_screen.dart`'s `_DoneStep`
+/// (own doc there): renders the SERVER's [appointment] — every ordered
+/// `items[]` entry, not the wizard's local selection. Before this phase the
+/// wizard only ever sent one service, so `items` always had exactly one
+/// entry; now the request carries every selected service's assignment id
+/// (phase 338 D1), and the done step must be able to show all of them —
+/// matching what `ConfirmStep` already shows one step earlier for the SAME
+/// visit (phase 339's `services:` swap).
 class _SalonDoneStep extends StatelessWidget {
   const _SalonDoneStep({required this.appointment, required this.onClose});
 
@@ -732,15 +734,24 @@ class _SalonDoneStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
-    final AppointmentItem item = appointment.items.single;
-    final BookingSelection selection = BookingSelection(
-      name: item.serviceName,
-      price: ServicePriceDisplay.formatRange(item.price, item.priceMax),
-      duration: DurationMinutes.format(item.durationMinutes),
-      durationMinutes: item.durationMinutes,
-      priceMin: item.price,
-      priceMax: item.priceMax,
-    );
+    // REUSE — the same per-item -> [BookingSelection] mapping `ConfirmStep`
+    // uses for its local selection (`booking_wizard_steps.dart:751-761`),
+    // just fed from the SERVER's `items[]` instead of the wizard's
+    // `MasterService` list. The «Разом» total is never summed here: passing
+    // `selections:` reaches `BookingRecap`'s existing `_BookingTotals.from`
+    // (via `formatBookingTotalsFromTerms`), the one place that knows how
+    // FIXED and RANGE prices combine (D1/D2).
+    final List<BookingSelection> selections = <BookingSelection>[
+      for (final AppointmentItem item in appointment.items)
+        BookingSelection(
+          name: item.serviceName,
+          price: ServicePriceDisplay.formatRange(item.price, item.priceMax),
+          duration: DurationMinutes.format(item.durationMinutes),
+          durationMinutes: item.durationMinutes,
+          priceMin: item.price,
+          priceMax: item.priceMax,
+        ),
+    ];
 
     return BookingSuccessScaffold(
       title: l10n.bookingSuccessTitle,
@@ -769,7 +780,7 @@ class _SalonDoneStep extends StatelessWidget {
             appointment.startAt,
             appointment.endAt,
           ),
-          singleSelection: selection,
+          selections: selections,
         ),
       ],
     );

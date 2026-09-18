@@ -534,32 +534,35 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
     context.push(RouteNames.salonStaffBookingDetail(booking.id));
   }
 
-  /// Phase 21.12 — THE PLACEHOLDER. The «+» control renders in its final
-  /// position and styling so the header's layout is settled and never has to
-  /// reflow when the flow lands; tapping it does nothing, on purpose.
+  /// Phase 340 — opens the approved 6-step salon «Новий запис» wizard.
   ///
-  /// ⚠ THIS IS THE ONE LINE TO REPLACE. Everything the wire-up needs already
-  /// exists and none of it is new work:
-  ///   * `bookingCreationEnabledProvider`
-  ///     (`features/booking/application/bookings_capability.dart`, phase 328)
-  ///     already resolves `true` for SALON_OWNER and SALON_ADMIN and `false`
-  ///     for everyone else — it is the role gate, already written;
-  ///   * the SALON walk-in wizard already ships (phases 250–251) — the same
-  ///     Appointment + N-Bookings visit shape as the client flow;
-  /// so the follow-up is a `context.push(<that route>)` in THIS METHOD BODY,
-  /// and nothing else. The `canCreateBooking:` half is already done (audit
-  /// M5): it reads `bookingCreationEnabledProvider` rather than a hardcoded
-  /// `true`, so filling this body in cannot accidentally ship an ungated
-  /// create affordance.
+  /// Pushes the ALREADY-REGISTERED `RouteNames.salonStaffBookingNew` route
+  /// (`app_router.dart`, shipped by phase 250) — no new route constant, no
+  /// new route registration, and therefore no risk to the literal-before-
+  /// dynamic ordering that makes `new` win over `:bookingId`
+  /// (`project_gorouter_literal_before_dynamic_shadowing`). That route's own
+  /// redirect validates `state.extra` is a non-empty `String` — the
+  /// `salonId` this screen already scopes its own board to
+  /// (`widget.salonId`) — and `fullscreenDialog: true` is unchanged: the
+  /// approved design is a multi-step MODAL, and the wizard already manages
+  /// its own step state internally, so a modal push is exactly right (do
+  /// NOT change this to a plain push).
   ///
-  /// Deliberately NOT wired now (locked by the user this phase). And the
-  /// capability it is gated on resolves `true` for both roles that can reach
-  /// this screen, so the button still RENDERS — a hidden one would make the
-  /// header narrower today and wider later, which is the reflow this
-  /// placeholder exists to avoid.
+  /// `canCreateBooking: ref.watch(bookingCreationEnabledProvider)` above is
+  /// the ONLY gate this needed (audit M5) — it already resolves `true` for
+  /// `SALON_OWNER`/`SALON_ADMIN` and `false` for `SALON_MASTER`, fail-closed
+  /// on an unsettled role. Do not touch it here, and do not seed the wizard
+  /// from the board's active-master filter (rejected — that filter is a VIEW
+  /// control, and turning it into an input would make «+» mean different
+  /// things depending on invisible prior state; the approved design's
+  /// masters step always asks, and asks AFTER services).
+  ///
+  /// NOT `RouteNames.masterBookingNew` (wrong wizard, wrong role — that route
+  /// is INDEPENDENT_MASTER-only) and NOT `context.go` (would tear down this
+  /// board, exactly like `_onBookingTap`'s own "routes this deliberately is
+  /// NOT" note).
   void _openCreateBooking() {
-    // TODO(phase-21.12-followup): push the salon walk-in wizard here. No-op
-    // by design until then — see this method's doc.
+    context.push(RouteNames.salonStaffBookingNew, extra: widget.salonId);
   }
 
   @override
@@ -807,6 +810,10 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         // right time to make it.
         canCreateBooking: ref.watch(bookingCreationEnabledProvider),
         onCreateBooking: _openCreateBooking,
+        // Phase 340 — wires the ARB key that existed with no consumer since
+        // phase 21.12 (`salonBookingsAddSemantics`), rather than leaving the
+        // shared header's master-flow wording on the salon board.
+        addSemanticsLabelOverride: l10n.salonBookingsAddSemantics,
         // A TEAR-OFF, never an inline closure — the identity
         // `_BoardStack.didUpdateWidget` compares with
         // `oldWidget.onBookingTap != widget.onBookingTap`. A fresh closure

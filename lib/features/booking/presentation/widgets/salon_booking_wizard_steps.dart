@@ -56,6 +56,7 @@
 // existing `salonBookingNoCoveringMasterTitle`/`Hint` copy, reused verbatim
 // rather than adding a near-duplicate pair of keys).
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -278,50 +279,162 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
 // (locked, keyed on roster COUNT, never on caller role) lives here.
 // ---------------------------------------------------------------------------
 
-class SalonMastersStep extends ConsumerWidget {
+/// mobile-perf LOW (phase 335 diff) — bumped once per genuine recompute of
+/// [_SalonMastersStepState]'s memoized `(resolved, covering, nonCovering)`
+/// triple, never on a cache hit. Mirrors `master_archive_screen.dart`'s
+/// `debugGroupArchiveByKyivDayCallCount` precedent; an int increment is
+/// negligible cost so this stays live in every build config.
+@visibleForTesting
+int debugResolveSalonMastersCallCount = 0;
+
+/// Resets [debugResolveSalonMastersCallCount] to 0 — call at the top of a
+/// test that asserts an exact recompute count.
+@visibleForTesting
+void debugResetResolveSalonMastersCallCount() {
+  debugResolveSalonMastersCallCount = 0;
+}
+
+class SalonMastersStep extends ConsumerStatefulWidget {
   const SalonMastersStep({
     super.key,
     required this.salonId,
-    required this.service,
+    this.service,
+    this.services,
     required this.date,
     required this.onPick,
-  });
+  }) : assert(
+         (service == null) != (services == null),
+         'SalonMastersStep needs exactly one of service (legacy single) or '
+         'services (Phase 335 ordered multi) — never both, never neither.',
+       );
 
   final String salonId;
 
-  /// The chosen catalogue service — `.serviceDefId` is the id the coverage
-  /// query keys on (see `salonServiceForShelf`'s own doc: `id`/`serviceDefId`
-  /// both carry the salon-catalog id for a salon-sourced [MasterService]).
-  final MasterService service;
+  /// Legacy single-service path. `null` when [services] is provided instead
+  /// — see this constructor's assert and [services]' own doc.
+  final MasterService? service;
+
+  /// PHASE 335 — the visit's full ordered service selection (1..n). `null`
+  /// preserves the pre-335 single-service behaviour exactly (every call site
+  /// until this phase passed [service] alone). When non-null, this wins and
+  /// [service] is ignored. `.serviceDefId` is the id the coverage query keys
+  /// on (see `salonServiceForShelf`'s own doc: `id`/`serviceDefId` both carry
+  /// the salon-catalog id for a salon-sourced [MasterService]).
+  final List<MasterService>? services;
 
   /// Date-only.
   final DateTime date;
 
-  /// Fires once a slot is picked — [String] is the chosen master's OWN
-  /// per-master `MasterServiceAssignment` id (`assignmentId`), the exact id
-  /// `CreateMasterBookingRequest.masterServiceIds` needs one element of —
-  /// NEVER `service.id`/`service.serviceDefId` (the salon-catalog id; see
+  /// Fires once a slot is picked — [List]`<String>` is the chosen master's
+  /// OWN per-master `MasterServiceAssignment` id for EVERY selected service,
+  /// ordered index-for-index with the selection — the exact list
+  /// `CreateMasterBookingRequest.masterServiceIds` needs — NEVER
+  /// `service.id`/`service.serviceDefId` (the salon-catalog id; see
   /// `salon_master_schedule.dart`'s "ID-SPACE NOTE" for why the two id
   /// spaces must never be conflated).
   final void Function(
     SalonMasterSummary master,
-    String assignmentId,
+    List<String> assignmentIds,
     BookingSlot slot,
   )
   onPick;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SalonMastersStep> createState() => _SalonMastersStepState();
+}
+
+class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
+  // mobile-perf LOW (phase 335 diff) — memoized `(resolved, covering,
+  // nonCovering)` triple. Re-derived only when the selected-service order OR
+  // the roster/coverage data actually changed, instead of on every build
+  // (a sibling step ticking a provider used to re-run all three
+  // comprehensions for nothing).
+  //
+  // Cache key is CONTENT for the service list, not identity: the caller
+  // (`salon_create_booking_screen.dart`) holds `_selectedServices` as ONE
+  // `final List<MasterService>` mutated IN PLACE via `.add`/`.removeWhere`,
+  // so `widget.services` keeps the SAME list identity across an add/remove —
+  // an `identical()` check here would report a cache HIT for stale data.
+  // Same trap as `project_freezed_getter_defeats_identical_memo`: identity
+  // survives a content change. `roster`/`coverage` are safe on identity —
+  // they come straight from Riverpod's cached `AsyncValue.value` and are
+  // replaced, never mutated, on refetch.
+  List<String>? _cachedServiceDefIds;
+  List<SalonMasterSummary>? _cachedRoster;
+  Map<String, Map<String, String>>? _cachedCoverage;
+  List<(SalonMasterSummary, List<String>?)>? _cachedResolved;
+  List<(SalonMasterSummary, List<String>?)>? _cachedCovering;
+  List<(SalonMasterSummary, List<String>?)>? _cachedNonCovering;
+
+  (
+    List<(SalonMasterSummary, List<String>?)>,
+    List<(SalonMasterSummary, List<String>?)>,
+    List<(SalonMasterSummary, List<String>?)>,
+  )
+  _resolveDerived(
+    List<MasterService> ordered,
+    List<SalonMasterSummary> roster,
+    Map<String, Map<String, String>> coverage,
+  ) {
+    final List<String> serviceDefIds = <String>[
+      for (final MasterService s in ordered) s.serviceDefId,
+    ];
+    final bool hit =
+        _cachedResolved != null &&
+        listEquals(_cachedServiceDefIds, serviceDefIds) &&
+        identical(_cachedRoster, roster) &&
+        identical(_cachedCoverage, coverage);
+    if (hit) {
+      return (_cachedResolved!, _cachedCovering!, _cachedNonCovering!);
+    }
+
+    debugResolveSalonMastersCallCount++;
+    // D2 — "every", not "any": a master is bookable only if they cover
+    // EVERY selected service — one master performs the whole visit
+    // (`project_salon_scheduling_is_per_master`), so a master covering a
+    // strict subset is non-covering, not a partial candidate.
+    final List<(SalonMasterSummary, List<String>?)> resolved =
+        <(SalonMasterSummary, List<String>?)>[
+          for (final SalonMasterSummary m in roster)
+            (m, _resolveOrderedAssignments(coverage[m.masterId], ordered)),
+        ];
+    final List<(SalonMasterSummary, List<String>?)> covering =
+        <(SalonMasterSummary, List<String>?)>[
+          for (final (SalonMasterSummary, List<String>?) r in resolved)
+            if (r.$2 != null) r,
+        ];
+    final List<(SalonMasterSummary, List<String>?)> nonCovering =
+        <(SalonMasterSummary, List<String>?)>[
+          for (final (SalonMasterSummary, List<String>?) r in resolved)
+            if (r.$2 == null) r,
+        ];
+
+    _cachedServiceDefIds = serviceDefIds;
+    _cachedRoster = roster;
+    _cachedCoverage = coverage;
+    _cachedResolved = resolved;
+    _cachedCovering = covering;
+    _cachedNonCovering = nonCovering;
+    return (resolved, covering, nonCovering);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final String serviceDefId = service.serviceDefId;
+    // Single normalisation point (mirrors `ConfirmStep`/`DateTimeStep`) —
+    // every use below reads `ordered`, never `service`/`services` directly.
+    final List<MasterService> ordered =
+        widget.services ?? <MasterService>[widget.service!];
 
     final AsyncValue<List<SalonMasterSummary>> rosterAsync = ref.watch(
-      salonMastersRosterProvider(salonId),
+      salonMastersRosterProvider(widget.salonId),
     );
     final SalonBookingMasterSelectionArgs coverageArgs =
         SalonBookingMasterSelectionArgs(
-          salonId: salonId,
-          selectedServiceIds: <String>[serviceDefId],
+          salonId: widget.salonId,
+          selectedServiceIds: <String>[
+            for (final MasterService s in ordered) s.serviceDefId,
+          ],
         );
     final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
         .watch(salonMasterServiceCoverageProvider(coverageArgs));
@@ -332,7 +445,7 @@ class SalonMastersStep extends ConsumerWidget {
         key: const Key('salon-create-booking-masters-error'),
         failure: error is Failure ? error : UnknownFailure(cause: error),
         onRetry: () {
-          ref.invalidate(salonMastersRosterProvider(salonId));
+          ref.invalidate(salonMastersRosterProvider(widget.salonId));
           ref.invalidate(salonMasterServiceCoverageProvider(coverageArgs));
         },
       );
@@ -347,51 +460,54 @@ class SalonMastersStep extends ConsumerWidget {
       );
     }
 
-    final List<(SalonMasterSummary, String?)> resolved =
-        <(SalonMasterSummary, String?)>[
-          for (final SalonMasterSummary m in roster)
-            (m, coverage[m.masterId]?[serviceDefId]),
-        ];
-    final List<(SalonMasterSummary, String?)> covering =
-        <(SalonMasterSummary, String?)>[
-          for (final (SalonMasterSummary, String?) r in resolved)
-            if (r.$2 != null) r,
-        ];
+    final (
+      List<(SalonMasterSummary, List<String>?)> resolved,
+      List<(SalonMasterSummary, List<String>?)> covering,
+      List<(SalonMasterSummary, List<String>?)> nonCovering,
+    ) = _resolveDerived(
+      ordered,
+      roster,
+      coverage,
+    );
 
     if (covering.isEmpty) {
+      // D3 — the singular ("this one service") and plural ("this whole set
+      // of services") empty states genuinely mean different things; a
+      // one-service salon must not read the plural framing.
+      final bool multi = ordered.length > 1;
       return _SalonMastersEmptyState(
         key: const Key('salon-create-booking-no-covering-master'),
-        title: l10n.salonBookingNoCoveringMasterTitle,
-        hint: l10n.salonBookingNoCoveringMasterHint,
+        title: multi
+            ? l10n.salonBookingNoCoveringMasterTitle
+            : l10n.salonBookingNoCoveringMasterSingularTitle,
+        hint: multi
+            ? l10n.salonBookingNoCoveringMasterHint
+            : l10n.salonBookingNoCoveringMasterSingularHint,
       );
     }
 
     // COLLAPSE RULE (locked) — a salon with exactly one active master gets
     // the same treatment an independent master's own calendar would: no
     // one-row picker, just the slot grid. Keyed on ROSTER count, never on
-    // the caller's role.
+    // the caller's role. Only its assignmentIds argument became plural.
     if (roster.length == 1) {
-      final (SalonMasterSummary soleMaster, String? soleAssignment) =
+      final (SalonMasterSummary soleMaster, List<String>? soleAssignments) =
           resolved.single;
       // Guaranteed non-null: `covering` is non-empty and roster has exactly
       // one entry, so that one entry IS the covering one.
-      final String assignmentId = soleAssignment!;
+      final List<String> assignmentIds = soleAssignments!;
       return _SalonCollapsedSlots(
         key: const Key('salon-create-booking-masters-collapsed'),
         masterId: soleMaster.masterId,
-        assignmentId: assignmentId,
-        date: date,
-        onPick: (BookingSlot slot) => onPick(soleMaster, assignmentId, slot),
+        assignmentIds: assignmentIds,
+        date: widget.date,
+        onPick: (BookingSlot slot) =>
+            widget.onPick(soleMaster, assignmentIds, slot),
       );
     }
 
-    final List<(SalonMasterSummary, String?)> nonCovering =
-        <(SalonMasterSummary, String?)>[
-          for (final (SalonMasterSummary, String?) r in resolved)
-            if (r.$2 == null) r,
-        ];
-    final List<(SalonMasterSummary, String?)> ordered =
-        <(SalonMasterSummary, String?)>[...covering, ...nonCovering];
+    final List<(SalonMasterSummary, List<String>?)> orderedMasters =
+        <(SalonMasterSummary, List<String>?)>[...covering, ...nonCovering];
 
     return ListView.separated(
       key: const Key('salon-create-booking-masters-list'),
@@ -401,25 +517,46 @@ class SalonMastersStep extends ConsumerWidget {
         VelvetSpacing.lg,
         VelvetSpacing.xxl,
       ),
-      itemCount: ordered.length,
+      itemCount: orderedMasters.length,
       separatorBuilder: (BuildContext context, int i) =>
           const SizedBox(height: VelvetSpacing.sm),
       itemBuilder: (BuildContext context, int i) {
-        final (SalonMasterSummary m, String? assignmentId) = ordered[i];
+        final (SalonMasterSummary m, List<String>? assignmentIds) =
+            orderedMasters[i];
         return _SalonMasterTile(
           key: Key('salon-master-tile-${m.masterId}'),
           index: i,
           master: m,
-          service: service,
-          assignmentId: assignmentId,
-          date: date,
-          onSlotPick: assignmentId == null
+          services: ordered,
+          assignmentIds: assignmentIds,
+          date: widget.date,
+          onSlotPick: assignmentIds == null
               ? null
-              : (BookingSlot slot) => onPick(m, assignmentId, slot),
+              : (BookingSlot slot) => widget.onPick(m, assignmentIds, slot),
         );
       },
     );
   }
+}
+
+/// Resolves [row]'s (a master's `serviceDefId -> assignmentId` coverage map)
+/// assignment id for EVERY service in [ordered], in the SAME order — or
+/// `null` the moment any one of [ordered] is missing from [row] (D2: "every",
+/// not "any"). Non-null values are safe to `!` at every call site because a
+/// master only reaches [SalonMastersStep]'s `covering` list when this
+/// returned non-null.
+List<String>? _resolveOrderedAssignments(
+  Map<String, String>? row,
+  List<MasterService> ordered,
+) {
+  if (row == null) return null;
+  final List<String> ids = <String>[];
+  for (final MasterService s in ordered) {
+    final String? id = row[s.serviceDefId];
+    if (id == null) return null;
+    ids.add(id);
+  }
+  return ids;
 }
 
 class _SalonMastersEmptyState extends StatelessWidget {
@@ -466,13 +603,16 @@ class _SalonCollapsedSlots extends ConsumerWidget {
   const _SalonCollapsedSlots({
     super.key,
     required this.masterId,
-    required this.assignmentId,
+    required this.assignmentIds,
     required this.date,
     required this.onPick,
   });
 
   final String masterId;
-  final String assignmentId;
+
+  /// Every selected service's assignment id for this master, in tap order —
+  /// see `SalonMastersStep.onPick`'s own doc.
+  final List<String> assignmentIds;
   final DateTime date;
   final ValueChanged<BookingSlot> onPick;
 
@@ -483,7 +623,7 @@ class _SalonCollapsedSlots extends ConsumerWidget {
       salonMasterDaySlotsProvider(
         SalonMasterDaySlotsQuery(
           masterId: masterId,
-          serviceIds: <String>[assignmentId],
+          serviceIds: assignmentIds,
           date: date,
         ),
       ),
@@ -511,7 +651,7 @@ class _SalonCollapsedSlots extends ConsumerWidget {
             salonMasterDaySlotsProvider(
               SalonMasterDaySlotsQuery(
                 masterId: masterId,
-                serviceIds: <String>[assignmentId],
+                serviceIds: assignmentIds,
                 date: date,
               ),
             ),
@@ -555,19 +695,24 @@ class _SalonMasterTile extends ConsumerStatefulWidget {
     super.key,
     required this.index,
     required this.master,
-    required this.service,
-    required this.assignmentId,
+    required this.services,
+    required this.assignmentIds,
     required this.date,
     required this.onSlotPick,
   });
 
   final int index;
   final SalonMasterSummary master;
-  final MasterService service;
 
-  /// `null` when this master does NOT offer [service] — renders a faint,
-  /// non-tappable row (design's `offersService == false` face).
-  final String? assignmentId;
+  /// The visit's full ordered service selection (1..n) — see
+  /// `SalonMastersStep.services`' own doc.
+  final List<MasterService> services;
+
+  /// `null` when this master does NOT cover EVERY service in [services] —
+  /// renders a faint, non-tappable row (design's `offersService == false`
+  /// face). Non-null carries one assignment id per [services] entry, index-
+  /// aligned.
+  final List<String>? assignmentIds;
   final DateTime date;
   final ValueChanged<BookingSlot>? onSlotPick;
 
@@ -578,7 +723,7 @@ class _SalonMasterTile extends ConsumerStatefulWidget {
 class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
   bool _expanded = false;
 
-  bool get _offers => widget.assignmentId != null;
+  bool get _offers => widget.assignmentIds != null;
 
   /// Alpha multiplier for a non-covering tile's whole face — same value the
   /// tile previously wrapped in `Opacity(opacity: 0.42, ...)` (mobile-perf
@@ -708,11 +853,21 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
                                 color: _fade(BrandColors.muted),
                               ),
                             ),
-                            if (_offers) ...<Widget>[
+                            // D6 — no duration/price ARITHMETIC in this
+                            // step: for a single-service visit this line
+                            // shows that one service's own duration/price
+                            // (unchanged rendering, no summing involved). A
+                            // multi-service visit has no single number to
+                            // show here without summing — rather than
+                            // render a partial/misleading figure, the line
+                            // is omitted; Σ-duration/price belong to
+                            // `confirm`, fed by the backend's own totals.
+                            if (_offers &&
+                                widget.services.length == 1) ...<Widget>[
                               const SizedBox(height: 3),
                               Text(
-                                '${DurationMinutes.format(widget.service.durationMinutes)} '
-                                '· ${ServicePriceDisplay.format(widget.service)}',
+                                '${DurationMinutes.format(widget.services.single.durationMinutes)} '
+                                '· ${ServicePriceDisplay.format(widget.services.single)}',
                                 style: VelvetText.feedbackAccentSm,
                               ),
                             ],
@@ -770,7 +925,7 @@ class _SalonMasterTileState extends ConsumerState<_SalonMasterTile> {
               child: _expanded
                   ? _SalonTileSlotSection(
                       masterId: m.masterId,
-                      assignmentId: widget.assignmentId!,
+                      assignmentIds: widget.assignmentIds!,
                       date: widget.date,
                       onPick: widget.onSlotPick!,
                     )
@@ -820,13 +975,16 @@ class _SalonMasterStatusPill extends StatelessWidget {
 class _SalonTileSlotSection extends ConsumerWidget {
   const _SalonTileSlotSection({
     required this.masterId,
-    required this.assignmentId,
+    required this.assignmentIds,
     required this.date,
     required this.onPick,
   });
 
   final String masterId;
-  final String assignmentId;
+
+  /// Every selected service's assignment id for this master, in tap order —
+  /// see `SalonMastersStep.onPick`'s own doc.
+  final List<String> assignmentIds;
   final DateTime date;
   final ValueChanged<BookingSlot> onPick;
 
@@ -835,7 +993,7 @@ class _SalonTileSlotSection extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final SalonMasterDaySlotsQuery query = SalonMasterDaySlotsQuery(
       masterId: masterId,
-      serviceIds: <String>[assignmentId],
+      serviceIds: assignmentIds,
       date: date,
     );
     final AsyncValue<List<BookingSlot>> slotsAsync = ref.watch(

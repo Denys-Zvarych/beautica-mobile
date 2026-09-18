@@ -153,6 +153,7 @@ import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
+import 'salon_create_booking_test.dart' as salon_create_booking;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
@@ -537,6 +538,13 @@ void main() {
   // isolation reaching the wire) — registered beside `salon_booking_flow`,
   // whose confirm/success screens and fixtures it shares.
   group('salon_booking_pager_flow', salon_booking_pager.main);
+  // Phase 341 (mobile-qa, Step 2.7 Rule 3b) — the salon multi-service
+  // walk-in wizard, end to end, for BOTH SALON_OWNER and SALON_ADMIN: pick
+  // three services -> the wire request carries all three assignment ids, in
+  // order -> the done step renders all three server items. Proves the
+  // cardinality regression phases 335-340 closed (the deleted
+  // `_primaryService` shim used to send exactly one).
+  group('salon_create_booking_flow', salon_create_booking.main);
   // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
   // favorite that the Beauty Passport genuinely reads back as a SALON row.
   // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.

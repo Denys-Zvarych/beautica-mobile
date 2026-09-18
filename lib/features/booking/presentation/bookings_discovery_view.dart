@@ -294,6 +294,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.columnsBuilder,
     this.boardWindowBuilder,
     this.onCreateBooking,
+    this.addSemanticsLabelOverride,
     this.showServiceFilter = true,
     this.showBookedDayDots = true,
     super.key,
@@ -571,11 +572,20 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// `context.push(RouteNames.masterBookingNew)`. [canCreateBooking] still
   /// gates whether the button renders AT ALL, independently of this.
   ///
-  /// The salon board passes a documented NO-OP (see
-  /// `SalonBookingsScreen._openCreateBooking`): the control must occupy its
-  /// final place and styling so the header's layout is settled, while the
-  /// salon walk-in wizard stays deliberately unwired this phase.
+  /// Phase 340 — the salon board passes `SalonBookingsScreen
+  /// ._openCreateBooking`, which pushes the approved salon «Новий запис»
+  /// wizard (`RouteNames.salonStaffBookingNew`).
   final VoidCallback? onCreateBooking;
+
+  /// Phase 340 — overrides the (+) button's semantics label. `null` (the
+  /// default, both master routes) keeps [AppLocalizations
+  /// .masterBookingsAddSemantics] verbatim — every pre-existing caller
+  /// renders byte-identically. The salon board passes
+  /// [AppLocalizations.salonBookingsAddSemantics] (an ARB key that existed
+  /// with no consumer since phase 21.12) so a screen-reader user hears
+  /// "Створити запис" rather than the master flow's own wording, which this
+  /// shared header previously hardcoded regardless of caller.
+  final String? addSemanticsLabelOverride;
 
   /// Whether the «Послуга» filter section is offered, and — because the two
   /// must not disagree — whether `masterServiceCatalogProvider` is subscribed
@@ -1514,6 +1524,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               // than disabling it. See
               // [BookingsDiscoveryView.canCreateBooking].
               onAdd: widget.canCreateBooking ? _openCreateBooking : null,
+              addSemanticsLabelOverride: widget.addSemanticsLabelOverride,
               onOpenArchive: widget.onOpenArchive,
             ),
             // Phase 21.12 — skipped entirely on a scope with no «Послуга»
@@ -2253,6 +2264,7 @@ class _Header extends StatelessWidget {
     required this.onOpenFilters,
     this.subtitle,
     this.onAdd,
+    this.addSemanticsLabelOverride,
     this.onOpenArchive,
   });
 
@@ -2281,6 +2293,11 @@ class _Header extends StatelessWidget {
   /// track that gives an invited `SALON_MASTER` this same screen read-only is
   /// what made the affordance conditional.
   final VoidCallback? onAdd;
+
+  /// Phase 340 — overrides [onAdd]'s semantics label. `null` (both master
+  /// routes) keeps [AppLocalizations.masterBookingsAddSemantics] — see
+  /// [BookingsDiscoveryView.addSemanticsLabelOverride]'s own doc.
+  final String? addSemanticsLabelOverride;
 
   /// Phase 231 — the archive button. `null` hides it entirely; see
   /// [BookingsDiscoveryView.onOpenArchive]'s doc.
@@ -2389,7 +2406,9 @@ class _Header extends StatelessWidget {
               const SizedBox(width: VelvetSpacing.sm),
               Semantics(
                 button: true,
-                label: l10n.masterBookingsAddSemantics,
+                label:
+                    addSemanticsLabelOverride ??
+                    l10n.masterBookingsAddSemantics,
                 child: GestureDetector(
                   key: const Key('master-bookings-add'),
                   onTap: onAdd,

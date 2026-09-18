@@ -1081,18 +1081,18 @@ void main() {
   });
 
   // ═════════════════════════════════════════════════════════════════════════
-  // 4. The deliberately inert (+) placeholder.
+  // 4. PHASE 340 — the (+) opens the approved salon wizard.
   // ═════════════════════════════════════════════════════════════════════════
-  group('SalonBookingsScreen — the create-booking placeholder', () {
-    testWidgets('the (+) control RENDERS (it reserves its final width so the '
-        'header never reflows) and tapping it navigates NOWHERE', (
+  group('SalonBookingsScreen — the create-booking entry point', () {
+    testWidgets('tapping (+) pushes RouteNames.salonStaffBookingNew with the '
+        'board\'s own salonId as extra, as a fullscreen dialog', (
       WidgetTester tester,
     ) async {
       stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
       stubSalonProfile();
       stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
 
-      final List<String> pushed = <String>[];
+      String? capturedExtra;
       final GoRouter router = GoRouter(
         initialLocation: '/board',
         routes: <RouteBase>[
@@ -1100,15 +1100,21 @@ void main() {
             path: '/board',
             builder: (_, _) => const SalonBookingsScreen(salonId: _salonId),
           ),
+          // Registered at the SAME path shape production uses
+          // (`RouteNames.salonStaffBookingNew` = `/salon/bookings/new`) —
+          // no new route constant, mirroring production's own D1 (nothing
+          // is registered by this phase, only pushed).
           GoRoute(
-            path: '/sink/:rest',
-            builder: (_, GoRouterState s) {
-              pushed.add(s.uri.toString());
-              return const SizedBox.shrink();
+            path: RouteNames.salonStaffBookingNew,
+            pageBuilder: (_, GoRouterState s) {
+              capturedExtra = s.extra as String?;
+              return const MaterialPage<void>(
+                fullscreenDialog: true,
+                child: Scaffold(key: Key('sentinel-salon-wizard')),
+              );
             },
           ),
         ],
-        observers: <NavigatorObserver>[_RecordingObserver(pushed)],
       );
       addTearDown(router.dispose);
 
@@ -1119,22 +1125,52 @@ void main() {
       expect(
         add,
         findsOneWidget,
-        reason:
-            'the placeholder must RENDER — hiding it would narrow the header '
-            'today and widen it when the wizard lands, which is the reflow '
-            'the placeholder exists to avoid',
+        reason: 'the (+) affordance renders for an owner/admin',
       );
 
       await tester.tap(add);
       await tester.pumpAndSettle();
 
       expect(
-        pushed,
-        isEmpty,
-        reason: 'the (+) handler is a documented NO-OP for this phase',
+        find.byKey(const Key('sentinel-salon-wizard')),
+        findsOneWidget,
+        reason:
+            'tapping (+) must open the approved salon wizard, not a '
+            'no-op — phase 340 is the fill-in for the phase-21.12 '
+            'placeholder',
       );
-      // …and the board is still the page on screen.
-      expect(find.byKey(const Key('salon-bookings-screen')), findsOneWidget);
+      expect(
+        capturedExtra,
+        _salonId,
+        reason:
+            'the wizard is scoped to THIS board\'s salon — the extra is '
+            'the salonId the board itself was constructed with',
+      );
+      // A PUSH, not a `context.go` — production reads `context.push(...)`
+      // (`salon_bookings_screen.dart:_openCreateBooking`). `capturedExtra`/
+      // the sentinel widget above only prove the destination was reached;
+      // they pass identically under a `context.go`, which would ALSO
+      // rebuild the same registered route with the same extra. The board
+      // still being mounted underneath is what a push-not-go actually buys
+      // (a `go` tears the current page out of the stack), so it is asserted
+      // directly below.
+      // `skipOffstage: false` — the board is still mounted underneath the
+      // fullscreen-dialog route, but a `Navigator`-pushed non-topmost route
+      // is offstage (kept alive, not painted), which the default finder
+      // filters out (`CommonFinders.byKey`'s `skipOffstage: true` default) —
+      // see `flutter_test/finders.dart`.
+      expect(
+        find.byKey(const Key('salon-bookings-screen'), skipOffstage: false),
+        findsOneWidget,
+        reason:
+            'a context.push (not context.go) must leave the board '
+            'mounted underneath',
+      );
+      //
+      // The SALON_MASTER absence of this button (`canCreateBooking:
+      // ref.watch(bookingCreationEnabledProvider)`, unedited by this phase —
+      // D3) is covered by `bookings_capability_test.dart`'s own role-matrix,
+      // not re-derived here with a second session fixture.
     });
   });
 
@@ -1603,20 +1639,4 @@ void main() {
       expect(find.text(off), findsNothing);
     });
   });
-}
-
-/// Records every route PUSHED onto the navigator, so "tapping (+) navigated
-/// nowhere" is asserted against the navigator itself rather than against the
-/// absence of a particular screen (which an unregistered route would satisfy
-/// vacuously).
-class _RecordingObserver extends NavigatorObserver {
-  _RecordingObserver(this.pushed);
-
-  final List<String> pushed;
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    final String? name = route.settings.name;
-    if (previousRoute != null) pushed.add(name ?? route.settings.toString());
-  }
 }

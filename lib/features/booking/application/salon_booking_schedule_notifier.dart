@@ -174,8 +174,9 @@ class SalonBookingSchedule extends _$SalonBookingSchedule {
 }
 
 /// Fetches the bookable time slots for [query.masterId] +
-/// [query.serviceIds] (the master's PRIMARY assigned service as a one-element
-/// list today — see this file's header) on [query.date].
+/// [query.serviceIds] — the visit's FULL ordered assignment-id selection
+/// (1..n; the salon wizard's `masters` step chains every selected service,
+/// phase 336) — on [query.date].
 ///
 /// Generated provider name: `salonMasterDaySlotsProvider` — a family, call
 /// it with a [SalonMasterDaySlotsQuery].

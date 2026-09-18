@@ -8129,6 +8129,8 @@ final class FakeBackend {
 
     _wireBookingDetail();
     _wireSalonBoard();
+    _wireSalonAdminBoard();
+    _wireSalonMultiServiceWizard();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -8335,6 +8337,14 @@ final class FakeBackend {
   /// The salon id these handlers serve — the id [mySalons] defaults its ONE
   /// primary salon to, i.e. the one an owner's `roleHomePath` lands on.
   static const String kOwnerSalonId = 'salon-owner-1';
+
+  /// mobile-qa (phase 341) — the SALON_ADMIN's own salon (`_adminUserJson
+  /// .salonId`), the id their `roleHomePath` lands on. A DIFFERENT id than
+  /// [kOwnerSalonId] on purpose (see `_adminUserJson`'s own doc) — reused
+  /// here, rather than re-declaring the literal a third time, so the Phase
+  /// 341 multi-service wizard E2E arm can drive the SAME journey as either
+  /// role against ITS OWN salon.
+  static const String kAdminSalonId = 'salon-admin-1';
 
   /// `GET /api/v1/bookings/salon/{kOwnerSalonId}` call count.
   int getSalonBookingsCalls = 0;
@@ -8574,6 +8584,417 @@ final class FakeBackend {
         );
       }),
       request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// mobile-qa (phase 341) — the board wiring [kAdminSalonId] never had.
+  ///
+  /// Every existing admin E2E flow (`salon_admin_edit_master_schedule_flow_
+  /// test.dart`, `salon_management_profile_flow_test.dart`, …) reaches
+  /// `/staff` (roster) or `/profile` — none of them ever opened the «Записи»
+  /// tab, so `GET /bookings/salon/$kAdminSalonId` and its siblings were never
+  /// registered. The Phase 341 E2E arm is the first admin flow to open that
+  /// tab, so it needs the same four routes [_wireSalonBoard] already gives
+  /// [kOwnerSalonId] — reusing the SAME backing fields ([salonBoardBookings],
+  /// [_salonMasters], [salonRosterEffectiveSchedule]): a single `FakeBackend`
+  /// instance only ever logs in as ONE role per test, so there is no risk of
+  /// the two salon ids' board data disagreeing within one run.
+  void _wireSalonAdminBoard() {
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kAdminSalonId/booked-days',
+      (server) => server.replyCallback(200, (req) {
+        salonBookedDaysCalls++;
+        lastSalonBookedDaysQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        final Set<String> days = <String>{};
+        for (final Map<String, dynamic> row in salonBoardBookings) {
+          final Object? startsAt = row['startsAt'];
+          if (startsAt is String && startsAt.length >= 10) {
+            days.add(startsAt.substring(0, 10));
+          }
+        }
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': days.toList()..sort(),
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kAdminSalonId',
+      (server) => server.replyCallback(200, (req) {
+        getSalonBookingsCalls++;
+        lastSalonBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
+        final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
+          salonBoardBookings.map(Map<String, dynamic>.from),
+        );
+        return _searchEnvelope(
+          rows,
+          page: 0,
+          totalPages: 1,
+          totalElements: rows.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$kAdminSalonId/masters',
+      (server) => server.replyCallback(200, (_) {
+        getSalonMastersCalls++;
+        lastGetSalonMastersId = kAdminSalonId;
+        return _searchEnvelope(
+          _salonMasters,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonMasters.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$kAdminSalonId/masters/effective-schedule',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterEffectiveScheduleCalls++;
+        return _okList(salonRosterEffectiveSchedule);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  // ── Phase 341 (mobile-qa) — the SALON multi-service wizard's OWN
+  // catalogue, coverage, and booking-create fixtures ────────────────────────
+  //
+  // Phases 335-340 widened `SalonCreateBookingScreen`'s `masters` step to
+  // resolve an assignment id per SELECTED service (not just the first) and
+  // `_submit` to send every one of them. Neither the client-facing `salon-
+  // xyz` fixture (2 services, no "covers some but not all" master) nor
+  // [kOwnerSalonId]'s own board fixture (no catalogue/coverage/create routes
+  // at all, before this method) can prove the regression this track closes:
+  // a master must be bookable ONLY if they cover EVERY selected service, and
+  // the wire request must carry every one of them, in order.
+  //
+  // THREE services (not two) — a 2-service fixture cannot express "covers 2
+  // of 3", the exact case an `any` filter would get wrong and `every`
+  // (phase 335 D2) must get right.
+  //
+  // THREE roster masters, reusing existing [_salonMasters] identities (no
+  // new master rows minted, so the roster's own rendering/ordering tests
+  // stay byte-identical):
+  //   * [kSalonWizardMasterFull] (`master-aaa`) — covers ALL THREE -> the
+  //     one bookable tile.
+  //   * [kSalonWizardMasterPartial] (`master-eee`) — covers TWO of three
+  //     (svc A, B — NOT C) -> the DISCRIMINATING case: an `any` filter would
+  //     still show this master as covering; `every` must dim it
+  //     (`project_fixture_values_can_defang_assertions` — an all-covering
+  //     fixture could never catch the `any`→`every` regression this track
+  //     fixes).
+  //   * [kSalonWizardMasterNone] (`master-fff`) — covers NONE -> absent from
+  //     every coverage response below, dimmed for the ordinary reason.
+  //
+  // Registered for BOTH [kOwnerSalonId] and [kAdminSalonId] — the SAME
+  // catalogue/coverage DATA under two different salon-scoped paths, mirroring
+  // [_wireSalonBoard]'s own precedent of serving [_salonMasters] under both
+  // `salon-xyz` and [kOwnerSalonId] — so the Phase 341 E2E arm can drive the
+  // identical multi-service journey as either SALON_OWNER or SALON_ADMIN.
+  //
+  // Assignment ids are minted by [_bookableMasterEnvelope] as
+  // `assign-$masterId-$serviceDefId` — DIFFERENT from the serviceDefId on
+  // every entry (`wiz-svc-a` -> `assign-master-aaa-wiz-svc-a`), which is what
+  // keeps the id-space pin (`SalonMastersStep.onPick`'s own doc — NEVER
+  // `service.serviceDefId`) non-vacuous.
+  static const String kSalonWizardMasterFull = 'master-aaa';
+  static const String kSalonWizardMasterPartial = 'master-eee';
+  static const String kSalonWizardMasterNone = 'master-fff';
+
+  static const String kSalonWizSvcA = 'wiz-svc-a';
+  static const String kSalonWizSvcB = 'wiz-svc-b';
+  static const String kSalonWizSvcC = 'wiz-svc-c';
+
+  /// Cyrillic service NAMES — kept as NAMED constants and never spelled
+  /// inline inside a `find.text(...)` call site, so no call site ever
+  /// carries a raw Cyrillic literal (`scripts/forbid_cyrillic_finder.sh`
+  /// scans the call site's own text, not the constant's resolved value —
+  /// same precedent as `master_create_booking_test.dart`'s `_kSvc1Name`).
+  static const String kSalonWizSvcAName = 'Манікюр';
+  static const String kSalonWizSvcBName = 'Брови';
+  static const String kSalonWizSvcCName = 'Вії';
+
+  /// `POST /api/v1/masters/$kSalonWizardMasterFull/bookings` call count —
+  /// deliberately a SEPARATE counter from [createStaffBookingCalls]
+  /// ([_wire]'s `$masterRowId`-keyed route): that route models an
+  /// INDEPENDENT_MASTER booking THEMSELVES; this one models a
+  /// SALON_OWNER/SALON_ADMIN booking a ROSTER master. Same backend
+  /// operation, different caller shape — kept distinct so a count assertion
+  /// here can never be satisfied by the other flow's traffic.
+  int createSalonWizardBookingCalls = 0;
+
+  /// The wire body of the MOST RECENT `POST …/$kSalonWizardMasterFull
+  /// /bookings` call.
+  Map<String, dynamic>? lastSalonWizardBookingRequestBody;
+
+  List<Map<String, dynamic>> _salonWizardCatalog() => <Map<String, dynamic>>[
+    <String, dynamic>{
+      'category': 'NAILS',
+      'count': 1,
+      'services': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': kSalonWizSvcA,
+          'name': kSalonWizSvcAName,
+          'description': null,
+          'category': 'NAILS',
+          'serviceTypeSlug': null,
+          'baseDurationMinutes': 60,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 400,
+          'priceMax': null,
+          'priceDisplay': '400 ₴',
+          'photoUrl': null,
+        },
+      ],
+    },
+    <String, dynamic>{
+      'category': 'BROWS',
+      'count': 1,
+      'services': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': kSalonWizSvcB,
+          'name': kSalonWizSvcBName,
+          'description': null,
+          'category': 'BROWS',
+          'serviceTypeSlug': null,
+          'baseDurationMinutes': 45,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 300,
+          'priceMax': null,
+          'priceDisplay': '300 ₴',
+          'photoUrl': null,
+        },
+      ],
+    },
+    <String, dynamic>{
+      'category': 'LASHES',
+      'count': 1,
+      'services': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': kSalonWizSvcC,
+          'name': kSalonWizSvcCName,
+          'description': null,
+          'category': 'LASHES',
+          'serviceTypeSlug': null,
+          'baseDurationMinutes': 90,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 600,
+          'priceMax': null,
+          'priceDisplay': '600 ₴',
+          'photoUrl': null,
+        },
+      ],
+    },
+  ];
+
+  /// The per-service assignment-id lookup [_wireSalonMultiServiceWizard]'s
+  /// coverage routes mint via [_bookableMasterEnvelope], reused here to
+  /// resolve `POST …/bookings`'s `masterServiceIds` back to a
+  /// name/duration/price for the response `items[]` — kept as ONE literal
+  /// map (rather than re-deriving the `assign-$masterId-$serviceDefId`
+  /// string twice) so the two can never drift apart.
+  static const Map<String, Map<String, dynamic>> _kSalonWizardAssignments =
+      <String, Map<String, dynamic>>{
+        'assign-master-aaa-wiz-svc-a': <String, dynamic>{
+          'name': kSalonWizSvcAName,
+          'duration': 60,
+          'priceMin': 400.0,
+          'priceMax': null,
+        },
+        'assign-master-aaa-wiz-svc-b': <String, dynamic>{
+          'name': kSalonWizSvcBName,
+          'duration': 45,
+          'priceMin': 300.0,
+          'priceMax': null,
+        },
+        'assign-master-aaa-wiz-svc-c': <String, dynamic>{
+          'name': kSalonWizSvcCName,
+          'duration': 90,
+          'priceMin': 600.0,
+          'priceMax': null,
+        },
+      };
+
+  void _wireSalonMultiServiceWizardCatalogFor(String salonId) {
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services',
+      (server) => server.replyCallback(
+        200,
+        // Same envelope shape as the `salon-xyz` catalogue route
+        // (`{'categories': [...]}`, wrapped in `_ok`, NOT `_okList`) —
+        // `SalonServiceCatalogMapper.fromDto` reads `.categories`.
+        (_) => _ok(<String, dynamic>{'categories': _salonWizardCatalog()}),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services/$kSalonWizSvcA/masters',
+      (server) => server.replyCallback(
+        200,
+        (_) => _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterFull,
+            serviceDefId: kSalonWizSvcA,
+            firstName: 'Софія',
+            lastName: 'Бондар',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterPartial,
+            serviceDefId: kSalonWizSvcA,
+            firstName: 'Тетяна',
+            lastName: 'Мельник',
+          ),
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services/$kSalonWizSvcB/masters',
+      (server) => server.replyCallback(
+        200,
+        (_) => _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterFull,
+            serviceDefId: kSalonWizSvcB,
+            firstName: 'Софія',
+            lastName: 'Бондар',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterPartial,
+            serviceDefId: kSalonWizSvcB,
+            firstName: 'Тетяна',
+            lastName: 'Мельник',
+          ),
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+    // svc C — ONLY the full-covering master. `master-eee` (partial) is
+    // absent here, on purpose: this is what makes it "covers two of three".
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services/$kSalonWizSvcC/masters',
+      (server) => server.replyCallback(
+        200,
+        (_) => _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterFull,
+            serviceDefId: kSalonWizSvcC,
+            firstName: 'Софія',
+            lastName: 'Бондар',
+          ),
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  void _wireSalonMultiServiceWizard() {
+    _wireSalonMultiServiceWizardCatalogFor(kOwnerSalonId);
+    _wireSalonMultiServiceWizardCatalogFor(kAdminSalonId);
+
+    // `POST /api/v1/masters/$kSalonWizardMasterFull/bookings` — the salon
+    // wizard's OWN submit, addressed at a ROSTER master (never
+    // `$masterRowId` — see [createSalonWizardBookingCalls]'s own doc).
+    // `salonId` is NEVER part of the wire body (phase 338 D2 — structurally
+    // nowhere to put it), so ONE registration serves whichever of
+    // [kOwnerSalonId]/[kAdminSalonId] the caller opened the wizard from.
+    //
+    // Reads the PLURAL `masterServiceIds` field — the exact regression this
+    // whole track closes (`_submit` used to send a one-element list built
+    // from `_primaryService` alone). A fake that silently accepted a
+    // singular `masterServiceId` here would mask that regression completely
+    // (phase 256's own pre-existing-defect note, cited again by phase 341
+    // D2) — there is no such fallback below.
+    _adapter.onRoute(
+      '/api/v1/masters/$kSalonWizardMasterFull/bookings',
+      (server) => server.replyCallback(201, (req) {
+        createSalonWizardBookingCalls++;
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        lastSalonWizardBookingRequestBody = body;
+        final DateTime startsAt = DateTime.parse(body['startsAt'] as String);
+        final Map<String, dynamic> guest = (body['guest'] as Map)
+            .cast<String, dynamic>();
+        final List<dynamic> serviceIds =
+            (body['masterServiceIds'] as List?) ?? const <dynamic>[];
+
+        const Duration itemBuffer = Duration(minutes: 10);
+        DateTime cursor = startsAt;
+        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+        double totalPrice = 0;
+        double totalPriceMaxSum = 0;
+        bool anyRange = false;
+        for (final dynamic rawId in serviceIds) {
+          final String assignId = rawId as String;
+          final Map<String, dynamic>? assignment =
+              _kSalonWizardAssignments[assignId];
+          if (assignment == null) {
+            throw StateError(
+              'FakeBackend: unknown salon-wizard masterServiceId '
+              '"$assignId" — seed it in _kSalonWizardAssignments first',
+            );
+          }
+          final int duration = assignment['duration'] as int;
+          final double priceMin = assignment['priceMin'] as double;
+          final double? priceMax = assignment['priceMax'] as double?;
+          final DateTime itemStart = cursor;
+          final DateTime itemEnd = itemStart.add(Duration(minutes: duration));
+          items.add(<String, dynamic>{
+            'bookingId': 'salon-wizard-booking-${items.length + 1}',
+            'masterServiceId': assignId,
+            'serviceName': assignment['name'],
+            'status': 'CONFIRMED',
+            'startsAt': itemStart.toIso8601String(),
+            'endsAt': itemEnd.toIso8601String(),
+            'durationMinutesAtBooking': duration,
+            'priceAtBooking': priceMin,
+            'priceMaxAtBooking': priceMax,
+          });
+          totalPrice += priceMin;
+          totalPriceMaxSum += priceMax ?? priceMin;
+          if (priceMax != null) anyRange = true;
+          cursor = itemEnd.add(itemBuffer);
+        }
+        final DateTime visitEnd = items.isEmpty
+            ? startsAt
+            : cursor.subtract(itemBuffer);
+
+        final Map<String, dynamic> row = <String, dynamic>{
+          ...datasetBookingRow(
+            id: 'salon-wizard-booking-1',
+            status: 'CONFIRMED',
+            startsAt: startsAt,
+            duration: visitEnd.difference(startsAt),
+          ),
+          'masterServiceId': serviceIds.isNotEmpty ? serviceIds.first : null,
+          'clientId': null,
+          'clientFirstName': guest['name'],
+          'clientLastName': guest['surname'],
+          'endsAt': visitEnd.toIso8601String(),
+          'totalDurationMinutes': visitEnd.difference(startsAt).inMinutes,
+          'totalPrice': totalPrice,
+          'totalPriceMax': anyRange ? totalPriceMaxSum : null,
+          'items': items,
+        };
+        return _ok(row);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
 
