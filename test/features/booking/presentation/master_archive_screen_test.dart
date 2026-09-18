@@ -2836,4 +2836,64 @@ void main() {
       );
     });
   });
+
+  group('teammate filter section — absent on «Архів»', () {
+    // 2026-09-18 (mobile-qa LOW) — the salon board's «Майстер» section is
+    // driven entirely by `BookingsFilterSheet.masters`. `master_archive_screen
+    // .dart` calls `BookingsFilterSheet.show` DIRECTLY (no
+    // `BookingsDiscoveryView` in between, so no `showMasterFilter` flag to
+    // read) and passes no roster at all — it has none. Nothing pinned that:
+    // `bookings_filter_sheet_test.dart` pins the sheet's own empty-roster
+    // rule, but not that THIS screen keeps feeding it an empty roster.
+    //
+    // Asserted on the RENDERED sheet — there is no constructor field to read
+    // here even if a field read were acceptable, since the roster is an
+    // argument to a `show()` call made inside an async handler.
+    //
+    // Located by KEY, never by the section's Cyrillic label:
+    // `scripts/forbid_cyrillic_finder.sh` bans a Cyrillic literal inside a
+    // `find.text(...)` argument across `test/**`.
+    testWidgets(
+      'opening the filter sheet renders the status section but NO teammate '
+      'section',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(id: 'b1', status: BookingStatus.completed),
+        ]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        // POSITIVE CONTROL — the sheet genuinely opened and built its other
+        // sections, so the absence assertion below cannot pass vacuously on a
+        // sheet that never mounted.
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOneWidget,
+          reason: 'the sheet is genuinely mounted',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOneWidget,
+          reason:
+              'the sheet rendered its sections — so an absent teammate '
+              'section below means ABSENT, not "never built"',
+        );
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-master')),
+          findsNothing,
+          reason:
+              '«Архів» has no roster whatsoever; this fails the moment '
+              '`master_archive_screen.dart` starts passing a non-empty '
+              '`masters:` to `BookingsFilterSheet.show`',
+        );
+      },
+    );
+  });
 }

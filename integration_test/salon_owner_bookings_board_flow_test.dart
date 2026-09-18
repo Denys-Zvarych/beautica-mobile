@@ -80,6 +80,82 @@ DateTime _atKyivHour(int hour, int minute) {
   return DateTime.utc(day.year, day.month, day.day, hour - 3, minute);
 }
 
+/// Opens `BookingsFilterSheet` from the board's own toolbar and gates on it.
+///
+/// `AppHarness.tapVisible`, not a bare `tester.tap`: the funnel sits in the
+/// discovery header, which is inside the board's scroll view, and a target
+/// that is laid out but not yet hit-testable fails a bare tap with a warning
+/// rather than an attributed timeout.
+Future<void> _openFilterSheet(WidgetTester tester) async {
+  await AppHarness.tapVisible(
+    tester,
+    find.byKey(const Key('master-bookings-filter-button')),
+  );
+  await AppHarness.settle(tester);
+  expect(
+    find.byKey(const Key('master-bookings-filter-sheet')),
+    findsOneWidget,
+    reason: 'the filter sheet must be open before any row is ticked',
+  );
+}
+
+/// Scrolls one of the sheet's OWN lazy rows into view, then taps it.
+///
+/// The «Майстер» rows are the LAST section of the sheet's `ListView` — the
+/// four status rows come first, and the board passes `showServiceFilter:
+/// false`, so no «Послуга» section sits between them. `-d flutter-tester`'s
+/// surface is 800×600 and the sheet is capped at `0.85 × height`, so an
+/// eight-master roster puts the tail rows below the fold where they are never
+/// BUILT and a bare `find.byKey` resolves to nothing
+/// (`project_integration_scroll_filter_into_view`). Same recipe as
+/// `master_bookings_flow_test.dart`'s `_applyStatusFilter`.
+Future<void> _tickSheetRow(WidgetTester tester, Key rowKey) async {
+  final Finder row = find.byKey(rowKey);
+  await tester.scrollUntilVisible(
+    row,
+    80,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const Key('master-bookings-filter-sheet')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+    maxScrolls: 30,
+  );
+  await tester.tap(row);
+  await AppHarness.settle(tester);
+}
+
+/// Taps «Застосувати» and waits for the sheet to actually LEAVE the tree.
+///
+/// Gating on the sheet's disappearance rather than on `settle` alone is what
+/// makes every assertion that follows a statement about the BOARD: a modal
+/// route that is still animating out would let a stale barrier swallow the
+/// very finders the caller is about to run.
+Future<void> _applySheet(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+  await AppHarness.settle(tester);
+  await AppHarness.pumpUntilGone(
+    tester,
+    find.byKey(const Key('master-bookings-filter-sheet')),
+    timeout: const Duration(seconds: 20),
+  );
+}
+
+/// The roster ids the board is CURRENTLY drawing a column for, in order.
+///
+/// Read off the rendered `MasterColumnStrip` rather than reconstructed from
+/// the fixture, so a filter that narrowed the columns while leaving the strip
+/// alone (or the reverse) cannot pass. The strip is a plain `Row`, never a
+/// lazy list, so every chip is BUILT even at 800dp — which is exactly why
+/// this is the one finder that can assert an ABSENCE across the whole roster,
+/// including the tail masters whose own columns are off-screen.
+List<String> _renderedMasterIds(WidgetTester tester) => tester
+    .widget<MasterColumnStrip>(find.byType(MasterColumnStrip))
+    .entries
+    .map((MasterColumnEntry e) => e.masterId)
+    .toList(growable: false);
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -773,6 +849,373 @@ void main() {
           find.byKey(ValueKey<String>('timeline-column-marker-$workingColumn')),
           findsNothing,
           reason: 'a column with a card carries no marker at all',
+        );
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 2026-09-18 — the «Майстер» FILTER, end to end (Step 2.7 Rule 3b, mobile-qa).
+  //
+  // WHY THIS BELONGS AT THIS TIER, and is not a 18th copy of
+  // `test/features/salon/presentation/salon_bookings_master_filter_test.dart`.
+  // That file (17 tests) pumps `SalonBookingsScreen` against a hand-built
+  // container with the roster, the day and the columns handed straight in. It
+  // proves the PARTITION and the column memo. It cannot prove the JOURNEY:
+  //   • that the sheet the owner actually reaches from the board's funnel
+  //     renders a «Майстер» section AT ALL — the flag, the roster fetch and
+  //     the `masterFilterOptions` memo are three separate hops, and any one of
+  //     them silently empty renders NO section, which looks identical to "the
+  //     feature is off";
+  //   • that the ticked ids survive `showModalBottomSheet`'s own route, its
+  //     `context.pop` result and `_applyFilters`' resolve-against-offered
+  //     filter — a chain no widget test drives;
+  //   • that the selection reaches the board WITHOUT touching the wire. This
+  //     is the locked design ("client-side"), and the ONLY tier that can see
+  //     the real query string Dio produced is this one. A drift to a
+  //     server-side `?masterId=` would keep every widget test green and
+  //     collapse the board to one column against the real backend.
+  //
+  // THE ANTI-VACUITY SHAPE. The seed gives THREE masters ONE distinct card
+  // each, and the seed's own distinctness is asserted before it is used: a
+  // roster where every master held the same content would satisfy every
+  // assertion below against a filter that narrowed nothing. Each absence is
+  // paired with a positive control — the surviving masters' cards, the hour
+  // ruler, the strip itself and the explicit absence of the
+  // «salon-bookings-no-masters» empty state — so a change that GUTS the board
+  // cannot pass here as "filtered".
+  //
+  // NO PATROL FLOW, restated for this arm: a bottom sheet, a set of ticks and
+  // a re-render. No OS permission dialog, no deep/app link, no FCM or local
+  // notification, no WebView, no biometric — nothing needs `$.native.*` or
+  // `$.platform.*`. `integration_test/patrol/` does not apply.
+  //
+  // FINDERS: keys only, plus names resolved from the RENDERED strip entries —
+  // never a Cyrillic literal inside `find.text(...)`
+  // (`forbid_cyrillic_finder.sh`).
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'the owner narrows the board through the «Майстер» filter section: only '
+    'the ticked masters keep a column, the funnel badge lights without the '
+    'sheet open, nothing master-shaped reaches the wire, and a reset restores '
+    'the full roster',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false;
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        // ── THE DISCRIMINATING SEED ────────────────────────────────────────
+        // Three DIFFERENT masters, one card each, every card its own id.
+        // `master-ddd` is the one that gets filtered AWAY, and it is column
+        // index 2 of the eight-master roster — inside the built range at
+        // 800dp, so its card and its chip are genuinely findable BEFORE the
+        // filter and genuinely absent after. An absence asserted against a
+        // master whose column was never built would be vacuous.
+        //
+        // Seeded AFTER boot: `_atKyivHour` reads `beauticaZone`, which only
+        // exists once the harness has initialised the timezone database, and
+        // the handler reads this list at REQUEST time.
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'board-filter-aaa',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(10, 0),
+          ),
+          fb.salonBoardBookingRow(
+            id: 'board-filter-ccc',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            startsAt: _atKyivHour(10, 0),
+          ),
+          fb.salonBoardBookingRow(
+            id: 'board-filter-ddd',
+            masterId: 'master-ddd',
+            masterFirstName: 'Оксана',
+            masterLastName: 'Іванова',
+            startsAt: _atKyivHour(10, 0),
+          ),
+        ];
+        // THE FIXTURE ACTUALLY DIFFERS — asserted, not assumed. Three
+        // distinct masters and three distinct card ids; collapse either and
+        // every filter assertion in this flow becomes satisfiable by a no-op.
+        expect(
+          fb.salonBoardBookings
+              .map((Map<String, dynamic> r) => r['masterId'] as String)
+              .toSet(),
+          <String>{'master-aaa', 'master-ccc', 'master-ddd'},
+          reason:
+              'the seed must be able to tell masters apart — identical rows '
+              'would let a filter that narrows NOTHING pass this flow',
+        );
+        expect(
+          fb.salonBoardBookings
+              .map((Map<String, dynamic> r) => r['id'] as String)
+              .toSet()
+              .length,
+          3,
+          reason: 'each column must carry its own assertable card id',
+        );
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonId));
+
+        final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          bookingsTab.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(bookingsTab);
+        await tester.pump();
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingsTimelineGrid),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(MasterColumnStrip),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── BEFORE: the WHOLE roster, and all three cards on it ────────────
+        final List<String> fullRoster = _renderedMasterIds(tester);
+        expect(
+          fullRoster,
+          containsAll(<String>['master-aaa', 'master-ccc', 'master-ddd']),
+        );
+        expect(
+          fullRoster.length,
+          greaterThan(2),
+          reason:
+              'the unfiltered board must draw MORE than the two masters this '
+              'flow is about to tick, or "narrowed" and "unnarrowed" are the '
+              'same picture',
+        );
+        for (final String id in <String>[
+          'board-filter-aaa',
+          'board-filter-ccc',
+          'board-filter-ddd',
+        ]) {
+          expect(
+            find.byKey(ValueKey<String>('timeline-card-$id')),
+            findsOneWidget,
+            reason: '$id must be on the board BEFORE any filter is applied',
+          );
+        }
+        expect(
+          find.byKey(
+            const ValueKey<String>('salon-bookings-column-chip-master-ddd'),
+          ),
+          findsOneWidget,
+          reason:
+              'the master this flow filters AWAY must have a chip to lose — '
+              'its later absence is otherwise unfalsifiable',
+        );
+        final Finder badge = find.byKey(
+          const Key('master-bookings-filter-badge'),
+        );
+        expect(
+          badge,
+          findsNothing,
+          reason: 'nothing is filtered yet, so the funnel carries no count',
+        );
+
+        // ── THE SHEET: a real «Майстер» section, one row per roster master ──
+        await _openFilterSheet(tester);
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-master')),
+          findsOneWidget,
+          reason:
+              'the board sets showMasterFilter: true AND supplies the roster; '
+              'either hop empty renders no section at all, which is '
+              'indistinguishable from the feature being off',
+        );
+        // The section's universe is the ROSTER, not the day's bookings: the
+        // five masters with nothing booked must still be tickable. Asserted
+        // on a master that has NO card anywhere in the seed.
+        await _tickSheetRow(
+          tester,
+          const Key('master-bookings-filter-master-master-eee'),
+        );
+        // …and untick it again, so the rest of the flow is about the two
+        // masters it means to tick. The row responded, which is the point.
+        await _tickSheetRow(
+          tester,
+          const Key('master-bookings-filter-master-master-eee'),
+        );
+
+        await _tickSheetRow(
+          tester,
+          const Key('master-bookings-filter-master-master-aaa'),
+        );
+        await _tickSheetRow(
+          tester,
+          const Key('master-bookings-filter-master-master-ccc'),
+        );
+
+        // Captured immediately before «Застосувати» — see the wire assertion
+        // below.
+        final int listCallsBeforeApply = fb.getSalonBookingsCalls;
+        await _applySheet(tester);
+
+        // ── AFTER: BOTH DIRECTIONS, off the rendered strip ─────────────────
+        // Presence-only would let the filter no-op and still pass, so this is
+        // an exact list: the two ticked masters are there, and every one of
+        // the other six — `master-ddd` included — is not.
+        expect(
+          _renderedMasterIds(tester),
+          <String>['master-aaa', 'master-ccc'],
+          reason:
+              'the board must draw a column for the ticked masters and for '
+              'NOBODY else',
+        );
+
+        // The render-level half of the same claim, on the master whose column
+        // was proven built above.
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-board-filter-ddd')),
+          findsNothing,
+          reason: 'a filtered-out master\'s cards leave the board with it',
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>('salon-bookings-column-chip-master-ddd'),
+          ),
+          findsNothing,
+        );
+
+        // ── POSITIVE CONTROLS: the board is NARROWED, not GUTTED ───────────
+        // Every assertion above is an absence, and a change that destroyed
+        // the board outright would satisfy all of them. These four cannot be
+        // satisfied by destruction.
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-board-filter-aaa')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-board-filter-ccc')),
+          findsOneWidget,
+        );
+        expect(
+          find.byType(TimelineHourRuler),
+          findsOneWidget,
+          reason: 'the timeline itself still renders',
+        );
+        expect(
+          find.byKey(const Key('salon-bookings-no-masters')),
+          findsNothing,
+          reason:
+              'narrowing to two masters must never fall into the «this salon '
+              'has no masters» empty state, which would be flatly false',
+        );
+        // The surviving chips still carry the identity they exist for,
+        // resolved from the rendered entries rather than from a literal.
+        final List<MasterColumnEntry> narrowedEntries = tester
+            .widget<MasterColumnStrip>(find.byType(MasterColumnStrip))
+            .entries;
+        for (final MasterColumnEntry e in narrowedEntries) {
+          expect(
+            find.descendant(
+              of: find.byKey(
+                ValueKey<String>('salon-bookings-column-chip-${e.masterId}'),
+              ),
+              matching: find.text(e.name),
+            ),
+            findsOneWidget,
+            reason: '${e.masterId}\'s chip still names its master',
+          );
+        }
+
+        // ── THE BADGE, WITHOUT REOPENING THE SHEET ─────────────────────────
+        // The whole reason the badge exists: a narrowed board must announce
+        // that it is narrowed to an owner who is only looking at it.
+        expect(
+          badge,
+          findsOneWidget,
+          reason:
+              'an active «Майстер» selection must light the funnel badge with '
+              'the sheet closed',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.descendant(of: badge, matching: find.byType(Text)),
+              )
+              .data,
+          '1',
+          reason:
+              'GROUPS, not values — two ticked masters are ONE active filter, '
+              'exactly as two ticked statuses are',
+        );
+
+        // ── THE WIRE: nothing master-shaped, and no refetch ────────────────
+        // The locked design is CLIENT-SIDE. This is the only tier that can
+        // see the query string Dio actually produced, and a drift to a
+        // server-side `?masterId=` would leave every widget test green while
+        // collapsing the real board to a single master's column.
+        final Map<String, dynamic> query = fb.lastSalonBookingsQuery!;
+        expect(
+          query.containsKey('masterId'),
+          isFalse,
+          reason:
+              'SalonDayQuery.masterId stays null — the «Майстер» selection is '
+              'client-side and never becomes a query parameter',
+        );
+        expect(query.containsKey('status'), isFalse);
+        expect(
+          fb.getSalonBookingsCalls,
+          listCallsBeforeApply,
+          reason:
+              'a filter that only chooses what to PAINT must not re-issue '
+              'GET /bookings/salon/{salonId}',
+        );
+        // The rail's dots are filter-independent for the same reason.
+        expect(fb.lastSalonBookedDaysQuery!.containsKey('masterId'), isFalse);
+
+        // ── «Скинути» → the full roster returns ────────────────────────────
+        await _openFilterSheet(tester);
+        final Finder reset = find.byKey(
+          const Key('master-bookings-filter-reset'),
+        );
+        expect(
+          reset,
+          findsOneWidget,
+          reason:
+              'the reset affordance renders only while something is active, '
+              'so its presence is itself proof the selection survived the '
+              'sheet round trip',
+        );
+        await tester.tap(reset);
+        await AppHarness.settle(tester);
+        await _applySheet(tester);
+
+        expect(
+          _renderedMasterIds(tester),
+          fullRoster,
+          reason: 'a reset restores the board to the roster it started from',
+        );
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-board-filter-ddd')),
+          findsOneWidget,
+          reason: 'the filtered-out master\'s card comes back with its column',
+        );
+        expect(
+          badge,
+          findsNothing,
+          reason: 'and the funnel stops claiming a filter is set',
         );
       });
     },

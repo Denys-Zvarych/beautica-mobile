@@ -11,18 +11,31 @@
 //
 // As with the sort sheet, the design app has no status/service filter sheet to
 // copy verbatim — `bookings_toolbar.dart`'s only sheet is `_MasterFilterSheet`
-// (`:1169`), the salon-wide TEAMMATE filter, which is explicitly out of scope
-// (`showMasterFilter: false`; see the phase doc's scope table). What IS
-// transcribed from it is its whole visual vocabulary, verbatim: the sheet
-// chrome, the grabber, `_PickerRow`'s check-circle/circle-outline toggle
-// (`:1290`), and the «Скинути» / «Застосувати» footer affordances
-// (`:1253`, `:1275`). Only the SECTIONS are new, and each maps 1:1 to a query
-// parameter the backend already ships.
+// (`:1169`), the salon-wide TEAMMATE filter. What IS transcribed from it is its
+// whole visual vocabulary, verbatim: the sheet chrome, the grabber,
+// `_PickerRow`'s check-circle/circle-outline toggle (`:1290`), and the
+// «Скинути» / «Застосувати» footer affordances (`:1253`, `:1275`).
 //
-// **No «Майстер» section is rendered, ever.** A single master's own list never
-// offers a teammate filter, there is no `masterId` parameter on this path, and
-// backend 26.x deliberately did not extend Phase 23.4's salon endpoint for it.
-// Pinned by a test.
+// ## The «Майстер» section (2026-09-18 — user decision, reversing the old rule)
+//
+// This header used to read "**No «Майстер» section is rendered, ever.**" That
+// rule is RETIRED. It rested on one argument — `GET /bookings/salon/{salonId}`
+// takes exactly ONE `masterId` while every section of this sheet is
+// multi-select — and the user resolved it the other way: the «Майстер» section
+// is **multi-select and CLIENT-SIDE**. Nothing about it reaches the wire, so
+// the endpoint's one-`masterId` limit simply does not apply, and the salon
+// board keeps its side-by-side shape with only the ticked masters' columns
+// drawn. See `salon_bookings_screen.dart`'s header and
+// `BookingsDiscoveryView.masterFilterOptions`.
+//
+// What is UNCHANGED: a single master's own list still never offers it. The
+// section is driven entirely by [BookingsFilterSheet.masters], which is EMPTY
+// on `master_bookings_screen.dart` and on `master_archive_screen.dart` (neither
+// has a roster to offer), and an empty universe renders NO section at all —
+// exactly as «Послуга» already behaves for a master with no catalogue.
+//
+// Every other section still maps 1:1 to a query parameter the backend ships;
+// «Майстер» is the one that deliberately does not.
 //
 // ## Draft state, applied once
 //
@@ -121,12 +134,33 @@ String bookingStatusFilterLabel(
   }
 }
 
-/// The filter values the sheet resolves with — the two query parameters it
-/// owns, and nothing else.
+/// One selectable row of the «Майстер» section — an id and a display name, and
+/// deliberately nothing else.
+///
+/// NOT [MasterColumnEntry] (`master_column_strip.dart`), even though the salon
+/// board builds one per column from the same roster: that type carries
+/// `bookingCount` and `dayOff`, both of which are facts about ONE DAY. The
+/// filter outlives the day (the rail moves under it), so a row shape that
+/// demanded per-day fields would have to be rebuilt on every rail tap and would
+/// invite a reader to render a stale count inside the sheet.
+@immutable
+class MasterFilterOption {
+  const MasterFilterOption({required this.id, required this.name});
+
+  final String id;
+
+  /// Already-joined display name ("Олена Ковальчук") — the same string the
+  /// roster chip above the column shows, so the owner ticks the name they just
+  /// read off the board.
+  final String name;
+}
+
+/// The filter values the sheet resolves with — the parameters it owns, and
+/// nothing else.
 ///
 /// Deliberately NOT a `MasterBookingsQuery`: the sort is not a filter, the
 /// sheet never sees it, and returning a whole query would let this surface
-/// silently reset it. The screen folds these two onto the query it already
+/// silently reset it. The screen folds these onto the query it already
 /// holds. There is no date/period field any more (Phase 7.13) — the day is
 /// the rail's job, not this sheet's; see the file header.
 @immutable
@@ -134,15 +168,28 @@ class BookingsFilterSelection {
   const BookingsFilterSelection({
     this.statuses = const <BookingStatus>{},
     this.serviceIds = const <String>{},
+    this.masterIds = const <String>{},
   });
 
   final Set<BookingStatus> statuses;
   final Set<String> serviceIds;
 
+  /// The ticked masters, by id. **EMPTY MEANS EVERY MASTER**, never "no
+  /// master": this defaults to empty at every pre-existing construction site
+  /// (and on every screen that offers no «Майстер» section at all), so those
+  /// surfaces must go on rendering their full, unnarrowed set. The one
+  /// consumer, `SalonBookingsScreen.columnsFor`, states the same rule on its
+  /// own parameter and enforces it there.
+  ///
+  /// CLIENT-SIDE ONLY. Nothing in this set ever reaches a query parameter —
+  /// see the file header.
+  final Set<String> masterIds;
+
   /// Number of ACTIVE filter groups, for the header badge.
   int get activeCount => bookingsActiveFilterCount(
     hasStatuses: statuses.isNotEmpty,
     hasServiceIds: serviceIds.isNotEmpty,
+    hasMasterIds: masterIds.isNotEmpty,
   );
 }
 
@@ -157,10 +204,15 @@ class BookingsFilterSelection {
 /// `MasterBookingsQuery` instead of rebuilding a throwaway selection on every
 /// `build()` (perf P8). Two independent copies of this formula is exactly how
 /// the badge and the sheet come to disagree about what "active" means.
+///
+/// [hasMasterIds] is ADDITIVE and defaults to `false`, so the two surfaces that
+/// offer no «Майстер» section — `master_archive_screen.dart` and the master's
+/// own «Мої записи» — count exactly what they always did without passing it.
 int bookingsActiveFilterCount({
   required bool hasStatuses,
   required bool hasServiceIds,
-}) => (hasStatuses ? 1 : 0) + (hasServiceIds ? 1 : 0);
+  bool hasMasterIds = false,
+}) => (hasStatuses ? 1 : 0) + (hasServiceIds ? 1 : 0) + (hasMasterIds ? 1 : 0);
 
 /// The neumorphic funnel button in the «Мої записи» header.
 ///
@@ -264,6 +316,7 @@ class BookingsFilterSheet extends StatefulWidget {
     super.key,
     required this.initial,
     required this.services,
+    this.masters = const <MasterFilterOption>[],
   });
 
   final BookingsFilterSelection initial;
@@ -273,10 +326,21 @@ class BookingsFilterSheet extends StatefulWidget {
   /// section rather than showing an empty one.
   final List<MasterService> services;
 
+  /// The option universe for «Майстер» — the salon's roster, supplied by the
+  /// HOST (`SalonBookingsScreen`, via `BookingsDiscoveryView
+  /// .masterFilterOptions`). ADDITIVE, defaulting to EMPTY, and an empty
+  /// universe renders NO section at all — which is byte-for-byte what every
+  /// pre-existing call site (`master_bookings_screen.dart` through
+  /// `BookingsDiscoveryView`, and `master_archive_screen.dart` directly) gets
+  /// without passing it. Same "empty hides the heading" rule as [services]; an
+  /// empty «Майстер» heading reads as a broken roster fetch.
+  final List<MasterFilterOption> masters;
+
   static Future<BookingsFilterSelection?> show(
     BuildContext context, {
     required BookingsFilterSelection initial,
     required List<MasterService> services,
+    List<MasterFilterOption> masters = const <MasterFilterOption>[],
   }) {
     return showModalBottomSheet<BookingsFilterSelection>(
       context: context,
@@ -284,8 +348,11 @@ class BookingsFilterSheet extends StatefulWidget {
       // The service catalogue is unbounded, so the sheet must be able to grow
       // and scroll rather than overflow at ~8 rows.
       isScrollControlled: true,
-      builder: (BuildContext ctx) =>
-          BookingsFilterSheet(initial: initial, services: services),
+      builder: (BuildContext ctx) => BookingsFilterSheet(
+        initial: initial,
+        services: services,
+        masters: masters,
+      ),
     );
   }
 
@@ -296,12 +363,14 @@ class BookingsFilterSheet extends StatefulWidget {
 class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
+  late Set<String> _masterIds;
 
   @override
   void initState() {
     super.initState();
     _statuses = Set<BookingStatus>.of(widget.initial.statuses);
     _serviceIds = Set<String>.of(widget.initial.serviceIds);
+    _masterIds = Set<String>.of(widget.initial.masterIds);
   }
 
   bool _groupSelected(BookingStatusFilterGroup g) =>
@@ -344,16 +413,37 @@ class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
     });
   }
 
+  /// «Майстер» has NO cap of its own, deliberately — unlike [_toggleService],
+  /// which enforces the backend's 50-id `?serviceId=` limit. This selection is
+  /// CLIENT-SIDE (see the file header): it never becomes a query parameter, so
+  /// there is no server limit to stay under, and a salon's roster is bounded by
+  /// the roster itself.
+  void _toggleMaster(String id) {
+    setState(() {
+      if (_masterIds.contains(id)) {
+        _masterIds.remove(id);
+      } else {
+        _masterIds.add(id);
+      }
+    });
+  }
+
   void _resetAll() => setState(() {
     _statuses = <BookingStatus>{};
     _serviceIds = <String>{};
+    _masterIds = <String>{};
   });
 
   void _apply() => context.pop(
-    BookingsFilterSelection(statuses: _statuses, serviceIds: _serviceIds),
+    BookingsFilterSelection(
+      statuses: _statuses,
+      serviceIds: _serviceIds,
+      masterIds: _masterIds,
+    ),
   );
 
-  bool get _anyActive => _statuses.isNotEmpty || _serviceIds.isNotEmpty;
+  bool get _anyActive =>
+      _statuses.isNotEmpty || _serviceIds.isNotEmpty || _masterIds.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -432,6 +522,29 @@ class _BookingsFilterSheetState extends State<BookingsFilterSheet> {
                           // (backend 26.4 rejects >50 with a 400).
                           enabled: _canToggleService(s.id),
                           onToggle: () => _toggleService(s.id),
+                        ),
+                    ],
+                    // 2026-09-18 — the «Майстер» section, multi-select and
+                    // client-side. Omitted entirely on an empty roster, for
+                    // exactly «Послуга»'s reason above; that is also what keeps
+                    // both master surfaces (which pass no roster) rendering
+                    // this sheet byte-for-byte as before. Built from the SAME
+                    // `_SectionLabel` / `_PickerRow` pair as the two sections
+                    // above — no variant, no parallel row widget.
+                    if (widget.masters.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: VelvetSpacing.md),
+                      _SectionLabel(
+                        l10n.bookingFilterSectionMaster,
+                        labelKey: const Key(
+                          'master-bookings-filter-section-master',
+                        ),
+                      ),
+                      for (final MasterFilterOption m in widget.masters)
+                        _PickerRow(
+                          rowKey: Key('master-bookings-filter-master-${m.id}'),
+                          label: m.name,
+                          selected: _masterIds.contains(m.id),
+                          onToggle: () => _toggleMaster(m.id),
                         ),
                     ],
                   ],

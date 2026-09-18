@@ -28,6 +28,23 @@
 //      selected day rather than from whichever bookings happen to exist. Same
 //      shape as the columns builder and for the same reason — this screen owns
 //      "which masters work when", the view owns the day and the fetch.
+//   4b. (2026-09-18) the «Майстер» FILTER's option universe — the same roster
+//      as (2), handed to `BookingsDiscoveryView.masterFilterOptions` so the
+//      shared filter sheet can offer it. The ticked ids come back as
+//      [columnsFor]'s `masterIds` and narrow the ROSTER, nothing else.
+//
+//      ⚠ THIS REVERSES A DOCUMENTED DECISION, deliberately. This header used
+//      to list the «Майстер» section under "WHAT IS DELIBERATELY NOT HERE",
+//      on the argument that `GET /bookings/salon/{salonId}` takes exactly ONE
+//      `masterId` while every section of `BookingsFilterSheet` is
+//      multi-select, so a «Майстер» section would have to collapse the board
+//      to a single column. The user resolved it with the answer that dissolves
+//      that argument: the section is MULTI-SELECT and CLIENT-SIDE. No request
+//      changes, `BookingsDayQuery.salon.masterId` stays `null`, the board
+//      keeps its side-by-side shape, and it simply draws fewer columns. What
+//      that old note said about the roster CHIPS is unchanged and still true:
+//      a chip tap is a HIGHLIGHT, not a filter (`BookingsTimelineGrid
+//      .selectedMasterId`), and the two never touch each other.
 //   5. (Phase 336) the DAY-OFF MARK, off the SAME roster hours phase 335
 //      already fetches. A master who is not working the selected day renders
 //      as a greyed «Вихідний» column instead of an empty one that reads
@@ -49,13 +66,6 @@
 //    styling and its handler is a documented NO-OP — see [_openCreateBooking].
 //    Locked by the user for this phase: "don't add for this page the manual
 //    adding booking feature, just add the placeholder at first".
-//  * THE «Майстер» FILTER SHEET SECTION. `BookingsDiscoveryView
-//    .showMasterFilter` is the seam and it stays `false`: the endpoint takes
-//    exactly ONE `masterId` while every section of `BookingsFilterSheet` is
-//    multi-select, and narrowing the board to one master defeats the board.
-//    `BookingsDayQuery.salon.masterId` is wired end to end and is what such a
-//    sheet would set. The roster chips' own tap is a HIGHLIGHT, not a filter —
-//    see `BookingsTimelineGrid.selectedMasterId`.
 //  * A BOOKING-ACTION FOOTER. Cards route to `BookingDetailScreen`
 //    ([RouteNames.bookingDetail]), which already role-branches its own
 //    provider actions off `bookingViewerRoleProvider` and already offers
@@ -63,6 +73,7 @@
 //    assigned admin. Re-deciding that here would be a second, drifting copy of
 //    a gate the detail screen already owns.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -80,6 +91,7 @@ import '../../booking/application/salon_masters_roster_notifier.dart';
 import '../../booking/domain/booking.dart';
 import '../../booking/domain/bookings_day_query.dart';
 import '../../booking/presentation/bookings_discovery_view.dart';
+import '../../booking/presentation/widgets/bookings_filter_sheet.dart';
 import '../../booking/presentation/widgets/bookings_timeline_grid.dart';
 import '../../booking/presentation/widgets/master_column_strip.dart';
 import '../../booking/presentation/widgets/my_bookings_states.dart';
@@ -180,13 +192,61 @@ class SalonBookingsScreen extends ConsumerStatefulWidget {
     return false;
   }
 
+  /// The roster [masterIds] narrows to, or [roster] itself.
+  ///
+  /// ## EMPTY MEANS EVERY MASTER — and so does "matches nobody"
+  ///
+  /// Two distinct inputs collapse to the same answer, for two different
+  /// reasons:
+  ///
+  ///   1. **[masterIds] is empty.** No «Майстер» filter is set — the default,
+  ///      every master route, and every pre-existing two-argument call. The
+  ///      board renders its whole roster.
+  ///   2. **[masterIds] is non-empty but matches NO roster master.** Only
+  ///      reachable when every ticked master left the salon mid-session
+  ///      (`BookingsDiscoveryView._applyFilters` resolves the selection against
+  ///      the offered roster, so it cannot be reached by ticking). The board
+  ///      renders its whole roster HERE TOO, and that is a deliberate choice
+  ///      over the alternative: an empty column list makes
+  ///      `BookingsTimelineGrid._buildBoard` render
+  ///      «salon-bookings-no-masters» — a statement that THIS SALON HAS NO
+  ///      MASTERS, which would be flatly false. Degrading toward showing more
+  ///      is the same rule [masterDayOff] and [boardWindowFor] already follow
+  ///      for their own unknowns: never guess, never show less.
+  ///
+  /// The funnel badge stays lit in case 2 (the owner did set a filter), so the
+  /// state is visible and one «Скинути фільтри» away.
+  static List<SalonMasterSummary> _narrowRoster(
+    List<SalonMasterSummary> roster,
+    Set<String> masterIds,
+  ) {
+    if (masterIds.isEmpty) return roster;
+    final List<SalonMasterSummary> narrowed = <SalonMasterSummary>[
+      for (final SalonMasterSummary m in roster)
+        if (masterIds.contains(m.masterId)) m,
+    ];
+    return narrowed.isEmpty ? roster : narrowed;
+  }
+
+  /// [masterIds] — the «Майстер» filter's ticked ids, EMPTY for every master.
+  /// Defaults to empty, so every pre-existing call renders byte-for-byte as it
+  /// did. See [_narrowRoster] for the two inputs that mean "no narrowing".
+  ///
+  /// Narrowing happens BEFORE the partition, so a dropped master's bookings are
+  /// not merely hidden — they are never assigned a column, which is what keeps
+  /// [_body]'s column-derived «N записів» equal to the cards on screen.
   @visibleForTesting
   static List<TimelineBoardColumn> columnsFor(
     List<Booking> dayItems,
-    List<SalonMasterSummary> roster, {
+    List<SalonMasterSummary> fullRoster, {
     DateTime? day,
     Map<String, List<EffectiveDay>>? rosterSchedule,
+    Set<String> masterIds = const <String>{},
   }) {
+    final List<SalonMasterSummary> roster = _narrowRoster(
+      fullRoster,
+      masterIds,
+    );
     final Map<String, List<Booking>> byMaster = <String, List<Booking>>{
       for (final SalonMasterSummary m in roster) m.masterId: <Booking>[],
     };
@@ -331,12 +391,13 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
   ///
   /// `columnsFor` is `static`: it has no `this`, reads no provider, no
   /// `BuildContext`, no clock, no theme and no locale, so its output is a
-  /// pure function of its four parameters and nothing else. That is not a
+  /// pure function of its five parameters and nothing else. That is not a
   /// claim about today's body — it is a property the `static` keyword
   /// enforces, and it is why this memo cannot go stale the way a gate whose
   /// condition set is narrower than its recompute's real inputs does.
-  /// (The two `static` helpers it delegates to, `masterDayOff` and
-  /// `scheduleWindowFor`, are closed over the same four values.)
+  /// (The three `static` helpers it delegates to, `_narrowRoster`,
+  /// `masterDayOff` and `scheduleWindowFor`, are closed over the same five
+  /// values.)
   ///
   /// `dayItems` and `roster`/`rosterSchedule` are compared by IDENTITY:
   /// `_Loaded._body` passes `visibleItems ?? state.items`, both of which are
@@ -346,18 +407,40 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
   /// come straight off an `AsyncValue.value` that only re-allocates on a real
   /// re-emit. `day` is compared by VALUE — it is a date-only `DateTime` token
   /// rebuilt per rail tap, so reference equality would never hit.
+  ///
+  /// ## `masterIds` IS THE FIFTH KEY, AND IT IS NOT OPTIONAL (2026-09-18)
+  ///
+  /// Before the «Майстер» filter existed, `dayItems` identity always moved
+  /// with `day` — a day change is always a different fetch — so the `day ==`
+  /// half of this gate had no stale direction it could actually cover, and an
+  /// audit said so. That is no longer true: the «Майстер» selection changes
+  /// while the day, the items, the roster and the schedule ALL stay identical,
+  /// so without this key the gate would hit and the board would keep serving
+  /// the pre-filter columns. The failure is invisible to any test that changes
+  /// the day between assertions, which is why
+  /// `salon_bookings_master_filter_test.dart` deliberately does not.
+  ///
+  /// Compared with `setEquals`, NOT by identity: a fresh `Set` arrives from
+  /// every «Застосувати», including one that re-applies the same ticks, and
+  /// identity would invalidate the whole board for a no-op apply.
   List<Booking>? _cachedColumnsItems;
   DateTime? _cachedColumnsDay;
   List<SalonMasterSummary>? _cachedColumnsRoster;
   Map<String, List<EffectiveDay>>? _cachedColumnsSchedule;
+  Set<String> _cachedColumnsMasterIds = const <String>{};
   List<TimelineBoardColumn> _cachedColumns = const <TimelineBoardColumn>[];
 
   /// The `columnsBuilder:` the view calls back into. See [_cachedColumnsItems].
-  List<TimelineBoardColumn> _columnsFor(List<Booking> dayItems, DateTime day) {
+  List<TimelineBoardColumn> _columnsFor(
+    List<Booking> dayItems,
+    DateTime day,
+    Set<String> masterIds,
+  ) {
     if (identical(_cachedColumnsItems, dayItems) &&
         _cachedColumnsDay == day &&
         identical(_cachedColumnsRoster, _roster) &&
-        identical(_cachedColumnsSchedule, _rosterSchedule)) {
+        identical(_cachedColumnsSchedule, _rosterSchedule) &&
+        setEquals(_cachedColumnsMasterIds, masterIds)) {
       return _cachedColumns;
     }
     final List<TimelineBoardColumn> columns = SalonBookingsScreen.columnsFor(
@@ -365,13 +448,41 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
       _roster,
       day: day,
       rosterSchedule: _rosterSchedule,
+      masterIds: masterIds,
     );
     _cachedColumnsItems = dayItems;
     _cachedColumnsDay = day;
     _cachedColumnsRoster = _roster;
     _cachedColumnsSchedule = _rosterSchedule;
+    _cachedColumnsMasterIds = masterIds;
     _cachedColumns = columns;
     return columns;
+  }
+
+  /// Single-slot memo for the «Майстер» filter's option universe.
+  ///
+  /// The list is rebuilt only when the ROSTER's identity moves, not on every
+  /// `build` — `BookingsDiscoveryView.masterFilterOptions` is a widget field
+  /// and a fresh list per build would be a fresh allocation per build for a
+  /// value the sheet reads once, on open. Same single-slot shape and the same
+  /// identity key as [_cachedColumnsRoster] above.
+  List<SalonMasterSummary>? _cachedOptionsRoster;
+  List<MasterFilterOption> _cachedOptions = const <MasterFilterOption>[];
+
+  List<MasterFilterOption> _masterFilterOptions() {
+    if (identical(_cachedOptionsRoster, _roster)) return _cachedOptions;
+    _cachedOptionsRoster = _roster;
+    _cachedOptions = <MasterFilterOption>[
+      for (final SalonMasterSummary m in _roster)
+        // The SAME joined display name the roster chip above the column shows
+        // (`columnsFor`'s `MasterColumnEntry.name`), so the owner ticks the
+        // name they just read off the board.
+        MasterFilterOption(
+          id: m.masterId,
+          name: '${m.firstName} ${m.lastName}'.trim(),
+        ),
+    ];
+    return _cachedOptions;
   }
 
   /// The `boardWindowBuilder:` the view calls back into.
@@ -628,8 +739,16 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         subtitle: salonName,
         // A bottom-nav destination inside the salon shell — nothing to pop.
         onBack: null,
-        // See this file's "WHAT IS DELIBERATELY NOT HERE".
-        showMasterFilter: false,
+        // 2026-09-18 — the «Майстер» section, ON. Multi-select and
+        // CLIENT-SIDE: nothing below changes the request, and
+        // `BookingsDayQuery.salon.masterId` stays `null`. See this file's
+        // header item 4b for the decision it reverses.
+        showMasterFilter: true,
+        // The option universe — the roster this screen already fetched for its
+        // columns, so the section costs no request. Memoised on the roster's
+        // identity (see [_masterFilterOptions]); an EMPTY roster renders no
+        // section at all, so a cold mount never shows an empty heading.
+        masterFilterOptions: _masterFilterOptions(),
         // STILL FALSE, and Phase 335 did NOT change that — read this before
         // "finishing the job" by flipping it. `useScheduleWindow` is not just
         // "bound the grid by hours": it also swaps the whole timeline for
