@@ -821,6 +821,7 @@
 
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -2412,8 +2413,81 @@ class _BoardStack extends StatefulWidget {
     alpha: 0.35,
   );
 
+  /// The alternating-column wash — every other WORKING master's column,
+  /// painted by [_AlternatingColumnBandPainter].
+  ///
+  /// Same token as [_dayOffWashColor] — [BrandColors.shadowDarkCard], the
+  /// palette's neumorphic recess tone — so the lane read and the day-off
+  /// read are visibly the same "pushed back" language at two different
+  /// strengths, not two unrelated colours. Held at alpha 0.10: distinctly
+  /// lighter than the day-off wash's 0.35 (that gap IS the signal — a
+  /// zebra stripe must never read as strongly as "not working"), while
+  /// still separating from [BrandColors.base] enough to scan a ten-column
+  /// board at a glance. The hour gridlines and every card render on top and
+  /// are unaffected.
+  static final Color _alternatingBandColor = BrandColors.shadowDarkCard
+      .withValues(alpha: 0.10);
+
   @override
   State<_BoardStack> createState() => _BoardStackState();
+}
+
+/// Paints [_BoardStack]'s alternating-column wash in ONE pass instead of one
+/// [Positioned] + [ColoredBox] per tinted column — see the call site's
+/// comment for why that matters on this board. Tints every ODD column index
+/// that is NOT a day-off column (see [_BoardStack._alternatingBandColor]'s
+/// doc for how the two washes compose).
+///
+/// Reads [_BoardStack.columnWidth] / the caller's `columnPitch` / `nudge`
+/// verbatim — it never recomputes column geometry itself, so it cannot drift
+/// from the gridlines, the day-off wash or the column `Row` (this file's
+/// "THE SALON BOARD'S SCROLL LOCK" section is emphatic that this board reads
+/// ONE set of numbers everywhere).
+@immutable
+class _AlternatingColumnBandPainter extends CustomPainter {
+  const _AlternatingColumnBandPainter({
+    required this.columnCount,
+    required this.columnWidth,
+    required this.columnPitch,
+    required this.top,
+    required this.dayOff,
+  });
+
+  final int columnCount;
+  final double columnWidth;
+  final double columnPitch;
+
+  /// The wash's top edge — `nudge`, so it starts flush with the first
+  /// gridline and the column `Row`'s own top padding, exactly like
+  /// [_BoardStack._dayOffWashColor]'s `Positioned(top: nudge, bottom: 0)`.
+  final double top;
+
+  /// `dayOff[i]` — whether column `i`'s master is off that day. A day-off
+  /// column is skipped here entirely; see [_BoardStack._alternatingBandColor]
+  /// for why the two washes never layer.
+  final List<bool> dayOff;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()..color = _BoardStack._alternatingBandColor;
+    for (int i = 1; i < columnCount; i += 2) {
+      if (dayOff[i]) continue;
+      final double left = i * columnPitch;
+      canvas.drawRect(
+        Rect.fromLTRB(left, top, left + columnWidth, size.height),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AlternatingColumnBandPainter oldDelegate) {
+    return columnCount != oldDelegate.columnCount ||
+        columnWidth != oldDelegate.columnWidth ||
+        columnPitch != oldDelegate.columnPitch ||
+        top != oldDelegate.top ||
+        !listEquals(dayOff, oldDelegate.dayOff);
+  }
 }
 
 class _BoardStackState extends State<_BoardStack> {
@@ -2535,6 +2609,54 @@ class _BoardStackState extends State<_BoardStack> {
                 color: _BoardStack._dayOffWashColor,
               ),
             ),
+        // ── THE ALTERNATING COLUMN WASH ─────────────────────────────────
+        // Gives every other master's column a subtle warm recess so a lane
+        // reads at a glance without a divider — the divider hairline
+        // (`_columnDividerColor`) already exists and reads as too faint to
+        // scan by itself on a wide board. ONE `CustomPainter` pass over every
+        // odd column, not N stacked `Container`s: this `SingleChildScrollView`
+        // already paints its whole child (see the file header's mobile-perf
+        // finding), so a second per-column widget would multiply exactly the
+        // layer count that finding is about. `Positioned.fill` sizes the
+        // painter to the same `Stack` extent the sizing `Row` below produces,
+        // so it never has to duplicate that computation.
+        //
+        // Reads the SAME `columnPitch` / `columnWidth` / `nudge` locals the
+        // gridlines, the day-off wash and the column `Row` all read below —
+        // one geometry, not a second one that could drift off it (see this
+        // file's "THE SALON BOARD'S SCROLL LOCK" section for why that
+        // matters on this widget).
+        //
+        // AFTER the day-off wash in paint order, deliberately: the existing
+        // «the wash is the FIRST thing painted» contract
+        // (`salon_bookings_day_off_column_test.dart`) pins the day-off wash
+        // at `Stack` child index 0, and this band must never contest that —
+        // the two never overlap ANYWAY (see below), so where it sits relative
+        // to the day-off wash has no visual consequence, only a testing one.
+        // Still strictly BEFORE the gridlines and the cards.
+        //
+        // COMPOSITION WITH THE DAY-OFF WASH: a day-off column KEEPS its grey
+        // and never also gets the alternating tint — the painter skips any
+        // column with `header.dayOff` set. Day-off is the stronger, rarer
+        // signal ("this master is not working at all"); layering a second
+        // tint under or over it would either wash it out or dull the zebra
+        // stripe read for no benefit, since the day-off column is already
+        // visually distinct on its own.
+        Positioned.fill(
+          child: CustomPaint(
+            key: const ValueKey<String>('timeline-alternating-column-wash'),
+            painter: _AlternatingColumnBandPainter(
+              columnCount: columnCount,
+              columnWidth: widget.columnWidth,
+              columnPitch: columnPitch,
+              top: nudge,
+              dayOff: <bool>[
+                for (final TimelineBoardColumn c in widget.columns)
+                  c.header.dayOff,
+              ],
+            ),
+          ),
+        ),
         // Gridlines FIRST so they paint UNDER the cards — same Finding #8
         // ordering, and the same even/odd hour-vs-half-hour split, as the
         // master branch.
