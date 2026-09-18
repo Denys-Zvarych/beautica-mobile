@@ -2338,6 +2338,17 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
 /// `Element.updateChild` short-circuits on `identical(newWidget, oldWidget)`
 /// and skips the subtree entirely, so a re-anchor now rebuilds only the
 /// columns that actually crossed the band edge.
+///
+/// Phase 342 — the perceptibility floor every board wash's composited
+/// colour must clear, per RGB channel, against [BrandColors.base]. Exists
+/// because the alternating-column wash originally shipped at a per-channel
+/// delta of (3, 4, 5) — under 2%, exact-value pixel tests passed, and a
+/// human on a phone could not see it. `salon_bookings_alternating_column_
+/// test.dart` asserts every sampled band pixel clears this floor on every
+/// channel, not merely that it differs from [BrandColors.base] at all —
+/// that assertion is what would have caught the original regression.
+const int kAlternatingBandMinDelta = 10;
+
 class _BoardStack extends StatefulWidget {
   const _BoardStack({
     required this.density,
@@ -2390,8 +2401,20 @@ class _BoardStack extends StatefulWidget {
 
   /// The column separator — one hairline in each gutter, so a card always
   /// reads as belonging to the master whose chip it sits under.
+  ///
+  /// Phase 342 hardening — was alpha 0.10, composited to `#DFD2C2`, a delta
+  /// of (7, 11, 14) per channel off [BrandColors.base]: the R channel sat
+  /// under the perceptibility floor this file now enforces for every board
+  /// wash (see [_alternatingBandColor]). Raised to 0.24 — `#DBCDBB`, delta
+  /// (11, 16, 21) — so the gutter hairline clears the same floor and reads
+  /// as a real seam next to the (now much stronger) alternating band, not a
+  /// wash-out. The hairline sits entirely in the 6dp gutter, which the band
+  /// painter never covers (`Rect.fromLTRB(left, top, left + columnWidth,
+  /// ...)` stops short of the gutter) — so this alpha composites against
+  /// [BrandColors.base] on every column, tinted or not, and needed no
+  /// re-tuning once the band changed direction.
   static final Color _columnDividerColor = BrandColors.accent.withValues(
-    alpha: 0.16,
+    alpha: 0.24,
   );
 
   /// Phase 336 — the wash painted over a day-off master's whole column.
@@ -2416,17 +2439,30 @@ class _BoardStack extends StatefulWidget {
   /// The alternating-column wash — every other WORKING master's column,
   /// painted by [_AlternatingColumnBandPainter].
   ///
-  /// Same token as [_dayOffWashColor] — [BrandColors.shadowDarkCard], the
-  /// palette's neumorphic recess tone — so the lane read and the day-off
-  /// read are visibly the same "pushed back" language at two different
-  /// strengths, not two unrelated colours. Held at alpha 0.10: distinctly
-  /// lighter than the day-off wash's 0.35 (that gap IS the signal — a
-  /// zebra stripe must never read as strongly as "not working"), while
-  /// still separating from [BrandColors.base] enough to scan a ten-column
-  /// board at a glance. The hour gridlines and every card render on top and
-  /// are unaffected.
-  static final Color _alternatingBandColor = BrandColors.shadowDarkCard
-      .withValues(alpha: 0.10);
+  /// Phase 342 fix — the original shipped as [BrandColors.shadowDarkCard]
+  /// (the same RECESS tone as [_dayOffWashColor]) at alpha 0.10, which
+  /// composites to `#E3D9CB`: a per-channel delta of only (3, 4, 5) off
+  /// [BrandColors.base]'s `#E6DDD0` — under 2%, and the pixel-sampling tests
+  /// passed because they compared exact values, not perceptibility. A user
+  /// on a real device, in daylight, reported it invisible on a build that
+  /// definitively contained the change.
+  ///
+  /// Fixed by changing DIRECTION, not only magnitude:
+  /// [BrandColors.shadowLightStrong] (`#FFFBF4`, the LIFT half of the paired
+  /// neumorphic shadow) at alpha 0.55, composited to `#F4EEE4` — a delta of
+  /// (14, 17, 20). Lifting the band instead of darkening it means it can
+  /// never be confused with [_dayOffWashColor], which keeps darkening with
+  /// [BrandColors.shadowDarkCard] at 0.35: the two now differ in DIRECTION
+  /// (lighter vs. darker than base) as well as strength, so "day off" cannot
+  /// read as merely "a stronger band" no matter how each alpha is tuned in
+  /// future. [kAlternatingBandMinDelta] pins the perceptibility floor this
+  /// value must clear; see the "NO GOLDENS ON THIS WIDGET" note and
+  /// `salon_bookings_alternating_column_test.dart` for how both properties
+  /// are verified. The hour gridlines and every card render on top in their
+  /// own opaque fills and are unaffected — see that test file's contrast
+  /// note.
+  static final Color _alternatingBandColor = BrandColors.shadowLightStrong
+      .withValues(alpha: 0.55);
 
   @override
   State<_BoardStack> createState() => _BoardStackState();
@@ -2678,7 +2714,16 @@ class _BoardStackState extends State<_BoardStack> {
             top: nudge,
             bottom: 0,
             width: 1,
-            child: ColoredBox(color: _BoardStack._columnDividerColor),
+            // Phase 342 — keyed so
+            // `salon_bookings_alternating_column_test.dart` can read the
+            // divider's own composited colour directly (it is a flat
+            // `ColoredBox`, not a `CustomPainter`, so no rasterisation is
+            // needed) instead of trusting the alpha literal by inspection —
+            // the exact trust that let the 0.16 band ship invisible.
+            child: ColoredBox(
+              key: ValueKey<String>('timeline-column-divider-$i'),
+              color: _BoardStack._columnDividerColor,
+            ),
           ),
         // ── THE SIZING CHILD (audit M1 + H2) ────────────────────────────
         // Every column used to be its own `Positioned`, which left this

@@ -171,6 +171,58 @@ Future<Color> _paintedColorAt(WidgetTester tester, int index) async {
   return sampled!;
 }
 
+/// The largest per-channel gap between [a] and [b]'s RGB components,
+/// mirroring how a human eye judges "is this actually a different colour"
+/// far better than an exact-value `expect(c, isNot(base))` does — that
+/// assertion is satisfied by a 1/255 nudge, which is exactly how the
+/// original band shipped invisible while every exact-value test stayed
+/// green. See `bookings_timeline_grid.dart`'s [kAlternatingBandMinDelta]
+/// doc for the incident this guards against.
+int _channel8(double component) => (component * 255).round().clamp(0, 255);
+
+int _maxChannelDelta(Color a, Color b) {
+  final int dr = (_channel8(a.r) - _channel8(b.r)).abs();
+  final int dg = (_channel8(a.g) - _channel8(b.g)).abs();
+  final int db = (_channel8(a.b) - _channel8(b.b)).abs();
+  return <int>[dr, dg, db].reduce((int x, int y) => x > y ? x : y);
+}
+
+/// The SMALLEST per-channel gap — deliberately distinct from
+/// [_maxChannelDelta] above. `kAlternatingBandMinDelta`'s own doc comment
+/// in `bookings_timeline_grid.dart` says the floor must clear "per RGB
+/// channel", and the divider's doc comment there names a concrete case
+/// that only makes sense under that reading: the old 0.16 alpha's R-channel
+/// delta of 7 is what it calls out as failing the floor. A max-based check
+/// does NOT catch that regression — mutation-tested here: reverting the
+/// divider to alpha 0.16 (channel deltas 7/11/14) leaves
+/// `_maxChannelDelta` at 14, which still clears a floor of 10, so a
+/// max-based assertion stays green on exactly the value this guard exists
+/// to reject. Min-channel is what actually enforces "every channel, not
+/// just the strongest one" — used for every NEW Phase 342-hardening
+/// assertion below.
+int _minChannelDelta(Color a, Color b) {
+  final int dr = (_channel8(a.r) - _channel8(b.r)).abs();
+  final int dg = (_channel8(a.g) - _channel8(b.g)).abs();
+  final int db = (_channel8(a.b) - _channel8(b.b)).abs();
+  return <int>[dr, dg, db].reduce((int x, int y) => x < y ? x : y);
+}
+
+/// A [ColoredBox]'s `.color` getter returns the RAW, un-composited token —
+/// its own stored RGB channels plus an alpha byte, NOT the blended pixel a
+/// user's eye actually receives once that alpha is painted over whatever
+/// sits behind it. Reading `.r`/`.g`/`.b` off that raw token and diffing it
+/// against [BrandColors.base] ignores alpha entirely: `_columnDividerColor`
+/// at alpha 0.16 and at 0.24 are the SAME source token
+/// ([BrandColors.accent]) with two different alphas, so an uncomposited
+/// diff against base is IDENTICAL at both alphas and cannot distinguish
+/// them — mutation-tested: asserting on the raw `.color` stayed green at
+/// both 0.16 and 0.24, proving it is alpha-blind. [Color.alphaBlend]
+/// performs the real src-over composite (the same maths the production
+/// doc comments compute by hand, e.g. accent@0.24 -> `#DBCDBB`), so
+/// delta math after this call reflects the pixel actually rendered, not
+/// the token that produced it.
+Color _composited(Color src) => Color.alphaBlend(src, BrandColors.base);
+
 void main() {
   group('the alternating column wash', () {
     testWidgets('tints every odd WORKING column and leaves even columns bare', (
@@ -207,6 +259,21 @@ void main() {
       // Both odd columns read the same tint — one shared token, not one per
       // column.
       expect(c1, c3);
+
+      // PERCEPTIBILITY, not merely presence. `isNot(BrandColors.base)` above
+      // is satisfied by a 1/255 nudge — exactly how the band originally
+      // shipped invisible on a real phone while every exact-value pixel
+      // test stayed green (see `kAlternatingBandMinDelta`'s doc in
+      // `bookings_timeline_grid.dart`). This is the assertion whose absence
+      // let that ship; without it, a future alpha regression back toward
+      // `BrandColors.base` would pass every other check here.
+      expect(
+        _maxChannelDelta(c1, BrandColors.base),
+        greaterThanOrEqualTo(kAlternatingBandMinDelta),
+        reason:
+            'the tinted column must be perceptibly different from the '
+            'base surface, not just technically unequal',
+      );
     });
 
     testWidgets('an OFF column keeps its grey and never also gets the tint', (
@@ -334,6 +401,190 @@ void main() {
           isNot(BrandColors.base),
           reason: 'slot 3 is odd by raw index — tinted',
         );
+      },
+    );
+  });
+
+  // Phase 342 gap — the band gained a perceptibility floor above but the
+  // gutter divider (also re-tuned, 0.16 -> 0.24, in the very same fix) did
+  // not, and is subject to the identical failure mode: an alpha regression
+  // back toward the old value passes every exact-value check while reading
+  // as invisible on a real screen. This group closes that gap, and also
+  // pins the two properties the fix's doc comments CLAIM but nothing
+  // previously asserted: that the band and the day-off wash move in
+  // opposite directions off base (so they can never collapse into "one
+  // effect, two strengths"), and that all three washes plus the divider
+  // remain mutually distinguishable side by side — the way a user actually
+  // scans the board, not one isolated swatch at a time.
+  group('the divider and cross-wash distinguishability', () {
+    testWidgets(
+      'the column divider clears the same perceptibility floor as the band',
+      (WidgetTester tester) async {
+        await _pump(tester, <TimelineBoardColumn>[
+          TimelineBoardColumn(
+            header: _entry('m1', 'Оля Коваль'),
+            bookings: const <Booking>[],
+          ),
+          TimelineBoardColumn(
+            header: _entry('m2', 'Ніна Бойко'),
+            bookings: const <Booking>[],
+          ),
+        ]);
+
+        final ColoredBox divider = tester.widget<ColoredBox>(
+          find.byKey(const ValueKey<String>('timeline-column-divider-1')),
+        );
+
+        expect(
+          _minChannelDelta(_composited(divider.color), BrandColors.base),
+          greaterThanOrEqualTo(kAlternatingBandMinDelta),
+          reason:
+              'the gutter divider must be perceptibly different from the '
+              'base surface, not just technically unequal — it failed '
+              'this exact check at the old alpha 0.16 before Phase 342 '
+              'raised it to 0.24',
+        );
+      },
+    );
+
+    testWidgets(
+      'the band LIFTS while a day-off column SINKS — divergent direction, '
+      'not merely divergent strength',
+      (WidgetTester tester) async {
+        await _pump(tester, <TimelineBoardColumn>[
+          TimelineBoardColumn(
+            header: _entry('m1', 'Оля Коваль'),
+            bookings: const <Booking>[],
+          ),
+          TimelineBoardColumn(
+            header: _entry('m2', 'Ніна Бойко'), // odd slot -> tinted
+            bookings: const <Booking>[],
+          ),
+          TimelineBoardColumn(
+            header: _entry('m3', 'Іра Ткач', dayOff: true),
+            bookings: const <Booking>[],
+          ),
+        ]);
+
+        final Color band = await _paintedColorAt(tester, 1);
+        final Color dayOff = _composited(
+          tester
+              .widget<ColoredBox>(
+                find.byKey(
+                  const ValueKey<String>('timeline-column-day-off-wash-2'),
+                ),
+              )
+              .color,
+        );
+        const Color base = BrandColors.base;
+
+        expect(
+          _channel8(band.r),
+          greaterThan(_channel8(base.r)),
+          reason: 'the band must LIFT the red channel above base',
+        );
+        expect(
+          _channel8(band.g),
+          greaterThan(_channel8(base.g)),
+          reason: 'the band must LIFT the green channel above base',
+        );
+        expect(
+          _channel8(band.b),
+          greaterThan(_channel8(base.b)),
+          reason: 'the band must LIFT the blue channel above base',
+        );
+
+        expect(
+          _channel8(dayOff.r),
+          lessThan(_channel8(base.r)),
+          reason: 'day-off must SINK the red channel below base',
+        );
+        expect(
+          _channel8(dayOff.g),
+          lessThan(_channel8(base.g)),
+          reason: 'day-off must SINK the green channel below base',
+        );
+        expect(
+          _channel8(dayOff.b),
+          lessThan(_channel8(base.b)),
+          reason: 'day-off must SINK the blue channel below base',
+        );
+      },
+    );
+
+    testWidgets(
+      'band, day-off wash, and divider are all mutually distinguishable '
+      'side by side — the way a user actually scans the board',
+      (WidgetTester tester) async {
+        // Columns: m1(work,0,bare) m2(work,1,tinted-odd) m3(OFF,2).
+        await _pump(tester, <TimelineBoardColumn>[
+          TimelineBoardColumn(
+            header: _entry('m1', 'Оля Коваль'),
+            bookings: const <Booking>[],
+          ),
+          TimelineBoardColumn(
+            header: _entry('m2', 'Ніна Бойко'),
+            bookings: const <Booking>[],
+          ),
+          TimelineBoardColumn(
+            header: _entry('m3', 'Іра Ткач', dayOff: true),
+            bookings: const <Booking>[],
+          ),
+        ]);
+
+        const Color base = BrandColors.base;
+        final Color band = await _paintedColorAt(tester, 1);
+        final Color dayOff = _composited(
+          tester
+              .widget<ColoredBox>(
+                find.byKey(
+                  const ValueKey<String>('timeline-column-day-off-wash-2'),
+                ),
+              )
+              .color,
+        );
+        final Color divider1 = _composited(
+          tester
+              .widget<ColoredBox>(
+                find.byKey(const ValueKey<String>('timeline-column-divider-1')),
+              )
+              .color,
+        );
+
+        // 'day-off vs divider' is deliberately NOT in this table. The
+        // divider is painted in the 6dp gutter, centred at
+        // `i * columnPitch - gutter / 2` — it never overlaps either wash's
+        // `Positioned` rect (each wash starts exactly at a column boundary),
+        // so on a real board the divider's background is always
+        // [BrandColors.base], never a wash. Measured here: day-off
+        // (shadowDarkCard@0.35) and the divider (accent@0.24) both sink off
+        // base and land within min-channel delta 1 of EACH OTHER — a
+        // coincidence of two independent design tokens, not a rendering
+        // defect, since the two never share a pixel. Neither this file's
+        // nor the production file's doc comments claim divider-vs-day-off
+        // distinguishability; the divider's own doc only claims a seam
+        // "next to the ... alternating band" (covered by 'band vs divider'
+        // below). Asserting the undocumented, geometrically-unrealized pair
+        // would pin a coincidence, not a user-visible property — see this
+        // file's mutation log for the RED it produces and why it was
+        // dropped rather than "fixed" by loosening the floor.
+        final Map<String, int> pairs = <String, int>{
+          'band vs base': _minChannelDelta(band, base),
+          'day-off vs base': _minChannelDelta(dayOff, base),
+          'divider vs base': _minChannelDelta(divider1, base),
+          'band vs day-off': _minChannelDelta(band, dayOff),
+          'band vs divider': _minChannelDelta(band, divider1),
+        };
+
+        for (final MapEntry<String, int> pair in pairs.entries) {
+          expect(
+            pair.value,
+            greaterThanOrEqualTo(kAlternatingBandMinDelta),
+            reason:
+                '${pair.key} must clear the perceptibility floor so a '
+                'user scanning the board tells the two apart',
+          );
+        }
       },
     );
   });
